@@ -1,0 +1,45 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Athena.UI.App"
+             xmlns:local="using:Athena.UI"
+             RequestedThemeVariant="Dark">
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <!-- 字体定义 -->
+        <FontFamily x:Key="MonospaceFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
+        <FontFamily x:Key="ContentControlThemeFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
+
+        <!-- 字号定义 -->
+        <x:Double x:Key="TitleFontSize">16</x:Double>
+        <x:Double x:Key="BodyFontSize">14</x:Double>
+        <x:Double x:Key="SmallFontSize">12</x:Double>
+
+        <!-- DOS 主题颜色 - 深色模式（默认） -->
+        <SolidColorBrush x:Key="DosBackgroundBrush" Color="#000000"/>
+        <SolidColorBrush x:Key="DosForegroundBrush" Color="#00FF00"/>
+        <SolidColorBrush x:Key="DosSecondaryBrush" Color="#00AA00"/>
+        <SolidColorBrush x:Key="DosAccentBrush" Color="#00FF00"/>
+        <SolidColorBrush x:Key="DosBorderBrush" Color="#00FF00"/>
+        <SolidColorBrush x:Key="DosHighlightBrush" Color="#FFFF00"/>
+        <SolidColorBrush x:Key="DosErrorBrush" Color="#FF0000"/>
+        <SolidColorBrush x:Key="DosWarningBrush" Color="#FFAA00"/>
+        <SolidColorBrush x:Key="DosSuccessBrush" Color="#00FF00"/>
+        <SolidColorBrush x:Key="DosInputBackgroundBrush" Color="#0A0A0A"/>
+
+        <!-- 额外颜色 - 用于 hover 状态 -->
+        <SolidColorBrush x:Key="DosHoverBackgroundBrush" Color="#003300"/>
+        <SolidColorBrush x:Key="DosPressedBackgroundBrush" Color="#006600"/>
+    </Application.Resources>
+
+    <Application.Styles>
+        <!-- Simple 主题作为基础 -->
+        <SimpleTheme/>
+
+        <!-- DOS 复古风格控件样式 -->
+        <StyleInclude Source="avares://Athena.UI/Styles/DosControls.axaml"/>
+    </Application.Styles>
+</Application>
