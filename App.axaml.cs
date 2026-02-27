@@ -171,31 +171,6 @@ public partial class App : Application
             return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, logger);
         });
 
-        // Tool Discovery Service（单例，用于向量检索工具）
-        services.AddSingleton<IToolDiscoveryService>(sp =>
-        {
-            var embeddingService = sp.GetRequiredService<IEmbeddingService>();
-            var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
-            var logger = Log.ForContext<ToolDiscoveryService>();
-            var service = new ToolDiscoveryService(embeddingService, functionRegistry, logger);
-
-            // 异步初始化
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await service.InitializeAsync();
-                    Log.Information("工具发现服务初始化完成");
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(ex, "工具发现服务初始化失败");
-                }
-            });
-
-            return service;
-        });
-
         // Prompt 服务（单例）
         services.AddSingleton<IPromptService, PromptService>();
 
@@ -204,12 +179,11 @@ public partial class App : Application
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
-            var toolDiscoveryService = sp.GetService<IToolDiscoveryService>();
             var promptService = sp.GetRequiredService<IPromptService>();
-            var config = configService.Load(); // 使用同步加载避免死锁
+            var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, toolDiscoveryService);
+            return new OpenAIChatService(config, promptService, functionRegistry);
         });
 
         // 对话历史服务（单例）
