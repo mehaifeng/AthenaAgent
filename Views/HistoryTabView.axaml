@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="400"
+             x:Class="Athena.UI.Views.HistoryTabView"
+             x:DataType="vm:HistoryTabViewModel">
+
+    <Design.DataContext>
+        <vm:HistoryTabViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="8">
+        <!-- 标题栏 -->
+        <StackPanel Grid.Row="0"
+                   Orientation="Horizontal"
+                   Spacing="8"
+                   Margin="0,0,0,8">
+            <TextBlock Text="&gt; CONVERSATION HISTORY"
+                      VerticalAlignment="Center"
+                      FontWeight="Bold"
+                      Foreground="{DynamicResource DosHighlightBrush}"/>
+            <TextBlock Text="{Binding HistoryItems.Count}"
+                      Foreground="{DynamicResource DosHighlightBrush}"
+                      VerticalAlignment="Center"
+                      FontWeight="Bold"/>
+            <TextBlock Text="records"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource DosSecondaryBrush}"/>
+            <Border Width="2" Height="20"
+                   Background="{DynamicResource DosBorderBrush}"
+                   Margin="8,0"/>
+            <Button Content="[Refresh]"
+                   Command="{Binding RefreshCommand}"
+                   Padding="8,2"
+                   FontSize="12"/>
+        </StackPanel>
+
+        <!-- 历史列表 -->
+        <Border Grid.Row="1"
+               BorderBrush="{DynamicResource DosBorderBrush}"
+               BorderThickness="2">
+            <Grid>
+                <ListBox ItemsSource="{Binding HistoryItems}"
+                        SelectedItem="{Binding SelectedItem}"
+                        Background="Transparent"
+                        x:Name="HistoryListBox">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:ConversationHistoryItem">
+                            <Border BorderBrush="{DynamicResource DosSecondaryBrush}"
+                                   BorderThickness="0,0,0,1"
+                                   Padding="8,6">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <!-- 删除按钮 -->
+                                    <Button Grid.Column="0"
+                                           Content="[DL]"
+                                           Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
+                                           CommandParameter="{Binding}"
+                                           FontSize="10"
+                                           Padding="4,2"
+                                           Margin="0,0,8,0"
+                                           Foreground="{DynamicResource DosErrorBrush}"/>
+
+                                    <!-- 摘要和信息 -->
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding Summary}"
+                                                  TextWrapping="Wrap"
+                                                  MaxLines="2"
+                                                  FontSize="13"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding MessageCount, StringFormat={}{0} msgs}"
+                                                      FontSize="10"
+                                                      Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                            <TextBlock Text="|"
+                                                      FontSize="10"
+                                                      Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                            <TextBlock Text="{Binding DisplayTime}"
+                                                      FontSize="10"
+                                                      Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- 加载按钮 -->
+                                    <Button Grid.Column="2"
+                                           Content="[LOAD]"
+                                           Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
+                                           CommandParameter="{Binding}"
+                                           FontSize="10"
+                                           Padding="6,2"
+                                           Margin="8,0,0,0"
+                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- 空列表提示 -->
+                <TextBlock Text="No conversation history yet."
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          Foreground="{DynamicResource DosSecondaryBrush}"
+                          Margin="0,40"
+                          IsVisible="{Binding !HistoryItems.Count}"/>
+            </Grid>
+        </Border>
+
+        <!-- 底部操作栏 -->
+        <StackPanel Grid.Row="2"
+                   Orientation="Horizontal"
+                   HorizontalAlignment="Right"
+                   Spacing="8"
+                   Margin="0,8,0,0">
+            <TextBlock Text="Click [LOAD] to restore conversation"
+                      VerticalAlignment="Center"
+                      FontSize="11"
+                      Foreground="{DynamicResource DosSecondaryBrush}"/>
+        </StackPanel>
+    </Grid>
+</UserControl>
