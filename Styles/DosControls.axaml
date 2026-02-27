@@ -1,0 +1,325 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 窗口样式 -->
+    <Style Selector="Window">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+    </Style>
+
+    <!-- 文本块样式 -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- 按钮样式 - 使用 ControlTemplate 确保样式生效 -->
+    <Style Selector="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="Padding" Value="12,6"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="MinHeight" Value="28"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Border"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="0"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      TextElement.Foreground="{TemplateBinding Foreground}"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+
+    <Style Selector="Button:pointerover /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DosHoverBackgroundBrush}"/>
+    </Style>
+
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <Style Selector="Button:pressed /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DosPressedBackgroundBrush}"/>
+    </Style>
+
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+    </Style>
+
+    <!-- Primary 按钮样式 -->
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <Style Selector="Button.primary:pointerover /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="TextElement.Foreground" Value="#000000"/>
+    </Style>
+
+    <Style Selector="Button.primary:pressed /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DosSecondaryBrush}"/>
+    </Style>
+
+    <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="TextElement.Foreground" Value="#000000"/>
+    </Style>
+
+    <!-- 小按钮样式（用于消息操作） -->
+    <Style Selector="Button:pointerover">
+        <Setter Property="Opacity" Value="1"/>
+    </Style>
+
+    <!-- 文本框样式 -->
+    <Style Selector="TextBox">
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource DosHighlightBrush}"/>
+        <Setter Property="SelectionForegroundBrush" Value="#000000"/>
+    </Style>
+
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <!-- 消息气泡hover效果 - 对方消息 -->
+    <Style Selector="Border:pointerover > Grid > StackPanel#AssistantActions">
+        <Setter Property="IsVisible" Value="True"/>
+    </Style>
+
+    <!-- 消息气泡hover效果 - 用户消息 -->
+    <Style Selector="Border:pointerover > Grid > StackPanel#UserActions">
+        <Setter Property="IsVisible" Value="True"/>
+    </Style>
+
+    <!-- Border 样式 -->
+    <Style Selector="Border.dos-border">
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+
+    <!-- 消息气泡容器样式 -->
+    <Style Selector="Border.message-bubble">
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.15"/>
+            </Transitions>
+        </Setter>
+    </Style>
+
+    <!-- ListBox 样式 -->
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+    </Style>
+
+    <Style Selector="ListBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="Padding" Value="0"/>
+    </Style>
+
+    <!-- ListBoxItem hover效果 - 使用更柔和的背景色 -->
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#001800"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+    </Style>
+
+    <!-- ListBoxItem选中效果 - 使用边框而非填充背景 -->
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DosPressedBackgroundBrush}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <!-- 禁用ListBoxItem的默认焦点样式 -->
+    <Style Selector="ListBoxItem:focus /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+
+    <!-- 选中且hover的状态 -->
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#003300"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <!-- TabControl 样式 -->
+    <Style Selector="TabControl">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="Padding" Value="4"/>
+    </Style>
+
+    <Style Selector="TabItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="Padding" Value="12,6"/>
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+    </Style>
+
+    <Style Selector="TabItem:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DosHoverBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <Style Selector="TabItem:selected">
+        <Setter Property="Background" Value="{DynamicResource DosPressedBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <!-- CheckBox 样式 -->
+    <Style Selector="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+    </Style>
+
+    <!-- ComboBox 样式 -->
+    <Style Selector="ComboBox">
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="MinHeight" Value="28"/>
+    </Style>
+
+    <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DosHoverBackgroundBrush}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource DosHighlightBrush}"/>
+    </Style>
+
+    <Style Selector="ComboBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DosPressedBackgroundBrush}"/>
+        <Setter Property="TextElement.Foreground" Value="#000000"/>
+    </Style>
+
+    <!-- CalendarDatePicker 样式 -->
+    <Style Selector="CalendarDatePicker">
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+    </Style>
+
+    <!-- TimePicker 样式 -->
+    <Style Selector="TimePicker">
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+    </Style>
+
+    <!-- Slider 样式 -->
+    <Style Selector="Slider">
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource DosSecondaryBrush}"/>
+        <Setter Property="MinHeight" Value="20"/>
+    </Style>
+
+    <!-- NumericUpDown 样式 -->
+    <Style Selector="NumericUpDown">
+        <Setter Property="Background" Value="{DynamicResource DosInputBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="MinHeight" Value="28"/>
+    </Style>
+
+    <!-- TreeView 样式 -->
+    <Style Selector="TreeView">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+    </Style>
+
+    <Style Selector="TreeViewItem">
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="4"/>
+    </Style>
+
+    <Style Selector="TreeViewItem:pointerover /template/ Border#PART_Selection">
+        <Setter Property="Background" Value="{DynamicResource DosHoverBackgroundBrush}"/>
+    </Style>
+
+    <Style Selector="TreeViewItem:selected /template/ Border#PART_Selection">
+        <Setter Property="Background" Value="{DynamicResource DosForegroundBrush}"/>
+    </Style>
+
+    <!-- 工具提示样式 -->
+    <Style Selector="ToolTip">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DosForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource DosBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+        <Setter Property="Padding" Value="8,4"/>
+    </Style>
+
+    <!-- ScrollViewer 样式 -->
+    <Style Selector="ScrollViewer">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+
+    <!-- ScrollBar 样式优化 -->
+    <Style Selector="ScrollBar">
+        <Setter Property="Background" Value="{DynamicResource DosBackgroundBrush}"/>
+    </Style>
+
+    <Style Selector="ScrollBar:vertical">
+        <Setter Property="Width" Value="16"/>
+    </Style>
+
+    <Style Selector="ScrollBar:horizontal">
+        <Setter Property="Height" Value="16"/>
+    </Style>
+
+    <!-- 禁用状态样式 -->
+    <Style Selector="Button:disabled">
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+
+    <Style Selector="TextBox:disabled">
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+</Styles>
