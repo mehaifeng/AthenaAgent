@@ -1,0 +1,132 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Athena.UI.Views.TasksTabView"
+             x:DataType="vm:TasksTabViewModel"
+             FontFamily="{DynamicResource MonospaceFontFamily}">
+
+    <Design.DataContext>
+        <vm:TasksTabViewModel/>
+    </Design.DataContext>
+
+    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+            BorderThickness="2" 
+            Margin="4" 
+            Background="{DynamicResource DosBackgroundBrush}">
+        
+        <Grid RowDefinitions="Auto,Auto,*">
+            
+            <!-- HEADER BAR -->
+            <Border Grid.Row="0" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,2" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <TextBlock Grid.Column="0" 
+                               Text="ATHENA.SYS // TASK_SCHEDULER" 
+                               FontWeight="Bold" 
+                               Foreground="{DynamicResource DosHighlightBrush}" 
+                               FontSize="14" 
+                               VerticalAlignment="Center"/>
+                               
+                    <Button Grid.Column="1" 
+                            Content="[NEW_ROUTINE]" 
+                            Command="{Binding CreateTaskCommand}" 
+                            BorderThickness="0" 
+                            Background="Transparent" 
+                            Foreground="{DynamicResource DosHighlightBrush}" 
+                            Padding="8,2" 
+                            Margin="0,0,8,0" />
+                            
+                    <Button Grid.Column="2" 
+                            Content="[PURGE_ALL]" 
+                            Command="{Binding ClearAllTasksCommand}" 
+                            BorderThickness="0" 
+                            Background="Transparent" 
+                            Foreground="{DynamicResource DosErrorBrush}" 
+                            Padding="8,2" />
+                </Grid>
+            </Border>
+
+            <!-- SUB-HEADER / STATUS -->
+            <Border Grid.Row="1" Padding="12,8,12,0">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="&gt; ACTIVE_ROUTINES:" 
+                               Foreground="{DynamicResource DosSecondaryBrush}" 
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ScheduledTasks.Count}" 
+                               Foreground="{DynamicResource DosHighlightBrush}" 
+                               VerticalAlignment="Center" 
+                               FontWeight="Bold"/>
+                    <Border Width="1" Height="14" Background="{DynamicResource DosSecondaryBrush}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="SYSTEM IDLE/WAITING..." 
+                               Foreground="{DynamicResource DosSecondaryBrush}" 
+                               VerticalAlignment="Center" 
+                               FontSize="11"/>
+                </StackPanel>
+            </Border>
+
+            <!-- TASK LIST -->
+            <ScrollViewer Grid.Row="2" Padding="12">
+                <ListBox ItemsSource="{Binding ScheduledTasks}" 
+                         Background="Transparent" 
+                         BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="1,0,0,1" 
+                                    Padding="12,8" 
+                                    Margin="0,0,0,8" 
+                                    Background="{DynamicResource DosInputBackgroundBrush}">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    
+                                    <!-- Status Indicator -->
+                                    <TextBlock Grid.Column="0" 
+                                               Text="[*]" 
+                                               Foreground="{DynamicResource DosHighlightBrush}" 
+                                               FontWeight="Bold" 
+                                               Margin="0,0,12,0" 
+                                               VerticalAlignment="Top"/>
+                                    
+                                    <StackPanel Grid.Column="1" Spacing="6">
+                                        <TextBlock Text="{Binding Intent}" 
+                                                   TextWrapping="Wrap" 
+                                                   Foreground="{DynamicResource DosForegroundBrush}"/>
+                                        
+                                        <Border Height="1" Background="{DynamicResource DosBorderBrush}" Opacity="0.3" Margin="0,2"/>
+                                        
+                                        <StackPanel Orientation="Horizontal" Spacing="20">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="TRIG:" 
+                                                           Foreground="{DynamicResource DosSecondaryBrush}" 
+                                                           FontSize="11"/>
+                                                <TextBlock Text="{Binding TriggerTimeDisplay}" 
+                                                           FontSize="11" 
+                                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                            </StackPanel>
+                                            
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="REC:" 
+                                                           Foreground="{DynamicResource DosSecondaryBrush}" 
+                                                           FontSize="11"/>
+                                                <TextBlock Text="{Binding RecurrenceDisplay}" 
+                                                           FontSize="11" 
+                                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </ScrollViewer>
+
+        </Grid>
+    </Border>
+</UserControl>
