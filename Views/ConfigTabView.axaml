@@ -1,0 +1,254 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="800"
+             x:Class="Athena.UI.Views.ConfigTabView"
+             x:DataType="vm:ConfigTabViewModel"
+             FontFamily="{DynamicResource MonospaceFontFamily}">
+
+    <Design.DataContext>
+        <vm:ConfigTabViewModel/>
+    </Design.DataContext>
+
+    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+            BorderThickness="2" 
+            Margin="4" 
+            Background="{DynamicResource DosBackgroundBrush}">
+        
+        <Grid RowDefinitions="Auto,*">
+            
+            <!-- HEADER -->
+            <Border Grid.Row="0" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,2" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <TextBlock Text="ATHENA.SYS // SYSTEM_CONFIGURATION" 
+                           FontWeight="Bold" 
+                           Foreground="{DynamicResource DosHighlightBrush}" 
+                           FontSize="14"/>
+            </Border>
+
+            <!-- SCROLLABLE CONTENT -->
+            <ScrollViewer Grid.Row="1" Padding="16">
+                <StackPanel Spacing="16">
+
+                    <!-- SECTION 1: APPEARANCE -->
+                    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                            BorderThickness="1" 
+                            Padding="12">
+                        <StackPanel Spacing="12">
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="0,0,0,2" 
+                                    Padding="0,0,0,4">
+                                <TextBlock Text="&gt; SYS.OPT.01 // APPEARANCE_PARAMS" 
+                                           FontWeight="Bold" 
+                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                            </Border>
+
+                            <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto" Margin="8,0,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="DISP_THEME:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="DISP_FONT_SCALE:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.FontSize}" Minimum="10" Maximum="24" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="DISP_HEARTBEAT:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.ShowHeartbeatButton}" Margin="0,8,0,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- SECTION 2: AI MODEL -->
+                    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                            BorderThickness="1" 
+                            Padding="12">
+                        <StackPanel Spacing="12">
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="0,0,0,2" 
+                                    Padding="0,0,0,4">
+                                <TextBlock Text="&gt; SYS.OPT.02 // PRIMARY_AI_CORE" 
+                                           FontWeight="Bold" 
+                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                            </Border>
+
+                            <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,0,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="API_PROVIDER:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="API_ENDPOINT:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BaseUrl}" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="AUTH_TOKEN:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="MODEL_ID:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Watermark="e.g. gpt-4" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="PARAM_TEMP:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <Grid Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ColumnDefinitions="*,40">
+                                    <Slider Grid.Column="0" Value="{Binding Config.Temperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Config.Temperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" TextAlignment="Right"/>
+                                </Grid>
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="PARAM_MAX_TOKENS:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="32000" Increment="100" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
+
+                                <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" 
+                                      ColumnDefinitions="Auto,*" Margin="0,12,0,0">
+                                    <Button Grid.Column="0" 
+                                            Content="[RUN_DIAGNOSTICS]" 
+                                            Command="{Binding TestConnectionCommand}" 
+                                            IsEnabled="{Binding !IsTestingConnection}" 
+                                            Padding="12,4"/>
+                                    <SelectableTextBlock Grid.Column="1" 
+                                                         Text="{Binding ConnectionStatus}" 
+                                                         TextWrapping="Wrap" 
+                                                         MaxWidth="450" 
+                                                         Margin="12,0,0,0"
+                                                         HorizontalAlignment="Left"
+                                                         VerticalAlignment="Center" 
+                                                         FontSize="11" 
+                                                         Foreground="{DynamicResource DosHighlightBrush}"/>
+                                </Grid>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- SECTION 3: SECONDARY MODEL -->
+                    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                            BorderThickness="1" 
+                            Padding="12">
+                        <StackPanel Spacing="12">
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="0,0,0,2" 
+                                    Padding="0,0,0,4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="&gt; SYS.OPT.03 // SECONDARY_AI_CORE" FontWeight="Bold" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                    <TextBlock Grid.Column="1" Text="[BG_TASKS]" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+
+                            <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,0,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="API_PROVIDER:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="API_ENDPOINT:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Watermark="[INHERIT_PRIMARY]" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="AUTH_TOKEN:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Watermark="[INHERIT_PRIMARY]" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="MODEL_ID:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SecondaryModel}" Watermark="e.g. gpt-4.1" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="PARAM_TEMP:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <Grid Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ColumnDefinitions="*,40">
+                                    <Slider Grid.Column="0" Value="{Binding Config.SecondaryTemperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Config.SecondaryTemperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" TextAlignment="Right"/>
+                                </Grid>
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="PARAM_MAX_TOKENS:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SecondaryMaxTokens}" Minimum="100" Maximum="4000" Increment="100" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- SECTION 4: EMBEDDING MODEL -->
+                    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                            BorderThickness="1" 
+                            Padding="12">
+                        <StackPanel Spacing="12">
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="0,0,0,2" 
+                                    Padding="0,0,0,4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="&gt; SYS.OPT.04 // SEMANTIC_EMBED_CORE" FontWeight="Bold" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                    <TextBlock Grid.Column="1" Text="[VECTOR_KB]" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+
+                            <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="8,0,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="API_PROVIDER:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="API_ENDPOINT:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" Watermark="[INHERIT_PRIMARY]" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="AUTH_TOKEN:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" Watermark="[INHERIT_PRIMARY]" Margin="0,8,0,0"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="MODEL_ID:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" Watermark="e.g. text-embedding-3-small" Margin="0,8,0,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- SECTION 5: MEMORY MANAGEMENT -->
+                    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                            BorderThickness="1" 
+                            Padding="12">
+                        <StackPanel Spacing="12">
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="0,0,0,2" 
+                                    Padding="0,0,0,4">
+                                <TextBlock Text="&gt; SYS.OPT.05 // MEMORY_MANAGEMENT" 
+                                           FontWeight="Bold" 
+                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                            </Border>
+
+                            <!-- Memory Gauge -->
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="1" 
+                                    Background="{DynamicResource DosInputBackgroundBrush}" 
+                                    Padding="12,8" 
+                                    Margin="8,0,0,0">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="CTX_USAGE:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ContextTokensInfo}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="Bold" Foreground="{DynamicResource DosForegroundBrush}"/>
+                                    <TextBlock Grid.Column="2" Text="[ WARN: &gt;80% ]" VerticalAlignment="Center" Foreground="{DynamicResource DosErrorBrush}" FontSize="11" IsVisible="{Binding IsNearCompressionThreshold}"/>
+                                </Grid>
+                            </Border>
+
+                            <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto" Margin="8,4,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="MEM_MAX_CTX:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="128000" Increment="1000" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="MEM_COMP_THRESH:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.CompressionThreshold}" Minimum="500" Maximum="128000" Increment="500" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="MEM_AUTO_COMP:" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.AutoCompress}" Margin="0,8,0,0"/>
+                            </Grid>
+
+                            <!-- Compression Preview Box -->
+                            <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                    BorderThickness="1" 
+                                    Background="{DynamicResource DosInputBackgroundBrush}" 
+                                    Padding="12" 
+                                    Margin="8,8,0,0">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="--- COMPRESSION PREVIEW DUMP ---" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
+                                    <TextBlock Text="{Binding CompressionPreview}" 
+                                               TextWrapping="Wrap" 
+                                               FontSize="11" 
+                                               MaxHeight="100" 
+                                               Foreground="{DynamicResource DosForegroundBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Actions -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,8,0,0">
+                                <Button Content="[EXEC_COMPRESSION]" Command="{Binding CompressContextCommand}" Padding="12,4"/>
+                                <Button Content="[PURGE_MEMORY]" Command="{Binding ClearContextCommand}" Padding="12,4" Foreground="{DynamicResource DosErrorBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

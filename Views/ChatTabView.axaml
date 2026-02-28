@@ -1,0 +1,168 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="Athena.UI.Views.ChatTabView"
+             x:DataType="vm:ChatTabViewModel"
+             FontFamily="{DynamicResource MonospaceFontFamily}">
+
+    <Design.DataContext>
+        <vm:ChatTabViewModel/>
+    </Design.DataContext>
+
+    <UserControl.Styles>
+        <!-- 重新设计的接收数据动态效果 (Pip-Boy 风格进度脉冲) -->
+        <Style Selector="StackPanel.loading-pulse > TextBlock">
+            <Style.Animations>
+                <Animation Duration="0:0:1.0" IterationCount="Infinite" PlaybackDirection="Alternate">
+                    <KeyFrame Cue="0%"> <Setter Property="Opacity" Value="0.2"/> </KeyFrame>
+                    <KeyFrame Cue="100%"> <Setter Property="Opacity" Value="1.0"/> </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+
+    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+            BorderThickness="2" 
+            Margin="4" 
+            Background="{DynamicResource DosBackgroundBrush}">
+            
+        <Grid RowDefinitions="Auto,*,Auto">
+            
+            <!-- TERMINAL HEADER -->
+            <Border Grid.Row="0" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,2" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                    <TextBlock Grid.Column="0" 
+                               Text="ATHENA_OS // LINK_ESTABLISHED" 
+                               FontWeight="Bold" 
+                               Foreground="{DynamicResource DosHighlightBrush}" 
+                               VerticalAlignment="Center" 
+                               FontSize="14"/>
+                    
+                    <TextBlock Grid.Column="1" 
+                               Text="{Binding ContextTokensInfo, StringFormat='[BUFFER: {0}]'}" 
+                               HorizontalAlignment="Center" 
+                               VerticalAlignment="Center" 
+                               Foreground="{DynamicResource DosSecondaryBrush}" 
+                               FontSize="11" />
+                    
+                    <Button Grid.Column="2" Content="[THEME]" Command="{Binding ToggleThemeCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0" />
+                    <Button Grid.Column="3" Content="[RESET]" Command="{Binding NewConversationCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0" />
+                    <Button Grid.Column="4" Content="[STATS]" Command="{Binding SwitchToTasksTabCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" />
+                </Grid>
+            </Border>
+
+            <!-- CHAT AREA -->
+            <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12,12,12,0">
+                <ItemsControl ItemsSource="{Binding Messages}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ChatMessage">
+                            <Grid Margin="0,0,0,24" IsVisible="{Binding IsVisibleToUser}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="20*"/> <!-- 气泡最大宽度占比 -->
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- 对齐控制逻辑：用户靠右(Col 1,2)，系统靠左(Col 0,1) -->
+                                <StackPanel Grid.Column="{Binding IsUser, Converter={StaticResource IntToColumnConverter}, ConverterParameter=UserAlign}" 
+                                            Grid.ColumnSpan="2"
+                                            HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
+                                            Spacing="2">
+                                    
+                                    <!-- 气泡头部修饰 -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,-2">                                       
+                                        <!-- 标题标签 -->
+                                        <Border Grid.Column="1" Margin="4,4,4,0" BorderBrush="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}" HorizontalAlignment="Stretch">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,0">
+                                                <TextBlock Text="{Binding IsUser, Converter={StaticResource RoleToTitleConverter}}" 
+                                                           Foreground="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}" 
+                                                           FontSize="10" FontWeight="Bold"/>
+                                                <TextBlock Text="{Binding TimestampText, StringFormat='@ T-{0}'}" 
+                                                           Foreground="{DynamicResource DosSecondaryBrush}" FontSize="9" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- 气泡主体 -->
+                                    <Border Padding="16,8"
+                                            Background="{StaticResource DosHoverBackgroundBrush}">
+                                        <Grid>
+                                            <!-- 加载动画： Pip-Boy 风格的进度脉冲 -->
+                                            <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="[#######" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13"/>
+                                                <TextBlock Text="RECEIVING_DATA" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13" FontWeight="Bold"/>
+                                                <TextBlock Text=".......]" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13"/>
+                                            </StackPanel>
+
+                                            <!-- 文本内容 -->
+                                            <TextBlock Text="{Binding DisplayText}" 
+                                                       TextWrapping="Wrap" 
+                                                       FontSize="13" 
+                                                       LineHeight="20"
+                                                       IsVisible="{Binding !IsEditing}"
+                                                       Foreground="{Binding IsUser, Converter={StaticResource RoleToTextBrushConverter}}"/>
+
+                                            <!-- 编辑状态 -->
+                                            <TextBox Text="{Binding EditContent}" 
+                                                     IsVisible="{Binding IsEditing}"
+                                                     AcceptsReturn="True" TextWrapping="Wrap" 
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="{DynamicResource DosHighlightBrush}"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 气泡底部修饰与操作 -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-2,0,0">
+                                        <!-- 操作按钮：仅在非加载时显示 -->
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="{Binding !IsLoading}">
+                                            <Button Content="[EDIT]" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                            <Button Content="[CONFIRM]" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                            <Button Content="[ABORT]" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                            <Button Content="[REGEN]" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                            <Button Content="[PURGE]" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosErrorBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- INPUT AREA -->
+            <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,2,0,0" Padding="12" Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Button Grid.Column="0" Content="[+]" Command="{Binding AttachFileCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    
+                    <TextBox Grid.Column="1" 
+                             Text="{Binding InputText}" 
+                             Watermark="&gt; AWAITING_INPUT..." 
+                             AcceptsReturn="True" 
+                             TextWrapping="Wrap"
+                             VerticalContentAlignment="Center"                             
+                             MaxHeight="150" 
+                             BorderThickness="1"
+                             Background="{DynamicResource DosBackgroundBrush}"
+                             IsEnabled="{Binding !IsSending}"/>
+                    
+                    <Button Grid.Column="2" 
+                            Content="[EXECUTE]" 
+                            Command="{Binding SendMessageCommand}" 
+                            IsEnabled="{Binding !IsSending}" 
+                            Margin="12,0,0,0" 
+                            Classes="primary" 
+                            Padding="20,8"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

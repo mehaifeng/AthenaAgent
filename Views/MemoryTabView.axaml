@@ -1,0 +1,145 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Athena.UI.Views.MemoryTabView"
+             x:DataType="vm:MemoryTabViewModel"
+             FontFamily="{DynamicResource MonospaceFontFamily}">
+
+    <Design.DataContext>
+        <vm:MemoryTabViewModel/>
+    </Design.DataContext>
+
+    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+            BorderThickness="2" 
+            Margin="4" 
+            Background="{DynamicResource DosBackgroundBrush}">
+        
+        <Grid RowDefinitions="Auto,*,Auto">
+            
+            <!-- HEADER BAR -->
+            <Border Grid.Row="0" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,2" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Column="0" 
+                               Text="ATHENA.SYS // KNOWLEDGE_BASE_NAVIGATOR" 
+                               FontWeight="Bold" 
+                               Foreground="{DynamicResource DosHighlightBrush}" 
+                               FontSize="14" 
+                               VerticalAlignment="Center"/>
+                               
+                    <Button Grid.Column="1" Content="[REFRESH]" Command="{Binding RefreshKnowledgeBaseCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Content="[IMPORT]" Command="{Binding ImportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="3" Content="[EXPORT]" Command="{Binding ExportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="4" Content="[DELETE]" Command="{Binding DeleteFileCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosErrorBrush}" Padding="8,2"/>
+                </Grid>
+            </Border>
+
+            <!-- MAIN WORKSPACE -->
+            <Grid Grid.Row="1" ColumnDefinitions="250,*" Margin="12,12,12,0">
+                
+                <!-- LEFT PANEL: DIRECTORY -->
+                <Border Grid.Column="0" 
+                        BorderBrush="{DynamicResource DosBorderBrush}" 
+                        BorderThickness="1" 
+                        Margin="0,0,8,0">
+                    <Grid RowDefinitions="Auto,*,Auto">
+                        <!-- Panel Header -->
+                        <Border Grid.Row="0" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
+                            <TextBlock Text="&gt; DIRECTORY_STRUCTURE" FontWeight="Bold" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12"/>
+                        </Border>
+                        
+                        <!-- Tree View -->
+                        <TreeView Grid.Row="1"
+                                 ItemsSource="{Binding KnowledgeFiles}"
+                                 SelectedItem="{Binding SelectedKnowledgeFile}"
+                                 Background="Transparent"
+                                 Padding="8">
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{Binding Children}">
+                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource DosForegroundBrush}"/>
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem">
+                                    <Setter Property="IsExpanded" Value="True"/>
+                                </Style>
+                            </TreeView.Styles>
+                            <TreeView.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="View" Command="{Binding ViewFileCommand}"/>
+                                    <MenuItem Header="Delete" Command="{Binding DeleteFileCommand}"/>
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+
+                        <!-- File/Folder Creation -->
+                        <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,1,0,0" Padding="8" Background="{DynamicResource DosInputBackgroundBrush}">
+                            <Grid RowDefinitions="Auto,Auto">
+                                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                                    <TextBox Text="{Binding NewFolderName}" Watermark="MKDIR (Folder name)" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosForegroundBrush}" Padding="0,2"/>
+                                    <Button Grid.Column="1" Content="[EXEC]" Command="{Binding NewFolderCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                </Grid>
+                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                                    <TextBox Text="{Binding NewFileName}" Watermark="TOUCH (File.md)" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosForegroundBrush}" Padding="0,2"/>
+                                    <Button Grid.Column="1" Content="[EXEC]" Command="{Binding NewFileCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- RIGHT PANEL: FILE INSPECTOR -->
+                <Border Grid.Column="1" 
+                        BorderBrush="{DynamicResource DosBorderBrush}" 
+                        BorderThickness="1" 
+                        Margin="8,0,0,0">
+                    <Grid RowDefinitions="Auto,*">
+                        
+                        <!-- Panel Header -->
+                        <Border Grid.Row="0" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="[PATH]:" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource DosHighlightBrush}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="[MODE: EDIT]" IsVisible="{Binding IsEditingFile}" Foreground="{DynamicResource DosHighlightBrush}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="[MODE: READ]" IsVisible="{Binding !IsEditingFile}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Editor -->
+                        <TextBox Grid.Row="1"
+                                Text="{Binding EditingFileContent}"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                IsReadOnly="{Binding !IsEditingFile}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="12"
+                                Foreground="{DynamicResource DosForegroundBrush}"
+                                Watermark="[ NO FILE SELECTED OR CONTENT EMPTY ]"/>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- FOOTER BAR (ACTIONS) -->
+            <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,1,0,0" Padding="12,8" Margin="12,12,12,12" Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="AWAITING OPERATOR INPUT..." Foreground="{DynamicResource DosSecondaryBrush}" VerticalAlignment="Center" FontSize="11"/>
+                    
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditingFile}">
+                        <Button Content="[ABORT]" Command="{Binding CancelEditCommand}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource DosSecondaryBrush}" Padding="12,4"/>
+                        <Button Content="[COMMIT_WRITE]" Command="{Binding SaveFileCommand}" Background="Transparent" BorderBrush="{DynamicResource DosHighlightBrush}" BorderThickness="1" Foreground="{DynamicResource DosHighlightBrush}" Padding="12,4"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+        </Grid>
+    </Border>
+</UserControl>

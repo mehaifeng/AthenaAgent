@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Athena.UI.App"
              xmlns:local="using:Athena.UI"
+             xmlns:conv="using:Athena.UI.Converters"
              RequestedThemeVariant="Dark">
 
     <Application.DataTemplates>
@@ -9,6 +10,14 @@
     </Application.DataTemplates>
 
     <Application.Resources>
+        <!-- Converters -->
+        <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
+        <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
+        <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
+        <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
+        <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
+        <conv:RoleToTextBrushConverter x:Key="RoleToTextBrushConverter"/>
+
         <!-- 字体定义 -->
         <FontFamily x:Key="MonospaceFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
         <FontFamily x:Key="ContentControlThemeFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>

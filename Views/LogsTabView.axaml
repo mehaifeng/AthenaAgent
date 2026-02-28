@@ -1,0 +1,172 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="Athena.UI.Views.LogsTabView"
+             x:DataType="vm:LogsTabViewModel"
+             FontFamily="{DynamicResource MonospaceFontFamily}">
+
+    <Design.DataContext>
+        <vm:LogsTabViewModel/>
+    </Design.DataContext>
+
+    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+            BorderThickness="2" 
+            Margin="4" 
+            Background="{DynamicResource DosBackgroundBrush}">
+        
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+            
+            <!-- HEADER BAR -->
+            <Border Grid.Row="0" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,2" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <TextBlock Text="ATHENA.SYS // SYSTEM_EVENT_LOGS" 
+                           FontWeight="Bold" 
+                           Foreground="{DynamicResource DosHighlightBrush}" 
+                           FontSize="14"/>
+            </Border>
+
+            <!-- FILTER & QUERY PARAMETERS -->
+            <Border Grid.Row="1" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,0,0,1" 
+                    Padding="12">
+                <Grid RowDefinitions="Auto,Auto">
+                    <TextBlock Grid.Row="0" 
+                               Text="&gt; QUERY_PARAMETERS" 
+                               FontWeight="Bold" 
+                               Foreground="{DynamicResource DosSecondaryBrush}" 
+                               FontSize="12" 
+                               Margin="0,0,0,8"/>
+                    
+                    <Grid Grid.Row="1" RowDefinitions="Auto,Auto">
+                        
+                        <!-- Row 1: Date & Level -->
+                        <WrapPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
+                                <TextBlock Text="T_START:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,0,8,0" FontSize="11"/>
+                                <CalendarDatePicker SelectedDate="{Binding LogStartTime}" Width="140" FontSize="11"/>
+                            </StackPanel>
+                            
+                            <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
+                                <TextBlock Text="T_END:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,0,8,0" FontSize="11"/>
+                                <CalendarDatePicker SelectedDate="{Binding LogEndTime}" Width="140" FontSize="11"/>
+                            </StackPanel>
+                            
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="LVL:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,0,8,0" FontSize="11"/>
+                                <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding SelectedLogLevel}" Width="120" FontSize="11"/>
+                            </StackPanel>
+                        </WrapPanel>
+
+                        <!-- Row 2: Search Input -->
+                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+                            <StackPanel Grid.Column="0"  Orientation="Horizontal">
+                                <TextBlock Text="KEYWORD:" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,0,8,0" FontSize="11"/>
+                                <TextBox Text="{Binding SearchLogText}" Watermark="[OPTIONAL FILTER]" FontSize="11"/>
+                            </StackPanel>
+                            <!-- Action Buttons -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" Spacing="8" Margin="20,0,0,0">
+                                <Button Content="[QUERY]" Command="{Binding SearchLogsCommand}" Foreground="{DynamicResource DosHighlightBrush}" BorderThickness="1" BorderBrush="{DynamicResource DosHighlightBrush}" Padding="8,4"/>
+                                <Button Content="[REFRESH]" Command="{Binding RefreshLogsCommand}" BorderThickness="0" Background="Transparent" Padding="8,4"/>
+                                <Button Content="[EXPORT]" Command="{Binding ExportLogsCommand}" BorderThickness="0" Background="Transparent" Padding="8,4"/>
+                            </StackPanel>
+                        </Grid>
+
+
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- LOG LIST -->
+            <Border Grid.Row="2" Margin="12" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="1" Background="{DynamicResource DosInputBackgroundBrush}">
+                <ScrollViewer>
+                    <ListBox ItemsSource="{Binding LogEntries}" 
+                             Background="Transparent" 
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{DynamicResource DosBorderBrush}" 
+                                        BorderThickness="0,0,0,1" 
+                                        Padding="8,4"
+                                        Opacity="0.85">
+                                    <Grid ColumnDefinitions="100,100,*">
+                                        <!-- Timestamp -->
+                                        <TextBlock Grid.Column="0" 
+                                                  Text="{Binding Timestamp, StringFormat='[{0:MM-dd HH:mm:ss}]'}" 
+                                                  Foreground="{DynamicResource DosSecondaryBrush}" 
+                                                  FontSize="11" 
+                                                  VerticalAlignment="Top"/>
+                                        
+                                        <!-- Level Indicator -->
+                                        <Border Grid.Column="1" 
+                                                Background="{Binding LevelColor}" 
+                                                Padding="4,0" 
+                                                Margin="0,0,12,0" 
+                                                HorizontalAlignment="Left" 
+                                                VerticalAlignment="Top" 
+                                                CornerRadius="2">
+                                            <TextBlock Text="{Binding Level}" 
+                                                      Foreground="{DynamicResource DosBackgroundBrush}" 
+                                                      FontSize="10" 
+                                                      FontWeight="Bold"/>
+                                        </Border>
+                                        
+                                        <!-- Message -->
+                                        <TextBlock Grid.Column="2" 
+                                                  Text="{Binding Message}" 
+                                                  TextWrapping="Wrap" 
+                                                  Foreground="{DynamicResource DosForegroundBrush}" 
+                                                  FontSize="11" 
+                                                  VerticalAlignment="Top" 
+                                                  LineHeight="16"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </ScrollViewer>
+            </Border>
+
+            <!-- PAGINATION / FOOTER -->
+            <Border Grid.Row="3" 
+                    BorderBrush="{DynamicResource DosBorderBrush}" 
+                    BorderThickness="0,1,0,0" 
+                    Padding="12,6" 
+                    Background="{DynamicResource DosInputBackgroundBrush}">
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    
+                    <!-- Total Count -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="TOTAL_EVENTS:" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
+                        <TextBlock Text="{Binding TotalLogCount}" Foreground="{DynamicResource DosHighlightBrush}" FontWeight="Bold" FontSize="11"/>
+                    </StackPanel>
+
+                    <!-- Page Size -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock Text="LIMIT:" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                        <ComboBox ItemsSource="{Binding LogPageSizes}" SelectedItem="{Binding SelectedLogPageSize}" MinWidth="60" FontSize="11" Padding="4,2"/>
+                    </StackPanel>
+                    
+                    <!-- Pagination Controls -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Content="[ &lt;&lt; ]" Command="{Binding PrevPageCommand}" IsEnabled="{Binding HasPrevPage}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2"/>
+                        
+                        <Border Background="{DynamicResource DosBackgroundBrush}" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="1" Padding="12,2">
+                            <TextBlock Text="{Binding CurrentPageInfo}" Foreground="{DynamicResource DosHighlightBrush}" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" MinWidth="60"/>
+                        </Border>
+                        
+                        <Button Content="[ &gt;&gt; ]" Command="{Binding NextPageCommand}" IsEnabled="{Binding HasNextPage}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2"/>
+                    </StackPanel>
+                    
+                </Grid>
+            </Border>
+
+        </Grid>
+    </Border>
+</UserControl>
