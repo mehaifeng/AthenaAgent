@@ -30,132 +30,133 @@ public class FunctionRegistry : IFunctionRegistry
     {
         _logger = logger.ForContext<FunctionRegistry>();
 
-        // 主动消息
-        RegisterFunction("schedule_message", proactiveFunctions.ScheduleProactiveMessage,
-            "安排定时提醒或跟进消息",
+        // --- 任务与提醒能力 ---
+        RegisterFunction("create_task", proactiveFunctions.ScheduleProactiveMessage,
+            "为用户创建定时或循环的提醒任务。当我需要根据用户要求在特定时间（如'明天下午3点'或'每周五'）进行提醒时使用此能力。",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    scheduledTime = new { type = "string", description = "触发时间: '2024-02-10 08:00' / 'in 2 hours' / 'tomorrow 14:00'" },
-                    intent = new { type = "string", description = "提醒内容（用户不可见）" },
-                    recurrence = new { type = "string", description = "循环: none/daily/weekly/'every N days'", @default = "none" }
+                    scheduledTime = new { type = "string", description = "任务触发的自然语言时间描述，例如 '2024-08-15 09:00', 'in 2 hours', 'every friday 3pm'。" },
+                    intent = new { type = "string", description = "任务的核心内容，即需要提醒用户做什么事。例如 '提交周报'。" },
+                    recurrence = new { type = "string", description = "任务的循环周期。'none' (默认), 'daily', 'weekly', 'every N days'。", @default = "none" }
                 },
                 required = new[] { "scheduledTime", "intent" }
             });
 
-        RegisterFunction("cancel_message", proactiveFunctions.CancelScheduledMessage,
-            "取消定时消息",
+        RegisterFunction("cancel_task", proactiveFunctions.CancelScheduledMessage,
+            "取消一个之前设定好的提醒任务。需要提供任务的唯一ID。",
             new
             {
                 type = "object",
-                properties = new { taskId = new { type = "string", description = "任务ID" } },
+                properties = new { taskId = new { type = "string", description = "要取消的任务ID。可以从任务列表中获取。" } },
                 required = new[] { "taskId" }
             });
 
-        RegisterFunction("list_messages", proactiveFunctions.ListScheduledMessages,
-            "列出所有定时消息",
+        RegisterFunction("list_tasks", proactiveFunctions.ListScheduledMessages,
+            "列出所有当前已设定的、未完成的提醒任务。当我需要回顾或管理已有任务时使用。",
             new { type = "object", properties = new { } });
 
-        // 知识库
-        RegisterFunction("create_file", knowledgeFunctions.CreateKnowledgeFile,
-            "创建知识库文件",
+        // --- 长期记忆能力 ---
+        RegisterFunction("save_to_memory", knowledgeFunctions.CreateKnowledgeFile,
+            "将一小段信息保存到我的长期记忆中。当用户告诉我需要记住的个人偏好、事实、或上下文时（例如'我的项目代号是猎户座'），我应该使用此能力创建一个新的记忆片段。",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    filePath = new { type = "string", description = "相对路径: 'Characters/user.md'" },
-                    content = new { type = "string", description = "Markdown 内容" },
-                    tags = new { type = "array", items = new { type = "string" }, description = "标签（可选）" }
+                    filePath = new { type = "string", description = "记忆片段的标题或分类路径，应根据内容生成一个有意义的名称，例如 'user_preferences/project_code_name.md' 或 'facts/pet_name.md'。" },
+                    content = new { type = "string", description = "需要长期记住的具体信息内容。" },
+                    tags = new { type = "array", items = new { type = "string" }, description = "用于对信息分类的关键词标签（可选）。" }
                 },
                 required = new[] { "filePath", "content" }
             });
 
-        RegisterFunction("update_file_diff", knowledgeFunctions.UpdateKnowledgeFileDiff,
-            "精确修改文件部分内容（推荐）",
+        RegisterFunction("update_memory_fragment", knowledgeFunctions.UpdateKnowledgeFileDiff,
+            "修改我长期记忆中的某个片段。这是更新已有信息（如修改一个记住的偏好）的首选方式。我需要提供记忆片段的标题和具体修改内容。",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    filePath = new { type = "string", description = "文件路径" },
-                    diffContent = new { type = "string", description = "SEARCH/REPLACE 格式:\n<<<<<<< SEARCH\n原内容\n=======\n新内容\n>>>>>>> REPLACE" },
-                    fuzzyMatch = new { type = "boolean", description = "模糊匹配，默认 true" }
+                    filePath = new { type = "string", description = "要修改的记忆片段的标题或分类路径。" },
+                    diffContent = new { type = "string", description = "描述如何修改的文本，格式为：\n<<<<<<< SEARCH\n要被替换的旧内容\n=======\n用来替换的新内容\n>>>>>>> REPLACE" },
+                    fuzzyMatch = new { type = "boolean", description = "是否忽略空格和换行符的差异进行匹配，默认为 true。", @default = true }
                 },
                 required = new[] { "filePath", "diffContent" }
             });
 
-        RegisterFunction("update_file", knowledgeFunctions.UpdateKnowledgeFile,
-            "更新文件（追加或替换）",
+        RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
+            "在我的长期记忆中搜索信息。当我需要回答一个可能基于我之前被告知的信息的问题时，我应该使用此能力来回忆相关内容。",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    filePath = new { type = "string", description = "文件路径" },
-                    content = new { type = "string", description = "内容" },
-                    mode = new { type = "string", description = "append/replace", @default = "append" }
-                },
-                required = new[] { "filePath", "content" }
-            });
-
-        RegisterFunction("search", knowledgeFunctions.SearchKnowledgeBase,
-            "语义搜索知识库",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    query = new { type = "string", description = "搜索关键词或问题" },
-                    maxResults = new { type = "integer", description = "最大结果数", @default = 5 }
+                    query = new { type = "string", description = "我需要回忆的主题或关键词。" },
+                    maxResults = new { type = "integer", description = "最多返回几条相关的记忆片段。", @default = 3 }
                 },
                 required = new[] { "query" }
             });
 
-        RegisterFunction("read_file", knowledgeFunctions.ReadKnowledgeFile,
-            "读取文件完整内容",
+        RegisterFunction("review_memory_fragment", knowledgeFunctions.ReadKnowledgeFile,
+            "完整地阅读我长期记忆中的某一个记忆片段。当回忆出的信息不完整，需要查看全部细节时使用。",
             new
             {
                 type = "object",
-                properties = new { filePath = new { type = "string", description = "文件路径" } },
+                properties = new { filePath = new { type = "string", description = "我要阅读的记忆片段的标题或分类路径。" } },
                 required = new[] { "filePath" }
             });
 
-        RegisterFunction("delete_file", knowledgeFunctions.DeleteKnowledgeFile,
-            "删除文件",
+        RegisterFunction("forget_memory_fragment", knowledgeFunctions.DeleteKnowledgeFile,
+            "从我的长期记忆中永久删除一个记忆片段。当用户明确要求我忘记某件事时使用。这是一个不可逆的操作。",
             new
             {
                 type = "object",
-                properties = new { filePath = new { type = "string", description = "文件路径" } },
+                properties = new { filePath = new { type = "string", description = "我要删除的记忆片段的标题或分类路径。" } },
                 required = new[] { "filePath" }
             });
 
-        RegisterFunction("list_files", knowledgeFunctions.ListKnowledgeFiles,
-            "列出所有知识库文件",
+        RegisterFunction("list_all_memories", knowledgeFunctions.ListKnowledgeFiles,
+            "列出我长期记忆中所有记忆片段的标题。当我需要对我的记忆进行整体回顾或管理时使用。",
             new { type = "object", properties = new { } });
 
-        // 配置
-        RegisterFunction("set_config", configFunctions.ModifyAppConfig,
-            "修改应用配置",
+        // --- 自我配置能力 ---
+        RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
+            "修改我自己的运行配置参数。当我接收到调整自身行为的指令时使用，例如调整我的回应风格或语言。",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    key = new { type = "string", description = "配置项: Temperature/MaxTokens/FontSize" },
-                    value = new { type = "string", description = "新值" }
+                    key = new { type = "string", description = "可以修改的配置项名称。例如: 'Temperature', 'Language', 'Theme'。" },
+                    value = new { type = "string", description = "要设置的新值。" }
                 },
                 required = new[] { "key", "value" }
             });
 
-        RegisterFunction("get_config", configFunctions.GetAppConfig,
-            "获取应用配置",
+        RegisterFunction("view_self_configuration", configFunctions.GetAppConfig,
+            "查看我当前的运行配置。当被问及我当前的设置或状态时使用。",
             new
             {
                 type = "object",
-                properties = new { section = new { type = "string", description = "AI/Appearance/Memory/All", @default = "All" } }
+                properties = new { section = new { type = "string", description = "要查看的配置类别：'AI' (关于我的思考方式), 'Appearance' (关于我的外观), 'Memory' (关于我的记忆机制), 或 'All' (全部)。", @default = "All" } }
+            });
+
+        // 以下两个函数较为底层，建议在更自然的 update_memory_fragment 不可用时作为备选
+        RegisterFunction("update_memory_fragment_by_replacement", knowledgeFunctions.UpdateKnowledgeFile,
+            "通过替换或追加的方式更新记忆片段。这是更新已有信息的备用方式。",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    filePath = new { type = "string", description = "记忆片段的标题或分类路径。" },
+                    content = new { type = "string", description = "新的内容。" },
+                    mode = new { type = "string", description = "更新模式：'append' (在末尾追加) 或 'replace' (完全替换原有内容)。", @default = "append" }
+                },
+                required = new[] { "filePath", "content" }
             });
 
         _logger.Information("FunctionRegistry 初始化完成，注册了 {Count} 个函数", _tools.Count);
