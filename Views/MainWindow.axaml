@@ -5,10 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:models="using:Athena.UI.Models"
         xmlns:views="using:Athena.UI.Views"
+        xmlns:loc="using:Athena.UI.Markup"
         mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
         x:Class="Athena.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="ATHENA.SYS // TERMINAL_LINK"
+        Title="{loc:Loc App.Title}"
         Width="960" Height="760"
         MinWidth="700" MinHeight="500"
         WindowStartupLocation="CenterScreen"
@@ -33,37 +34,37 @@
                         Name="MainTabControl">
 
                 <!-- MODULE 0: CHAT -->
-                <TabItem Header="[ CHAT_LINK ]">
+                <TabItem Header="{loc:Loc Tab.ChatLink}">
                     <views:ChatTabView DataContext="{Binding ChatTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 1: CONFIG -->
-                <TabItem Header="[ SYS_CONFIG ]">
+                <TabItem Header="{loc:Loc Tab.SysConfig}">
                     <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 2: TASKS -->
-                <TabItem Header="[ SCHEDULER ]">
+                <TabItem Header="{loc:Loc Tab.Scheduler}">
                     <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 3: HISTORY -->
-                <TabItem Header="[ ARCHIVES ]">
+                <TabItem Header="{loc:Loc Tab.Archives}">
                     <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 4: MEMORY -->
-                <TabItem Header="[ KNOWLEDGE ]">
+                <TabItem Header="{loc:Loc Tab.Knowledge}">
                     <views:MemoryTabView DataContext="{Binding MemoryTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 5: LOGS -->
-                <TabItem Header="[ SYS_LOGS ]">
+                <TabItem Header="{loc:Loc Tab.SysLogs}">
                     <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 6: ABOUT -->
-                <TabItem Header="[ DIAGNOSTIC ]">
+                <TabItem Header="{loc:Loc Tab.Diagnostic}">
                     <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
                 </TabItem>
             </TabControl>
@@ -75,18 +76,18 @@
                     IsVisible="{Binding IsShowConfigSaveReset}">
 
                         
-                    <StackPanel Grid.Column="1" 
+                    <StackPanel Grid.Column="1"
                                 HorizontalAlignment="Right"
                                 Orientation="Horizontal"
                                 Spacing="12">
-                        <Button Content="[COMMIT_CHANGES]"
+                        <Button Content="{loc:Loc Btn.CommitChanges}"
                                 Command="{Binding SaveConfigCommand}"
                                 BorderBrush="{DynamicResource DosHighlightBrush}"
                                 BorderThickness="1"
                                 Background="Transparent"
                                 Foreground="{DynamicResource DosHighlightBrush}"
                                 Padding="16,4"/>
-                        <Button Content="[ROLLBACK]"
+                        <Button Content="{loc:Loc Btn.Rollback}"
                                 Command="{Binding ResetConfigCommand}"
                                 BorderThickness="0"
                                 Background="Transparent"

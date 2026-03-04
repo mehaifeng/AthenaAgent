@@ -4,6 +4,7 @@
              xmlns:models="using:Athena.UI.Models"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="Athena.UI.Views.HistoryTabView"
              x:DataType="vm:HistoryTabViewModel"
@@ -13,33 +14,33 @@
         <vm:HistoryTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}" 
-            BorderThickness="2" 
-            Margin="4" 
+    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+            BorderThickness="2"
+            Margin="4"
             Background="{DynamicResource DosBackgroundBrush}">
-            
+
         <Grid RowDefinitions="Auto,Auto,*,Auto">
-            
+
             <!-- HEADER BAR -->
-            <Border Grid.Row="0" 
-                    BorderBrush="{DynamicResource DosBorderBrush}" 
-                    BorderThickness="0,0,0,2" 
-                    Padding="12,6" 
+            <Border Grid.Row="0"
+                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderThickness="0,0,0,2"
+                    Padding="12,6"
                     Background="{DynamicResource DosInputBackgroundBrush}">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" 
-                               Text="ATHENA.SYS // CONVERSATION_ARCHIVE" 
-                               FontWeight="Bold" 
-                               Foreground="{DynamicResource DosHighlightBrush}" 
-                               FontSize="14" 
+                    <TextBlock Grid.Column="0"
+                               Text="{loc:Loc History.Header}"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource DosHighlightBrush}"
+                               FontSize="14"
                                VerticalAlignment="Center"/>
-                               
-                    <Button Grid.Column="1" 
-                            Content="[REFRESH_DB]" 
-                            Command="{Binding RefreshCommand}" 
-                            BorderThickness="0" 
-                            Background="Transparent" 
-                            Foreground="{DynamicResource DosHighlightBrush}" 
+
+                    <Button Grid.Column="1"
+                            Content="{loc:Loc History.BtnRefreshDb}"
+                            Command="{Binding RefreshCommand}"
+                            BorderThickness="0"
+                            Background="Transparent"
+                            Foreground="{DynamicResource DosHighlightBrush}"
                             Padding="8,2" />
                 </Grid>
             </Border>
@@ -47,17 +48,17 @@
             <!-- SUB-HEADER -->
             <Border Grid.Row="1" Padding="12,8,12,0">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="&gt; RECORDS_FOUND:" 
-                               Foreground="{DynamicResource DosSecondaryBrush}" 
+                    <TextBlock Text="{loc:Loc History.RecordsFound}"
+                               Foreground="{DynamicResource DosSecondaryBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding HistoryItems.Count}" 
-                               Foreground="{DynamicResource DosHighlightBrush}" 
-                               VerticalAlignment="Center" 
+                    <TextBlock Text="{Binding HistoryItems.Count}"
+                               Foreground="{DynamicResource DosHighlightBrush}"
+                               VerticalAlignment="Center"
                                FontWeight="Bold"/>
                     <Border Width="1" Height="14" Background="{DynamicResource DosSecondaryBrush}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="READY." 
-                               Foreground="{DynamicResource DosSecondaryBrush}" 
-                               VerticalAlignment="Center" 
+                    <TextBlock Text="{loc:Loc History.Ready}"
+                               Foreground="{DynamicResource DosSecondaryBrush}"
+                               VerticalAlignment="Center"
                                FontSize="11"/>
                 </StackPanel>
             </Border>
@@ -77,7 +78,7 @@
                                         Padding="12,8"
                                         Background="{DynamicResource DosInputBackgroundBrush}">
                                     <Grid ColumnDefinitions="*,Auto">
-                                        
+
                                         <!-- Data Block -->
                                         <StackPanel Grid.Column="0" Spacing="4">
                                             <TextBlock Text="{Binding Summary}"
@@ -85,14 +86,14 @@
                                                        MaxLines="2"
                                                        Foreground="{DynamicResource DosForegroundBrush}"
                                                        FontWeight="Bold"/>
-                                            
+
                                             <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="MSGS:" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
+                                                    <TextBlock Text="{loc:Loc History.Msgs}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
                                                     <TextBlock Text="{Binding MessageCount}" FontSize="11" Foreground="{DynamicResource DosHighlightBrush}"/>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="TIME:" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
+                                                    <TextBlock Text="{loc:Loc History.Time}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
                                                     <TextBlock Text="{Binding DisplayTime}" FontSize="11" Foreground="{DynamicResource DosHighlightBrush}"/>
                                                 </StackPanel>
                                             </StackPanel>
@@ -100,7 +101,7 @@
 
                                         <!-- Action Buttons -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0,0,0">
-                                            <Button Content="[RESTORE]"
+                                            <Button Content="{loc:Loc History.BtnRestore}"
                                                     Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent"
@@ -108,8 +109,8 @@
                                                     BorderThickness="1"
                                                     Foreground="{DynamicResource DosHighlightBrush}"
                                                     Padding="8,4"/>
-                                                    
-                                            <Button Content="[DEL]"
+
+                                            <Button Content="{loc:Loc History.BtnDel}"
                                                     Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent"
@@ -124,19 +125,19 @@
                     </ListBox>
 
                     <!-- EMPTY STATE -->
-                    <TextBlock Text="NO_RECORDS_FOUND."
+                    <TextBlock Text="{loc:Loc History.NoRecords}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource DosSecondaryBrush}"
                                IsVisible="{Binding !HistoryItems.Count}"/>
                 </Grid>
             </Border>
-            
+
             <!-- FOOTER INFO -->
             <Border Grid.Row="3" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,2,0,0" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
-                <TextBlock Text="SELECT [RESTORE] TO MOUNT PREVIOUS SESSION DATA TO ACTIVE MEMORY." 
-                           HorizontalAlignment="Right" 
-                           Foreground="{DynamicResource DosSecondaryBrush}" 
+                <TextBlock Text="{loc:Loc History.FooterHint}"
+                           HorizontalAlignment="Right"
+                           Foreground="{DynamicResource DosSecondaryBrush}"
                            FontSize="10"/>
             </Border>
 

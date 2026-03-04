@@ -3,10 +3,11 @@
         xmlns:vm="using:Athena.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:loc="using:Athena.UI.Markup"
         mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="400"
         x:Class="Athena.UI.Views.CreateTaskDialog"
         x:DataType="vm:CreateTaskDialogViewModel"
-        Title="Create Scheduled Task"
+        Title="{loc:Loc TaskDialog.Title}"
         Width="450" Height="450"
         MinWidth="400" MinHeight="350"
         WindowStartupLocation="CenterOwner"
@@ -17,35 +18,35 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource DosBackgroundBrush}">
-        <!-- 标题栏 -->
+        <!-- Title Bar -->
         <Border Grid.Row="0"
                 BorderBrush="{DynamicResource DosBorderBrush}"
                 BorderThickness="0,0,0,2"
                 Padding="10,8"
                 Background="{DynamicResource DosBackgroundBrush}">
-            <TextBlock Text="CREATE SCHEDULED TASK"
+            <TextBlock Text="{loc:Loc TaskDialog.Title}"
                       HorizontalAlignment="Center"
                       FontSize="14"
                       FontWeight="Bold"
                       Foreground="{DynamicResource DosHighlightBrush}"/>
         </Border>
 
-        <!-- 表单内容 -->
+        <!-- Form Content -->
         <ScrollViewer Grid.Row="1" Padding="15">
             <StackPanel Spacing="15">
-                <!-- 触发时间 -->
+                <!-- Trigger Time -->
                 <Border BorderBrush="{DynamicResource DosBorderBrush}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="TRIGGER TIME"
+                        <TextBlock Text="{loc:Loc TaskDialog.TriggerTime}"
                                   FontWeight="Bold"
                                   Foreground="{DynamicResource DosHighlightBrush}"
                                   FontSize="12"/>
 
                         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0"
-                                      Text="Date:"
+                                      Text="{loc:Loc TaskDialog.Date}"
                                       VerticalAlignment="Center"
                                       Margin="0,0,10,5"/>
                             <CalendarDatePicker Grid.Row="0" Grid.Column="1"
@@ -54,7 +55,7 @@
                                                Margin="0,0,0,5"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0"
-                                      Text="Time:"
+                                      Text="{loc:Loc TaskDialog.Time}"
                                       VerticalAlignment="Center"
                                       Margin="0,0,10,5"/>
                             <TimePicker Grid.Row="1" Grid.Column="1"
@@ -65,17 +66,17 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 任务意图 -->
+                <!-- Task Intent -->
                 <Border BorderBrush="{DynamicResource DosBorderBrush}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="TASK INTENT"
+                        <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
                                   FontWeight="Bold"
                                   Foreground="{DynamicResource DosHighlightBrush}"
                                   FontSize="12"/>
 
-                        <TextBlock Text="What should Athena say or do when this task triggers?"
+                        <TextBlock Text="{loc:Loc TaskDialog.IntentHint}"
                                   TextWrapping="Wrap"
                                   Foreground="{DynamicResource DosSecondaryBrush}"
                                   FontSize="11"/>
@@ -85,23 +86,23 @@
                                 TextWrapping="Wrap"
                                 MinHeight="80"
                                 MaxHeight="120"
-                                Watermark="e.g., Check on the user's project progress and offer help if needed"/>
+                                Watermark="{loc:Loc TaskDialog.IntentPlaceholder}"/>
                     </StackPanel>
                 </Border>
 
-                <!-- 循环模式 -->
+                <!-- Recurrence -->
                 <Border BorderBrush="{DynamicResource DosBorderBrush}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="RECURRENCE"
+                        <TextBlock Text="{loc:Loc TaskDialog.Recurrence}"
                                   FontWeight="Bold"
                                   Foreground="{DynamicResource DosHighlightBrush}"
                                   FontSize="12"/>
 
                         <Grid ColumnDefinitions="Auto,*">
                             <TextBlock Grid.Column="0"
-                                      Text="Repeat:"
+                                      Text="{loc:Loc TaskDialog.Repeat}"
                                       VerticalAlignment="Center"
                                       Margin="0,0,10,0"/>
                             <ComboBox Grid.Column="1"
@@ -112,21 +113,22 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 预览 -->
+                <!-- Preview -->
                 <Border BorderBrush="{DynamicResource DosSecondaryBrush}"
                        BorderThickness="1"
                        Padding="10"
-                       Background="{DynamicResource DosInputBackgroundBrush}">
+                       Background="{DynamicResource DosInputBackgroundBrush}"
+                       Margin="0,0,0,70">
                     <StackPanel Spacing="5">
-                        <TextBlock Text="PREVIEW"
+                        <TextBlock Text="{loc:Loc TaskDialog.Preview}"
                                   FontWeight="Bold"
                                   Foreground="{DynamicResource DosSecondaryBrush}"
                                   FontSize="11"/>
 
                         <TextBlock FontSize="11" TextWrapping="Wrap">
-                            <Run Text="Athena will"/>
+                            <Run Text="{loc:Loc TaskDialog.PreviewWill}"/>
                             <Run Text="{Binding Recurrence, Mode=OneWay}"/>
-                            <Run Text="trigger at"/>
+                            <Run Text="{loc:Loc TaskDialog.PreviewTriggerAt}"/>
                             <Run Text="{Binding FullTriggerTime, StringFormat='{}{0:yyyy-MM-dd HH:mm}', Mode=OneWay}"/>
                         </TextBlock>
 
@@ -141,7 +143,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 底部按钮 -->
+        <!-- Footer Buttons -->
         <Border Grid.Row="2"
                BorderBrush="{DynamicResource DosBorderBrush}"
                BorderThickness="0,2,0,0"
@@ -150,10 +152,10 @@
             <StackPanel Orientation="Horizontal"
                        HorizontalAlignment="Right"
                        Spacing="10">
-                <Button Content="[Cancel]"
+                <Button Content="{loc:Loc TaskDialog.BtnCancel}"
                        Command="{Binding CancelCommand}"
                        MinWidth="80"/>
-                <Button Content="[Create]"
+                <Button Content="{loc:Loc TaskDialog.BtnCreate}"
                        Command="{Binding ConfirmCommand}"
                        Classes="primary"
                        MinWidth="80"

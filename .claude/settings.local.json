@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: add i18n localization support with en-US and zh-CN\n\n- Add LocalizationService with runtime language switching\n- Add ILocalizationService interface\n- Add en-US and zh-CN locale resource files\n- Add localization markup extension\n- Update all Views and ViewModels to support localization\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git rebase:*)"
+    ]
+  }
+}
