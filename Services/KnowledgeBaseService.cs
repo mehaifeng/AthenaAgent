@@ -98,9 +98,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
 
         Directory.CreateDirectory(_knowledgeBasePath);
-        InitializeDefaultStructure();
 
-        _logger.Information("知识库服务初始化完成，路径: {Path}, 向量检索: {Enabled}",
+        _logger.Information("Knowledge base service initialized at {Path}, vector search: {Enabled}",
             _knowledgeBasePath, _embeddingService?.IsConfigured ?? false);
     }
 
@@ -114,43 +113,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         if (_embeddingService?.IsConfigured == true)
         {
             await LoadOrRefreshVectorsAsync();
-        }
-    }
-
-    /// <summary>
-    /// 初始化默认目录结构
-    /// </summary>
-    private void InitializeDefaultStructure()
-    {
-        var directories = new[] { "Characters", "Memories", "Preferences", "Scenes" };
-
-        foreach (var dir in directories)
-        {
-            var path = Path.Combine(_knowledgeBasePath, dir);
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-                _logger.Debug("创建知识库目录: {Directory}", dir);
-            }
-        }
-
-        // 创建默认的用户配置文件
-        var userProfilePath = Path.Combine(_knowledgeBasePath, "Characters", "user_profile.md");
-        if (!File.Exists(userProfilePath))
-        {
-            var defaultContent = @"# 用户资料
-
-## 基本信息
-<!-- AI 会在这里记录用户的基本信息 -->
-
-## 偏好
-<!-- AI 会在这里记录用户的偏好 -->
-
-## 重要事件
-<!-- AI 会在这里记录重要的事件 -->
-";
-            File.WriteAllText(userProfilePath, defaultContent);
-            _logger.Debug("创建默认用户配置文件");
         }
     }
 
