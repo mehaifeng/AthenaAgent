@@ -12,6 +12,7 @@ namespace Athena.UI.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ILogger _logger = Log.ForContext<MainWindowViewModel>();
+    private readonly ILocalizationService? _localizationService;
 
     #region Tab ViewModels
 
@@ -85,11 +86,14 @@ public partial class MainWindowViewModel : ViewModelBase
         IPromptService? promptService,
         ILogService? logService,
         IKnowledgeBaseService? knowledgeBaseService,
-        IEmbeddingService? embeddingService)
+        IEmbeddingService? embeddingService,
+        ILocalizationService? localizationService)
     {
+        _localizationService = localizationService;
+
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler);
         _memoryTabViewModel = new MemoryTabViewModel(knowledgeBaseService);
         _logsTabViewModel = new LogsTabViewModel(logService);

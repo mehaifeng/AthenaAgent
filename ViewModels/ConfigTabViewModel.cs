@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 
@@ -16,6 +17,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IChatService? _chatService;
     private readonly IEmbeddingService? _embeddingService;
     private readonly IConversationHistoryService? _historyService;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -43,19 +45,56 @@ public partial class ConfigTabViewModel : ViewModelBase
     public ObservableCollection<string> Providers { get; } = new() { "OpenAI", "Azure", "Custom" };
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
 
+    /// <summary>
+    /// Available languages for display
+    /// </summary>
+    public ObservableCollection<string> Languages { get; }
+
+    /// <summary>
+    /// Current selected language index
+    /// </summary>
+    [ObservableProperty]
+    private int _selectedLanguageIndex;
+
+    partial void OnSelectedLanguageIndexChanged(int value)
+    {
+        if (_localizationService == null || value < 0 || value >= _localizationService.AvailableLanguages.Count)
+            return;
+
+        var selectedLanguage = _localizationService.AvailableLanguages[value];
+        if (Config.Language != selectedLanguage)
+        {
+            Config.Language = selectedLanguage;
+            _localizationService.SwitchLanguage(selectedLanguage);
+            _logger.Information("语言已切换为: {Language}", selectedLanguage);
+        }
+    }
+
     public event EventHandler? SaveRequested;
     public event EventHandler? ResetRequested;
     public event EventHandler? CompressContextRequested;
     public event EventHandler? ClearContextRequested;
 
-    public ConfigTabViewModel() : this(null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService)
     {
         _configService = configService;
         _chatService = chatService;
         _embeddingService = embeddingService;
         _historyService = historyService;
+        _localizationService = localizationService;
+
+        // Initialize languages list
+        if (_localizationService != null)
+        {
+            Languages = new ObservableCollection<string>(_localizationService.AvailableLanguageNames);
+        }
+        else
+        {
+            Languages = new ObservableCollection<string> { "English", "中文" };
+        }
+
         LoadConfigAsync().ConfigureAwait(false);
     }
 
@@ -65,6 +104,17 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             Config = await _configService.LoadAsync();
             ContextTokensThreshold = Config.CompressionThreshold;
+
+            // Set language index based on saved config
+            if (_localizationService != null)
+            {
+                var index = _localizationService.GetLanguageIndex(Config.Language);
+                if (index >= 0)
+                {
+                    SelectedLanguageIndex = index;
+                    _localizationService.SwitchLanguage(Config.Language);
+                }
+            }
         }
     }
 
