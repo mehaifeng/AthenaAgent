@@ -16,6 +16,7 @@ using Athena.UI.Services.Platform;
 using Athena.UI.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
+using Athena.UI.Markup;
 
 namespace Athena.UI;
 
@@ -86,6 +87,9 @@ public partial class App : Application
 
         // 平台路径服务（单例）
         services.AddSingleton<IPlatformPathService>(_platformPathService!);
+
+        // 本地化服务（单例）
+        services.AddSingleton<ILocalizationService, LocalizationService>();
 
         // 日志服务（单例）
         services.AddSingleton<ILogService, LogService>();
@@ -214,6 +218,7 @@ public partial class App : Application
             var logService = sp.GetService<ILogService>();
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
             var embeddingService = sp.GetService<IEmbeddingService>();
+            var localizationService = sp.GetService<ILocalizationService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -223,7 +228,8 @@ public partial class App : Application
                 promptService,
                 logService,
                 knowledgeBaseService,
-                embeddingService);
+                embeddingService,
+                localizationService);
         });
 
         Log.Debug("依赖注入服务配置完成");

@@ -1,0 +1,175 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=netstandard">
+
+    <!-- Main Window -->
+    <system:String x:Key="App.Title">ATHENA.SYS // TERMINAL_LINK</system:String>
+    <system:String x:Key="Tab.ChatLink">[ CHAT_LINK ]</system:String>
+    <system:String x:Key="Tab.SysConfig">[ SYS_CONFIG ]</system:String>
+    <system:String x:Key="Tab.Scheduler">[ SCHEDULER ]</system:String>
+    <system:String x:Key="Tab.Archives">[ ARCHIVES ]</system:String>
+    <system:String x:Key="Tab.Knowledge">[ KNOWLEDGE ]</system:String>
+    <system:String x:Key="Tab.SysLogs">[ SYS_LOGS ]</system:String>
+    <system:String x:Key="Tab.Diagnostic">[ DIAGNOSTIC ]</system:String>
+    <system:String x:Key="Btn.CommitChanges">[COMMIT_CHANGES]</system:String>
+    <system:String x:Key="Btn.Rollback">[ROLLBACK]</system:String>
+
+    <!-- Chat Tab -->
+    <system:String x:Key="Chat.Header">ATHENA_OS // LINK_ESTABLISHED</system:String>
+    <system:String x:Key="Chat.Buffer">[BUFFER: {0}]</system:String>
+    <system:String x:Key="Chat.BtnTheme">[THEME]</system:String>
+    <system:String x:Key="Chat.BtnReset">[RESET]</system:String>
+    <system:String x:Key="Chat.BtnStats">[STATS]</system:String>
+    <system:String x:Key="Chat.ReceivingData">RECEIVING_DATA</system:String>
+    <system:String x:Key="Chat.BtnEdit">[EDIT]</system:String>
+    <system:String x:Key="Chat.BtnConfirm">[CONFIRM]</system:String>
+    <system:String x:Key="Chat.BtnAbort">[ABORT]</system:String>
+    <system:String x:Key="Chat.BtnRegen">[REGEN]</system:String>
+    <system:String x:Key="Chat.BtnPurge">[PURGE]</system:String>
+    <system:String x:Key="Chat.InputPlaceholder">&gt; AWAITING_INPUT...</system:String>
+    <system:String x:Key="Chat.BtnExecute">[EXECUTE]</system:String>
+    <system:String x:Key="Chat.RoleUser">OPERATOR</system:String>
+    <system:String x:Key="Chat.RoleAssistant">ATHENA</system:String>
+
+    <!-- Config Tab -->
+    <system:String x:Key="Config.Header">ATHENA.SYS // SYSTEM_CONFIGURATION</system:String>
+    <system:String x:Key="Config.SectionAppearance">&gt; SYS.OPT.01 // APPEARANCE_PARAMS</system:String>
+    <system:String x:Key="Config.SectionPrimaryAI">&gt; SYS.OPT.02 // PRIMARY_AI_CORE</system:String>
+    <system:String x:Key="Config.SectionSecondaryAI">&gt; SYS.OPT.03 // SECONDARY_AI_CORE</system:String>
+    <system:String x:Key="Config.SectionEmbedding">&gt; SYS.OPT.04 // SEMANTIC_EMBED_CORE</system:String>
+    <system:String x:Key="Config.SectionMemory">&gt; SYS.OPT.05 // MEMORY_MANAGEMENT</system:String>
+    <system:String x:Key="Config.BgTasks">[BG_TASKS]</system:String>
+    <system:String x:Key="Config.VectorKb">[VECTOR_KB]</system:String>
+
+    <!-- Config Labels -->
+    <system:String x:Key="Config.DispTheme">DISP_THEME:</system:String>
+    <system:String x:Key="Config.DispFontScale">DISP_FONT_SCALE:</system:String>
+    <system:String x:Key="Config.DispHeartbeat">DISP_HEARTBEAT:</system:String>
+    <system:String x:Key="Config.DispLanguage">DISP_LANGUAGE:</system:String>
+    <system:String x:Key="Config.ApiProvider">API_PROVIDER:</system:String>
+    <system:String x:Key="Config.ApiEndpoint">API_ENDPOINT:</system:String>
+    <system:String x:Key="Config.AuthToken">AUTH_TOKEN:</system:String>
+    <system:String x:Key="Config.ModelId">MODEL_ID:</system:String>
+    <system:String x:Key="Config.ParamTemp">PARAM_TEMP:</system:String>
+    <system:String x:Key="Config.ParamMaxTokens">PARAM_MAX_TOKENS:</system:String>
+    <system:String x:Key="Config.CtxUsage">CTX_USAGE:</system:String>
+    <system:String x:Key="Config.MemMaxCtx">MEM_MAX_CTX:</system:String>
+    <system:String x:Key="Config.MemCompThresh">MEM_COMP_THRESH:</system:String>
+    <system:String x:Key="Config.MemAutoComp">MEM_AUTO_COMP:</system:String>
+    <system:String x:Key="Config.WarnHigh">[ WARN: &gt;80% ]</system:String>
+    <system:String x:Key="Config.CompressionPreview">--- COMPRESSION PREVIEW DUMP ---</system:String>
+    <system:String x:Key="Config.InheritPrimary">[INHERIT_PRIMARY]</system:String>
+
+    <!-- Config Buttons -->
+    <system:String x:Key="Config.BtnRunDiagnostics">[RUN_DIAGNOSTICS]</system:String>
+    <system:String x:Key="Config.BtnExecCompression">[EXEC_COMPRESSION]</system:String>
+    <system:String x:Key="Config.BtnPurgeMemory">[PURGE_MEMORY]</system:String>
+
+    <!-- Tasks Tab -->
+    <system:String x:Key="Tasks.Header">ATHENA.SYS // TASK_SCHEDULER</system:String>
+    <system:String x:Key="Tasks.BtnNewRoutine">[NEW_ROUTINE]</system:String>
+    <system:String x:Key="Tasks.BtnPurgeAll">[PURGE_ALL]</system:String>
+    <system:String x:Key="Tasks.ActiveRoutines">&gt; ACTIVE_ROUTINES:</system:String>
+    <system:String x:Key="Tasks.SystemIdle">SYSTEM IDLE/WAITING...</system:String>
+    <system:String x:Key="Tasks.Trig">TRIG:</system:String>
+    <system:String x:Key="Tasks.Rec">REC:</system:String>
+
+    <!-- History Tab -->
+    <system:String x:Key="History.Header">ATHENA.SYS // CONVERSATION_ARCHIVE</system:String>
+    <system:String x:Key="History.BtnRefreshDb">[REFRESH_DB]</system:String>
+    <system:String x:Key="History.RecordsFound">&gt; RECORDS_FOUND:</system:String>
+    <system:String x:Key="History.Ready">READY.</system:String>
+    <system:String x:Key="History.Msgs">MSGS:</system:String>
+    <system:String x:Key="History.Time">TIME:</system:String>
+    <system:String x:Key="History.BtnRestore">[RESTORE]</system:String>
+    <system:String x:Key="History.BtnDel">[DEL]</system:String>
+    <system:String x:Key="History.NoRecords">NO_RECORDS_FOUND.</system:String>
+    <system:String x:Key="History.FooterHint">SELECT [RESTORE] TO MOUNT PREVIOUS SESSION DATA TO ACTIVE MEMORY.</system:String>
+
+    <!-- Memory Tab -->
+    <system:String x:Key="Memory.Header">ATHENA.SYS // KNOWLEDGE_BASE_NAVIGATOR</system:String>
+    <system:String x:Key="Memory.BtnRefresh">[REFRESH]</system:String>
+    <system:String x:Key="Memory.BtnImport">[IMPORT]</system:String>
+    <system:String x:Key="Memory.BtnExport">[EXPORT]</system:String>
+    <system:String x:Key="Memory.BtnDelete">[DELETE]</system:String>
+    <system:String x:Key="Memory.DirectoryStructure">&gt; DIRECTORY_STRUCTURE</system:String>
+    <system:String x:Key="Memory.MkdirPlaceholder">MKDIR (Folder name)</system:String>
+    <system:String x:Key="Memory.TouchPlaceholder">TOUCH (File.md)</system:String>
+    <system:String x:Key="Memory.BtnExec">[EXEC]</system:String>
+    <system:String x:Key="Memory.Path">[PATH]:</system:String>
+    <system:String x:Key="Memory.ModeEdit">[MODE: EDIT]</system:String>
+    <system:String x:Key="Memory.ModeRead">[MODE: READ]</system:String>
+    <system:String x:Key="Memory.NoFileSelected">[ NO FILE SELECTED OR CONTENT EMPTY ]</system:String>
+    <system:String x:Key="Memory.AwaitingInput">AWAITING OPERATOR INPUT...</system:String>
+    <system:String x:Key="Memory.BtnCommitWrite">[COMMIT_WRITE]</system:String>
+    <system:String x:Key="Memory.CtxView">View</system:String>
+    <system:String x:Key="Memory.CtxDelete">Delete</system:String>
+
+    <!-- Logs Tab -->
+    <system:String x:Key="Logs.Header">ATHENA.SYS // SYSTEM_EVENT_LOGS</system:String>
+    <system:String x:Key="Logs.QueryParams">&gt; QUERY_PARAMETERS</system:String>
+    <system:String x:Key="Logs.TStart">T_START:</system:String>
+    <system:String x:Key="Logs.TEnd">T_END:</system:String>
+    <system:String x:Key="Logs.Lvl">LVL:</system:String>
+    <system:String x:Key="Logs.Keyword">KEYWORD:</system:String>
+    <system:String x:Key="Logs.OptionalFilter">[OPTIONAL FILTER]</system:String>
+    <system:String x:Key="Logs.BtnQuery">[QUERY]</system:String>
+    <system:String x:Key="Logs.BtnRefresh">[REFRESH]</system:String>
+    <system:String x:Key="Logs.BtnExport">[EXPORT]</system:String>
+    <system:String x:Key="Logs.TotalEvents">TOTAL_EVENTS:</system:String>
+    <system:String x:Key="Logs.Limit">LIMIT:</system:String>
+
+    <!-- Log Levels -->
+    <system:String x:Key="Logs.Level.All">All</system:String>
+    <system:String x:Key="Logs.Level.Verbose">VERBOSE</system:String>
+    <system:String x:Key="Logs.Level.Debug">DEBUG</system:String>
+    <system:String x:Key="Logs.Level.Information">INFO</system:String>
+    <system:String x:Key="Logs.Level.Warning">WARN</system:String>
+    <system:String x:Key="Logs.Level.Error">ERROR</system:String>
+    <system:String x:Key="Logs.Level.Fatal">FATAL</system:String>
+
+    <!-- About Tab -->
+    <system:String x:Key="About.Header">ATHENA.SYS // SYSTEM_DIAGNOSTICS_&amp;_INFO</system:String>
+    <system:String x:Key="About.Subtitle">&gt; ARTIFICIAL INTELLIGENCE COMPANION MODULE</system:String>
+    <system:String x:Key="About.Specs">&gt; SYSTEM_SPECIFICATIONS:</system:String>
+    <system:String x:Key="About.KernelVer">KERNEL_VER:</system:String>
+    <system:String x:Key="About.Framework">FRAMEWORK:</system:String>
+    <system:String x:Key="About.License">LICENSE:</system:String>
+    <system:String x:Key="About.Author">AUTHOR:</system:String>
+    <system:String x:Key="About.Quote">"Wisdom begins in wonder." — Initialization Sequence 0x01</system:String>
+    <system:String x:Key="About.BtnChkUpdates">[CHK_UPDATES]</system:String>
+    <system:String x:Key="About.BtnViewDocs">[VIEW_DOCS]</system:String>
+    <system:String x:Key="About.BtnSourceRepo">[SOURCE_REPO]</system:String>
+
+    <!-- Create Task Dialog -->
+    <system:String x:Key="TaskDialog.Title">CREATE SCHEDULED TASK</system:String>
+    <system:String x:Key="TaskDialog.TriggerTime">TRIGGER TIME</system:String>
+    <system:String x:Key="TaskDialog.Date">Date:</system:String>
+    <system:String x:Key="TaskDialog.Time">Time:</system:String>
+    <system:String x:Key="TaskDialog.TaskIntent">TASK INTENT</system:String>
+    <system:String x:Key="TaskDialog.IntentHint">What should Athena say or do when this task triggers?</system:String>
+    <system:String x:Key="TaskDialog.IntentPlaceholder">e.g., Check on the user's project progress and offer help if needed</system:String>
+    <system:String x:Key="TaskDialog.Recurrence">RECURRENCE</system:String>
+    <system:String x:Key="TaskDialog.Repeat">Repeat:</system:String>
+    <system:String x:Key="TaskDialog.Preview">PREVIEW</system:String>
+    <system:String x:Key="TaskDialog.PreviewWill">Athena will</system:String>
+    <system:String x:Key="TaskDialog.PreviewTriggerAt">trigger at</system:String>
+    <system:String x:Key="TaskDialog.BtnCancel">[Cancel]</system:String>
+    <system:String x:Key="TaskDialog.BtnCreate">[Create]</system:String>
+
+    <!-- Recurrence -->
+    <system:String x:Key="Recurrence.None">none</system:String>
+    <system:String x:Key="Recurrence.Daily">daily</system:String>
+    <system:String x:Key="Recurrence.Weekly">weekly</system:String>
+    <system:String x:Key="Recurrence.NoneDisplay">once</system:String>
+    <system:String x:Key="Recurrence.DailyDisplay">daily</system:String>
+    <system:String x:Key="Recurrence.WeeklyDisplay">weekly</system:String>
+
+    <!-- Status Messages -->
+    <system:String x:Key="Status.Testing">Testing...</system:String>
+    <system:String x:Key="Status.EnterApiKey">Please enter API Key first</system:String>
+    <system:String x:Key="Status.ServiceNotInit">Service not initialized</system:String>
+    <system:String x:Key="Status.ConfigSaved">Configuration saved</system:String>
+    <system:String x:Key="Status.ConfigReset">Configuration reset</system:String>
+
+</ResourceDictionary>
