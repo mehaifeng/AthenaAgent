@@ -27,7 +27,8 @@
     <system:String x:Key="Chat.BtnRegen">[重新生成]</system:String>
     <system:String x:Key="Chat.BtnPurge">[删除]</system:String>
     <system:String x:Key="Chat.InputPlaceholder">&gt; 等待输入...</system:String>
-    <system:String x:Key="Chat.BtnExecute">[执行]</system:String>
+    <system:String x:Key="Chat.MaxContextReached">&gt; 已达到最大上下文限制</system:String>
+    <system:String x:Key="Chat.BtnExecute">[发送]</system:String>
     <system:String x:Key="Chat.RoleUser">操作员</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
 

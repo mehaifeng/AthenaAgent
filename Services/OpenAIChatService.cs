@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -92,7 +93,7 @@ public class OpenAIChatService : IChatService
 
         var contentBuilder = new StringBuilder();
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, cancellationToken))
+        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken))
         {
             yield return text;
         }
@@ -101,16 +102,14 @@ public class OpenAIChatService : IChatService
         {
             context.AddUserMessage(userMessage);
         }
-        if (contentBuilder.Length > 0)
-        {
-            context.AddAssistantMessage(contentBuilder.ToString());
-            Log.Debug("已将 AI 响应添加到上下文");
-        }
+        
+        Log.Debug("StreamMessageAsync 迭代处理完成");
     }
 
     private async IAsyncEnumerable<string> ProcessStreamAsync(
         List<OpenAI.Chat.ChatMessage> messages,
         StringBuilder contentBuilder,
+        ConversationContext context,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var iteration = 0;
@@ -212,6 +211,10 @@ public class OpenAIChatService : IChatService
 
             if (finishReason != ChatFinishReason.ToolCalls || toolCallBuilders.Count == 0)
             {
+                if (assistantContent.Length > 0)
+                {
+                    context.AddAssistantMessage(assistantContent.ToString());
+                }
                 yield break;
             }
 
@@ -223,6 +226,10 @@ public class OpenAIChatService : IChatService
 
             Log.Information("检测到 {Count} 个工具调用", toolCalls.Count);
 
+            // 保存带工具调用的助手消息到上下文
+            var toolCallsJson = JsonSerializer.Serialize(toolCalls);
+            context.AddAssistantMessage(assistantContent.ToString(), toolCallsJson);
+
             messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString()));
 
             foreach (var toolCall in toolCalls)
@@ -230,7 +237,11 @@ public class OpenAIChatService : IChatService
                 Log.Information("执行工具: {Name}", toolCall.FunctionName);
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
                 Log.Information("工具 {Name} 执行结果: {Success}", toolCall.FunctionName, result.Success);
-                messages.Add(new ToolChatMessage(toolCall.Id, result.ToJson()));
+                
+                var resultJson = result.ToJson();
+                messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
+                // 保存工具结果到上下文
+                context.AddToolMessage(resultJson, toolCall.Id);
             }
         }
 
@@ -307,10 +318,37 @@ public class OpenAIChatService : IChatService
                     messages.Add(new UserChatMessage(msg.Content));
                     break;
                 case "assistant":
-                    messages.Add(new AssistantChatMessage(msg.Content));
+                    var assistantMsg = new AssistantChatMessage(msg.Content);
+                    if (!string.IsNullOrEmpty(msg.ToolCallsJson))
+                    {
+                        try
+                        {
+                            // 使用内部定义的私有记录来兼容解析
+                            var toolCalls = JsonSerializer.Deserialize<List<ToolCallJsonInfo>>(msg.ToolCallsJson);
+                            if (toolCalls != null)
+                            {
+                                foreach (var tc in toolCalls)
+                                {
+                                    assistantMsg.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
+                                        tc.Id,
+                                        tc.FunctionName,
+                                        BinaryData.FromString(tc.Arguments)
+                                    ));
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "解析工具调用 JSON 失败");
+                        }
+                    }
+                    messages.Add(assistantMsg);
                     break;
                 case "system":
                     messages.Add(new SystemChatMessage(msg.Content));
+                    break;
+                case "tool":
+                    messages.Add(new ToolChatMessage(msg.ToolCallId ?? string.Empty, msg.Content));
                     break;
             }
         }
@@ -322,6 +360,8 @@ public class OpenAIChatService : IChatService
 
         return messages;
     }
+
+    private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);
 
     public async Task<(bool Success, string Message)> TestConnectionAsync()
     {

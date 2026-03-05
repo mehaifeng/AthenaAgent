@@ -56,6 +56,18 @@ public partial class ChatMessage : ObservableObject
     private bool _isEditing;
 
     /// <summary>
+    /// 工具调用 ID (仅用于 tool 角色消息)
+    /// </summary>
+    [ObservableProperty]
+    private string? _toolCallId;
+
+    /// <summary>
+    /// 工具调用详情 (JSON 格式，用于 assistant 角色消息)
+    /// </summary>
+    [ObservableProperty]
+    private string? _toolCallsJson;
+
+    /// <summary>
     /// 显示文本（纯内容，不带前缀）
     /// </summary>
     public string DisplayText => Content;

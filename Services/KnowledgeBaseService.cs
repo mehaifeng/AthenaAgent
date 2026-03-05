@@ -998,7 +998,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                 Success = false,
                 Message = $"未找到匹配内容（相似度: {similarity:P1}）。\n" +
                           "请确保 SEARCH 块与文件中的原始内容尽量一致。\n" +
-                          "如果内容有较大差异，请先使用 read_knowledge_file 查看当前文件内容。"
+                          "如果内容有较大差异，请先使用 read_memory_file 查看当前文件内容。"
             };
         }
 

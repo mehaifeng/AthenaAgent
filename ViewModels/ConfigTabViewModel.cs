@@ -33,11 +33,11 @@ public partial class ConfigTabViewModel : ViewModelBase
     private int _contextTokens;
 
     [ObservableProperty]
-    private int _contextTokensThreshold = 4000;
+    private int _contextTokensThreshold = 6000;
 
-    public string ContextTokensInfo => $"{ContextTokens} / {ContextTokensThreshold} tokens";
+    public string ContextTokensInfo => $"{ContextTokens} / {Config.MaxContextTokens} tokens";
 
-    public bool IsNearCompressionThreshold => ContextTokens > ContextTokensThreshold * 0.8;
+    public bool IsNearCompressionThreshold => ContextTokens > Config.MaxContextTokens * 0.8;
 
     [ObservableProperty]
     private string _compressionPreview = string.Empty;
@@ -139,12 +139,22 @@ public partial class ConfigTabViewModel : ViewModelBase
     {
         if (_configService != null)
         {
+            // 确保压缩阈值不超过最大上下文
+            if (Config.CompressionThreshold > Config.MaxContextTokens)
+            {
+                Config.CompressionThreshold = Config.MaxContextTokens;
+                ContextTokensThreshold = Config.CompressionThreshold;
+                _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
+            }
+
             await _configService.SaveAsync(Config);
             _chatService?.UpdateConfig(Config);
             if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
             if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
         }
         _logger.Information("配置已保存");
+        OnPropertyChanged(nameof(ContextTokensInfo));
+        OnPropertyChanged(nameof(IsNearCompressionThreshold));
         SaveRequested?.Invoke(this, EventArgs.Empty);
     }
 
