@@ -13,14 +13,24 @@ public enum PromptType
     MainPersona,
 
     /// <summary>
-    /// 对话摘要生成
+    /// 对话摘要生成 (系统提示词)
     /// </summary>
     SummaryGeneration,
 
     /// <summary>
-    /// 上下文压缩
+    /// 对话摘要生成指令 (用户引导)
+    /// </summary>
+    SummaryInstruction,
+
+    /// <summary>
+    /// 上下文压缩 (系统提示词)
     /// </summary>
     ContextCompression,
+
+    /// <summary>
+    /// 上下文压缩策略 (用户引导，含工具汇总)
+    /// </summary>
+    ContextCompressionStrategy,
 
     /// <summary>
     /// 主动消息生成
@@ -80,9 +90,21 @@ public static class PromptTemplates
     public const string SummaryGeneration = "Provide a one-sentence, punchy summary of the core topic of this conversation.";
 
     /// <summary>
+    /// 对话摘要指令
+    /// </summary>
+    public const string SummaryInstruction = "Please provide a very concise summary of the conversation above in a single sentence (no more than 20 words). The summary should be in the same language as the conversation.";
+
+    /// <summary>
     /// 上下文压缩
     /// </summary>
     public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler.";
+
+    /// <summary>
+    /// 上下文压缩策略 (含工具汇总)
+    /// </summary>
+    public const string ContextCompressionStrategy = @"Please compress the following conversation history into a concise summary, retaining key information and important details.
+Crucially, if the history contains tool calls (assistant calls a tool and gets a result), do NOT list them separately. 
+Instead, summarize them as a single logical event, e.g., 'The AI used the [ToolName] to retrieve [Key Information].'";
 
     /// <summary>
     /// 主动消息生成模板
@@ -104,7 +126,10 @@ public static class PromptTemplates
     {
         PromptType.MainPersona => MainPersona,
         PromptType.SummaryGeneration => SummaryGeneration,
+        PromptType.SummaryInstruction => SummaryInstruction,
         PromptType.ContextCompression => ContextCompression,
+        PromptType.ContextCompressionStrategy => ContextCompressionStrategy,
+        PromptType.ProactiveMessage => ProactiveMessageTemplate,
         _ => string.Empty
     };
 

@@ -33,13 +33,13 @@ public partial class AppConfig : ObservableObject
     private string _apiKey = string.Empty;
 
     [ObservableProperty]
-    private string _model = "gpt-4-turbo";
+    private string _model = "gpt-5-mini";
 
     [ObservableProperty]
     private double _temperature = 0.7;
 
     [ObservableProperty]
-    private int _maxTokens = 2000;
+    private int _maxTokens = 8000;
 
     [ObservableProperty]
     private double _topP = 1.0;
@@ -61,7 +61,7 @@ public partial class AppConfig : ObservableObject
     private string _secondaryApiKey = string.Empty;
 
     [ObservableProperty]
-    private string _secondaryModel = "gpt-3.5-turbo";
+    private string _secondaryModel = "gpt-4.1-mini";
 
     [ObservableProperty]
     private double _secondaryTemperature = 0.3;
@@ -84,7 +84,7 @@ public partial class AppConfig : ObservableObject
 
     // 记忆配置
     [ObservableProperty]
-    private int _maxContextTokens = 8000;
+    private int _maxContextTokens = 128000;
 
     [ObservableProperty]
     private int _compressionThreshold = 6000;

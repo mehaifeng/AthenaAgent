@@ -222,7 +222,7 @@
                                 <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="128000" Increment="1000" HorizontalAlignment="Stretch"/>
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemCompThresh}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.CompressionThreshold}" Minimum="500" Maximum="128000" Increment="500" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.CompressionThreshold}" Minimum="500" Maximum="128000" Increment="500" Margin="0,8,0,0" HorizontalAlignment="Stretch" IsEnabled="{Binding Config.AutoCompress}"/>
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.MemAutoComp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
                                 <CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.AutoCompress}" Margin="0,8,0,0"/>
