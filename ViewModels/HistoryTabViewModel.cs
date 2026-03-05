@@ -45,6 +45,11 @@ public partial class HistoryTabViewModel : ViewModelBase
     public event EventHandler<ConversationHistoryItem>? LoadHistoryRequested;
 
     /// <summary>
+    /// 历史对话已删除事件
+    /// </summary>
+    public event EventHandler<string>? HistoryDeleted;
+
+    /// <summary>
     /// 构造函数
     /// </summary>
     public HistoryTabViewModel(IConversationHistoryService historyService)
@@ -105,7 +110,8 @@ public partial class HistoryTabViewModel : ViewModelBase
 
         try
         {
-            await _historyService.DeleteAsync(item.Id);
+            var id = item.Id;
+            await _historyService.DeleteAsync(id);
             HistoryItems.Remove(item);
 
             if (SelectedItem == item)
@@ -114,7 +120,8 @@ public partial class HistoryTabViewModel : ViewModelBase
                 OnPropertyChanged(nameof(HasSelectedItem));
             }
 
-            Log.Information("删除历史条目: {Id}", item.Id);
+            Log.Information("删除历史条目: {Id}", id);
+            HistoryDeleted?.Invoke(this, id);
         }
         catch (Exception ex)
         {

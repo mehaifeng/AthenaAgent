@@ -81,12 +81,37 @@ public partial class ChatTabViewModel : ViewModelBase
     /// <summary>
     /// 上下文 tokens 使用率文本
     /// </summary>
-    public string ContextTokensInfo => $"{ContextTokens} / {ContextTokensThreshold} tokens";
+    public string ContextTokensInfo => $"{ContextTokens} / {MaxContextTokens} tokens";
 
     /// <summary>
     /// 是否接近压缩阈值（超过 80%）
     /// </summary>
-    public bool IsNearCompressionThreshold => ContextTokens > ContextTokensThreshold * 0.8;
+    public bool IsNearCompressionThreshold => ContextTokens > MaxContextTokens * 0.8;
+
+    /// <summary>
+    /// 最大上下文限制
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
+    [NotifyPropertyChangedFor(nameof(IsNearCompressionThreshold))]
+    [NotifyPropertyChangedFor(nameof(InputPlaceholder))]
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
+    private int _maxContextTokens = 8000;
+
+    /// <summary>
+    /// 是否自动压缩
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(InputPlaceholder))]
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
+    private bool _autoCompress = true;
+
+    /// <summary>
+    /// 输入框占位符
+    /// </summary>
+    public string InputPlaceholder => (ContextTokens >= MaxContextTokens && !AutoCompress) 
+        ? "Chat.MaxContextReached" 
+        : "Chat.InputPlaceholder";
 
     /// <summary>
     /// 压缩预览文本
@@ -176,6 +201,12 @@ public partial class ChatTabViewModel : ViewModelBase
         InitializeAsync().ConfigureAwait(false);
     }
 
+    public async Task RefreshSettingsAsync()
+    {
+        await LoadSettingsAsync();
+        UpdateContextTokensDisplay();
+    }
+
     private async Task InitializeAsync()
     {
         await LoadSettingsAsync();
@@ -190,6 +221,8 @@ public partial class ChatTabViewModel : ViewModelBase
             ShowHeartbeatButton = config.ShowHeartbeatButton;
             CurrentTheme = config.Theme;
             ContextTokensThreshold = config.CompressionThreshold;
+            MaxContextTokens = config.MaxContextTokens;
+            AutoCompress = config.AutoCompress;
         }
     }
 
@@ -198,7 +231,7 @@ public partial class ChatTabViewModel : ViewModelBase
     /// <summary>
     /// 发送消息命令
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSendMessage))]
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText) || IsSending)
@@ -226,13 +259,9 @@ public partial class ChatTabViewModel : ViewModelBase
         Messages.Add(userMessage);
 
         // 检查是否需要自动压缩上下文
-        if (_configService != null)
+        if (AutoCompress && ConversationContext.NeedsCompression(ContextTokensThreshold))
         {
-            var config = await _configService.LoadAsync();
-            if (config.AutoCompress && ConversationContext.NeedsCompression(config.CompressionThreshold))
-            {
-                await CompressContextAsync();
-            }
+            await CompressContextAsync();
         }
 
         // 构建带时间戳的消息用于发送给 AI
@@ -242,6 +271,14 @@ public partial class ChatTabViewModel : ViewModelBase
             """;
 
         await GetAiResponseAsync(enrichedContent);
+    }
+
+    private bool CanSendMessage()
+    {
+        if (IsSending) return false;
+        // 如果达到最大上下文且未开启自动压缩，则禁止发送
+        if (ContextTokens >= MaxContextTokens && !AutoCompress) return false;
+        return true;
     }
 
     private async Task GetAiResponseAsync(string userMessageContent)
@@ -323,7 +360,7 @@ public partial class ChatTabViewModel : ViewModelBase
         await Task.CompletedTask;
     }
 
-    [RelayCommand(CanExecute = nameof(CanEditOrDelete))]
+    [RelayCommand(CanExecute = nameof(CanEditOrDelete))] 
     private void StartInlineEdit(ChatMessage? message)
     {
         if (message == null) return;
@@ -443,7 +480,6 @@ public partial class ChatTabViewModel : ViewModelBase
         Messages.Clear();
         ConversationContext.Clear();
         CurrentConversationId = string.Empty;
-        AddSystemMessage("新对话已开始。请问有什么可以帮助您的？");
         UpdateContextTokensDisplay();
     }
 
@@ -471,7 +507,16 @@ public partial class ChatTabViewModel : ViewModelBase
             if (allMessages.Count <= keepRecentCount) return;
 
             var recentMessages = allMessages.TakeLast(keepRecentCount).ToList();
-            var chatMessages = allMessages.Select(m => new ChatMessage { Role = m.Role, Content = m.Content }).ToList();
+            
+            // 将 ContextMessage 转换为 ChatMessage 供压缩服务使用
+            var chatMessages = allMessages.Select(m => new ChatMessage 
+            { 
+                Role = m.Role, 
+                Content = m.Content,
+                ToolCallId = m.ToolCallId,
+                ToolCallsJson = m.ToolCallsJson
+            }).ToList();
+            
             var summary = await _historyService.CompressContextAsync(chatMessages, keepRecentCount);
 
             ConversationContext.Clear();
@@ -479,7 +524,9 @@ public partial class ChatTabViewModel : ViewModelBase
             foreach (var msg in recentMessages)
             {
                 if (msg.Role == "user") ConversationContext.AddUserMessage(msg.Content);
-                else if (msg.Role == "assistant") ConversationContext.AddAssistantMessage(msg.Content);
+                else if (msg.Role == "assistant") ConversationContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson);
+                else if (msg.Role == "system") ConversationContext.AddSystemMessage(msg.Content);
+                else if (msg.Role == "tool") ConversationContext.AddToolMessage(msg.Content, msg.ToolCallId);
             }
             UpdateContextTokensDisplay();
         }
@@ -508,6 +555,8 @@ public partial class ChatTabViewModel : ViewModelBase
         OnPropertyChanged(nameof(ContextTokensInfo));
         OnPropertyChanged(nameof(IsNearCompressionThreshold));
         OnPropertyChanged(nameof(CompressionPreview));
+        OnPropertyChanged(nameof(InputPlaceholder));
+        SendMessageCommand.NotifyCanExecuteChanged();
     }
 
     private void UpdateConversationContext()
@@ -516,7 +565,9 @@ public partial class ChatTabViewModel : ViewModelBase
         foreach (var msg in Messages)
         {
             if (msg.Role == "user") ConversationContext.AddUserMessage(msg.Content);
-            else if (msg.Role == "assistant") ConversationContext.AddAssistantMessage(msg.Content);
+            else if (msg.Role == "assistant") ConversationContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson);
+            else if (msg.Role == "system") ConversationContext.AddSystemMessage(msg.Content);
+            else if (msg.Role == "tool") ConversationContext.AddToolMessage(msg.Content, msg.ToolCallId);
         }
     }
 
@@ -549,6 +600,20 @@ public partial class ChatTabViewModel : ViewModelBase
         
         AddSystemMessage($"已加载对话: {item.Summary}");
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 当历史记录被删除时调用
+    /// </summary>
+    /// <param name="id">被删除的对话 ID</param>
+    public void NotifyHistoryDeleted(string id)
+    {
+        if (CurrentConversationId == id)
+        {
+            _logger.Information("当前加载的对话已在历史记录中删除: {Id}", id);
+            // 重置哈希值，确保下次保存时会重新创建或作为新对话处理
+            _loadedMessagesHash = string.Empty;
+        }
     }
 
     private async Task LoadLatestHistoryAsync()
@@ -587,7 +652,8 @@ public partial class ChatTabViewModel : ViewModelBase
         if (_historyService == null || Messages.Count == 0) return;
         try
         {
-            var messagesToSave = Messages.Where(m => m.Role == "user" || m.Role == "assistant").ToList();
+            // 保存所有有效消息，包括 system 和 tool
+            var messagesToSave = Messages.ToList();
             if (messagesToSave.Count == 0) return;
             var currentHash = ComputeMessagesHash(messagesToSave);
             var forceGenerateSummary = currentHash != _loadedMessagesHash;

@@ -103,14 +103,24 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             _historyTabViewModel = new HistoryTabViewModel(historyService);
             _historyTabViewModel.LoadHistoryRequested += OnLoadHistoryRequested;
+            _historyTabViewModel.HistoryDeleted += OnHistoryDeleted;
         }
 
         // Wire up events
         _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
-        _configTabViewModel.SaveRequested += (s, e) => SelectedTabIndex = 0;
+        _configTabViewModel.SaveRequested += async (s, e) => 
+        {
+            await _chatTabViewModel.RefreshSettingsAsync();
+            SelectedTabIndex = 0;
+        };
         _configTabViewModel.ResetRequested += (s, e) => { /* Handle reset if needed */ };
 
         _logger.Information("MainWindowViewModel 初始化完成");
+    }
+
+    private void OnHistoryDeleted(object? sender, string id)
+    {
+        ChatTabViewModel.NotifyHistoryDeleted(id);
     }
 
     private async void OnLoadHistoryRequested(object? sender, ConversationHistoryItem item)

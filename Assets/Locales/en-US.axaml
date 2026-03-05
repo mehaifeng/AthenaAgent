@@ -27,6 +27,7 @@
     <system:String x:Key="Chat.BtnRegen">[REGEN]</system:String>
     <system:String x:Key="Chat.BtnPurge">[PURGE]</system:String>
     <system:String x:Key="Chat.InputPlaceholder">&gt; AWAITING_INPUT...</system:String>
+    <system:String x:Key="Chat.MaxContextReached">&gt; MAX_CONTEXT_LIMIT_REACHED</system:String>
     <system:String x:Key="Chat.BtnExecute">[EXECUTE]</system:String>
     <system:String x:Key="Chat.RoleUser">OPERATOR</system:String>
     <system:String x:Key="Chat.RoleAssistant">ATHENA</system:String>

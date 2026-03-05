@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Athena.UI.Services.Interfaces;
 using System;
 using System.Globalization;
 
@@ -68,4 +69,19 @@ public class RoleToTextBrushConverter : IValueConverter
         return isUser ? Application.Current!.FindResource("DosHighlightBrush")! : Application.Current!.FindResource("DosForegroundBrush")!;
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class LocConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is string key && !string.IsNullOrEmpty(key))
+        {
+            var localizationService = App.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
+            return localizationService?.GetString(key, key) ?? key;
+        }
+        return value;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }

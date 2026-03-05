@@ -202,10 +202,7 @@ public class ConversationHistoryService : IConversationHistoryService
 
     private async Task<string> GenerateSummaryAsync(List<Models.ChatMessage> messages, bool useAi)
     {
-        // 过滤出用户消息
-        var userMessages = messages.Where(m => m.Role == "user").ToList();
-
-        if (userMessages.Count == 0)
+        if (messages == null || messages.Count == 0)
         {
             return "空对话";
         }
@@ -215,20 +212,37 @@ public class ConversationHistoryService : IConversationHistoryService
         {
             try
             {
-                var firstUserMessage = userMessages.First().Content;
-                var prompt = $"请用一句话（不超过30个字）概括这个对话的主题：\n\n{firstUserMessage}";
+                // 截取最后 50 轮对话（约 100 条消息）作为上下文
+                var contextMessages = messages.Skip(Math.Max(0, messages.Count - 100)).ToList();
+                
+                var openAiMessages = new List<OpenAI.Chat.ChatMessage>();
+                
+                // 添加系统提示词
+                openAiMessages.Add(new SystemChatMessage(_promptService.GetPrompt(PromptType.SummaryGeneration)));
 
-                var openAiMessages = new List<OpenAI.Chat.ChatMessage>
+                // 将历史消息转换为 OpenAI 消息格式
+                foreach (var msg in contextMessages)
                 {
-                    new SystemChatMessage(_promptService.GetPrompt(PromptType.SummaryGeneration)),
-                    new UserChatMessage(prompt)
-                };
+                    if (msg.Role?.ToLower() == "user")
+                    {
+                        openAiMessages.Add(new UserChatMessage(msg.Content));
+                    }
+                    else if (msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai")
+                    {
+                        openAiMessages.Add(new AssistantChatMessage(msg.Content));
+                    }
+                }
+
+                // 添加总结引导词
+                openAiMessages.Add(new UserChatMessage(_promptService.GetPrompt(PromptType.SummaryInstruction)));
 
                 var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
                 var summary = completion.Value.Content[0].Text?.Trim();
 
-                if (!string.IsNullOrEmpty(summary) && summary.Length <= 50)
+                if (!string.IsNullOrEmpty(summary))
                 {
+                    // 清理可能出现的首尾标点或引号
+                    summary = summary.Trim('\"', '\'', ' ', '。', '.');
                     return summary;
                 }
             }
@@ -239,12 +253,17 @@ public class ConversationHistoryService : IConversationHistoryService
         }
 
         // 默认方式：取第一条用户消息的前 30 个字符
-        var content = userMessages.First().Content;
-        if (content.Length <= 30)
+        var firstUserMessage = messages.FirstOrDefault(m => m.Role?.ToLower() == "user")?.Content;
+        if (string.IsNullOrEmpty(firstUserMessage))
         {
-            return content;
+            return "新对话";
         }
-        return content.Substring(0, 30) + "...";
+        
+        if (firstUserMessage.Length <= 30)
+        {
+            return firstUserMessage;
+        }
+        return firstUserMessage.Substring(0, 30) + "...";
     }
 
     public async Task<Models.ConversationHistoryItem?> LoadByIdAsync(string id)
@@ -286,15 +305,24 @@ public class ConversationHistoryService : IConversationHistoryService
 
         try
         {
-            // 构建摘要请求
-            var summaryPrompt = @"请将以下对话历史压缩为简洁的摘要，保留关键信息和重要细节：
-
-" + string.Join("\n", olderMessages.Select(m => $"[{m.Role}]: {m.Content}"));
+            // 构建摘要请求，特别强调对工具调用的总结
+            var summaryPrompt = _promptService.GetPrompt(PromptType.ContextCompressionStrategy) + "\n\n" +
+                string.Join("\n", olderMessages.Select(m => 
+                {
+                    if (m.Role == "tool")
+                    {
+                        return $"[tool result (ID: {m.ToolCallId})]: {m.Content}";
+                    }
+                    if (m.Role == "assistant" && !string.IsNullOrEmpty(m.ToolCallsJson))
+                    {
+                        return $"[assistant calling tool]: {m.ToolCallsJson}\n{m.Content}";
+                    }
+                    return $"[{m.Role}]: {m.Content}";
+                }));
 
             var openAiMessages = new List<OpenAI.Chat.ChatMessage>
             {
-                new SystemChatMessage(_promptService.GetPrompt(PromptType.ContextCompression)
-                    ?? "你是一个对话摘要助手。请将对话历史压缩为简洁的摘要，保留关键信息。"),
+                new SystemChatMessage(_promptService.GetPrompt(PromptType.ContextCompression)),
                 new UserChatMessage(summaryPrompt)
             };
 

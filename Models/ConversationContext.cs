@@ -36,12 +36,26 @@ public class ConversationContext
     /// <summary>
     /// 添加助手消息
     /// </summary>
-    public void AddAssistantMessage(string content)
+    public void AddAssistantMessage(string content, string? toolCallsJson = null)
     {
         _messages.Add(new ContextMessage
         {
             Role = "assistant",
-            Content = content
+            Content = content,
+            ToolCallsJson = toolCallsJson
+        });
+    }
+
+    /// <summary>
+    /// 添加工具消息
+    /// </summary>
+    public void AddToolMessage(string content, string? toolCallId = null)
+    {
+        _messages.Add(new ContextMessage
+        {
+            Role = "tool",
+            Content = content,
+            ToolCallId = toolCallId
         });
     }
 
@@ -138,4 +152,6 @@ public class ContextMessage
 {
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public string? ToolCallId { get; set; }
+    public string? ToolCallsJson { get; set; }
 }

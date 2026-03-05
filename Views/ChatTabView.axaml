@@ -146,7 +146,7 @@
 
                     <TextBox Grid.Column="1"
                              Text="{Binding InputText}"
-                             Watermark="{loc:Loc Chat.InputPlaceholder}"
+                             Watermark="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
                              VerticalContentAlignment="Center"
@@ -158,7 +158,6 @@
                     <Button Grid.Column="2"
                             Content="{loc:Loc Chat.BtnExecute}"
                             Command="{Binding SendMessageCommand}"
-                            IsEnabled="{Binding !IsSending}"
                             Margin="12,0,0,0"
                             Classes="primary"
                             Padding="20,8"/>

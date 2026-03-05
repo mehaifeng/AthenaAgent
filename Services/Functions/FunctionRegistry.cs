@@ -100,7 +100,7 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "query" }
             });
 
-        RegisterFunction("review_memory_fragment", knowledgeFunctions.ReadKnowledgeFile,
+        RegisterFunction("read_memory_file", knowledgeFunctions.ReadKnowledgeFile,
             "Reads a memory file in full. Use this when search results are insufficient and you need the complete context of a specific file.",
             new
             {
@@ -109,7 +109,7 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "filePath" }
             });
 
-        RegisterFunction("forget_memory_fragment", knowledgeFunctions.DeleteKnowledgeFile,
+        RegisterFunction("delete_memory_file", knowledgeFunctions.DeleteKnowledgeFile,
             "Deletes a memory file permanently. Use only when the user explicitly requests to forget something. This is irreversible.",
             new
             {
