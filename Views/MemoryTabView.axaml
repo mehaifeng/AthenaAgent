@@ -13,31 +13,31 @@
         <vm:MemoryTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
             Margin="4"
-            Background="{DynamicResource DosBackgroundBrush}">
+            >
 
         <Grid RowDefinitions="Auto,*,Auto">
 
             <!-- HEADER BAR -->
             <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
                     Padding="12,6"
-                    Background="{DynamicResource DosInputBackgroundBrush}">
+                    >
                 <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
                     <TextBlock Grid.Column="0"
                                Text="{loc:Loc Memory.Header}"
                                FontWeight="Bold"
-                               Foreground="{DynamicResource DosHighlightBrush}"
+                               Foreground="{DynamicResource Brush.Yellow}"
                                FontSize="14"
                                VerticalAlignment="Center"/>
 
-                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnRefresh}" Command="{Binding RefreshKnowledgeBaseCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="2" Content="{loc:Loc Memory.BtnImport}" Command="{Binding ImportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="3" Content="{loc:Loc Memory.BtnExport}" Command="{Binding ExportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="4" Content="{loc:Loc Memory.BtnDelete}" Command="{Binding DeleteFileCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosErrorBrush}" Padding="8,2"/>
+                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnRefresh}" Command="{Binding RefreshKnowledgeBaseCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Content="{loc:Loc Memory.BtnImport}" Command="{Binding ImportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="3" Content="{loc:Loc Memory.BtnExport}" Command="{Binding ExportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="4" Content="{loc:Loc Memory.BtnDelete}" Command="{Binding DeleteFileCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Red}" Padding="8,2"/>
                 </Grid>
             </Border>
 
@@ -46,13 +46,13 @@
 
                 <!-- LEFT PANEL: DIRECTORY -->
                 <Border Grid.Column="0"
-                        BorderBrush="{DynamicResource DosBorderBrush}"
+                        BorderBrush="{DynamicResource Brush.BrightGreen}"
                         BorderThickness="1"
                         Margin="0,0,8,0">
                     <Grid RowDefinitions="Auto,*,Auto">
                         <!-- Panel Header -->
-                        <Border Grid.Row="0" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
-                            <TextBlock Text="{loc:Loc Memory.DirectoryStructure}" FontWeight="Bold" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12"/>
+                        <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,0,0,1" Padding="8,4" >
+                            <TextBlock Text="{loc:Loc Memory.DirectoryStructure}" FontWeight="Bold" Foreground="{DynamicResource Brush.Green}" FontSize="12"/>
                         </Border>
 
                         <!-- Tree View -->
@@ -63,7 +63,7 @@
                                  Padding="8">
                             <TreeView.ItemTemplate>
                                 <TreeDataTemplate ItemsSource="{Binding Children}">
-                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource DosForegroundBrush}"/>
+                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Brush.BrightGreen}"/>
                                 </TreeDataTemplate>
                             </TreeView.ItemTemplate>
                             <TreeView.Styles>
@@ -80,15 +80,15 @@
                         </TreeView>
 
                         <!-- File/Folder Creation -->
-                        <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,1,0,0" Padding="8" Background="{DynamicResource DosInputBackgroundBrush}">
+                        <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,1,0,0" Padding="8" >
                             <Grid RowDefinitions="Auto,Auto">
                                 <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                                    <TextBox Text="{Binding NewFolderName}" Watermark="{loc:Loc Memory.MkdirPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosForegroundBrush}" Padding="0,2"/>
-                                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnExec}" Command="{Binding NewFolderCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                    <TextBox Text="{Binding NewFolderName}" Watermark="{loc:Loc Memory.MkdirPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.BrightGreen}" Padding="0,2"/>
+                                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnExec}" Command="{Binding NewFolderCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}"/>
                                 </Grid>
                                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
-                                    <TextBox Text="{Binding NewFileName}" Watermark="{loc:Loc Memory.TouchPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosForegroundBrush}" Padding="0,2"/>
-                                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnExec}" Command="{Binding NewFileCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                    <TextBox Text="{Binding NewFileName}" Watermark="{loc:Loc Memory.TouchPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.BrightGreen}" Padding="0,2"/>
+                                    <Button Grid.Column="1" Content="{loc:Loc Memory.BtnExec}" Command="{Binding NewFileCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}"/>
                                 </Grid>
                             </Grid>
                         </Border>
@@ -97,20 +97,20 @@
 
                 <!-- RIGHT PANEL: FILE INSPECTOR -->
                 <Border Grid.Column="1"
-                        BorderBrush="{DynamicResource DosBorderBrush}"
+                        BorderBrush="{DynamicResource Brush.BrightGreen}"
                         BorderThickness="1"
                         Margin="8,0,0,0">
                     <Grid RowDefinitions="Auto,*">
 
                         <!-- Panel Header -->
-                        <Border Grid.Row="0" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,0,0,1" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
+                        <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,0,0,1" Padding="8,4" >
                             <Grid ColumnDefinitions="*,Auto">
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{loc:Loc Memory.Path}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource DosHighlightBrush}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
+                                    <TextBlock Text="{loc:Loc Memory.Path}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
                                 </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{loc:Loc Memory.ModeEdit}" IsVisible="{Binding IsEditingFile}" Foreground="{DynamicResource DosHighlightBrush}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="{loc:Loc Memory.ModeRead}" IsVisible="{Binding !IsEditingFile}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{loc:Loc Memory.ModeEdit}" IsVisible="{Binding IsEditingFile}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{loc:Loc Memory.ModeRead}" IsVisible="{Binding !IsEditingFile}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
 
@@ -123,20 +123,20 @@
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Padding="12"
-                                Foreground="{DynamicResource DosForegroundBrush}"
+                                Foreground="{DynamicResource Brush.BrightGreen}"
                                 Watermark="{loc:Loc Memory.NoFileSelected}"/>
                     </Grid>
                 </Border>
             </Grid>
 
             <!-- FOOTER BAR (ACTIONS) -->
-            <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,1,0,0" Padding="12,8" Margin="12,12,12,12" Background="{DynamicResource DosInputBackgroundBrush}">
+            <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,1,0,0" Padding="12,8" Margin="12,12,12,12" >
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="{loc:Loc Memory.AwaitingInput}" Foreground="{DynamicResource DosSecondaryBrush}" VerticalAlignment="Center" FontSize="11"/>
+                    <TextBlock Grid.Column="0" Text="{loc:Loc Memory.AwaitingInput}" Foreground="{DynamicResource Brush.Green}" VerticalAlignment="Center" FontSize="11"/>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditingFile}">
-                        <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding CancelEditCommand}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource DosSecondaryBrush}" Padding="12,4"/>
-                        <Button Content="{loc:Loc Memory.BtnCommitWrite}" Command="{Binding SaveFileCommand}" Background="Transparent" BorderBrush="{DynamicResource DosHighlightBrush}" BorderThickness="1" Foreground="{DynamicResource DosHighlightBrush}" Padding="12,4"/>
+                        <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding CancelEditCommand}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Brush.Green}" Padding="12,4"/>
+                        <Button Content="{loc:Loc Memory.BtnCommitWrite}" Command="{Binding SaveFileCommand}" Background="Transparent" BorderBrush="{DynamicResource Brush.Yellow}" BorderThickness="1" Foreground="{DynamicResource Brush.Yellow}" Padding="12,4"/>
                     </StackPanel>
                 </Grid>
             </Border>

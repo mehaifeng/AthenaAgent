@@ -13,22 +13,22 @@
         <vm:AboutTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
             Margin="4"
-            Background="{DynamicResource DosBackgroundBrush}">
+            >
 
         <Grid RowDefinitions="Auto,*">
 
             <!-- HEADER BAR -->
             <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
                     Padding="12,6"
-                    Background="{DynamicResource DosInputBackgroundBrush}">
+                    >
                 <TextBlock Text="{loc:Loc About.Header}"
                            FontWeight="Bold"
-                           Foreground="{DynamicResource DosHighlightBrush}"
+                           Foreground="{DynamicResource Brush.Yellow}"
                            FontSize="14"/>
             </Border>
 
@@ -36,64 +36,64 @@
                 <StackPanel Spacing="24" HorizontalAlignment="Center">
 
                     <!-- SYSTEM LOGO BLOCK -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="24"
-                            Background="{DynamicResource DosInputBackgroundBrush}">
+                            >
                         <StackPanel Spacing="16">
                             <TextBlock Text="  ___ _____ _  _ ___ _  _   _    &#x0a; / _ \_   _| || | __| \| | /_\   &#x0a;|  _  || | | __ | _|| .` |/ _ \  &#x0a;|_| |_||_| |_||_|___|_|\_/_/ \_\ "
                                        FontFamily="{DynamicResource MonospaceFontFamily}"
                                        FontSize="16"
                                        FontWeight="Bold"
                                        HorizontalAlignment="Center"
-                                       Foreground="{DynamicResource DosHighlightBrush}"
+                                       Foreground="{DynamicResource Brush.Yellow}"
                                        LineHeight="20"/>
 
-                            <Border Height="1" Background="{DynamicResource DosBorderBrush}" Opacity="0.5"/>
+                            <Border Height="1" Background="{DynamicResource Brush.BrightGreen}" Opacity="0.5"/>
 
                             <TextBlock Text="{loc:Loc About.Subtitle}"
                                        FontSize="12"
                                        HorizontalAlignment="Center"
-                                       Foreground="{DynamicResource DosForegroundBrush}"/>
+                                       Foreground="{DynamicResource Brush.BrightGreen}"/>
                         </StackPanel>
                     </Border>
 
                     <!-- SPECIFICATIONS BLOCK -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="16"
                             HorizontalAlignment="Stretch">
                         <StackPanel Spacing="12">
                             <TextBlock Text="{loc:Loc About.Specs}"
-                                       Foreground="{DynamicResource DosSecondaryBrush}"
+                                       Foreground="{DynamicResource Brush.Green}"
                                        FontWeight="Bold"/>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="12,0,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc About.KernelVer}" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="v1.0.0-STABLE" Foreground="{DynamicResource DosHighlightBrush}" FontWeight="Bold"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc About.KernelVer}" Foreground="{DynamicResource Brush.Green}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="v1.0.0-STABLE" Foreground="{DynamicResource Brush.Yellow}" FontWeight="Bold"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.Framework}" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,8,0,0"/>
-                                <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET CORE / AVALONIA UI" Foreground="{DynamicResource DosForegroundBrush}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.Framework}" Foreground="{DynamicResource Brush.Green}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET CORE / AVALONIA UI" Foreground="{DynamicResource Brush.BrightGreen}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.License}" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,8,0,0"/>
-                                <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT (OPEN_SOURCE)" Foreground="{DynamicResource DosForegroundBrush}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.License}" Foreground="{DynamicResource Brush.Green}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT (OPEN_SOURCE)" Foreground="{DynamicResource Brush.BrightGreen}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc About.Author}" Foreground="{DynamicResource DosSecondaryBrush}" Margin="0,8,0,0"/>
-                                <TextBlock Grid.Row="3" Grid.Column="1" Text="2024 (C) PROJECT_ATHENA" Foreground="{DynamicResource DosForegroundBrush}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc About.Author}" Foreground="{DynamicResource Brush.Green}" Margin="0,8,0,0"/>
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="2024 (C) PROJECT_ATHENA" Foreground="{DynamicResource Brush.BrightGreen}" Margin="0,8,0,0"/>
                             </Grid>
                         </StackPanel>
                     </Border>
 
                     <!-- QUOTE / LORE BLOCK -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12"
-                            Background="{DynamicResource DosInputBackgroundBrush}">
+                            >
                         <TextBlock Text="{loc:Loc About.Quote}"
                                    FontStyle="Italic"
                                    FontSize="11"
                                    HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                   Foreground="{DynamicResource Brush.Green}"/>
                     </Border>
 
                     <!-- ACTION BUTTONS -->
@@ -104,20 +104,20 @@
                         <Button Content="{loc:Loc About.BtnChkUpdates}"
                                 Command="{Binding CheckForUpdatesCommand}"
                                 BorderThickness="1"
-                                BorderBrush="{DynamicResource DosHighlightBrush}"
-                                Foreground="{DynamicResource DosHighlightBrush}"
+                                BorderBrush="{DynamicResource Brush.Yellow}"
+                                Foreground="{DynamicResource Brush.Yellow}"
                                 Background="Transparent"
                                 Padding="16,8"/>
                         <Button Content="{loc:Loc About.BtnViewDocs}"
                                 Command="{Binding OpenDocumentationCommand}"
                                 BorderThickness="1"
-                                BorderBrush="{DynamicResource DosBorderBrush}"
+                                BorderBrush="{DynamicResource Brush.BrightGreen}"
                                 Background="Transparent"
                                 Padding="16,8"/>
                         <Button Content="{loc:Loc About.BtnSourceRepo}"
                                 Command="{Binding OpenGitHubCommand}"
                                 BorderThickness="1"
-                                BorderBrush="{DynamicResource DosBorderBrush}"
+                                BorderBrush="{DynamicResource Brush.BrightGreen}"
                                 Background="Transparent"
                                 Padding="16,8"/>
                     </StackPanel>

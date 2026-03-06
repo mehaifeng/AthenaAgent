@@ -300,7 +300,24 @@ public partial class ChatTabViewModel : ViewModelBase
             await foreach (var chunk in _chatService!.StreamMessageAsync(
                 userMessageContent,
                 ConversationContext,
-                _cancellationTokenSource.Token))
+                _cancellationTokenSource.Token,
+                msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+                {
+                    // 在添加新产生的消息之前，先确保移除当前正在 Loading 的占位消息（如果有的话）
+                    // 或者更精确地处理：如果是中间产生的助手消息（带 tool_calls），则替换掉当前的 aiMessage
+                    if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
+                    {
+                        aiMessage.Content = msg.Content;
+                        aiMessage.ToolCallsJson = msg.ToolCallsJson;
+                        aiMessage.IsLoading = false;
+                    }
+                    else if (msg.Role == "tool")
+                    {
+                        // 插入到当前消息之前
+                        var index = Messages.IndexOf(aiMessage);
+                        Messages.Insert(index >= 0 ? index : Messages.Count, msg);
+                    }
+                })))
             {
                 if (isFirstChunk && !string.IsNullOrEmpty(chunk))
                 {
@@ -588,15 +605,20 @@ public partial class ChatTabViewModel : ViewModelBase
         // 如果有当前对话且未保存，可以考虑先保存（由调用者决定或自动）
         // 这里直接加载覆盖
         Messages.Clear();
+        int toolMessageCount = 0;
         foreach (var msg in item.Messages)
         {
             Messages.Add(msg);
+            if (msg.Role == "tool" || !string.IsNullOrEmpty(msg.ToolCallsJson)) toolMessageCount++;
         }
         
         CurrentConversationId = item.Id;
         _loadedMessagesHash = ComputeMessagesHash(item.Messages.ToList());
         UpdateConversationContext();
         UpdateContextTokensDisplay();
+        
+        _logger.Information("已加载历史对话: {Id} | 摘要: {Summary} | 包含 {ToolCount} 条工具相关消息", 
+            item.Id, item.Summary, toolMessageCount);
         
         AddSystemMessage($"已加载对话: {item.Summary}");
         await Task.CompletedTask;
@@ -655,6 +677,8 @@ public partial class ChatTabViewModel : ViewModelBase
             // 保存所有有效消息，包括 system 和 tool
             var messagesToSave = Messages.ToList();
             if (messagesToSave.Count == 0) return;
+            
+            int toolMessageCount = messagesToSave.Count(m => m.Role == "tool" || !string.IsNullOrEmpty(m.ToolCallsJson));
             var currentHash = ComputeMessagesHash(messagesToSave);
             var forceGenerateSummary = currentHash != _loadedMessagesHash;
 
@@ -664,6 +688,9 @@ public partial class ChatTabViewModel : ViewModelBase
             await _historyService.SaveAsync(item);
             CurrentConversationId = item.Id;
             _loadedMessagesHash = currentHash;
+            
+            _logger.Information("保存对话成功: {Id} | 总消息数: {Total} | 含工具相关消息: {ToolCount}", 
+                item.Id, messagesToSave.Count, toolMessageCount);
         }
         catch (Exception ex)
         {

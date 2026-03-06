@@ -77,7 +77,8 @@ public class OpenAIChatService : IChatService
     public async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
         ConversationContext context,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<Models.ChatMessage>? onMessageAdded = null)
     {
         if (_chatClient == null)
         {
@@ -93,7 +94,7 @@ public class OpenAIChatService : IChatService
 
         var contentBuilder = new StringBuilder();
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken))
+        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded))
         {
             yield return text;
         }
@@ -110,7 +111,8 @@ public class OpenAIChatService : IChatService
         List<OpenAI.Chat.ChatMessage> messages,
         StringBuilder contentBuilder,
         ConversationContext context,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        Action<Models.ChatMessage>? onMessageAdded = null)
     {
         var iteration = 0;
         const int maxIterations = 5;
@@ -230,15 +232,38 @@ public class OpenAIChatService : IChatService
             var toolCallsJson = JsonSerializer.Serialize(toolCalls);
             context.AddAssistantMessage(assistantContent.ToString(), toolCallsJson);
 
+            // 通知 UI 产生了带工具调用的助手消息
+            var intermediateAssistantMsg = new Models.ChatMessage
+            {
+                Role = "assistant",
+                Content = assistantContent.ToString(),
+                ToolCallsJson = toolCallsJson,
+                Timestamp = DateTime.Now
+            };
+            onMessageAdded?.Invoke(intermediateAssistantMsg);
+
             messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString()));
 
             foreach (var toolCall in toolCalls)
             {
-                Log.Information("执行工具: {Name}", toolCall.FunctionName);
+                Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
-                Log.Information("工具 {Name} 执行结果: {Success}", toolCall.FunctionName, result.Success);
                 
                 var resultJson = result.ToJson();
+                Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}", 
+                    toolCall.FunctionName, 
+                    resultJson.Length > 200 ? resultJson.Substring(0, 200) + "..." : resultJson);
+                
+                // 通知 UI 产生了工具结果消息
+                var toolResultMsg = new Models.ChatMessage
+                {
+                    Role = "tool",
+                    Content = resultJson,
+                    ToolCallId = toolCall.Id,
+                    Timestamp = DateTime.Now
+                };
+                onMessageAdded?.Invoke(toolResultMsg);
+
                 messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
                 // 保存工具结果到上下文
                 context.AddToolMessage(resultJson, toolCall.Id);
