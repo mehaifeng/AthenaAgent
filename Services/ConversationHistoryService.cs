@@ -220,14 +220,16 @@ public class ConversationHistoryService : IConversationHistoryService
                 // 添加系统提示词
                 openAiMessages.Add(new SystemChatMessage(_promptService.GetPrompt(PromptType.SummaryGeneration)));
 
-                // 将历史消息转换为 OpenAI 消息格式
+                // 将历史消息转换为 OpenAI 消息格式，过滤掉工具相关的隐形消息以节省总结时的 token
                 foreach (var msg in contextMessages)
                 {
+                    // 仅保留纯文本对话进行总结，忽略 tool 角色和带工具调用的 assistant 消息
                     if (msg.Role?.ToLower() == "user")
                     {
                         openAiMessages.Add(new UserChatMessage(msg.Content));
                     }
-                    else if (msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai")
+                    else if ((msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai") 
+                             && string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
                         openAiMessages.Add(new AssistantChatMessage(msg.Content));
                     }

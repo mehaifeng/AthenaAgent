@@ -95,7 +95,7 @@ public partial class ChatMessage : ObservableObject
     public bool IsUser => Role == "user";
 
     /// <summary>
-    /// 是否在 UI 中可见（system 消息只对 LLM 可见，不对用户显示）
+    /// 是否在 UI 中可见（system 和 tool 消息只对 LLM 可见，不对用户显示）
     /// </summary>
-    public bool IsVisibleToUser => Role != "system";
+    public bool IsVisibleToUser => Role != "system" && Role != "tool";
 }

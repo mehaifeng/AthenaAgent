@@ -4,13 +4,13 @@
 
     <!-- Main Window -->
     <system:String x:Key="App.Title">ATHENA.SYS // 终端连接</system:String>
-    <system:String x:Key="Tab.ChatLink">[ 对话连接 ]</system:String>
-    <system:String x:Key="Tab.SysConfig">[ 系统配置 ]</system:String>
-    <system:String x:Key="Tab.Scheduler">[ 任务调度 ]</system:String>
-    <system:String x:Key="Tab.Archives">[ 历史记录 ]</system:String>
-    <system:String x:Key="Tab.Knowledge">[ 知识库 ]</system:String>
-    <system:String x:Key="Tab.SysLogs">[ 系统日志 ]</system:String>
-    <system:String x:Key="Tab.Diagnostic">[ 诊断信息 ]</system:String>
+    <system:String x:Key="Tab.ChatLink">[对话连接]</system:String>
+    <system:String x:Key="Tab.SysConfig">[系统配置]</system:String>
+    <system:String x:Key="Tab.Scheduler">[任务调度]</system:String>
+    <system:String x:Key="Tab.Archives">[历史记录]</system:String>
+    <system:String x:Key="Tab.Knowledge">[知识库]</system:String>
+    <system:String x:Key="Tab.SysLogs">[系统日志]</system:String>
+    <system:String x:Key="Tab.Diagnostic">[诊断信息]</system:String>
     <system:String x:Key="Btn.CommitChanges">[保存更改]</system:String>
     <system:String x:Key="Btn.Rollback">[撤销]</system:String>
 

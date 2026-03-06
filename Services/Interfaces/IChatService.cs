@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,16 +12,18 @@ namespace Athena.UI.Services.Interfaces;
 public interface IChatService
 {
     /// <summary>
-    /// 发送消息并获取流式响应
+    /// 流式发送消息
     /// </summary>
     /// <param name="userMessage">用户消息</param>
     /// <param name="context">对话上下文</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>流式响应枚举器</returns>
+    /// <param name="onMessageAdded">当产生中间消息（如工具结果）时的回调</param>
+    /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
         ConversationContext context,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null);
 
     /// <summary>
     /// 测试 API 连接
