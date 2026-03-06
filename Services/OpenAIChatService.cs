@@ -86,10 +86,15 @@ public class OpenAIChatService : IChatService
             yield return "[错误] 请先在设置中配置 API Key";
             yield break;
         }
+        
+        if (!string.IsNullOrWhiteSpace(userMessage))
+        {
+            context.AddUserMessage(userMessage);
+        }
 
         Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
 
-        var messages = BuildMessages(context, userMessage);
+        var messages = BuildMessages(context);
         Log.Information("构建消息列表完成，消息数: {Count}", messages.Count);
 
         var contentBuilder = new StringBuilder();
@@ -97,11 +102,6 @@ public class OpenAIChatService : IChatService
         await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded))
         {
             yield return text;
-        }
-
-        if (!string.IsNullOrWhiteSpace(userMessage))
-        {
-            context.AddUserMessage(userMessage);
         }
         
         Log.Debug("StreamMessageAsync 迭代处理完成");
@@ -328,7 +328,7 @@ public class OpenAIChatService : IChatService
         return options;
     }
 
-    private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context, string? userMessage)
+    private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
         var messages = new List<OpenAI.Chat.ChatMessage>
         {
@@ -376,11 +376,6 @@ public class OpenAIChatService : IChatService
                     messages.Add(new ToolChatMessage(msg.ToolCallId ?? string.Empty, msg.Content));
                     break;
             }
-        }
-
-        if (!string.IsNullOrWhiteSpace(userMessage))
-        {
-            messages.Add(new UserChatMessage(userMessage));
         }
 
         return messages;
