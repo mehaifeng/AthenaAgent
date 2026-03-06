@@ -17,31 +17,31 @@
         <vm:CreateTaskDialogViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource DosBackgroundBrush}">
+    <Grid RowDefinitions="Auto,*,Auto" >
         <!-- Title Bar -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource DosBorderBrush}"
+                BorderBrush="{DynamicResource Brush.BrightGreen}"
                 BorderThickness="0,0,0,2"
                 Padding="10,8"
-                Background="{DynamicResource DosBackgroundBrush}">
+                >
             <TextBlock Text="{loc:Loc TaskDialog.Title}"
                       HorizontalAlignment="Center"
                       FontSize="14"
                       FontWeight="Bold"
-                      Foreground="{DynamicResource DosHighlightBrush}"/>
+                      Foreground="{DynamicResource Brush.Yellow}"/>
         </Border>
 
         <!-- Form Content -->
         <ScrollViewer Grid.Row="1" Padding="15">
             <StackPanel Spacing="15">
                 <!-- Trigger Time -->
-                <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
                         <TextBlock Text="{loc:Loc TaskDialog.TriggerTime}"
                                   FontWeight="Bold"
-                                  Foreground="{DynamicResource DosHighlightBrush}"
+                                  Foreground="{DynamicResource Brush.Yellow}"
                                   FontSize="12"/>
 
                         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
@@ -67,18 +67,18 @@
                 </Border>
 
                 <!-- Task Intent -->
-                <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
                         <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
                                   FontWeight="Bold"
-                                  Foreground="{DynamicResource DosHighlightBrush}"
+                                  Foreground="{DynamicResource Brush.Yellow}"
                                   FontSize="12"/>
 
                         <TextBlock Text="{loc:Loc TaskDialog.IntentHint}"
                                   TextWrapping="Wrap"
-                                  Foreground="{DynamicResource DosSecondaryBrush}"
+                                  Foreground="{DynamicResource Brush.Green}"
                                   FontSize="11"/>
 
                         <TextBox Text="{Binding Intent}"
@@ -91,13 +91,13 @@
                 </Border>
 
                 <!-- Recurrence -->
-                <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                        BorderThickness="2"
                        Padding="10">
                     <StackPanel Spacing="10">
                         <TextBlock Text="{loc:Loc TaskDialog.Recurrence}"
                                   FontWeight="Bold"
-                                  Foreground="{DynamicResource DosHighlightBrush}"
+                                  Foreground="{DynamicResource Brush.Yellow}"
                                   FontSize="12"/>
 
                         <Grid ColumnDefinitions="Auto,*">
@@ -114,15 +114,15 @@
                 </Border>
 
                 <!-- Preview -->
-                <Border BorderBrush="{DynamicResource DosSecondaryBrush}"
+                <Border BorderBrush="{DynamicResource Brush.Green}"
                        BorderThickness="1"
                        Padding="10"
-                       Background="{DynamicResource DosInputBackgroundBrush}"
+                       
                        Margin="0,0,0,70">
                     <StackPanel Spacing="5">
                         <TextBlock Text="{loc:Loc TaskDialog.Preview}"
                                   FontWeight="Bold"
-                                  Foreground="{DynamicResource DosSecondaryBrush}"
+                                  Foreground="{DynamicResource Brush.Green}"
                                   FontSize="11"/>
 
                         <TextBlock FontSize="11" TextWrapping="Wrap">
@@ -136,7 +136,7 @@
                                   TextWrapping="Wrap"
                                   FontSize="11"
                                   FontStyle="Italic"
-                                  Foreground="{DynamicResource DosSecondaryBrush}"
+                                  Foreground="{DynamicResource Brush.Green}"
                                   MaxHeight="60"/>
                     </StackPanel>
                 </Border>
@@ -145,10 +145,10 @@
 
         <!-- Footer Buttons -->
         <Border Grid.Row="2"
-               BorderBrush="{DynamicResource DosBorderBrush}"
+               BorderBrush="{DynamicResource Brush.BrightGreen}"
                BorderThickness="0,2,0,0"
                Padding="10"
-               Background="{DynamicResource DosBackgroundBrush}">
+               >
             <StackPanel Orientation="Horizontal"
                        HorizontalAlignment="Right"
                        Spacing="10">

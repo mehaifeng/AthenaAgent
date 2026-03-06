@@ -14,24 +14,24 @@
         <vm:HistoryTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
             Margin="4"
-            Background="{DynamicResource DosBackgroundBrush}">
+            >
 
         <Grid RowDefinitions="Auto,Auto,*,Auto">
 
             <!-- HEADER BAR -->
             <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
                     Padding="12,6"
-                    Background="{DynamicResource DosInputBackgroundBrush}">
+                    >
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Grid.Column="0"
                                Text="{loc:Loc History.Header}"
                                FontWeight="Bold"
-                               Foreground="{DynamicResource DosHighlightBrush}"
+                               Foreground="{DynamicResource Brush.Yellow}"
                                FontSize="14"
                                VerticalAlignment="Center"/>
 
@@ -40,7 +40,7 @@
                             Command="{Binding RefreshCommand}"
                             BorderThickness="0"
                             Background="Transparent"
-                            Foreground="{DynamicResource DosHighlightBrush}"
+                            Foreground="{DynamicResource Brush.Yellow}"
                             Padding="8,2" />
                 </Grid>
             </Border>
@@ -49,22 +49,22 @@
             <Border Grid.Row="1" Padding="12,8,12,0">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="{loc:Loc History.RecordsFound}"
-                               Foreground="{DynamicResource DosSecondaryBrush}"
+                               Foreground="{DynamicResource Brush.Green}"
                                VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding HistoryItems.Count}"
-                               Foreground="{DynamicResource DosHighlightBrush}"
+                               Foreground="{DynamicResource Brush.Yellow}"
                                VerticalAlignment="Center"
                                FontWeight="Bold"/>
-                    <Border Width="1" Height="14" Background="{DynamicResource DosSecondaryBrush}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
+                    <Border Width="1" Height="14" Background="{DynamicResource Brush.Green}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
                     <TextBlock Text="{loc:Loc History.Ready}"
-                               Foreground="{DynamicResource DosSecondaryBrush}"
+                               Foreground="{DynamicResource Brush.Green}"
                                VerticalAlignment="Center"
                                FontSize="11"/>
                 </StackPanel>
             </Border>
 
             <!-- HISTORY LIST -->
-            <Border Grid.Row="2" Margin="12,8,12,12" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="1">
+            <Border Grid.Row="2" Margin="12,8,12,12" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="1">
                 <Grid>
                     <ListBox ItemsSource="{Binding HistoryItems}"
                              SelectedItem="{Binding SelectedItem}"
@@ -73,10 +73,10 @@
                              x:Name="HistoryListBox">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:ConversationHistoryItem">
-                                <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                         BorderThickness="0,0,0,1"
                                         Padding="12,8"
-                                        Background="{DynamicResource DosInputBackgroundBrush}">
+                                        >
                                     <Grid ColumnDefinitions="*,Auto">
 
                                         <!-- Data Block -->
@@ -84,17 +84,17 @@
                                             <TextBlock Text="{Binding Summary}"
                                                        TextWrapping="Wrap"
                                                        MaxLines="2"
-                                                       Foreground="{DynamicResource DosForegroundBrush}"
+                                                       Foreground="{DynamicResource Brush.BrightGreen}"
                                                        FontWeight="Bold"/>
 
                                             <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{loc:Loc History.Msgs}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
-                                                    <TextBlock Text="{Binding MessageCount}" FontSize="11" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                                    <TextBlock Text="{loc:Loc History.Msgs}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
+                                                    <TextBlock Text="{Binding MessageCount}" FontSize="11" Foreground="{DynamicResource Brush.Yellow}"/>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{loc:Loc History.Time}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
-                                                    <TextBlock Text="{Binding DisplayTime}" FontSize="11" Foreground="{DynamicResource DosHighlightBrush}"/>
+                                                    <TextBlock Text="{loc:Loc History.Time}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
+                                                    <TextBlock Text="{Binding DisplayTime}" FontSize="11" Foreground="{DynamicResource Brush.Yellow}"/>
                                                 </StackPanel>
                                             </StackPanel>
                                         </StackPanel>
@@ -105,9 +105,9 @@
                                                     Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent"
-                                                    BorderBrush="{DynamicResource DosHighlightBrush}"
+                                                    BorderBrush="{DynamicResource Brush.Yellow}"
                                                     BorderThickness="1"
-                                                    Foreground="{DynamicResource DosHighlightBrush}"
+                                                    Foreground="{DynamicResource Brush.Yellow}"
                                                     Padding="8,4"/>
 
                                             <Button Content="{loc:Loc History.BtnDel}"
@@ -115,7 +115,7 @@
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent"
                                                     BorderThickness="0"
-                                                    Foreground="{DynamicResource DosErrorBrush}"
+                                                    Foreground="{DynamicResource Brush.Red}"
                                                     Padding="8,4"/>
                                         </StackPanel>
                                     </Grid>
@@ -128,16 +128,16 @@
                     <TextBlock Text="{loc:Loc History.NoRecords}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
-                               Foreground="{DynamicResource DosSecondaryBrush}"
+                               Foreground="{DynamicResource Brush.Green}"
                                IsVisible="{Binding !HistoryItems.Count}"/>
                 </Grid>
             </Border>
 
             <!-- FOOTER INFO -->
-            <Border Grid.Row="3" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,2,0,0" Padding="8,4" Background="{DynamicResource DosInputBackgroundBrush}">
+            <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,2,0,0" Padding="8,4" >
                 <TextBlock Text="{loc:Loc History.FooterHint}"
                            HorizontalAlignment="Right"
-                           Foreground="{DynamicResource DosSecondaryBrush}"
+                           Foreground="{DynamicResource Brush.Green}"
                            FontSize="10"/>
             </Border>
 

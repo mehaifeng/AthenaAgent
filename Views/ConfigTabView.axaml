@@ -13,22 +13,22 @@
         <vm:ConfigTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
             Margin="4"
-            Background="{DynamicResource DosBackgroundBrush}">
+            >
 
         <Grid RowDefinitions="Auto,*">
 
             <!-- HEADER -->
             <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
                     Padding="12,6"
-                    Background="{DynamicResource DosInputBackgroundBrush}">
+                    >
                 <TextBlock Text="{loc:Loc Config.Header}"
                            FontWeight="Bold"
-                           Foreground="{DynamicResource DosHighlightBrush}"
+                           Foreground="{DynamicResource Brush.Yellow}"
                            FontSize="14"/>
             </Border>
 
@@ -37,67 +37,67 @@
                 <StackPanel Spacing="16">
 
                     <!-- SECTION 1: APPEARANCE -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12">
                         <StackPanel Spacing="12">
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="0,0,0,2"
                                     Padding="0,0,0,4">
                                 <TextBlock Text="{loc:Loc Config.SectionAppearance}"
                                            FontWeight="Bold"
-                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                           Foreground="{DynamicResource Brush.Yellow}"/>
                             </Border>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="8,0,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
                                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispFontScale}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispFontScale}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.FontSize}" Minimum="10" Maximum="24" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.DispHeartbeat}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.DispHeartbeat}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding Config.ShowHeartbeatButton}" Margin="0,8,0,0"/>
                             </Grid>
                         </StackPanel>
                     </Border>
 
                     <!-- SECTION 2: AI MODEL -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12">
                         <StackPanel Spacing="12">
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="0,0,0,2"
                                     Padding="0,0,0,4">
                                 <TextBlock Text="{loc:Loc Config.SectionPrimaryAI}"
                                            FontWeight="Bold"
-                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                           Foreground="{DynamicResource Brush.Yellow}"/>
                             </Border>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,0,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
                                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BaseUrl}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Watermark="e.g. gpt-4" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <Grid Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ColumnDefinitions="*,40">
                                     <Slider Grid.Column="0" Value="{Binding Config.Temperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Text="{Binding Config.Temperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" TextAlignment="Right"/>
                                 </Grid>
 
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="32000" Increment="100" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
 
                                 <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
@@ -115,139 +115,139 @@
                                                          HorizontalAlignment="Left"
                                                          VerticalAlignment="Center"
                                                          FontSize="11"
-                                                         Foreground="{DynamicResource DosHighlightBrush}"/>
+                                                         Foreground="{DynamicResource Brush.Yellow}"/>
                                 </Grid>
                             </Grid>
                         </StackPanel>
                     </Border>
 
                     <!-- SECTION 3: SECONDARY MODEL -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12">
                         <StackPanel Spacing="12">
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="0,0,0,2"
                                     Padding="0,0,0,4">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.SectionSecondaryAI}" FontWeight="Bold" Foreground="{DynamicResource DosHighlightBrush}"/>
-                                    <TextBlock Grid.Column="1" Text="{loc:Loc Config.BgTasks}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.SectionSecondaryAI}" FontWeight="Bold" Foreground="{DynamicResource Brush.Yellow}"/>
+                                    <TextBlock Grid.Column="1" Text="{loc:Loc Config.BgTasks}" Foreground="{DynamicResource Brush.Green}" FontSize="10" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="8,0,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
                                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SecondaryModel}" Watermark="e.g. gpt-4.1" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <Grid Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" ColumnDefinitions="*,40">
                                     <Slider Grid.Column="0" Value="{Binding Config.SecondaryTemperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Text="{Binding Config.SecondaryTemperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" TextAlignment="Right"/>
                                 </Grid>
 
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SecondaryMaxTokens}" Minimum="100" Maximum="4000" Increment="100" Margin="0,8,0,0" HorizontalAlignment="Stretch"/>
                             </Grid>
                         </StackPanel>
                     </Border>
 
                     <!-- SECTION 4: EMBEDDING MODEL -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12">
                         <StackPanel Spacing="12">
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="0,0,0,2"
                                     Padding="0,0,0,4">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.SectionEmbedding}" FontWeight="Bold" Foreground="{DynamicResource DosHighlightBrush}"/>
-                                    <TextBlock Grid.Column="1" Text="{loc:Loc Config.VectorKb}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="10" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.SectionEmbedding}" FontWeight="Bold" Foreground="{DynamicResource Brush.Yellow}"/>
+                                    <TextBlock Grid.Column="1" Text="{loc:Loc Config.VectorKb}" Foreground="{DynamicResource Brush.Green}" FontSize="10" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="8,0,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
                                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,8,0,0"/>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" Watermark="e.g. text-embedding-3-small" Margin="0,8,0,0"/>
                             </Grid>
                         </StackPanel>
                     </Border>
 
                     <!-- SECTION 5: MEMORY MANAGEMENT -->
-                    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                             BorderThickness="1"
                             Padding="12"
                             Margin="0,0,0,70">
                         <StackPanel Spacing="12">
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="0,0,0,2"
                                     Padding="0,0,0,4">
                                 <TextBlock Text="{loc:Loc Config.SectionMemory}"
                                            FontWeight="Bold"
-                                           Foreground="{DynamicResource DosHighlightBrush}"/>
+                                           Foreground="{DynamicResource Brush.Yellow}"/>
                             </Border>
 
                             <!-- Memory Gauge -->
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="1"
-                                    Background="{DynamicResource DosInputBackgroundBrush}"
+                                    
                                     Padding="12,8"
                                     Margin="8,0,0,0">
                                 <Grid ColumnDefinitions="Auto,*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding ContextTokensInfo}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="Bold" Foreground="{DynamicResource DosForegroundBrush}"/>
-                                    <TextBlock Grid.Column="2" Text="{loc:Loc Config.WarnHigh}" VerticalAlignment="Center" Foreground="{DynamicResource DosErrorBrush}" FontSize="11" IsVisible="{Binding IsNearCompressionThreshold}"/>
+                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ContextTokensInfo}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="Bold" Foreground="{DynamicResource Brush.BrightGreen}"/>
+                                    <TextBlock Grid.Column="2" Text="{loc:Loc Config.WarnHigh}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Red}" FontSize="11" IsVisible="{Binding IsNearCompressionThreshold}"/>
                                 </Grid>
                             </Border>
 
                             <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto" Margin="8,4,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}"/>
                                 <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="128000" Increment="1000" HorizontalAlignment="Stretch"/>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemCompThresh}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemCompThresh}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.CompressionThreshold}" Minimum="500" Maximum="128000" Increment="500" Margin="0,8,0,0" HorizontalAlignment="Stretch" IsEnabled="{Binding Config.AutoCompress}"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.MemAutoComp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource DosSecondaryBrush}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.MemAutoComp}" VerticalAlignment="Center" Margin="0,8,0,0" Foreground="{DynamicResource Brush.Green}"/>
                                 <CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.AutoCompress}" Margin="0,8,0,0"/>
                             </Grid>
 
                             <!-- Compression Preview Box -->
-                            <Border BorderBrush="{DynamicResource DosBorderBrush}"
+                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
                                     BorderThickness="1"
-                                    Background="{DynamicResource DosInputBackgroundBrush}"
+                                    
                                     Padding="12"
                                     Margin="8,8,0,0">
                                 <StackPanel Spacing="6">
-                                    <TextBlock Text="{loc:Loc Config.CompressionPreview}" Foreground="{DynamicResource DosSecondaryBrush}" FontSize="11"/>
+                                    <TextBlock Text="{loc:Loc Config.CompressionPreview}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
                                     <TextBlock Text="{Binding CompressionPreview}"
                                                TextWrapping="Wrap"
                                                FontSize="11"
                                                MaxHeight="100"
-                                               Foreground="{DynamicResource DosForegroundBrush}"/>
+                                               Foreground="{DynamicResource Brush.BrightGreen}"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Actions -->
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,8,0,0">
                                 <Button Content="{loc:Loc Config.BtnExecCompression}" Command="{Binding CompressContextCommand}" Padding="12,4"/>
-                                <Button Content="{loc:Loc Config.BtnPurgeMemory}" Command="{Binding ClearContextCommand}" Padding="12,4" Foreground="{DynamicResource DosErrorBrush}"/>
+                                <Button Content="{loc:Loc Config.BtnPurgeMemory}" Command="{Binding ClearContextCommand}" Padding="12,4" Foreground="{DynamicResource Brush.Red}"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

@@ -6,12 +6,14 @@
         xmlns:models="using:Athena.UI.Models"
         xmlns:views="using:Athena.UI.Views"
         xmlns:loc="using:Athena.UI.Markup"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+        mc:Ignorable="d" 
+        d:DesignWidth="700" 
+        d:DesignHeight="900"
         x:Class="Athena.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{loc:Loc App.Title}"
-        Width="960" Height="760"
-        MinWidth="700" MinHeight="500"
+        Width="700" 
+        Height="900"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/avalonia-logo.ico"
         Background="#000000"
@@ -72,7 +74,7 @@
             <!-- CONFIG SAVE/RESET FOOTER (Only visible when CONFIG is active) -->
             <Border Grid.Row="1"
                     Padding="12,8"
-                    Background="{DynamicResource DosInputBackgroundBrush}"
+                    
                     IsVisible="{Binding IsShowConfigSaveReset}">
 
                         
@@ -82,16 +84,16 @@
                                 Spacing="12">
                         <Button Content="{loc:Loc Btn.CommitChanges}"
                                 Command="{Binding SaveConfigCommand}"
-                                BorderBrush="{DynamicResource DosHighlightBrush}"
+                                BorderBrush="{DynamicResource Brush.Yellow}"
                                 BorderThickness="1"
                                 Background="Transparent"
-                                Foreground="{DynamicResource DosHighlightBrush}"
+                                Foreground="{DynamicResource Brush.Yellow}"
                                 Padding="16,4"/>
                         <Button Content="{loc:Loc Btn.Rollback}"
                                 Command="{Binding ResetConfigCommand}"
                                 BorderThickness="0"
                                 Background="Transparent"
-                                Foreground="{DynamicResource DosSecondaryBrush}"
+                                Foreground="{DynamicResource Brush.Green}"
                                 Padding="16,4"/>
                     </StackPanel>
             </Border>

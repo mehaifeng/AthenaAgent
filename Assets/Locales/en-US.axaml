@@ -4,13 +4,13 @@
 
     <!-- Main Window -->
     <system:String x:Key="App.Title">ATHENA.SYS // TERMINAL_LINK</system:String>
-    <system:String x:Key="Tab.ChatLink">[ CHAT_LINK ]</system:String>
-    <system:String x:Key="Tab.SysConfig">[ SYS_CONFIG ]</system:String>
-    <system:String x:Key="Tab.Scheduler">[ SCHEDULER ]</system:String>
-    <system:String x:Key="Tab.Archives">[ ARCHIVES ]</system:String>
-    <system:String x:Key="Tab.Knowledge">[ KNOWLEDGE ]</system:String>
-    <system:String x:Key="Tab.SysLogs">[ SYS_LOGS ]</system:String>
-    <system:String x:Key="Tab.Diagnostic">[ DIAGNOSTIC ]</system:String>
+    <system:String x:Key="Tab.ChatLink">[CHAT_LINK]</system:String>
+    <system:String x:Key="Tab.SysConfig">[SYS_CONFIG]</system:String>
+    <system:String x:Key="Tab.Scheduler">[SCHEDULER]</system:String>
+    <system:String x:Key="Tab.Archives">[ARCHIVES]</system:String>
+    <system:String x:Key="Tab.Knowledge">[KNOWLEDGE]</system:String>
+    <system:String x:Key="Tab.SysLogs">[SYS_LOGS]</system:String>
+    <system:String x:Key="Tab.Diagnostic">[DIAGNOSTIC]</system:String>
     <system:String x:Key="Btn.CommitChanges">[COMMIT_CHANGES]</system:String>
     <system:String x:Key="Btn.Rollback">[ROLLBACK]</system:String>
 

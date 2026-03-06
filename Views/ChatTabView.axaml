@@ -5,7 +5,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
-             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             mc:Ignorable="d" 
+             d:DesignWidth="900" 
+             d:DesignHeight="700"
              x:Class="Athena.UI.Views.ChatTabView"
              x:DataType="vm:ChatTabViewModel"
              FontFamily="{DynamicResource MonospaceFontFamily}">
@@ -26,24 +28,24 @@
         </Style>
     </UserControl.Styles>
 
-    <Border BorderBrush="{DynamicResource DosBorderBrush}"
+    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
             Margin="4"
-            Background="{DynamicResource DosBackgroundBrush}">
+            >
 
         <Grid RowDefinitions="Auto,*,Auto">
 
             <!-- TERMINAL HEADER -->
             <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource DosBorderBrush}"
+                    BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
                     Padding="12,6"
-                    Background="{DynamicResource DosInputBackgroundBrush}">
+                    >
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                     <TextBlock Grid.Column="0"
                                Text="{loc:Loc Chat.Header}"
                                FontWeight="Bold"
-                               Foreground="{DynamicResource DosHighlightBrush}"
+                               Foreground="{DynamicResource Brush.Yellow}"
                                VerticalAlignment="Center"
                                FontSize="14"/>
 
@@ -51,12 +53,12 @@
                                Text="{Binding ContextTokensInfo, StringFormat='[BUFFER: {0}]'}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
-                               Foreground="{DynamicResource DosSecondaryBrush}"
+                               Foreground="{DynamicResource Brush.Green}"
                                FontSize="11" />
 
-                    <Button Grid.Column="2" Content="{loc:Loc Chat.BtnTheme}" Command="{Binding ToggleThemeCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0" />
-                    <Button Grid.Column="3" Content="{loc:Loc Chat.BtnReset}" Command="{Binding NewConversationCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" Margin="0,0,8,0" />
-                    <Button Grid.Column="4" Content="{loc:Loc Chat.BtnStats}" Command="{Binding SwitchToTasksTabCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" Padding="8,2" />
+                    <Button Grid.Column="2" Content="{loc:Loc Chat.BtnTheme}" Command="{Binding ToggleThemeCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0" />
+                    <Button Grid.Column="3" Content="{loc:Loc Chat.BtnReset}" Command="{Binding NewConversationCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0" />
+                    <Button Grid.Column="4" Content="{loc:Loc Chat.BtnStats}" Command="{Binding SwitchToTasksTabCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" />
                 </Grid>
             </Border>
 
@@ -87,20 +89,20 @@
                                                            Foreground="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}"
                                                            FontSize="10" FontWeight="Bold"/>
                                                 <TextBlock Text="{Binding TimestampText, StringFormat='@ T-{0}'}"
-                                                           Foreground="{DynamicResource DosSecondaryBrush}" FontSize="9" VerticalAlignment="Center"/>
+                                                           Foreground="{DynamicResource Brush.Green}" FontSize="9" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Border>
                                     </Grid>
 
                                     <!-- Bubble body -->
                                     <Border Padding="16,8"
-                                            Background="{StaticResource DosHoverBackgroundBrush}">
+                                            Background="{DynamicResource Brush.MidGreen}">
                                         <Grid>
                                             <!-- Loading animation: Pip-Boy style progress pulse -->
                                             <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
-                                                <TextBlock Text="[#######" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13"/>
-                                                <TextBlock Text="{loc:Loc Chat.ReceivingData}" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13" FontWeight="Bold"/>
-                                                <TextBlock Text=".......]" Foreground="{DynamicResource DosHighlightBrush}" FontSize="13"/>
+                                                <TextBlock Text="[#######" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
+                                                <TextBlock Text="{loc:Loc Chat.ReceivingData}" Foreground="{DynamicResource Brush.Yellow}" FontSize="13" FontWeight="Bold"/>
+                                                <TextBlock Text="#######]" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
                                             </StackPanel>
 
                                             <!-- Text content -->
@@ -116,7 +118,7 @@
                                                      IsVisible="{Binding IsEditing}"
                                                      AcceptsReturn="True" TextWrapping="Wrap"
                                                      Background="Transparent" BorderThickness="0"
-                                                     Foreground="{DynamicResource DosHighlightBrush}"/>
+                                                     Foreground="{DynamicResource Brush.Yellow}"/>
                                         </Grid>
                                     </Border>
 
@@ -124,11 +126,11 @@
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-2,0,0">
                                         <!-- Action buttons: Only show when not loading -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="{Binding !IsLoading}">
-                                            <Button Content="{loc:Loc Chat.BtnEdit}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                            <Button Content="{loc:Loc Chat.BtnConfirm}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosHighlightBrush}"/>
-                                            <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                            <Button Content="{loc:Loc Chat.BtnRegen}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosSecondaryBrush}"/>
-                                            <Button Content="{loc:Loc Chat.BtnPurge}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource DosErrorBrush}"/>
+                                            <Button Content="{loc:Loc Chat.BtnEdit}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+                                            <Button Content="{loc:Loc Chat.BtnConfirm}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
+                                            <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+                                            <Button Content="{loc:Loc Chat.BtnRegen}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+                                            <Button Content="{loc:Loc Chat.BtnPurge}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Red}"/>
                                         </StackPanel>
                                     </Grid>
 
@@ -140,9 +142,9 @@
             </ScrollViewer>
 
             <!-- INPUT AREA -->
-            <Border Grid.Row="2" BorderBrush="{DynamicResource DosBorderBrush}" BorderThickness="0,2,0,0" Padding="12" Background="{DynamicResource DosInputBackgroundBrush}">
+            <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,2,0,0" Padding="12" >
                 <Grid ColumnDefinitions="Auto,*,Auto">
-                    <Button Grid.Column="0" Content="[+]" Command="{Binding AttachFileCommand}" BorderThickness="0" Foreground="{DynamicResource DosHighlightBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Button Grid.Column="0" Content="[+]" Command="{Binding AttachFileCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" VerticalAlignment="Center" Margin="0,0,8,0"/>
 
                     <TextBox Grid.Column="1"
                              Text="{Binding InputText}"
@@ -152,7 +154,7 @@
                              VerticalContentAlignment="Center"
                              MaxHeight="150"
                              BorderThickness="1"
-                             Background="{DynamicResource DosBackgroundBrush}"
+                             
                              IsEnabled="{Binding !IsSending}"/>
 
                     <Button Grid.Column="2"
