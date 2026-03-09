@@ -113,6 +113,11 @@ public partial class MainWindowViewModel : ViewModelBase
             await _chatTabViewModel.RefreshSettingsAsync();
             SelectedTabIndex = 0;
         };
+        _configTabViewModel.UndoCompressionRequested += (s, e) => 
+        {
+            _chatTabViewModel.UndoCompression();
+            SelectedTabIndex = 0;
+        };
         _configTabViewModel.ResetRequested += (s, e) => { /* Handle reset if needed */ };
 
         _logger.Information("MainWindowViewModel 初始化完成");

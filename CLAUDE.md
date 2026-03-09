@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Athena.UI is an Avalonia-based desktop AI assistant application built with .NET 10. It features OpenAI integration with streaming responses, a two-stage Function Calling system with vector-based tool discovery, knowledge base management, and task scheduling capabilities.
+Athena.UI is an Avalonia-based desktop AI assistant application built with .NET 10. It features OpenAI integration with streaming responses, an extensible Function Calling system, knowledge base management, and task scheduling capabilities.
 
 ## Build Commands
 
@@ -29,21 +29,11 @@ dotnet build -c Release
 ### Dependency Injection
 All services are registered in [App.axaml.cs](App.axaml.cs) in `ConfigureServices()`. Services are injected via constructor parameters. Access services globally via `App.Services`.
 
-### Two-Stage Function Calling System
-
-The application implements a unique two-stage tool discovery mechanism:
-
-1. **Stage 1 - Meta Tool**: The AI always starts with only the `discover_tools` meta-tool available
-2. **Stage 2 - Dynamic Discovery**: When `discover_tools` is called, [ToolDiscoveryService](Services/ToolDiscoveryService.cs) uses vector similarity search to find relevant tools based on intent, then returns only those tools to the AI
-
-This approach prevents context pollution from unused tools and improves relevance.
-
 ### Key Services
 
 | Service | Purpose |
 |---------|---------|
-| `OpenAIChatService` | Handles streaming chat with OpenAI API, manages tool calling flow |
-| `ToolDiscoveryService` | Vector-based tool discovery using embeddings |
+| `OpenAIChatService` | Handles streaming chat with OpenAI API, manages tool calling flow (carries all tools) |
 | `KnowledgeBaseService` | Manages user knowledge files with vector search |
 | `OpenAIEmbeddingService` | Generates embeddings for semantic search |
 | `TaskScheduler` | Schedules and triggers proactive messages |

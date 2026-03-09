@@ -62,10 +62,10 @@
     <system:String x:Key="Config.InheritPrimary">[继承主配置]</system:String>
 
     <!-- Config Buttons -->
+    <!-- 配置按钮 -->
     <system:String x:Key="Config.BtnRunDiagnostics">[运行诊断]</system:String>
     <system:String x:Key="Config.BtnExecCompression">[执行压缩]</system:String>
-    <system:String x:Key="Config.BtnPurgeMemory">[清除记忆]</system:String>
-
+    <system:String x:Key="Config.BtnUndoCompression">[撤回压缩]</system:String>
     <!-- Tasks Tab -->
     <system:String x:Key="Tasks.Header">ATHENA.SYS // 任务调度器</system:String>
     <system:String x:Key="Tasks.BtnNewRoutine">[新建任务]</system:String>
