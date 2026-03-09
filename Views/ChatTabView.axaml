@@ -17,7 +17,7 @@
     </Design.DataContext>
 
     <UserControl.Styles>
-        <!-- Receiving data dynamic effect (Pip-Boy style progress pulse) -->
+        <!-- Receiving data dynamic effect -->
         <Style Selector="StackPanel.loading-pulse > TextBlock">
             <Style.Animations>
                 <Animation Duration="0:0:1.0" IterationCount="Infinite" PlaybackDirection="Alternate">
@@ -30,8 +30,7 @@
 
     <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
             BorderThickness="2"
-            Margin="4"
-            >
+            Margin="4">
 
         <Grid RowDefinitions="Auto,*,Auto">
 
@@ -39,8 +38,7 @@
             <Border Grid.Row="0"
                     BorderBrush="{DynamicResource Brush.BrightGreen}"
                     BorderThickness="0,0,0,2"
-                    Padding="12,6"
-                    >
+                    Padding="12,6">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                     <TextBlock Grid.Column="0"
                                Text="{loc:Loc Chat.Header}"
@@ -74,15 +72,14 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Alignment control: User right(Col 1,2), System left(Col 0,1) -->
+                                <!-- Alignment and Compression feedback -->
                                 <StackPanel Grid.Column="{Binding IsUser, Converter={StaticResource IntToColumnConverter}, ConverterParameter=UserAlign}"
                                             Grid.ColumnSpan="2"
                                             HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
+                                            Opacity="{Binding IsCompressed, Converter={StaticResource OpacityConverter}}"
                                             Spacing="2">
 
-                                    <!-- Bubble header decoration -->
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,-2">
-                                        <!-- Title label -->
                                         <Border Grid.Column="1" Margin="4,4,4,0" BorderBrush="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}" HorizontalAlignment="Stretch">
                                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,0">
                                                 <TextBlock Text="{Binding IsUser, Converter={StaticResource RoleToTitleConverter}}"
@@ -90,30 +87,24 @@
                                                            FontSize="10" FontWeight="Bold"/>
                                                 <TextBlock Text="{Binding TimestampText, StringFormat='@ T-{0}'}"
                                                            Foreground="{DynamicResource Brush.Green}" FontSize="9" VerticalAlignment="Center"/>
+                                                <TextBlock Text="[ARCHIVED]" IsVisible="{Binding IsCompressed}" Foreground="{DynamicResource Brush.Yellow}" FontSize="9" VerticalAlignment="Center" FontWeight="Bold"/>
                                             </StackPanel>
                                         </Border>
                                     </Grid>
 
-                                    <!-- Bubble body -->
-                                    <Border Padding="16,8"
-                                            Background="{DynamicResource Brush.MidGreen}">
+                                    <Border Padding="16,8" Background="{DynamicResource Brush.MidGreen}">
                                         <Grid>
-                                            <!-- Loading animation: Pip-Boy style progress pulse -->
                                             <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
                                                 <TextBlock Text="[#######" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
                                                 <TextBlock Text="{loc:Loc Chat.ReceivingData}" Foreground="{DynamicResource Brush.Yellow}" FontSize="13" FontWeight="Bold"/>
                                                 <TextBlock Text="#######]" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
                                             </StackPanel>
 
-                                            <!-- Text content -->
                                             <TextBlock Text="{Binding DisplayText}"
-                                                       TextWrapping="Wrap"
-                                                       FontSize="13"
-                                                       LineHeight="20"
+                                                       TextWrapping="Wrap" FontSize="13" LineHeight="20"
                                                        IsVisible="{Binding !IsEditing}"
                                                        Foreground="{Binding IsUser, Converter={StaticResource RoleToTextBrushConverter}}"/>
 
-                                            <!-- Edit state -->
                                             <TextBox Text="{Binding EditContent}"
                                                      IsVisible="{Binding IsEditing}"
                                                      AcceptsReturn="True" TextWrapping="Wrap"
@@ -122,18 +113,34 @@
                                         </Grid>
                                     </Border>
 
-                                    <!-- Bubble footer decoration and actions -->
+                                    <!-- Actions -->
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-2,0,0">
-                                        <!-- Action buttons: Only show when not loading -->
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="{Binding !IsLoading}">
-                                            <Button Content="{loc:Loc Chat.BtnEdit}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-                                            <Button Content="{loc:Loc Chat.BtnConfirm}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
-                                            <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" CommandParameter="{Binding}" IsVisible="{Binding IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-                                            <Button Content="{loc:Loc Chat.BtnRegen}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-                                            <Button Content="{loc:Loc Chat.BtnPurge}" Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" CommandParameter="{Binding}" IsVisible="{Binding !IsEditing}" BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Red}"/>
+                                            <Button Content="{loc:Loc Chat.BtnEdit}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    IsVisible="{Binding !IsEditing}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+                                            
+                                            <Button Content="{loc:Loc Chat.BtnConfirm}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    IsVisible="{Binding IsEditing}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
+                                            
+                                            <Button Content="{loc:Loc Chat.BtnAbort}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    IsVisible="{Binding IsEditing}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+                                            
+                                            <Button Content="{loc:Loc Chat.BtnRegen}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    IsVisible="{Binding !IsEditing}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
                                         </StackPanel>
                                     </Grid>
-
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
@@ -154,7 +161,6 @@
                              VerticalContentAlignment="Center"
                              MaxHeight="150"
                              BorderThickness="1"
-                             
                              IsEnabled="{Binding !IsSending}"/>
 
                     <Button Grid.Column="2"

@@ -33,7 +33,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private int _contextTokens;
 
     [ObservableProperty]
-    private int _contextTokensThreshold = 6000;
+    private int _contextTokensThreshold = 4000;
 
     public string ContextTokensInfo => $"{ContextTokens} / {Config.MaxContextTokens} tokens";
 
@@ -45,14 +45,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     public ObservableCollection<string> Providers { get; } = new() { "OpenAI", "Azure", "Custom" };
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
 
-    /// <summary>
-    /// Available languages for display
-    /// </summary>
     public ObservableCollection<string> Languages { get; }
 
-    /// <summary>
-    /// Current selected language index
-    /// </summary>
     [ObservableProperty]
     private int _selectedLanguageIndex;
 
@@ -73,7 +67,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     public event EventHandler? SaveRequested;
     public event EventHandler? ResetRequested;
     public event EventHandler? CompressContextRequested;
-    public event EventHandler? ClearContextRequested;
+    public event EventHandler? UndoCompressionRequested;
 
     public ConfigTabViewModel() : this(null, null, null, null, null) { }
 
@@ -85,7 +79,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         _historyService = historyService;
         _localizationService = localizationService;
 
-        // Initialize languages list
         if (_localizationService != null)
         {
             Languages = new ObservableCollection<string>(_localizationService.AvailableLanguageNames);
@@ -105,7 +98,6 @@ public partial class ConfigTabViewModel : ViewModelBase
             Config = await _configService.LoadAsync();
             ContextTokensThreshold = Config.CompressionThreshold;
 
-            // Set language index based on saved config
             if (_localizationService != null)
             {
                 var index = _localizationService.GetLanguageIndex(Config.Language);
@@ -139,7 +131,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     {
         if (_configService != null)
         {
-            // 确保压缩阈值不超过最大上下文
             if (Config.CompressionThreshold > Config.MaxContextTokens)
             {
                 Config.CompressionThreshold = Config.MaxContextTokens;
@@ -171,7 +162,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private void CompressContext() => CompressContextRequested?.Invoke(this, EventArgs.Empty);
 
     [RelayCommand]
-    private void ClearContext() => ClearContextRequested?.Invoke(this, EventArgs.Empty);
+    private void UndoCompression() => UndoCompressionRequested?.Invoke(this, EventArgs.Empty);
 
     public void UpdateTokensInfo(int current, int threshold, string preview)
     {

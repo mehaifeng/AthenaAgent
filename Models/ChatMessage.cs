@@ -68,6 +68,13 @@ public partial class ChatMessage : ObservableObject
     private string? _toolCallsJson;
 
     /// <summary>
+    /// 是否已参与压缩（归档进摘要）
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
+    private bool _isCompressed;
+
+    /// <summary>
     /// 显示文本（纯内容，不带前缀）
     /// </summary>
     public string DisplayText => Content;
