@@ -87,11 +87,6 @@ public class OpenAIChatService : IChatService
             yield break;
         }
         
-        if (!string.IsNullOrWhiteSpace(userMessage))
-        {
-            context.AddUserMessage(userMessage);
-        }
-
         Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
 
         var messages = BuildMessages(context);
@@ -330,10 +325,19 @@ public class OpenAIChatService : IChatService
 
     private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
+        var persona = _promptService.GetPrompt(PromptType.MainPersona);
+        context.SetMainPersona(persona);
+
         var messages = new List<OpenAI.Chat.ChatMessage>
         {
-            new SystemChatMessage(_promptService.GetPrompt(PromptType.MainPersona))
+            new SystemChatMessage(persona)
         };
+
+        // 如果存在摘要，作为第一条系统消息插入（在人格之后）
+        if (!string.IsNullOrEmpty(context.Summary))
+        {
+            messages.Add(new SystemChatMessage(context.Summary));
+        }
 
         foreach (var msg in context.Messages)
         {

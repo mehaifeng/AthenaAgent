@@ -10,11 +10,34 @@ public class ConversationContext
 {
     private readonly List<ContextMessage> _messages = new();
     private readonly int _maxTokens;
+    private string _mainPersona = string.Empty;
+    private string? _summary;
 
     public ConversationContext(int maxTokens = 8000)
     {
         _maxTokens = maxTokens;
     }
+
+    /// <summary>
+    /// 设置人格提示词
+    /// </summary>
+    public void SetMainPersona(string persona)
+    {
+        _mainPersona = persona;
+    }
+
+    /// <summary>
+    /// 设置上下文摘要
+    /// </summary>
+    public void SetSummary(string? summary)
+    {
+        _summary = summary;
+    }
+
+    /// <summary>
+    /// 获取当前摘要
+    /// </summary>
+    public string? Summary => _summary;
 
     /// <summary>
     /// 所有消息
@@ -72,7 +95,7 @@ public class ConversationContext
     }
 
     /// <summary>
-    /// 清空上下文
+    /// 清空消息列表（不包括人格和摘要）
     /// </summary>
     public void Clear()
     {
@@ -80,10 +103,19 @@ public class ConversationContext
     }
 
     /// <summary>
+    /// 彻底清空（包括摘要，不包括人格）
+    /// </summary>
+    public void Reset()
+    {
+        _messages.Clear();
+        _summary = null;
+    }
+
+    /// <summary>
     /// 估算单条消息的 token 数量
     /// 使用保守估算：2 字符/token（适用于中英文混合内容）
     /// </summary>
-    public static int EstimateTokens(string content)
+    public static int EstimateTokens(string? content)
     {
         if (string.IsNullOrEmpty(content))
             return 0;
@@ -92,13 +124,17 @@ public class ConversationContext
     }
 
     /// <summary>
-    /// 估算当前 token 数量（保守估算：2 字符/token）
+    /// 估算当前 token 数量
     /// </summary>
     public int EstimatedTokenCount
     {
         get
         {
-            int total = 0;
+            int total = EstimateTokens(_mainPersona);
+            if (!string.IsNullOrEmpty(_summary))
+            {
+                total += EstimateTokens(_summary);
+            }
             foreach (var msg in _messages)
             {
                 total += EstimateTokens(msg.Content);
@@ -117,23 +153,27 @@ public class ConversationContext
         if (_messages.Count == 0)
             return 0;
 
-        // 从最新消息向前累加，直到达到阈值的 80%
-        var targetTokens = (int)(targetThreshold * 0.8);
+            // 扣除固定成本
+        var fixedCost = EstimateTokens(_mainPersona) + EstimateTokens(_summary);
+        var availableTokens = (int)(targetThreshold * 0.8) - fixedCost;
+        
+        if (availableTokens <= 0) return 1;
+
         int accumulatedTokens = 0;
         int keepCount = 0;
 
         for (int i = _messages.Count - 1; i >= 0; i--)
         {
             var msgTokens = EstimateTokens(_messages[i].Content);
-            if (accumulatedTokens + msgTokens > targetTokens)
+            if (accumulatedTokens + msgTokens > availableTokens)
                 break;
 
             accumulatedTokens += msgTokens;
             keepCount++;
         }
 
-        // 至少保留 2 条消息（一轮对话）
-        return Math.Max(2, keepCount);
+        // 至少保留 1 条消息
+        return Math.Max(1, keepCount);
     }
 
     /// <summary>

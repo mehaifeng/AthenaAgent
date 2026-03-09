@@ -64,7 +64,7 @@
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">[RUN_DIAGNOSTICS]</system:String>
     <system:String x:Key="Config.BtnExecCompression">[EXEC_COMPRESSION]</system:String>
-    <system:String x:Key="Config.BtnPurgeMemory">[PURGE_MEMORY]</system:String>
+    <system:String x:Key="Config.BtnUndoCompression">[UNDO_COMPRESSION]</system:String>
 
     <!-- Tasks Tab -->
     <system:String x:Key="Tasks.Header">ATHENA.SYS // TASK_SCHEDULER</system:String>

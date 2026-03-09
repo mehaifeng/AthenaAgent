@@ -18,6 +18,7 @@
         <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
         <conv:RoleToTextBrushConverter x:Key="RoleToTextBrushConverter"/>
         <conv:LocConverter x:Key="LocConverter"/>
+        <conv:OpacityConverter x:Key="OpacityConverter"/>
 
         <!-- 字体定义 -->
         <FontFamily x:Key="MonospaceFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
