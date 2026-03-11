@@ -239,7 +239,7 @@
                                     <TextBlock Text="{Binding CompressionPreview}"
                                                TextWrapping="Wrap"
                                                FontSize="11"
-                                               MaxHeight="100"
+                                               MaxHeight="200"
                                                Foreground="{DynamicResource Brush.BrightGreen}"/>
                                 </StackPanel>
                             </Border>
