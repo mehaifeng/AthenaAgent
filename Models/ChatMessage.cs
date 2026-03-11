@@ -75,6 +75,18 @@ public partial class ChatMessage : ObservableObject
     private bool _isCompressed;
 
     /// <summary>
+    /// 是否可以编辑该消息
+    /// </summary>
+    [ObservableProperty]
+    private bool _canEdit;
+
+    /// <summary>
+    /// 是否可以重新生成回复（仅针对助手消息）
+    /// </summary>
+    [ObservableProperty]
+    private bool _canRegenerate;
+
+    /// <summary>
     /// 显示文本（纯内容，不带前缀）
     /// </summary>
     public string DisplayText => Content;

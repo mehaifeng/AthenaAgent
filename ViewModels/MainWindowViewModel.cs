@@ -108,14 +108,27 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Wire up events
         _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
+        
+        _chatTabViewModel.TokensInfoChanged += (s, e) => 
+        {
+            _configTabViewModel.UpdateTokensInfo(e.Current, e.Preview);
+        };
+
         _configTabViewModel.SaveRequested += async (s, e) => 
         {
             await _chatTabViewModel.RefreshSettingsAsync();
             SelectedTabIndex = 0;
         };
+
+        _configTabViewModel.CompressContextRequested += async (s, e) => 
+        {
+            await _chatTabViewModel.InternalCompressContextAsync();
+            SelectedTabIndex = 0;
+        };
+
         _configTabViewModel.UndoCompressionRequested += (s, e) => 
         {
-            _chatTabViewModel.UndoCompression();
+            _chatTabViewModel.InternalUndoCompression();
             SelectedTabIndex = 0;
         };
         _configTabViewModel.ResetRequested += (s, e) => { /* Handle reset if needed */ };
