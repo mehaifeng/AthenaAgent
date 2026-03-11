@@ -117,7 +117,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _configTabViewModel.UpdateTokensInfo(_chatTabViewModel.ContextTokens, _chatTabViewModel.CompressionPreview);
 
         _configTabViewModel.SaveRequested += async (s, e) => 
-        ...
         {
             await _chatTabViewModel.RefreshSettingsAsync();
             SelectedTabIndex = 0;
