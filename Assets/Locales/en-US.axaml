@@ -18,7 +18,7 @@
     <system:String x:Key="Chat.Header">ATHENA_OS // LINK_ESTABLISHED</system:String>
     <system:String x:Key="Chat.Buffer">[BUFFER: {0}]</system:String>
     <system:String x:Key="Chat.BtnTheme">[THEME]</system:String>
-    <system:String x:Key="Chat.BtnReset">[RESET]</system:String>
+    <system:String x:Key="Chat.BtnReset">[NEW CHAT]</system:String>
     <system:String x:Key="Chat.BtnStats">[STATS]</system:String>
     <system:String x:Key="Chat.ReceivingData">RECEIVING_DATA</system:String>
     <system:String x:Key="Chat.BtnEdit">[EDIT]</system:String>

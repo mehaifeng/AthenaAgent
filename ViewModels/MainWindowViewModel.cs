@@ -108,13 +108,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Wire up events
         _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
-        
         _chatTabViewModel.TokensInfoChanged += (s, e) => 
         {
             _configTabViewModel.UpdateTokensInfo(e.Current, e.Preview);
         };
 
+        // 拉取初始状态，确保 ConfigTabView 加载时数据不为 0
+        _configTabViewModel.UpdateTokensInfo(_chatTabViewModel.ContextTokens, _chatTabViewModel.CompressionPreview);
+
         _configTabViewModel.SaveRequested += async (s, e) => 
+        ...
         {
             await _chatTabViewModel.RefreshSettingsAsync();
             SelectedTabIndex = 0;
