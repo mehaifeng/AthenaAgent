@@ -218,7 +218,7 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task ConfirmInlineEditCommand(ChatMessage? message)
+    private async Task ConfirmInlineEdit(ChatMessage? message)
     {
         if (message == null || !message.IsEditing) return;
         var newContent = message.EditContent.Trim();

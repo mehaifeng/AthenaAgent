@@ -126,7 +126,7 @@
                                             <Button Content="{loc:Loc Chat.BtnEdit}" 
                                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
                                                     CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding CanEdit}" 
+                                                    IsVisible="{Binding CanShowEdit}" 
                                                     BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
                                             
                                             <Button Content="{loc:Loc Chat.BtnConfirm}" 
