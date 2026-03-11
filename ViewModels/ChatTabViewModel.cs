@@ -115,7 +115,7 @@ public partial class ChatTabViewModel : ViewModelBase
         get
         {
             if (ConversationContext.Summary != null)
-                return $"Current Summary Active: {ConversationContext.Summary.Substring(0, Math.Min(100, ConversationContext.Summary.Length))}...";
+                return $"[SUMMARY]: {ConversationContext.Summary}";
             
             var uncompressedMessages = Messages.Where(m => !m.IsCompressed && (m.Role == "user" || m.Role == "assistant" || m.Role == "tool")).ToList();
             if (uncompressedMessages.Count <= 1)
@@ -226,7 +226,6 @@ public partial class ChatTabViewModel : ViewModelBase
         InputText = string.Empty;
         IsSending = true;
 
-        // 紧凑时间戳格式 [260305 16:30]
         var timestampPrefix = $"[{DateTime.Now:yyMMdd HH:mm}] ";
         var enrichedContent = timestampPrefix + userMessageContent;
 
@@ -240,7 +239,6 @@ public partial class ChatTabViewModel : ViewModelBase
         };
         Messages.Add(userMessage);
 
-        // 自动压缩检查 (内部调用，不受 IsSending 限制)
         if (AutoCompress && ConversationContext.NeedsCompression(ContextTokensThreshold))
         {
             await InternalCompressContextAsync();
@@ -353,6 +351,25 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task CopyMessageAsync(ChatMessage? message)
+    {
+        if (message == null || string.IsNullOrEmpty(message.Content)) return;
+        
+        var topLevel = Avalonia.Application.Current?.ApplicationLifetime switch
+        {
+            Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop => desktop.MainWindow,
+            Avalonia.Controls.ApplicationLifetimes.ISingleViewApplicationLifetime singleView => Avalonia.Controls.TopLevel.GetTopLevel(singleView.MainView),
+            _ => null
+        };
+
+        if (topLevel?.Clipboard != null)
+        {
+            await topLevel.Clipboard.SetTextAsync(message.Content);
+            _logger.Information("消息内容已复制到剪贴板");
+        }
+    }
+
+    [RelayCommand]
     private void StartInlineEdit(ChatMessage? message)
     {
         if (message == null) return;
@@ -370,14 +387,12 @@ public partial class ChatTabViewModel : ViewModelBase
             message.Content = newContent;
             message.IsEditing = false;
             
-            // 删除随后的所有消息直到最后
             var index = Messages.IndexOf(message);
             while (Messages.Count > index + 1)
             {
                 Messages.RemoveAt(index + 1);
             }
             
-            // 重新同步逻辑上下文并触发生成
             UpdateConversationContext();
             await GetAiResponseAsync(newContent);
         }
@@ -441,11 +456,10 @@ public partial class ChatTabViewModel : ViewModelBase
         if (_historyService == null) return;
         try
         {
-            // 找出所有未压缩的消息（不包括最后一条，保留它作为当前的即时上下文）
-            var toCompress = Messages.Where(m => !m.IsCompressed && (m.Role == "user" || m.Role == "assistant" || m.Role == "tool")).ToList();
-            if (toCompress.Count <= 1) return;
+            var uncompressed = Messages.Where(m => !m.IsCompressed && (m.Role == "user" || m.Role == "assistant" || m.Role == "tool")).ToList();
+            if (uncompressed.Count <= 1) return;
 
-            var eligibleToCompress = toCompress.Take(toCompress.Count - 1).ToList();
+            var eligibleToCompress = uncompressed.Take(uncompressed.Count - 1).ToList();
             
             var chatMessages = eligibleToCompress.Select(m => new ChatMessage 
             { 
@@ -474,10 +488,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public void InternalUndoCompression()
     {
-        foreach (var msg in Messages)
-        {
-            msg.IsCompressed = false;
-        }
+        foreach (var msg in Messages) msg.IsCompressed = false;
         ConversationContext.SetSummary(null);
         UpdateConversationContext();
         UpdateContextTokensDisplay();
@@ -497,7 +508,6 @@ public partial class ChatTabViewModel : ViewModelBase
         OnPropertyChanged(nameof(InputPlaceholder));
         SendMessageCommand.NotifyCanExecuteChanged();
         
-        // 触发通知给配置页
         TokensInfoChanged?.Invoke(this, (ContextTokens, CompressionPreview));
     }
 
@@ -523,14 +533,17 @@ public partial class ChatTabViewModel : ViewModelBase
             msg.CanRegenerate = false;
         }
 
+        if (IsSending) return;
+
+        // 仅针对非压缩消息且处于正确位置的消息开放编辑/重新生成
         var lastMsg = Messages.Last();
-        if (!IsSending && lastMsg.Role == "assistant")
+        if (!lastMsg.IsCompressed && lastMsg.Role == "assistant")
         {
             lastMsg.CanRegenerate = true;
             if (Messages.Count >= 2)
             {
                 var prevMsg = Messages[Messages.Count - 2];
-                if (prevMsg.Role == "user") prevMsg.CanEdit = true;
+                if (!prevMsg.IsCompressed && prevMsg.Role == "user") prevMsg.CanEdit = true;
             }
         }
     }
@@ -550,12 +563,22 @@ public partial class ChatTabViewModel : ViewModelBase
         if (item == null) return;
         Messages.Clear();
         ConversationContext.Reset();
+        
         foreach (var msg in item.Messages) Messages.Add(msg);
+        
+        // 恢复上下文摘要
+        if (!string.IsNullOrEmpty(item.ContextSummary))
+        {
+            ConversationContext.SetSummary(item.ContextSummary);
+        }
+        
         CurrentConversationId = item.Id;
         _loadedMessagesHash = ComputeMessagesHash(item.Messages.ToList());
+        
         UpdateConversationContext();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
+        
         AddSystemMessage($"已加载对话: {item.Summary}");
         await Task.CompletedTask;
     }
@@ -596,10 +619,16 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             var messagesToSave = Messages.ToList();
             if (messagesToSave.Count == 0) return;
+            
             var currentHash = ComputeMessagesHash(messagesToSave);
             var forceGenerateSummary = currentHash != _loadedMessagesHash;
+            
             var item = await _historyService.CreateFromMessagesAsync(new ObservableCollection<ChatMessage>(messagesToSave), forceGenerateSummary);
             if (!string.IsNullOrEmpty(CurrentConversationId)) item.Id = CurrentConversationId;
+            
+            // 保存当前的上下文摘要
+            item.ContextSummary = ConversationContext.Summary;
+
             await _historyService.SaveAsync(item);
             CurrentConversationId = item.Id;
             _loadedMessagesHash = currentHash;

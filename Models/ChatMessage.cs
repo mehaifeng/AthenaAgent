@@ -87,6 +87,11 @@ public partial class ChatMessage : ObservableObject
     private bool _canRegenerate;
 
     /// <summary>
+    /// 是否可以复制该消息
+    /// </summary>
+    public bool CanCopy => true;
+
+    /// <summary>
     /// 显示文本（纯内容，不带前缀）
     /// </summary>
     public string DisplayText => Content;

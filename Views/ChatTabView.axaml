@@ -72,11 +72,10 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Alignment and Compression feedback -->
+                                <!-- Alignment -->
                                 <StackPanel Grid.Column="{Binding IsUser, Converter={StaticResource IntToColumnConverter}, ConverterParameter=UserAlign}"
                                             Grid.ColumnSpan="2"
                                             HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
-                                            Opacity="{Binding IsCompressed, Converter={StaticResource OpacityConverter}}"
                                             Spacing="2">
 
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,-2">
@@ -116,6 +115,14 @@
                                     <!-- Actions -->
                                     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-2,0,0">
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="{Binding !IsLoading}">
+                                            
+                                            <!-- Copy is always available -->
+                                            <Button Content="{loc:Loc Chat.BtnCopy}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
+
+                                            <!-- Edit/Regen/Purge only for non-compressed -->
                                             <Button Content="{loc:Loc Chat.BtnEdit}" 
                                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
                                                     CommandParameter="{Binding}" 
@@ -143,7 +150,7 @@
                                             <Button Content="{loc:Loc Chat.BtnPurge}" 
                                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" 
                                                     CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding !IsEditing}" 
+                                                    IsVisible="{Binding !IsCompressed}" 
                                                     BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Red}"/>
                                         </StackPanel>
                                     </Grid>
