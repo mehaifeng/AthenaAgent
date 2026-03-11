@@ -87,6 +87,12 @@ public class OpenAIChatService : IChatService
             yield break;
         }
         
+        // 关键修复：必须先将当前消息加入上下文，BuildMessages 才能包含它
+        if (!string.IsNullOrWhiteSpace(userMessage))
+        {
+            context.AddUserMessage(userMessage);
+        }
+
         Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
 
         var messages = BuildMessages(context);
