@@ -14,9 +14,14 @@ public class ConversationHistoryItem
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     /// <summary>
-    /// 对话摘要
+    /// 对话摘要 (对话标题)
     /// </summary>
     public string Summary { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 上下文压缩摘要 (LLM 压缩后的结果)
+    /// </summary>
+    public string? ContextSummary { get; set; }
 
     /// <summary>
     /// 创建时间

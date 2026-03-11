@@ -25,6 +25,7 @@
     <system:String x:Key="Chat.BtnConfirm">[CONFIRM]</system:String>
     <system:String x:Key="Chat.BtnAbort">[ABORT]</system:String>
     <system:String x:Key="Chat.BtnRegen">[REGEN]</system:String>
+    <system:String x:Key="Chat.BtnCopy">[COPY]</system:String>
     <system:String x:Key="Chat.BtnPurge">[PURGE]</system:String>
     <system:String x:Key="Chat.InputPlaceholder">&gt; AWAITING_INPUT...</system:String>
     <system:String x:Key="Chat.MaxContextReached">&gt; MAX_CONTEXT_LIMIT_REACHED</system:String>
