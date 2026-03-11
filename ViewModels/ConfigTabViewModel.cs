@@ -30,6 +30,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     private bool _isTestingConnection;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
+    [NotifyPropertyChangedFor(nameof(IsNearCompressionThreshold))]
     private int _contextTokens;
 
     [ObservableProperty]
@@ -164,12 +166,9 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     private void UndoCompression() => UndoCompressionRequested?.Invoke(this, EventArgs.Empty);
 
-    public void UpdateTokensInfo(int current, int threshold, string preview)
+    public void UpdateTokensInfo(int current, string preview)
     {
         ContextTokens = current;
-        ContextTokensThreshold = threshold;
         CompressionPreview = preview;
-        OnPropertyChanged(nameof(ContextTokensInfo));
-        OnPropertyChanged(nameof(IsNearCompressionThreshold));
     }
 }
