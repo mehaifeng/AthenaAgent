@@ -7,6 +7,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,8 +47,6 @@ public partial class ChatTabViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CompressContextCommand))]
-    [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     private bool _isSending;
 
     /// <summary>
@@ -143,6 +142,11 @@ public partial class ChatTabViewModel : ViewModelBase
     #region Events
 
     public event EventHandler? SwitchToTasksTabRequested;
+    
+    /// <summary>
+    /// 当 Token 信息变化时触发，用于同步到配置页
+    /// </summary>
+    public event EventHandler<(int Current, string Preview)>? TokensInfoChanged;
 
     #endregion
 
@@ -162,6 +166,8 @@ public partial class ChatTabViewModel : ViewModelBase
         _taskScheduler = taskScheduler;
 
         Messages = new ObservableCollection<ChatMessage>();
+        Messages.CollectionChanged += (s, e) => UpdateBubbleButtonVisibility();
+        
         ConversationContext = new ConversationContext();
 
         if (_taskScheduler != null)
@@ -234,9 +240,10 @@ public partial class ChatTabViewModel : ViewModelBase
         };
         Messages.Add(userMessage);
 
+        // 自动压缩检查 (内部调用，不受 IsSending 限制)
         if (AutoCompress && ConversationContext.NeedsCompression(ContextTokensThreshold))
         {
-            await CompressContextAsync();
+            await InternalCompressContextAsync();
         }
 
         await GetAiResponseAsync(enrichedContent);
@@ -310,6 +317,7 @@ public partial class ChatTabViewModel : ViewModelBase
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
             UpdateContextTokensDisplay();
+            UpdateBubbleButtonVisibility();
         }
     }
 
@@ -344,7 +352,7 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateContextTokensDisplay();
     }
 
-    [RelayCommand(CanExecute = nameof(CanEditMessage))]
+    [RelayCommand]
     private void StartInlineEdit(ChatMessage? message)
     {
         if (message == null) return;
@@ -352,15 +360,8 @@ public partial class ChatTabViewModel : ViewModelBase
         message.IsEditing = true;
     }
 
-    private bool CanEditMessage(ChatMessage? message) 
-    {
-        if (IsSending || message == null || message.Role != "user") return false;
-        var index = Messages.IndexOf(message);
-        return index == Messages.Count - 2 && Messages.Last().Role == "assistant";
-    }
-
     [RelayCommand]
-    private async Task ConfirmInlineEditAsync(ChatMessage? message)
+    private async Task ConfirmInlineEditCommand(ChatMessage? message)
     {
         if (message == null || !message.IsEditing) return;
         var newContent = message.EditContent.Trim();
@@ -369,10 +370,11 @@ public partial class ChatTabViewModel : ViewModelBase
             message.Content = newContent;
             message.IsEditing = false;
             
-            // 删除随后的 AI 回复
-            if (Messages.Count > 0 && Messages.Last().Role == "assistant")
+            // 删除随后的所有消息直到最后
+            var index = Messages.IndexOf(message);
+            while (Messages.Count > index + 1)
             {
-                Messages.RemoveAt(Messages.Count - 1);
+                Messages.RemoveAt(index + 1);
             }
             
             // 重新同步逻辑上下文并触发生成
@@ -392,7 +394,7 @@ public partial class ChatTabViewModel : ViewModelBase
         message.IsEditing = false;
     }
 
-    [RelayCommand(CanExecute = nameof(CanRegenerate))]
+    [RelayCommand]
     private async Task RegenerateResponseAsync(ChatMessage? message)
     {
         if (message == null || _chatService == null) return;
@@ -407,9 +409,14 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    private bool CanRegenerate(ChatMessage? message)
+    [RelayCommand]
+    private void DeleteMessage(ChatMessage? message)
     {
-        return !IsSending && message != null && message == Messages.LastOrDefault() && message.Role == "assistant";
+        if (message == null) return;
+        Messages.Remove(message);
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
     }
 
     [RelayCommand]
@@ -427,12 +434,11 @@ public partial class ChatTabViewModel : ViewModelBase
 
     #endregion
 
-    #region Context Commands
+    #region Context Internal Methods (Used by ConfigViewModel or Auto-Comp)
 
-    [RelayCommand(CanExecute = nameof(CanCompress))]
-    public async Task CompressContextAsync()
+    public async Task InternalCompressContextAsync()
     {
-        if (_historyService == null || IsSending) return;
+        if (_historyService == null) return;
         try
         {
             // 找出所有未压缩的消息（不包括最后一条，保留它作为当前的即时上下文）
@@ -441,7 +447,6 @@ public partial class ChatTabViewModel : ViewModelBase
 
             var eligibleToCompress = toCompress.Take(toCompress.Count - 1).ToList();
             
-            // 将符合条件的消息转换为 ChatMessage 供压缩服务使用
             var chatMessages = eligibleToCompress.Select(m => new ChatMessage 
             { 
                 Role = m.Role, 
@@ -454,18 +459,10 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (!string.IsNullOrEmpty(summary))
             {
-                // 标记 UI 消息为已压缩
-                foreach (var msg in eligibleToCompress)
-                {
-                    msg.IsCompressed = true;
-                }
-                
-                // 更新逻辑上下文中的摘要
+                foreach (var msg in eligibleToCompress) msg.IsCompressed = true;
                 ConversationContext.SetSummary(summary);
-                // 重新同步未压缩的消息到逻辑套
                 UpdateConversationContext();
                 UpdateContextTokensDisplay();
-                
                 _logger.Information("非破坏性压缩完成。摘要: {Summary}", summary);
             }
         }
@@ -475,10 +472,7 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    private bool CanCompress() => !IsSending && Messages.Count > 3;
-
-    [RelayCommand(CanExecute = nameof(CanUndoCompression))]
-    public void UndoCompression()
+    public void InternalUndoCompression()
     {
         foreach (var msg in Messages)
         {
@@ -489,8 +483,6 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateContextTokensDisplay();
         _logger.Information("已撤回压缩，恢复全量上下文。");
     }
-
-    private bool CanUndoCompression() => !IsSending && ConversationContext.Summary != null;
 
     #endregion
 
@@ -504,20 +496,42 @@ public partial class ChatTabViewModel : ViewModelBase
         OnPropertyChanged(nameof(CompressionPreview));
         OnPropertyChanged(nameof(InputPlaceholder));
         SendMessageCommand.NotifyCanExecuteChanged();
-        CompressContextCommand.NotifyCanExecuteChanged();
-        UndoCompressionCommand.NotifyCanExecuteChanged();
+        
+        // 触发通知给配置页
+        TokensInfoChanged?.Invoke(this, (ContextTokens, CompressionPreview));
     }
 
     private void UpdateConversationContext()
     {
         ConversationContext.Clear();
-        // 仅将未压缩的消息同步到逻辑套
         foreach (var msg in Messages.Where(m => !m.IsCompressed))
         {
             if (msg.Role == "user") ConversationContext.AddUserMessage(msg.Content);
             else if (msg.Role == "assistant") ConversationContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson);
             else if (msg.Role == "system") ConversationContext.AddSystemMessage(msg.Content);
             else if (msg.Role == "tool") ConversationContext.AddToolMessage(msg.Content, msg.ToolCallId);
+        }
+    }
+
+    private void UpdateBubbleButtonVisibility()
+    {
+        if (Messages.Count == 0) return;
+
+        foreach (var msg in Messages)
+        {
+            msg.CanEdit = false;
+            msg.CanRegenerate = false;
+        }
+
+        var lastMsg = Messages.Last();
+        if (!IsSending && lastMsg.Role == "assistant")
+        {
+            lastMsg.CanRegenerate = true;
+            if (Messages.Count >= 2)
+            {
+                var prevMsg = Messages[Messages.Count - 2];
+                if (prevMsg.Role == "user") prevMsg.CanEdit = true;
+            }
         }
     }
 
@@ -534,21 +548,14 @@ public partial class ChatTabViewModel : ViewModelBase
     public async Task LoadHistoryConversationAsync(ConversationHistoryItem item)
     {
         if (item == null) return;
-        
         Messages.Clear();
         ConversationContext.Reset();
-
-        foreach (var msg in item.Messages)
-        {
-            Messages.Add(msg);
-        }
-        
+        foreach (var msg in item.Messages) Messages.Add(msg);
         CurrentConversationId = item.Id;
         _loadedMessagesHash = ComputeMessagesHash(item.Messages.ToList());
-        
         UpdateConversationContext();
         UpdateContextTokensDisplay();
-        
+        UpdateBubbleButtonVisibility();
         AddSystemMessage($"已加载对话: {item.Summary}");
         await Task.CompletedTask;
     }
@@ -572,14 +579,8 @@ public partial class ChatTabViewModel : ViewModelBase
         try
         {
             var historyItems = await _historyService.LoadAllAsync();
-            if (historyItems.Count > 0)
-            {
-                await LoadHistoryConversationAsync(historyItems.First());
-            }
-            else
-            {
-                AddSystemMessage("雅典娜 AI 助手已启动。请问有什么可以帮助您的？");
-            }
+            if (historyItems.Count > 0) await LoadHistoryConversationAsync(historyItems.First());
+            else AddSystemMessage("雅典娜 AI 助手已启动。请问有什么可以帮助您的？");
         }
         catch (Exception ex)
         {
@@ -595,21 +596,15 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             var messagesToSave = Messages.ToList();
             if (messagesToSave.Count == 0) return;
-            
             var currentHash = ComputeMessagesHash(messagesToSave);
             var forceGenerateSummary = currentHash != _loadedMessagesHash;
-
             var item = await _historyService.CreateFromMessagesAsync(new ObservableCollection<ChatMessage>(messagesToSave), forceGenerateSummary);
             if (!string.IsNullOrEmpty(CurrentConversationId)) item.Id = CurrentConversationId;
-
             await _historyService.SaveAsync(item);
             CurrentConversationId = item.Id;
             _loadedMessagesHash = currentHash;
         }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "保存对话失败");
-        }
+        catch (Exception ex) { _logger.Error(ex, "保存对话失败"); }
     }
 
     private static string ComputeMessagesHash(List<ChatMessage> messages)
@@ -629,13 +624,10 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             var heartbeatMessage = new ChatMessage { Role = "assistant", Content = string.Empty, Timestamp = DateTime.Now, IsLoading = true, IsHeartbeat = true };
             Avalonia.Threading.Dispatcher.UIThread.Post(() => Messages.Add(heartbeatMessage));
-
             var systemPrompt = _promptService?.GetProactiveMessagePrompt(e.Intent, DateTime.Now) ?? $"意图: {e.Intent}";
             ConversationContext.AddSystemMessage(systemPrompt);
-
             Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSending = true);
             _cancellationTokenSource = new CancellationTokenSource();
-
             bool isFirstChunk = true;
             await foreach (var chunk in _chatService!.StreamMessageAsync("", ConversationContext, _cancellationTokenSource.Token))
             {
@@ -648,15 +640,13 @@ public partial class ChatTabViewModel : ViewModelBase
             }
             Avalonia.Threading.Dispatcher.UIThread.Post(() => heartbeatMessage.IsLoading = false);
         }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "处理主动消息时发生错误");
-        }
+        catch (Exception ex) { _logger.Error(ex, "处理主动消息时发生错误"); }
         finally
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() => IsSending = false);
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+            UpdateBubbleButtonVisibility();
         }
     }
 

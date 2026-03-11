@@ -119,7 +119,7 @@
                                             <Button Content="{loc:Loc Chat.BtnEdit}" 
                                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
                                                     CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding !IsEditing}" 
+                                                    IsVisible="{Binding CanEdit}" 
                                                     BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
                                             
                                             <Button Content="{loc:Loc Chat.BtnConfirm}" 
@@ -137,8 +137,14 @@
                                             <Button Content="{loc:Loc Chat.BtnRegen}" 
                                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" 
                                                     CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding !IsEditing}" 
+                                                    IsVisible="{Binding CanRegenerate}" 
                                                     BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
+
+                                            <Button Content="{loc:Loc Chat.BtnPurge}" 
+                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" 
+                                                    CommandParameter="{Binding}" 
+                                                    IsVisible="{Binding !IsEditing}" 
+                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Red}"/>
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>

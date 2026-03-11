@@ -41,6 +41,15 @@ public class ConversationHistoryService : IConversationHistoryService
         {
             _historyDirectory = platformPathService.GetHistoryDirectory();
         }
+        else
+        {
+            // 兼容旧的调用方式
+            _historyDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Athena",
+                "history"
+            );
+        }
         Directory.CreateDirectory(_historyDirectory);
         Log.Information("对话历史服务初始化，存储目录: {Dir}", _historyDirectory);
     }
