@@ -23,7 +23,8 @@ public interface IChatService
         string userMessage,
         ConversationContext context,
         CancellationToken cancellationToken = default,
-        Action<ChatMessage>? onMessageAdded = null);
+        Action<ChatMessage>? onMessageAdded = null,
+        bool addToContext = true);
 
     /// <summary>
     /// 测试 API 连接
