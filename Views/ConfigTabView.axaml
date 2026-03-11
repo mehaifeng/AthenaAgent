@@ -236,11 +236,11 @@
                                     Margin="8,8,0,0">
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="{loc:Loc Config.CompressionPreview}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
-                                    <TextBlock Text="{Binding CompressionPreview}"
-                                               TextWrapping="Wrap"
-                                               FontSize="11"
-                                               MaxHeight="200"
-                                               Foreground="{DynamicResource Brush.BrightGreen}"/>
+                                    <TextBox Text="{Binding CompressionPreview}"
+                                             TextWrapping="Wrap"
+                                             FontSize="11"
+                                             MaxHeight="200"
+                                             Foreground="{DynamicResource Brush.BrightGreen}"/>
                                 </StackPanel>
                             </Border>
 

@@ -73,25 +73,25 @@ public class OpenAIChatService : IChatService
             _chatClient = null;
         }
     }
-
-    public async IAsyncEnumerable<string> StreamMessageAsync(
-        string userMessage,
-        ConversationContext context,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        Action<Models.ChatMessage>? onMessageAdded = null)
+public async IAsyncEnumerable<string> StreamMessageAsync(
+    string userMessage,
+    ConversationContext context,
+    [EnumeratorCancellation] CancellationToken cancellationToken = default,
+    Action<Models.ChatMessage>? onMessageAdded = null,
+    bool addToContext = true)
+{
+    if (_chatClient == null)
     {
-        if (_chatClient == null)
-        {
-            Log.Error("ChatClient 未初始化");
-            yield return "[错误] 请先在设置中配置 API Key";
-            yield break;
-        }
-        
-        // 关键修复：必须先将当前消息加入上下文，BuildMessages 才能包含它
-        if (!string.IsNullOrWhiteSpace(userMessage))
-        {
-            context.AddUserMessage(userMessage);
-        }
+        Log.Error("ChatClient 未初始化");
+        yield return "[错误] 请先在设置中配置 API Key";
+        yield break;
+    }
+
+    // 仅在明确要求时才加入上下文，防止 Regenerate 或 Edit 流程中重复添加
+    if (!string.IsNullOrWhiteSpace(userMessage) && addToContext)
+    {
+        context.AddUserMessage(userMessage);
+    }
 
         Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
 
