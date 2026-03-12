@@ -29,7 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private HistoryTabViewModel? _historyTabViewModel;
 
     [ObservableProperty]
-    private FilesTabViewModel _filesTabViewModel;
+    private KnowledgeBaseTabViewModel _knowledgeBaseTabViewModel;
 
     [ObservableProperty]
     private LogsTabViewModel _logsTabViewModel;
@@ -70,7 +70,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _chatTabViewModel = new ChatTabViewModel();
         _configTabViewModel = new ConfigTabViewModel();
         _tasksTabViewModel = new TasksTabViewModel();
-        _filesTabViewModel = new FilesTabViewModel();
+        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
         _aboutTabViewModel = new AboutTabViewModel();
     }
@@ -87,7 +87,9 @@ public partial class MainWindowViewModel : ViewModelBase
         ILogService? logService,
         IKnowledgeBaseService? knowledgeBaseService,
         IEmbeddingService? embeddingService,
-        ILocalizationService? localizationService)
+        ILocalizationService? localizationService,
+        IFileSystemService? fileSystemService,
+        IPlatformPathService? platformPathService)
     {
         _localizationService = localizationService;
 
@@ -95,7 +97,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler);
-        _filesTabViewModel = new FilesTabViewModel(knowledgeBaseService);
+        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService);
         _logsTabViewModel = new LogsTabViewModel(logService);
         _aboutTabViewModel = new AboutTabViewModel();
 

@@ -26,6 +26,7 @@ public class FunctionRegistry : IFunctionRegistry
         ProactiveMessagingFunctions proactiveFunctions,
         KnowledgeBaseFunctions knowledgeFunctions,
         ConfigurationFunctions configFunctions,
+        FileSystemFunctions fileSystemFunctions,
         ILogger logger)
     {
         _logger = logger.ForContext<FunctionRegistry>();
@@ -60,35 +61,20 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Long-term Memory ---
         RegisterFunction("create_new_memory", knowledgeFunctions.CreateKnowledgeFile,
-            "Creates a new memory record. MANDATORY: You MUST call 'list_all_memories' or 'recall_from_memory' first to ensure this information doesn't already exist. Only use this for entirely new domains of knowledge.",
+            "Creates a new memory record in the knowledge base. Only use this for information that should be persisted for long-term recall.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    filePath = new { type = "string", description = "Logical path for the memory file (e.g., 'user_preferences/coding_style.md', 'facts/family.md'). Use existing directory structures if possible." },
-                    content = new { type = "string", description = "The detailed information to be remembered." },
-                    tags = new { type = "array", items = new { type = "string" }, description = "Keywords for classification." }
+                    filePath = new { type = "string", description = "Relative path for the memory file (e.g., 'user_preferences/coding_style.md')." },
+                    content = new { type = "string", description = "The detailed information to be remembered." }
                 },
                 required = new[] { "filePath", "content" }
             });
 
-        RegisterFunction("update_memory_fragment", knowledgeFunctions.UpdateKnowledgeFileDiff,
-            "Updates a specific fragment of an existing memory. This is the preferred way to refine or change old information.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    filePath = new { type = "string", description = "Path to the memory file." },
-                    diffContent = new { type = "string", description = "The modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
-                    fuzzyMatch = new { type = "boolean", description = "Whether to ignore whitespace differences. Defaults to true.", @default = true }
-                },
-                required = new[] { "filePath", "diffContent" }
-            });
-
         RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
-            "Searches across all memory domains. Use this proactively to find relevant context before answering questions about the user's past, preferences, or projects.",
+            "Searches across all memory domains using semantic vector search. Use this to find relevant context from the knowledge base.",
             new
             {
                 type = "object",
@@ -99,28 +85,6 @@ public class FunctionRegistry : IFunctionRegistry
                 },
                 required = new[] { "query" }
             });
-
-        RegisterFunction("read_memory_file", knowledgeFunctions.ReadKnowledgeFile,
-            "Reads a memory file in full. Use this when search results are insufficient and you need the complete context of a specific file.",
-            new
-            {
-                type = "object",
-                properties = new { filePath = new { type = "string", description = "Path to the memory file." } },
-                required = new[] { "filePath" }
-            });
-
-        RegisterFunction("delete_memory_file", knowledgeFunctions.DeleteKnowledgeFile,
-            "Deletes a memory file permanently. Use only when the user explicitly requests to forget something. This is irreversible.",
-            new
-            {
-                type = "object",
-                properties = new { filePath = new { type = "string", description = "Path to the memory file." } },
-                required = new[] { "filePath" }
-            });
-
-        RegisterFunction("list_all_memories", knowledgeFunctions.ListKnowledgeFiles,
-            "Lists all available memory files and their directory structure. Use this to understand the current scope of your knowledge base before creating new records.",
-            new { type = "object", properties = new { } });
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
@@ -142,6 +106,65 @@ public class FunctionRegistry : IFunctionRegistry
             {
                 type = "object",
                 properties = new { section = new { type = "string", description = "Category: 'AI', 'Appearance', 'Memory', or 'All'.", @default = "All" } }
+            });
+
+        // --- File System Control ---
+        RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
+            "Reads the content of a local system file. Subject to extension whitelist.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", description = "Absolute or relative path to the file." } },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("write_system_file", fileSystemFunctions.WriteSystemFileAsync,
+            "Writes content to a local system file. If the file exists, it will be completely overwritten. If not, it will be created.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the file." },
+                    content = new { type = "string", description = "The full content to write." }
+                },
+                required = new[] { "path", "content" }
+            });
+
+        RegisterFunction("modify_system_file", fileSystemFunctions.ModifySystemFileAsync,
+            "Modifies a specific fragment of an existing local system file.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the file." },
+                    diffContent = new { type = "string", description = "The modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
+                    fuzzyMatch = new { type = "boolean", description = "Whether to ignore whitespace differences. Defaults to true.", @default = true }
+                },
+                required = new[] { "path", "diffContent" }
+            });
+
+        RegisterFunction("delete_system_file", fileSystemFunctions.DeleteSystemFileAsync,
+            "Deletes a local system file. This is irreversible.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", description = "Path to the file." } },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("list_system_directory", fileSystemFunctions.ListSystemDirectoryAsync,
+            "Lists all files and subdirectories in a given path. Use this to explore the local file system.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the directory." },
+                    recursive = new { type = "boolean", description = "Whether to list subdirectories recursively.", @default = false }
+                },
+                required = new[] { "path" }
             });
 
         _logger.Information("FunctionRegistry initialized with {Count} functions", _tools.Count);

@@ -97,6 +97,15 @@ public partial class App : Application
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
 
+        // 系统文件服务（单例）
+        services.AddSingleton<IFileSystemService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<FileSystemService>();
+            return new FileSystemService(configService, pathService, logger);
+        });
+
         // 任务调度器（单例，UI 和 Function Calling 共享）
         services.AddSingleton<ITaskScheduler>(sp =>
         {
@@ -165,15 +174,23 @@ public partial class App : Application
             return new ConfigurationFunctions(configService, sp, logger);
         });
 
+        services.AddSingleton<FileSystemFunctions>(sp =>
+        {
+            var fileSystemService = sp.GetRequiredService<IFileSystemService>();
+            var logger = Log.ForContext<FileSystemFunctions>();
+            return new FileSystemFunctions(fileSystemService, logger);
+        });
+
         // Function Registry（单例）
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
             var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
             var knowledgeFunctions = sp.GetRequiredService<KnowledgeBaseFunctions>();
             var configFunctions = sp.GetRequiredService<ConfigurationFunctions>();
+            var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, logger);
         });
 
         // Prompt 服务（单例）
@@ -220,6 +237,8 @@ public partial class App : Application
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
             var embeddingService = sp.GetService<IEmbeddingService>();
             var localizationService = sp.GetService<ILocalizationService>();
+            var fileSystemService = sp.GetService<IFileSystemService>();
+            var platformPathService = sp.GetRequiredService<IPlatformPathService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -230,7 +249,9 @@ public partial class App : Application
                 logService,
                 knowledgeBaseService,
                 embeddingService,
-                localizationService);
+                localizationService,
+                fileSystemService,
+                platformPathService);
         });
 
         Log.Debug("依赖注入服务配置完成");

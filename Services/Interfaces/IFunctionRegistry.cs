@@ -19,12 +19,18 @@ public class FunctionResult
     public static FunctionResult FailureResult(string message) =>
         new() { Success = false, Message = message };
 
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false
+    };
+
     public string ToJson() => JsonSerializer.Serialize(new
     {
         success = Success,
         message = Message,
         data = Data
-    });
+    }, _jsonOptions);
 }
 
 /// <summary>

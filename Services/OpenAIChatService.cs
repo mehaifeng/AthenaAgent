@@ -116,7 +116,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
         Action<Models.ChatMessage>? onMessageAdded = null)
     {
         var iteration = 0;
-        const int maxIterations = 5;
+        const int maxIterations = 15;
 
         while (iteration < maxIterations)
         {

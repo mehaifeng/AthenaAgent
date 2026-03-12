@@ -1,64 +1,8 @@
+using Athena.UI.Models;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Interfaces;
-
-/// <summary>
-/// 知识库搜索结果
-/// </summary>
-public class KnowledgeSearchResult
-{
-    /// <summary>
-    /// 文件路径
-    /// </summary>
-    public string FilePath { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 匹配的内容片段
-    /// </summary>
-    public string Snippet { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 相关性分数（0-1）
-    /// </summary>
-    public double RelevanceScore { get; set; }
-}
-
-/// <summary>
-/// 知识库文件更新结果
-/// </summary>
-public class FileUpdateResult
-{
-    /// <summary>
-    /// 是否成功
-    /// </summary>
-    public bool Success { get; set; }
-
-    /// <summary>
-    /// 结果消息
-    /// </summary>
-    public string Message { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 修改后的内容（内部使用）
-    /// </summary>
-    internal string? ModifiedContent { get; set; }
-
-    /// <summary>
-    /// 匹配到的行号
-    /// </summary>
-    public int? LineNumber { get; set; }
-
-    /// <summary>
-    /// 多处匹配时的上下文列表
-    /// </summary>
-    public List<string>? MultipleMatches { get; set; }
-
-    /// <summary>
-    /// 应用的修改块数量
-    /// </summary>
-    public int AppliedBlocks { get; set; }
-}
 
 /// <summary>
 /// 知识库服务接口
