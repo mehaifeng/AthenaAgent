@@ -8,7 +8,7 @@
     <system:String x:Key="Tab.SysConfig">[系统配置]</system:String>
     <system:String x:Key="Tab.Scheduler">[任务调度]</system:String>
     <system:String x:Key="Tab.Archives">[历史记录]</system:String>
-    <system:String x:Key="Tab.Files">[文件管理]</system:String>
+    <system:String x:Key="Tab.Files">[知识库]</system:String>
     <system:String x:Key="Tab.SysLogs">[系统日志]</system:String>
     <system:String x:Key="Tab.Diagnostic">[诊断信息]</system:String>
     <system:String x:Key="Btn.CommitChanges">[保存更改]</system:String>
@@ -89,7 +89,7 @@
     <system:String x:Key="History.FooterHint">选择 [恢复] 将历史会话数据加载到当前记忆中.</system:String>
 
     <!-- Files Tab -->
-    <system:String x:Key="Files.Header">ATHENA.SYS // 文件系统浏览器</system:String>
+    <system:String x:Key="Files.Header">ATHENA.SYS // 知识库文件管理</system:String>
     <system:String x:Key="Files.BtnRefresh">[刷新]</system:String>
     <system:String x:Key="Files.BtnImport">[导入]</system:String>
     <system:String x:Key="Files.BtnExport">[导出]</system:String>

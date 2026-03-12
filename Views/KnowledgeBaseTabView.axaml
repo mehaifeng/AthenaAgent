@@ -6,12 +6,13 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:models="using:Athena.UI.Models"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
-             x:Class="Athena.UI.Views.FilesTabView"
-             x:DataType="vm:FilesTabViewModel"
+             x:Class="Athena.UI.Views.KnowledgeBaseTabView"
+             x:DataType="vm:KnowledgeBaseTabViewModel"
+             Loaded="OnLoaded"
              FontFamily="{DynamicResource MonospaceFontFamily}">
 
     <Design.DataContext>
-        <vm:FilesTabViewModel/>
+        <vm:KnowledgeBaseTabViewModel/>
     </Design.DataContext>
 
     <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
@@ -35,7 +36,7 @@
                                FontSize="14"
                                VerticalAlignment="Center"/>
 
-                    <Button Grid.Column="1" Content="{loc:Loc Files.BtnRefresh}" Command="{Binding RefreshKnowledgeBaseCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
+                    <Button Grid.Column="1" Content="{loc:Loc Files.BtnRefresh}" Command="{Binding RefreshFilesCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
                     <Button Grid.Column="2" Content="{loc:Loc Files.BtnImport}" Command="{Binding ImportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
                     <Button Grid.Column="3" Content="{loc:Loc Files.BtnExport}" Command="{Binding ExportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
                     <Button Grid.Column="4" Content="{loc:Loc Files.BtnDelete}" Command="{Binding DeleteFileCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Red}" Padding="8,2"/>
@@ -58,14 +59,13 @@
 
                         <!-- Tree View -->
                         <TreeView Grid.Row="1"
-                                 ItemsSource="{Binding KnowledgeFiles}"
-                                 SelectedItem="{Binding SelectedKnowledgeFile}"
+                                 ItemsSource="{Binding Files}"
+                                 SelectedItem="{Binding SelectedFile}"
                                  Background="Transparent"
                                  Padding="8">
                             <TreeView.ItemTemplate>
-                                <TreeDataTemplate DataType="{x:Type models:KnowledgeFileNode}" ItemsSource="{Binding Children}">
+                                <TreeDataTemplate ItemsSource="{Binding Children}">
                                     <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Brush.BrightGreen}"/>
-                                    
                                 </TreeDataTemplate>
                             </TreeView.ItemTemplate>
                             <TreeView.Styles>
@@ -107,10 +107,10 @@
                         <!-- Panel Header -->
                         <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,0,0,1" Padding="8,4" >
                             <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{loc:Loc Files.Path}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
-                                </StackPanel>
+                                <Grid Grid.ColumnDefinitions="50,*" Grid.Column="0" >
+                                    <TextBlock Grid.Column="0" Text="{loc:Loc Files.Path}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
+                                    <SelectableTextBlock Grid.Column="1" Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
+                                </Grid>
                                 <TextBlock Grid.Column="1" Text="{loc:Loc Files.ModeEdit}" IsVisible="{Binding IsEditingFile}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Text="{loc:Loc Files.ModeRead}" IsVisible="{Binding !IsEditingFile}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
                             </Grid>
