@@ -18,10 +18,10 @@ namespace Athena.UI.Services;
 /// </summary>
 public class TaskScheduler : ITaskScheduler, IDisposable
 {
-    private readonly string _dataDir;
     private readonly string _tasksFilePath;
     private readonly Timer _timer;
     private readonly ILogger _logger;
+    private readonly IPlatformPathService? _pathService;
     private bool _isRunning;
     private bool _disposed;
 
@@ -35,17 +35,33 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     /// </summary>
     public event EventHandler<ProactiveMessageEventArgs>? ProactiveMessageTriggered;
 
-    public TaskScheduler(ILogger logger)
+    public TaskScheduler(ILogger logger, IPlatformPathService? pathService = null)
     {
         _logger = logger;
+        _pathService = pathService;
 
-        // 初始化数据目录
-        _dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Athena"
-        );
-        Directory.CreateDirectory(_dataDir);
-        _tasksFilePath = Path.Combine(_dataDir, "scheduled_tasks.json");
+        // 初始化数据目录和文件路径
+        if (_pathService != null)
+        {
+            _tasksFilePath = _pathService.GetTaskSchedulerFilePath();
+        }
+        else
+        {
+            // 兜底逻辑
+            var dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Athena"
+            );
+            Directory.CreateDirectory(dataDir);
+            _tasksFilePath = Path.Combine(dataDir, "scheduled_tasks.json");
+        }
+
+        // 确保目录存在
+        var dir = Path.GetDirectoryName(_tasksFilePath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
 
         // 初始化任务集合
         Tasks = new ObservableCollection<ScheduledTask>();
@@ -56,7 +72,7 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         // 初始化定时器（每分钟检查一次）
         _timer = new Timer(CheckTasks, null, Timeout.Infinite, Timeout.Infinite);
 
-        _logger.Information("TaskScheduler initialized with {Count} tasks", Tasks.Count);
+        _logger.Information("TaskScheduler initialized at {Path} with {Count} tasks", _tasksFilePath, Tasks.Count);
     }
 
     /// <summary>

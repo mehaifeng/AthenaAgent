@@ -29,7 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private HistoryTabViewModel? _historyTabViewModel;
 
     [ObservableProperty]
-    private MemoryTabViewModel _memoryTabViewModel;
+    private FilesTabViewModel _filesTabViewModel;
 
     [ObservableProperty]
     private LogsTabViewModel _logsTabViewModel;
@@ -70,7 +70,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _chatTabViewModel = new ChatTabViewModel();
         _configTabViewModel = new ConfigTabViewModel();
         _tasksTabViewModel = new TasksTabViewModel();
-        _memoryTabViewModel = new MemoryTabViewModel();
+        _filesTabViewModel = new FilesTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
         _aboutTabViewModel = new AboutTabViewModel();
     }
@@ -95,7 +95,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler);
-        _memoryTabViewModel = new MemoryTabViewModel(knowledgeBaseService);
+        _filesTabViewModel = new FilesTabViewModel(knowledgeBaseService);
         _logsTabViewModel = new LogsTabViewModel(logService);
         _aboutTabViewModel = new AboutTabViewModel();
 

@@ -41,7 +41,7 @@
 
     <Application.Styles>
         <!-- Simple 主题作为基础 -->
-        <SimpleTheme/>
+        <SimpleTheme />
 
         <!-- DOS 复古风格控件样式 -->
         <StyleInclude Source="avares://Athena.UI/Styles/DosControls.axaml"/>

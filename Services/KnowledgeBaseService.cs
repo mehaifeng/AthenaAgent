@@ -80,7 +80,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     {
         _logger = logger.ForContext<KnowledgeBaseService>();
         _embeddingService = embeddingService;
-        _vectorStoreService = new VectorStoreService(logger);
+        _vectorStoreService = new VectorStoreService(logger, platformPathService);
 
         // 初始化知识库目录
         if (platformPathService != null)
@@ -89,7 +89,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
         else
         {
-            // 兼容旧的调用方式
+            // 兜底逻辑
             _knowledgeBasePath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Athena",
