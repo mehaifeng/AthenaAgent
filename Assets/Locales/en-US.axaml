@@ -8,7 +8,7 @@
     <system:String x:Key="Tab.SysConfig">[SYS_CONFIG]</system:String>
     <system:String x:Key="Tab.Scheduler">[SCHEDULER]</system:String>
     <system:String x:Key="Tab.Archives">[ARCHIVES]</system:String>
-    <system:String x:Key="Tab.Files">[FILES]</system:String>
+    <system:String x:Key="Tab.Files">[KNOWLEDGE_BASE]</system:String>
     <system:String x:Key="Tab.SysLogs">[SYS_LOGS]</system:String>
     <system:String x:Key="Tab.Diagnostic">[DIAGNOSTIC]</system:String>
     <system:String x:Key="Btn.CommitChanges">[COMMIT_CHANGES]</system:String>
@@ -89,7 +89,7 @@
     <system:String x:Key="History.FooterHint">SELECT [RESTORE] TO MOUNT PREVIOUS SESSION DATA TO ACTIVE MEMORY.</system:String>
 
     <!-- Files Tab -->
-    <system:String x:Key="Files.Header">ATHENA.SYS // FILE_SYSTEM_NAVIGATOR</system:String>
+    <system:String x:Key="Files.Header">ATHENA.SYS // KNOWLEDGE_BASE_NAVIGATOR</system:String>
     <system:String x:Key="Files.BtnRefresh">[REFRESH]</system:String>
     <system:String x:Key="Files.BtnImport">[IMPORT]</system:String>
     <system:String x:Key="Files.BtnExport">[EXPORT]</system:String>

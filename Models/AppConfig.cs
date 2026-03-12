@@ -91,4 +91,8 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private bool _autoCompress = true;
+
+    // 文件系统控制策略
+    [ObservableProperty]
+    private FileSystemPolicyConfig _fileSystemPolicy = new();
 }
