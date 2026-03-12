@@ -101,7 +101,8 @@ public partial class App : Application
         services.AddSingleton<ITaskScheduler>(sp =>
         {
             var logger = Log.ForContext<Services.TaskScheduler>();
-            var scheduler = new Services.TaskScheduler(logger);
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var scheduler = new Services.TaskScheduler(logger, pathService);
             scheduler.Start(); // 启动调度器
             Log.Information("任务调度器已启动");
             return scheduler;

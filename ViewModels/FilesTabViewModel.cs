@@ -15,10 +15,10 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class MemoryTabViewModel : ViewModelBase
+public partial class FilesTabViewModel : ViewModelBase
 {
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
-    private readonly ILogger _logger = Log.ForContext<MemoryTabViewModel>();
+    private readonly ILogger _logger = Log.ForContext<FilesTabViewModel>();
 
     public ObservableCollection<KnowledgeFileNode> KnowledgeFiles { get; } = new();
 
@@ -40,9 +40,9 @@ public partial class MemoryTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _newFileName = string.Empty;
 
-    public MemoryTabViewModel() : this(null) { }
+    public FilesTabViewModel() : this(null) { }
 
-    public MemoryTabViewModel(IKnowledgeBaseService? knowledgeBaseService)
+    public FilesTabViewModel(IKnowledgeBaseService? knowledgeBaseService)
     {
         _knowledgeBaseService = knowledgeBaseService;
         LoadKnowledgeFilesAsync().ConfigureAwait(false);

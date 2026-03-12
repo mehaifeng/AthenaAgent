@@ -8,7 +8,7 @@
     <system:String x:Key="Tab.SysConfig">[SYS_CONFIG]</system:String>
     <system:String x:Key="Tab.Scheduler">[SCHEDULER]</system:String>
     <system:String x:Key="Tab.Archives">[ARCHIVES]</system:String>
-    <system:String x:Key="Tab.Knowledge">[KNOWLEDGE]</system:String>
+    <system:String x:Key="Tab.Files">[FILES]</system:String>
     <system:String x:Key="Tab.SysLogs">[SYS_LOGS]</system:String>
     <system:String x:Key="Tab.Diagnostic">[DIAGNOSTIC]</system:String>
     <system:String x:Key="Btn.CommitChanges">[COMMIT_CHANGES]</system:String>
@@ -88,24 +88,24 @@
     <system:String x:Key="History.NoRecords">NO_RECORDS_FOUND.</system:String>
     <system:String x:Key="History.FooterHint">SELECT [RESTORE] TO MOUNT PREVIOUS SESSION DATA TO ACTIVE MEMORY.</system:String>
 
-    <!-- Memory Tab -->
-    <system:String x:Key="Memory.Header">ATHENA.SYS // KNOWLEDGE_BASE_NAVIGATOR</system:String>
-    <system:String x:Key="Memory.BtnRefresh">[REFRESH]</system:String>
-    <system:String x:Key="Memory.BtnImport">[IMPORT]</system:String>
-    <system:String x:Key="Memory.BtnExport">[EXPORT]</system:String>
-    <system:String x:Key="Memory.BtnDelete">[DELETE]</system:String>
-    <system:String x:Key="Memory.DirectoryStructure">&gt; DIRECTORY_STRUCTURE</system:String>
-    <system:String x:Key="Memory.MkdirPlaceholder">MKDIR (Folder name)</system:String>
-    <system:String x:Key="Memory.TouchPlaceholder">TOUCH (File.md)</system:String>
-    <system:String x:Key="Memory.BtnExec">[EXEC]</system:String>
-    <system:String x:Key="Memory.Path">[PATH]:</system:String>
-    <system:String x:Key="Memory.ModeEdit">[MODE: EDIT]</system:String>
-    <system:String x:Key="Memory.ModeRead">[MODE: READ]</system:String>
-    <system:String x:Key="Memory.NoFileSelected">[ NO FILE SELECTED OR CONTENT EMPTY ]</system:String>
-    <system:String x:Key="Memory.AwaitingInput">AWAITING OPERATOR INPUT...</system:String>
-    <system:String x:Key="Memory.BtnCommitWrite">[COMMIT_WRITE]</system:String>
-    <system:String x:Key="Memory.CtxView">View</system:String>
-    <system:String x:Key="Memory.CtxDelete">Delete</system:String>
+    <!-- Files Tab -->
+    <system:String x:Key="Files.Header">ATHENA.SYS // FILE_SYSTEM_NAVIGATOR</system:String>
+    <system:String x:Key="Files.BtnRefresh">[REFRESH]</system:String>
+    <system:String x:Key="Files.BtnImport">[IMPORT]</system:String>
+    <system:String x:Key="Files.BtnExport">[EXPORT]</system:String>
+    <system:String x:Key="Files.BtnDelete">[DELETE]</system:String>
+    <system:String x:Key="Files.DirectoryStructure">&gt; DIRECTORY_STRUCTURE</system:String>
+    <system:String x:Key="Files.MkdirPlaceholder">MKDIR (Folder name)</system:String>
+    <system:String x:Key="Files.TouchPlaceholder">TOUCH (File.md)</system:String>
+    <system:String x:Key="Files.BtnExec">[EXEC]</system:String>
+    <system:String x:Key="Files.Path">[PATH]:</system:String>
+    <system:String x:Key="Files.ModeEdit">[MODE: EDIT]</system:String>
+    <system:String x:Key="Files.ModeRead">[MODE: READ]</system:String>
+    <system:String x:Key="Files.NoFileSelected">[ NO FILE SELECTED OR CONTENT EMPTY ]</system:String>
+    <system:String x:Key="Files.AwaitingInput">AWAITING OPERATOR INPUT...</system:String>
+    <system:String x:Key="Files.BtnCommitWrite">[COMMIT_WRITE]</system:String>
+    <system:String x:Key="Files.CtxView">View</system:String>
+    <system:String x:Key="Files.CtxDelete">Delete</system:String>
 
     <!-- Logs Tab -->
     <system:String x:Key="Logs.Header">ATHENA.SYS // SYSTEM_EVENT_LOGS</system:String>

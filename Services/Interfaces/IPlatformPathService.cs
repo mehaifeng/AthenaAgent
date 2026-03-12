@@ -29,4 +29,14 @@ public interface IPlatformPathService
     /// 获取对话历史目录
     /// </summary>
     string GetHistoryDirectory();
+
+    /// <summary>
+    /// 获取任务调度器文件路径
+    /// </summary>
+    string GetTaskSchedulerFilePath();
+
+    /// <summary>
+    /// 获取向量数据库文件路径
+    /// </summary>
+    string GetVectorStoreFilePath();
 }
