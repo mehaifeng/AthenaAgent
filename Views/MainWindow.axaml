@@ -55,9 +55,9 @@
                     <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
                 </TabItem>
 
-                <!-- MODULE 4: MEMORY -->
-                <TabItem Header="{loc:Loc Tab.Knowledge}">
-                    <views:MemoryTabView DataContext="{Binding MemoryTabViewModel}"/>
+                <!-- MODULE 4: FILES -->
+                <TabItem Header="{loc:Loc Tab.Files}">
+                    <views:FilesTabView DataContext="{Binding FilesTabViewModel}"/>
                 </TabItem>
 
                 <!-- MODULE 5: LOGS -->

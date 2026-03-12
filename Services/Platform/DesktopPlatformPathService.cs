@@ -13,9 +13,14 @@ public class DesktopPlatformPathService : IPlatformPathService
 
     public DesktopPlatformPathService()
     {
-        // 使用 ~/.local/share/Athena 作为数据目录
-        var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        _baseDirectory = Path.Combine(homeDir, ".local", "share", "Athena");
+        // 使用应用程序根目录下的 AthenaData 文件夹，确保所有内容都在一起
+        _baseDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AthenaData");
+        
+        // 确保基础目录存在
+        if (!Directory.Exists(_baseDirectory))
+        {
+            Directory.CreateDirectory(_baseDirectory);
+        }
     }
 
     public string GetAppDataDirectory() => _baseDirectory;
@@ -27,4 +32,8 @@ public class DesktopPlatformPathService : IPlatformPathService
     public string GetKnowledgeBaseDirectory() => Path.Combine(_baseDirectory, "KnowledgeBase");
 
     public string GetHistoryDirectory() => Path.Combine(_baseDirectory, "history");
+
+    public string GetTaskSchedulerFilePath() => Path.Combine(_baseDirectory, "scheduled_tasks.json");
+
+    public string GetVectorStoreFilePath() => Path.Combine(GetKnowledgeBaseDirectory(), "vectors.db");
 }

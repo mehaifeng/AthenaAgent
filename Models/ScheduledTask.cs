@@ -1,0 +1,41 @@
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Athena.UI.Models
+{
+    /// <summary>
+    /// 计划任务模型
+    /// </summary>
+    public partial class ScheduledTask : ObservableObject
+    {
+        [ObservableProperty]
+        private string _id = Guid.NewGuid().ToString();
+
+        [ObservableProperty]
+        private DateTime _triggerTime;
+
+        [ObservableProperty]
+        private string _intent = string.Empty;
+
+        [ObservableProperty]
+        private string _recurrence = "none";
+
+        [ObservableProperty]
+        private bool _isExecuted;
+
+        [ObservableProperty]
+        private DateTime _createdAt = DateTime.Now;
+
+        public string TriggerTimeDisplay => TriggerTime.ToString("yyyy-MM-dd HH:mm");
+
+        public string RecurrenceDisplay => Recurrence switch
+        {
+            "none" => "一次性",
+            "daily" => "每天",
+            "weekly" => "每周",
+            _ => Recurrence
+        };
+    }
+}

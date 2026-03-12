@@ -1,3 +1,4 @@
+using Athena.UI.Services.Interfaces;
 using Microsoft.Data.Sqlite;
 using Serilog;
 using System;
@@ -83,18 +84,28 @@ public class VectorStoreService : IVectorStoreService
 {
     private readonly string _dbPath;
     private readonly ILogger _logger;
+    private readonly IPlatformPathService? _pathService;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public VectorStoreService(ILogger logger)
+    public VectorStoreService(ILogger logger, IPlatformPathService? pathService = null)
     {
         _logger = logger.ForContext<VectorStoreService>();
+        _pathService = pathService;
 
-        _dbPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Athena",
-            "KnowledgeBase",
-            "vectors.db"
-        );
+        if (_pathService != null)
+        {
+            _dbPath = _pathService.GetVectorStoreFilePath();
+        }
+        else
+        {
+            // 兜底逻辑
+            _dbPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Athena",
+                "KnowledgeBase",
+                "vectors.db"
+            );
+        }
 
         // 确保目录存在
         var dir = Path.GetDirectoryName(_dbPath);
@@ -102,6 +113,8 @@ public class VectorStoreService : IVectorStoreService
         {
             Directory.CreateDirectory(dir);
         }
+
+        _logger.Information("Vector store initialized at {Path}", _dbPath);
     }
 
     public async Task InitializeAsync()
