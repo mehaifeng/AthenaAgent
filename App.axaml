@@ -4,6 +4,7 @@
              xmlns:local="using:Athena.UI"
              xmlns:conv="using:Athena.UI.Converters"
              xmlns:semi="https://irihi.tech/semi"
+             xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
              RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
@@ -60,11 +61,26 @@
 
     <Application.Styles>
         <semi:SemiTheme Locale="zh-CN" />
-        
+        <u-semi:SemiTheme Locale="zh-CN"/>
         <!-- 全局样式：使 TabItem 标题稍微大一点 -->
         <Style Selector="TabItem">
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+
+        <!-- 旋转动画 -->
+        <Style Selector="PathIcon.SlowSpin">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Style.Animations>
+                <Animation Duration="0:0:2" IterationCount="Infinite">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="RotateTransform.Angle" Value="0" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="RotateTransform.Angle" Value="360" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
         </Style>
     </Application.Styles>
 </Application>

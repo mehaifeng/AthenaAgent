@@ -136,15 +136,13 @@
                        Spacing="12">
                 <Button Command="{Binding CancelCommand}"
                        MinWidth="80"
-                       ToolTip.Tip="{loc:Loc TaskDialog.BtnCancel}">
-                    <PathIcon Data="{StaticResource SemiIconClose}" Width="16" Height="16"/>
+                       Content="{loc:Loc TaskDialog.BtnCancel}">
                 </Button>
                 <Button Command="{Binding ConfirmCommand}"
                        Classes="accent"
                        MinWidth="80"
                        IsEnabled="{Binding Intent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                       ToolTip.Tip="{loc:Loc TaskDialog.BtnCreate}">
-                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="16" Height="16"/>
+                       Content="{loc:Loc TaskDialog.BtnCreate}">
                 </Button>
             </StackPanel>
         </Border>

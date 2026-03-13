@@ -44,14 +44,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private int _selectedTabIndex;
 
-    [ObservableProperty]
-    private bool _isShowConfigSaveReset;
-
     partial void OnSelectedTabIndexChanged(int value)
     {
-        // CONFIG tab is at index 1
-        IsShowConfigSaveReset = value == 1;
-
         // When switching away from Chat, maybe save?
         // Or when switching to Logs, refresh?
         if (value == 5) // LOGS
@@ -96,7 +90,8 @@ public partial class MainWindowViewModel : ViewModelBase
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
-        _tasksTabViewModel = new TasksTabViewModel(taskScheduler);
+        _configTabViewModel.Initialize(_chatTabViewModel);
+        _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService);
         _logsTabViewModel = new LogsTabViewModel(logService);
         _aboutTabViewModel = new AboutTabViewModel();
@@ -118,25 +113,6 @@ public partial class MainWindowViewModel : ViewModelBase
         // 拉取初始状态，确保 ConfigTabView 加载时数据不为 0
         _configTabViewModel.UpdateTokensInfo(_chatTabViewModel.ContextTokens, _chatTabViewModel.CompressionPreview);
 
-        _configTabViewModel.SaveRequested += async (s, e) => 
-        {
-            await _chatTabViewModel.RefreshSettingsAsync();
-            SelectedTabIndex = 0;
-        };
-
-        _configTabViewModel.CompressContextRequested += async (s, e) => 
-        {
-            await _chatTabViewModel.InternalCompressContextAsync();
-            SelectedTabIndex = 0;
-        };
-
-        _configTabViewModel.UndoCompressionRequested += (s, e) => 
-        {
-            _chatTabViewModel.InternalUndoCompression();
-            SelectedTabIndex = 0;
-        };
-        _configTabViewModel.ResetRequested += (s, e) => { /* Handle reset if needed */ };
-
         _logger.Information("MainWindowViewModel 初始化完成");
     }
 
@@ -153,12 +129,6 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     #region Global Commands (Proxy to Tab ViewModels if needed)
-
-    [RelayCommand]
-    private async Task SaveConfigAsync() => await ConfigTabViewModel.SaveConfigAsync();
-
-    [RelayCommand]
-    private async Task ResetConfigAsync() => await ConfigTabViewModel.ResetConfigAsync();
 
     #endregion
 }
