@@ -14,15 +14,14 @@
         <vm:AboutTabViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="40,*">
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
                 Background="{DynamicResource App.SectionBg}"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8"
-                >
+                Padding="12,8">
             <TextBlock Text="{loc:Loc About.Header}"
                        FontWeight="SemiBold"
                        FontSize="14"/>
@@ -36,8 +35,7 @@
                         BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                         BorderThickness="1"
                         CornerRadius="12"
-                        Padding="32"
-                        >
+                        Padding="32">
                     <StackPanel Spacing="16">
                         <TextBlock Text="Agent Athena"
                                    FontSize="32"

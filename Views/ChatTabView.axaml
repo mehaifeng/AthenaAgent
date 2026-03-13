@@ -59,20 +59,20 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="40,*,Auto">
 
         <!-- 聊天区域头部 -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource App.SectionBg}"
+                Background="{DynamicResource App.SectionBg}"
                 BorderThickness="0,0,0,1"
                 VerticalAlignment="Center"
-                Padding="8">
+                Padding="12,8">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Column="0"
                            Text="{loc:Loc Chat.Header}"
                            FontWeight="Bold"
                            VerticalAlignment="Center"
-                           FontSize="16"/>
+                           FontSize="14"/>
 
                 <TextBlock Grid.Column="1"
                            Text="{Binding ContextTokensInfo}"
@@ -81,27 +81,34 @@
                            Foreground="{DynamicResource Chat.TimestampFg}"
                            FontSize="12" />
 
-                <ToggleButton Grid.Column="2" 
+                <ToggleButton Grid.Column="2"
+                              VerticalAlignment="Center"
                               Command="{Binding ToggleThemeCommand}" 
                               IsChecked="{Binding CurrentTheme, Converter={StaticResource ThemeToBoolConverter}, Mode=OneWay}"
                               Margin="0,0,8,0"
                               ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
                     <Panel>
-                        <PathIcon Data="{StaticResource SemiIconSun}" IsVisible="{Binding $parent[ToggleButton].IsChecked}"/>
-                        <PathIcon Data="{StaticResource SemiIconMoon}" IsVisible="{Binding !$parent[ToggleButton].IsChecked}"/>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}" IsVisible="{Binding $parent[ToggleButton].IsChecked}"/>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}" IsVisible="{Binding !$parent[ToggleButton].IsChecked}"/>
                     </Panel>
                 </ToggleButton>
                 
                 <Button Grid.Column="3" 
+                        VerticalAlignment="Center"
                         Command="{Binding NewConversationCommand}" 
                         Margin="0,0,8,0" 
                         ToolTip.Tip="{loc:Loc Chat.BtnReset}">
-                    <PathIcon Data="{StaticResource SemiIconRefresh}" Width="16" Height="16"/>
+                    <Panel>
+                        <PathIcon Data="{StaticResource SemiIconPlusCircle}" Width="16" Height="16" IsVisible="{Binding !IsResetting}"/>
+                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="16" Height="16" IsVisible="{Binding IsResetting}" Classes="SlowSpin"/>
+                    </Panel>
                 </Button>
                 <Button Grid.Column="4" 
+                        IsVisible="False"
+                        VerticalAlignment="Center"
                         Command="{Binding SwitchToTasksTabCommand}"
                         ToolTip.Tip="{loc:Loc Chat.BtnStats}">
-                    <PathIcon Data="{StaticResource SemiIconActivity}" Width="16" Height="16"/>
+                    <PathIcon Data="{StaticResource SemiIconInfoCircle}" Width="16" Height="16"/>
                 </Button>
             </Grid>
         </Border>
