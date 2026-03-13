@@ -141,6 +141,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             }
 
             await _configService.SaveAsync(Config);
+            App.SetTheme(Config.Theme);
             _chatService?.UpdateConfig(Config);
             if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
             if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);

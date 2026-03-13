@@ -16,88 +16,77 @@
         Height="900"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/avalonia-logo.ico"
-        Background="#000000"
         FontFamily="{DynamicResource MonospaceFontFamily}">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
+    <Grid RowDefinitions="*,Auto">
+        <!-- TabControl (功能模块) -->
+        <TabControl Grid.Row="0"
+                    SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"
+                    Margin="0"
+                    Name="MainTabControl">
 
-        
-    <!-- INNER SCANLINE/GLOW AREA -->
-    <Border Padding="4">
-        <Grid RowDefinitions="*,Auto">
-                
-            <!-- TabControl (OS Modules) -->
-            <TabControl Grid.Row="0"
-                        SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"
-                        Margin="0"
-                        Name="MainTabControl">
+            <!-- 聊天 -->
+            <TabItem Header="{loc:Loc Tab.ChatLink}">
+                <views:ChatTabView DataContext="{Binding ChatTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 0: CHAT -->
-                <TabItem Header="{loc:Loc Tab.ChatLink}">
-                    <views:ChatTabView DataContext="{Binding ChatTabViewModel}"/>
-                </TabItem>
+            <!-- 配置 -->
+            <TabItem Header="{loc:Loc Tab.SysConfig}">
+                <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 1: CONFIG -->
-                <TabItem Header="{loc:Loc Tab.SysConfig}">
-                    <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
-                </TabItem>
+            <!-- 任务 -->
+            <TabItem Header="{loc:Loc Tab.Scheduler}">
+                <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 2: TASKS -->
-                <TabItem Header="{loc:Loc Tab.Scheduler}">
-                    <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
-                </TabItem>
+            <!-- 历史 -->
+            <TabItem Header="{loc:Loc Tab.Archives}">
+                <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 3: HISTORY -->
-                <TabItem Header="{loc:Loc Tab.Archives}">
-                    <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
-                </TabItem>
+            <!-- 知识库 -->
+            <TabItem Header="{loc:Loc Tab.Files}">
+                <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 4: KNOWLEDGE BASE -->
-                <TabItem Header="{loc:Loc Tab.Files}">
-                    <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
-                </TabItem>
+            <!-- 日志 -->
+            <TabItem Header="{loc:Loc Tab.SysLogs}">
+                <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
+            </TabItem>
 
-                <!-- MODULE 5: LOGS -->
-                <TabItem Header="{loc:Loc Tab.SysLogs}">
-                    <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
-                </TabItem>
+            <!-- 关于 -->
+            <TabItem Header="{loc:Loc Tab.Diagnostic}">
+                <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
+            </TabItem>
+        </TabControl>
 
-                <!-- MODULE 6: ABOUT -->
-                <TabItem Header="{loc:Loc Tab.Diagnostic}">
-                    <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
-                </TabItem>
-            </TabControl>
+        <!-- 配置保存/重置底部栏 (仅在配置激活时显示) -->
+        <Border Grid.Row="1"
+                Padding="12,8"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                IsVisible="{Binding IsShowConfigSaveReset}">
 
-            <!-- CONFIG SAVE/RESET FOOTER (Only visible when CONFIG is active) -->
-            <Border Grid.Row="1"
-                    Padding="12,8"
-                    
-                    IsVisible="{Binding IsShowConfigSaveReset}">
-
-                        
-                    <StackPanel Grid.Column="1"
-                                HorizontalAlignment="Right"
-                                Orientation="Horizontal"
-                                Spacing="12">
-                        <Button Content="{loc:Loc Btn.CommitChanges}"
-                                Command="{Binding SaveConfigCommand}"
-                                BorderBrush="{DynamicResource Brush.Yellow}"
-                                BorderThickness="1"
-                                Background="Transparent"
-                                Foreground="{DynamicResource Brush.Yellow}"
-                                Padding="16,4"/>
-                        <Button Content="{loc:Loc Btn.Rollback}"
-                                Command="{Binding ResetConfigCommand}"
-                                BorderThickness="0"
-                                Background="Transparent"
-                                Foreground="{DynamicResource Brush.Green}"
-                                Padding="16,4"/>
-                    </StackPanel>
-            </Border>
-        </Grid>
-    </Border>
-
+            <StackPanel HorizontalAlignment="Right"
+                        Orientation="Horizontal"
+                        Spacing="12">
+                <Button Command="{Binding SaveConfigCommand}"
+                        Classes="accent"
+                        Padding="16,4"
+                        ToolTip.Tip="{loc:Loc Btn.CommitChanges}">
+                    <PathIcon Data="{StaticResource SemiIconSave}" Width="16" Height="16"/>
+                </Button>
+                <Button Command="{Binding ResetConfigCommand}"
+                        Padding="16,4"
+                        ToolTip.Tip="{loc:Loc Btn.Rollback}">
+                    <PathIcon Data="{StaticResource SemiIconUndo}" Width="16" Height="16"/>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>

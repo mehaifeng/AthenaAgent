@@ -6,170 +6,160 @@
              xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="900"
              x:Class="Athena.UI.Views.LogsTabView"
-             x:DataType="vm:LogsTabViewModel"
-             FontFamily="{DynamicResource MonospaceFontFamily}">
+             x:DataType="vm:LogsTabViewModel">
 
     <Design.DataContext>
         <vm:LogsTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-            BorderThickness="2"
-            Margin="4"
-            >
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
 
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- HEADER BAR -->
+        <Border Grid.Row="0"
+                BorderBrush="{DynamicResource App.SectionBg}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8"
+                >
+            <TextBlock Text="{loc:Loc Logs.Header}"
+                       FontWeight="SemiBold"
+                       FontSize="14"/>
+        </Border>
 
-            <!-- HEADER BAR -->
-            <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,2"
-                    Padding="12,6"
-                    >
-                <TextBlock Text="{loc:Loc Logs.Header}"
+        <!-- FILTER & QUERY PARAMETERS -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource App.SectionBg}"
+                CornerRadius="8"
+                Padding="16">
+            <StackPanel Spacing="16">
+                <TextBlock Text="{loc:Loc Logs.QueryParams}"
                            FontWeight="Bold"
-                           Foreground="{DynamicResource Brush.Yellow}"
-                           FontSize="14"/>
-            </Border>
+                           FontSize="13"/>
 
-            <!-- FILTER & QUERY PARAMETERS -->
-            <Border Grid.Row="1"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,1"
-                    Padding="12">
-                <Grid RowDefinitions="Auto,Auto">
-                    <TextBlock Grid.Row="0"
-                               Text="{loc:Loc Logs.QueryParams}"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Green}"
-                               FontSize="12"
-                               Margin="0,0,0,8"/>
+                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*">
+                    <!-- Row 1: Date & Level -->
+                    <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
+                        <TextBlock Text="{loc:Loc Logs.TStart}" VerticalAlignment="Center" Width="80" FontSize="12" Opacity="0.8"/>
+                        <CalendarDatePicker SelectedDate="{Binding LogStartTime}" Width="150" />
+                    </StackPanel>
 
-                    <Grid Grid.Row="1" RowDefinitions="Auto,Auto">
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
+                        <TextBlock Text="{loc:Loc Logs.TEnd}" VerticalAlignment="Center" Width="80" FontSize="12" Opacity="0.8"/>
+                        <CalendarDatePicker SelectedDate="{Binding LogEndTime}" Width="150" />
+                    </StackPanel>
 
-                        <!-- Row 1: Date & Level -->
-                        <WrapPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
-                            <Grid ColumnDefinitions="60,Auto" Margin="0,0,16,0">
-                                <TextBlock Text="{loc:Loc Logs.TStart}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}" Margin="0,0,8,0" FontSize="11"/>
-                                <CalendarDatePicker Grid.Column="1" SelectedDate="{Binding LogStartTime}" Width="140" FontSize="11"/>
-                            </Grid>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="{loc:Loc Logs.Lvl}" VerticalAlignment="Center" Width="80" FontSize="12" Opacity="0.8"/>
+                        <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding SelectedLogLevel}" Width="150" />
+                    </StackPanel>
 
-                            <Grid ColumnDefinitions="60,Auto" Margin="0,0,16,0">
-                                <TextBlock Text="{loc:Loc Logs.TEnd}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}" Margin="0,0,8,0" FontSize="11"/>
-                                <CalendarDatePicker Grid.Column="1" SelectedDate="{Binding LogEndTime}" Width="140" FontSize="11"/>
-                            </Grid>
-
-                            <Grid ColumnDefinitions="60,Auto">
-                                <TextBlock Text="{loc:Loc Logs.Lvl}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}" Margin="0,0,8,0" FontSize="11"/>
-                                <ComboBox Grid.Column="1" ItemsSource="{Binding LogLevels}" SelectedItem="{Binding SelectedLogLevel}" Width="120" FontSize="11"/>
-                            </Grid>
-                        </WrapPanel>
-
-                        <!-- Row 2: Search Input -->
-                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
-                            <Grid ColumnDefinitions="60,Auto" Grid.Column="0">
-                                <TextBlock Text="{loc:Loc Logs.Keyword}" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Green}" Margin="0,0,8,0" FontSize="11"/>
-                                <TextBox Grid.Column="1" Text="{Binding SearchLogText}" Width="120" Watermark="{loc:Loc Logs.OptionalFilter}" FontSize="11"/>
-                            </Grid>
-                            <!-- Action Buttons -->
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" Spacing="8" Margin="20,0,0,0">
-                                <Button Content="{loc:Loc Logs.BtnQuery}" Command="{Binding SearchLogsCommand}" Foreground="{DynamicResource Brush.Yellow}" BorderThickness="1" BorderBrush="{DynamicResource Brush.Yellow}" Padding="8,4"/>
-                                <Button Content="{loc:Loc Logs.BtnRefresh}" Command="{Binding RefreshLogsCommand}" BorderThickness="0" Background="Transparent" Padding="8,4"/>
-                                <Button Content="{loc:Loc Logs.BtnExport}" Command="{Binding ExportLogsCommand}" BorderThickness="0" Background="Transparent" Padding="8,4"/>
-                            </StackPanel>
-                        </Grid>
-
-
-                    </Grid>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="{loc:Loc Logs.Keyword}" VerticalAlignment="Center" Width="80" FontSize="12" Opacity="0.8"/>
+                        <TextBox Text="{Binding SearchLogText}" Width="150" Watermark="{loc:Loc Logs.OptionalFilter}" />
+                    </StackPanel>
                 </Grid>
-            </Border>
 
-            <!-- LOG LIST -->
-            <Border Grid.Row="2" Margin="12" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="1" >
-                <ScrollViewer>
-                    <ListBox ItemsSource="{Binding LogEntries}"
-                             Background="Transparent"
-                             BorderThickness="0">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                                        BorderThickness="0,0,0,1"
-                                        Padding="8,4"
-                                        Opacity="0.85">
-                                    <Grid ColumnDefinitions="130,100,*">
-                                        <!-- Timestamp -->
-                                        <TextBlock Grid.Column="0"
-                                                  Text="{Binding Timestamp, StringFormat='[{0:MM-dd HH:mm:ss}]'}"
-                                                  Foreground="{DynamicResource Brush.Green}"
-                                                  FontSize="11"
-                                                  VerticalAlignment="Top"/>
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+                    <Button Command="{Binding SearchLogsCommand}" 
+                            Padding="16,4" 
+                            Theme="{StaticResource AccentButtonTheme}"
+                            ToolTip.Tip="{loc:Loc Logs.BtnQuery}">
+                        <PathIcon Data="{StaticResource SemiIconSearch}" Width="16" Height="16"/>
+                    </Button>
+                    <Button Command="{Binding RefreshLogsCommand}" 
+                            Padding="12,4"
+                            ToolTip.Tip="{loc:Loc Logs.BtnRefresh}">
+                        <PathIcon Data="{StaticResource SemiIconRefresh}" Width="16" Height="16"/>
+                    </Button>
+                    <Button Command="{Binding ExportLogsCommand}" 
+                            Padding="12,4"
+                            ToolTip.Tip="{loc:Loc Logs.BtnExport}">
+                        <PathIcon Data="{StaticResource SemiIconDownload}" Width="16" Height="16"/>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
-                                        <!-- Level Indicator -->
-                                        <Border Grid.Column="1"
-                                                Width="70"
-                                                Background="{Binding LevelColor}"
-                                                Padding="4,2"
-                                                Margin="0,0,12,0"
-                                                HorizontalAlignment="Left"
-                                                VerticalAlignment="Top"
-                                                CornerRadius="2">
-                                            <TextBlock Text="{Binding Level}"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"
-                                                      FontSize="10"
-                                                      FontWeight="Bold"/>
-                                        </Border>
+        <!-- LOG LIST -->
+        <Border Grid.Row="2" Margin="0,10,0,0" 
+                Background="{DynamicResource App.SectionBg}"
+                CornerRadius="8">
+            <ScrollViewer Padding="8">
+                <ListBox ItemsSource="{Binding LogEntries}"
+                         Background="Transparent"
+                         BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="5,0"
+                                    Opacity="0.9">
+                                <Grid ColumnDefinitions="140,100,*">
+                                    <!-- Timestamp -->
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Timestamp, StringFormat='{}{0:MM-dd HH:mm:ss}'}"
+                                               FontSize="11"
+                                               Opacity="0.6"
+                                               VerticalAlignment="Center"/>
+                                    <!-- Level Indicator -->
+                                    <Border Grid.Column="1"
+                                            Width="70"
+                                            Background="{Binding LevelColor}"
+                                            Padding="4,2"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            CornerRadius="4">
+                                        <TextBlock Text="{Binding Level}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                  FontSize="10"
+                                                  FontWeight="Bold"
+                                                  Foreground="White"/>
+                                    </Border>
 
-                                        <!-- Message -->
-                                        <TextBlock Grid.Column="2"
-                                                  Text="{Binding Message}"
-                                                  TextWrapping="Wrap"
-                                                  Foreground="{DynamicResource Brush.BrightGreen}"
-                                                  FontSize="11"
-                                                  VerticalAlignment="Top"
-                                                  LineHeight="16"/>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </ScrollViewer>
-            </Border>
+                                    <!-- Message -->
+                                    <TextBlock Grid.Column="2"
+                                              Text="{Binding Message}"
+                                              TextWrapping="Wrap"
+                                              FontSize="12"
+                                              VerticalAlignment="Center"
+                                              LineHeight="18"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </ScrollViewer>
+        </Border>
 
-            <!-- PAGINATION / FOOTER -->
-            <Border Grid.Row="3"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,1,0,0"
-                    Padding="12,6"
-                    >
-                <Grid ColumnDefinitions="*,Auto,Auto">
+        <!-- PAGINATION / FOOTER -->
+        <Border Grid.Row="3"
+                BorderBrush="{DynamicResource App.SectionBg}"
+                BorderThickness="0,1,0,0"
+                Padding="12,8"
+                >
+            <Grid ColumnDefinitions="*,Auto,Auto">
 
-                    <!-- Total Count -->
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <TextBlock Text="{loc:Loc Logs.TotalEvents}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
-                        <TextBlock Text="{Binding TotalLogCount}" Foreground="{DynamicResource Brush.Yellow}" FontWeight="Bold" FontSize="11"/>
-                    </StackPanel>
+                <!-- Total Count -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="{loc:Loc Logs.TotalEvents}" FontSize="12" Opacity="0.6"/>
+                    <TextBlock Text="{Binding TotalLogCount}" FontWeight="Bold" FontSize="12"/>
+                </StackPanel>
 
-                    <!-- Page Size -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,16,0">
-                        <TextBlock Text="{loc:Loc Logs.Limit}" Foreground="{DynamicResource Brush.Green}" FontSize="11" VerticalAlignment="Center"/>
-                        <ComboBox ItemsSource="{Binding LogPageSizes}" SelectedItem="{Binding SelectedLogPageSize}" MinWidth="60" FontSize="11" Padding="4,2"/>
-                    </StackPanel>
+                <!-- Page Size -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <TextBlock Text="{loc:Loc Logs.Limit}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"/>
+                    <ComboBox ItemsSource="{Binding LogPageSizes}" SelectedItem="{Binding SelectedLogPageSize}" MinWidth="80" Padding="4,2"/>
+                </StackPanel>
 
-                    <!-- Pagination Controls -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button Content="[ &lt;&lt; ]" Command="{Binding PrevPageCommand}" IsEnabled="{Binding HasPrevPage}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2"/>
+                <!-- Pagination Controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button Content="&lt;" Command="{Binding PrevPageCommand}" IsEnabled="{Binding HasPrevPage}" Padding="12,4"/>
+                    <TextBlock Text="{Binding CurrentPageInfo}" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" TextAlignment="Center" MinWidth="80"/>
+                    <Button Content="&gt;" Command="{Binding NextPageCommand}" IsEnabled="{Binding HasNextPage}" Padding="12,4"/>
+                </StackPanel>
 
-                        <Border  BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="1" Padding="12,2">
-                            <TextBlock Text="{Binding CurrentPageInfo}" Foreground="{DynamicResource Brush.Yellow}" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" TextAlignment="Center" MinWidth="60"/>
-                        </Border>
+            </Grid>
+        </Border>
 
-                        <Button Content="[ &gt;&gt; ]" Command="{Binding NextPageCommand}" IsEnabled="{Binding HasNextPage}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2"/>
-                    </StackPanel>
-
-                </Grid>
-            </Border>
-
-        </Grid>
-    </Border>
+    </Grid>
 </UserControl>

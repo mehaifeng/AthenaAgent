@@ -30,25 +30,16 @@ public class IntToColumnConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
+// 移除 RoleToBrushConverter 和 RoleToBgConverter 的复杂逻辑，改为简单的占位符或删除（如果不再使用）
 public class RoleToBrushConverter : IValueConverter
 {
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        bool isUser = value is bool b && b;
-        // 用户使用高亮色，系统使用标准前景色
-        return isUser ? Application.Current!.FindResource("DosHighlightBrush")! : Application.Current!.FindResource("DosBorderBrush")!;
-    }
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
 public class RoleToBgConverter : IValueConverter
 {
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        bool isUser = value is bool b && b;
-        // 用户消息使用轻微的背景填充增强区分度
-        return isUser ? Application.Current!.FindResource("DosHoverBackgroundBrush")! : Brushes.Transparent;
-    }
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
@@ -56,17 +47,9 @@ public class RoleToTitleConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        return (value is bool isUser && isUser) ? "TRANSMIT_DATA_PKT" : "RECEIVE_DATA_STREAM";
-    }
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-public class RoleToTextBrushConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        bool isUser = value is bool b && b;
-        return isUser ? Application.Current!.FindResource("DosHighlightBrush")! : Application.Current!.FindResource("DosForegroundBrush")!;
+        string key = (value is bool isUser && isUser) ? "Chat.RoleUser" : "Chat.RoleAssistant";
+        var localizationService = App.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
+        return localizationService?.GetString(key, key) ?? key;
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
@@ -79,6 +62,21 @@ public class OpacityConverter : IValueConverter
         return isCompressed ? 0.4 : 1.0;
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class ThemeToBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        // Dark -> True (Checked), Light -> False (Unchecked)
+        return value?.ToString() == "Dark";
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        // True -> Dark, False -> Light
+        return (bool)(value ?? false) ? "Dark" : "Light";
+    }
 }
 
 public class LocConverter : IValueConverter

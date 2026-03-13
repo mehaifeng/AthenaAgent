@@ -7,140 +7,172 @@
              xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="Athena.UI.Views.HistoryTabView"
-             x:DataType="vm:HistoryTabViewModel"
-             FontFamily="{DynamicResource MonospaceFontFamily}">
+             x:DataType="vm:HistoryTabViewModel">
 
     <Design.DataContext>
         <vm:HistoryTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-            BorderThickness="2"
-            Margin="4"
-            >
+    <UserControl.Styles>
+        <!-- 移除 ListBoxItem 默认的悬停和选中背景 -->
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
 
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- 定义历史记录卡片样式 -->
+        <Style Selector="Border.history-item-card">
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
 
-            <!-- HEADER BAR -->
-            <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,2"
-                    Padding="12,6"
-                    >
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0"
-                               Text="{loc:Loc History.Header}"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               FontSize="14"
-                               VerticalAlignment="Center"/>
+        <!-- 悬停效果 -->
+        <Style Selector="ListBoxItem:pointerover Border.history-item-card">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
 
-                    <Button Grid.Column="1"
-                            Content="{loc:Loc History.BtnRefreshDb}"
-                            Command="{Binding RefreshCommand}"
-                            BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="{DynamicResource Brush.Yellow}"
-                            Padding="8,2" />
-                </Grid>
-            </Border>
+        <!-- 选中效果 -->
+        <Style Selector="ListBoxItem:selected Border.history-item-card">
+            <Setter Property="Background" Value="{DynamicResource SemiBlue1}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiBlue4}"/>
+        </Style>
+    </UserControl.Styles>
 
-            <!-- SUB-HEADER -->
-            <Border Grid.Row="1" Padding="12,8,12,0">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="{loc:Loc History.RecordsFound}"
-                               Foreground="{DynamicResource Brush.Green}"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding HistoryItems.Count}"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               VerticalAlignment="Center"
-                               FontWeight="Bold"/>
-                    <Border Width="1" Height="14" Background="{DynamicResource Brush.Green}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc History.Ready}"
-                               Foreground="{DynamicResource Brush.Green}"
-                               VerticalAlignment="Center"
-                               FontSize="11"/>
-                </StackPanel>
-            </Border>
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
 
-            <!-- HISTORY LIST -->
-            <Border Grid.Row="2" Margin="12,8,12,12" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="1">
-                <Grid>
-                    <ListBox ItemsSource="{Binding HistoryItems}"
-                             SelectedItem="{Binding SelectedItem}"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             x:Name="HistoryListBox">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="models:ConversationHistoryItem">
-                                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                                        BorderThickness="0,0,0,1"
-                                        Padding="12,8"
-                                        >
-                                    <Grid ColumnDefinitions="*,Auto">
+        <!-- HEADER BAR -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource App.SectionBg}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8"
+                >
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{loc:Loc History.Header}"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center"/>
 
-                                        <!-- Data Block -->
-                                        <StackPanel Grid.Column="0" Spacing="4">
-                                            <TextBlock Text="{Binding Summary}"
-                                                       TextWrapping="Wrap"
-                                                       MaxLines="2"
-                                                       Foreground="{DynamicResource Brush.BrightGreen}"
-                                                       FontWeight="Bold"/>
+                <Button Grid.Column="1"
+                        Command="{Binding RefreshCommand}"
+                        Padding="8,4"
+                        ToolTip.Tip="{loc:Loc History.BtnRefreshDb}">
+                    <PathIcon Data="{StaticResource SemiIconRefresh}" Width="14" Height="14"/>
+                </Button>
+            </Grid>
+        </Border>
 
-                                            <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{loc:Loc History.Msgs}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
-                                                    <TextBlock Text="{Binding MessageCount}" FontSize="11" Foreground="{DynamicResource Brush.Yellow}"/>
-                                                </StackPanel>
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <TextBlock Text="{loc:Loc History.Time}" Foreground="{DynamicResource Brush.Green}" FontSize="11"/>
-                                                    <TextBlock Text="{Binding DisplayTime}" FontSize="11" Foreground="{DynamicResource Brush.Yellow}"/>
-                                                </StackPanel>
+        <!-- SUB-HEADER -->
+        <Border Grid.Row="1" Padding="12,8,12,0">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{loc:Loc History.RecordsFound}"
+                           VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBlock Text="{Binding HistoryItems.Count}"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"/>
+                <Separator Width="1" Height="14" Margin="8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="{loc:Loc History.Ready}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Opacity="0.5"/>
+            </StackPanel>
+        </Border>
+
+        <!-- HISTORY LIST -->
+        <ScrollViewer Grid.Row="2" Padding="12">
+            <Grid>
+                <ListBox ItemsSource="{Binding HistoryItems}"
+                         SelectedItem="{Binding SelectedItem}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         x:Name="HistoryListBox">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:ConversationHistoryItem">
+                            <Border Classes="history-item-card">
+                                <Grid ColumnDefinitions="*,Auto">
+
+                                    <!-- Data Block -->
+                                    <StackPanel Grid.Column="0" Spacing="8">
+                                        <TextBlock Text="{Binding Summary}"
+                                                   TextWrapping="Wrap"
+                                                   MaxLines="2"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"/>
+
+                                        <StackPanel Orientation="Horizontal" Spacing="24">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{loc:Loc History.Msgs}" FontSize="12" Opacity="0.6"/>
+                                                <TextBlock Text="{Binding MessageCount}" FontSize="12" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Text="{loc:Loc History.Time}" FontSize="12" Opacity="0.6"/>
+                                                <TextBlock Text="{Binding DisplayTime}" FontSize="12" FontWeight="SemiBold"/>
                                             </StackPanel>
                                         </StackPanel>
+                                    </StackPanel>
 
-                                        <!-- Action Buttons -->
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0,0,0">
-                                            <Button Content="{loc:Loc History.BtnRestore}"
-                                                    Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent"
-                                                    BorderBrush="{DynamicResource Brush.Yellow}"
-                                                    BorderThickness="1"
-                                                    Foreground="{DynamicResource Brush.Yellow}"
-                                                    Padding="8,4"/>
+                                    <!-- Action Buttons -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                                        <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
+                                                CommandParameter="{Binding}"
+                                                Theme="{StaticResource AccentButtonTheme}"
+                                                Padding="12,4"
+                                                ToolTip.Tip="{loc:Loc History.BtnRestore}">
+                                            <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
+                                        </Button>
 
-                                            <Button Content="{loc:Loc History.BtnDel}"
-                                                    Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
-                                                    CommandParameter="{Binding}"
-                                                    Background="Transparent"
-                                                    BorderThickness="0"
-                                                    Foreground="{DynamicResource Brush.Red}"
-                                                    Padding="8,4"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                                        <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
+                                                CommandParameter="{Binding}"
+                                                Classes="danger"
+                                                Padding="8,4"
+                                                ToolTip.Tip="{loc:Loc History.BtnDel}">
+                                            <PathIcon Data="{StaticResource SemiIconDelete}" Width="14" Height="14"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
-                    <!-- EMPTY STATE -->
-                    <TextBlock Text="{loc:Loc History.NoRecords}"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource Brush.Green}"
-                               IsVisible="{Binding !HistoryItems.Count}"/>
-                </Grid>
-            </Border>
+                <!-- EMPTY STATE -->
+                <TextBlock Text="{loc:Loc History.NoRecords}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Opacity="0.5"
+                           IsVisible="{Binding !HistoryItems.Count}"/>
+            </Grid>
+        </ScrollViewer>
 
-            <!-- FOOTER INFO -->
-            <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,2,0,0" Padding="8,4" >
-                <TextBlock Text="{loc:Loc History.FooterHint}"
-                           HorizontalAlignment="Right"
-                           Foreground="{DynamicResource Brush.Green}"
-                           FontSize="10"/>
-            </Border>
+        <!-- FOOTER INFO -->
+        <Border Grid.Row="3" 
+                Background="{DynamicResource App.SectionBg}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}" 
+                BorderThickness="0,1,0,0" 
+                Padding="12,8" >
+            <TextBlock Text="{loc:Loc History.FooterHint}"
+                       HorizontalAlignment="Right"
+                       Opacity="0.6"
+                       FontSize="11"/>
+        </Border>
 
-        </Grid>
-    </Border>
+    </Grid>
 </UserControl>
