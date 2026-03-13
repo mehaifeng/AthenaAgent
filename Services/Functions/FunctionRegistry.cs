@@ -19,6 +19,7 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly Dictionary<string, Func<string, Task<FunctionResult>>> _executors = new();
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
+    private int? _cachedToolDeclarationTokens = null;
 
     public bool HasFunctions => _tools.Count > 0;
 
@@ -254,5 +255,26 @@ public class FunctionRegistry : IFunctionRegistry
             _logger.Error(ex, "Exception in function {FunctionName}", functionName);
             return FunctionResult.FailureResult($"Execution exception: {ex.Message}");
         }
+    }
+
+    public int GetToolDeclarationTokenCount()
+    {
+        if (_cachedToolDeclarationTokens.HasValue)
+        {
+            return _cachedToolDeclarationTokens.Value;
+        }
+
+        int totalTokens = 0;
+        foreach (var tool in _tools)
+        {
+            // Simple estimation: serialize the tool definition and estimate based on length.
+            // A more precise calculation would involve tokenizing the JSON representation.
+            string serializedTool = JsonSerializer.Serialize(tool, new JsonSerializerOptions { WriteIndented = false });
+            totalTokens += Models.ConversationContext.EstimateTokens(serializedTool);
+        }
+
+        _cachedToolDeclarationTokens = totalTokens;
+        _logger.Debug("Calculated total tool declaration tokens: {Tokens}", totalTokens);
+        return totalTokens;
     }
 }

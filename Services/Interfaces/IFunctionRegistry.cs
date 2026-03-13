@@ -59,6 +59,11 @@ public interface IFunctionRegistry
     Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson);
 
     /// <summary>
+    /// Gets the estimated token count for the active tool declarations.
+    /// </summary>
+    int GetToolDeclarationTokenCount();
+
+    /// <summary>
     /// 是否有注册的 Function
     /// </summary>
     bool HasFunctions { get; }

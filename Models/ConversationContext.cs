@@ -14,6 +14,8 @@ public class ConversationContext
     private string _mainPersona = string.Empty;
     private string? _summary;
 
+    public int ToolsDeclarationTokenCount { get; set; } = 0;
+
     public ConversationContext(int maxTokens = 8000)
     {
         _maxTokens = maxTokens;
@@ -72,8 +74,16 @@ public class ConversationContext
         get
         {
             int total = EstimateTokens(_mainPersona);
+            total += ToolsDeclarationTokenCount; // 计入工具声明开销
             if (!string.IsNullOrEmpty(_summary)) total += EstimateTokens(_summary);
-            foreach (var msg in _messages) total += EstimateTokens(msg.Content);
+            foreach (var msg in _messages) 
+            {
+                total += EstimateTokens(msg.Content);
+                if (!string.IsNullOrEmpty(msg.ToolCallsJson))
+                {
+                    total += EstimateTokens(msg.ToolCallsJson); // 计入模型生成的工具调用 JSON
+                }
+            }
             return total;
         }
     }
@@ -85,7 +95,7 @@ public class ConversationContext
     {
         if (_messages.Count == 0) return 0;
 
-        var fixedCost = EstimateTokens(_mainPersona) + EstimateTokens(_summary);
+        var fixedCost = EstimateTokens(_mainPersona) + EstimateTokens(_summary) + ToolsDeclarationTokenCount;
         var availableTokens = (int)(targetThreshold * 0.8) - fixedCost;
         if (availableTokens <= 0) return 1;
 
@@ -96,6 +106,11 @@ public class ConversationContext
         for (int i = _messages.Count - 1; i >= 0; i--)
         {
             var msgTokens = EstimateTokens(_messages[i].Content);
+            if (!string.IsNullOrEmpty(_messages[i].ToolCallsJson))
+            {
+                msgTokens += EstimateTokens(_messages[i].ToolCallsJson);
+            }
+
             if (accumulatedTokens + msgTokens > availableTokens && keepCount > 0) break;
 
             accumulatedTokens += msgTokens;
