@@ -80,8 +80,6 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public event EventHandler? SaveRequested;
     public event EventHandler? ResetRequested;
-    public event EventHandler? CompressContextRequested;
-    public event EventHandler? UndoCompressionRequested;
 
     public ConfigTabViewModel() : this(null, null, null, null, null) { }
 
