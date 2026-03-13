@@ -17,6 +17,7 @@ using Athena.UI.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
+using Avalonia.Styling;
 
 namespace Athena.UI;
 
@@ -63,6 +64,11 @@ public partial class App : Application
             // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
             DisableAvaloniaDataAnnotationValidation();
 
+            // 获取配置服务并加载初始主题
+            var configService = Services.GetRequiredService<IConfigService>();
+            var config = configService.Load();
+            SetTheme(config.Theme);
+
             // 从 DI 容器获取 ViewModel
             var mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
 
@@ -76,6 +82,21 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
         Log.Information("框架初始化完成");
+    }
+
+    /// <summary>
+    /// 全局设置主题
+    /// </summary>
+    /// <param name="themeName">"Dark" 或 "Light"</param>
+    public static void SetTheme(string themeName)
+    {
+        if (Current == null) return;
+
+        var isDark = themeName?.ToLower() != "light";
+        var theme = isDark ? ThemeVariant.Dark : ThemeVariant.Light;
+
+        Current.RequestedThemeVariant = theme;
+        Log.Information("主题已切换为: {Theme}", theme);
     }
 
     /// <summary>

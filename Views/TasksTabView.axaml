@@ -6,128 +6,155 @@
              xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="Athena.UI.Views.TasksTabView"
-             x:DataType="vm:TasksTabViewModel"
-             FontFamily="{DynamicResource MonospaceFontFamily}">
+             x:DataType="vm:TasksTabViewModel">
 
     <Design.DataContext>
         <vm:TasksTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-            BorderThickness="2"
-            Margin="4"
-            >
+    <UserControl.Styles>
+        <!-- 移除 ListBoxItem 默认的悬停和选中背景 -->
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
 
-        <Grid RowDefinitions="Auto,Auto,*">
+        <!-- 定义卡片样式 -->
+        <Style Selector="Border.task-item-card">
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
 
-            <!-- HEADER BAR -->
-            <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,2"
-                    Padding="12,6"
-                    >
-                <Grid ColumnDefinitions="*,Auto,Auto">
-                    <TextBlock Grid.Column="0"
-                               Text="{loc:Loc Tasks.Header}"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               FontSize="14"
-                               VerticalAlignment="Center"/>
+        <!-- 悬停时改变卡片背景 -->
+        <Style Selector="ListBoxItem:pointerover Border.task-item-card">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
 
-                    <Button Grid.Column="1"
-                            Content="{loc:Loc Tasks.BtnNewRoutine}"
-                            Command="{Binding CreateTaskCommand}"
-                            BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="{DynamicResource Brush.Yellow}"
-                            Padding="8,2"
-                            Margin="0,0,8,0" />
+        <!-- 选中时改变卡片背景和边框 -->
+        <Style Selector="ListBoxItem:selected Border.task-item-card">
+            <Setter Property="Background" Value="{DynamicResource SemiBlue1}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiBlue4}"/>
+        </Style>
+    </UserControl.Styles>
 
-                    <Button Grid.Column="2"
-                            Content="{loc:Loc Tasks.BtnPurgeAll}"
-                            Command="{Binding ClearAllTasksCommand}"
-                            BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="{DynamicResource Brush.Red}"
-                            Padding="8,2" />
-                </Grid>
-            </Border>
+    <Grid RowDefinitions="Auto,Auto,*">
 
-            <!-- SUB-HEADER / STATUS -->
-            <Border Grid.Row="1" Padding="12,8,12,0">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="{loc:Loc Tasks.ActiveRoutines}"
-                               Foreground="{DynamicResource Brush.Green}"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding ScheduledTasks.Count}"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               VerticalAlignment="Center"
-                               FontWeight="Bold"/>
-                    <Border Width="1" Height="14" Background="{DynamicResource Brush.Green}" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc Tasks.SystemIdle}"
-                               Foreground="{DynamicResource Brush.Green}"
-                               VerticalAlignment="Center"
-                               FontSize="11"/>
-                </StackPanel>
-            </Border>
+        <!-- HEADER BAR -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource App.SectionBg}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{loc:Loc Tasks.Header}"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center"/>
 
-            <!-- TASK LIST -->
-            <ScrollViewer Grid.Row="2" Padding="12">
-                <ListBox ItemsSource="{Binding ScheduledTasks}"
-                         Background="Transparent"
-                         BorderThickness="0">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                                    BorderThickness="1,0,0,1"
-                                    Padding="12,8"
-                                    Margin="0,0,0,8"
-                                    >
-                                <Grid ColumnDefinitions="Auto,*">
+                <Button Grid.Column="1"
+                        Command="{Binding CreateTaskCommand}"
+                        Padding="12,4"
+                        Theme="{StaticResource AccentButtonTheme}"
+                        Margin="0,0,8,0" 
+                        ToolTip.Tip="{loc:Loc Tasks.BtnNewRoutine}">
+                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="16" Height="16"/>
+                </Button>
 
-                                    <!-- Status Indicator -->
-                                    <TextBlock Grid.Column="0"
-                                               Text="[*]"
-                                               Foreground="{DynamicResource Brush.Yellow}"
-                                               FontWeight="Bold"
-                                               Margin="0,0,12,0"
-                                               VerticalAlignment="Top"/>
+                <Button Grid.Column="2"
+                        Command="{Binding ClearAllTasksCommand}"
+                        Padding="12,4" 
+                        ToolTip.Tip="{loc:Loc Tasks.BtnPurgeAll}">
+                    <PathIcon Data="{StaticResource SemiIconDelete}" Width="16" Height="16"/>
+                </Button>
+            </Grid>
+        </Border>
 
-                                    <StackPanel Grid.Column="1" Spacing="6">
-                                        <TextBlock Text="{Binding Intent}"
-                                                   TextWrapping="Wrap"
-                                                   Foreground="{DynamicResource Brush.BrightGreen}"/>
+        <!-- SUB-HEADER / STATUS -->
+        <Border Grid.Row="1" Padding="12,8,12,0">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{loc:Loc Tasks.ActiveRoutines}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding ScheduledTasks.Count}"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"/>
+                <Separator Width="1" Height="14" Margin="8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="{loc:Loc Tasks.SystemIdle}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Opacity="0.7"/>
+            </StackPanel>
+        </Border>
 
-                                        <Border Height="1" Background="{DynamicResource Brush.BrightGreen}" Opacity="0.3" Margin="0,2"/>
+        <!-- TASK LIST -->
+        <ScrollViewer Grid.Row="2" Padding="12">
+            <ListBox ItemsSource="{Binding ScheduledTasks}"
+                     Background="Transparent"
+                     BorderThickness="0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Classes="task-item-card">
+                            <Grid ColumnDefinitions="Auto,*">
 
-                                        <StackPanel Orientation="Horizontal" Spacing="20">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="{loc:Loc Tasks.Trig}"
-                                                           Foreground="{DynamicResource Brush.Green}"
-                                                           FontSize="11"/>
-                                                <TextBlock Text="{Binding TriggerTimeDisplay}"
-                                                           FontSize="11"
-                                                           Foreground="{DynamicResource Brush.Yellow}"/>
-                                            </StackPanel>
+                                <!-- Status Indicator -->
+                                <PathIcon Grid.Column="0" 
+                                          Data="{StaticResource SemiIconTick}"
+                                          Width="16" Height="16"
+                                          Margin="0,0,16,0"
+                                          VerticalAlignment="Top"/>
 
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock Text="{loc:Loc Tasks.Rec}"
-                                                           Foreground="{DynamicResource Brush.Green}"
-                                                           FontSize="11"/>
-                                                <TextBlock Text="{Binding RecurrenceDisplay}"
-                                                           FontSize="11"
-                                                           Foreground="{DynamicResource Brush.Yellow}"/>
-                                            </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="8">
+                                    <TextBlock Text="{Binding Intent}"
+                                               TextWrapping="Wrap"
+                                               FontSize="14"
+                                               FontWeight="Medium"/>
+
+                                    <Separator Height="1" Margin="0,4"/>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="24">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{loc:Loc Tasks.Trig}"
+                                                       FontSize="12"
+                                                       Opacity="0.6"/>
+                                            <TextBlock Text="{Binding TriggerTimeDisplay}"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"/>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{loc:Loc Tasks.Rec}"
+                                                       FontSize="12"
+                                                       Opacity="0.6"/>
+                                            <TextBlock Text="{Binding RecurrenceDisplay}"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"/>
                                         </StackPanel>
                                     </StackPanel>
+                                </StackPanel>
 
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </ScrollViewer>
 
-        </Grid>
-    </Border>
+    </Grid>
 </UserControl>

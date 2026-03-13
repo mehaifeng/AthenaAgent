@@ -5,144 +5,177 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:models="using:Athena.UI.Models"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             mc:Ignorable="d"
+             d:DesignWidth="720" 
+             d:DesignHeight="1080"
              x:Class="Athena.UI.Views.KnowledgeBaseTabView"
              x:DataType="vm:KnowledgeBaseTabViewModel"
-             Loaded="OnLoaded"
-             FontFamily="{DynamicResource MonospaceFontFamily}">
+             Loaded="OnLoaded">
 
     <Design.DataContext>
         <vm:KnowledgeBaseTabViewModel/>
     </Design.DataContext>
 
-    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-            BorderThickness="2"
-            Margin="4"
-            >
+    <Grid RowDefinitions="Auto,*,Auto">
 
-        <Grid RowDefinitions="Auto,*,Auto">
+        <!-- HEADER BAR -->
+        <Border Grid.Row="0"
+                BorderBrush="{DynamicResource App.SectionBg}"
+                BorderThickness="0,0,0,1"
+                Padding="8">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{loc:Loc Files.Header}"
+                           FontWeight="SemiBold"
+                           FontSize="14"
+                           VerticalAlignment="Center"/>
 
-            <!-- HEADER BAR -->
-            <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,2"
-                    Padding="12,6"
-                    >
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                    <TextBlock Grid.Column="0"
-                               Text="{loc:Loc Files.Header}"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               FontSize="14"
-                               VerticalAlignment="Center"/>
-
-                    <Button Grid.Column="1" Content="{loc:Loc Files.BtnRefresh}" Command="{Binding RefreshFilesCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="2" Content="{loc:Loc Files.BtnImport}" Command="{Binding ImportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="3" Content="{loc:Loc Files.BtnExport}" Command="{Binding ExportCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0"/>
-                    <Button Grid.Column="4" Content="{loc:Loc Files.BtnDelete}" Command="{Binding DeleteFileCommand}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Red}" Padding="8,2"/>
-                </Grid>
-            </Border>
-
-            <!-- MAIN WORKSPACE -->
-            <Grid Grid.Row="1" ColumnDefinitions="300,*" Margin="12,12,12,0">
-
-                <!-- LEFT PANEL: DIRECTORY -->
-                <Border Grid.Column="0"
-                        BorderBrush="{DynamicResource Brush.BrightGreen}"
-                        BorderThickness="1"
-                        Margin="0,0,8,0">
-                    <Grid RowDefinitions="Auto,*,Auto">
-                        <!-- Panel Header -->
-                        <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,0,0,1" Padding="8,4" >
-                            <TextBlock Text="{loc:Loc Files.DirectoryStructure}" FontWeight="Bold" Foreground="{DynamicResource Brush.Green}" FontSize="12"/>
-                        </Border>
-
-                        <!-- Tree View -->
-                        <TreeView Grid.Row="1"
-                                 ItemsSource="{Binding Files}"
-                                 SelectedItem="{Binding SelectedFile}"
-                                 Background="Transparent"
-                                 Padding="8">
-                            <TreeView.ItemTemplate>
-                                <TreeDataTemplate ItemsSource="{Binding Children}">
-                                    <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Brush.BrightGreen}"/>
-                                </TreeDataTemplate>
-                            </TreeView.ItemTemplate>
-                            <TreeView.Styles>
-                                <Style Selector="TreeViewItem">
-                                    <Setter Property="IsExpanded" Value="True"/>
-                                </Style>
-                            </TreeView.Styles>
-                            <TreeView.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="{loc:Loc Files.CtxView}" Command="{Binding ViewFileCommand}"/>
-                                    <MenuItem Header="{loc:Loc Files.CtxDelete}" Command="{Binding DeleteFileCommand}"/>
-                                </ContextMenu>
-                            </TreeView.ContextMenu>
-                        </TreeView>
-
-                        <!-- File/Folder Creation -->
-                        <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,1,0,0" Padding="8" >
-                            <Grid RowDefinitions="Auto,Auto">
-                                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                                    <TextBox Text="{Binding NewFolderName}" Watermark="{loc:Loc Files.MkdirPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.BrightGreen}" Padding="0,2"/>
-                                    <Button Grid.Column="1" Content="{loc:Loc Files.BtnExec}" Command="{Binding NewFolderCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}"/>
-                                </Grid>
-                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
-                                    <TextBox Text="{Binding NewFileName}" Watermark="{loc:Loc Files.TouchPlaceholder}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.BrightGreen}" Padding="0,2"/>
-                                    <Button Grid.Column="1" Content="{loc:Loc Files.BtnExec}" Command="{Binding NewFileCommand}" Padding="8,2" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource Brush.Yellow}"/>
-                                </Grid>
-                            </Grid>
-                        </Border>
-                    </Grid>
-                </Border>
-
-                <!-- RIGHT PANEL: FILE INSPECTOR -->
-                <Border Grid.Column="1"
-                        BorderBrush="{DynamicResource Brush.BrightGreen}"
-                        BorderThickness="1"
-                        Margin="8,0,0,0">
-                    <Grid RowDefinitions="Auto,*">
-
-                        <!-- Panel Header -->
-                        <Border Grid.Row="0" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,0,0,1" Padding="8,4" >
-                            <Grid ColumnDefinitions="*,Auto">
-                                <Grid Grid.ColumnDefinitions="50,*" Grid.Column="0" >
-                                    <TextBlock Grid.Column="0" Text="{loc:Loc Files.Path}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
-                                    <SelectableTextBlock Grid.Column="1" Text="{Binding SelectedFileDisplayPath}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" VerticalAlignment="Center" FontWeight="Bold"/>
-                                </Grid>
-                                <TextBlock Grid.Column="1" Text="{loc:Loc Files.ModeEdit}" IsVisible="{Binding IsEditingFile}" Foreground="{DynamicResource Brush.Yellow}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="{loc:Loc Files.ModeRead}" IsVisible="{Binding !IsEditingFile}" Foreground="{DynamicResource Brush.Green}" FontSize="12" VerticalAlignment="Center"/>
-                            </Grid>
-                        </Border>
-
-                        <!-- Editor -->
-                        <TextBox Grid.Row="1"
-                                Text="{Binding EditingFileContent}"
-                                AcceptsReturn="True"
-                                TextWrapping="Wrap"
-                                IsReadOnly="{Binding !IsEditingFile}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="12"
-                                Foreground="{DynamicResource Brush.BrightGreen}"
-                                Watermark="{loc:Loc Files.NoFileSelected}"/>
-                    </Grid>
-                </Border>
+                <Button Grid.Column="1" 
+                        Command="{Binding RefreshFilesCommand}" 
+                        Padding="8,4" 
+                        Margin="0,0,8,0"
+                        ToolTip.Tip="{loc:Loc Files.BtnRefresh}">
+                    <PathIcon Data="{StaticResource SemiIconRefresh}" Width="16" Height="16"/>
+                </Button>
+                <Button Grid.Column="2" 
+                        Command="{Binding ImportCommand}" 
+                        Padding="8,4" 
+                        Margin="0,0,8,0"
+                        ToolTip.Tip="{loc:Loc Files.BtnImport}">
+                    <PathIcon Data="{StaticResource SemiIconUpload}" Width="16" Height="16"/>
+                </Button>
+                <Button Grid.Column="3" 
+                        Command="{Binding ExportCommand}" 
+                        Padding="8,4" 
+                        Margin="0,0,8,0"
+                        ToolTip.Tip="{loc:Loc Files.BtnExport}">
+                    <PathIcon Data="{StaticResource SemiIconDownload}" Width="16" Height="16"/>
+                </Button>
+                <Button Grid.Column="4" 
+                        Command="{Binding DeleteFileCommand}" 
+                        Padding="8,4" 
+                        ToolTip.Tip="{loc:Loc Files.BtnDelete}">
+                    <PathIcon Data="{StaticResource SemiIconDelete}" Width="16" Height="16"/>
+                </Button>
             </Grid>
+        </Border>
 
-            <!-- FOOTER BAR (ACTIONS) -->
-            <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,1,0,0" Padding="12,8" Margin="12,12,12,12" >
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="{loc:Loc Files.AwaitingInput}" Foreground="{DynamicResource Brush.Green}" VerticalAlignment="Center" FontSize="11"/>
+        <!-- MAIN WORKSPACE -->
+        <Grid Grid.Row="1" ColumnDefinitions="300,*" Margin="12">
 
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditingFile}">
-                        <Button Content="{loc:Loc Chat.BtnAbort}" Command="{Binding CancelEditCommand}" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Brush.Green}" Padding="12,4"/>
-                        <Button Content="{loc:Loc Files.BtnCommitWrite}" Command="{Binding SaveFileCommand}" Background="Transparent" BorderBrush="{DynamicResource Brush.Yellow}" BorderThickness="1" Foreground="{DynamicResource Brush.Yellow}" Padding="12,4"/>
-                    </StackPanel>
+            <!-- LEFT PANEL: DIRECTORY -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource App.SectionBg}"
+                    CornerRadius="8"
+                    Margin="0,0,8,0">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <!-- Panel Header -->
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,0,0,1" Padding="12,8" >
+                        <TextBlock Text="{loc:Loc Files.DirectoryStructure}" FontWeight="Bold" FontSize="13"/>
+                    </Border>
+
+                    <!-- Tree View -->
+                    <TreeView Grid.Row="1"
+                             ItemsSource="{Binding Files}"
+                             SelectedItem="{Binding SelectedFile}"
+                             Background="Transparent"
+                             Padding="8">
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}">
+                                <TextBlock Text="{Binding Name}"/>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                        <TreeView.Styles>
+                            <Style Selector="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="True"/>
+                            </Style>
+                        </TreeView.Styles>
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{loc:Loc Files.CtxView}" Command="{Binding ViewFileCommand}"/>
+                                <MenuItem Header="{loc:Loc Files.CtxDelete}" Command="{Binding DeleteFileCommand}"/>
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+
+                    <!-- File/Folder Creation -->
+                    <Border Grid.Row="2" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,1,0,0" Padding="12" >
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding NewFolderName}" Watermark="{loc:Loc Files.MkdirPlaceholder}" />
+                                <Button Grid.Column="1" Command="{Binding NewFolderCommand}" Padding="12,4" Margin="8,0,0,0">
+                                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding NewFileName}" Watermark="{loc:Loc Files.TouchPlaceholder}" />
+                                <Button Grid.Column="1" Command="{Binding NewFileCommand}" Padding="12,4" Margin="8,0,0,0">
+                                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 
+            <!-- RIGHT PANEL: FILE INSPECTOR -->
+            <Border Grid.Column="1"
+                    Background="{DynamicResource App.SectionBg}"
+                    CornerRadius="8"
+                    Margin="8,0,0,0">
+                <Grid RowDefinitions="Auto,*">
+
+                    <!-- Panel Header -->
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,0,0,1" Padding="12,8" >
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{loc:Loc Files.Path}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"/>
+                                <SelectableTextBlock Text="{Binding SelectedFileDisplayPath}" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{loc:Loc Files.ModeEdit}" IsVisible="{Binding IsEditingFile}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource SemiBlue6}"/>
+                                <TextBlock Text="{loc:Loc Files.ModeRead}" IsVisible="{Binding !IsEditingFile}" FontSize="12" VerticalAlignment="Center" Opacity="0.8"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Editor -->
+                    <TextBox Grid.Row="1"
+                            Text="{Binding EditingFileContent}"
+                            AcceptsReturn="True"
+                            TextWrapping="Wrap"
+                            IsReadOnly="{Binding !IsEditingFile}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="16"
+                            Watermark="{loc:Loc Files.NoFileSelected}"/>
+                </Grid>
+            </Border>
         </Grid>
-    </Border>
+
+        <!-- FOOTER BAR (ACTIONS) -->
+        <Border Grid.Row="2" 
+                BorderBrush="{DynamicResource App.SectionBg}" 
+                BorderThickness="0,1,0,0" 
+                Padding="12,8" >
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{loc:Loc Files.AwaitingInput}" VerticalAlignment="Center" FontSize="12" Opacity="0.6"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditingFile}">
+                    <Button Command="{Binding CancelEditCommand}" 
+                            Padding="16,4"
+                            ToolTip.Tip="{loc:Loc Chat.BtnAbort}">
+                        <PathIcon Data="{StaticResource SemiIconClose}" Width="16" Height="16"/>
+                    </Button>
+                    <Button Command="{Binding SaveFileCommand}" 
+                            Theme="{StaticResource AccentButtonTheme}" 
+                            Padding="16,4"
+                            ToolTip.Tip="{loc:Loc Files.BtnCommitWrite}">
+                        <PathIcon Data="{StaticResource SemiIconSave}" Width="16" Height="16"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+    </Grid>
 </UserControl>

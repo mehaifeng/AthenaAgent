@@ -1,4 +1,4 @@
-using Athena.UI.Models;
+﻿using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
 using OpenAI.Chat;
@@ -73,25 +73,26 @@ public class OpenAIChatService : IChatService
             _chatClient = null;
         }
     }
-public async IAsyncEnumerable<string> StreamMessageAsync(
-    string userMessage,
-    ConversationContext context,
-    [EnumeratorCancellation] CancellationToken cancellationToken = default,
-    Action<Models.ChatMessage>? onMessageAdded = null,
-    bool addToContext = true)
-{
-    if (_chatClient == null)
-    {
-        Log.Error("ChatClient 未初始化");
-        yield return "[错误] 请先在设置中配置 API Key";
-        yield break;
-    }
 
-    // 仅在明确要求时才加入上下文，防止 Regenerate 或 Edit 流程中重复添加
-    if (!string.IsNullOrWhiteSpace(userMessage) && addToContext)
+    public async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<Models.ChatMessage>? onMessageAdded = null,
+        bool addToContext = true)
     {
-        context.AddUserMessage(userMessage);
-    }
+        if (_chatClient == null)
+        {
+            Log.Error("ChatClient 未初始化");
+            yield return "[错误] 请先在设置中配置 API Key";
+            yield break;
+        }
+
+        // 仅在明确要求时才加入上下文，防止 Regenerate 或 Edit 流程中重复添加
+        if (!string.IsNullOrWhiteSpace(userMessage) && addToContext)
+        {
+            context.AddUserMessage(userMessage);
+        }
 
         Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
 
@@ -104,7 +105,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
         {
             yield return text;
         }
-        
+
         Log.Debug("StreamMessageAsync 迭代处理完成");
     }
 
@@ -116,7 +117,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
         Action<Models.ChatMessage>? onMessageAdded = null)
     {
         var iteration = 0;
-        const int maxIterations = 15;
+        const int maxIterations = 25;
 
         while (iteration < maxIterations)
         {
@@ -220,7 +221,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
                 }
                 yield break;
             }
-
+            
             var toolCalls = toolCallBuilders.Values.Select(b =>
             {
                 var id = string.IsNullOrEmpty(b.Id) ? $"call_{Guid.NewGuid():N}" : b.Id;
@@ -271,7 +272,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
             }
         }
 
-        Log.Warning("达到最大迭代次数 {Max}", maxIterations);
+        Log.Debug("循环自然结束，迭代次数: {Iteration}", iteration);
     }
 
     private static AssistantChatMessage CreateAssistantMessageWithToolCalls(IEnumerable<ToolCallInfo> toolCalls, string? content = null)
