@@ -6,18 +6,17 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d" 
-             d:DesignWidth="900" 
-             d:DesignHeight="700"
+             d:DesignWidth="720" 
+             d:DesignHeight="1080"
              x:Class="Athena.UI.Views.ChatTabView"
-             x:DataType="vm:ChatTabViewModel"
-             FontFamily="{DynamicResource MonospaceFontFamily}">
+             x:DataType="vm:ChatTabViewModel">
 
     <Design.DataContext>
         <vm:ChatTabViewModel/>
     </Design.DataContext>
 
     <UserControl.Styles>
-        <!-- Receiving data dynamic effect -->
+        <!-- 加载动画 -->
         <Style Selector="StackPanel.loading-pulse > TextBlock">
             <Style.Animations>
                 <Animation Duration="0:0:1.0" IterationCount="Infinite" PlaybackDirection="Alternate">
@@ -26,164 +25,230 @@
                 </Animation>
             </Style.Animations>
         </Style>
+
+        <!-- 消息气泡基础样式 -->
+        <Style Selector="Border.message-bubble">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+        </Style>
+
+        <!-- 用户消息气泡 -->
+        <Style Selector="Border.user-bubble">
+            <Setter Property="Background" Value="{DynamicResource Chat.UserBubbleBg}"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+        </Style>
+
+        <!-- AI 消息气泡 -->
+        <Style Selector="Border.assistant-bubble">
+            <Setter Property="Background" Value="{DynamicResource Chat.AssistantBubbleBg}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+
+        <!-- 角色标题颜色 -->
+        <Style Selector="TextBlock.role-title">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="TextBlock.user-title">
+            <Setter Property="Foreground" Value="{DynamicResource SemiBlue6}"/>
+        </Style>
+        <Style Selector="TextBlock.assistant-title">
+            <Setter Property="Foreground" Value="{DynamicResource SemiGreen6}"/>
+        </Style>
     </UserControl.Styles>
 
-    <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-            BorderThickness="2"
-            Margin="4">
+    <Grid RowDefinitions="Auto,*,Auto">
 
-        <Grid RowDefinitions="Auto,*,Auto">
+        <!-- 聊天区域头部 -->
+        <Border Grid.Row="0"
+                BorderBrush="{DynamicResource App.SectionBg}"
+                BorderThickness="0,0,0,1"
+                VerticalAlignment="Center"
+                Padding="8">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{loc:Loc Chat.Header}"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           FontSize="16"/>
 
-            <!-- TERMINAL HEADER -->
-            <Border Grid.Row="0"
-                    BorderBrush="{DynamicResource Brush.BrightGreen}"
-                    BorderThickness="0,0,0,2"
-                    Padding="12,6">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
-                    <TextBlock Grid.Column="0"
-                               Text="{loc:Loc Chat.Header}"
-                               FontWeight="Bold"
-                               Foreground="{DynamicResource Brush.Yellow}"
-                               VerticalAlignment="Center"
-                               FontSize="14"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding ContextTokensInfo}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource Chat.TimestampFg}"
+                           FontSize="12" />
 
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding ContextTokensInfo, StringFormat='[BUFFER: {0}]'}"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource Brush.Green}"
-                               FontSize="11" />
+                <ToggleButton Grid.Column="2" 
+                              Command="{Binding ToggleThemeCommand}" 
+                              IsChecked="{Binding CurrentTheme, Converter={StaticResource ThemeToBoolConverter}, Mode=OneWay}"
+                              Margin="0,0,8,0"
+                              ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
+                    <Panel>
+                        <PathIcon Data="{StaticResource SemiIconSun}" IsVisible="{Binding $parent[ToggleButton].IsChecked}"/>
+                        <PathIcon Data="{StaticResource SemiIconMoon}" IsVisible="{Binding !$parent[ToggleButton].IsChecked}"/>
+                    </Panel>
+                </ToggleButton>
+                
+                <Button Grid.Column="3" 
+                        Command="{Binding NewConversationCommand}" 
+                        Margin="0,0,8,0" 
+                        ToolTip.Tip="{loc:Loc Chat.BtnReset}">
+                    <PathIcon Data="{StaticResource SemiIconRefresh}" Width="16" Height="16"/>
+                </Button>
+                <Button Grid.Column="4" 
+                        Command="{Binding SwitchToTasksTabCommand}"
+                        ToolTip.Tip="{loc:Loc Chat.BtnStats}">
+                    <PathIcon Data="{StaticResource SemiIconActivity}" Width="16" Height="16"/>
+                </Button>
+            </Grid>
+        </Border>
 
-                    <Button Grid.Column="2" Content="{loc:Loc Chat.BtnTheme}" Command="{Binding ToggleThemeCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0" />
-                    <Button Grid.Column="3" Content="{loc:Loc Chat.BtnReset}" Command="{Binding NewConversationCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" Margin="0,0,8,0" />
-                    <Button Grid.Column="4" Content="{loc:Loc Chat.BtnStats}" Command="{Binding SwitchToTasksTabCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" Padding="8,2" />
-                </Grid>
-            </Border>
+        <!-- 聊天消息列表 -->
+        <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12">
+            <ItemsControl ItemsSource="{Binding Messages}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:ChatMessage">
+                        <Grid Margin="0,0,0,40" IsVisible="{Binding IsVisibleToUser}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
 
-            <!-- CHAT AREA -->
-            <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12,12,12,0">
-                <ItemsControl ItemsSource="{Binding Messages}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:ChatMessage">
-                            <Grid Margin="0,0,0,24" IsVisible="{Binding IsVisibleToUser}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="20*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="{Binding IsUser, Converter={StaticResource IntToColumnConverter}, ConverterParameter=UserAlign}"
+                                        Grid.ColumnSpan="2"
+                                        HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
+                                        Spacing="4">
 
-                                <!-- Alignment -->
-                                <StackPanel Grid.Column="{Binding IsUser, Converter={StaticResource IntToColumnConverter}, ConverterParameter=UserAlign}"
-                                            Grid.ColumnSpan="2"
-                                            HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
-                                            Spacing="2">
-
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,-2">
-                                        <Border Grid.Column="1" Margin="4,4,4,0" BorderBrush="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}" HorizontalAlignment="Stretch">
-                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,0">
-                                                <TextBlock Text="{Binding IsUser, Converter={StaticResource RoleToTitleConverter}}"
-                                                           Foreground="{Binding IsUser, Converter={StaticResource RoleToBrushConverter}}"
-                                                           FontSize="10" FontWeight="Bold"/>
-                                                <TextBlock Text="{Binding TimestampText, StringFormat='@ T-{0}'}"
-                                                           Foreground="{DynamicResource Brush.Green}" FontSize="9" VerticalAlignment="Center"/>
-                                                <TextBlock Text="[ARCHIVED]" IsVisible="{Binding IsCompressed}" Foreground="{DynamicResource Brush.Yellow}" FontSize="9" VerticalAlignment="Center" FontWeight="Bold"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </Grid>
-
-                                    <Border Padding="16,8" Background="{DynamicResource Brush.MidGreen}">
-                                        <Grid>
-                                            <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
-                                                <TextBlock Text="[#######" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
-                                                <TextBlock Text="{loc:Loc Chat.ReceivingData}" Foreground="{DynamicResource Brush.Yellow}" FontSize="13" FontWeight="Bold"/>
-                                                <TextBlock Text="#######]" Foreground="{DynamicResource Brush.Yellow}" FontSize="13"/>
-                                            </StackPanel>
-
-                                            <TextBlock Text="{Binding DisplayText}"
-                                                       TextWrapping="Wrap" FontSize="13" LineHeight="20"
-                                                       IsVisible="{Binding !IsEditing}"
-                                                       Foreground="{Binding IsUser, Converter={StaticResource RoleToTextBrushConverter}}"/>
-
-                                            <TextBox Text="{Binding EditContent}"
-                                                     IsVisible="{Binding IsEditing}"
-                                                     AcceptsReturn="True" TextWrapping="Wrap"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="{DynamicResource Brush.Yellow}"/>
-                                        </Grid>
-                                    </Border>
-
-                                    <!-- Actions -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,-2,0,0">
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="{Binding !IsLoading}">
-                                            
-                                            <!-- Copy is always available -->
-                                            <Button Content="{loc:Loc Chat.BtnCopy}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
-
-                                            <!-- Edit/Regen/Purge only for non-compressed -->
-                                            <Button Content="{loc:Loc Chat.BtnEdit}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding CanShowEdit}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-                                            
-                                            <Button Content="{loc:Loc Chat.BtnConfirm}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding IsEditing}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Yellow}"/>
-                                            
-                                            <Button Content="{loc:Loc Chat.BtnAbort}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding IsEditing}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-                                            
-                                            <Button Content="{loc:Loc Chat.BtnRegen}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding CanRegenerate}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Green}"/>
-
-                                            <Button Content="{loc:Loc Chat.BtnPurge}" 
-                                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" 
-                                                    CommandParameter="{Binding}" 
-                                                    IsVisible="{Binding !IsCompressed}" 
-                                                    BorderThickness="0" FontSize="10" Foreground="{DynamicResource Brush.Red}"/>
-                                        </StackPanel>
-                                    </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,0">
+                                    <TextBlock Text="{Binding IsUser, Converter={StaticResource RoleToTitleConverter}}"
+                                               Classes.role-title="True"
+                                               Classes.user-title="{Binding IsUser}"
+                                               Classes.assistant-title="{Binding !IsUser}"/>
+                                    
+                                    <TextBlock Text="{Binding TimestampText}"
+                                               Foreground="{DynamicResource Chat.TimestampFg}" 
+                                               FontSize="10" 
+                                               VerticalAlignment="Center"/>
+                                    
+                                    <TextBlock Text="Archived" 
+                                               IsVisible="{Binding IsCompressed}" 
+                                               Foreground="{DynamicResource Chat.ArchivedFg}" 
+                                               FontSize="10" 
+                                               VerticalAlignment="Center" 
+                                               FontWeight="Bold"/>
                                 </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
 
-            <!-- INPUT AREA -->
-            <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BrightGreen}" BorderThickness="0,2,0,0" Padding="12" >
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <Button Grid.Column="0" Content="[+]" Command="{Binding AttachFileCommand}" BorderThickness="0" Foreground="{DynamicResource Brush.Yellow}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <Border Classes="message-bubble"
+                                        Classes.user-bubble="{Binding IsUser}"
+                                        Classes.assistant-bubble="{Binding !IsUser}">
+                                    <Grid>
+                                        <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="..." FontSize="14" FontWeight="Bold"/>
+                                            <TextBlock Text="{loc:Loc Chat.ReceivingData}" FontSize="14"/>
+                                        </StackPanel>
 
-                    <TextBox Grid.Column="1"
-                             Text="{Binding InputText}"
-                             Watermark="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             VerticalContentAlignment="Center"
-                             MaxHeight="150"
-                             BorderThickness="1"
-                             IsEnabled="{Binding !IsSending}"/>
+                                        <SelectableTextBlock Text="{Binding DisplayText}"
+                                                   TextWrapping="Wrap" FontSize="14" LineHeight="22"
+                                                   IsVisible="{Binding !IsEditing}"/>
 
-                    <Button Grid.Column="2"
-                            Content="{loc:Loc Chat.BtnExecute}"
-                            Command="{Binding SendMessageCommand}"
-                            Margin="12,0,0,0"
-                            Classes="primary"
-                            Padding="20,8"/>
-                </Grid>
-            </Border>
-        </Grid>
-    </Border>
+                                        <TextBox Text="{Binding EditContent}"
+                                                 IsVisible="{Binding IsEditing}"
+                                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                                 Background="Transparent" BorderThickness="0"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- 操作按钮 -->
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding !IsLoading}">
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnCopy}">
+                                        <PathIcon Data="{StaticResource SemiIconCopy}" Width="14" Height="14"/>
+                                    </Button>
+
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            IsVisible="{Binding CanShowEdit}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnEdit}">
+                                        <PathIcon Data="{StaticResource SemiIconEdit}" Width="14" Height="14"/>
+                                    </Button>
+                                    
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            IsVisible="{Binding IsEditing}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnConfirm}">
+                                        <PathIcon Data="{StaticResource SemiIconTick}" Width="14" Height="14"/>
+                                    </Button>
+                                    
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            IsVisible="{Binding IsEditing}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnAbort}">
+                                        <PathIcon Data="{StaticResource SemiIconClose}" Width="14" Height="14"/>
+                                    </Button>
+                                    
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            IsVisible="{Binding CanRegenerate}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnRegen}">
+                                        <PathIcon Data="{StaticResource SemiIconSync}" Width="14" Height="14"/>
+                                    </Button>
+
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" 
+                                            CommandParameter="{Binding}" 
+                                            IsVisible="{Binding !IsCompressed}" 
+                                            FontSize="11"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnPurge}">
+                                        <PathIcon Data="{StaticResource SemiIconDelete}" Width="14" Height="14"/>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- 输入区域 -->
+        <Border Grid.Row="2" 
+                BorderBrush="{DynamicResource App.SectionBg}"
+                BorderThickness="0,1,0,0" 
+                Padding="12" >
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Button Grid.Column="0" 
+                        Command="{Binding AttachFileCommand}" 
+                        VerticalAlignment="Center" 
+                        Margin="0,0,8,0">
+                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
+                </Button>
+
+                <TextBox Grid.Column="1"
+                         Text="{Binding InputText}"
+                         Watermark="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         VerticalContentAlignment="Center"
+                         MaxHeight="150"
+                         IsEnabled="{Binding !IsSending}"/>
+
+                <Button Grid.Column="2"
+                        Command="{Binding SendMessageCommand}"
+                        Margin="12,0,0,0"
+                        Classes="accent"
+                        Padding="20,8"
+                        ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
+                    <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
 </UserControl>

@@ -184,7 +184,13 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand] private void CancelSend() => _cancellationTokenSource?.Cancel();
-    [RelayCommand] private void ToggleTheme() => CurrentTheme = CurrentTheme == "Dark" ? "Light" : "Dark";
+    [RelayCommand] 
+    private void ToggleTheme() 
+    {
+        CurrentTheme = CurrentTheme == "Dark" ? "Light" : "Dark";
+        App.SetTheme(CurrentTheme);
+        _logger.Information("ChatTab 触发主题切换: {Theme}", CurrentTheme);
+    }
     [RelayCommand] private void SwitchToTasksTab() => SwitchToTasksTabRequested?.Invoke(this, EventArgs.Empty);
     [RelayCommand] private async Task AttachFileAsync() => await Task.CompletedTask;
 

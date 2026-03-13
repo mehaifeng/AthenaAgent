@@ -3,47 +3,68 @@
              x:Class="Athena.UI.App"
              xmlns:local="using:Athena.UI"
              xmlns:conv="using:Athena.UI.Converters"
-             RequestedThemeVariant="Dark">
+             xmlns:semi="https://irihi.tech/semi"
+             RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
 
     <Application.Resources>
-        <!-- Converters -->
-        <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
-        <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
-        <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
-        <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
-        <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
-        <conv:RoleToTextBrushConverter x:Key="RoleToTextBrushConverter"/>
-        <conv:LocConverter x:Key="LocConverter"/>
-        <conv:OpacityConverter x:Key="OpacityConverter"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Athena.UI/Styles/Icons.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- 主题字典定义 -->
+            <ResourceDictionary.ThemeDictionaries>
+                <!-- 语义化颜色定义：深色模式 -->
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="App.SectionBg" Color="#232324" />
+                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#1C2438" />
+                    <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
+                    <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
+                    <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
+                </ResourceDictionary>
+                <!-- 语义化颜色定义：浅色模式 -->
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="App.SectionBg" Color="#F6F6F6" />
+                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#E8F2FF" />
+                    <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
+                    <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
+                    <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#D29E00" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
 
-        <!-- 字体定义 -->
-        <FontFamily x:Key="MonospaceFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-        <FontFamily x:Key="ContentControlThemeFontFamily">Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
+            <!-- 转换器 -->
+            <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
+            <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
+            <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
+            <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
+            <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
+            <conv:ThemeToBoolConverter x:Key="ThemeToBoolConverter"/>
+            <conv:LocConverter x:Key="LocConverter"/>
+            <conv:OpacityConverter x:Key="OpacityConverter"/>
 
-        <!-- 字号定义 -->
-        <x:Double x:Key="TitleFontSize">16</x:Double>
-        <x:Double x:Key="BodyFontSize">14</x:Double>
-        <x:Double x:Key="SmallFontSize">12</x:Double>
+            <!-- 字体设置 -->
+            <FontFamily x:Key="MainFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
+            <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
 
-        <!-- DOS 主题颜色 - 深色模式（默认） -->
-        <SolidColorBrush x:Key="Brush.Black" Color="#000000"/>
-        <SolidColorBrush x:Key="Brush.BrightGreen" Color="#00FF00"/>
-        <SolidColorBrush x:Key="Brush.Green" Color="#00AA00"/>
-        <SolidColorBrush x:Key="Brush.Yellow" Color="#FFFF00"/>
-        <SolidColorBrush x:Key="Brush.Red" Color="#FF0000"/>
-        <SolidColorBrush x:Key="Brush.DeepGreen" Color="#003300"/>
-        <SolidColorBrush x:Key="Brush.MidGreen" Color="#006600"/>
+            <!-- 字号设置 -->
+            <x:Double x:Key="TitleFontSize">18</x:Double>
+            <x:Double x:Key="BodyFontSize">14</x:Double>
+            <x:Double x:Key="SmallFontSize">12</x:Double>
+        </ResourceDictionary>
     </Application.Resources>
 
     <Application.Styles>
-        <!-- Simple 主题作为基础 -->
-        <SimpleTheme />
-
-        <!-- DOS 复古风格控件样式 -->
-        <StyleInclude Source="avares://Athena.UI/Styles/DosControls.axaml"/>
+        <semi:SemiTheme Locale="zh-CN" />
+        
+        <!-- 全局样式：使 TabItem 标题稍微大一点 -->
+        <Style Selector="TabItem">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
     </Application.Styles>
 </Application>

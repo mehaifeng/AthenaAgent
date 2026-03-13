@@ -17,115 +17,97 @@
         <vm:CreateTaskDialogViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,*,Auto" >
-        <!-- Title Bar -->
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+        <!-- 标题栏 -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource Brush.BrightGreen}"
-                BorderThickness="0,0,0,2"
-                Padding="10,8"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="0,0,0,12"
                 >
             <TextBlock Text="{loc:Loc TaskDialog.Title}"
                       HorizontalAlignment="Center"
-                      FontSize="14"
-                      FontWeight="Bold"
-                      Foreground="{DynamicResource Brush.Yellow}"/>
+                      FontSize="16"
+                      FontWeight="Bold"/>
         </Border>
 
-        <!-- Form Content -->
-        <ScrollViewer Grid.Row="1" Padding="15">
-            <StackPanel Spacing="15">
-                <!-- Trigger Time -->
-                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                       BorderThickness="2"
-                       Padding="10">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="{loc:Loc TaskDialog.TriggerTime}"
-                                  FontWeight="Bold"
-                                  Foreground="{DynamicResource Brush.Yellow}"
-                                  FontSize="12"/>
+        <!-- 表单内容 -->
+        <ScrollViewer Grid.Row="1" Padding="0,12">
+            <StackPanel Spacing="16">
+                <!-- 触发时间 -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc TaskDialog.TriggerTime}"
+                              FontWeight="Bold"
+                              FontSize="13"/>
 
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
-                            <TextBlock Grid.Row="0" Grid.Column="0"
-                                      Text="{loc:Loc TaskDialog.Date}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,10,5"/>
-                            <CalendarDatePicker Grid.Row="0" Grid.Column="1"
-                                               SelectedDate="{Binding TriggerDate}"
-                                               HorizontalAlignment="Stretch"
-                                               Margin="0,0,0,5"/>
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                  Text="{loc:Loc TaskDialog.Date}"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,12,8"/>
+                        <CalendarDatePicker Grid.Row="0" Grid.Column="1"
+                                           SelectedDate="{Binding TriggerDate}"
+                                           HorizontalAlignment="Stretch"
+                                           Margin="0,0,0,8"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0"
-                                      Text="{loc:Loc TaskDialog.Time}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,10,5"/>
-                            <TimePicker Grid.Row="1" Grid.Column="1"
-                                       SelectedTime="{Binding TriggerTime}"
-                                       HorizontalAlignment="Stretch"
-                                       Margin="0,0,0,5"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                  Text="{loc:Loc TaskDialog.Time}"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,12,8"/>
+                        <TimePicker Grid.Row="1" Grid.Column="1"
+                                   SelectedTime="{Binding TriggerTime}"
+                                   HorizontalAlignment="Stretch"
+                                   Margin="0,0,0,8"/>
+                    </Grid>
+                </StackPanel>
 
-                <!-- Task Intent -->
-                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                       BorderThickness="2"
-                       Padding="10">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
-                                  FontWeight="Bold"
-                                  Foreground="{DynamicResource Brush.Yellow}"
-                                  FontSize="12"/>
+                <!-- 任务意图 -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
+                              FontWeight="Bold"
+                              FontSize="13"/>
 
-                        <TextBlock Text="{loc:Loc TaskDialog.IntentHint}"
-                                  TextWrapping="Wrap"
-                                  Foreground="{DynamicResource Brush.Green}"
-                                  FontSize="11"/>
+                    <TextBlock Text="{loc:Loc TaskDialog.IntentHint}"
+                              TextWrapping="Wrap"
+                              Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                              FontSize="12"/>
 
-                        <TextBox Text="{Binding Intent}"
-                                AcceptsReturn="True"
-                                TextWrapping="Wrap"
-                                MinHeight="80"
-                                MaxHeight="120"
-                                Watermark="{loc:Loc TaskDialog.IntentPlaceholder}"/>
-                    </StackPanel>
-                </Border>
+                    <TextBox Text="{Binding Intent}"
+                            AcceptsReturn="True"
+                            TextWrapping="Wrap"
+                            MinHeight="80"
+                            MaxHeight="120"
+                            Watermark="{loc:Loc TaskDialog.IntentPlaceholder}"/>
+                </StackPanel>
 
-                <!-- Recurrence -->
-                <Border BorderBrush="{DynamicResource Brush.BrightGreen}"
-                       BorderThickness="2"
-                       Padding="10">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="{loc:Loc TaskDialog.Recurrence}"
-                                  FontWeight="Bold"
-                                  Foreground="{DynamicResource Brush.Yellow}"
-                                  FontSize="12"/>
+                <!-- 循环 -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc TaskDialog.Recurrence}"
+                              FontWeight="Bold"
+                              FontSize="13"/>
 
-                        <Grid ColumnDefinitions="Auto,*">
-                            <TextBlock Grid.Column="0"
-                                      Text="{loc:Loc TaskDialog.Repeat}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,10,0"/>
-                            <ComboBox Grid.Column="1"
-                                     ItemsSource="{Binding RecurrenceDisplayNames}"
-                                     SelectedIndex="{Binding SelectedRecurrenceIndex}"
-                                     HorizontalAlignment="Stretch"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0"
+                                  Text="{loc:Loc TaskDialog.Repeat}"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,12,0"/>
+                        <ComboBox Grid.Column="1"
+                                 ItemsSource="{Binding RecurrenceDisplayNames}"
+                                 SelectedIndex="{Binding SelectedRecurrenceIndex}"
+                                 HorizontalAlignment="Stretch"/>
+                    </Grid>
+                </StackPanel>
 
-                <!-- Preview -->
-                <Border BorderBrush="{DynamicResource Brush.Green}"
+                <!-- 预览 -->
+                <Border BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
                        BorderThickness="1"
-                       Padding="10"
-                       
-                       Margin="0,0,0,70">
-                    <StackPanel Spacing="5">
+                       Padding="12"
+                       CornerRadius="4">
+                    <StackPanel Spacing="8">
                         <TextBlock Text="{loc:Loc TaskDialog.Preview}"
                                   FontWeight="Bold"
-                                  Foreground="{DynamicResource Brush.Green}"
-                                  FontSize="11"/>
+                                  FontSize="12"/>
 
-                        <TextBlock FontSize="11" TextWrapping="Wrap">
+                        <TextBlock FontSize="12" TextWrapping="Wrap">
                             <Run Text="{loc:Loc TaskDialog.PreviewWill}"/>
                             <Run Text="{Binding Recurrence, Mode=OneWay}"/>
                             <Run Text="{loc:Loc TaskDialog.PreviewTriggerAt}"/>
@@ -134,32 +116,36 @@
 
                         <TextBlock Text="{Binding Intent, Mode=OneWay}"
                                   TextWrapping="Wrap"
-                                  FontSize="11"
+                                  FontSize="12"
                                   FontStyle="Italic"
-                                  Foreground="{DynamicResource Brush.Green}"
+                                  Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
                                   MaxHeight="60"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Footer Buttons -->
+        <!-- 底部按钮 -->
         <Border Grid.Row="2"
-               BorderBrush="{DynamicResource Brush.BrightGreen}"
-               BorderThickness="0,2,0,0"
-               Padding="10"
+               BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+               BorderThickness="0,1,0,0"
+               Padding="0,12,0,0"
                >
             <StackPanel Orientation="Horizontal"
                        HorizontalAlignment="Right"
-                       Spacing="10">
-                <Button Content="{loc:Loc TaskDialog.BtnCancel}"
-                       Command="{Binding CancelCommand}"
-                       MinWidth="80"/>
-                <Button Content="{loc:Loc TaskDialog.BtnCreate}"
-                       Command="{Binding ConfirmCommand}"
-                       Classes="primary"
+                       Spacing="12">
+                <Button Command="{Binding CancelCommand}"
                        MinWidth="80"
-                       IsEnabled="{Binding Intent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                       ToolTip.Tip="{loc:Loc TaskDialog.BtnCancel}">
+                    <PathIcon Data="{StaticResource SemiIconClose}" Width="16" Height="16"/>
+                </Button>
+                <Button Command="{Binding ConfirmCommand}"
+                       Classes="accent"
+                       MinWidth="80"
+                       IsEnabled="{Binding Intent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       ToolTip.Tip="{loc:Loc TaskDialog.BtnCreate}">
+                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="16" Height="16"/>
+                </Button>
             </StackPanel>
         </Border>
     </Grid>
