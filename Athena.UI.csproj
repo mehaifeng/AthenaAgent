@@ -26,6 +26,7 @@
 
     <!-- MVVM -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Irihi.Ursa.Themes.Semi" Version="1.15.0" />
 
     <!-- OpenAI SDK -->
     <PackageReference Include="OpenAI" Version="2.1.0" />

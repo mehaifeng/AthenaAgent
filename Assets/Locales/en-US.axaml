@@ -42,6 +42,8 @@
     <system:String x:Key="Config.SectionMemory">Memory Management</system:String>
     <system:String x:Key="Config.BgTasks">Background Tasks</system:String>
     <system:String x:Key="Config.VectorKb">Vector Knowledge Base</system:String>
+    <system:String x:Key="Config.BgTask2ndAICore">Background Tasks and Auxiliary Core</system:String>
+
 
     <!-- Config Labels -->
     <system:String x:Key="Config.DispTheme">Theme:</system:String>
@@ -173,5 +175,10 @@
     <system:String x:Key="Status.ServiceNotInit">Service not initialized</system:String>
     <system:String x:Key="Status.ConfigSaved">Settings saved</system:String>
     <system:String x:Key="Status.ConfigReset">Settings reset</system:String>
+
+    <!-- Dialogs -->
+    <system:String x:Key="Dialog.Title.Warning">Warning</system:String>
+    <system:String x:Key="Dialog.ConfirmResetConfig">Are you sure you want to reset all settings to default? This cannot be undone.</system:String>
+    <system:String x:Key="Dialog.ConfirmPurgeTasks">Are you sure you want to delete all scheduled tasks?</system:String>
 
 </ResourceDictionary>

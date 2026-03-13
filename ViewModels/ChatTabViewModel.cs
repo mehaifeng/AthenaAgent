@@ -31,6 +31,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty] private string _inputText = string.Empty;
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))] private bool _isSending;
+    [ObservableProperty] private bool _isResetting;
     [ObservableProperty] private string _currentConversationId = string.Empty;
     private string _loadedMessagesHash = string.Empty;
     [ObservableProperty] private int _contextTokens;
@@ -276,11 +277,22 @@ public partial class ChatTabViewModel : ViewModelBase
     [RelayCommand]
     public async Task NewConversationAsync()
     {
-        if (Messages.Count > 0 && _historyService != null) await SaveCurrentConversationAsync();
-        Messages.Clear();
-        ConversationContext.Reset();
-        CurrentConversationId = string.Empty;
-        UpdateContextTokensDisplay();
+        if (IsResetting) return;
+        IsResetting = true;
+        try
+        {
+            if (Messages.Count > 0 && _historyService != null) await SaveCurrentConversationAsync();
+            Messages.Clear();
+            ConversationContext.Reset();
+            CurrentConversationId = string.Empty;
+            UpdateContextTokensDisplay();
+            // Optional: small delay to show loading if it's too fast
+            await Task.Delay(300);
+        }
+        finally
+        {
+            IsResetting = false;
+        }
     }
 
     #endregion

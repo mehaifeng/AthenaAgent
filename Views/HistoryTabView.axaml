@@ -55,7 +55,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="40,Auto,*,Auto">
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
@@ -135,16 +135,14 @@
                                                 CommandParameter="{Binding}"
                                                 Theme="{StaticResource AccentButtonTheme}"
                                                 Padding="12,4"
-                                                ToolTip.Tip="{loc:Loc History.BtnRestore}">
-                                            <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
+                                                Content="{loc:Loc History.BtnRestore}">
                                         </Button>
 
                                         <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
                                                 CommandParameter="{Binding}"
                                                 Classes="danger"
                                                 Padding="8,4"
-                                                ToolTip.Tip="{loc:Loc History.BtnDel}">
-                                            <PathIcon Data="{StaticResource SemiIconDelete}" Width="14" Height="14"/>
+                                                Content="{loc:Loc History.BtnDel}">
                                         </Button>
                                     </StackPanel>
                                 </Grid>

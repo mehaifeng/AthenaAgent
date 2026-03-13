@@ -7,21 +7,24 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
+using Ursa.Controls;
 
 namespace Athena.UI.ViewModels;
 
 public partial class TasksTabViewModel : ViewModelBase
 {
     private readonly ITaskScheduler? _taskScheduler;
+    private readonly ILocalizationService? _localizationService;
     private readonly ObservableCollection<ScheduledTask> _localTasks = new();
 
     public ObservableCollection<ScheduledTask> ScheduledTasks => _taskScheduler?.Tasks ?? _localTasks;
 
-    public TasksTabViewModel() : this(null) { }
+    public TasksTabViewModel() : this(null, null) { }
 
-    public TasksTabViewModel(ITaskScheduler? taskScheduler)
+    public TasksTabViewModel(ITaskScheduler? taskScheduler, ILocalizationService? localizationService = null)
     {
         _taskScheduler = taskScheduler;
+        _localizationService = localizationService;
     }
 
     [RelayCommand]
@@ -48,7 +51,16 @@ public partial class TasksTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task ClearAllTasksAsync()
     {
-        if (_taskScheduler != null) await _taskScheduler.ClearAllAsync();
-        else _localTasks.Clear();
+        var result = await MessageBox.ShowAsync(
+            message: _localizationService?.GetString("Dialog.ConfirmPurgeTasks") ?? "Are you sure you want to delete all scheduled tasks?",
+            title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
+            button: MessageBoxButton.YesNo,
+            icon: MessageBoxIcon.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            if (_taskScheduler != null) await _taskScheduler.ClearAllAsync();
+            else _localTasks.Clear();
+        }
     }
 }

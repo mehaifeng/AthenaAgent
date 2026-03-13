@@ -16,11 +16,11 @@
         <vm:KnowledgeBaseTabViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="40,*,Auto">
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource App.SectionBg}"
+                Background="{DynamicResource App.SectionBg}"
                 BorderThickness="0,0,0,1"
                 Padding="8">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
@@ -126,22 +126,47 @@
                 <Grid RowDefinitions="Auto,*">
 
                     <!-- Panel Header -->
-                    <Border Grid.Row="0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,0,0,1" Padding="12,8" >
-                        <Grid ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="{loc:Loc Files.Path}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"/>
-                                <SelectableTextBlock Text="{Binding SelectedFileDisplayPath}" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="{loc:Loc Files.ModeEdit}" IsVisible="{Binding IsEditingFile}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource SemiBlue6}"/>
-                                <TextBlock Text="{loc:Loc Files.ModeRead}" IsVisible="{Binding !IsEditingFile}" FontSize="12" VerticalAlignment="Center" Opacity="0.8"/>
-                            </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" Margin="10,10">
+                        <!-- 左列：用 Grid 替换 StackPanel，避免撑开 -->
+                        <Grid Grid.Column="0" ColumnDefinitions="Auto,*">
+                            <TextBlock Grid.Column="0"
+                                    Text="{loc:Loc Files.Path}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Opacity="0.6"
+                                    Margin="0,0,8,0"/>
+                            <SelectableTextBlock Grid.Column="1"
+                                    Text="{Binding SelectedFileDisplayPath}"
+                                    FontSize="12"
+                                    ToolTip.Tip="{Binding SelectedFileDisplayPath}"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap"/>
                         </Grid>
-                    </Border>
+
+                        <!-- 右列不变 -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0">
+                            <TextBlock Text="{loc:Loc Files.ModeEdit}"
+                                    IsVisible="{Binding IsEditingFile}"
+                                    FontSize="12" FontWeight="Bold"
+                                    VerticalAlignment="Center"
+                                    Foreground="{DynamicResource SemiBlue6}"/>
+                            <TextBlock Text="{loc:Loc Files.ModeRead}"
+                                    IsVisible="{Binding !IsEditingFile}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Opacity="0.8"/>
+                        </StackPanel>
+                    </Grid>
 
                     <!-- Editor -->
                     <TextBox Grid.Row="1"
+                            Margin="10"
                             Text="{Binding EditingFileContent}"
+                            VerticalContentAlignment="Top"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
                             AcceptsReturn="True"
                             TextWrapping="Wrap"
                             IsReadOnly="{Binding !IsEditingFile}"

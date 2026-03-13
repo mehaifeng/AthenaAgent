@@ -42,6 +42,9 @@
     <system:String x:Key="Config.SectionMemory">记忆管理</system:String>
     <system:String x:Key="Config.BgTasks">后台任务</system:String>
     <system:String x:Key="Config.VectorKb">向量知识库</system:String>
+    <system:String x:Key="Config.BgTask2ndAICore">后台任务与辅助核心</system:String>
+
+
 
     <!-- Config Labels -->
     <system:String x:Key="Config.DispTheme">显示主题:</system:String>
@@ -173,5 +176,10 @@
     <system:String x:Key="Status.ServiceNotInit">服务未初始化</system:String>
     <system:String x:Key="Status.ConfigSaved">设置已保存</system:String>
     <system:String x:Key="Status.ConfigReset">设置已重置</system:String>
+
+    <!-- Dialogs -->
+    <system:String x:Key="Dialog.Title.Warning">警告</system:String>
+    <system:String x:Key="Dialog.ConfirmResetConfig">确定要将所有设置恢复为默认值吗？此操作不可撤销。</system:String>
+    <system:String x:Key="Dialog.ConfirmPurgeTasks">确定要删除所有计划任务吗？</system:String>
 
 </ResourceDictionary>

@@ -12,14 +12,13 @@
         <vm:LogsTabViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="40,Auto,*,Auto">
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
-                BorderBrush="{DynamicResource App.SectionBg}"
+                Background="{DynamicResource App.SectionBg}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8"
-                >
+                Padding="12,8">
             <TextBlock Text="{loc:Loc Logs.Header}"
                        FontWeight="SemiBold"
                        FontSize="14"/>
@@ -29,6 +28,7 @@
         <Border Grid.Row="1"
                 Background="{DynamicResource App.SectionBg}"
                 CornerRadius="8"
+                Margin="0,10,0,0"
                 Padding="16">
             <StackPanel Spacing="16">
                 <TextBlock Text="{loc:Loc Logs.QueryParams}"

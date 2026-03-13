@@ -14,42 +14,51 @@
         <vm:ConfigTabViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="40,*,Auto">
 
         <!-- HEADER -->
         <Border Grid.Row="0"
                 Background="{DynamicResource App.SectionBg}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8"
-                >
+                Padding="12,8">
             <TextBlock Text="{loc:Loc Config.Header}"
                        FontWeight="SemiBold"
                        FontSize="14"/>
         </Border>
 
         <!-- SCROLLABLE CONTENT -->
-        <ScrollViewer Grid.Row="1" Padding="16">
-            <StackPanel Spacing="16">
+        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="16">
+            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
 
                 <!-- SECTION 1: APPEARANCE -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="16">
+                <Border 
+                    Grid.Row="0"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16">
                     <StackPanel Spacing="16">
                         <TextBlock Text="{loc:Loc Config.SectionAppearance}"
                                    FontWeight="Bold"
                                    FontSize="15"/>
 
-                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispFontScale}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
-                                <Slider Width="300" Minimum="10" Maximum="24" Value="{Binding Config.FontSize}" SmallChange="1" LargeChange="2" TickPlacement="BottomRight" TickFrequency="1" />
-                                <TextBlock Text="{Binding Config.FontSize}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                            </StackPanel>
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                                <Slider 
+                                    Grid.Column="0"
+                                    Minimum="10" 
+                                    Maximum="24" 
+                                    Value="{Binding Config.FontSize}"
+                                    TickPlacement="Outside"
+                                    IsSnapToTickEnabled="True"
+                                    TickFrequency="1"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Config.FontSize}"
+                                        VerticalAlignment="Center" FontWeight="SemiBold" Margin="12,0,0,0"/>
+                            </Grid>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
@@ -61,16 +70,25 @@
                 </Border>
 
                 <!-- SECTION 2: AI MODEL -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="16">
-                    <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.SectionPrimaryAI}"
-                                   FontWeight="Bold"
-                                   FontSize="15"/>
+                <Border 
+                    Grid.Row="1"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16"
+                    HorizontalAlignment="Stretch">
+                    <Grid RowDefinitions="Auto,Auto" HorizontalAlignment="Stretch">
+                        <TextBlock Grid.Row="0"
+                                Text="{loc:Loc Config.SectionPrimaryAI}"
+                                FontWeight="Bold"
+                                FontSize="15"
+                                Margin="0,0,0,16"/>
 
-                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                        <Grid Grid.Row="1"
+                            ColumnDefinitions="Auto,*"
+                            ColumnSpacing="20"
+                            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                            HorizontalAlignment="Stretch">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
@@ -84,10 +102,21 @@
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Watermark="e.g. gpt-4" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
-                                <Slider Width="300" Value="{Binding Config.Temperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" TickPlacement="BottomRight" TickFrequency="0.1" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding Config.Temperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                            </StackPanel>
+                            <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                                <Slider Grid.Column="0"
+                                        Value="{Binding Config.Temperature}"
+                                        Minimum="0"
+                                        Maximum="2"
+                                        TickPlacement="Outside"
+                                        IsSnapToTickEnabled="True"
+                                        TickFrequency="0.1"
+                                        VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                        Text="{Binding Config.Temperature, StringFormat={}{0:F1}}"
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Margin="12,0,0,0"/>
+                            </Grid>
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
                             <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="128000" Increment="100" Margin="0,0,0,12" HorizontalAlignment="Stretch"/>
@@ -97,43 +126,56 @@
                                         Command="{Binding TestConnectionCommand}"
                                         IsEnabled="{Binding !IsTestingConnection}"
                                         Theme="{StaticResource AccentButtonTheme}"
-                                        Padding="16,4"
-                                        ToolTip.Tip="{loc:Loc Config.BtnRunDiagnostics}">
-                                    <PathIcon Data="{StaticResource SemiIconActivity}" Width="16" Height="16"/>
+                                        Padding="16,4">
+                                    <Panel>
+                                        <TextBlock Text="{loc:Loc Config.BtnRunDiagnostics}" IsVisible="{Binding !IsTestingConnection}"/>
+                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingConnection}" Classes="SlowSpin" Width="16" Height="16"/>
+                                    </Panel>
                                 </Button>
                                 <TextBlock Grid.Column="1"
-                                           Text="{Binding ConnectionStatus}"
-                                           TextWrapping="Wrap"
-                                           Margin="12,0,0,0"
-                                           HorizontalAlignment="Left"
-                                           VerticalAlignment="Center"
-                                           FontSize="12"
-                                           Opacity="0.8"/>
+                                        Text="{Binding ConnectionStatus}"
+                                        TextWrapping="Wrap"
+                                        Margin="12,0,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Opacity="0.8"/>
                             </Grid>
                         </Grid>
-                    </StackPanel>
+                    </Grid>
                 </Border>
 
                 <!-- SECTION 4: AUXILIARY CORES -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="16">
+                <Border 
+                    Grid.Row="2"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="后台任务与辅助核心" FontWeight="Bold" FontSize="15" />
+                        <TextBlock Text="{loc:Loc Config.BgTask2ndAICore}" FontWeight="Bold" FontSize="15" />
                         
                         <TabControl Background="Transparent" Padding="0,12,0,0">
                             <TabItem Header="{loc:Loc Config.BgTasks}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionSecondaryAI}" FontWeight="SemiBold" Opacity="0.8"/>
-                                    <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Config.SecondaryModel}" Margin="0,0,0,8"/>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
-                                            <Slider Width="300" Value="{Binding Config.SecondaryTemperature}" Minimum="0" Maximum="2" SmallChange="0.1" LargeChange="0.5" TickPlacement="BottomRight" TickFrequency="0.1" VerticalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Config.SecondaryTemperature, StringFormat={}{0:F1}}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                        </StackPanel>
+                                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                            <Slider Grid.Column="0"
+                                                    Value="{Binding Config.SecondaryTemperature}"
+                                                    Minimum="0" 
+                                                    Maximum="2"
+                                                    TickPlacement="Outside"
+                                                    IsSnapToTickEnabled="True"
+                                                    TickFrequency="0.1"
+                                                    VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                    Text="{Binding Config.SecondaryTemperature, StringFormat={}{0:F1}}"
+                                                    VerticalAlignment="Center" FontWeight="SemiBold" Margin="12,0,0,0"/>
+                                        </Grid>
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.SecondaryMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch"/>
                                     </Grid>
@@ -158,23 +200,33 @@
                 </Border>
 
                 <!-- SECTION 3: MEMORY MANAGEMENT -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Margin="0,0,0,60"
-                        Padding="16">
+                <Border 
+                    Grid.Row="3"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,0,60"
+                    Padding="16">
                     <StackPanel Spacing="16">
                         <TextBlock Text="{loc:Loc Config.SectionMemory}"
                                    FontWeight="Bold"
                                    FontSize="15"/>
 
-                        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
-                                <ProgressBar Value="{Binding ContextTokens}" Maximum="{Binding Config.MaxContextTokens}" Width="300" Height="10" VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding ContextTokensInfo}" VerticalAlignment="Center" FontSize="12"/>
-                                <TextBlock Text="{loc:Loc Config.WarnHigh}" VerticalAlignment="Center" FontSize="11" IsVisible="{Binding IsNearCompressionThreshold}" Foreground="{DynamicResource Brush.Red}" FontWeight="Bold"/>
-                            </StackPanel>
+                            <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,12">
+                                <ProgressBar Grid.Column="0"
+                                            Value="{Binding ContextTokens}"
+                                            Maximum="{Binding Config.MaxContextTokens}"
+                                            Height="10" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding ContextTokensInfo}"
+                                        VerticalAlignment="Center" FontSize="12" Margin="12,0,0,0"/>
+                                <TextBlock Grid.Column="2" Text="{loc:Loc Config.WarnHigh}"
+                                        VerticalAlignment="Center" FontSize="11"
+                                        IsVisible="{Binding IsNearCompressionThreshold}"
+                                        Foreground="{DynamicResource Brush.Red}"
+                                        FontWeight="Bold" Margin="8,0,0,0"/>
+                            </Grid>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Opacity="0.8"/>
                             <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="200000" Increment="1000" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
@@ -198,20 +250,52 @@
                                          Background="Transparent" 
                                          BorderThickness="1"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Command="{Binding CompressContextCommand}" 
-                                            ToolTip.Tip="{loc:Loc Config.BtnExecCompression}">
-                                        <PathIcon Data="{StaticResource SemiIconActivity}" Width="16" Height="16"/>
+                                    <Button Command="{Binding CompressContextCommand}">
+                                        <Panel>
+                                            <TextBlock Text="{loc:Loc Config.BtnExecCompression}" IsVisible="{Binding !IsCompressing}"/>
+                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsCompressing}" Classes="SlowSpin" Width="16" Height="16"/>
+                                        </Panel>
                                     </Button>
                                     <Button Command="{Binding UndoCompressionCommand}" 
-                                            ToolTip.Tip="{loc:Loc Config.BtnUndoCompression}">
-                                        <PathIcon Data="{StaticResource SemiIconUndo}" Width="16" Height="16"/>
+                                            Content="{loc:Loc Config.BtnUndoCompression}">
                                     </Button>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </Border>
-            </StackPanel>
+            </Grid>
         </ScrollViewer>
+
+        <!-- FOOTER: SAVE/RESET -->
+        <Border Grid.Row="2"
+                Padding="16,12"
+                Background="{DynamicResource App.SectionBg}"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}">
+            <StackPanel HorizontalAlignment="Right"
+                        Orientation="Horizontal"
+                        Spacing="12">
+                <Button Command="{Binding SaveConfigCommand}"
+                        Classes="accent"
+                        IsEnabled="{Binding !IsSaving}"
+                        Padding="24,6"
+                        ToolTip.Tip="{loc:Loc Btn.CommitChanges}">
+                    <Panel>
+                        <PathIcon Data="{StaticResource SemiIconSave}" Width="18" Height="18" IsVisible="{Binding !IsSaving}"/>
+                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="18" Height="18" IsVisible="{Binding IsSaving}" Classes="SlowSpin"/>
+                    </Panel>
+                </Button>
+                <Button Command="{Binding ResetConfigCommand}"
+                        IsEnabled="{Binding !IsResetting}"
+                        Padding="24,6"
+                        ToolTip.Tip="{loc:Loc Btn.Rollback}">
+                    <Panel>
+                        <PathIcon Data="{StaticResource SemiIconUndo}" Width="18" Height="18" IsVisible="{Binding !IsResetting}"/>
+                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="18" Height="18" IsVisible="{Binding IsResetting}" Classes="SlowSpin"/>
+                    </Panel>
+                </Button>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

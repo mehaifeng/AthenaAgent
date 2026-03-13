@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
+using Ursa.Controls;
 
 namespace Athena.UI.ViewModels;
 
@@ -28,6 +29,17 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isTestingConnection;
+
+    [ObservableProperty]
+    private bool _isCompressing;
+
+    [ObservableProperty]
+    private bool _isSaving;
+
+    [ObservableProperty]
+    private bool _isResetting;
+
+    private ChatTabViewModel? _chatTabViewModel;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
@@ -93,6 +105,11 @@ public partial class ConfigTabViewModel : ViewModelBase
         LoadConfigAsync().ConfigureAwait(false);
     }
 
+    public void Initialize(ChatTabViewModel chatTabViewModel)
+    {
+        _chatTabViewModel = chatTabViewModel;
+    }
+
     private async Task LoadConfigAsync()
     {
         if (_configService != null)
@@ -131,41 +148,94 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     public async Task SaveConfigAsync()
     {
-        if (_configService != null)
+        if (IsSaving) return;
+        IsSaving = true;
+        try
         {
-            if (Config.CompressionThreshold > Config.MaxContextTokens)
+            if (_configService != null)
             {
-                Config.CompressionThreshold = Config.MaxContextTokens;
-                ContextTokensThreshold = Config.CompressionThreshold;
-                _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
-            }
+                if (Config.CompressionThreshold > Config.MaxContextTokens)
+                {
+                    Config.CompressionThreshold = Config.MaxContextTokens;
+                    ContextTokensThreshold = Config.CompressionThreshold;
+                    _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
+                }
 
-            await _configService.SaveAsync(Config);
-            App.SetTheme(Config.Theme);
-            _chatService?.UpdateConfig(Config);
-            if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
-            if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
+                await _configService.SaveAsync(Config);
+                App.SetTheme(Config.Theme);
+                _chatService?.UpdateConfig(Config);
+                if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
+                if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
+                
+                if (_chatTabViewModel != null)
+                {
+                    await _chatTabViewModel.RefreshSettingsAsync();
+                }
+            }
+            _logger.Information("配置已保存");
+            OnPropertyChanged(nameof(ContextTokensInfo));
+            OnPropertyChanged(nameof(IsNearCompressionThreshold));
+            SaveRequested?.Invoke(this, EventArgs.Empty);
+            await Task.Delay(500); // Give user some visual feedback
         }
-        _logger.Information("配置已保存");
-        OnPropertyChanged(nameof(ContextTokensInfo));
-        OnPropertyChanged(nameof(IsNearCompressionThreshold));
-        SaveRequested?.Invoke(this, EventArgs.Empty);
+        finally
+        {
+            IsSaving = false;
+        }
     }
 
     [RelayCommand]
     public async Task ResetConfigAsync()
     {
-        Config = new AppConfig();
-        if (_configService != null) await _configService.SaveAsync(Config);
-        _logger.Information("配置已重置");
-        ResetRequested?.Invoke(this, EventArgs.Empty);
+        if (IsResetting) return;
+        
+        var result = await MessageBox.ShowAsync(
+            message: _localizationService?.GetString("Dialog.ConfirmResetConfig") ?? "Are you sure you want to reset all settings to default? This cannot be undone.",
+            title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
+            button: MessageBoxButton.YesNo,
+            icon: MessageBoxIcon.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            IsResetting = true;
+            try
+            {
+                Config = new AppConfig();
+                if (_configService != null) await _configService.SaveAsync(Config);
+                _logger.Information("配置已重置");
+                ResetRequested?.Invoke(this, EventArgs.Empty);
+                await Task.Delay(500);
+            }
+            finally
+            {
+                IsResetting = false;
+            }
+        }
     }
 
     [RelayCommand]
-    private void CompressContext() => CompressContextRequested?.Invoke(this, EventArgs.Empty);
+    private async Task CompressContextAsync()
+    {
+        if (IsCompressing || _chatTabViewModel == null) return;
+        IsCompressing = true;
+        try
+        {
+            await _chatTabViewModel.InternalCompressContextAsync();
+            await Task.Delay(500); 
+        }
+        finally
+        {
+            IsCompressing = false;
+        }
+    }
 
     [RelayCommand]
-    private void UndoCompression() => UndoCompressionRequested?.Invoke(this, EventArgs.Empty);
+    private async Task UndoCompressionAsync()
+    {
+        if (_chatTabViewModel == null) return;
+        _chatTabViewModel.InternalUndoCompression();
+        await Task.CompletedTask;
+    }
 
     public void UpdateTokensInfo(int current, string preview)
     {
