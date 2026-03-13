@@ -110,7 +110,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- File System Control ---
         RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
-            "Reads the content of a local system file. Subject to extension whitelist.",
+            "Reads the content of a local system file.",
             new
             {
                 type = "object",

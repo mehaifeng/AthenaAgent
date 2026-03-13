@@ -190,7 +190,7 @@ public async IAsyncEnumerable<string> StreamMessageAsync(
                         }
                     }
 
-                    if (toolCallUpdate.FunctionArgumentsUpdate != null)
+                    if (toolCallUpdate.FunctionArgumentsUpdate != null && toolCallUpdate.FunctionArgumentsUpdate.ToMemory().Length > 0)
                     {
                         try
                         {
