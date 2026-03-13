@@ -260,6 +260,7 @@ public partial class App : Application
             var localizationService = sp.GetService<ILocalizationService>();
             var fileSystemService = sp.GetService<IFileSystemService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
+            var functionRegistry = sp.GetService<IFunctionRegistry>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -272,7 +273,8 @@ public partial class App : Application
                 embeddingService,
                 localizationService,
                 fileSystemService,
-                platformPathService);
+                platformPathService,
+                functionRegistry);
         });
 
         Log.Debug("依赖注入服务配置完成");

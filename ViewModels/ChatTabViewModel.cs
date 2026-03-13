@@ -21,6 +21,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IConversationHistoryService? _historyService;
     private readonly IPromptService? _promptService;
     private readonly ITaskScheduler? _taskScheduler;
+    private readonly IFunctionRegistry? _functionRegistry;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
@@ -78,19 +79,25 @@ public partial class ChatTabViewModel : ViewModelBase
     public event EventHandler? SwitchToTasksTabRequested;
     public event EventHandler<(int Current, string Preview)>? TokensInfoChanged;
 
-    public ChatTabViewModel() : this(null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null) { }
 
-    public ChatTabViewModel(IChatService? chatService, IConfigService? configService, IConversationHistoryService? historyService, IPromptService? promptService, ITaskScheduler? taskScheduler)
+    public ChatTabViewModel(IChatService? chatService, IConfigService? configService, IConversationHistoryService? historyService, IPromptService? promptService, ITaskScheduler? taskScheduler, IFunctionRegistry? functionRegistry)
     {
         _chatService = chatService;
         _configService = configService;
         _historyService = historyService;
         _promptService = promptService;
         _taskScheduler = taskScheduler;
+        _functionRegistry = functionRegistry;
 
         Messages = new ObservableCollection<ChatMessage>();
         Messages.CollectionChanged += (s, e) => UpdateBubbleButtonVisibility();
         ConversationContext = new ConversationContext();
+        
+        if (_functionRegistry != null)
+        {
+            ConversationContext.ToolsDeclarationTokenCount = _functionRegistry.GetToolDeclarationTokenCount();
+        }
 
         if (_taskScheduler != null) _taskScheduler.ProactiveMessageTriggered += OnProactiveMessageTriggered;
         InitializeAsync().ConfigureAwait(false);
@@ -105,6 +112,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private async Task InitializeAsync()
     {
         await LoadSettingsAsync();
+        UpdateContextTokensDisplay(); // Ensure initial System Prompt tokens are reflected
         await LoadLatestHistoryAsync();
     }
 
