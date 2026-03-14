@@ -22,7 +22,25 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
+    [NotifyPropertyChangedFor(nameof(IsNearCompressionThreshold))]
     private AppConfig _config = new();
+
+    partial void OnConfigChanged(AppConfig value)
+    {
+        if (value != null)
+        {
+            value.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(AppConfig.MaxContextTokens) || 
+                    e.PropertyName == nameof(AppConfig.CompressionThreshold))
+                {
+                    OnPropertyChanged(nameof(ContextTokensInfo));
+                    OnPropertyChanged(nameof(IsNearCompressionThreshold));
+                }
+            };
+        }
+    }
 
     [ObservableProperty]
     private string _connectionStatus = string.Empty;

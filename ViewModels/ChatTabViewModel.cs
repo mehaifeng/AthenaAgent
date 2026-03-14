@@ -31,7 +31,17 @@ public partial class ChatTabViewModel : ViewModelBase
     public ConversationContext ConversationContext { get; }
 
     [ObservableProperty] private string _inputText = string.Empty;
-    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))] private bool _isSending;
+    [ObservableProperty] 
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))] 
+    [NotifyCanExecuteChangedFor(nameof(StartInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
+    private bool _isSending;
+
+    private bool CanModifyMessages => !IsSending;
+
     [ObservableProperty] private bool _isResetting;
     [ObservableProperty] private string _currentConversationId = string.Empty;
     private string _loadedMessagesHash = string.Empty;
@@ -248,7 +258,7 @@ public partial class ChatTabViewModel : ViewModelBase
         if (topLevel?.Clipboard != null) await topLevel.Clipboard.SetTextAsync(message.Content);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
     private void StartInlineEdit(ChatMessage? message)
     {
         if (message == null) return;
@@ -256,7 +266,7 @@ public partial class ChatTabViewModel : ViewModelBase
         message.IsEditing = true;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
     private async Task ConfirmInlineEdit(ChatMessage? message)
     {
         if (message == null || !message.IsEditing) return;
@@ -273,9 +283,9 @@ public partial class ChatTabViewModel : ViewModelBase
         else message.IsEditing = false;
     }
 
-    [RelayCommand] private void CancelInlineEdit(ChatMessage? message) { if (message != null) message.IsEditing = false; }
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))] private void CancelInlineEdit(ChatMessage? message) { if (message != null) message.IsEditing = false; }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
     private async Task RegenerateResponseAsync(ChatMessage? message)
     {
         if (message == null || _chatService == null) return;
@@ -285,7 +295,7 @@ public partial class ChatTabViewModel : ViewModelBase
         if (lastUserMsg != null) await GetAiResponseAsync(lastUserMsg.Content, addToContext: false);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
     private void DeleteMessage(ChatMessage? message)
     {
         if (message == null) return;

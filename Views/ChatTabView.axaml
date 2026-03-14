@@ -155,14 +155,14 @@
                                     <StackPanel Spacing="4">
                                         <SelectableTextBlock Text="{Binding DisplayText}"
                                                    TextWrapping="Wrap" FontSize="14" LineHeight="22"
-                                                   IsVisible="{Binding !IsEditing}"/>
+                                                   IsVisible="{Binding IsContentVisible}"/>
 
                                         <TextBox Text="{Binding EditContent}"
                                                  IsVisible="{Binding IsEditing}"
                                                  AcceptsReturn="True" TextWrapping="Wrap"
                                                  Background="Transparent" BorderThickness="0"/>
 
-                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}" Margin="0,4,0,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
                                             <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="14" Height="14" Opacity="0.6"/>
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
                                         </StackPanel>
