@@ -95,6 +95,15 @@ public partial class ChatMessage : ObservableObject
     public bool CanShowEdit => CanEdit && !IsEditing && !IsCompressed;
 
     /// <summary>
+    /// 工具执行摘要提示
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasToolExecutionSummary))]
+    private string _toolExecutionSummary = string.Empty;
+
+    public bool HasToolExecutionSummary => !string.IsNullOrEmpty(ToolExecutionSummary);
+
+    /// <summary>
     /// 是否可以复制该消息
     /// </summary>
     public bool CanCopy => true;

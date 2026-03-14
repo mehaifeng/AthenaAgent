@@ -212,7 +212,7 @@
                                    FontWeight="Bold"
                                    FontSize="15"/>
 
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20"  RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,12">
                                 <ProgressBar Grid.Column="0"

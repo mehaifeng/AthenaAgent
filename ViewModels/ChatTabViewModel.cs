@@ -167,29 +167,53 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             bool isFirstChunk = true;
             await foreach (var chunk in _chatService!.StreamMessageAsync(userMessageContent ?? "", ConversationContext, _cancellationTokenSource.Token,
-                msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => 
+                msg => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
                         aiMessage.Content = msg.Content;
                         aiMessage.ToolCallsJson = msg.ToolCallsJson;
-                        aiMessage.IsLoading = false;
+                        aiMessage.IsLoading = true;
+
+                        try 
+                        {
+                             var toolCalls = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.Nodes.JsonObject>>(msg.ToolCallsJson);
+                             if (toolCalls != null && toolCalls.Count > 0)
+                             {
+                                 var funcNames = toolCalls.Select(tc => tc["FunctionName"]?.ToString()).Where(n => !string.IsNullOrEmpty(n));
+                                 aiMessage.ToolExecutionSummary = $"正在调用工具: {string.Join(", ", funcNames)}...";
+                             }
+                             else 
+                             {
+                                 aiMessage.ToolExecutionSummary = "正在调用工具...";
+                             }
+                        }
+                        catch 
+                        {
+                             aiMessage.ToolExecutionSummary = "正在调用工具...";
+                        }
                     }
                     else if (msg.Role == "tool")
                     {
                         var index = Messages.IndexOf(aiMessage);
                         Messages.Insert(index >= 0 ? index : Messages.Count, msg);
+                        aiMessage.ToolExecutionSummary = "工具执行完毕，正在分析结果...";
                     }
                 }), addToContext))
             {
-                if (isFirstChunk && !string.IsNullOrEmpty(chunk)) { aiMessage.IsLoading = false; isFirstChunk = false; }
+                if (isFirstChunk && !string.IsNullOrEmpty(chunk)) 
+                { 
+                    aiMessage.IsLoading = false; 
+                    isFirstChunk = false; 
+                    aiMessage.ToolExecutionSummary = string.Empty;
+                }
                 aiMessage.Content += chunk;
             }
             aiMessage.IsLoading = false;
+            aiMessage.ToolExecutionSummary = string.Empty;
         }
-        catch (OperationCanceledException) { aiMessage.Content += "\n[已取消]"; aiMessage.IsLoading = false; }
-        catch (Exception ex) { aiMessage.Content = $"发生错误: {ex.Message}"; aiMessage.IsLoading = false; _logger.Error(ex, "发送消息错误"); }
-        finally { IsSending = false; _cancellationTokenSource?.Dispose(); _cancellationTokenSource = null; UpdateContextTokensDisplay(); UpdateBubbleButtonVisibility(); }
+        catch (OperationCanceledException) { aiMessage.Content += "\n[已取消]"; aiMessage.IsLoading = false; aiMessage.ToolExecutionSummary = string.Empty; }
+        catch (Exception ex) { aiMessage.Content = $"发生错误: {ex.Message}"; aiMessage.IsLoading = false; aiMessage.ToolExecutionSummary = string.Empty; _logger.Error(ex, "发送消息错误"); }        finally { IsSending = false; _cancellationTokenSource?.Dispose(); _cancellationTokenSource = null; UpdateContextTokensDisplay(); UpdateBubbleButtonVisibility(); }
     }
 
     [RelayCommand] private void CancelSend() => _cancellationTokenSource?.Cancel();
