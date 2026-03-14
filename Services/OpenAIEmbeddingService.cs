@@ -1,6 +1,7 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
+using OpenAI.Embeddings;
 using Serilog;
 using System;
 using System.ClientModel;
@@ -20,8 +21,9 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private readonly ILogger _logger;
     private AppConfig _config;
     private OpenAIClient? _client;
+    private EmbeddingClient? _embeddingClient;
 
-    public bool IsConfigured => _client != null;
+    public bool IsConfigured => _embeddingClient != null;
 
     public OpenAIEmbeddingService(AppConfig config, ILogger logger)
     {
@@ -53,6 +55,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _client = null;
+            _embeddingClient = null;
             _logger.Warning("Embedding API Key 为空，服务未初始化");
             return;
         }
@@ -63,37 +66,56 @@ public class OpenAIEmbeddingService : IEmbeddingService
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
                 options.Endpoint = new Uri(baseUrl);
+                _logger.Information("Embedding 使用自定义 Base URL: {BaseUrl}", baseUrl);
             }
 
             _client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
-            _logger.Information("Embedding 客户端初始化成功，模型: {Model}", _config.EmbeddingModel);
+            
+            if (!string.IsNullOrWhiteSpace(_config.EmbeddingModel))
+            {
+                _embeddingClient = _client.GetEmbeddingClient(_config.EmbeddingModel);
+                _logger.Information("Embedding 客户端初始化成功，模型: {Model}", _config.EmbeddingModel);
+            }
+            else
+            {
+                _embeddingClient = null;
+                _logger.Warning("Embedding 模型未配置");
+            }
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Embedding 客户端初始化失败");
             _client = null;
+            _embeddingClient = null;
         }
     }
 
     public async Task<float[]?> GenerateEmbeddingAsync(string text)
     {
-        if (_client == null || string.IsNullOrWhiteSpace(text))
+        if (_embeddingClient == null || string.IsNullOrWhiteSpace(text))
         {
             return null;
         }
 
         try
         {
-            var embeddingClient = _client.GetEmbeddingClient(_config.EmbeddingModel);
-            var response = await embeddingClient.GenerateEmbeddingAsync(text);
+            // 使用复数形式的 GenerateEmbeddingsAsync，这在某些 SDK 版本中更稳定
+            // 且能更好地处理响应解析
+            ClientResult<OpenAIEmbeddingCollection> result = await _embeddingClient.GenerateEmbeddingsAsync(new[] { text });
+            
+            if (result?.Value != null && result.Value.Count > 0)
+            {
+                var embedding = result.Value[0].Vector.ToArray();
+                _logger.Debug("生成 Embedding 成功，维度: {Dimension}", embedding.Length);
+                return embedding;
+            }
 
-            var embedding = response.Value.ToFloats().ToArray();
-            _logger.Debug("生成 Embedding 成功，维度: {Dimension}", embedding.Length);
-            return embedding;
+            _logger.Warning("生成 Embedding 返回结果为空");
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "生成 Embedding 失败");
+            _logger.Error(ex, "生成 Embedding 失败 (文本长度: {Length})", text.Length);
             return null;
         }
     }
@@ -103,19 +125,18 @@ public class OpenAIEmbeddingService : IEmbeddingService
         var results = new List<float[]?>();
         var textList = texts.ToList();
 
-        if (_client == null || textList.Count == 0)
+        if (_embeddingClient == null || textList.Count == 0)
         {
             return results;
         }
 
         try
         {
-            var embeddingClient = _client.GetEmbeddingClient(_config.EmbeddingModel);
-            var response = await embeddingClient.GenerateEmbeddingsAsync(textList);
+            ClientResult<OpenAIEmbeddingCollection> response = await _embeddingClient.GenerateEmbeddingsAsync(textList);
 
             foreach (var embedding in response.Value)
             {
-                results.Add(embedding.ToFloats().ToArray());
+                results.Add(embedding.Vector.ToArray());
             }
 
             _logger.Debug("批量生成 Embedding 成功，数量: {Count}", results.Count);
@@ -124,7 +145,6 @@ public class OpenAIEmbeddingService : IEmbeddingService
         catch (Exception ex)
         {
             _logger.Error(ex, "批量生成 Embedding 失败");
-            // 返回空列表表示失败
             return new List<float[]?>();
         }
     }
