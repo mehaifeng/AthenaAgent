@@ -152,12 +152,7 @@
                                 <Border Classes="message-bubble"
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
-                                    <Grid>
-                                        <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="..." FontSize="14" FontWeight="Bold"/>
-                                            <TextBlock Text="{loc:Loc Chat.ReceivingData}" FontSize="14"/>
-                                        </StackPanel>
-
+                                    <StackPanel Spacing="4">
                                         <SelectableTextBlock Text="{Binding DisplayText}"
                                                    TextWrapping="Wrap" FontSize="14" LineHeight="22"
                                                    IsVisible="{Binding !IsEditing}"/>
@@ -166,7 +161,17 @@
                                                  IsVisible="{Binding IsEditing}"
                                                  AcceptsReturn="True" TextWrapping="Wrap"
                                                  Background="Transparent" BorderThickness="0"/>
-                                    </Grid>
+
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}" Margin="0,4,0,0">
+                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="14" Height="14" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <StackPanel Classes="loading-pulse" IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="..." FontSize="14" FontWeight="Bold" IsVisible="{Binding !HasToolExecutionSummary}"/>
+                                            <TextBlock Text="{loc:Loc Chat.ReceivingData}" FontSize="14" IsVisible="{Binding !HasToolExecutionSummary}"/>
+                                        </StackPanel>
+                                    </StackPanel>
                                 </Border>
 
                                 <!-- 操作按钮 -->
