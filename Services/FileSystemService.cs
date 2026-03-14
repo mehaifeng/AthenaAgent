@@ -50,6 +50,29 @@ public class FileSystemService : IFileSystemService
                     : Path.Combine(home, expanded.Substring(2));
             }
         }
+        else if (!Path.IsPathRooted(expanded) && !expanded.StartsWith("%"))
+        {
+            // 如果是相对路径，且不以环境变量开头，进行智能锚定
+            
+            // 1. 优先尝试知识库目录 (与 KnowledgeBaseService 行为对齐)
+            var kbDir = _pathService.GetKnowledgeBaseDirectory();
+            var kbPath = Path.GetFullPath(Path.Combine(kbDir, expanded));
+            if (File.Exists(kbPath) || Directory.Exists(kbPath))
+            {
+                return kbPath;
+            }
+
+            // 2. 其次尝试应用数据根目录
+            var appDataDir = _pathService.GetAppDataDirectory();
+            var appDataPath = Path.GetFullPath(Path.Combine(appDataDir, expanded));
+            if (File.Exists(appDataPath) || Directory.Exists(appDataPath))
+            {
+                return appDataPath;
+            }
+
+            // 3. 如果文件尚不存在（例如 Write 操作），默认锚定到知识库
+            return kbPath;
+        }
 
         return expanded;
     }
