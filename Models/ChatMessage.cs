@@ -22,6 +22,7 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DisplayText))]
+    [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     private string _content = string.Empty;
 
     /// <summary>
@@ -54,6 +55,7 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanShowEdit))]
+    [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     private bool _isEditing;
 
     /// <summary>
@@ -93,6 +95,11 @@ public partial class ChatMessage : ObservableObject
     /// 是否可以显示编辑按钮（非编辑状态且允许编辑且未压缩）
     /// </summary>
     public bool CanShowEdit => CanEdit && !IsEditing && !IsCompressed;
+
+    /// <summary>
+    /// 是否真正有可见内容需要展示（非编辑状态且内容不为空）
+    /// </summary>
+    public bool IsContentVisible => !IsEditing && !string.IsNullOrWhiteSpace(Content);
 
     /// <summary>
     /// 工具执行摘要提示

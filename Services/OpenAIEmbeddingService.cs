@@ -105,7 +105,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             
             if (result?.Value != null && result.Value.Count > 0)
             {
-                var embedding = result.Value[0].Vector.ToArray();
+                var embedding = result.Value[0].ToFloats().ToArray();
                 _logger.Debug("生成 Embedding 成功，维度: {Dimension}", embedding.Length);
                 return embedding;
             }
@@ -136,7 +136,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
             foreach (var embedding in response.Value)
             {
-                results.Add(embedding.Vector.ToArray());
+                results.Add(embedding.ToFloats().ToArray());
             }
 
             _logger.Debug("批量生成 Embedding 成功，数量: {Count}", results.Count);
