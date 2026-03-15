@@ -7,6 +7,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using Ursa.Controls;
 
@@ -22,25 +23,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
-    [NotifyPropertyChangedFor(nameof(IsNearCompressionThreshold))]
     private AppConfig _config = new();
-
-    partial void OnConfigChanged(AppConfig value)
-    {
-        if (value != null)
-        {
-            value.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(AppConfig.MaxContextTokens) || 
-                    e.PropertyName == nameof(AppConfig.CompressionThreshold))
-                {
-                    OnPropertyChanged(nameof(ContextTokensInfo));
-                    OnPropertyChanged(nameof(IsNearCompressionThreshold));
-                }
-            };
-        }
-    }
 
     [ObservableProperty]
     private string _connectionStatus = string.Empty;
@@ -57,22 +40,14 @@ public partial class ConfigTabViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isResetting;
 
+    [ObservableProperty]
     private ChatTabViewModel? _chatTabViewModel;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ContextTokensInfo))]
-    [NotifyPropertyChangedFor(nameof(IsNearCompressionThreshold))]
-    private int _contextTokens;
+    private ITokenService? _tokenService;
 
     [ObservableProperty]
     private int _contextTokensThreshold = 4000;
-
-    public string ContextTokensInfo => $"{ContextTokens} / {Config.MaxContextTokens} tokens";
-
-    public bool IsNearCompressionThreshold => ContextTokens > Config.MaxContextTokens * 0.8;
-
-    [ObservableProperty]
-    private string _compressionPreview = string.Empty;
 
     public ObservableCollection<string> Providers { get; } = new() { "OpenAI", "Azure", "Custom" };
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
@@ -118,12 +93,32 @@ public partial class ConfigTabViewModel : ViewModelBase
             Languages = new ObservableCollection<string> { "English", "中文" };
         }
 
+        SetupConfigListener(Config);
         LoadConfigAsync().ConfigureAwait(false);
     }
 
-    public void Initialize(ChatTabViewModel chatTabViewModel)
+    public void Initialize(ChatTabViewModel chatTabViewModel, ITokenService? tokenService)
     {
-        _chatTabViewModel = chatTabViewModel;
+        ChatTabViewModel = chatTabViewModel;
+        TokenService = tokenService;
+        if (TokenService != null)
+        {
+            TokenService.MaxTokens = Config.MaxContextTokens;
+        }
+    }
+
+    partial void OnConfigChanged(AppConfig value) => SetupConfigListener(value);
+
+    private void SetupConfigListener(AppConfig? config)
+    {
+        if (config == null) return;
+        config.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(AppConfig.MaxContextTokens))
+            {
+                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
+            }
+        };
     }
 
     private async Task LoadConfigAsync()
@@ -132,6 +127,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             Config = await _configService.LoadAsync();
             ContextTokensThreshold = Config.CompressionThreshold;
+            if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
 
             if (_localizationService != null)
             {
@@ -183,14 +179,14 @@ public partial class ConfigTabViewModel : ViewModelBase
                 if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
                 if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
                 
-                if (_chatTabViewModel != null)
+                if (ChatTabViewModel != null)
                 {
-                    await _chatTabViewModel.RefreshSettingsAsync();
+                    await ChatTabViewModel.RefreshSettingsAsync();
                 }
+                
+                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
             }
             _logger.Information("配置已保存");
-            OnPropertyChanged(nameof(ContextTokensInfo));
-            OnPropertyChanged(nameof(IsNearCompressionThreshold));
             SaveRequested?.Invoke(this, EventArgs.Empty);
             await Task.Delay(500); // Give user some visual feedback
         }
@@ -218,6 +214,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             {
                 Config = new AppConfig();
                 if (_configService != null) await _configService.SaveAsync(Config);
+                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
                 _logger.Information("配置已重置");
                 ResetRequested?.Invoke(this, EventArgs.Empty);
                 await Task.Delay(500);
@@ -232,11 +229,11 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task CompressContextAsync()
     {
-        if (IsCompressing || _chatTabViewModel == null) return;
+        if (IsCompressing || ChatTabViewModel == null) return;
         IsCompressing = true;
         try
         {
-            await _chatTabViewModel.InternalCompressContextAsync();
+            await ChatTabViewModel.InternalCompressContextAsync();
             await Task.Delay(500); 
         }
         finally
@@ -248,14 +245,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task UndoCompressionAsync()
     {
-        if (_chatTabViewModel == null) return;
-        _chatTabViewModel.InternalUndoCompression();
+        if (ChatTabViewModel == null) return;
+        ChatTabViewModel.InternalUndoCompression();
         await Task.CompletedTask;
-    }
-
-    public void UpdateTokensInfo(int current, string preview)
-    {
-        ContextTokens = current;
-        CompressionPreview = preview;
     }
 }
