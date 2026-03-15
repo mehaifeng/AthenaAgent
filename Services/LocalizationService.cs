@@ -69,7 +69,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
         try
         {
             // 加载英文资源
-            var enUsUri = new Uri("avares://Athena.UI/Assets/Locales/en-US.axaml");
+            var enUsUri = new Uri("avares://Athena.UI/Assets/Locales/Locale.en-US.axaml");
             var enUsResources = AvaloniaXamlLoader.Load(enUsUri) as ResourceDictionary;
             if (enUsResources != null)
             {
@@ -78,7 +78,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
             }
 
             // 加载中文资源
-            var zhCnUri = new Uri("avares://Athena.UI/Assets/Locales/zh-CN.axaml");
+            var zhCnUri = new Uri("avares://Athena.UI/Assets/Locales/Locale.zh-CN.axaml");
             var zhCnResources = AvaloniaXamlLoader.Load(zhCnUri) as ResourceDictionary;
             if (zhCnResources != null)
             {

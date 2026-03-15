@@ -80,21 +80,7 @@
             </Grid>
         </Border>
 
-        <!-- SUB-HEADER -->
-        <Border Grid.Row="1" Padding="12,8,12,0">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="{loc:Loc History.RecordsFound}"
-                           VerticalAlignment="Center" Opacity="0.7"/>
-                <TextBlock Text="{Binding HistoryItems.Count}"
-                           VerticalAlignment="Center"
-                           FontWeight="SemiBold"/>
-                <Separator Width="1" Height="14" Margin="8,0" VerticalAlignment="Center"/>
-                <TextBlock Text="{loc:Loc History.Ready}"
-                           VerticalAlignment="Center"
-                           FontSize="11"
-                           Opacity="0.5"/>
-            </StackPanel>
-        </Border>
+
 
         <!-- HISTORY LIST -->
         <ScrollViewer Grid.Row="2" Padding="12">
@@ -110,14 +96,16 @@
                                 <Grid ColumnDefinitions="*,Auto">
 
                                     <!-- Data Block -->
-                                    <StackPanel Grid.Column="0" Spacing="8">
-                                        <TextBlock Text="{Binding Summary}"
-                                                   TextWrapping="Wrap"
-                                                   MaxLines="2"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"/>
-
-                                        <StackPanel Orientation="Horizontal" Spacing="24">
+                                    <Grid Grid.Column="0" Grid.RowDefinitions="Auto,Auto">
+                                        <TextBlock 
+                                            Grid.Row="0"
+                                            Text="{Binding Summary}"
+                                            TextWrapping="Wrap"
+                                            MaxLines="2"
+                                            FontSize="14"
+                                            FontWeight="SemiBold"/>
+                                        <StackPanel
+                                            Grid.Row="1" Orientation="Horizontal" Spacing="24">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <TextBlock Text="{loc:Loc History.Msgs}" FontSize="12" Opacity="0.6"/>
                                                 <TextBlock Text="{Binding MessageCount}" FontSize="12" FontWeight="SemiBold"/>
@@ -127,10 +115,10 @@
                                                 <TextBlock Text="{Binding DisplayTime}" FontSize="12" FontWeight="SemiBold"/>
                                             </StackPanel>
                                         </StackPanel>
-                                    </StackPanel>
+                                    </Grid>
 
                                     <!-- Action Buttons -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,20,0">
                                         <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
                                                 CommandParameter="{Binding}"
                                                 Theme="{StaticResource AccentButtonTheme}"

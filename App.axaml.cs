@@ -26,7 +26,7 @@ public partial class App : Application
     /// <summary>
     /// 服务提供者（用于依赖注入）
     /// </summary>
-    public static IServiceProvider? Services { get; private set; }
+    public static IServiceProvider?  Services { get; private set; }
 
     /// <summary>
     /// 平台路径服务
@@ -118,6 +118,9 @@ public partial class App : Application
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
 
+        // Token 统计服务（单例，跨页面同步）
+        services.AddSingleton<ITokenService, TokenService>();
+
         // 系统文件服务（单例）
         services.AddSingleton<IFileSystemService>(sp =>
         {
@@ -198,8 +201,9 @@ public partial class App : Application
         services.AddSingleton<FileSystemFunctions>(sp =>
         {
             var fileSystemService = sp.GetRequiredService<IFileSystemService>();
+            var knowledgeBaseService = sp.GetRequiredService<IKnowledgeBaseService>();
             var logger = Log.ForContext<FileSystemFunctions>();
-            return new FileSystemFunctions(fileSystemService, logger);
+            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger);
         });
 
         // Function Registry（单例）
@@ -247,7 +251,7 @@ public partial class App : Application
         });
 
         // ViewModels
-        services.AddTransient<MainWindowViewModel>(sp =>
+        services.AddSingleton<MainWindowViewModel>(sp =>
         {
             var chatService = sp.GetService<IChatService>();
             var configService = sp.GetService<IConfigService>();
@@ -261,6 +265,7 @@ public partial class App : Application
             var fileSystemService = sp.GetService<IFileSystemService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var functionRegistry = sp.GetService<IFunctionRegistry>();
+            var tokenService = sp.GetService<ITokenService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -274,7 +279,8 @@ public partial class App : Application
                 localizationService,
                 fileSystemService,
                 platformPathService,
-                functionRegistry);
+                functionRegistry,
+                tokenService);
         });
 
         Log.Debug("依赖注入服务配置完成");

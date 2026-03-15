@@ -145,18 +145,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, finalContent);
 
-            // 异步增量更新向量
-            _ = Task.Run(async () =>
+            // 同步更新向量，保证立刻可被搜索
+            try
             {
-                try
-                {
-                    await UpdateFileVectorsAsync(relativePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "更新文件向量失败");
-                }
-            });
+                await UpdateFileVectorsAsync(relativePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "更新文件向量失败");
+            }
 
             _logger.Information("创建知识文件: {Path}", relativePath);
         }
@@ -193,18 +190,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, newContent);
 
-            // 异步增量更新向量
-            _ = Task.Run(async () =>
+            // 同步更新向量，保证立刻可被搜索
+            try
             {
-                try
-                {
-                    await UpdateFileVectorsAsync(relativePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "更新文件向量失败");
-                }
-            });
+                await UpdateFileVectorsAsync(relativePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "更新文件向量失败");
+            }
 
             _logger.Information("追加内容到知识文件: {Path}", relativePath);
         }
@@ -232,18 +226,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, content);
 
-            // 异步增量更新向量
-            _ = Task.Run(async () =>
+            // 同步更新向量，保证立刻可被搜索
+            try
             {
-                try
-                {
-                    await UpdateFileVectorsAsync(relativePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "更新文件向量失败");
-                }
-            });
+                await UpdateFileVectorsAsync(relativePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "更新文件向量失败");
+            }
 
             _logger.Information("替换知识文件内容: {Path}", relativePath);
         }
@@ -841,18 +832,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             _logger.Information("SEARCH/REPLACE 更新文件成功: {Path}, 应用 {Count} 个修改块",
                 relativePath, appliedCount);
 
-            // 异步增量更新向量
-            _ = Task.Run(async () =>
+            // 同步更新向量，保证立刻可被搜索
+            try
             {
-                try
-                {
-                    await UpdateFileVectorsAsync(relativePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "更新文件向量失败");
-                }
-            });
+                await UpdateFileVectorsAsync(relativePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "更新文件向量失败");
+            }
 
             return new FileUpdateResult
             {

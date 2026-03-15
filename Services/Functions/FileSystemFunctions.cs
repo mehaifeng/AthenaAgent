@@ -1,7 +1,10 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -12,45 +15,111 @@ namespace Athena.UI.Services.Functions;
 public class FileSystemFunctions
 {
     private readonly IFileSystemService _fileSystemService;
+    private readonly IKnowledgeBaseService _knowledgeBaseService;
     private readonly ILogger _logger;
 
-    public FileSystemFunctions(IFileSystemService fileSystemService, ILogger logger)
+    public FileSystemFunctions(IFileSystemService fileSystemService, IKnowledgeBaseService knowledgeBaseService, ILogger logger)
     {
         _fileSystemService = fileSystemService;
+        _knowledgeBaseService = knowledgeBaseService;
         _logger = logger.ForContext<FileSystemFunctions>();
     }
 
-    public async Task<FunctionResult> ReadSystemFileAsync(string path)
+    private async Task TryUpdateKnowledgeBaseVectorsAsync(string path)
+    {
+        try
+        {
+            // 使用文件系统的路径解析引擎，将相对路径或模糊路径还原为物理全路径
+            var absolutePath = _fileSystemService.GetAbsoluteSecurePath(path);
+            var kbRoot = _knowledgeBaseService.KnowledgeBasePath;
+
+            // 严谨判断：解析后的路径是否以知识库根目录开头
+            if (absolutePath.StartsWith(kbRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                await _knowledgeBaseService.RefreshVectorCacheAsync();
+                _logger.Information("检测到知识库文件被修改，已触发向量同步标志: {Path}", absolutePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "尝试刷新知识库向量缓存失败");
+        }
+    }
+
+    public async Task<FunctionResult> GetFileInfoAsync(string path)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+            var info = await _fileSystemService.GetFileInfoAsync(path);
+            if (info == null) return FunctionResult.FailureResult($"错误: 文件不存在 ({path})");
+            return FunctionResult.SuccessResult("获取文件信息成功", info);
+        }
+        catch (Exception ex) { return FunctionResult.FailureResult($"获取失败: {ex.Message}"); }
+    }
 
-            var content = await _fileSystemService.ReadFileAsync(path);
+    public async Task<FunctionResult> SearchInFileAsync(string path, string pattern, int contextLines = 3, int maxMatches = 10)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(pattern))
+                return FunctionResult.FailureResult("错误: 必须提供 path 和 pattern 参数。");
+            var result = await _fileSystemService.SearchInFileAsync(path, pattern, contextLines, maxMatches);
+            return FunctionResult.SuccessResult("搜索完成", result);
+        }
+        catch (Exception ex) { return FunctionResult.FailureResult($"搜索失败: {ex.Message}"); }
+    }
+
+    public async Task<FunctionResult> GetDocumentOutlineAsync(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+            var outline = await _fileSystemService.GetDocumentOutlineAsync(path);
+            return FunctionResult.SuccessResult("获取大纲成功", outline);
+        }
+        catch (Exception ex) { return FunctionResult.FailureResult($"获取大纲失败: {ex.Message}"); }
+    }
+
+    public async Task<FunctionResult> ReadSystemFileAsync(string path, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+            var content = await _fileSystemService.ReadFileAsync(path, startLine, endLine, sectionTitle, chunkIndex);
             if (content == null) return FunctionResult.FailureResult($"错误: 文件不存在 ({path})");
 
-            _logger.Information("Function: 读取系统文件 {Path}", path);
-            return FunctionResult.SuccessResult("读取成功", new { path, content });
+            var info = await _fileSystemService.GetFileInfoAsync(path);
+            return FunctionResult.SuccessResult("读取成功", new 
+            { 
+                content, 
+                startLine, 
+                endLine, 
+                chunkIndex, 
+                totalChunks = info?.ChunkCount ?? 1,
+                truncated = !string.IsNullOrEmpty(content) && content.Length >= 50 * 1024 
+            });
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
         catch (Exception ex) { return FunctionResult.FailureResult($"读取失败: {ex.Message}"); }
     }
-
-    public async Task<FunctionResult> WriteSystemFileAsync(string path, string content)
+public async Task<FunctionResult> WriteSystemFileAsync(string path, string content)
+{
+    try
     {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+        if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+        var success = await _fileSystemService.WriteFileAsync(path, content ?? string.Empty);
+        if (!success) return FunctionResult.FailureResult($"文件写入失败: {path}");
 
-            var success = await _fileSystemService.WriteFileAsync(path, content ?? string.Empty);
-            _logger.Information("Function: 写入系统文件 {Path}", path);
-            return success ? FunctionResult.SuccessResult($"成功: 文件已写入 ({path})") : FunctionResult.FailureResult("写入失败");
-        }
-        catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
-        catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
-        catch (Exception ex) { return FunctionResult.FailureResult($"写入失败: {ex.Message}"); }
+        await TryUpdateKnowledgeBaseVectorsAsync(path);
+
+        return FunctionResult.SuccessResult("文件写入成功。");
     }
+    catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
+    catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
+    catch (Exception ex) { return FunctionResult.FailureResult($"写入失败: {ex.Message}"); }
+}
 
     public async Task<FunctionResult> ModifySystemFileAsync(string path, string diffContent, bool fuzzyMatch = true)
     {
@@ -60,19 +129,15 @@ public class FileSystemFunctions
                 return FunctionResult.FailureResult("错误: 必须提供 path 和 diffContent 参数。");
 
             var result = await _fileSystemService.ModifyFileWithDiffAsync(path, diffContent, fuzzyMatch);
-
-            if (result.Success)
+            if (result.Success) 
             {
-                _logger.Information("Function: 修改系统文件 {Path}", path);
+                await TryUpdateKnowledgeBaseVectorsAsync(path);
                 return FunctionResult.SuccessResult(result.Message, new { path, appliedBlocks = result.AppliedBlocks });
             }
 
             var errorMessage = result.Message;
             if (result.MultipleMatches != null && result.MultipleMatches.Any())
-            {
-                errorMessage += "\n\n冲突的上下文:\n" + string.Join("\n", result.MultipleMatches.Select(m => $"- {m}"));
-                errorMessage += "\n请提供更多上下文以唯一标识要修改的位置。";
-            }
+                errorMessage += "\n冲突上下文:\n" + string.Join("\n", result.MultipleMatches.Select(m => $"- {m}"));
 
             return FunctionResult.FailureResult(errorMessage);
         }
@@ -86,25 +151,27 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
-
             var success = await _fileSystemService.DeleteFileAsync(path);
-            _logger.Information("Function: 删除系统文件 {Path}", path);
-            return success ? FunctionResult.SuccessResult($"成功: 文件已删除 ({path})") : FunctionResult.FailureResult($"错误: 文件不存在 ({path})");
+            if (success)
+            {
+                await TryUpdateKnowledgeBaseVectorsAsync(path);
+                return FunctionResult.SuccessResult($"成功: 文件已删除 ({path})");
+            }
+            return FunctionResult.FailureResult($"错误: 文件不存在 ({path})");
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
         catch (Exception ex) { return FunctionResult.FailureResult($"删除失败: {ex.Message}"); }
     }
 
-    public async Task<FunctionResult> ListSystemDirectoryAsync(string path, bool recursive = false)
+    public async Task<FunctionResult> ListSystemDirectoryAsync(string path, bool recursive = false, string? filter = null)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
-
-            var entries = await _fileSystemService.ListDirectoryAsync(path, recursive);
-            _logger.Information("Function: 列出系统目录 {Path}", path);
-            return FunctionResult.SuccessResult($"目录内容 ({path})", new { path, entries });
+            var entries = await _fileSystemService.ListDirectoryAsync(path, recursive, filter);
+            var formatted = entries.Select(e => new { e.Name, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") });
+            return FunctionResult.SuccessResult($"目录内容 ({path})", new { path, entries = formatted });
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
