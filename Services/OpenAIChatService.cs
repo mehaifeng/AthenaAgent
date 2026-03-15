@@ -262,6 +262,7 @@ public class OpenAIChatService : IChatService
                     Role = "tool",
                     Content = resultJson,
                     ToolCallId = toolCall.Id,
+                    ToolName = toolCall.FunctionName,
                     Timestamp = DateTime.Now
                 };
                 onMessageAdded?.Invoke(toolResultMsg);

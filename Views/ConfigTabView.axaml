@@ -214,18 +214,26 @@
 
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20"  RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,12">
-                                <ProgressBar Grid.Column="0"
-                                            Value="{Binding ContextTokens}"
-                                            Maximum="{Binding Config.MaxContextTokens}"
-                                            Height="10" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="1" Text="{Binding ContextTokensInfo}"
-                                        VerticalAlignment="Center" FontSize="12" Margin="12,0,0,0"/>
-                                <TextBlock Grid.Column="2" Text="{loc:Loc Config.WarnHigh}"
-                                        VerticalAlignment="Center" FontSize="11"
-                                        IsVisible="{Binding IsNearCompressionThreshold}"
-                                        Foreground="{DynamicResource Brush.Red}"
-                                        FontWeight="Bold" Margin="8,0,0,0"/>
+                            <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,12">
+                                <Grid.Styles>
+                                    <Style Selector="TextBlock.warning">
+                                        <Setter Property="Foreground" Value="{DynamicResource SemiOrange6}"/>
+                                    </Style>
+                                    <Style Selector="TextBlock.critical">
+                                        <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
+                                    </Style>
+                                </Grid.Styles>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Text="{Binding TokenService.TokenInfoText}"
+                                            VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold"
+                                            Classes.warning="{Binding TokenService.IsWarningLimit}"
+                                            Classes.critical="{Binding TokenService.IsNearLimit}"/>
+                                    <TextBlock Text="{loc:Loc Config.WarnHigh}"
+                                            VerticalAlignment="Center" FontSize="11"
+                                            IsVisible="{Binding TokenService.IsNearLimit}"
+                                            Foreground="{DynamicResource SemiRed6}"
+                                            FontWeight="Bold"/>
+                                </StackPanel>
                             </Grid>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Opacity="0.8"/>
@@ -242,7 +250,7 @@
                             <StackPanel Spacing="8">
                                 <TextBlock Text="{loc:Loc Config.CompressionPreview}" FontSize="12" FontWeight="SemiBold" Opacity="0.7"/>
                                 <TextBox BorderBrush="LightGray" 
-                                         Text="{Binding CompressionPreview}"
+                                         Text="{Binding TokenService.CompressionPreview}"
                                          TextWrapping="Wrap"
                                          FontSize="12" 
                                          MaxHeight="150" 

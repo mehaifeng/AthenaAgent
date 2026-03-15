@@ -192,6 +192,9 @@ public class ConversationHistoryService : IConversationHistoryService
             UpdatedAt = DateTime.Now
         };
 
+        // 自动保存
+        await SaveAsync(item);
+
         return item;
     }
 
@@ -224,12 +227,13 @@ public class ConversationHistoryService : IConversationHistoryService
                 foreach (var msg in contextMessages)
                 {
                     // 仅保留纯文本对话进行总结，忽略 tool 角色和带工具调用的 assistant 消息
-                    if (msg.Role?.ToLower() == "user")
+                    if (msg.Role?.ToLower() == "user" && !string.IsNullOrWhiteSpace(msg.Content))
                     {
                         openAiMessages.Add(new UserChatMessage(msg.Content));
                     }
                     else if ((msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai") 
-                             && string.IsNullOrEmpty(msg.ToolCallsJson))
+                             && string.IsNullOrEmpty(msg.ToolCallsJson) 
+                             && !string.IsNullOrWhiteSpace(msg.Content))
                     {
                         openAiMessages.Add(new AssistantChatMessage(msg.Content));
                     }

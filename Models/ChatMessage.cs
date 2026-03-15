@@ -15,6 +15,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(DisplayText))]
     [NotifyPropertyChangedFor(nameof(IsUser))]
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private string _role = string.Empty;
 
     /// <summary>
@@ -23,12 +24,14 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DisplayText))]
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private string _content = string.Empty;
 
     /// <summary>
     /// 编辑中的临时内容
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private string _editContent = string.Empty;
 
     /// <summary>
@@ -48,6 +51,7 @@ public partial class ChatMessage : ObservableObject
     /// 是否正在加载中
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private bool _isLoading;
 
     /// <summary>
@@ -56,6 +60,7 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanShowEdit))]
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private bool _isEditing;
 
     /// <summary>
@@ -102,11 +107,31 @@ public partial class ChatMessage : ObservableObject
     public bool IsContentVisible => !IsEditing && !string.IsNullOrWhiteSpace(Content);
 
     /// <summary>
+    /// 是否强制隐藏（用于隐藏带有工具调用的中间助手消息）
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    private bool _isHidden;
+
+    /// <summary>
+    /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
+    /// 注意：Role 为 tool 或 system 时强制不可见
+    /// </summary>
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasToolExecutionSummary || IsLoading || IsEditing);
+
+    /// <summary>
     /// 工具执行摘要提示
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasToolExecutionSummary))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private string _toolExecutionSummary = string.Empty;
+
+    /// <summary>
+    /// 工具名称（仅用于 UI 状态传递）
+    /// </summary>
+    [ObservableProperty]
+    private string _toolName = string.Empty;
 
     public bool HasToolExecutionSummary => !string.IsNullOrEmpty(ToolExecutionSummary);
 

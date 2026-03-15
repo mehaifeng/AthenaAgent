@@ -110,8 +110,8 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         // --- File System Control ---
-        RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
-            "Reads the content of a local system file.",
+        RegisterFunction("get_file_info", fileSystemFunctions.GetFileInfoAsync,
+            "Gets metadata of a file without reading its content. Always call this first before reading any file larger than a few KB to understand its size, line count, and type before deciding how to read it.",
             new
             {
                 type = "object",
@@ -119,8 +119,48 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "path" }
             });
 
+        RegisterFunction("search_in_file", fileSystemFunctions.SearchInFileAsync,
+            "Searches for a keyword or pattern in a file and returns matching positions with surrounding context. For code files, use this to locate class names, method names, or symbols before reading. For unstructured text, use this to find topic-relevant fragments before reading chunks.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the file." },
+                    pattern = new { type = "string", description = "Keyword or regex pattern to search for." },
+                    contextLines = new { type = "integer", description = "Lines of context to include around each match.", @default = 3 },
+                    maxMatches = new { type = "integer", description = "Maximum number of matches to return.", @default = 10 }
+                },
+                required = new[] { "path", "pattern" }
+            });
+
+        RegisterFunction("get_document_outline", fileSystemFunctions.GetDocumentOutlineAsync,
+            "Returns the structural outline of a document without full content. For Markdown returns headings and line numbers. For JSON/YAML returns top-level keys. For code files returns class and method signatures. For unstructured text returns the first sentence of each detected paragraph block.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", description = "Path to the file." } },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
+            "Reads file content. Behavior adapts to file size automatically: files under 50KB are returned in full; larger files are split into chunks and require chunkIndex. For code files, use startLine/endLine after locating the target with search_in_file. For structured documents, use sectionTitle. For unstructured text, use chunkIndex to paginate.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the file." },
+                    startLine = new { type = "integer", description = "First line to read (1-based). For code files only." },
+                    endLine = new { type = "integer", description = "Last line to read (inclusive). For code files only." },
+                    sectionTitle = new { type = "string", description = "Heading or section name to jump to. For structured documents (Markdown, etc.)." },
+                    chunkIndex = new { type = "integer", description = "0-based chunk index for large or unstructured files. Get total chunk count from get_file_info first." }
+                },
+                required = new[] { "path" }
+            });
+
         RegisterFunction("write_system_file", fileSystemFunctions.WriteSystemFileAsync,
-            "Writes content to a local system file. If the file exists, it will be completely overwritten. If not, it will be created.",
+            "Creates a new file or fully overwrites an existing one. Only use this for new files or when replacing the entire content. For partial edits to existing files, use modify_system_file instead.",
             new
             {
                 type = "object",
@@ -133,21 +173,21 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("modify_system_file", fileSystemFunctions.ModifySystemFileAsync,
-            "Modifies a specific fragment of an existing local system file.",
+            "Modifies a specific fragment of an existing file using SEARCH/REPLACE format. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target location.",
             new
             {
                 type = "object",
                 properties = new
                 {
                     path = new { type = "string", description = "Path to the file." },
-                    diffContent = new { type = "string", description = "The modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
-                    fuzzyMatch = new { type = "boolean", description = "Whether to ignore whitespace differences. Defaults to true.", @default = true }
+                    diffContent = new { type = "string", description = "Modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
+                    fuzzyMatch = new { type = "boolean", description = "Whether to tolerate minor whitespace differences in the SEARCH block. Defaults to true.", @default = true }
                 },
                 required = new[] { "path", "diffContent" }
             });
 
         RegisterFunction("delete_system_file", fileSystemFunctions.DeleteSystemFileAsync,
-            "Deletes a local system file. This is irreversible.",
+            "Permanently deletes a file. This action is irreversible. Always confirm with the user before calling this tool.",
             new
             {
                 type = "object",
@@ -156,14 +196,15 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("list_system_directory", fileSystemFunctions.ListSystemDirectoryAsync,
-            "Lists all files and subdirectories in a given path. Use this to explore the local file system.",
+            "Lists files and subdirectories at a given path. Use this to explore unfamiliar directory structures before deciding which files to read.",
             new
             {
                 type = "object",
                 properties = new
                 {
                     path = new { type = "string", description = "Path to the directory." },
-                    recursive = new { type = "boolean", description = "Whether to list subdirectories recursively.", @default = false }
+                    recursive = new { type = "boolean", description = "Whether to list subdirectories recursively.", @default = false },
+                    filter = new { type = "string", description = "Optional glob pattern to filter results, e.g. '*.cs' or '*.md'." }
                 },
                 required = new[] { "path" }
             });
@@ -216,6 +257,11 @@ public class FunctionRegistry : IFunctionRegistry
                 }
 
                 return FunctionResult.FailureResult("Function return type mismatch");
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.Warning("LLM provided invalid JSON for function {FunctionName}. Error: {Message}", name, jsonEx.Message);
+                return FunctionResult.FailureResult($"Invalid JSON format in arguments: {jsonEx.Message}. Please ensure you output valid JSON.");
             }
             catch (Exception ex)
             {

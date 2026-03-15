@@ -46,9 +46,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedTabIndexChanged(int value)
     {
-        // When switching away from Chat, maybe save?
-        // Or when switching to Logs, refresh?
-        if (value == 5) // LOGS
+        if (value == 3) // HISTORY
+        {
+            _ = HistoryTabViewModel?.LoadHistoryAsync();
+        }
+        else if (value == 5) // LOGS
         {
             _ = LogsTabViewModel.RefreshLogsAsync();
         }
@@ -84,14 +86,15 @@ public partial class MainWindowViewModel : ViewModelBase
         ILocalizationService? localizationService,
         IFileSystemService? fileSystemService,
         IPlatformPathService? platformPathService,
-        IFunctionRegistry? functionRegistry)
+        IFunctionRegistry? functionRegistry,
+        ITokenService? tokenService)
     {
         _localizationService = localizationService;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
-        _configTabViewModel.Initialize(_chatTabViewModel);
+        _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService);
         _logsTabViewModel = new LogsTabViewModel(logService);
@@ -106,13 +109,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Wire up events
         _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
-        _chatTabViewModel.TokensInfoChanged += (s, e) => 
-        {
-            _configTabViewModel.UpdateTokensInfo(e.Current, e.Preview);
-        };
-
-        // 拉取初始状态，确保 ConfigTabView 加载时数据不为 0
-        _configTabViewModel.UpdateTokensInfo(_chatTabViewModel.ContextTokens, _chatTabViewModel.CompressionPreview);
 
         _logger.Information("MainWindowViewModel 初始化完成");
     }
