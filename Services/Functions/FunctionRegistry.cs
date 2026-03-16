@@ -209,6 +209,41 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "path" }
             });
 
+        RegisterFunction("create_directory", fileSystemFunctions.CreateDirectoryAsync,
+            "Creates a new directory at the specified path. If the parent directories do not exist, they will be created as well.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", description = "Path to the directory to create." } },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("move_system_file", fileSystemFunctions.MoveSystemFileAsync,
+            "Moves or renames a file or directory. Source and destination must be valid paths.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    sourcePath = new { type = "string", description = "Current path of the file or directory." },
+                    destinationPath = new { type = "string", description = "Target path for the file or directory." }
+                },
+                required = new[] { "sourcePath", "destinationPath" }
+            });
+
+        RegisterFunction("copy_system_file", fileSystemFunctions.CopySystemFileAsync,
+            "Copies a file from the source path to the destination path. Source must be an existing file.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    sourcePath = new { type = "string", description = "Path of the source file." },
+                    destinationPath = new { type = "string", description = "Target path for the copy." }
+                },
+                required = new[] { "sourcePath", "destinationPath" }
+            });
+
         _logger.Information("FunctionRegistry initialized with {Count} functions", _tools.Count);
     }
 
