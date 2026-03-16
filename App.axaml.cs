@@ -115,6 +115,9 @@ public partial class App : Application
         // 日志服务（单例）
         services.AddSingleton<ILogService, LogService>();
 
+        // CLI 服务（单例）
+        services.AddSingleton<ICliService, CliService>();
+
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
 
@@ -206,6 +209,13 @@ public partial class App : Application
             return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger);
         });
 
+        services.AddSingleton<CliFunctions>(sp =>
+        {
+            var cliService = sp.GetRequiredService<ICliService>();
+            var logger = Log.ForContext<CliFunctions>();
+            return new CliFunctions(cliService, logger);
+        });
+
         // Function Registry（单例）
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
@@ -213,9 +223,10 @@ public partial class App : Application
             var knowledgeFunctions = sp.GetRequiredService<KnowledgeBaseFunctions>();
             var configFunctions = sp.GetRequiredService<ConfigurationFunctions>();
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
+            var cliFunctions = sp.GetRequiredService<CliFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, logger);
         });
 
         // Prompt 服务（单例）

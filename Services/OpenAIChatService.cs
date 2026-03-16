@@ -412,6 +412,12 @@ public class OpenAIChatService : IChatService
 
             var options = new ChatCompletionOptions { MaxOutputTokenCount = 10 };
             var response = await _chatClient.CompleteChatAsync(messages, options);
+            
+            if (response?.Value?.Content == null || response.Value.Content.Count == 0)
+            {
+                return (false, "连接成功但未收到有效响应（可能是安全过滤或模型拒绝回答）");
+            }
+
             var content = response.Value.Content[0].Text;
 
             Log.Information("API 连接测试成功");

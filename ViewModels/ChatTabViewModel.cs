@@ -42,6 +42,15 @@ public partial class ChatTabViewModel : ViewModelBase
     private bool _isResetting;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
+    private bool _isCompressing;
+
+    [ObservableProperty]
     private string _currentTheme = "Dark";
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
@@ -104,6 +113,17 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(InputText)) return;
 
+        // 在发送前检查是否需要压缩上下文
+        if (_tokenService != null && _configService != null)
+        {
+            var config = _configService.Load();
+            if (config.AutoCompress && _tokenService.CurrentTokens > config.CompressionThreshold && !IsCompressing)
+            {
+                _logger.Information("检测到 Token 超过阈值 ({Tokens} > {Threshold})，触发自动压缩", _tokenService.CurrentTokens, config.CompressionThreshold);
+                await InternalCompressContextAsync();
+            }
+        }
+
         var userContent = InputText;
         InputText = string.Empty;
 
@@ -111,9 +131,9 @@ public partial class ChatTabViewModel : ViewModelBase
         await GetAiResponseAsync(userContent);
     }
 
-    private bool CanSendMessage() => !IsSending && !string.IsNullOrWhiteSpace(InputText);
+    private bool CanSendMessage() => !IsSending && !IsCompressing && !string.IsNullOrWhiteSpace(InputText);
 
-    private bool CanModifyMessages() => !IsSending;
+    private bool CanModifyMessages() => !IsSending && !IsCompressing;
 
     [RelayCommand]
     private void ToggleTheme()
@@ -354,15 +374,29 @@ public partial class ChatTabViewModel : ViewModelBase
     private void UpdateConversationContext()
     {
         _currentContext.Clear();
+        
+        // 赋予当前的压缩摘要（如果有）
+        if (_tokenService != null && !string.IsNullOrEmpty(_tokenService.CompressionPreview))
+        {
+            _currentContext.SetSummary(_tokenService.CompressionPreview);
+        }
+        else
+        {
+            _currentContext.SetSummary(null);
+        }
+
         foreach (var msg in Messages)
         {
+            // 已被压缩归档的消息不再进入发送给大模型的 context.messages 列表
+            if (msg.IsCompressed) continue;
+
             if (msg.Role == "user") 
             {
                 _currentContext.AddUserMessage(msg.Content);
             }
             else if (msg.Role == "assistant") 
             {
-                // Only add to context if it has text or tool calls to avoid API validation errors
+                // 仅添加有内容的助手消息
                 if (!string.IsNullOrEmpty(msg.Content) || !string.IsNullOrEmpty(msg.ToolCallsJson))
                 {
                     _currentContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson);
@@ -392,11 +426,18 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private void UpdateBubbleButtonVisibility()
     {
-        foreach (var msg in Messages) { msg.CanEdit = false; msg.CanRegenerate = false; }
-        if (IsSending || Messages.Count == 0) return;
+        foreach (var msg in Messages) 
+        { 
+            msg.CanEdit = false; 
+            msg.CanRegenerate = false; 
+        }
+        
+        // 发送中或压缩中，所有操作按钮不可用
+        if (IsSending || IsCompressing || Messages.Count == 0) return;
 
         foreach (var msg in Messages)
         {
+            // 已归档的消息不可编辑或重新生成
             if (!msg.IsCompressed)
             {
                 if (msg.Role == "assistant") msg.CanRegenerate = true;
@@ -418,12 +459,29 @@ public partial class ChatTabViewModel : ViewModelBase
     public async Task InternalCompressContextAsync()
     {
         if (_historyService == null) return;
-        var messagesList = Messages.ToList();
-        var summary = await _historyService.CompressContextAsync(messagesList);
-        if (summary != null)
+        IsCompressing = true;
+        try
         {
-            UpdateConversationContext();
-            UpdateContextTokensDisplay();
+            var messagesList = Messages.ToList();
+            var summary = await _historyService.CompressContextAsync(messagesList);
+            if (summary != null)
+            {
+                // 更新 TokenService 中的预览，让用户在设置页能看到
+                if (_tokenService != null)
+                {
+                    _tokenService.CompressionPreview = summary;
+                }
+
+                // 更新对话上下文并重新计算 Token
+                UpdateConversationContext();
+                UpdateContextTokensDisplay();
+
+                _logger.Information("UI 上下文压缩显示已更新");
+            }
+        }
+        finally
+        {
+            IsCompressing = false;
         }
     }
 
