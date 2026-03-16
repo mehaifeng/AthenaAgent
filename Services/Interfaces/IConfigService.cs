@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using System;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Interfaces;
@@ -27,4 +28,9 @@ public interface IConfigService
     /// 获取配置文件路径
     /// </summary>
     string ConfigFilePath { get; }
+
+    /// <summary>
+    /// 配置被保存时触发（例如 LLM 工具调用修改配置后通知 UI 刷新）
+    /// </summary>
+    event EventHandler<AppConfig> ConfigChanged;
 }
