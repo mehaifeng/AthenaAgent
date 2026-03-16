@@ -12,6 +12,8 @@ namespace Athena.UI.Services;
 /// </summary>
 public class ConfigService : IConfigService
 {
+    /// <inheritdoc/>
+    public event EventHandler<AppConfig>? ConfigChanged;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -73,5 +75,6 @@ public class ConfigService : IConfigService
     {
         var json = JsonSerializer.Serialize(config, JsonOptions);
         await File.WriteAllTextAsync(ConfigFilePath, json);
+        ConfigChanged?.Invoke(this, config);
     }
 }
