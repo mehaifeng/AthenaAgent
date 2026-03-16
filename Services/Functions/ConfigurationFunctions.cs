@@ -126,8 +126,6 @@ public class ConfigurationFunctions
                     Appearance = new
                     {
                         Theme = config.Theme,
-                        FontSize = config.FontSize,
-                        ShowHeartbeatButton = config.ShowHeartbeatButton,
                         Language = config.Language
                     },
                     // 记忆配置
@@ -156,8 +154,6 @@ public class ConfigurationFunctions
                     "appearance" => new
                     {
                         Theme = config.Theme,
-                        FontSize = config.FontSize,
-                        ShowHeartbeatButton = config.ShowHeartbeatButton,
                         Language = config.Language
                     },
                     "memory" => new

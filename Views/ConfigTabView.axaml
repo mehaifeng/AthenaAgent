@@ -42,29 +42,12 @@
                                    FontWeight="Bold"
                                    FontSize="15"/>
 
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispFontScale}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
-                                <Slider 
-                                    Grid.Column="0"
-                                    Minimum="10" 
-                                    Maximum="24" 
-                                    Value="{Binding Config.FontSize}"
-                                    TickPlacement="Outside"
-                                    IsSnapToTickEnabled="True"
-                                    TickFrequency="1"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Config.FontSize}"
-                                        VerticalAlignment="Center" FontWeight="SemiBold" Margin="12,0,0,0"/>
-                            </Grid>
-
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.DispHeartbeat}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding Config.ShowHeartbeatButton}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

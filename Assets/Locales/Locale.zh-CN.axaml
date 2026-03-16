@@ -68,7 +68,7 @@
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">运行测试</system:String>
     <system:String x:Key="Config.BtnExecCompression">执行压缩</system:String>
-    <system:String x:Key="Config.BtnUndoCompression">撤回压缩</system:String>
+    <system:String x:Key="Config.BtnUndoCompression">清空摘要</system:String>
 
     <!-- Tasks Tab -->
     <system:String x:Key="Tasks.Header">任务计划</system:String>
@@ -180,6 +180,7 @@
     <!-- Dialogs -->
     <system:String x:Key="Dialog.Title.Warning">警告</system:String>
     <system:String x:Key="Dialog.ConfirmResetConfig">确定要将所有设置恢复为默认值吗？此操作不可撤销。</system:String>
+    <system:String x:Key="Dialog.ConfirmClearSummary">确定要清空压缩摘要吗？已归档的消息仍将保持归档状态，仅摘要内容会被清除。</system:String>
     <system:String x:Key="Dialog.ConfirmPurgeTasks">确定要删除所有计划任务吗？</system:String>
 
 </ResourceDictionary>
