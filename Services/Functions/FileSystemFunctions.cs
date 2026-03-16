@@ -177,4 +177,57 @@ public async Task<FunctionResult> WriteSystemFileAsync(string path, string conte
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
         catch (Exception ex) { return FunctionResult.FailureResult($"列出目录失败: {ex.Message}"); }
     }
+
+    public async Task<FunctionResult> CreateDirectoryAsync(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+            var success = await _fileSystemService.CreateDirectoryAsync(path);
+            if (success) return FunctionResult.SuccessResult($"目录创建成功: {path}");
+            return FunctionResult.FailureResult($"目录已存在或创建失败: {path}");
+        }
+        catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
+        catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
+        catch (Exception ex) { return FunctionResult.FailureResult($"创建目录失败: {ex.Message}"); }
+    }
+
+    public async Task<FunctionResult> MoveSystemFileAsync(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(destinationPath))
+                return FunctionResult.FailureResult("错误: 必须提供 sourcePath 和 destinationPath 参数。");
+            var success = await _fileSystemService.MoveFileAsync(sourcePath, destinationPath);
+            if (success)
+            {
+                await TryUpdateKnowledgeBaseVectorsAsync(sourcePath);
+                await TryUpdateKnowledgeBaseVectorsAsync(destinationPath);
+                return FunctionResult.SuccessResult($"移动成功: {sourcePath} -> {destinationPath}");
+            }
+            return FunctionResult.FailureResult($"移动失败: 源路径不存在 ({sourcePath})");
+        }
+        catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
+        catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
+        catch (Exception ex) { return FunctionResult.FailureResult($"移动操作失败: {ex.Message}"); }
+    }
+
+    public async Task<FunctionResult> CopySystemFileAsync(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(destinationPath))
+                return FunctionResult.FailureResult("错误: 必须提供 sourcePath 和 destinationPath 参数。");
+            var success = await _fileSystemService.CopyFileAsync(sourcePath, destinationPath);
+            if (success)
+            {
+                await TryUpdateKnowledgeBaseVectorsAsync(destinationPath);
+                return FunctionResult.SuccessResult($"复制成功: {sourcePath} -> {destinationPath}");
+            }
+            return FunctionResult.FailureResult($"复制失败: 源路径不存在 ({sourcePath})");
+        }
+        catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
+        catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
+        catch (Exception ex) { return FunctionResult.FailureResult($"复制操作失败: {ex.Message}"); }
+    }
 }
