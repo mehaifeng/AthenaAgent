@@ -179,6 +179,59 @@ public class FileSystemService : IFileSystemService
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true);
         if (File.Exists(fullPath)) { File.Delete(fullPath); return Task.FromResult(true); }
+        if (Directory.Exists(fullPath)) { Directory.Delete(fullPath, true); return Task.FromResult(true); }
+        return Task.FromResult(false);
+    }
+
+    public Task<bool> MoveFileAsync(string sourcePath, string destinationPath)
+    {
+        var src = Path.GetFullPath(ExpandPath(sourcePath));
+        var dest = Path.GetFullPath(ExpandPath(destinationPath));
+        ValidatePathAndSecurity(src, true);
+        ValidatePathAndSecurity(dest, true);
+
+        if (File.Exists(src))
+        {
+            var destDir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
+            File.Move(src, dest);
+            return Task.FromResult(true);
+        }
+        if (Directory.Exists(src))
+        {
+            Directory.Move(src, dest);
+            return Task.FromResult(true);
+        }
+        return Task.FromResult(false);
+    }
+
+    public Task<bool> CopyFileAsync(string sourcePath, string destinationPath)
+    {
+        var src = Path.GetFullPath(ExpandPath(sourcePath));
+        var dest = Path.GetFullPath(ExpandPath(destinationPath));
+        ValidatePathAndSecurity(src, false);
+        ValidatePathAndSecurity(dest, true);
+
+        if (File.Exists(src))
+        {
+            var destDir = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
+            File.Copy(src, dest, true);
+            return Task.FromResult(true);
+        }
+        // Directory copy logic could be added if needed, but keeping it simple for now
+        return Task.FromResult(false);
+    }
+
+    public Task<bool> CreateDirectoryAsync(string absolutePath)
+    {
+        var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        ValidatePathAndSecurity(fullPath, true, true);
+        if (!Directory.Exists(fullPath))
+        {
+            Directory.CreateDirectory(fullPath);
+            return Task.FromResult(true);
+        }
         return Task.FromResult(false);
     }
 
