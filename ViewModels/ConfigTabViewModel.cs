@@ -264,7 +264,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task UndoCompressionAsync()
     {
-        var result = await MessageBox.ShowOverlayAsync(
+        var result = await MessageBox.ShowAsync(
             message: _localizationService?.GetString("Dialog.ConfirmClearSummary") ?? "Clear the compression summary? This will remove the archived context digest. Compressed messages will remain archived.",
             title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
             button: MessageBoxButton.OKCancel,
