@@ -54,7 +54,7 @@ public partial class TasksTabViewModel : ViewModelBase
         var result = await MessageBox.ShowAsync(
             message: _localizationService?.GetString("Dialog.ConfirmPurgeTasks") ?? "Are you sure you want to delete all scheduled tasks?",
             title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
-            button: MessageBoxButton.YesNo,
+            button: MessageBoxButton.OKCancel,
             icon: MessageBoxIcon.Warning);
 
         if (result == MessageBoxResult.Yes)
