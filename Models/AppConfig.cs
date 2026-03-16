@@ -14,12 +14,6 @@ public partial class AppConfig : ObservableObject
     private string _theme = "Dark";
 
     [ObservableProperty]
-    private int _fontSize = 14;
-
-    [ObservableProperty]
-    private bool _showHeartbeatButton = true;
-
-    [ObservableProperty]
     private string _language = "zh-CN";
 
     // AI 配置

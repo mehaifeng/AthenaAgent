@@ -81,6 +81,7 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(CanShowEdit))]
+    [NotifyPropertyChangedFor(nameof(CanShowRegenerate))]
     private bool _isCompressed;
 
     /// <summary>
@@ -94,12 +95,18 @@ public partial class ChatMessage : ObservableObject
     /// 是否可以重新生成回复（仅针对助手消息）
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanShowRegenerate))]
     private bool _canRegenerate;
 
     /// <summary>
     /// 是否可以显示编辑按钮（非编辑状态且允许编辑且未压缩）
     /// </summary>
     public bool CanShowEdit => CanEdit && !IsEditing && !IsCompressed;
+
+    /// <summary>
+    /// 是否可以显示重新生成按钮（允许重新生成且未压缩）
+    /// </summary>
+    public bool CanShowRegenerate => CanRegenerate && !IsCompressed;
 
     /// <summary>
     /// 是否真正有可见内容需要展示（非编辑状态且内容不为空）
