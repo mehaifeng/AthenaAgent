@@ -9,6 +9,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Athena.UI.Services;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 
 namespace Athena.UI.ViewModels;
 
@@ -248,8 +250,12 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (message != null)
         {
-            // Clipboard logic usually in View or via service
-            _logger.Debug("Copying message content to clipboard");
+            if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) 
+            {
+                var clipboard = TopLevel.GetTopLevel(desktop.MainWindow)?.Clipboard;
+                clipboard?.SetTextAsync(message.Content?? string.Empty);
+                _logger.Debug("Copying message content to clipboard");
+            }
         }
     }
 
