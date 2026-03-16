@@ -244,16 +244,27 @@ public class FileSystemService : IFileSystemService
         var pattern = string.IsNullOrEmpty(filter) ? "*" : filter;
         var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
         
-        var result = new List<FileSystemEntry>();
+        var allEntries = new List<FileSystemEntry>();
         var dirInfo = new DirectoryInfo(fullPath);
 
-        foreach (var d in dirInfo.GetDirectories(pattern, opt))
-            result.Add(new FileSystemEntry { Name = d.Name, FullPath = d.FullName, Type = "Directory", LastModified = d.LastWriteTime });
-        
-        foreach (var f in dirInfo.GetFiles(pattern, opt))
-            result.Add(new FileSystemEntry { Name = f.Name, FullPath = f.FullName, Type = "File", SizeBytes = f.Length, LastModified = f.LastWriteTime });
+        const int maxEntries = 1000;
 
-        return Task.FromResult(result);
+        foreach (var d in dirInfo.GetDirectories(pattern, opt))
+        {
+            allEntries.Add(new FileSystemEntry { Name = d.Name, FullPath = d.FullName, Type = "Directory", LastModified = d.LastWriteTime });
+            if (allEntries.Count >= maxEntries) break;
+        }
+        
+        if (allEntries.Count < maxEntries)
+        {
+            foreach (var f in dirInfo.GetFiles(pattern, opt))
+            {
+                allEntries.Add(new FileSystemEntry { Name = f.Name, FullPath = f.FullName, Type = "File", SizeBytes = f.Length, LastModified = f.LastWriteTime });
+                if (allEntries.Count >= maxEntries) break;
+            }
+        }
+
+        return Task.FromResult(allEntries);
     }
 
     public async Task<FileMetadata?> GetFileInfoAsync(string absolutePath)

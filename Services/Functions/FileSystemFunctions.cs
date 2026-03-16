@@ -170,8 +170,15 @@ public async Task<FunctionResult> WriteSystemFileAsync(string path, string conte
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
             var entries = await _fileSystemService.ListDirectoryAsync(path, recursive, filter);
-            var formatted = entries.Select(e => new { e.Name, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") });
-            return FunctionResult.SuccessResult($"目录内容 ({path})", new { path, entries = formatted });
+            var formatted = entries.Select(e => new { e.Name, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") }).ToList();
+            
+            var message = $"目录内容 ({path})";
+            if (formatted.Count >= 1000)
+            {
+                message += " [注意：结果已截断为前 1000 个条目，请使用更具体的路径或过滤器]";
+            }
+
+            return FunctionResult.SuccessResult(message, new { path, entries = formatted });
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }

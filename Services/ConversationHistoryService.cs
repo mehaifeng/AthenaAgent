@@ -69,6 +69,10 @@ public class ConversationHistoryService : IConversationHistoryService
             return;
         }
 
+        var provider = string.IsNullOrWhiteSpace(_secondaryConfig.SecondaryProvider) || _secondaryConfig.SecondaryProvider == "Inherit"
+            ? _secondaryConfig.Provider
+            : _secondaryConfig.SecondaryProvider;
+
         var apiKey = string.IsNullOrWhiteSpace(_secondaryConfig.SecondaryApiKey)
             ? _secondaryConfig.ApiKey
             : _secondaryConfig.SecondaryApiKey;
@@ -95,7 +99,7 @@ public class ConversationHistoryService : IConversationHistoryService
 
             _secondaryClient = new OpenAIClient(new ApiKeyCredential(apiKey), options);
             _secondaryChatClient = _secondaryClient.GetChatClient(_secondaryConfig.SecondaryModel);
-            Log.Information("次级模型客户端初始化成功，模型: {Model}", _secondaryConfig.SecondaryModel);
+            Log.Information("次级模型客户端初始化成功，提供商: {Provider}, 模型: {Model}", provider, _secondaryConfig.SecondaryModel);
         }
         catch (Exception ex)
         {
@@ -293,38 +297,50 @@ public class ConversationHistoryService : IConversationHistoryService
 
     public async Task<string?> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentCount = 10)
     {
-        if (messages.Count <= keepRecentCount)
+        // 1. 获取当前所有未压缩的活跃消息
+        var activeMessages = messages.Where(m => !m.IsCompressed).ToList();
+        
+        // 2. 如果活跃消息数不足以保留 keepRecentCount 条，则不压缩
+        if (activeMessages.Count <= keepRecentCount)
         {
-            Log.Debug("上下文消息数不足，无需压缩");
+            Log.Debug("活跃消息数不足，跳过压缩");
             return null;
         }
 
-        var olderMessages = messages.Take(messages.Count - keepRecentCount).ToList();
+        // 3. 寻找语义安全切分点：活跃上下文（未压缩部分）必须以 user 消息开头
+        // 初始切分索引：总数 - 建议保留数
+        int splitIndex = activeMessages.Count - keepRecentCount;
+        
+        // 向前（向更旧的方向）滑动，直到找到一个 user 消息作为新的活跃上下文起点
+        while (splitIndex > 0 && activeMessages[splitIndex].Role?.ToLower() != "user")
+        {
+            splitIndex--;
+        }
 
-        // 如果次级模型不可用，返回简单的截取摘要
+        // 4. 安全性检查：如果没找到任何 user 消息，或者由于回退导致没有旧消息可压缩了
+        if (splitIndex <= 0)
+        {
+            Log.Debug("未找到安全的 user 消息作为活跃上下文起点，暂不执行压缩");
+            return null;
+        }
+
+        // 现在 activeMessages[0...splitIndex-1] 是要被压缩的旧消息块
+        var olderMessages = activeMessages.Take(splitIndex).ToList();
+
+        // 如果次级模型不可用，直接跳过压缩（不再进行简单截取）
         if (_secondaryChatClient == null)
         {
-            Log.Warning("次级模型不可用，使用简单截取作为摘要");
-            var simpleSummary = string.Join("\n", olderMessages.Select(m => $"[{m.Role}]: {m.Content}"));
-            return $"[对话摘要]: {simpleSummary.Substring(0, Math.Min(500, simpleSummary.Length))}...";
+            Log.Warning("次级模型不可用，跳过上下文压缩");
+            return null;
         }
 
         try
         {
-            // 构建摘要请求，特别强调对工具调用的总结
+            // 构建摘要请求：排除 tool 消息，仅保留 user 和 assistant 的纯文本
             var summaryPrompt = _promptService.GetPrompt(PromptType.ContextCompressionStrategy) + "\n\n" +
-                string.Join("\n", olderMessages.Select(m => 
-                {
-                    if (m.Role == "tool")
-                    {
-                        return $"[tool result (ID: {m.ToolCallId})]: {m.Content}";
-                    }
-                    if (m.Role == "assistant" && !string.IsNullOrEmpty(m.ToolCallsJson))
-                    {
-                        return $"[assistant calling tool]: {m.ToolCallsJson}\n{m.Content}";
-                    }
-                    return $"[{m.Role}]: {m.Content}";
-                }));
+                string.Join("\n", olderMessages
+                    .Where(m => m.Role == "user" || (m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson)))
+                    .Select(m => $"[{m.Role}]: {m.Content}"));
 
             var openAiMessages = new List<OpenAI.Chat.ChatMessage>
             {
@@ -335,7 +351,13 @@ public class ConversationHistoryService : IConversationHistoryService
             var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
             var summary = completion.Value.Content[0].Text?.Trim();
 
-            Log.Information("上下文压缩完成，从 {Old} 条消息压缩为摘要", olderMessages.Count);
+            // 5. 标记旧消息块为已压缩（包含其中的 tool 消息）
+            foreach (var msg in olderMessages)
+            {
+                msg.IsCompressed = true;
+            }
+
+            Log.Information("上下文压缩完成，从 {Old} 条消息安全压缩为摘要 (活跃部分从第 {Index} 条 User 消息重新开始)", olderMessages.Count, splitIndex);
             return !string.IsNullOrEmpty(summary) ? $"[对话摘要]: {summary}" : null;
         }
         catch (Exception ex)

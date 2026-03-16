@@ -28,9 +28,26 @@ public class FunctionRegistry : IFunctionRegistry
         KnowledgeBaseFunctions knowledgeFunctions,
         ConfigurationFunctions configFunctions,
         FileSystemFunctions fileSystemFunctions,
+        CliFunctions cliFunctions,
         ILogger logger)
     {
         _logger = logger.ForContext<FunctionRegistry>();
+
+        // --- CLI Control ---
+        RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
+            "Executes a console command. By default, it waits for the process to exit and captures output. For GUI applications (like 'regedit', 'notepad') or long-running background tasks, set 'waitForExit' to false to launch and return immediately. DO NOT use this for file system tasks like 'ls', 'mkdir', or 'rm'—use the dedicated file system tools instead.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    command = new { type = "string", description = "The command to execute (e.g., 'git', 'dotnet', 'npm', 'regedit')." },
+                    arguments = new { type = "array", items = new { type = "string" }, description = "List of command-line arguments." },
+                    workingDirectory = new { type = "string", description = "The directory where the command should be executed." },
+                    waitForExit = new { type = "boolean", description = "If true (default), waits for the process to complete and captures output. If false, launches the process in the background and returns immediately.", @default = true }
+                },
+                required = new[] { "command" }
+            });
 
         // --- Tasks & Reminders ---
         RegisterFunction("create_task", proactiveFunctions.ScheduleProactiveMessage,

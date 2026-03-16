@@ -55,13 +55,13 @@ public partial class AppConfig : ObservableObject
     private string _secondaryProvider = "OpenAI";
 
     [ObservableProperty]
-    private string _secondaryBaseUrl = "https://api.openai.com/v1";
+    private string _secondaryBaseUrl = string.Empty;
 
     [ObservableProperty]
     private string _secondaryApiKey = string.Empty;
 
     [ObservableProperty]
-    private string _secondaryModel = "gpt-4.1-mini";
+    private string _secondaryModel = "gpt-4o-mini";
 
     [ObservableProperty]
     private double _secondaryTemperature = 0.3;
@@ -74,7 +74,7 @@ public partial class AppConfig : ObservableObject
     private string _embeddingProvider = "OpenAI";
 
     [ObservableProperty]
-    private string _embeddingBaseUrl = "https://api.openai.com/v1";
+    private string _embeddingBaseUrl = string.Empty;
 
     [ObservableProperty]
     private string _embeddingApiKey = string.Empty;
