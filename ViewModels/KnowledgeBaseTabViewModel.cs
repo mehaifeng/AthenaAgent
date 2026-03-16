@@ -12,6 +12,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Ursa.Controls;
 
 namespace Athena.UI.ViewModels;
 
@@ -24,6 +25,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     private readonly IFileSystemService? _fileSystemService;
     private readonly IPlatformPathService? _pathService;
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<KnowledgeBaseTabViewModel>();
 
     public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
@@ -48,16 +50,18 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
 
     private string _rootPath = string.Empty;
 
-    public KnowledgeBaseTabViewModel() : this(null, null, null) { }
+    public KnowledgeBaseTabViewModel() : this(null, null, null, null) { }
 
     public KnowledgeBaseTabViewModel(
         IFileSystemService? fileSystemService, 
         IPlatformPathService? pathService,
-        IKnowledgeBaseService? knowledgeBaseService)
+        IKnowledgeBaseService? knowledgeBaseService,
+        ILocalizationService? localizationService = null)
     {
         _fileSystemService = fileSystemService;
         _pathService = pathService;
         _knowledgeBaseService = knowledgeBaseService;
+        _localizationService = localizationService;
         
         if (_pathService != null)
         {
@@ -99,7 +103,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
         {
             var content = await _fileSystemService.ReadFileAsync(absolutePath);
             EditingFileContent = content ?? "[ FILE_CONTENT_EMPTY ]";
-            IsEditingFile = true;
+            IsEditingFile = false;  // 加载后默认只读/预览模式
         }
         catch (Exception ex)
         {
@@ -222,6 +226,20 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     private async Task DeleteFileAsync()
     {
         if (SelectedFile == null) return;
+
+        var name = SelectedFile.Name;
+        var msgTemplate = _localizationService?.GetString("Dialog.ConfirmDeleteFile") ?? "Are you sure you want to delete \"{0}\"? This cannot be undone.";
+        var message = string.Format(msgTemplate, name);
+        var title = _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning";
+
+        var result = await MessageBox.ShowAsync(
+            message: message,
+            title: title,
+            button: MessageBoxButton.YesNo,
+            icon: MessageBoxIcon.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
         try
         {
             if (SelectedFile.IsDirectory)
@@ -267,6 +285,13 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
 
     [RelayCommand]
     private void CancelEdit() { IsEditingFile = false; EditingFileContent = string.Empty; }
+
+    [RelayCommand]
+    private void ToggleEditMode()
+    {
+        if (SelectedFile == null || SelectedFile.IsDirectory) return;
+        IsEditingFile = !IsEditingFile;
+    }
 
     [RelayCommand]
     private async Task ImportAsync()

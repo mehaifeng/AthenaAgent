@@ -5,6 +5,8 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:models="using:Athena.UI.Models"
+             xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
+             xmlns:ctxt="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia"
              mc:Ignorable="d"
              d:DesignWidth="720" 
              d:DesignHeight="1080"
@@ -145,7 +147,7 @@
                                     TextWrapping="NoWrap"/>
                         </Grid>
 
-                        <!-- 右列不变 -->
+                        <!-- 右列：模式标志 + 切换按钮 -->
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0">
                             <TextBlock Text="{loc:Loc Files.ModeEdit}"
                                     IsVisible="{Binding IsEditingFile}"
@@ -157,23 +159,53 @@
                                     FontSize="12"
                                     VerticalAlignment="Center"
                                     Opacity="0.8"/>
+                            <Button Command="{Binding ToggleEditModeCommand}"
+                                    IsVisible="{Binding SelectedFile, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Padding="8,2"
+                                    FontSize="11"
+                                    ToolTip.Tip="{loc:Loc Files.ModeEdit}">
+                                <Panel>
+                                    <PathIcon Data="{StaticResource SemiIconEyeOpened}" Width="13" Height="13"
+                                              IsVisible="{Binding !IsEditingFile}"/>
+                                    <PathIcon Data="{StaticResource SemiIconEdit}" Width="13" Height="13"
+                                              IsVisible="{Binding IsEditingFile}"/>
+                                </Panel>
+                            </Button>
                         </StackPanel>
                     </Grid>
 
                     <!-- Editor -->
-                    <TextBox Grid.Row="1"
-                            Margin="10"
-                            Text="{Binding EditingFileContent}"
-                            VerticalContentAlignment="Top"
-                            HorizontalAlignment="Stretch"
-                            VerticalAlignment="Stretch"
-                            AcceptsReturn="True"
-                            TextWrapping="Wrap"
-                            IsReadOnly="{Binding !IsEditingFile}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Padding="16"
-                            Watermark="{loc:Loc Files.NoFileSelected}"/>
+                    <Grid Grid.Row="1" Margin="10">
+                        <!-- 预览模式：Markdown 渲染 -->
+                        <md:MarkdownScrollViewer
+                                Markdown="{Binding EditingFileContent}"
+                                IsVisible="{Binding !IsEditingFile}"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <md:MarkdownScrollViewer.Styles>
+                                <Style Selector="ctxt|CTextBlock.Heading1"> <Setter Property="FontSize" Value="20"/> </Style>
+                                <Style Selector="ctxt|CTextBlock.Heading2"> <Setter Property="FontSize" Value="17"/> </Style>
+                                <Style Selector="ctxt|CTextBlock.Heading3"> <Setter Property="FontSize" Value="15"/> </Style>
+                                <Style Selector="ctxt|CTextBlock.Heading4"> <Setter Property="FontSize" Value="14"/> </Style>
+                                <Style Selector="ctxt|CTextBlock.Heading5"> <Setter Property="FontSize" Value="13"/> </Style>
+                                <Style Selector="ctxt|CTextBlock.Heading6"> <Setter Property="FontSize" Value="13"/> </Style>
+                            </md:MarkdownScrollViewer.Styles>
+                        </md:MarkdownScrollViewer>
+
+                        <!-- 编辑模式：TextBox -->
+                        <TextBox
+                                Text="{Binding EditingFileContent}"
+                                IsVisible="{Binding IsEditingFile}"
+                                VerticalContentAlignment="Top"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="16"
+                                Watermark="{loc:Loc Files.NoFileSelected}"/>
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>
