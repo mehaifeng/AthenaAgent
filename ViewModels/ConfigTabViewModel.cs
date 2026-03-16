@@ -95,6 +95,12 @@ public partial class ConfigTabViewModel : ViewModelBase
 
         SetupConfigListener(Config);
         LoadConfigAsync().ConfigureAwait(false);
+
+        // 订阅配置变更事件（LLM 工具调用修改配置后及时刷新 UI）
+        if (_configService != null)
+        {
+            _configService.ConfigChanged += OnExternalConfigChanged;
+        }
     }
 
     public void Initialize(ChatTabViewModel chatTabViewModel, ITokenService? tokenService)
@@ -108,6 +114,19 @@ public partial class ConfigTabViewModel : ViewModelBase
     }
 
     partial void OnConfigChanged(AppConfig value) => SetupConfigListener(value);
+
+    /// <summary>
+    /// 外部（如 LLM 工具调用）修改配置后，在 UI 线程上刷新 ConfigTab 显示
+    /// </summary>
+    private void OnExternalConfigChanged(object? sender, AppConfig newConfig)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            Config = newConfig;
+            if (TokenService != null) TokenService.MaxTokens = newConfig.MaxContextTokens;
+            _logger.Information("ConfigTab: 检测到外部配置变更，已刷新 UI");
+        });
+    }
 
     private void SetupConfigListener(AppConfig? config)
     {
