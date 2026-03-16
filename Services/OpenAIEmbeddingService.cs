@@ -44,6 +44,10 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private void InitializeClient()
     {
         // 使用 Embedding 专用配置，如果为空则回退到主配置
+        var provider = string.IsNullOrWhiteSpace(_config.EmbeddingProvider) || _config.EmbeddingProvider == "Inherit"
+            ? _config.Provider
+            : _config.EmbeddingProvider;
+
         var apiKey = string.IsNullOrWhiteSpace(_config.EmbeddingApiKey)
             ? _config.ApiKey
             : _config.EmbeddingApiKey;
@@ -74,7 +78,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             if (!string.IsNullOrWhiteSpace(_config.EmbeddingModel))
             {
                 _embeddingClient = _client.GetEmbeddingClient(_config.EmbeddingModel);
-                _logger.Information("Embedding 客户端初始化成功，模型: {Model}", _config.EmbeddingModel);
+                _logger.Information("Embedding 客户端初始化成功，提供商: {Provider}, 模型: {Model}", provider, _config.EmbeddingModel);
             }
             else
             {

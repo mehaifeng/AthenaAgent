@@ -96,7 +96,7 @@ public class ConversationContext
         if (_messages.Count == 0) return 0;
 
         var fixedCost = EstimateTokens(_mainPersona) + EstimateTokens(_summary) + ToolsDeclarationTokenCount;
-        var availableTokens = (int)(targetThreshold * 0.8) - fixedCost;
+        var availableTokens = (int)(targetThreshold * 0.9) - fixedCost; // 留出 10% 余量
         if (availableTokens <= 0) return 1;
 
         int accumulatedTokens = 0;
@@ -118,7 +118,7 @@ public class ConversationContext
         }
 
         // 核心修正：工具链原子性检查
-        // 如果保留的第一条消息是 tool，必须向前追溯直到包含对应的 assistant (tool_calls)
+        // 1. 如果保留的第一条消息是 tool，必须向前追溯直到包含对应的 assistant (tool_calls)
         while (keepCount < _messages.Count)
         {
             int firstKeepIndex = _messages.Count - keepCount;
@@ -126,22 +126,33 @@ public class ConversationContext
 
             if (firstMsg.Role == "tool")
             {
-                // 如果是工具结果，强制多保留一条，继续检查上一条
+                // 如果是工具结果，强制多保留一条，继续向更早的消息检查
                 keepCount++;
-            }
-            else if (firstMsg.Role == "assistant" && !string.IsNullOrEmpty(firstMsg.ToolCallsJson))
-            {
-                // 如果是带工具调用的助手消息，目前它已经在保留范围内了，检查结束
-                break;
             }
             else
             {
-                // 既不是 tool 也不是带调用的助手消息，切分点安全
+                // 此时第一条已不是 tool
                 break;
             }
         }
 
-        return Math.Max(1, keepCount);
+        // 2. 确保第一条消息不是孤立的 assistant (带工具调用的)
+        // 某些 API 要求必须由 user 开始，或者 assistant (tool_calls) 之后必须紧跟 tool 结果
+        // 这里我们简单确保如果是 assistant (tool_calls)，它必须作为保留块的开始或被包含
+        // 实际上上面的一步已经处理了 tool 追溯 assistant。
+        
+        // 3. 最终检查：如果第一条消息依然是 assistant 且带工具调用，通常没问题，
+        // 但如果它前面的消息是 user，建议一起带上以保持语义完整。
+        if (keepCount < _messages.Count)
+        {
+            int firstKeepIndex = _messages.Count - keepCount;
+            if (_messages[firstKeepIndex].Role == "assistant" && firstKeepIndex > 0 && _messages[firstKeepIndex-1].Role == "user")
+            {
+                keepCount++;
+            }
+        }
+
+        return Math.Clamp(keepCount, 1, _messages.Count);
     }
 
     public bool NeedsCompression(int threshold) => EstimatedTokenCount > threshold;
