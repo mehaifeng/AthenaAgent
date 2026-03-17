@@ -47,6 +47,11 @@ public interface IVectorStoreService
     Task InitializeAsync();
 
     /// <summary>
+    /// 全文本关键字检索
+    /// </summary>
+    Task<List<(string FilePath, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10);
+
+    /// <summary>
     /// 加载所有向量到内存
     /// </summary>
     Task<List<DocumentVector>> LoadAllVectorsAsync();
@@ -143,6 +148,13 @@ public class VectorStoreService : IVectorStoreService
                     UNIQUE(file_path, chunk_index)
                 );
 
+                -- FTS5 Virtual Table for full-text search
+                CREATE VIRTUAL TABLE IF NOT EXISTS fts_index USING fts5(
+                    file_path,
+                    chunk_index UNINDEXED,
+                    content
+                );
+
                 CREATE INDEX IF NOT EXISTS IX_document_vectors_file_path ON document_vectors(file_path);
                 CREATE INDEX IF NOT EXISTS IX_file_status_file_hash ON file_status(file_hash);
             ";
@@ -150,7 +162,7 @@ public class VectorStoreService : IVectorStoreService
             using var command = new SqliteCommand(createTableSql, connection);
             await command.ExecuteNonQueryAsync();
 
-            _logger.Information("向量存储数据库初始化完成: {Path}", _dbPath);
+            _logger.Information("向量存储及全文本索引数据库初始化完成: {Path}", _dbPath);
         }
         finally
         {
@@ -204,6 +216,59 @@ public class VectorStoreService : IVectorStoreService
         }
 
         return vectors;
+    }
+
+    /// <summary>
+    /// 全文本关键字检索
+    /// </summary>
+    public async Task<List<(string FilePath, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10)
+    {
+        var results = new List<(string FilePath, string Content, double Score)>();
+
+        if (string.IsNullOrWhiteSpace(query)) return results;
+
+        // 清理并转义 FTS 查询字符串，防止注入或语法错误 (如 "." 或 "-" 引起的问题)
+        // 简单处理：将查询内容放入双引号中进行短语匹配，并移除可能导致错误的双引号本身
+        var sanitizedQuery = "\"" + query.Replace("\"", " ").Trim() + "\"";
+
+        await _lock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            await connection.OpenAsync();
+
+            // 使用 FTS5 的 rank 进行评分（越小越相关，这里取负值转为正向分）
+            var sql = @"
+                SELECT file_path, content, rank 
+                FROM fts_index 
+                WHERE content MATCH @query 
+                ORDER BY rank 
+                LIMIT @limit";
+
+            using var command = new SqliteCommand(sql, connection);
+            command.Parameters.AddWithValue("@query", sanitizedQuery);
+            command.Parameters.AddWithValue("@limit", maxResults);
+
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                results.Add((
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    -reader.GetDouble(2) // 转换为正数
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "FTS 搜索失败 (Query: {Query})", query);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return results;
     }
 
     public async Task<Dictionary<string, FileStatus>> GetFileStatusesAsync()
@@ -263,7 +328,15 @@ public class VectorStoreService : IVectorStoreService
                     await deleteCommand.ExecuteNonQueryAsync();
                 }
 
-                // 插入新向量
+                // 删除旧 FTS 索引
+                using (var deleteFtsCommand = new SqliteCommand(
+                    "DELETE FROM fts_index WHERE file_path = @filePath", connection, transaction))
+                {
+                    deleteFtsCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
+                    await deleteFtsCommand.ExecuteNonQueryAsync();
+                }
+
+                // 插入新向量和 FTS 索引
                 foreach (var (index, chunkText, embedding) in vectors)
                 {
                     using var insertCommand = new SqliteCommand(
@@ -277,6 +350,18 @@ public class VectorStoreService : IVectorStoreService
                     insertCommand.Parameters.Add(new SqliteParameter("@embedding", FloatsToBytes(embedding)));
 
                     await insertCommand.ExecuteNonQueryAsync();
+
+                    // FTS 索引
+                    using var insertFtsCommand = new SqliteCommand(
+                        @"INSERT INTO fts_index (file_path, chunk_index, content)
+                          VALUES (@filePath, @chunkIndex, @content)",
+                        connection, transaction);
+
+                    insertFtsCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
+                    insertFtsCommand.Parameters.Add(new SqliteParameter("@chunkIndex", index));
+                    insertFtsCommand.Parameters.Add(new SqliteParameter("@content", chunkText));
+
+                    await insertFtsCommand.ExecuteNonQueryAsync();
                 }
 
                 // 更新文件状态
@@ -294,7 +379,7 @@ public class VectorStoreService : IVectorStoreService
                 }
 
                 transaction.Commit();
-                _logger.Debug("保存 {Count} 个向量: {FilePath}", vectors.Count, filePath);
+                _logger.Debug("保存 {Count} 个向量及全文本索引: {FilePath}", vectors.Count, filePath);
             }
             catch
             {
@@ -328,6 +413,13 @@ public class VectorStoreService : IVectorStoreService
                 }
 
                 using (var command = new SqliteCommand(
+                    "DELETE FROM fts_index WHERE file_path = @filePath", connection, transaction))
+                {
+                    command.Parameters.Add(new SqliteParameter("@filePath", filePath));
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                using (var command = new SqliteCommand(
                     "DELETE FROM file_status WHERE file_path = @filePath", connection, transaction))
                 {
                     command.Parameters.Add(new SqliteParameter("@filePath", filePath));
@@ -335,7 +427,7 @@ public class VectorStoreService : IVectorStoreService
                 }
 
                 transaction.Commit();
-                _logger.Debug("删除文件向量: {FilePath}", filePath);
+                _logger.Debug("删除文件向量及全文本索引: {FilePath}", filePath);
             }
             catch
             {
@@ -358,11 +450,11 @@ public class VectorStoreService : IVectorStoreService
             await connection.OpenAsync();
 
             using var command = new SqliteCommand(
-                "DELETE FROM document_vectors; DELETE FROM file_status;",
+                "DELETE FROM document_vectors; DELETE FROM fts_index; DELETE FROM file_status;",
                 connection);
             await command.ExecuteNonQueryAsync();
 
-            _logger.Information("已清除所有向量数据");
+            _logger.Information("已清除所有向量及全文本索引数据");
         }
         finally
         {
