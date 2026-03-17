@@ -19,8 +19,8 @@
                       Clicked="TrayIcon_OnClicked">
                 <TrayIcon.Menu>
                     <NativeMenu>
-                        <NativeMenuItem Header="{loc:Loc Tray.Show}" Click="MenuShow_OnClick" />
-                        <NativeMenuItem Header="{loc:Loc Tray.Quit}" Click="MenuQuit_OnClick" />
+                        <NativeMenuItem Header="显示主窗口" Click="MenuShow_OnClick" />
+                        <NativeMenuItem Header="退出" Click="MenuQuit_OnClick" />
                     </NativeMenu>
                 </TrayIcon.Menu>
             </TrayIcon>
@@ -42,6 +42,7 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
+                    <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#FFFFFF" />
                 </ResourceDictionary>
                 <!-- 语义化颜色定义：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
@@ -50,6 +51,7 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#D29E00" />
+                    <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#1F1F1F" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
