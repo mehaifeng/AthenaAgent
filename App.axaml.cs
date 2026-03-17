@@ -218,11 +218,49 @@ public partial class App : Application
                 DataContext = mainViewModel,
             };
 
+            // 更新托盘菜单文本（NativeMenu 不支持 XAML 绑定）
+            UpdateTrayMenuText();
+
+            // macOS: 处理 Dock 右键退出
+            desktop.ShutdownRequested += OnShutdownRequested;
+
             Log.Information("主窗口创建完成");
         }
 
         base.OnFrameworkInitializationCompleted();
         Log.Information("框架初始化完成");
+    }
+
+    private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
+    {
+        // macOS Dock 右键退出时，确保真正退出
+        IsQuitting = true;
+    }
+
+    /// <summary>
+    /// 更新托盘菜单文本（支持多语言）
+    /// </summary>
+    private void UpdateTrayMenuText()
+    {
+        try
+        {
+            var localizationService = Services?.GetService<ILocalizationService>();
+            if (localizationService == null) return;
+
+            var trayIcons = TrayIcon.GetIcons(this);
+            var trayIcon = trayIcons?.FirstOrDefault();
+            if (trayIcon?.Menu?.Items is { } items)
+            {
+                if (items.Count > 0 && items[0] is NativeMenuItem showItem)
+                    showItem.Header = localizationService.GetString("Tray.Show", "显示主窗口");
+                if (items.Count > 1 && items[1] is NativeMenuItem quitItem)
+                    quitItem.Header = localizationService.GetString("Tray.Quit", "退出");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "更新托盘菜单文本失败");
+        }
     }
 
     /// <summary>

@@ -79,7 +79,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Long-term Memory ---
         RegisterFunction("create_new_memory", knowledgeFunctions.CreateKnowledgeFile,
-            "Creates a new memory record in the knowledge base. Only use this for information that should be persisted for long-term recall.",
+            "Creates a new memory record in the knowledge base. ONLY use this when recall_from_memory confirms no existing record covers this information. Never call this without searching first.",
             new
             {
                 type = "object",
@@ -92,7 +92,7 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
-            "Searches across all memory domains using semantic vector search. Use this to find relevant context from the knowledge base.",
+            "Searches across all memory domains using semantic vector search. MUST be called before create_new_memory — this is mandatory, no exceptions. Also call this whenever the user asks something that may rely on past context.",
             new
             {
                 type = "object",

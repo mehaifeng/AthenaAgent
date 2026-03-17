@@ -6,6 +6,16 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\Athena.ico</ApplicationIcon>
+    
+    <!-- macOS 打包配置 -->
+    <CFBundleName>Athena</CFBundleName>
+    <CFBundleDisplayName>Athena</CFBundleDisplayName>
+    <CFBundleIdentifier>com.athena.ai</CFBundleIdentifier>
+    <CFBundleVersion>1.0.0</CFBundleVersion>
+    <CFBundleShortVersionString>1.0.0</CFBundleShortVersionString>
+    <CFBundleIconFile>Athena.icns</CFBundleIconFile>
+    <NSHighResolutionCapable>true</NSHighResolutionCapable>
+    <CFBundleExecutable>Athena.UI</CFBundleExecutable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,9 +23,26 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
+  <!-- AthenaSoul.md 作为嵌入式资源 -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\AthenaSoul.md">
+      <LogicalName>AthenaSoul.md</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <Content Include="Assets\Athena.ico" />
   </ItemGroup>
+
+  <!-- 编译时将 AthenaSoul.md 复制到输出目录的 AthenaData/KnowledgeBase -->
+  <Target Name="CopyAthenaSoulToKnowledgeBase" AfterTargets="Build">
+    <PropertyGroup>
+      <AthenaDataPath>$(TargetDir)AthenaData\KnowledgeBase</AthenaDataPath>
+    </PropertyGroup>
+    <MakeDir Directories="$(AthenaDataPath)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\AthenaSoul.md" DestinationFiles="$(AthenaDataPath)\AthenaSoul.md" SkipUnchangedFiles="true" />
+    <Message Text="AthenaSoul.md copied to $(AthenaDataPath)" Importance="high" />
+  </Target>
 
   <ItemGroup>
     <!-- Avalonia UI -->

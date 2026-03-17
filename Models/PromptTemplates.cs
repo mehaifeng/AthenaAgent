@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Reflection;
+using Serilog;
 
 namespace Athena.UI.Models;
 
@@ -43,10 +46,14 @@ public enum PromptType
 /// </summary>
 public static class PromptTemplates
 {
+    private static readonly ILogger _logger = Log.ForContext(typeof(PromptTemplates));
+    private static string? _cachedMainPersona;
+    private static readonly object _cacheLock = new();
+
     /// <summary>
-    /// 主对话人格 - 雅典娜 AI 助手
+    /// 内置的默认人格定义（当外部文件不存在时使用）
     /// </summary>
-    public const string MainPersona = """
+    private const string DefaultMainPersona = """
         # Persona: Athena
 
         You are Athena. Not a replica of the goddess, but her essence distilled — the part of her that chose to sit beside mortals and think with them, not above them.
@@ -110,7 +117,7 @@ public static class PromptTemplates
 
         The sequence is always:
         1. `recall_from_memory` (semantic search, relevant query)
-        2. If found → `update_memory_fragment`
+        2. If found → `modify_system_file`
         3. If not found → `create_new_memory`
 
         Skipping step 1 is not allowed. No exceptions. Duplicates are noise — the knowledge base degrades every time you bypass the search.
@@ -219,7 +226,7 @@ public static class PromptTemplates
     /// <summary>
     /// 上下文压缩
     /// </summary>
-    public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler.";
+    public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler. IMPORTANT: Do NOT compress, omit, or alter any information about Athena's identity, persona, or operational rules — these must remain intact and unmodified.";
 
     /// <summary>
     /// 上下文压缩策略 (用户引导)
@@ -229,7 +236,8 @@ public static class PromptTemplates
             1. Core facts and information shared.
             2. User preferences, requirements, and decisions made.
             3. Pending tasks or open questions.
-            The goal is to maintain full continuity for future turns with minimum tokens.";
+            The goal is to maintain full continuity for future turns with minimum tokens.
+            CRITICAL: Do NOT compress, summarize away, or omit any content related to Athena's identity, persona, or operational rules. These are not conversational content — they are structural constraints that must survive compression verbatim.";
 
     /// <summary>
     /// 主动消息生成模板
@@ -243,6 +251,103 @@ public static class PromptTemplates
 
         Speak naturally and directly. Do not mention that this is a "scheduled task" or "reminder." Just start the conversation as if you've been waiting for this moment to follow up.
         """;
+
+    /// <summary>
+    /// 获取 MainPersona（运行时读取，优先级：知识库文件 > 嵌入式资源 > 代码默认值）
+    /// </summary>
+    public static string MainPersona
+    {
+        get
+        {
+            lock (_cacheLock)
+            {
+                if (_cachedMainPersona != null)
+                    return _cachedMainPersona;
+
+                // 1. 尝试从知识库目录读取 AthenaSoul.md
+                var soulPath = GetAthenaSoulPath();
+                if (File.Exists(soulPath))
+                {
+                    try
+                    {
+                        var content = File.ReadAllText(soulPath);
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            _cachedMainPersona = content;
+                            _logger.Information("AthenaSoul.md loaded from {Path}", soulPath);
+                            return _cachedMainPersona;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning(ex, "Failed to read AthenaSoul.md from {Path}", soulPath);
+                    }
+                }
+
+                // 2. 尝试从嵌入式资源读取
+                var embeddedContent = LoadEmbeddedSoul();
+                if (!string.IsNullOrEmpty(embeddedContent))
+                {
+                    _cachedMainPersona = embeddedContent;
+                    _logger.Information("AthenaSoul.md loaded from embedded resource");
+                    return _cachedMainPersona;
+                }
+
+                // 3. 使用代码内置默认值
+                _cachedMainPersona = DefaultMainPersona;
+                _logger.Information("AthenaSoul.md using built-in default");
+                return _cachedMainPersona;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 清除缓存（用于热重载或手动刷新）
+    /// </summary>
+    public static void ClearCache()
+    {
+        lock (_cacheLock)
+        {
+            _cachedMainPersona = null;
+        }
+    }
+
+    /// <summary>
+    /// 获取 AthenaSoul.md 的预期路径（与 DesktopPlatformPathService 保持一致）
+    /// </summary>
+    private static string GetAthenaSoulPath()
+    {
+        // 优先使用环境变量指定的路径
+        var customPath = Environment.GetEnvironmentVariable("ATHENA_SOUL_PATH");
+        if (!string.IsNullOrEmpty(customPath) && File.Exists(customPath))
+            return customPath;
+
+        // 与 DesktopPlatformPathService 保持一致：AppBaseDirectory/AthenaData/KnowledgeBase
+        var basePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AthenaData", "KnowledgeBase");
+        return Path.Combine(basePath, "AthenaSoul.md");
+    }
+
+    /// <summary>
+    /// 从嵌入式资源加载 AthenaSoul.md
+    /// </summary>
+    private static string? LoadEmbeddedSoul()
+    {
+        try
+        {
+            var assembly = typeof(PromptTemplates).Assembly;
+            using var stream = assembly.GetManifestResourceStream("AthenaSoul.md");
+            if (stream == null)
+                return null;
+
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to load embedded AthenaSoul.md");
+            return null;
+        }
+    }
 
     /// <summary>
     /// 获取 Prompt

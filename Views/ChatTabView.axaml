@@ -153,12 +153,12 @@
                                                    IsVisible="{Binding IsContentVisible}"
                                                    HorizontalAlignment="Stretch">
                                             <md:MarkdownScrollViewer.Styles>
-                                                <Style Selector="ctxt|CTextBlock.Heading1"> <Setter Property="FontSize" Value="18"/> </Style>
-                                                <Style Selector="ctxt|CTextBlock.Heading2"> <Setter Property="FontSize" Value="16"/> </Style>
-                                                <Style Selector="ctxt|CTextBlock.Heading3"> <Setter Property="FontSize" Value="15"/> </Style>
-                                                <Style Selector="ctxt|CTextBlock.Heading4"> <Setter Property="FontSize" Value="14"/> </Style>
-                                                <Style Selector="ctxt|CTextBlock.Heading5"> <Setter Property="FontSize" Value="13"/> </Style>
-                                                <Style Selector="ctxt|CTextBlock.Heading6"> <Setter Property="FontSize" Value="13"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading1"> <Setter Property="FontSize" Value="18"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading2"> <Setter Property="FontSize" Value="16"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading3"> <Setter Property="FontSize" Value="15"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading4"> <Setter Property="FontSize" Value="14"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading5"> <Setter Property="FontSize" Value="13"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
+                                                <Style Selector="ctxt|CTextBlock.Heading6"> <Setter Property="FontSize" Value="13"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
                                             </md:MarkdownScrollViewer.Styles>
                                         </md:MarkdownScrollViewer>
 
