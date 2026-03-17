@@ -247,7 +247,7 @@ public class ConversationHistoryService : IConversationHistoryService
                 openAiMessages.Add(new UserChatMessage(_promptService.GetPrompt(PromptType.SummaryInstruction)));
 
                 var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
-                var summary = completion.Value.Content[0].Text?.Trim();
+                var summary = completion?.Value?.Content?.FirstOrDefault()?.Text?.Trim();
 
                 if (!string.IsNullOrEmpty(summary))
                 {

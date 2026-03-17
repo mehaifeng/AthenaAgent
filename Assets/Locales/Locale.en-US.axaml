@@ -3,7 +3,10 @@
                     xmlns:system="clr-namespace:System;assembly=netstandard">
 
     <!-- Main Window -->
-    <system:String x:Key="App.Title">Athena AI Assistant</system:String>
+    <system:String x:Key="App.Title">Athena General intelligence</system:String>
+    <system:String x:Key="Notification.AssistantTitle">Athena replied</system:String>
+    <system:String x:Key="Tray.Show">Show Main Window</system:String>
+    <system:String x:Key="Tray.Quit">Quit</system:String>
     <system:String x:Key="Tab.ChatLink">Chat</system:String>
     <system:String x:Key="Tab.SysConfig">Settings</system:String>
     <system:String x:Key="Tab.Scheduler">Scheduler</system:String>

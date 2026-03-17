@@ -254,7 +254,7 @@ public class OpenAIChatService : IChatService
                 var resultJson = result.ToJson();
                 Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}", 
                     toolCall.FunctionName, 
-                    resultJson.Length > 200 ? resultJson.Substring(0, 200) + "..." : resultJson);
+                    resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
                 
                 // 通知 UI 产生了工具结果消息
                 var toolResultMsg = new Models.ChatMessage

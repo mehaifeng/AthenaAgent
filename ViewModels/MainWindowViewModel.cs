@@ -92,7 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _localizationService = localizationService;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);

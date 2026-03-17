@@ -25,6 +25,9 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     private readonly ILogger _logger;
     private readonly IEmbeddingService? _embeddingService;
     private readonly VectorStoreService _vectorStoreService;
+    private FileSystemWatcher? _watcher;
+    private readonly ConcurrentDictionary<string, DateTime> _pendingUpdates = new();
+    private Timer? _debounceTimer;
 
     /// <summary>
     /// 文档向量缓存（内存中）
@@ -99,9 +102,56 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
 
         Directory.CreateDirectory(_knowledgeBasePath);
+        SetupWatcher();
 
         _logger.Information("Knowledge base service initialized at {Path}, vector search: {Enabled}",
             _knowledgeBasePath, _embeddingService?.IsConfigured ?? false);
+    }
+
+    private void SetupWatcher()
+    {
+        try
+        {
+            _watcher = new FileSystemWatcher(_knowledgeBasePath, "*.md")
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
+            };
+
+            _watcher.Created += (s, e) => EnqueueUpdate(e.FullPath);
+            _watcher.Changed += (s, e) => EnqueueUpdate(e.FullPath);
+            _watcher.Deleted += (s, e) => EnqueueUpdate(e.FullPath);
+            _watcher.Renamed += (s, e) => { EnqueueUpdate(e.OldFullPath); EnqueueUpdate(e.FullPath); };
+
+            _watcher.EnableRaisingEvents = true;
+            
+            _debounceTimer = new Timer(ProcessPendingUpdates, null, Timeout.Infinite, Timeout.Infinite);
+            _logger.Information("知识库文件监控已启动");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "初始化知识库监控失败");
+        }
+    }
+
+    private void EnqueueUpdate(string fullPath)
+    {
+        var relativePath = GetRelativePath(fullPath);
+        _pendingUpdates[relativePath] = DateTime.Now;
+        _debounceTimer?.Change(1000, Timeout.Infinite); // 1秒防抖
+    }
+
+    private async void ProcessPendingUpdates(object? state)
+    {
+        var filesToUpdate = _pendingUpdates.Keys.ToList();
+        foreach (var relativePath in filesToUpdate)
+        {
+            if (_pendingUpdates.TryRemove(relativePath, out _))
+            {
+                _logger.Information("检测到外部文件变更，正在后台更新索引: {File}", relativePath);
+                await UpdateFileVectorsAsync(relativePath);
+            }
+        }
     }
 
     /// <summary>
@@ -348,14 +398,48 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
     public async Task<List<KnowledgeSearchResult>> SearchAsync(string query, int maxResults = 5)
     {
-        // 如果 Embedding 服务不可用，返回空结果
-        if (_embeddingService == null || !_embeddingService.IsConfigured)
+        var results = new List<KnowledgeSearchResult>();
+
+        // 1. 获取 FTS 结果 (关键字匹配)
+        var ftsResults = await _vectorStoreService.SearchFtsAsync(query, maxResults);
+        foreach (var fts in ftsResults)
         {
-            _logger.Warning("Embedding 服务未配置，无法搜索知识库");
-            return new List<KnowledgeSearchResult>();
+            results.Add(new KnowledgeSearchResult
+            {
+                FilePath = fts.FilePath,
+                Snippet = fts.Content,
+                RelevanceScore = 0.5 + Math.Min(0.4, fts.Score * 0.01) // 给 FTS 结果一个基础权重，但不超过 0.9
+            });
         }
 
-        return await SearchWithEmbeddingAsync(query, maxResults);
+        // 2. 获取向量结果 (语义匹配)
+        if (_embeddingService != null && _embeddingService.IsConfigured)
+        {
+            var vectorResults = await SearchWithEmbeddingAsync(query, maxResults);
+            
+            // 合并结果
+            foreach (var vr in vectorResults)
+            {
+                var existing = results.FirstOrDefault(r => r.FilePath == vr.FilePath && r.Snippet == vr.Snippet);
+                if (existing != null)
+                {
+                    // 如果两个都有，权重叠加
+                    existing.RelevanceScore = Math.Max(existing.RelevanceScore, vr.RelevanceScore) + 0.1;
+                }
+                else
+                {
+                    results.Add(vr);
+                }
+            }
+        }
+
+        // 3. 重排并去重
+        return results
+            .OrderByDescending(r => r.RelevanceScore)
+            .GroupBy(r => new { r.FilePath, r.Snippet })
+            .Select(g => g.First())
+            .Take(maxResults)
+            .ToList();
     }
 
     /// <summary>
@@ -397,8 +481,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                     Similarity = _embeddingService.CosineSimilarity(queryEmbedding, doc.Embedding!)
                 })
                 .OrderByDescending(x => x.Similarity)
-                .Take(maxResults * 2) // 多取一些，后续去重
+                .Take(maxResults * 2) 
                 .ToList();
+
+            _logger.Debug("向量计算完成，Top1 相似度: {Sim}", scoredDocs.FirstOrDefault()?.Similarity ?? 0);
 
             // 按文件去重，保留最高分
             var uniqueResults = scoredDocs
@@ -441,12 +527,33 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             // 初始化数据库
             await _vectorStoreService.InitializeAsync();
 
-            // 从数据库加载已有向量
-            var existingVectors = await _vectorStoreService.LoadAllVectorsAsync();
-            var fileStatuses = await _vectorStoreService.GetFileStatusesAsync();
+        // 从数据库加载已有向量
+        var existingVectors = await _vectorStoreService.LoadAllVectorsAsync();
+        var fileStatuses = await _vectorStoreService.GetFileStatusesAsync();
 
-            _logger.Information("从数据库加载 {VectorCount} 个向量，{FileCount} 个文件状态",
-                existingVectors.Count, fileStatuses.Count);
+        _logger.Information("从数据库加载 {VectorCount} 个向量，{FileCount} 个文件状态",
+            existingVectors.Count, fileStatuses.Count);
+
+        // 维度一致性检查：检查数据库中是否存在不一致的维度，或者与当前模型不符
+        if (existingVectors.Count > 0 && _embeddingService != null && _embeddingService.IsConfigured)
+        {
+            var testEmbedding = await _embeddingService.GenerateEmbeddingAsync("test");
+            if (testEmbedding != null)
+            {
+                var currentModelDim = testEmbedding.Length;
+                
+                // 检查是否所有向量都匹配当前维度
+                bool allMatch = existingVectors.All(v => v.Embedding != null && v.Embedding.Length == currentModelDim);
+                
+                if (!allMatch)
+                {
+                    _logger.Warning("检测到数据库中存在旧模型生成的向量（维度不匹配），正在清除旧索引并强制全量重新索引以保证检索准确性...");
+                    await _vectorStoreService.ClearAllAsync();
+                    existingVectors.Clear();
+                    fileStatuses.Clear();
+                }
+            }
+        }
 
             // 获取当前文件列表
             var currentFiles = Directory.GetFiles(_knowledgeBasePath, "*.md", SearchOption.AllDirectories)
@@ -630,29 +737,84 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>
-    /// 文本分块
+    /// 语义化 Markdown 文本分块
+    /// 优先按标题 (H1-H3) 切分，其次按段落切分，尽量保持代码块和列表的完整性
     /// </summary>
-    private List<string> SplitIntoChunks(string text, int chunkSize)
+    private List<string> SplitIntoChunks(string text, int maxChunkSize)
     {
-        var chunks = new List<string>();
-        var lines = text.Split('\n');
-        var currentChunk = new StringBuilder();
+        if (string.IsNullOrWhiteSpace(text)) return new List<string>();
 
+        var chunks = new List<string>();
+        var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        
+        var currentChunk = new StringBuilder();
+        bool inCodeBlock = false;
+        
         foreach (var line in lines)
         {
-            if (currentChunk.Length + line.Length > chunkSize && currentChunk.Length > 0)
+            var trimmedLine = line.Trim();
+            
+            // 处理代码块状态
+            if (trimmedLine.StartsWith("```"))
             {
-                chunks.Add(currentChunk.ToString().Trim());
+                inCodeBlock = !inCodeBlock;
+            }
+
+            // 检查是否是语义切分点（仅在非代码块内）
+            bool isHeader = !inCodeBlock && (trimmedLine.StartsWith("# ") || trimmedLine.StartsWith("## ") || trimmedLine.StartsWith("### "));
+            bool isParagraphBoundary = !inCodeBlock && string.IsNullOrWhiteSpace(trimmedLine);
+
+            // 决定是否在此处切断
+            bool shouldSplit = false;
+            
+            if (isHeader && currentChunk.Length > 0)
+            {
+                // 遇到新标题且已有内容，切断
+                shouldSplit = true;
+            }
+            else if (isParagraphBoundary && currentChunk.Length > (maxChunkSize * 0.7))
+            {
+                // 遇到段落结尾且当前分块已达到建议大小的 70%，切断以防过大
+                shouldSplit = true;
+            }
+            else if (currentChunk.Length + line.Length > maxChunkSize && !inCodeBlock)
+            {
+                // 强制切断：当前内容加上此行将超过最大限制（且不在代码块内）
+                shouldSplit = true;
+            }
+
+            if (shouldSplit && currentChunk.Length > 0)
+            {
+                var content = currentChunk.ToString().Trim();
+                if (!string.IsNullOrEmpty(content))
+                {
+                    chunks.Add(content);
+                }
                 currentChunk.Clear();
             }
+
             currentChunk.AppendLine(line);
+
+            // 如果单行或单个代码块就已经超过了 maxChunkSize，也必须强制切分（兜底）
+            if (currentChunk.Length > maxChunkSize * 1.5 && !inCodeBlock)
+            {
+                var content = currentChunk.ToString().Trim();
+                chunks.Add(content);
+                currentChunk.Clear();
+            }
         }
 
+        // 添加最后一个分块
         if (currentChunk.Length > 0)
         {
-            chunks.Add(currentChunk.ToString().Trim());
+            var content = currentChunk.ToString().Trim();
+            if (!string.IsNullOrEmpty(content))
+            {
+                chunks.Add(content);
+            }
         }
 
+        // 最终过滤
         return chunks.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
     }
 

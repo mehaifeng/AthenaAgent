@@ -4,6 +4,9 @@
 
     <!-- Main Window -->
     <system:String x:Key="App.Title">雅典娜 AI 助手</system:String>
+    <system:String x:Key="Notification.AssistantTitle">雅典娜已回复</system:String>
+    <system:String x:Key="Tray.Show">显示主窗口</system:String>
+    <system:String x:Key="Tray.Quit">退出</system:String>
     <system:String x:Key="Tab.ChatLink">对话</system:String>
     <system:String x:Key="Tab.SysConfig">设置</system:String>
     <system:String x:Key="Tab.Scheduler">计划</system:String>

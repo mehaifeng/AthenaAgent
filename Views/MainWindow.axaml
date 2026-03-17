@@ -15,7 +15,7 @@
         Width="700" 
         Height="900"
         WindowStartupLocation="CenterScreen"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/Athena.ico"
         FontFamily="{DynamicResource MonospaceFontFamily}">
 
     <Design.DataContext>
