@@ -23,6 +23,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly ITaskScheduler? _taskScheduler;
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly ITokenService? _tokenService;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     [ObservableProperty]
@@ -71,7 +72,7 @@ public partial class ChatTabViewModel : ViewModelBase
     // 记录加载时的消息数量，用于判断是否发生了修改
     private int _initialMessageCount;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -80,7 +81,8 @@ public partial class ChatTabViewModel : ViewModelBase
         IPromptService? promptService,
         ITaskScheduler? taskScheduler,
         IFunctionRegistry? functionRegistry,
-        ITokenService? tokenService)
+        ITokenService? tokenService,
+        ILocalizationService? localizationService)
     {
         _chatService = chatService;
         _configService = configService;
@@ -89,6 +91,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
+        _localizationService = localizationService;
 
         // Initialize from config
         if (_configService != null)
@@ -346,6 +349,12 @@ public partial class ChatTabViewModel : ViewModelBase
             }
 
             UpdateConversationContext();
+
+            // 回复结束触发图标闪烁
+            if (string.IsNullOrEmpty(assistantMsg.ToolCallsJson) && !string.IsNullOrEmpty(assistantMsg.Content))
+            {
+                App.StartTrayFlashing();
+            }
         }
         catch (Exception ex)
         {

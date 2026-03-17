@@ -155,11 +155,33 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     public float CosineSimilarity(float[] a, float[] b)
     {
-        if (a == null || b == null || a.Length != b.Length)
+        if (a == null || b == null)
         {
             return 0f;
         }
 
-        return TensorPrimitives.CosineSimilarity(a.AsSpan(), b.AsSpan());
+        if (a.Length != b.Length)
+        {
+            _logger.Warning("Embedding 维度不匹配: Query({QLen}) vs Doc({DLen})。建议刷新知识库缓存。", a.Length, b.Length);
+            return 0f;
+        }
+
+        try
+        {
+            var similarity = TensorPrimitives.CosineSimilarity(a.AsSpan(), b.AsSpan());
+            
+            if (float.IsNaN(similarity))
+            {
+                _logger.Warning("CosineSimilarity 返回了 NaN (向量 A 为空或 B 为空)");
+                return 0f;
+            }
+            
+            return similarity;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "计算余弦相似度失败");
+            return 0f;
+        }
     }
 }

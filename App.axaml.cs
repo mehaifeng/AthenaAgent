@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
@@ -29,6 +30,11 @@ public partial class App : Application
     public static IServiceProvider?  Services { get; private set; }
 
     /// <summary>
+    /// 是否正在退出应用程序
+    /// </summary>
+    public bool IsQuitting { get; private set; }
+
+    /// <summary>
     /// 平台路径服务
     /// </summary>
     private static IPlatformPathService? _platformPathService;
@@ -46,6 +52,141 @@ public partial class App : Application
         Log.Information("应用程序启动中... 平台: Desktop");
 
         AvaloniaXamlLoader.Load(this);
+    }
+
+    private void TrayIcon_OnClicked(object? sender, EventArgs e)
+    {
+        StopTrayFlashing();
+        ShowMainWindow();
+    }
+
+    private void MenuShow_OnClick(object? sender, EventArgs e)
+    {
+        StopTrayFlashing();
+        ShowMainWindow();
+    }
+
+    private void MenuQuit_OnClick(object? sender, EventArgs e)
+    {
+        StopTrayFlashing();
+        IsQuitting = true;
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+        }
+    }
+
+    private void ShowMainWindow()
+    {
+        StopTrayFlashing();
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+        {
+            desktop.MainWindow.Show();
+            desktop.MainWindow.WindowState = WindowState.Normal;
+            desktop.MainWindow.Activate();
+        }
+    }
+
+    private System.Threading.CancellationTokenSource? _flashCts;
+
+    /// <summary>
+    /// 开始托盘图标闪烁
+    /// </summary>
+    public static void StartTrayFlashing()
+    {
+        if (Current is App app)
+        {
+            // 检查窗口是否处于活跃状态且可见。如果是，则不闪烁。
+            if (app.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
+            {
+                if (desktop.MainWindow.IsVisible && desktop.MainWindow.IsActive)
+                {
+                    Log.Debug("窗口正处于前台活跃状态，跳过闪烁提示");
+                    return;
+                }
+            }
+            app.InternalStartFlashing();
+        }
+    }
+
+    /// <summary>
+    /// 停止托盘图标闪烁
+    /// </summary>
+    public static void StopTrayFlashing()
+    {
+        if (Current is App app)
+        {
+            app.InternalStopFlashing();
+        }
+    }
+
+    private void InternalStartFlashing()
+    {
+        if (_flashCts != null) return; // 已经在闪烁
+
+        _flashCts = new System.Threading.CancellationTokenSource();
+        var token = _flashCts.Token;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                // 在 UI 线程获取托盘图标实例
+                TrayIcon? trayIcon = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => TrayIcon.GetIcons(this)?.FirstOrDefault());
+                if (trayIcon == null) return;
+
+                // 备份原始图标（同样需要在 UI 线程访问属性）
+                var originalIcon = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => trayIcon.Icon);
+                bool isIconVisible = true;
+
+                while (!token.IsCancellationRequested)
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        // 通过切换图标来实现闪烁
+                        trayIcon.Icon = isIconVisible ? null : originalIcon;
+                        isIconVisible = !isIconVisible;
+                    });
+                    await Task.Delay(500, token);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "托盘闪烁循环发生错误");
+            }
+            finally
+            {
+                // 恢复原始图标并确保可见
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    var trayIcon = TrayIcon.GetIcons(this)?.FirstOrDefault();
+                    if (trayIcon != null)
+                    {
+                        // 如果图标为空，则重新尝试加载
+                        if (trayIcon.Icon == null)
+                        {
+                            try
+                            {
+                                trayIcon.Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://Athena.UI/Assets/Athena.ico")));
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning(ex, "恢复托盘图标失败");
+                            }
+                        }
+                        trayIcon.IsVisible = true;
+                    }
+                });
+            }
+        }, token);
+    }
+
+    private void InternalStopFlashing()
+    {
+        _flashCts?.Cancel();
+        _flashCts?.Dispose();
+        _flashCts = null;
     }
 
     public override void OnFrameworkInitializationCompleted()

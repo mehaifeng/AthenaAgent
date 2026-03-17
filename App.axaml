@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Athena.UI.App"
              xmlns:local="using:Athena.UI"
+             xmlns:loc="using:Athena.UI.Markup"
              xmlns:conv="using:Athena.UI.Converters"
              xmlns:semi="https://irihi.tech/semi"
              xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
@@ -10,6 +11,21 @@
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
+
+    <TrayIcon.Icons>
+        <TrayIcons>
+            <TrayIcon Icon="/Assets/Athena.ico" 
+                      ToolTipText="Athena"
+                      Clicked="TrayIcon_OnClicked">
+                <TrayIcon.Menu>
+                    <NativeMenu>
+                        <NativeMenuItem Header="{loc:Loc Tray.Show}" Click="MenuShow_OnClick" />
+                        <NativeMenuItem Header="{loc:Loc Tray.Quit}" Click="MenuQuit_OnClick" />
+                    </NativeMenu>
+                </TrayIcon.Menu>
+            </TrayIcon>
+        </TrayIcons>
+    </TrayIcon.Icons>
 
     <Application.Resources>
         <ResourceDictionary>

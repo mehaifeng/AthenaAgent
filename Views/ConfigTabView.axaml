@@ -4,6 +4,8 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
+             xmlns:ctxt="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
              d:DesignHeight="1080"
@@ -247,14 +249,23 @@
                         <Border Background="{DynamicResource App.AssistantBubbleBg}" CornerRadius="4" Padding="12" Margin="0,8,0,0">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="{loc:Loc Config.CompressionPreview}" FontSize="12" FontWeight="SemiBold" Opacity="0.7"/>
-                                <TextBox BorderBrush="LightGray" 
-                                         Text="{Binding TokenService.CompressionPreview}"
-                                         TextWrapping="Wrap"
-                                         FontSize="12" 
-                                         MaxHeight="150" 
-                                         IsReadOnly="True"
-                                         Background="Transparent" 
-                                         BorderThickness="1"/>
+                                <Border BorderThickness="1" BorderBrush="LightGray" CornerRadius="5">
+                                    <md:MarkdownScrollViewer
+                                        Markdown="{Binding TokenService.CompressionPreview}"
+                                        HorizontalAlignment="Stretch"
+                                        MinHeight="50"
+                                        MaxHeight="200"
+                                        VerticalAlignment="Stretch">
+                                        <md:MarkdownScrollViewer.Styles>
+                                            <Style Selector="ctxt|CTextBlock.Heading1"> <Setter Property="FontSize" Value="19"/> </Style>
+                                            <Style Selector="ctxt|CTextBlock.Heading2"> <Setter Property="FontSize" Value="17"/> </Style>
+                                            <Style Selector="ctxt|CTextBlock.Heading3"> <Setter Property="FontSize" Value="15"/> </Style>
+                                            <Style Selector="ctxt|CTextBlock.Heading4"> <Setter Property="FontSize" Value="14"/> </Style>
+                                            <Style Selector="ctxt|CTextBlock.Heading5"> <Setter Property="FontSize" Value="13"/> </Style>
+                                            <Style Selector="ctxt|CTextBlock.Heading6"> <Setter Property="FontSize" Value="13"/> </Style>
+                                        </md:MarkdownScrollViewer.Styles>
+                                    </md:MarkdownScrollViewer>
+                                </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button Command="{Binding CompressContextCommand}">
                                         <Panel>
