@@ -19,6 +19,7 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly Dictionary<string, Func<string, Task<FunctionResult>>> _executors = new();
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
+    private readonly IConfigService? _configService;
     private int? _cachedToolDeclarationTokens = null;
 
     public bool HasFunctions => _tools.Count > 0;
@@ -29,13 +30,18 @@ public class FunctionRegistry : IFunctionRegistry
         ConfigurationFunctions configFunctions,
         FileSystemFunctions fileSystemFunctions,
         CliFunctions cliFunctions,
+        WebSearchFunctions webSearchFunctions,
+        IConfigService? configService,
         ILogger logger)
     {
+        _configService = configService;
         _logger = logger.ForContext<FunctionRegistry>();
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
-            "Executes a console command. By default, it waits for the process to exit and captures output. For GUI applications (like 'regedit', 'notepad') or long-running background tasks, set 'waitForExit' to false to launch and return immediately. DO NOT use this for file system tasks like 'ls', 'mkdir', or 'rm'—use the dedicated file system tools instead.",
+            $"Executes a shell command on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use PowerShell/cmd syntax" : OperatingSystem.IsMacOS() ? "macOS — use zsh/POSIX syntax" : "Linux — use bash/POSIX syntax")}). " +
+            "By default, waits for the process to exit and captures output. For GUI applications or long-running background tasks, set 'waitForExit' to false. " +
+            "DO NOT use this for file system tasks like 'ls', 'mkdir', or 'rm'—use the dedicated file system tools instead.",
             new
             {
                 type = "object",
@@ -100,6 +106,20 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     query = new { type = "string", description = "Search query or keywords." },
                     maxResults = new { type = "integer", description = "Maximum number of results to return.", @default = 3 }
+                },
+                required = new[] { "query" }
+            });
+
+        // --- Web Search (始终注册，执行时检查是否启用) ---
+        RegisterFunction("web_search", webSearchFunctions.WebSearchAsync,
+            "Searches the web for current information. Use this when you need up-to-date information that may not be in your training data, such as recent news, current events, or real-time data. NOTE: This tool requires Web Search to be enabled in settings.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    query = new { type = "string", description = "Search query or question to look up on the web." },
+                    maxResults = new { type = "integer", description = "Maximum number of search results to return.", @default = 5 }
                 },
                 required = new[] { "query" }
             });
