@@ -81,7 +81,7 @@ public partial class AppConfig : ObservableObject
     private int _maxContextTokens = 128000;
 
     [ObservableProperty]
-    private int _compressionThreshold = 6000;
+    private int _compressionThreshold = 64000;
 
     [ObservableProperty]
     private bool _autoCompress = true;

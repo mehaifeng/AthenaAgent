@@ -47,9 +47,22 @@ public partial class ConfigTabViewModel : ViewModelBase
     private ITokenService? _tokenService;
 
     [ObservableProperty]
-    private int _contextTokensThreshold = 4000;
+    private int _contextTokensThreshold = 64000;
 
-    public ObservableCollection<string> Providers { get; } = new() { "OpenAI", "Azure", "Custom" };
+    private static readonly Dictionary<string, string> ProviderUrls = new()
+    {
+        { "OpenAI", "https://api.openai.com/v1" },
+        { "Anthropic", "https://api.anthropic.com/v1/" },
+        { "Google", "https://generativelanguage.googleapis.com/v1beta/openai/" },
+        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
+        { "Mimimaxi", "https://api.minimaxi.com/v1" },
+        { "Alibaba", "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+        { "Deepseek", "https://api.deepseek.com/v1" },
+        { "OpenRouter", "https://openrouter.ai/api/v1" },
+        { "Custom", "" }
+    };
+
+    public ObservableCollection<string> Providers { get; } = new(ProviderUrls.Keys);
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
 
     public ObservableCollection<string> Languages { get; }
@@ -135,7 +148,28 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             if (e.PropertyName == nameof(AppConfig.MaxContextTokens))
             {
-                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
+                if (TokenService != null) TokenService.MaxTokens = config.MaxContextTokens;
+            }
+            else if (e.PropertyName == nameof(AppConfig.Provider))
+            {
+                if (ProviderUrls.TryGetValue(config.Provider, out var url))
+                {
+                    config.BaseUrl = url;
+                }
+            }
+            else if (e.PropertyName == nameof(AppConfig.SecondaryProvider))
+            {
+                if (ProviderUrls.TryGetValue(config.SecondaryProvider, out var url))
+                {
+                    config.SecondaryBaseUrl = url;
+                }
+            }
+            else if (e.PropertyName == nameof(AppConfig.EmbeddingProvider))
+            {
+                if (ProviderUrls.TryGetValue(config.EmbeddingProvider, out var url))
+                {
+                    config.EmbeddingBaseUrl = url;
+                }
             }
         };
     }
