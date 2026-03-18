@@ -186,4 +186,9 @@
     <system:String x:Key="Dialog.ConfirmPurgeTasks">Are you sure you want to delete all scheduled tasks?</system:String>
     <system:String x:Key="Dialog.ConfirmDeleteFile">Are you sure you want to delete "{0}"? This cannot be undone.</system:String>
 
+    <!-- Web Search -->
+    <system:String x:Key="Config.WebSearch">Web Search</system:String>
+    <system:String x:Key="Config.TestConnection">Test Connection</system:String>
+    <system:String x:Key="Config.Test">Test</system:String>
+
 </ResourceDictionary>

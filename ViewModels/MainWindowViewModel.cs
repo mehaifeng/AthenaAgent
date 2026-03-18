@@ -87,13 +87,14 @@ public partial class MainWindowViewModel : ViewModelBase
         IFileSystemService? fileSystemService,
         IPlatformPathService? platformPathService,
         IFunctionRegistry? functionRegistry,
-        ITokenService? tokenService)
+        ITokenService? tokenService,
+        IWebSearchService? webSearchService)
     {
         _localizationService = localizationService;
 
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
