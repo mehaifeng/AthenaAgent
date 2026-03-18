@@ -102,4 +102,7 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private string _webSearchApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _webSearchAppId = string.Empty;
 }

@@ -204,7 +204,7 @@
                                     </Grid>
 
                                     <!-- 供应商选择 -->
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding WebSearchProviders}"
@@ -218,8 +218,11 @@
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.WebSearchApiKey}" PasswordChar="*" Margin="0,0,0,8"/>
 
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <Button Grid.Row="3" Grid.Column="1"
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="App ID" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsBaiduProvider}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.WebSearchAppId}" Margin="0,0,0,8" IsVisible="{Binding IsBaiduProvider}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <Button Grid.Row="4" Grid.Column="1"
                                                 Content="{loc:Loc Config.Test}"
                                                 Command="{Binding TestWebSearchCommand}"
                                                 IsEnabled="{Binding Config.WebSearchEnabled}"
