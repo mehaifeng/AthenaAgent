@@ -6,6 +6,7 @@
              xmlns:conv="using:Athena.UI.Converters"
              xmlns:semi="https://irihi.tech/semi"
              xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
+             xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
@@ -31,6 +32,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="avares://Athena.UI/Styles/Icons.axaml" />
+                <ResourceInclude Source="avares://LiveMarkdown.Avalonia/Defaults.axaml"/>
             </ResourceDictionary.MergedDictionaries>
             
             <!-- 主题字典定义 -->
@@ -44,7 +46,7 @@
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
                     <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#FFFFFF" />
                 </ResourceDictionary>
-                <!-- 语义化颜色定义：浅色模式 -->
+                <!-- 语义化颜色 definition：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="App.SectionBg" Color="#F6F6F6" />
                     <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#E8F2FF" />
@@ -80,6 +82,8 @@
     <Application.Styles>
         <semi:SemiTheme Locale="zh-CN" />
         <u-semi:SemiTheme Locale="zh-CN"/>
+        <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml"/>
+
         <!-- 全局样式：使 TabItem 标题稍微大一点 -->
         <Style Selector="TabItem">
             <Setter Property="FontSize" Value="15"/>
