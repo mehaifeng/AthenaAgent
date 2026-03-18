@@ -5,8 +5,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:models="using:Athena.UI.Models"
-             xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
-             xmlns:ctxt="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia"
+             xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d"
              d:DesignWidth="720" 
              d:DesignHeight="1080"
@@ -177,20 +176,15 @@
                     <!-- Editor -->
                     <Grid Grid.Row="1" Margin="10">
                         <!-- 预览模式：Markdown 渲染 -->
-                        <md:MarkdownScrollViewer
-                                Markdown="{Binding EditingFileContent}"
-                                IsVisible="{Binding !IsEditingFile}"
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch">
-                            <md:MarkdownScrollViewer.Styles>
-                                <Style Selector="ctxt|CTextBlock.Heading1"> <Setter Property="FontSize" Value="19"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                                <Style Selector="ctxt|CTextBlock.Heading2"> <Setter Property="FontSize" Value="17"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                                <Style Selector="ctxt|CTextBlock.Heading3"> <Setter Property="FontSize" Value="15"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                                <Style Selector="ctxt|CTextBlock.Heading4"> <Setter Property="FontSize" Value="14"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                                <Style Selector="ctxt|CTextBlock.Heading5"> <Setter Property="FontSize" Value="13"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                                <Style Selector="ctxt|CTextBlock.Heading6"> <Setter Property="FontSize" Value="13"/> <Setter Property="Foreground" Value="{DynamicResource Markdown.HeadingFg}"/> </Style>
-                            </md:MarkdownScrollViewer.Styles>
-                        </md:MarkdownScrollViewer>
+                        <ScrollViewer IsVisible="{Binding !IsEditingFile}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <lmd:MarkdownRenderer loc:MarkdownHelper.Text="{Binding EditingFileContent}">
+                                <lmd:MarkdownRenderer.Styles>
+									<Style Selector="lmd|CodeBlock">
+                                      <Setter Property="ColorTheme" Value="TomorrowNightBlue"/>
+                                    </Style>
+                                </lmd:MarkdownRenderer.Styles>
+                            </lmd:MarkdownRenderer>
+                        </ScrollViewer>
 
                         <!-- 编辑模式：TextBox -->
                         <TextBox
