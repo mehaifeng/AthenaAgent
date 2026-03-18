@@ -20,6 +20,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IEmbeddingService? _embeddingService;
     private readonly IConversationHistoryService? _historyService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IWebSearchService? _webSearchService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -67,6 +68,15 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> Languages { get; }
 
+    public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "Zhipu", "Baidu" };
+
+    private static readonly Dictionary<string, string> WebSearchUrls = new()
+    {
+        { "Tavily", "https://api.tavily.com" },
+        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
+        { "Baidu", "https://qianfan.baidubce.com/v2/app/conversation/runs" }
+    };
+
     [ObservableProperty]
     private int _selectedLanguageIndex;
 
@@ -87,15 +97,16 @@ public partial class ConfigTabViewModel : ViewModelBase
     public event EventHandler? SaveRequested;
     public event EventHandler? ResetRequested;
 
-    public ConfigTabViewModel() : this(null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService)
     {
         _configService = configService;
         _chatService = chatService;
         _embeddingService = embeddingService;
         _historyService = historyService;
         _localizationService = localizationService;
+        _webSearchService = webSearchService;
 
         if (_localizationService != null)
         {
@@ -208,6 +219,43 @@ public partial class ConfigTabViewModel : ViewModelBase
             ConnectionStatus = message.TrimEnd().Replace("\n", " ");
         }
         finally { IsTestingConnection = false; }
+    }
+
+    [ObservableProperty]
+    private string _webSearchTestStatus = string.Empty;
+
+    [ObservableProperty]
+    private bool _isTestingWebSearch;
+
+    [RelayCommand]
+    private async Task TestWebSearchAsync()
+    {
+        if (_webSearchService == null) { WebSearchTestStatus = "服务未初始化"; return; }
+        if (!Config.WebSearchEnabled) { WebSearchTestStatus = "请先启用 Web Search"; return; }
+        if (string.IsNullOrWhiteSpace(Config.WebSearchApiKey)) { WebSearchTestStatus = "请先输入 API Key"; return; }
+
+        IsTestingWebSearch = true;
+        WebSearchTestStatus = "测试中...";
+        try
+        {
+            // 刷新配置
+            if (_webSearchService is WebSearchService ws) ws.RefreshConfig();
+            var (success, message) = await _webSearchService.TestConnectionAsync();
+            WebSearchTestStatus = message;
+        }
+        finally { IsTestingWebSearch = false; }
+    }
+
+    /// <summary>
+    /// 更新 Web Search Base URL（供应商切换时调用）
+    /// </summary>
+    public void UpdateWebSearchBaseUrl(string? provider)
+    {
+        if (string.IsNullOrEmpty(provider)) return;
+        if (WebSearchUrls.TryGetValue(provider, out var url))
+        {
+            Config.WebSearchBaseUrl = url;
+        }
     }
 
     [RelayCommand]

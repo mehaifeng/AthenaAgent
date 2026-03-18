@@ -395,6 +395,21 @@ public partial class App : Application
             return new CliFunctions(cliService, logger);
         });
 
+        // Web Search 服务
+        services.AddSingleton<IWebSearchService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var logger = Log.ForContext<WebSearchService>();
+            return new WebSearchService(configService, logger);
+        });
+
+        services.AddSingleton<WebSearchFunctions>(sp =>
+        {
+            var webSearchService = sp.GetRequiredService<IWebSearchService>();
+            var logger = Log.ForContext<WebSearchFunctions>();
+            return new WebSearchFunctions(webSearchService, logger);
+        });
+
         // Function Registry（单例）
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
@@ -403,9 +418,11 @@ public partial class App : Application
             var configFunctions = sp.GetRequiredService<ConfigurationFunctions>();
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var cliFunctions = sp.GetRequiredService<CliFunctions>();
+            var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
+            var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）
@@ -456,6 +473,7 @@ public partial class App : Application
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
+            var webSearchService = sp.GetService<IWebSearchService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -470,7 +488,8 @@ public partial class App : Application
                 fileSystemService,
                 platformPathService,
                 functionRegistry,
-                tokenService);
+                tokenService,
+                webSearchService);
         });
 
         Log.Debug("依赖注入服务配置完成");

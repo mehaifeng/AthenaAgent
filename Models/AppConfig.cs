@@ -89,4 +89,17 @@ public partial class AppConfig : ObservableObject
     // 文件系统控制策略
     [ObservableProperty]
     private FileSystemPolicyConfig _fileSystemPolicy = new();
+
+    // Web Search 配置
+    [ObservableProperty]
+    private bool _webSearchEnabled = false;
+
+    [ObservableProperty]
+    private string _webSearchProvider = "Tavily";
+
+    [ObservableProperty]
+    private string _webSearchBaseUrl = "https://api.tavily.com";
+
+    [ObservableProperty]
+    private string _webSearchApiKey = string.Empty;
 }

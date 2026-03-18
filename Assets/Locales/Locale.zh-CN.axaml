@@ -187,4 +187,9 @@
     <system:String x:Key="Dialog.ConfirmPurgeTasks">确定要删除所有计划任务吗？</system:String>
     <system:String x:Key="Dialog.ConfirmDeleteFile">确定要删除"{0}"吗？此操作不可撤销。</system:String>
 
+    <!-- Web Search -->
+    <system:String x:Key="Config.WebSearch">网络搜索</system:String>
+    <system:String x:Key="Config.TestConnection">测试连接</system:String>
+    <system:String x:Key="Config.Test">测试</system:String>
+
 </ResourceDictionary>

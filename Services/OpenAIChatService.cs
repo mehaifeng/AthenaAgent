@@ -338,7 +338,8 @@ public class OpenAIChatService : IChatService
 
         var messages = new List<OpenAI.Chat.ChatMessage>
         {
-            new SystemChatMessage(persona)
+            new SystemChatMessage(persona),
+            new SystemChatMessage(GetPlatformContextMessage())
         };
 
         // 如果存在摘要，作为第一条系统消息插入（在人格之后）
@@ -435,5 +436,52 @@ public class OpenAIChatService : IChatService
         public string Id { get; set; } = string.Empty;
         public string FunctionName { get; set; } = string.Empty;
         public StringBuilder Arguments { get; set; } = new StringBuilder();
+    }
+
+    /// <summary>
+    /// 生成平台上下文 system message，让模型知道当前运行环境
+    /// </summary>
+    private static string GetPlatformContextMessage()
+    {
+        string os, shell, pathSep, lineEnding, examplePath;
+
+        if (OperatingSystem.IsWindows())
+        {
+            os = "Windows";
+            shell = "PowerShell (pwsh) or cmd.exe";
+            pathSep = @"\";
+            lineEnding = "CRLF (\\r\\n)";
+            examplePath = @"C:\Users\username\Documents";
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            os = "macOS";
+            shell = "zsh";
+            pathSep = "/";
+            lineEnding = "LF (\\n)";
+            examplePath = "/Users/username/Documents";
+        }
+        else
+        {
+            os = "Linux";
+            shell = "bash";
+            pathSep = "/";
+            lineEnding = "LF (\\n)";
+            examplePath = "/home/username/documents";
+        }
+
+        return $"""
+            ## Runtime Environment (injected — do not modify)
+            - OS: {os}
+            - Default shell: {shell}
+            - Path separator: `{pathSep}`
+            - Line endings: {lineEnding}
+            - Example path: `{examplePath}`
+
+            When using `execute_terminal_command`, always use commands and syntax appropriate for **{os}**.
+            - On Windows: use PowerShell cmdlets or cmd syntax (e.g., `Get-ChildItem`, `ipconfig`, `tasklist`)
+            - On macOS/Linux: use POSIX shell commands (e.g., `ls`, `ps`, `ifconfig`/`ip`)
+            Never mix cross-platform commands (e.g., do not use `ls` on Windows or `dir` on macOS).
+            """;
     }
 }
