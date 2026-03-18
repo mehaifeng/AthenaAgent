@@ -70,11 +70,13 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "Zhipu", "Baidu" };
 
+    public bool IsBaiduProvider => Config.WebSearchProvider == "Baidu";
+
     private static readonly Dictionary<string, string> WebSearchUrls = new()
     {
         { "Tavily", "https://api.tavily.com" },
         { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
-        { "Baidu", "https://qianfan.baidubce.com/v2/app/conversation/runs" }
+        { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
     };
 
     [ObservableProperty]
@@ -137,7 +139,21 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    partial void OnConfigChanged(AppConfig value) => SetupConfigListener(value);
+    partial void OnConfigChanged(AppConfig value)
+    {
+        if (value != null)
+        {
+            SetupConfigListener(value);
+            // 订阅 Config 属性变化，触发 UI 更新
+            value.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(AppConfig.WebSearchProvider))
+                {
+                    OnPropertyChanged(nameof(IsBaiduProvider));
+                }
+            };
+        }
+    }
 
     /// <summary>
     /// 外部（如 LLM 工具调用）修改配置后，在 UI 线程上刷新 ConfigTab 显示
