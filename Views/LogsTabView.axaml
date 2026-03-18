@@ -93,7 +93,7 @@
                                     BorderThickness="0,0,0,1"
                                     Padding="5,0"
                                     Opacity="0.9">
-                                <Grid ColumnDefinitions="140,100,*">
+                                <Grid ColumnDefinitions="100,100,*">
                                     <!-- Timestamp -->
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Timestamp, StringFormat='{}{0:MM-dd HH:mm:ss}'}"
