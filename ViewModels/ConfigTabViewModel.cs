@@ -305,10 +305,10 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanTestConnection))]
     private async Task TestConnectionAsync()
     {
-        if (_chatService == null) { ConnectionStatus = "服务未初始化"; return; }
-        if (string.IsNullOrWhiteSpace(Config.ApiKey)) { ConnectionStatus = "请先输入 API Key"; return; }
+        if (_chatService == null) { ConnectionStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (string.IsNullOrWhiteSpace(Config.ApiKey)) { ConnectionStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
         IsTestingConnection = true;
-        ConnectionStatus = "测试中...";
+        ConnectionStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
         {
             _chatService.UpdateConfig(Config);
@@ -328,12 +328,12 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanTestWebSearch))]
     private async Task TestWebSearchAsync()
     {
-        if (_webSearchService == null) { WebSearchTestStatus = "服务未初始化"; return; }
-        if (!Config.WebSearchEnabled) { WebSearchTestStatus = "请先启用 Web Search"; return; }
-        if (string.IsNullOrWhiteSpace(Config.WebSearchApiKey)) { WebSearchTestStatus = "请先输入 API Key"; return; }
+        if (_webSearchService == null) { WebSearchTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (!Config.WebSearchEnabled) { WebSearchTestStatus = _localizationService?.GetString("Status.EnableWebSearchFirst") ?? "Please enable Web Search first"; return; }
+        if (string.IsNullOrWhiteSpace(Config.WebSearchApiKey)) { WebSearchTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
 
         IsTestingWebSearch = true;
-        WebSearchTestStatus = "测试中...";
+        WebSearchTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
         {
             // 刷新配置
@@ -347,10 +347,10 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanTestSecondary))]
     private async Task TestSecondaryAsync()
     {
-        if (_historyService == null) { SecondaryTestStatus = "服务未初始化"; return; }
-        
+        if (_historyService == null) { SecondaryTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+
         IsTestingSecondary = true;
-        SecondaryTestStatus = "测试中...";
+        SecondaryTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
         {
             _historyService.UpdateSecondaryConfig(Config);
@@ -363,10 +363,10 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanTestEmbedding))]
     private async Task TestEmbeddingAsync()
     {
-        if (_embeddingService == null) { EmbeddingTestStatus = "服务未初始化"; return; }
+        if (_embeddingService == null) { EmbeddingTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
 
         IsTestingEmbedding = true;
-        EmbeddingTestStatus = "测试中...";
+        EmbeddingTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
         {
             if (_embeddingService is OpenAIEmbeddingService oes)

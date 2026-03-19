@@ -352,25 +352,28 @@ public partial class ChatTabViewModel : ViewModelBase
 
                         // Update the main bubble's status
                         assistantMsg.IsLoading = false;
-                        try 
+                        try
                         {
                             var toolCalls = System.Text.Json.Nodes.JsonNode.Parse(msg.ToolCallsJson)?.AsArray();
                             if (toolCalls != null && toolCalls.Count > 0)
                             {
                                 var names = toolCalls.Select(x => x?["FunctionName"]?.ToString()).Where(x => !string.IsNullOrEmpty(x));
-                                assistantMsg.ToolExecutionSummary = $"正在调用: {string.Join(", ", names)}...";
+                                var callingTemplate = _localizationService?.GetString("Tool.Calling") ?? "Calling: {0}...";
+                                assistantMsg.ToolExecutionSummary = string.Format(callingTemplate, string.Join(", ", names));
                             }
-                            else assistantMsg.ToolExecutionSummary = "正在调用工具...";
+                            else assistantMsg.ToolExecutionSummary = _localizationService?.GetString("Tool.CallingTool") ?? "Calling tool...";
                         }
-                        catch { assistantMsg.ToolExecutionSummary = "正在调用工具..."; }
+                        catch { assistantMsg.ToolExecutionSummary = _localizationService?.GetString("Tool.CallingTool") ?? "Calling tool..."; }
                     }
                     else if (msg.Role == "tool")
                     {
                         Messages.Add(msg);
-                        
+
                         // 工具执行完毕，等待大模型下一步指示
-                        var name = string.IsNullOrEmpty(msg.ToolName) ? "工具" : msg.ToolName;
-                        assistantMsg.ToolExecutionSummary = $"{name} 调用完毕，持续思考中...";
+                        var defaultToolName = _localizationService?.GetString("Tool.DefaultName") ?? "Tool";
+                        var name = string.IsNullOrEmpty(msg.ToolName) ? defaultToolName : msg.ToolName;
+                        var completeTemplate = _localizationService?.GetString("Tool.CallComplete") ?? "{0} completed, continuing...";
+                        assistantMsg.ToolExecutionSummary = string.Format(completeTemplate, name);
                     }
                 },
                 addToContext: addToContext))

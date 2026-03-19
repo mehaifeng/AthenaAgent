@@ -40,6 +40,7 @@
                         <TextBlock Text="Agent Athena"
                                    FontSize="32"
                                    FontWeight="Bold"
+                                   FontFamily="Consola"
                                    HorizontalAlignment="Center"
                                    Foreground="{DynamicResource SemiBlue6}"/>
 
@@ -66,12 +67,12 @@
                                    FontSize="14"
                                    Opacity="0.9"/>
 
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="12,0,0,0">
+                        <Grid ColumnDefinitions="100,Auto" RowDefinitions="Auto,Auto,Auto,Auto" Margin="12,0,0,0">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc About.KernelVer}" Opacity="0.6" VerticalAlignment="Center"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="v0.0.1-ALPHA" FontWeight="Bold" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.Framework}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET 10 / AVALONIA UI /Semi.Avalonia" Margin="0,12,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET 10 / AVALONIA UI" TextWrapping="Wrap" Margin="0,12,0,0" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.License}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT" Margin="0,12,0,0" VerticalAlignment="Center"/>
