@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
@@ -8,6 +9,8 @@ namespace Athena.UI.ViewModels;
 
 public partial class CreateTaskDialogViewModel : ViewModelBase
 {
+    private readonly ILocalizationService? _localizationService;
+
     /// <summary>
     /// 触发时间
     /// </summary>
@@ -40,10 +43,27 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
     /// <summary>
     /// 循环模式显示名称
     /// </summary>
-    public ObservableCollection<string> RecurrenceDisplayNames { get; } = new()
+    public ObservableCollection<string> RecurrenceDisplayNames { get; }
+
+    public CreateTaskDialogViewModel() : this(null) { }
+
+    public CreateTaskDialogViewModel(ILocalizationService? localizationService)
     {
-        "一次性 (None)", "每天 (Daily)", "每周 (Weekly)", "每 3 天", "每 2 周"
-    };
+        _localizationService = localizationService;
+        RecurrenceDisplayNames = new ObservableCollection<string>
+        {
+            GetLocalizedString("Recurrence.NoneDisplay", "Once"),
+            GetLocalizedString("Recurrence.DailyDisplay", "Daily"),
+            GetLocalizedString("Recurrence.WeeklyDisplay", "Weekly"),
+            GetLocalizedString("Recurrence.Every3Days", "Every 3 days"),
+            GetLocalizedString("Recurrence.Every2Weeks", "Every 2 weeks")
+        };
+    }
+
+    private string GetLocalizedString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
+    }
 
     private int _selectedRecurrenceIndex;
     public int SelectedRecurrenceIndex

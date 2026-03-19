@@ -30,7 +30,7 @@ public partial class TasksTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task CreateTaskAsync()
     {
-        var viewModel = new CreateTaskDialogViewModel();
+        var viewModel = new CreateTaskDialogViewModel(_localizationService);
         var dialog = new CreateTaskDialog(viewModel);
 
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

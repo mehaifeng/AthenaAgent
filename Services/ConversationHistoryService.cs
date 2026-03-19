@@ -28,14 +28,16 @@ public class ConversationHistoryService : IConversationHistoryService
     private readonly string _historyDirectory;
     private readonly IChatService? _chatService;
     private readonly IPromptService _promptService;
+    private readonly ILocalizationService? _localizationService;
     private AppConfig? _secondaryConfig;
     private OpenAIClient? _secondaryClient;
     private ChatClient? _secondaryChatClient;
 
-    public ConversationHistoryService(IChatService? chatService, IPromptService promptService, IPlatformPathService? platformPathService = null)
+    public ConversationHistoryService(IChatService? chatService, IPromptService promptService, IPlatformPathService? platformPathService = null, ILocalizationService? localizationService = null)
     {
         _chatService = chatService;
         _promptService = promptService;
+        _localizationService = localizationService;
 
         if (platformPathService != null)
         {
@@ -52,6 +54,11 @@ public class ConversationHistoryService : IConversationHistoryService
         }
         Directory.CreateDirectory(_historyDirectory);
         Log.Information("对话历史服务初始化，存储目录: {Dir}", _historyDirectory);
+    }
+
+    private string GetString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
     }
 
     public void UpdateSecondaryConfig(Models.AppConfig config)
@@ -211,7 +218,7 @@ public class ConversationHistoryService : IConversationHistoryService
     {
         if (messages == null || messages.Count == 0)
         {
-            return "空对话";
+            return GetString("History.EmptyConversation", "Empty conversation");
         }
 
         // 如果需要使用 AI 生成摘要
@@ -266,7 +273,7 @@ public class ConversationHistoryService : IConversationHistoryService
         var firstUserMessage = messages.FirstOrDefault(m => m.Role?.ToLower() == "user")?.Content;
         if (string.IsNullOrEmpty(firstUserMessage))
         {
-            return "新对话";
+            return GetString("History.NewConversation", "New conversation");
         }
         
         if (firstUserMessage.Length <= 30)
@@ -358,7 +365,8 @@ public class ConversationHistoryService : IConversationHistoryService
             }
 
             Log.Information("上下文压缩完成，从 {Old} 条消息安全压缩为摘要 (活跃部分从第 {Index} 条 User 消息重新开始)", olderMessages.Count, splitIndex);
-            return !string.IsNullOrEmpty(summary) ? $"[对话摘要]: {summary}" : null;
+            var summaryPrefix = GetString("History.SummaryPrefix", "[Summary]: {0}");
+            return !string.IsNullOrEmpty(summary) ? string.Format(summaryPrefix, summary) : null;
         }
         catch (Exception ex)
         {
@@ -371,7 +379,7 @@ public class ConversationHistoryService : IConversationHistoryService
     {
         if (_secondaryChatClient == null)
         {
-            return (false, "请先配置 API Key 和模型");
+            return (false, GetString("History.ConfigureApiKeyFirst", "Please configure API Key and model first"));
         }
 
         try
@@ -387,14 +395,15 @@ public class ConversationHistoryService : IConversationHistoryService
 
             if (response?.Value?.Content == null || response.Value.Content.Count == 0)
             {
-                return (false, "连接成功但未收到有效响应");
+                return (false, GetString("History.ConnectionSuccessNoResponse", "Connection successful but no valid response"));
             }
 
-            return (true, "连接成功");
+            return (true, GetString("History.ConnectionSuccess", "Connection successful"));
         }
         catch (Exception ex)
         {
-            return (false, $"连接失败: {ex.Message}");
+            var failedTemplate = GetString("History.ConnectionFailed", "Connection failed: {0}");
+            return (false, string.Format(failedTemplate, ex.Message));
         }
     }
 }

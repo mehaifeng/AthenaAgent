@@ -6,7 +6,8 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: add i18n localization support with en-US and zh-CN\n\n- Add LocalizationService with runtime language switching\n- Add ILocalizationService interface\n- Add en-US and zh-CN locale resource files\n- Add localization markup extension\n- Update all Views and ViewModels to support localization\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git rebase:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: localize Chinese strings to multi-language resources\n\n- Add localization keys for status messages, tool execution status, and conversation history\n- Update ConfigTabViewModel to use localization for test connection status\n- Update ChatTabViewModel to use localization for tool calling status\n- Update ScheduledTask and CreateTaskDialogViewModel to use localization for recurrence display\n- Update ConversationHistoryService to use localization for summary and connection messages\n- Add new keys to both Locale.zh-CN.axaml and Locale.en-US.axaml\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
