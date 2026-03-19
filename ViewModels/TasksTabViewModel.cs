@@ -57,10 +57,25 @@ public partial class TasksTabViewModel : ViewModelBase
             button: MessageBoxButton.OKCancel,
             icon: MessageBoxIcon.Warning);
 
-        if (result == MessageBoxResult.Yes)
+        if (result == MessageBoxResult.OK)
         {
             if (_taskScheduler != null) await _taskScheduler.ClearAllAsync();
             else _localTasks.Clear();
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteTaskAsync(ScheduledTask task)
+    {
+        if (task == null) return;
+
+        if (_taskScheduler != null)
+        {
+            await _taskScheduler.CancelAsync(task.Id);
+        }
+        else
+        {
+            _localTasks.Remove(task);
         }
     }
 }

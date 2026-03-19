@@ -111,22 +111,15 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Border Classes="task-item-card">
-                            <Grid ColumnDefinitions="Auto,*">
+                            <Grid ColumnDefinitions="*,30">
 
-                                <!-- Status Indicator -->
-                                <PathIcon Grid.Column="0" 
-                                          Data="{StaticResource SemiIconTick}"
-                                          Width="16" Height="16"
-                                          Margin="0,0,16,0"
-                                          VerticalAlignment="Top"/>
-
-                                <StackPanel Grid.Column="1" Spacing="8">
+                                <StackPanel Grid.Column="0" Spacing="8">
                                     <TextBlock Text="{Binding Intent}"
                                                TextWrapping="Wrap"
                                                FontSize="14"
                                                FontWeight="Medium"/>
 
-                                    <Separator Height="1" Margin="0,4"/>
+                                    <Separator Height="1" Margin="0,4,30,4"/>
 
                                     <StackPanel Orientation="Horizontal" Spacing="24">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -148,6 +141,18 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
+
+                                <!-- Delete Button -->
+                                <Button Grid.Column="1"
+                                        Command="{Binding $parent[ListBox].((vm:TasksTabViewModel)DataContext).DeleteTaskCommand}"
+                                        CommandParameter="{Binding}"
+                                        Classes="danger"
+                                        Theme="{StaticResource BorderlessButtonTheme}"
+                                        VerticalAlignment="Center"
+                                        Padding="4"
+                                        ToolTip.Tip="{loc:Loc History.BtnDel}">
+                                    <PathIcon Data="{StaticResource SemiIconDelete}" Width="14" Height="14" Opacity="0.6"/>
+                                </Button>
 
                             </Grid>
                         </Border>

@@ -366,4 +366,35 @@ public class ConversationHistoryService : IConversationHistoryService
             return null;
         }
     }
+
+    public async Task<(bool Success, string Message)> TestSecondaryConnectionAsync()
+    {
+        if (_secondaryChatClient == null)
+        {
+            return (false, "请先配置 API Key 和模型");
+        }
+
+        try
+        {
+            var messages = new List<OpenAI.Chat.ChatMessage>
+            {
+                new SystemChatMessage("Reply with 'OK' only."),
+                new UserChatMessage("test")
+            };
+
+            var options = new ChatCompletionOptions { MaxOutputTokenCount = 10 };
+            var response = await _secondaryChatClient.CompleteChatAsync(messages, options);
+
+            if (response?.Value?.Content == null || response.Value.Content.Count == 0)
+            {
+                return (false, "连接成功但未收到有效响应");
+            }
+
+            return (true, "连接成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"连接失败: {ex.Message}");
+        }
+    }
 }

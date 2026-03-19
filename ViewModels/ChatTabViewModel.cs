@@ -288,6 +288,41 @@ public partial class ChatTabViewModel : ViewModelBase
         // File attachment logic
     }
 
+    /// <summary>
+    /// 处理来自调度器的主动消息
+    /// </summary>
+    public async Task ProcessProactiveMessageAsync(string intent)
+    {
+        if (_chatService == null || _promptService == null || IsSending || IsCompressing)
+        {
+            _logger.Warning("忽略主动消息触发：当前正忙或服务未初始化 (IsSending={IsSending})", IsSending);
+            return;
+        }
+
+        _logger.Information("开始处理主动消息逻辑: {Intent}", intent);
+
+        // 构造主动触发指令
+        var proactivePrompt = _promptService.GetProactiveMessagePrompt(intent, DateTime.Now);
+        
+        // 重要：为了绕过大多数 LLM API 不允许以 System 消息结尾或纯 System 消息序列的限制，
+        // 我们将主动指令作为一条“隐藏的用户消息”注入。
+        var triggerMsg = new ChatMessage
+        {
+            Role = "user",
+            Content = proactivePrompt,
+            IsHidden = true, // 在 UI 中不可见
+            Timestamp = DateTime.Now
+        };
+        
+        Messages.Add(triggerMsg);
+
+        // 确保上下文包含这条新消息
+        UpdateConversationContext();
+
+        // 触发 AI 响应（addToContext 为 false 因为我们已经手动添加到 Messages 列表并更新了 Context）
+        await GetAiResponseAsync(string.Empty, addToContext: false);
+    }
+
     private async Task GetAiResponseAsync(string input, bool addToContext = true)
     {
         if (_chatService == null) return;

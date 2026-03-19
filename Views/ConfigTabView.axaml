@@ -7,7 +7,7 @@
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
-             d:DesignHeight="1080"
+             d:DesignHeight="2000"
              x:Class="Athena.UI.Views.ConfigTabView"
              x:DataType="vm:ConfigTabViewModel">
 
@@ -15,7 +15,7 @@
         <vm:ConfigTabViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="40,*,Auto">
+    <Grid RowDefinitions="40,*">
 
         <!-- HEADER -->
         <Border Grid.Row="0"
@@ -108,7 +108,7 @@
                             <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,0">
                                 <Button Grid.Column="0"
                                         Command="{Binding TestConnectionCommand}"
-                                        IsEnabled="{Binding !IsTestingConnection}"
+                                        IsEnabled="{Binding CanTestConnection}"
                                         Theme="{StaticResource AccentButtonTheme}"
                                         Padding="16,4">
                                     <Panel>
@@ -143,7 +143,7 @@
                             <TabItem Header="{loc:Loc Config.BgTasks}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionSecondaryAI}" FontWeight="SemiBold" Opacity="0.8"/>
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
@@ -171,7 +171,29 @@
                                                     VerticalAlignment="Center" FontWeight="SemiBold" Margin="12,0,0,0"/>
                                         </Grid>
                                         <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SecondaryMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch"/>
+                                        <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SecondaryMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                            <Button Grid.Column="0"
+                                                    Command="{Binding TestSecondaryCommand}"
+                                                    IsEnabled="{Binding CanTestSecondary}"
+                                                    Theme="{StaticResource AccentButtonTheme}"
+                                                    Padding="16,4">
+                                                <Panel>
+                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingSecondary}"/>
+                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingSecondary}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                </Panel>
+                                            </Button>
+                                            <TextBlock Grid.Column="1"
+                                                    Text="{Binding SecondaryTestStatus}"
+                                                    TextWrapping="Wrap"
+                                                    Margin="12,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="12"
+                                                    Opacity="0.8"/>
+                                        </Grid>
                                     </Grid>
                                 </StackPanel>
                             </TabItem>
@@ -179,7 +201,7 @@
                             <TabItem Header="{loc:Loc Config.VectorKb}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionEmbedding}" FontWeight="SemiBold" Opacity="0.8"/>
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
@@ -190,7 +212,29 @@
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" HorizontalAlignment="Stretch"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                            <Button Grid.Column="0"
+                                                    Command="{Binding TestEmbeddingCommand}"
+                                                    IsEnabled="{Binding CanTestEmbedding}"
+                                                    Theme="{StaticResource AccentButtonTheme}"
+                                                    Padding="16,4">
+                                                <Panel>
+                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingEmbedding}"/>
+                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingEmbedding}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                </Panel>
+                                            </Button>
+                                            <TextBlock Grid.Column="1"
+                                                    Text="{Binding EmbeddingTestStatus}"
+                                                    TextWrapping="Wrap"
+                                                    Margin="12,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="12"
+                                                    Opacity="0.8"/>
+                                        </Grid>
                                     </Grid>
                                 </StackPanel>
                             </TabItem>
@@ -222,11 +266,26 @@
                                         <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.WebSearchAppId}" Margin="0,0,0,8" IsVisible="{Binding IsBaiduProvider}"/>
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <Button Grid.Row="4" Grid.Column="1"
-                                                Content="{loc:Loc Config.Test}"
-                                                Command="{Binding TestWebSearchCommand}"
-                                                IsEnabled="{Binding Config.WebSearchEnabled}"
-                                                HorizontalAlignment="Left" MinWidth="100"/>
+                                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                            <Button Grid.Column="0"
+                                                    Command="{Binding TestWebSearchCommand}"
+                                                    IsEnabled="{Binding CanTestWebSearch}"
+                                                    Theme="{StaticResource AccentButtonTheme}"
+                                                    Padding="16,4">
+                                                <Panel>
+                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingWebSearch}"/>
+                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingWebSearch}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                </Panel>
+                                            </Button>
+                                            <TextBlock Grid.Column="1"
+                                                    Text="{Binding WebSearchTestStatus}"
+                                                    TextWrapping="Wrap"
+                                                    Margin="12,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="12"
+                                                    Opacity="0.8"/>
+                                        </Grid>
                                     </Grid>
                                 </StackPanel>
                             </TabItem>
@@ -306,36 +365,5 @@
                 </Border>
             </Grid>
         </ScrollViewer>
-
-        <!-- FOOTER: SAVE/RESET -->
-        <Border Grid.Row="2"
-                Padding="16,12"
-                Background="{DynamicResource App.SectionBg}"
-                BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}">
-            <StackPanel HorizontalAlignment="Right"
-                        Orientation="Horizontal"
-                        Spacing="12">
-                <Button Command="{Binding SaveConfigCommand}"
-                        Classes="accent"
-                        IsEnabled="{Binding !IsSaving}"
-                        Padding="24,6"
-                        ToolTip.Tip="{loc:Loc Btn.CommitChanges}">
-                    <Panel>
-                        <PathIcon Data="{StaticResource SemiIconSave}" Width="18" Height="18" IsVisible="{Binding !IsSaving}"/>
-                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="18" Height="18" IsVisible="{Binding IsSaving}" Classes="SlowSpin"/>
-                    </Panel>
-                </Button>
-                <Button Command="{Binding ResetConfigCommand}"
-                        IsEnabled="{Binding !IsResetting}"
-                        Padding="24,6"
-                        ToolTip.Tip="{loc:Loc Btn.Rollback}">
-                    <Panel>
-                        <PathIcon Data="{StaticResource SemiIconUndo}" Width="18" Height="18" IsVisible="{Binding !IsResetting}"/>
-                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="18" Height="18" IsVisible="{Binding IsResetting}" Classes="SlowSpin"/>
-                    </Panel>
-                </Button>
-            </StackPanel>
-        </Border>
     </Grid>
 </UserControl>

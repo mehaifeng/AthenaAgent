@@ -93,19 +93,19 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="models:ConversationHistoryItem">
                             <Border Classes="history-item-card">
-                                <Grid ColumnDefinitions="*,Auto">
+                                <Grid ColumnDefinitions="*,60">
 
                                     <!-- Data Block -->
-                                    <Grid Grid.Column="0" Grid.RowDefinitions="Auto,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="8">
                                         <TextBlock 
-                                            Grid.Row="0"
                                             Text="{Binding Summary}"
                                             TextWrapping="Wrap"
                                             MaxLines="2"
                                             FontSize="14"
                                             FontWeight="SemiBold"/>
+                                        <Separator Height="1" Margin="0,4,30,4"/>
                                         <StackPanel
-                                            Grid.Row="1" Orientation="Horizontal" Spacing="24">
+                                            Orientation="Horizontal" Spacing="24">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <TextBlock Text="{loc:Loc History.Msgs}" FontSize="12" Opacity="0.6"/>
                                                 <TextBlock Text="{Binding MessageCount}" FontSize="12" FontWeight="SemiBold"/>
@@ -115,22 +115,24 @@
                                                 <TextBlock Text="{Binding DisplayTime}" FontSize="12" FontWeight="SemiBold"/>
                                             </StackPanel>
                                         </StackPanel>
-                                    </Grid>
+                                    </StackPanel>
 
                                     <!-- Action Buttons -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,20,0">
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).SelectHistoryCommand}"
                                                 CommandParameter="{Binding}"
                                                 Theme="{StaticResource AccentButtonTheme}"
-                                                Padding="12,4"
-                                                Content="{loc:Loc History.BtnRestore}">
+                                                Padding="4"
+                                                ToolTip.Tip="{loc:Loc History.BtnRestore}">
+                                            <PathIcon Data="{DynamicResource SemiIconComment}" Height="14" Width="14" Opacity="0.6"/>
                                         </Button>
 
                                         <Button Command="{Binding $parent[ListBox].((vm:HistoryTabViewModel)DataContext).DeleteHistoryCommand}"
                                                 CommandParameter="{Binding}"
                                                 Classes="danger"
-                                                Padding="8,4"
-                                                Content="{loc:Loc History.BtnDel}">
+                                                Padding="4"
+                                                ToolTip.Tip="{loc:Loc History.BtnDel}">
+                                            <PathIcon Data="{DynamicResource SemiIconDelete}" Width="14" Height="14" Opacity="0.6"/>
                                         </Button>
                                     </StackPanel>
                                 </Grid>

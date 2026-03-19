@@ -111,7 +111,30 @@ public partial class MainWindowViewModel : ViewModelBase
         // Wire up events
         _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
 
+        if (taskScheduler != null)
+        {
+            taskScheduler.ProactiveMessageTriggered += OnProactiveMessageTriggered;
+        }
+
         _logger.Information("MainWindowViewModel 初始化完成");
+    }
+
+    private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)
+    {
+        // 必须在 UI 线程处理，因为涉及切换 Tab 和修改 ObservableCollection
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            _logger.Information("收到主动消息触发事件: {Intent}", e.Intent);
+            
+            // 1. 托盘闪烁提醒
+            App.StartTrayFlashing();
+
+            // 2. 切换到聊天 Tab
+            SelectedTabIndex = 0;
+
+            // 3. 执行消息注入和 AI 响应逻辑
+            await ChatTabViewModel.ProcessProactiveMessageAsync(e.Intent);
+        });
     }
 
     private void OnHistoryDeleted(object? sender, string id)

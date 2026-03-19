@@ -39,7 +39,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
-            $"Executes a shell command on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use PowerShell/cmd syntax" : OperatingSystem.IsMacOS() ? "macOS — use zsh/POSIX syntax" : "Linux — use bash/POSIX syntax")}). " +
+            $"Executes a shell command on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use use PowerShell/cmd syntax" : OperatingSystem.IsMacOS() ? "macOS — use zsh/POSIX syntax" : "Linux — use bash/POSIX syntax")}). " +
             "By default, waits for the process to exit and captures output. For GUI applications or long-running background tasks, set 'waitForExit' to false. " +
             "DO NOT use this for file system tasks like 'ls', 'mkdir', or 'rm'—use the dedicated file system tools instead.",
             new
