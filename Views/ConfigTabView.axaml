@@ -43,12 +43,18 @@
                                    FontWeight="Bold"
                                    FontSize="15"/>
 
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="跳过重新生成确认" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SkipRegenerateConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="跳过编辑确认" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding Config.SkipEditConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
                         </Grid>
                     </StackPanel>
                 </Border>
