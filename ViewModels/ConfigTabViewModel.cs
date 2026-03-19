@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Threading;
 using System.Threading.Tasks;
 using Ursa.Controls;
 
@@ -30,16 +31,19 @@ public partial class ConfigTabViewModel : ViewModelBase
     private string _connectionStatus = string.Empty;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestConnectionCommand))]
     private bool _isTestingConnection;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestSecondaryCommand))]
+    private bool _isTestingSecondary;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestEmbeddingCommand))]
+    private bool _isTestingEmbedding;
+
+    [ObservableProperty]
     private bool _isCompressing;
-
-    [ObservableProperty]
-    private bool _isSaving;
-
-    [ObservableProperty]
-    private bool _isResetting;
 
     [ObservableProperty]
     private ChatTabViewModel? _chatTabViewModel;
@@ -49,6 +53,20 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private int _contextTokensThreshold = 64000;
+
+    public bool CanTestConnection => !IsTestingConnection;
+    public bool CanTestSecondary => !IsTestingSecondary;
+    public bool CanTestEmbedding => !IsTestingEmbedding;
+    public bool CanTestWebSearch => !IsTestingWebSearch;
+
+    [ObservableProperty]
+    private string _secondaryTestStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _embeddingTestStatus = string.Empty;
+
+    private CancellationTokenSource? _autoSaveCts;
+    private bool _isInternalSaving;
 
     private static readonly Dictionary<string, string> ProviderUrls = new()
     {
@@ -95,9 +113,6 @@ public partial class ConfigTabViewModel : ViewModelBase
             _logger.Information("语言已切换为: {Language}", selectedLanguage);
         }
     }
-
-    public event EventHandler? SaveRequested;
-    public event EventHandler? ResetRequested;
 
     public ConfigTabViewModel() : this(null, null, null, null, null, null) { }
 
@@ -160,6 +175,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     /// </summary>
     private void OnExternalConfigChanged(object? sender, AppConfig newConfig)
     {
+        if (_isInternalSaving) return; // Ignore events triggered by our own auto-save
+
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             Config = newConfig;
@@ -198,7 +215,71 @@ public partial class ConfigTabViewModel : ViewModelBase
                     config.EmbeddingBaseUrl = url;
                 }
             }
+            
+            // Trigger auto-save on any property change
+            RequestAutoSave();
         };
+    }
+
+    private void RequestAutoSave()
+    {
+        _autoSaveCts?.Cancel();
+        _autoSaveCts = new CancellationTokenSource();
+        var token = _autoSaveCts.Token;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500, token); // 500ms debounce
+                if (!token.IsCancellationRequested)
+                {
+                    await ExecuteAutoSaveAsync();
+                }
+            }
+            catch (TaskCanceledException) { /* Ignored */ }
+        });
+    }
+
+    private async Task ExecuteAutoSaveAsync()
+    {
+        _isInternalSaving = true;
+        try
+        {
+            if (_configService != null)
+            {
+                if (Config.CompressionThreshold > Config.MaxContextTokens)
+                {
+                    Config.CompressionThreshold = Config.MaxContextTokens;
+                    ContextTokensThreshold = Config.CompressionThreshold;
+                    _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
+                }
+
+                await _configService.SaveAsync(Config);
+
+                // Dispatch UI-related updates back to the UI thread
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    App.SetTheme(Config.Theme);
+                    _chatService?.UpdateConfig(Config);
+                    if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
+                    if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
+                    
+                    if (ChatTabViewModel != null)
+                    {
+                        await ChatTabViewModel.RefreshSettingsAsync();
+                    }
+                    
+                    if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
+                });
+                
+                _logger.Information("配置已自动静默保存");
+            }
+        }
+        finally
+        {
+            _isInternalSaving = false;
+        }
     }
 
     private async Task LoadConfigAsync()
@@ -221,7 +302,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanTestConnection))]
     private async Task TestConnectionAsync()
     {
         if (_chatService == null) { ConnectionStatus = "服务未初始化"; return; }
@@ -241,9 +322,10 @@ public partial class ConfigTabViewModel : ViewModelBase
     private string _webSearchTestStatus = string.Empty;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestWebSearchCommand))]
     private bool _isTestingWebSearch;
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanTestWebSearch))]
     private async Task TestWebSearchAsync()
     {
         if (_webSearchService == null) { WebSearchTestStatus = "服务未初始化"; return; }
@@ -262,6 +344,41 @@ public partial class ConfigTabViewModel : ViewModelBase
         finally { IsTestingWebSearch = false; }
     }
 
+    [RelayCommand(CanExecute = nameof(CanTestSecondary))]
+    private async Task TestSecondaryAsync()
+    {
+        if (_historyService == null) { SecondaryTestStatus = "服务未初始化"; return; }
+        
+        IsTestingSecondary = true;
+        SecondaryTestStatus = "测试中...";
+        try
+        {
+            _historyService.UpdateSecondaryConfig(Config);
+            var (success, message) = await _historyService.TestSecondaryConnectionAsync();
+            SecondaryTestStatus = message;
+        }
+        finally { IsTestingSecondary = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTestEmbedding))]
+    private async Task TestEmbeddingAsync()
+    {
+        if (_embeddingService == null) { EmbeddingTestStatus = "服务未初始化"; return; }
+
+        IsTestingEmbedding = true;
+        EmbeddingTestStatus = "测试中...";
+        try
+        {
+            if (_embeddingService is OpenAIEmbeddingService oes)
+            {
+                oes.UpdateConfig(Config);
+            }
+            var (success, message) = await _embeddingService.TestConnectionAsync();
+            EmbeddingTestStatus = message;
+        }
+        finally { IsTestingEmbedding = false; }
+    }
+
     /// <summary>
     /// 更新 Web Search Base URL（供应商切换时调用）
     /// </summary>
@@ -271,75 +388,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (WebSearchUrls.TryGetValue(provider, out var url))
         {
             Config.WebSearchBaseUrl = url;
-        }
-    }
-
-    [RelayCommand]
-    public async Task SaveConfigAsync()
-    {
-        if (IsSaving) return;
-        IsSaving = true;
-        try
-        {
-            if (_configService != null)
-            {
-                if (Config.CompressionThreshold > Config.MaxContextTokens)
-                {
-                    Config.CompressionThreshold = Config.MaxContextTokens;
-                    ContextTokensThreshold = Config.CompressionThreshold;
-                    _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
-                }
-
-                await _configService.SaveAsync(Config);
-                App.SetTheme(Config.Theme);
-                _chatService?.UpdateConfig(Config);
-                if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
-                if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
-                
-                if (ChatTabViewModel != null)
-                {
-                    await ChatTabViewModel.RefreshSettingsAsync();
-                }
-                
-                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
-            }
-            _logger.Information("配置已保存");
-            SaveRequested?.Invoke(this, EventArgs.Empty);
-            await Task.Delay(500); // Give user some visual feedback
-        }
-        finally
-        {
-            IsSaving = false;
-        }
-    }
-
-    [RelayCommand]
-    public async Task ResetConfigAsync()
-    {
-        if (IsResetting) return;
-        
-        var result = await MessageBox.ShowAsync(
-            message: _localizationService?.GetString("Dialog.ConfirmResetConfig") ?? "Are you sure you want to reset all settings to default? This cannot be undone.",
-            title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
-            button: MessageBoxButton.YesNo,
-            icon: MessageBoxIcon.Warning);
-
-        if (result == MessageBoxResult.Yes)
-        {
-            IsResetting = true;
-            try
-            {
-                Config = new AppConfig();
-                if (_configService != null) await _configService.SaveAsync(Config);
-                if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
-                _logger.Information("配置已重置");
-                ResetRequested?.Invoke(this, EventArgs.Empty);
-                await Task.Delay(500);
-            }
-            finally
-            {
-                IsResetting = false;
-            }
         }
     }
 

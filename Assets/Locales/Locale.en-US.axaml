@@ -66,6 +66,7 @@
     <system:String x:Key="Config.WarnHigh">High Usage (>80%)</system:String>
     <system:String x:Key="Config.CompressionPreview">Compression Preview</system:String>
     <system:String x:Key="Config.InheritPrimary">Inherit Primary Settings</system:String>
+    <system:String x:Key="Config.Enable">Enable Web Search</system:String>
 
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">Run Test</system:String>

@@ -184,4 +184,26 @@ public class OpenAIEmbeddingService : IEmbeddingService
             return 0f;
         }
     }
+
+    public async Task<(bool Success, string Message)> TestConnectionAsync()
+    {
+        if (_embeddingClient == null)
+        {
+            return (false, "请先配置 API Key 和模型");
+        }
+
+        try
+        {
+            var result = await GenerateEmbeddingAsync("test");
+            if (result != null && result.Length > 0)
+            {
+                return (true, "连接成功");
+            }
+            return (false, "生成向量失败");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"连接失败: {ex.Message}");
+        }
+    }
 }

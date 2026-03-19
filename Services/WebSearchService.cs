@@ -197,7 +197,7 @@ public class WebSearchService : IWebSearchService
                     Title = item.Title ?? string.Empty,
                     Url = item.Link ?? string.Empty,
                     Snippet = item.Content ?? item.Snippet ?? string.Empty,
-                    Source = "智谱AI"
+                    Source = "Zhipu"
                 });
             }
         }
@@ -253,15 +253,13 @@ public class WebSearchService : IWebSearchService
                 new { role = "user", content = query }
             },
             edition = "standard",
-            search_source = "baidu_search_v2",
-            search_recency_filter = "week"
+            search_source = "baidu_search_v2"
         };
 
         var requestJson = JsonSerializer.Serialize(request);
         _logger.Debug("百度搜索请求: {RequestJson}", requestJson);
 
         var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
         var response = await _httpClient.PostAsync(baseUrl, content);
         
         var responseJson = await response.Content.ReadAsStringAsync();
@@ -276,62 +274,18 @@ public class WebSearchService : IWebSearchService
         var baiduResponse = JsonSerializer.Deserialize<BaiduWebResponse>(responseJson);
 
         var results = new List<WebSearchResult>();
-        if (baiduResponse?.Messages != null)
+        if (baiduResponse?.References != null)
         {
-            foreach (var msg in baiduResponse.Messages)
+            foreach (var reference in baiduResponse.References.Take(maxResults))
             {
-                if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.Content))
+                results.Add(new WebSearchResult
                 {
-                    // 尝试从内容中提取搜索结果
-                    var lines = msg.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var line in lines)
-                    {
-                        if (line.TrimStart().StartsWith("标题:") || line.TrimStart().StartsWith("Title:"))
-                        {
-                            // 简单解析：标题: xxx\n链接: xxx\n摘要: xxx
-                            var parts = line.Split('\n');
-                            var title = "";
-                            var url = "";
-                            var snippet = "";
-                            
-                            foreach (var part in parts)
-                            {
-                                if (part.Contains("标题:") || part.Contains("Title:"))
-                                    title = part.Split(':').Skip(1).FirstOrDefault()?.Trim() ?? "";
-                                else if (part.Contains("链接:") || part.Contains("Url:") || part.Contains("URL:"))
-                                    url = part.Split(':').Skip(1).FirstOrDefault()?.Trim() ?? "";
-                                else if (part.Contains("摘要:") || part.Contains("Snippet:") || part.Contains("内容:"))
-                                    snippet = part.Split(':').Skip(1).FirstOrDefault()?.Trim() ?? "";
-                            }
-                            
-                            if (!string.IsNullOrEmpty(title))
-                            {
-                                results.Add(new WebSearchResult
-                                {
-                                    Title = title,
-                                    Url = url,
-                                    Snippet = snippet,
-                                    Source = "百度"
-                                });
-                            }
-                        }
-                    }
-                }
+                    Title = reference.Title ?? string.Empty,
+                    Url = reference.Url ?? string.Empty,
+                    Snippet = reference.Snippet ?? reference.Content ?? string.Empty,
+                    Source = "Baidu"
+                });
             }
-        }
-
-        // 如果解析不到，尝试直接返回原始内容作为一条结果
-        if (results.Count == 0 && !string.IsNullOrEmpty(baiduResponse?.RawContent))
-        {
-            results.Add(new WebSearchResult
-            {
-                Title = "百度搜索结果",
-                Url = "",
-                Snippet = baiduResponse.RawContent.Length > 500 
-                    ? baiduResponse.RawContent.Substring(0, 500) + "..." 
-                    : baiduResponse.RawContent,
-                Source = "百度"
-            });
         }
 
         _logger.Information("百度搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
@@ -340,38 +294,23 @@ public class WebSearchService : IWebSearchService
 
     private class BaiduWebResponse
     {
-        [JsonPropertyName("messages")]
-        public List<BaiduMessage>? Messages { get; set; }
+        [JsonPropertyName("request_id")]
+        public string? RequestId { get; set; }
 
-        [JsonPropertyName("raw_content")]
-        public string? RawContent { get; set; }
+        [JsonPropertyName("references")]
+        public List<BaiduReference>? References { get; set; }
     }
 
-    private class BaiduMessage
+    private class BaiduReference
     {
-        [JsonPropertyName("role")]
-        public string? Role { get; set; }
-
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
-    }
-
-    private class BaiduToolCall
-    {
-        [JsonPropertyName("type")]
-        public string? Type { get; set; }
-
-        [JsonPropertyName("search_result")]
-        public List<BaiduSearchItem>? SearchResult { get; set; }
-    }
-
-    private class BaiduSearchItem
-    {
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
+        [JsonPropertyName("id")]
+        public int Id { get; set; }
 
         [JsonPropertyName("url")]
         public string? Url { get; set; }
+
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
 
         [JsonPropertyName("content")]
         public string? Content { get; set; }

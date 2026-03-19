@@ -391,6 +391,17 @@ public class OpenAIChatService : IChatService
             }
         }
 
+        // 安全检查：如果消息列表以 system 消息结尾，或者完全没有用户消息，
+        // 许多 API（如智谱、DeepSeek、甚至部分 OpenAI 端点）会返回 400 错误。
+        if (messages.Count > 0 && messages.Last() is SystemChatMessage lastSystemMsg)
+        {
+            // 如果只有系统消息，我们将最后一条改为用户消息角色，以触发模型响应
+            var content = lastSystemMsg.Content.FirstOrDefault()?.Text ?? string.Empty;
+            messages.RemoveAt(messages.Count - 1);
+            messages.Add(new UserChatMessage(content));
+            Log.Debug("检测到以 System 消息结尾，已自动转换为 User 消息角色以规避 API 限制");
+        }
+
         return messages;
     }
 

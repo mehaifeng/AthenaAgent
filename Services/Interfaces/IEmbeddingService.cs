@@ -35,4 +35,9 @@ public interface IEmbeddingService
     /// <param name="b">向量 B</param>
     /// <returns>相似度（-1 到 1）</returns>
     float CosineSimilarity(float[] a, float[] b);
+
+    /// <summary>
+    /// 测试连接
+    /// </summary>
+    Task<(bool Success, string Message)> TestConnectionAsync();
 }

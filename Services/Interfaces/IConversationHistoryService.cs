@@ -52,4 +52,9 @@ public interface IConversationHistoryService
     /// <param name="keepRecentCount">保留最近的消息数量</param>
     /// <returns>压缩后的摘要文本，如果无需压缩则返回 null</returns>
     Task<string?> CompressContextAsync(List<ChatMessage> messages, int keepRecentCount = 10);
+
+    /// <summary>
+    /// 测试次级模型连接
+    /// </summary>
+    Task<(bool Success, string Message)> TestSecondaryConnectionAsync();
 }
