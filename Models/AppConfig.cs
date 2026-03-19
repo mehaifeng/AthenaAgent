@@ -105,4 +105,11 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private string _webSearchAppId = string.Empty;
+
+    // 用户偏好设置
+    [ObservableProperty]
+    private bool _skipRegenerateConfirm;
+
+    [ObservableProperty]
+    private bool _skipEditConfirm;
 }
