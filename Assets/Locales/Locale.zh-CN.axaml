@@ -46,6 +46,7 @@
     <system:String x:Key="Config.BgTasks">后台任务</system:String>
     <system:String x:Key="Config.VectorKb">向量知识库</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">后台任务与辅助核心</system:String>
+    <system:String x:Key="Config.Enable">启用Web Search</system:String>
 
 
 
