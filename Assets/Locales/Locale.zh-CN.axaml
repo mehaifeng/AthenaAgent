@@ -3,7 +3,7 @@
                     xmlns:system="clr-namespace:System;assembly=netstandard">
 
     <!-- Main Window -->
-    <system:String x:Key="App.Title">雅典娜 AI 助手</system:String>
+    <system:String x:Key="App.Title">帕拉斯·雅典娜</system:String>
     <system:String x:Key="Notification.AssistantTitle">雅典娜已回复</system:String>
     <system:String x:Key="Tray.Show">显示主窗口</system:String>
     <system:String x:Key="Tray.Quit">退出</system:String>
@@ -139,13 +139,13 @@
 
     <!-- About Tab -->
     <system:String x:Key="About.Header">关于雅典娜</system:String>
-    <system:String x:Key="About.Subtitle">智能 Agent 助手</system:String>
+    <system:String x:Key="About.Subtitle">帕拉斯·雅典娜</system:String>
     <system:String x:Key="About.Specs">系统规格:</system:String>
     <system:String x:Key="About.KernelVer">版本号:</system:String>
     <system:String x:Key="About.Framework">框架:</system:String>
     <system:String x:Key="About.License">许可证:</system:String>
     <system:String x:Key="About.Author">开发者:</system:String>
-    <system:String x:Key="About.Quote">“智慧始于好奇。”</system:String>
+    <system:String x:Key="About.Quote">“智慧始于好奇”</system:String>
     <system:String x:Key="About.BtnChkUpdates">检查更新</system:String>
     <system:String x:Key="About.BtnViewDocs">查看文档</system:String>
     <system:String x:Key="About.BtnSourceRepo">源码仓库</system:String>
@@ -192,5 +192,30 @@
     <system:String x:Key="Config.WebSearch">网络搜索</system:String>
     <system:String x:Key="Config.TestConnection">测试连接</system:String>
     <system:String x:Key="Config.Test">测试</system:String>
+
+    <!-- Service Status Messages -->
+    <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>
+    <system:String x:Key="Status.EnterApiKeyFirst">请先输入 API Key</system:String>
+    <system:String x:Key="Status.TestingConnection">测试中...</system:String>
+    <system:String x:Key="Status.EnableWebSearchFirst">请先启用 Web Search</system:String>
+
+    <!-- Tool Execution Status -->
+    <system:String x:Key="Tool.Calling">正在调用: {0}...</system:String>
+    <system:String x:Key="Tool.CallingTool">正在调用工具...</system:String>
+    <system:String x:Key="Tool.DefaultName">工具</system:String>
+    <system:String x:Key="Tool.CallComplete">{0} 调用完毕，持续思考中...</system:String>
+
+    <!-- Additional Recurrence Options -->
+    <system:String x:Key="Recurrence.Every3Days">每 3 天</system:String>
+    <system:String x:Key="Recurrence.Every2Weeks">每 2 周</system:String>
+
+    <!-- Conversation History -->
+    <system:String x:Key="History.EmptyConversation">空对话</system:String>
+    <system:String x:Key="History.NewConversation">新对话</system:String>
+    <system:String x:Key="History.SummaryPrefix">[对话摘要]: {0}</system:String>
+    <system:String x:Key="History.ConfigureApiKeyFirst">请先配置 API Key 和模型</system:String>
+    <system:String x:Key="History.ConnectionSuccessNoResponse">连接成功但未收到有效响应</system:String>
+    <system:String x:Key="History.ConnectionSuccess">连接成功</system:String>
+    <system:String x:Key="History.ConnectionFailed">连接失败: {0}</system:String>
 
 </ResourceDictionary>

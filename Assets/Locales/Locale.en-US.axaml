@@ -3,7 +3,7 @@
                     xmlns:system="clr-namespace:System;assembly=netstandard">
 
     <!-- Main Window -->
-    <system:String x:Key="App.Title">Athena General intelligence</system:String>
+    <system:String x:Key="App.Title">Pallas Athena</system:String>
     <system:String x:Key="Notification.AssistantTitle">Athena replied</system:String>
     <system:String x:Key="Tray.Show">Show Main Window</system:String>
     <system:String x:Key="Tray.Quit">Quit</system:String>
@@ -138,13 +138,13 @@
 
     <!-- About Tab -->
     <system:String x:Key="About.Header">About Athena</system:String>
-    <system:String x:Key="About.Subtitle">Intelligent Agent Assitant</system:String>
+    <system:String x:Key="About.Subtitle">Pallas Athena</system:String>
     <system:String x:Key="About.Specs">System Specifications:</system:String>
     <system:String x:Key="About.KernelVer">Version:</system:String>
     <system:String x:Key="About.Framework">Framework:</system:String>
     <system:String x:Key="About.License">License:</system:String>
     <system:String x:Key="About.Author">Developer:</system:String>
-    <system:String x:Key="About.Quote">"Wisdom begins in wonder."</system:String>
+    <system:String x:Key="About.Quote">"Wisdom begins in wonder"</system:String>
     <system:String x:Key="About.BtnChkUpdates">Check for Updates</system:String>
     <system:String x:Key="About.BtnViewDocs">Documentation</system:String>
     <system:String x:Key="About.BtnSourceRepo">GitHub</system:String>
@@ -191,5 +191,30 @@
     <system:String x:Key="Config.WebSearch">Web Search</system:String>
     <system:String x:Key="Config.TestConnection">Test Connection</system:String>
     <system:String x:Key="Config.Test">Test</system:String>
+
+    <!-- Service Status Messages -->
+    <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
+    <system:String x:Key="Status.EnterApiKeyFirst">Please enter API Key first</system:String>
+    <system:String x:Key="Status.TestingConnection">Testing...</system:String>
+    <system:String x:Key="Status.EnableWebSearchFirst">Please enable Web Search first</system:String>
+
+    <!-- Tool Execution Status -->
+    <system:String x:Key="Tool.Calling">Calling: {0}...</system:String>
+    <system:String x:Key="Tool.CallingTool">Calling tool...</system:String>
+    <system:String x:Key="Tool.DefaultName">Tool</system:String>
+    <system:String x:Key="Tool.CallComplete">{0} completed, continuing...</system:String>
+
+    <!-- Additional Recurrence Options -->
+    <system:String x:Key="Recurrence.Every3Days">Every 3 days</system:String>
+    <system:String x:Key="Recurrence.Every2Weeks">Every 2 weeks</system:String>
+
+    <!-- Conversation History -->
+    <system:String x:Key="History.EmptyConversation">Empty conversation</system:String>
+    <system:String x:Key="History.NewConversation">New conversation</system:String>
+    <system:String x:Key="History.SummaryPrefix">[Summary]: {0}</system:String>
+    <system:String x:Key="History.ConfigureApiKeyFirst">Please configure API Key and model first</system:String>
+    <system:String x:Key="History.ConnectionSuccessNoResponse">Connection successful but no valid response</system:String>
+    <system:String x:Key="History.ConnectionSuccess">Connection successful</system:String>
+    <system:String x:Key="History.ConnectionFailed">Connection failed: {0}</system:String>
 
 </ResourceDictionary>

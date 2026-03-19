@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -32,10 +32,17 @@ namespace Athena.UI.Models
 
         public string RecurrenceDisplay => Recurrence switch
         {
-            "none" => "一次性",
-            "daily" => "每天",
-            "weekly" => "每周",
+            "none" => GetLocalizedString("Recurrence.NoneDisplay", "Once"),
+            "daily" => GetLocalizedString("Recurrence.DailyDisplay", "Daily"),
+            "weekly" => GetLocalizedString("Recurrence.WeeklyDisplay", "Weekly"),
             _ => Recurrence
         };
+
+        private static string GetLocalizedString(string key, string defaultValue)
+        {
+            var localizationService = App.Services?.GetService(typeof(Services.Interfaces.ILocalizationService))
+                as Services.Interfaces.ILocalizationService;
+            return localizationService?.GetString(key, defaultValue) ?? defaultValue;
+        }
     }
 }
