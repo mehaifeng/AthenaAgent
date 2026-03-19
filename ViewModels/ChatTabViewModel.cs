@@ -199,11 +199,70 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (message == null || !message.IsEditing) return;
         var newContent = message.EditContent.Trim();
+        
+        // 检查该消息后面是否有后续消息
+        int msgIndex = Messages.IndexOf(message);
+        bool hasSubsequentMessages = msgIndex >= 0 && msgIndex < Messages.Count - 1;
+        
+        if (hasSubsequentMessages)
+        {
+            // 检查用户偏好设置
+            var config = _configService?.Load();
+            if (config?.SkipEditConfirm == true)
+            {
+                // 用户选择了跳过确认，直接清理后续消息
+                while (Messages.Count > msgIndex + 1)
+                {
+                    Messages.RemoveAt(msgIndex + 1);
+                }
+            }
+            else
+            {
+                // 弹窗确认
+                var vm = new ConfirmDialogViewModel
+                {
+                    Title = "编辑确认",
+                    Message = "编辑此消息将删除后续所有消息并重新生成回答，是否继续？",
+                    ConfirmText = "是",
+                    CancelText = "否"
+                };
+                
+                var dialog = new Views.ConfirmDialog(vm);
+                await dialog.ShowDialog(GetMainWindow());
+                
+                if (vm.Result != true) return;
+                
+                // 如果用户勾选了"不再询问"，保存偏好
+                if (vm.ShouldNotAskAgain && _configService != null)
+                {
+                    var cfg = await _configService.LoadAsync();
+                    cfg.SkipEditConfirm = true;
+                    await _configService.SaveAsync(cfg);
+                }
+                
+                // 清理后续消息（与 Regenerate 相同的逻辑）
+                while (Messages.Count > msgIndex + 1)
+                {
+                    Messages.RemoveAt(msgIndex + 1);
+                }
+            }
+        }
+        
         if (!string.IsNullOrWhiteSpace(newContent))
         {
             message.Content = newContent;
             message.IsEditing = false;
-            UpdateConversationContext();
+            
+            if (hasSubsequentMessages)
+            {
+                // 编辑后重新生成
+                UpdateConversationContext();
+                await GetAiResponseAsync(message.Content, addToContext: false);
+            }
+            else
+            {
+                UpdateConversationContext();
+            }
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
         }
@@ -220,6 +279,44 @@ public partial class ChatTabViewModel : ViewModelBase
         
         int msgIndex = Messages.IndexOf(message);
         if (msgIndex < 0) return;
+
+        // 检查是否是最新消息
+        bool isNotLatest = msgIndex < Messages.Count - 1;
+        
+        if (isNotLatest)
+        {
+            // 检查用户偏好设置
+            var config = _configService?.Load();
+            if (config?.SkipRegenerateConfirm == true)
+            {
+                // 用户选择了跳过确认，直接清理后续消息
+                // （清理逻辑在后面统一处理）
+            }
+            else
+            {
+                // 弹窗确认
+                var vm = new ConfirmDialogViewModel
+                {
+                    Title = "重新生成确认",
+                    Message = "重新生成将删除该消息之后的所有内容，是否继续？",
+                    ConfirmText = "是",
+                    CancelText = "否"
+                };
+                
+                var dialog = new Views.ConfirmDialog(vm);
+                await dialog.ShowDialog(GetMainWindow());
+                
+                if (vm.Result != true) return;
+                
+                // 如果用户勾选了"不再询问"，保存偏好
+                if (vm.ShouldNotAskAgain && _configService != null)
+                {
+                    var cfg = await _configService.LoadAsync();
+                    cfg.SkipRegenerateConfirm = true;
+                    await _configService.SaveAsync(cfg);
+                }
+            }
+        }
 
         // 核心重塑逻辑：向上寻找距离该助手回复最近的用户提问
         int lastUserIndex = -1;
@@ -252,13 +349,35 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (message == null) return;
         
+        int msgIndex = Messages.IndexOf(message);
+        
+        // 删除 tool 消息时，向上级联删除对应的 assistant tool_calls 消息
+        if (message.Role == "tool")
+        {
+            // 向上找到对应的 assistant 消息
+            for (int i = msgIndex - 1; i >= 0; i--)
+            {
+                if (Messages[i].Role == "assistant" && !string.IsNullOrEmpty(Messages[i].ToolCallsJson))
+                {
+                    // 删除这条 assistant 及其后所有 tool 消息
+                    while (Messages.Count > i)
+                    {
+                        Messages.RemoveAt(i);
+                    }
+                    UpdateConversationContext();
+                    UpdateContextTokensDisplay();
+                    UpdateBubbleButtonVisibility();
+                    return;
+                }
+            }
+        }
+        
         // 级联删除：如果删除的是带工具调用的助手消息，也要删除其后的工具结果
         if (message.Role == "assistant" && !string.IsNullOrEmpty(message.ToolCallsJson))
         {
-            var index = Messages.IndexOf(message);
-            while (index + 1 < Messages.Count && Messages[index + 1].Role == "tool")
+            while (msgIndex + 1 < Messages.Count && Messages[msgIndex + 1].Role == "tool")
             {
-                Messages.RemoveAt(index + 1);
+                Messages.RemoveAt(msgIndex + 1);
             }
         }
         
@@ -280,6 +399,18 @@ public partial class ChatTabViewModel : ViewModelBase
                 _logger.Debug("Copying message content to clipboard");
             }
         }
+    }
+
+    /// <summary>
+    /// 获取主窗口用于弹窗
+    /// </summary>
+    private Window? GetMainWindow()
+    {
+        if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return desktop.MainWindow;
+        }
+        return null;
     }
 
     [RelayCommand]

@@ -331,6 +331,8 @@ public class OpenAIChatService : IChatService
         return options;
     }
 
+    private const string TimestampPrefix = "[TIMESTAMP]";
+
     private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
         var persona = _promptService.GetPrompt(PromptType.MainPersona);
@@ -348,8 +350,30 @@ public class OpenAIChatService : IChatService
             messages.Add(new SystemChatMessage(context.Summary));
         }
 
-        foreach (var msg in context.Messages)
+        // 找到最后一条用户消息的索引（用于插入时间戳）
+        var contextMessages = context.Messages.ToList();
+        int lastUserIndex = -1;
+        for (int i = contextMessages.Count - 1; i >= 0; i--)
         {
+            if (contextMessages[i].Role == "user")
+            {
+                lastUserIndex = i;
+                break;
+            }
+        }
+
+        for (int i = 0; i < contextMessages.Count; i++)
+        {
+            var msg = contextMessages[i];
+
+            // 在最后一条用户消息前插入当前时间戳（动态注入，不存入 Context.Messages）
+            if (i == lastUserIndex)
+            {
+                var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss dddd");
+                messages.Add(new SystemChatMessage(
+                    $"{TimestampPrefix} Current time: {now}. Use this as your time reference for all time-related reasoning."));
+            }
+
             switch (msg.Role)
             {
                 case "user":
