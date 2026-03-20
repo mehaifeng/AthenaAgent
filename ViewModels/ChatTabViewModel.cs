@@ -507,6 +507,22 @@ public partial class ChatTabViewModel : ViewModelBase
                         assistantMsg.ToolExecutionSummary = string.Format(completeTemplate, name);
                     }
                 },
+                onContextCompressed: (summary, count) => {
+                    // 同步 UI 消息状态：标记前 count 条当前未压缩的消息为已压缩
+                    int marked = 0;
+                    foreach (var m in Messages)
+                    {
+                        if (!m.IsCompressed)
+                        {
+                            m.IsCompressed = true;
+                            marked++;
+                            if (marked >= count) break;
+                        }
+                    }
+                    if (_tokenService != null) _tokenService.CompressionPreview = summary;
+                    UpdateContextTokensDisplay();
+                    _logger.Information("检测到中间压缩，UI 已同步标记 {Count} 条消息", count);
+                },
                 addToContext: addToContext))
             {
                 if (!string.IsNullOrEmpty(contentDelta))
@@ -570,7 +586,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (msg.Role == "user") 
             {
-                _currentContext.AddUserMessage(msg.Content);
+                _currentContext.AddUserMessage(msg.Content, msg.Timestamp);
             }
             else if (msg.Role == "assistant") 
             {
@@ -636,12 +652,14 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public async Task InternalCompressContextAsync()
     {
-        if (_historyService == null) return;
+        if (_historyService == null || _configService == null) return;
+        
+        var config = _configService.Load();
         IsCompressing = true;
         try
         {
             var messagesList = Messages.ToList();
-            var summary = await _historyService.CompressContextAsync(messagesList);
+            var (summary, _) = await _historyService.CompressContextAsync(messagesList, config.KeepRecentRounds);
             if (summary != null)
             {
                 // 更新 TokenService 中的预览，让用户在设置页能看到
@@ -654,7 +672,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 UpdateConversationContext();
                 UpdateContextTokensDisplay();
 
-                _logger.Information("UI 上下文压缩显示已更新");
+                _logger.Information("UI 上下文压缩显示已更新（按轮次压缩）");
             }
         }
         finally

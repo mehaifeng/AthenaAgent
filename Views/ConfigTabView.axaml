@@ -50,10 +50,10 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="跳过重新生成确认" VerticalAlignment="Center" Opacity="0.8"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.SkipRegenerateConfirm}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SkipRegenerateConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="跳过编辑确认" VerticalAlignment="Center" Opacity="0.8"/>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.SkipEditMessageConfirm}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding Config.SkipEditConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
                         </Grid>
                     </StackPanel>

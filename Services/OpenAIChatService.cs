@@ -22,6 +22,8 @@ public class OpenAIChatService : IChatService
 {
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly IPromptService _promptService;
+    private readonly IConversationHistoryService? _historyService;
+    private readonly ITokenService? _tokenService;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -29,11 +31,15 @@ public class OpenAIChatService : IChatService
     public OpenAIChatService(
         AppConfig config,
         IPromptService promptService,
-        IFunctionRegistry? functionRegistry = null)
+        IFunctionRegistry? functionRegistry = null,
+        IConversationHistoryService? historyService = null,
+        ITokenService? tokenService = null)
     {
         _config = config;
         _promptService = promptService;
         _functionRegistry = functionRegistry;
+        _historyService = historyService;
+        _tokenService = tokenService;
         InitializeClient();
     }
 
@@ -79,6 +85,7 @@ public class OpenAIChatService : IChatService
         ConversationContext context,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         Action<Models.ChatMessage>? onMessageAdded = null,
+        Action<string, int>? onContextCompressed = null,
         bool addToContext = true)
     {
         if (_chatClient == null)
@@ -101,7 +108,7 @@ public class OpenAIChatService : IChatService
 
         var contentBuilder = new StringBuilder();
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded))
+        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed))
         {
             yield return text;
         }
@@ -114,14 +121,54 @@ public class OpenAIChatService : IChatService
         StringBuilder contentBuilder,
         ConversationContext context,
         [EnumeratorCancellation] CancellationToken cancellationToken,
-        Action<Models.ChatMessage>? onMessageAdded = null)
+        Action<Models.ChatMessage>? onMessageAdded = null,
+        Action<string, int>? onContextCompressed = null)
     {
         var iteration = 0;
-        const int maxIterations = 25;
+        const int maxIterations = 50;
 
         while (iteration < maxIterations)
         {
             iteration++;
+
+            // [核心改进]：在每一轮迭代开始前检查 Token，确保工具调用链中也能自动压缩
+            if (_tokenService != null && _historyService != null && _config.AutoCompress)
+            {
+                var currentTokens = context.EstimatedTokenCount;
+                if (currentTokens > _config.CompressionThreshold)
+                {
+                    Log.Information("检测到工具调用循环中 Token 超过阈值 ({Tokens} > {Threshold})，触发中间压缩", 
+                        currentTokens, _config.CompressionThreshold);
+                    
+                    // 将 ContextMessage 转换为 ChatMessage 以供压缩服务处理
+                    var tempMessages = context.Messages.Select(m => new Models.ChatMessage 
+                    { 
+                        Role = m.Role, 
+                        Content = m.Content, 
+                        ToolCallsJson = m.ToolCallsJson, 
+                        IsCompressed = false 
+                    }).ToList();
+
+                    var (summary, compressedCount) = await _historyService.CompressContextAsync(tempMessages, _config.KeepRecentRounds);
+
+                    if (summary != null && compressedCount > 0)
+                    {
+                        context.SetSummary(summary);
+                        _tokenService.CompressionPreview = summary;
+
+                        // [修复]：真正从 context 中移除已压缩的消息
+                        context.RemoveMessages(compressedCount);
+
+                        // [同步]：通知 UI 标记对应的消息为已压缩
+                        onContextCompressed?.Invoke(summary, compressedCount);
+
+                        // 重新构建消息列表（包含新的 summary 且去掉了已移除的消息）
+                        messages = BuildMessages(context);
+                        Log.Information("中间压缩完成，已移除 {Count} 条消息并重置消息列表", compressedCount);
+                    }
+                }
+            }
+
             var options = CreateChatOptions();
 
             IAsyncEnumerable<StreamingChatCompletionUpdate>? stream = null;
@@ -331,7 +378,7 @@ public class OpenAIChatService : IChatService
         return options;
     }
 
-    private const string TimestampPrefix = "[TIMESTAMP]";
+    private const string TimestampFormat = "[yyMMddHHmmss-ddd] ";
 
     private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
@@ -350,34 +397,15 @@ public class OpenAIChatService : IChatService
             messages.Add(new SystemChatMessage(context.Summary));
         }
 
-        // 找到最后一条用户消息的索引（用于插入时间戳）
-        var contextMessages = context.Messages.ToList();
-        int lastUserIndex = -1;
-        for (int i = contextMessages.Count - 1; i >= 0; i--)
+        foreach (var msg in context.Messages)
         {
-            if (contextMessages[i].Role == "user")
-            {
-                lastUserIndex = i;
-                break;
-            }
-        }
-
-        for (int i = 0; i < contextMessages.Count; i++)
-        {
-            var msg = contextMessages[i];
-
-            // 在最后一条用户消息前插入当前时间戳（动态注入，不存入 Context.Messages）
-            if (i == lastUserIndex)
-            {
-                var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss dddd");
-                messages.Add(new SystemChatMessage(
-                    $"{TimestampPrefix} Current time: {now}. Use this as your time reference for all time-related reasoning."));
-            }
-
             switch (msg.Role)
             {
                 case "user":
-                    messages.Add(new UserChatMessage(msg.Content));
+                    var timestamp = msg.Timestamp != default
+                        ? msg.Timestamp.ToString(TimestampFormat)
+                        : string.Empty;
+                    messages.Add(new UserChatMessage(timestamp + msg.Content));
                     break;
                 case "assistant":
                     var assistantMsg = new AssistantChatMessage(msg.Content);

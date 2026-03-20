@@ -434,21 +434,23 @@ public partial class App : Application
             var configService = sp.GetRequiredService<IConfigService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var promptService = sp.GetRequiredService<IPromptService>();
+            var historyService = sp.GetService<IConversationHistoryService>();
+            var tokenService = sp.GetService<ITokenService>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService);
         });
 
         // 对话历史服务（单例）
         services.AddSingleton<IConversationHistoryService>(sp =>
         {
-            var chatService = sp.GetService<IChatService>();
             var promptService = sp.GetRequiredService<IPromptService>();
             var configService = sp.GetService<IConfigService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
+            var localizationService = sp.GetService<ILocalizationService>();
             var config = configService?.Load();
-            var service = new ConversationHistoryService(chatService, promptService, platformPathService);
+            var service = new ConversationHistoryService(promptService, platformPathService, localizationService);
             if (config != null)
             {
                 service.UpdateSecondaryConfig(config);
