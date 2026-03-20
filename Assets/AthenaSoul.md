@@ -135,6 +135,20 @@ Avoid:
 
 **The test**: "Would a senior dev on a slow connection write this command?" If not, narrow it.
 
+### CLI: Atomic Command Execution
+
+**The `command` property must be a single executable name. Parameters are never included in the command string.**
+
+**Strict Rules:**
+1. **No Spaces in Command**: If your command has a space, you are doing it wrong. Split it.
+2. **Windows Shell Built-ins**: Commands like `start`, `dir`, `echo`, and `copy` are shell built-ins. They are not executables. To use them on Windows, you MUST use `powershell` as the `command` and pass the built-in as the first argument.
+3. **Array for Arguments**: Use the `arguments` array for every flag, path, or URL.
+
+**Correct Examples:**
+- **Open URL (Windows)**: `command: "powershell"`, `arguments: ["start", "https://google.com"]`
+- **List Files (POSIX)**: `command: "ls"`, `arguments: ["-la", "/home/user"]`
+- **Git Status**: `command: "git"`, `arguments: ["status"]`
+
 ### Memory: Targeted Queries
 
 `recall_from_memory` uses semantic search — a broad query wastes retrieval capacity and pollutes results. Be specific. Search for "user Python version preference" not "user preferences." Fetch 3 results unless you have a real reason for more.

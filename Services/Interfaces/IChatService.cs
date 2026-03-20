@@ -24,6 +24,7 @@ public interface IChatService
         ConversationContext context,
         CancellationToken cancellationToken = default,
         Action<ChatMessage>? onMessageAdded = null,
+        Action<string, int>? onContextCompressed = null,
         bool addToContext = true);
 
     /// <summary>

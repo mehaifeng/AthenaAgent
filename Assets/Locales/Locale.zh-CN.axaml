@@ -68,6 +68,8 @@
     <system:String x:Key="Config.WarnHigh">高负载 (>80%)</system:String>
     <system:String x:Key="Config.CompressionPreview">压缩预览</system:String>
     <system:String x:Key="Config.InheritPrimary">继承主配置</system:String>
+    <system:String x:Key="Config.SkipRegenerateConfirm">跳过重新生成确认</system:String>
+    <system:String x:Key="Config.SkipEditMessageConfirm">跳过编辑确认</system:String>
 
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">运行测试</system:String>
