@@ -49,9 +49,9 @@ public interface IConversationHistoryService
     /// 压缩对话上下文，将旧消息生成摘要
     /// </summary>
     /// <param name="messages">当前消息列表</param>
-    /// <param name="keepRecentCount">保留最近的消息数量</param>
-    /// <returns>压缩后的摘要文本，如果无需压缩则返回 null</returns>
-    Task<string?> CompressContextAsync(List<ChatMessage> messages, int keepRecentCount = 10);
+    /// <param name="keepRecentRounds">保留最近的对话轮次（1轮 = 1个 User 消息及其后的所有 Assistant/Tool 消息）</param>
+    /// <returns>压缩后的摘要文本和被压缩的消息条数（如果无需压缩，CompressedCount 为 0）</returns>
+    Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<ChatMessage> messages, int keepRecentRounds = 3);
 
     /// <summary>
     /// 测试次级模型连接

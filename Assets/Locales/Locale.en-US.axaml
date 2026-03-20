@@ -46,6 +46,8 @@
     <system:String x:Key="Config.BgTasks">Background Tasks</system:String>
     <system:String x:Key="Config.VectorKb">Vector Knowledge Base</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">Background Tasks and Auxiliary Core</system:String>
+    <system:String x:Key="Config.SkipRegenerateConfirm">Skp regenrate confirm</system:String>
+    <system:String x:Key="Config.SkipEditMessageConfirm">skip edit confirm</system:String>
 
 
     <!-- Config Labels -->

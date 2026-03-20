@@ -86,6 +86,9 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _autoCompress = true;
 
+    [ObservableProperty]
+    private int _keepRecentRounds = 3;
+
     // 文件系统控制策略
     [ObservableProperty]
     private FileSystemPolicyConfig _fileSystemPolicy = new();

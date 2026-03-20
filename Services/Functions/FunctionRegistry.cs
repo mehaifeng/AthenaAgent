@@ -39,18 +39,20 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
-            $"Executes a shell command on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use use PowerShell/cmd syntax" : OperatingSystem.IsMacOS() ? "macOS — use zsh/POSIX syntax" : "Linux — use bash/POSIX syntax")}). " +
-            "By default, waits for the process to exit and captures output. For GUI applications or long-running background tasks, set 'waitForExit' to false. " +
-            "DO NOT use this for file system tasks like 'ls', 'mkdir', or 'rm'—use the dedicated file system tools instead.",
+            $"Executes a single executable or shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — prefer 'powershell' for shell built-ins" : "POSIX — use zsh/bash")}). " +
+            "CRITICAL: The 'command' field MUST be a single executable name (e.g., 'powershell', 'git', 'npm'). " +
+            "ALL parameters, flags, and URLs MUST be passed as separate strings in the 'arguments' array. " +
+            "For example, to open a URL on Windows: command='powershell', arguments=['start', 'https://example.com']. " +
+            "DO NOT use this for file system tasks like 'ls' or 'mkdir'—use dedicated file tools instead.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    command = new { type = "string", description = "The command to execute (e.g., 'git', 'dotnet', 'npm', 'regedit')." },
-                    arguments = new { type = "array", items = new { type = "string" }, description = "List of command-line arguments." },
+                    command = new { type = "string", description = "The executable name ONLY (e.g., 'powershell', 'dotnet'). NO spaces or arguments allowed here." },
+                    arguments = new { type = "array", items = new { type = "string" }, description = "List of arguments. Each flag or parameter should be a separate string (e.g., ['-c', 'dir'] or ['start', 'url'])." },
                     workingDirectory = new { type = "string", description = "The directory where the command should be executed." },
-                    waitForExit = new { type = "boolean", description = "If true (default), waits for the process to complete and captures output. If false, launches the process in the background and returns immediately.", @default = true }
+                    waitForExit = new { type = "boolean", description = "If true (default), waits for completion. Set to false for GUI apps or background tasks.", @default = true }
                 },
                 required = new[] { "command" }
             });

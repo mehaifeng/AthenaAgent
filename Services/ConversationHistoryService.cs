@@ -26,16 +26,14 @@ public class ConversationHistoryService : IConversationHistoryService
     };
 
     private readonly string _historyDirectory;
-    private readonly IChatService? _chatService;
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
     private AppConfig? _secondaryConfig;
     private OpenAIClient? _secondaryClient;
     private ChatClient? _secondaryChatClient;
 
-    public ConversationHistoryService(IChatService? chatService, IPromptService promptService, IPlatformPathService? platformPathService = null, ILocalizationService? localizationService = null)
+    public ConversationHistoryService(IPromptService promptService, IPlatformPathService? platformPathService = null, ILocalizationService? localizationService = null)
     {
-        _chatService = chatService;
         _promptService = promptService;
         _localizationService = localizationService;
 
@@ -302,43 +300,44 @@ public class ConversationHistoryService : IConversationHistoryService
         return null;
     }
 
-    public async Task<string?> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentCount = 10)
+    public async Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentRounds = 3)
     {
         // 1. 获取当前所有未压缩的活跃消息
         var activeMessages = messages.Where(m => !m.IsCompressed).ToList();
         
-        // 2. 如果活跃消息数不足以保留 keepRecentCount 条，则不压缩
-        if (activeMessages.Count <= keepRecentCount)
+        // 2. 统计当前活跃消息包含的轮次（以 user 消息作为每一轮的开始）
+        var userMessageIndices = activeMessages
+            .Select((m, i) => new { Role = m.Role?.ToLower(), Index = i })
+            .Where(x => x.Role == "user")
+            .Select(x => x.Index)
+            .ToList();
+
+        // 如果活跃轮次不足，则不压缩
+        if (userMessageIndices.Count <= keepRecentRounds)
         {
-            Log.Debug("活跃消息数不足，跳过压缩");
-            return null;
+            Log.Debug("活跃轮次不足 ({Current} <= {Keep})，跳过压缩", userMessageIndices.Count, keepRecentRounds);
+            return (null, 0);
         }
 
-        // 3. 寻找语义安全切分点：活跃上下文（未压缩部分）必须以 user 消息开头
-        // 初始切分索引：总数 - 建议保留数
-        int splitIndex = activeMessages.Count - keepRecentCount;
-        
-        // 向前（向更旧的方向）滑动，直到找到一个 user 消息作为新的活跃上下文起点
-        while (splitIndex > 0 && activeMessages[splitIndex].Role?.ToLower() != "user")
-        {
-            splitIndex--;
-        }
+        // 3. 确定切分点：我们要保留最后 keepRecentRounds 个轮次
+        // splitIndex 指向倒数第 keepRecentRounds 个 user 消息的索引
+        int splitIndex = userMessageIndices[userMessageIndices.Count - keepRecentRounds];
 
-        // 4. 安全性检查：如果没找到任何 user 消息，或者由于回退导致没有旧消息可压缩了
+        // 安全性检查：如果 splitIndex 为 0，说明第一条就是我们要保留的起点，无法压缩
         if (splitIndex <= 0)
         {
-            Log.Debug("未找到安全的 user 消息作为活跃上下文起点，暂不执行压缩");
-            return null;
+            Log.Debug("切分点位于首条消息，无法执行压缩");
+            return (null, 0);
         }
 
-        // 现在 activeMessages[0...splitIndex-1] 是要被压缩的旧消息块
+        // 现在 activeMessages[0...splitIndex-1] 是要被压缩的旧消息块（包含完整的历史轮次）
         var olderMessages = activeMessages.Take(splitIndex).ToList();
 
-        // 如果次级模型不可用，直接跳过压缩（不再进行简单截取）
+        // 如果次级模型不可用，直接跳过压缩
         if (_secondaryChatClient == null)
         {
             Log.Warning("次级模型不可用，跳过上下文压缩");
-            return null;
+            return (null, 0);
         }
 
         try
@@ -358,20 +357,23 @@ public class ConversationHistoryService : IConversationHistoryService
             var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
             var summary = completion.Value.Content[0].Text?.Trim();
 
-            // 5. 标记旧消息块为已压缩（包含其中的 tool 消息）
+            // 5. 标记旧消息块为已压缩（包含其中的 tool 消息，整块移除）
             foreach (var msg in olderMessages)
             {
                 msg.IsCompressed = true;
             }
 
-            Log.Information("上下文压缩完成，从 {Old} 条消息安全压缩为摘要 (活跃部分从第 {Index} 条 User 消息重新开始)", olderMessages.Count, splitIndex);
+            Log.Information("上下文压缩完成，从 {Old} 条消息（约 {Rounds} 轮）压缩为摘要。活跃部分从索引 {Index} 开始", 
+                olderMessages.Count, userMessageIndices.Count - keepRecentRounds, splitIndex);
+            
             var summaryPrefix = GetString("History.SummaryPrefix", "[Summary]: {0}");
-            return !string.IsNullOrEmpty(summary) ? string.Format(summaryPrefix, summary) : null;
+            var formattedSummary = !string.IsNullOrEmpty(summary) ? string.Format(summaryPrefix, summary) : null;
+            return (formattedSummary, olderMessages.Count);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "压缩上下文失败");
-            return null;
+            return (null, 0);
         }
     }
 
