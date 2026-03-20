@@ -45,12 +45,26 @@ Ensure you have the .NET 10 SDK installed.
 - `Converters/`: XAML value converters.
 - `Models/`: Data transfer objects, tool schemas, and prompt templates.
 - `Services/`: Business logic, AI integration, and core infrastructure.
-  - `Functions/`: Specific tool implementations (e.g., `FileSystemFunctions`, `KnowledgeBaseFunctions`).
-  - `Interfaces/`: Service abstractions.
+  - `Functions/`: Specific tool implementations:
+    - `FileSystemFunctions`: Secure local file operations.
+    - `KnowledgeBaseFunctions`: Semantic memory management.
+    - `WebSearchFunctions`: Real-time web information retrieval.
+    - `CliFunctions`: Execution of safe terminal commands.
+    - `ProactiveMessagingFunctions`: Automated task and reminder management.
+    - `ConfigurationFunctions`: Dynamic application setting updates.
+  - `Interfaces/`: Service abstractions for clean DI.
   - `Platform/`: OS-specific implementations (e.g., `DesktopPlatformPathService`).
 - `Styles/`: Global styles and icon stream geometries.
-- `ViewModels/`: MVVM ViewModels. `MainWindowViewModel` is configured as a `Singleton` to preserve session state across tab switches.
-- `Views/`: XAML UI definitions.
+- `ViewModels/`: MVVM ViewModels.
+  - `MainWindowViewModel`: Orchestrator for all tabs.
+  - `ChatTabViewModel`: Primary AI interaction interface.
+  - `KnowledgeBaseTabViewModel`: Local knowledge management UI.
+  - `TasksTabViewModel`: Proactive task list and scheduling.
+  - `HistoryTabViewModel`: Conversation history browser.
+  - `ConfigTabViewModel`: User preferences and API settings.
+  - `LogsTabViewModel`: Runtime system diagnostics.
+  - `AboutTabViewModel`: Version and project info.
+- `Views/`: XAML UI definitions corresponding to ViewModels.
 
 ### Coding Conventions
 - **MVVM**: Strictly separate UI (`Views`) from logic (`ViewModels`).

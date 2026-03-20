@@ -72,7 +72,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="v0.0.1-ALPHA" FontWeight="Bold" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.Framework}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text=".NET 10 / AVALONIA UI" TextWrapping="Wrap" Margin="0,12,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Avalonia UI / Irihi.Ursa.Themes.Semi" TextWrapping="Wrap" Margin="0,12,0,0" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.License}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT" Margin="0,12,0,0" VerticalAlignment="Center"/>
