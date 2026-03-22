@@ -33,6 +33,32 @@ public class ProactiveMessageEventArgs : EventArgs
 }
 
 /// <summary>
+/// 后台任务触发事件参数
+/// </summary>
+public class BackgroundTaskEventArgs : EventArgs
+{
+    /// <summary>
+    /// 任务 ID
+    /// </summary>
+    public string TaskId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 任务意图（描述后台任务要做什么）
+    /// </summary>
+    public string Intent { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 触发时间
+    /// </summary>
+    public DateTime TriggeredAt { get; set; }
+
+    /// <summary>
+    /// 原始任务
+    /// </summary>
+    public ScheduledTask? Task { get; set; }
+}
+
+/// <summary>
 /// 任务调度器接口
 /// 管理计划任务，支持 UI 和 Function Calling 共享
 /// </summary>
@@ -74,10 +100,16 @@ public interface ITaskScheduler
     Task ClearAllAsync();
 
     /// <summary>
-    /// 主动消息触发事件
-    /// 当任务到期时触发，MainWindow 订阅此事件处理消息
+    /// 前台任务触发事件
+    /// 当前台任务到期时触发，MainWindow 订阅此事件处理主动消息
     /// </summary>
     event EventHandler<ProactiveMessageEventArgs>? ProactiveMessageTriggered;
+
+    /// <summary>
+    /// 后台任务触发事件
+    /// 当后台任务到期时触发，订阅者静默执行任务逻辑
+    /// </summary>
+    event EventHandler<BackgroundTaskEventArgs>? BackgroundTaskTriggered;
 
     /// <summary>
     /// 启动调度器

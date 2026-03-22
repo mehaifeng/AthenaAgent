@@ -31,9 +31,14 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     public ObservableCollection<ScheduledTask> Tasks { get; }
 
     /// <summary>
-    /// 主动消息触发事件
+    /// 前台任务触发事件（主动消息）
     /// </summary>
     public event EventHandler<ProactiveMessageEventArgs>? ProactiveMessageTriggered;
+
+    /// <summary>
+    /// 后台任务触发事件（静默执行）
+    /// </summary>
+    public event EventHandler<BackgroundTaskEventArgs>? BackgroundTaskTriggered;
 
     public TaskScheduler(ILogger logger, IPlatformPathService? pathService = null)
     {
@@ -208,18 +213,32 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     /// </summary>
     private async Task ExecuteTaskAsync(ScheduledTask task)
     {
-        _logger.Information("Executing task: {TaskId} - {Intent}", task.Id, task.Intent);
+        _logger.Information("Executing task: {TaskId} [{Type}] - {Intent}", task.Id, task.TaskType, task.Intent);
 
         try
         {
-            // 触发事件，让 MainWindow 处理主动消息
-            ProactiveMessageTriggered?.Invoke(this, new ProactiveMessageEventArgs
+            if (task.TaskType == Models.TaskType.Background)
             {
-                TaskId = task.Id,
-                Intent = task.Intent,
-                TriggeredAt = DateTime.Now,
-                Task = task
-            });
+                // 后台任务：静默触发，不干扰用户
+                BackgroundTaskTriggered?.Invoke(this, new BackgroundTaskEventArgs
+                {
+                    TaskId = task.Id,
+                    Intent = task.Intent,
+                    TriggeredAt = DateTime.Now,
+                    Task = task
+                });
+            }
+            else
+            {
+                // 前台任务：触发主动消息，进入聊天界面
+                ProactiveMessageTriggered?.Invoke(this, new ProactiveMessageEventArgs
+                {
+                    TaskId = task.Id,
+                    Intent = task.Intent,
+                    TriggeredAt = DateTime.Now,
+                    Task = task
+                });
+            }
 
             // 处理循环任务
             if (!string.IsNullOrEmpty(task.Recurrence) && task.Recurrence != "none")
@@ -302,6 +321,13 @@ public class TaskScheduler : ITaskScheduler, IDisposable
                     // 只加载未执行的或循环任务
                     if (!data.IsExecuted || (data.Recurrence != "none" && !string.IsNullOrEmpty(data.Recurrence)))
                     {
+                        // 兼容旧数据：如果 TaskType 不存在或无效，默认为 Proactive
+                        var taskType = Models.TaskType.Proactive;
+                        if (Enum.TryParse<Models.TaskType>(data.TaskType, ignoreCase: true, out var parsed))
+                        {
+                            taskType = parsed;
+                        }
+
                         Tasks.Add(new ScheduledTask
                         {
                             Id = data.Id,
@@ -309,7 +335,8 @@ public class TaskScheduler : ITaskScheduler, IDisposable
                             Intent = data.Intent,
                             Recurrence = data.Recurrence,
                             IsExecuted = data.IsExecuted,
-                            CreatedAt = data.CreatedAt
+                            CreatedAt = data.CreatedAt,
+                            TaskType = taskType
                         });
                     }
                 }
@@ -336,7 +363,8 @@ public class TaskScheduler : ITaskScheduler, IDisposable
                 Intent = t.Intent,
                 Recurrence = t.Recurrence,
                 IsExecuted = t.IsExecuted,
-                CreatedAt = t.CreatedAt
+                CreatedAt = t.CreatedAt,
+                TaskType = t.TaskType.ToString()
             }).ToList();
 
             var options = new JsonSerializerOptions
@@ -366,6 +394,7 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         public string Recurrence { get; set; } = "none";
         public bool IsExecuted { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string TaskType { get; set; } = "Proactive";
     }
 
     public void Dispose()
