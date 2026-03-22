@@ -84,6 +84,7 @@
     <system:String x:Key="Tasks.SystemIdle">系统就绪</system:String>
     <system:String x:Key="Tasks.Trig">触发:</system:String>
     <system:String x:Key="Tasks.Rec">重复:</system:String>
+    <system:String x:Key="Tasks.Type">类型:</system:String>
 
     <!-- History Tab -->
     <system:String x:Key="History.Header">对话记录</system:String>
@@ -167,6 +168,14 @@
     <system:String x:Key="TaskDialog.PreviewTriggerAt">触发任务：</system:String>
     <system:String x:Key="TaskDialog.BtnCancel">取消</system:String>
     <system:String x:Key="TaskDialog.BtnCreate">创建</system:String>
+    <system:String x:Key="TaskDialog.TaskType">任务类型</system:String>
+    <system:String x:Key="TaskDialog.Type">类型:</system:String>
+    <system:String x:Key="TaskDialog.ProactiveHint">在计划时间触发，以主动消息形式出现在聊天界面，提醒你或触发对话。</system:String>
+    <system:String x:Key="TaskDialog.BackgroundHint">在计划时间静默执行后台任务（如知识库蒸馏、日志整理），不会打扰你。</system:String>
+
+    <!-- Task Type -->
+    <system:String x:Key="TaskType.Proactive">前台（主动消息）</system:String>
+    <system:String x:Key="TaskType.Background">后台（静默执行）</system:String>
 
     <!-- Recurrence -->
     <system:String x:Key="Recurrence.None">None</system:String>

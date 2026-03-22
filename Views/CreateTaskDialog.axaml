@@ -8,8 +8,8 @@
         x:Class="Athena.UI.Views.CreateTaskDialog"
         x:DataType="vm:CreateTaskDialogViewModel"
         Title="{loc:Loc TaskDialog.Title}"
-        Width="450" Height="450"
-        MinWidth="400" MinHeight="350"
+        Width="450" Height="520"
+        MinWidth="400" MinHeight="450"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
 
@@ -95,6 +95,29 @@
                                  SelectedIndex="{Binding SelectedRecurrenceIndex}"
                                  HorizontalAlignment="Stretch"/>
                     </Grid>
+                </StackPanel>
+
+                <!-- 任务类型 -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc TaskDialog.TaskType}"
+                              FontWeight="Bold"
+                              FontSize="13"/>
+
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0"
+                                  Text="{loc:Loc TaskDialog.Type}"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,12,0"/>
+                        <ComboBox Grid.Column="1"
+                                 ItemsSource="{Binding TaskTypeDisplayNames}"
+                                 SelectedIndex="{Binding SelectedTaskTypeIndex}"
+                                 HorizontalAlignment="Stretch"/>
+                    </Grid>
+
+                    <TextBlock Text="{Binding TaskTypeDescription}"
+                              TextWrapping="Wrap"
+                              Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                              FontSize="12"/>
                 </StackPanel>
 
                 <!-- 预览 -->
