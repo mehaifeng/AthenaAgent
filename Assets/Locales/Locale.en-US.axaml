@@ -83,6 +83,7 @@
     <system:String x:Key="Tasks.SystemIdle">System Idle</system:String>
     <system:String x:Key="Tasks.Trig">Trigger:</system:String>
     <system:String x:Key="Tasks.Rec">Repeat:</system:String>
+    <system:String x:Key="Tasks.Type">Type:</system:String>
 
     <!-- History Tab -->
     <system:String x:Key="History.Header">Conversation History</system:String>
@@ -166,6 +167,14 @@
     <system:String x:Key="TaskDialog.PreviewTriggerAt">at</system:String>
     <system:String x:Key="TaskDialog.BtnCancel">Cancel</system:String>
     <system:String x:Key="TaskDialog.BtnCreate">Create</system:String>
+    <system:String x:Key="TaskDialog.TaskType">Task Type</system:String>
+    <system:String x:Key="TaskDialog.Type">Type:</system:String>
+    <system:String x:Key="TaskDialog.ProactiveHint">Triggers at the scheduled time and sends a proactive message to the chat interface.</system:String>
+    <system:String x:Key="TaskDialog.BackgroundHint">Triggers at the scheduled time and executes silently in the background without disturbing you.</system:String>
+
+    <!-- Task Type -->
+    <system:String x:Key="TaskType.Proactive">Foreground (Proactive Message)</system:String>
+    <system:String x:Key="TaskType.Background">Background (Silent)</system:String>
 
     <!-- Recurrence -->
     <system:String x:Key="Recurrence.None">None</system:String>

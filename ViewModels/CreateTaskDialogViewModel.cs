@@ -33,6 +33,12 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
     private string _recurrence = "none";
 
     /// <summary>
+    /// 任务类型
+    /// </summary>
+    [ObservableProperty]
+    private TaskType _taskType = TaskType.Proactive;
+
+    /// <summary>
     /// 可用的循环模式
     /// </summary>
     public ObservableCollection<string> RecurrenceOptions { get; } = new()
@@ -44,6 +50,11 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
     /// 循环模式显示名称
     /// </summary>
     public ObservableCollection<string> RecurrenceDisplayNames { get; }
+
+    /// <summary>
+    /// 任务类型显示名称
+    /// </summary>
+    public ObservableCollection<string> TaskTypeDisplayNames { get; }
 
     public CreateTaskDialogViewModel() : this(null) { }
 
@@ -57,6 +68,11 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             GetLocalizedString("Recurrence.WeeklyDisplay", "Weekly"),
             GetLocalizedString("Recurrence.Every3Days", "Every 3 days"),
             GetLocalizedString("Recurrence.Every2Weeks", "Every 2 weeks")
+        };
+        TaskTypeDisplayNames = new ObservableCollection<string>
+        {
+            GetLocalizedString("TaskType.Proactive", "Foreground (Proactive Message)"),
+            GetLocalizedString("TaskType.Background", "Background (Silent)")
         };
     }
 
@@ -77,6 +93,31 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             }
         }
     }
+
+    private int _selectedTaskTypeIndex;
+    public int SelectedTaskTypeIndex
+    {
+        get => _selectedTaskTypeIndex;
+        set
+        {
+            if (SetProperty(ref _selectedTaskTypeIndex, value))
+            {
+                TaskType = value == 1 ? TaskType.Background : TaskType.Proactive;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 任务类型说明
+    /// </summary>
+    public string TaskTypeDescription => TaskType switch
+    {
+        TaskType.Proactive => GetLocalizedString("TaskDialog.ProactiveHint",
+            "Triggers at the scheduled time and sends a proactive message to the chat interface."),
+        TaskType.Background => GetLocalizedString("TaskDialog.BackgroundHint",
+            "Triggers at the scheduled time and executes silently in the background without disturbing you."),
+        _ => string.Empty
+    };
 
     /// <summary>
     /// 完整的触发时间
@@ -108,7 +149,8 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             TriggerTime = FullTriggerTime,
             Intent = Intent.Trim(),
             Recurrence = Recurrence,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.Now,
+            TaskType = TaskType
         };
 
         IsConfirmed = true;
