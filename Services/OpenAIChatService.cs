@@ -24,6 +24,7 @@ public class OpenAIChatService : IChatService
     private readonly IPromptService _promptService;
     private readonly IConversationHistoryService? _historyService;
     private readonly ITokenService? _tokenService;
+    private readonly ILocalizationService? _localizationService;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -33,13 +34,15 @@ public class OpenAIChatService : IChatService
         IPromptService promptService,
         IFunctionRegistry? functionRegistry = null,
         IConversationHistoryService? historyService = null,
-        ITokenService? tokenService = null)
+        ITokenService? tokenService = null,
+        ILocalizationService? localizationService = null)
     {
         _config = config;
         _promptService = promptService;
         _functionRegistry = functionRegistry;
         _historyService = historyService;
         _tokenService = tokenService;
+        _localizationService = localizationService;
         InitializeClient();
     }
 
@@ -385,17 +388,28 @@ public class OpenAIChatService : IChatService
         var persona = _promptService.GetPrompt(PromptType.MainPersona);
         context.SetMainPersona(persona);
 
-        var messages = new List<OpenAI.Chat.ChatMessage>
-        {
-            new SystemChatMessage(persona),
-            new SystemChatMessage(GetPlatformContextMessage())
-        };
-
-        // 如果存在摘要，作为第一条系统消息插入（在人格之后）
+        // 将所有 system prompt 合并为一条，避免部分 API（如 MiniMax）对多 system 消息的限制
+        var systemParts = new List<string> { persona, GetPlatformContextMessage() };
         if (!string.IsNullOrEmpty(context.Summary))
         {
-            messages.Add(new SystemChatMessage(context.Summary));
+            systemParts.Add(context.Summary);
         }
+
+        // 收集历史中所有的 system 消息，追加到合并 system prompt 末尾
+        var historySystemMessages = context.Messages
+            .Where(m => m.Role == "system")
+            .Select(m => m.Content)
+            .Where(c => !string.IsNullOrEmpty(c))
+            .ToList();
+        if (historySystemMessages.Count != 0)
+        {
+            systemParts.AddRange(historySystemMessages);
+        }
+
+        var messages = new List<OpenAI.Chat.ChatMessage>
+        {
+            new SystemChatMessage(string.Join("\n\n---\n\n", systemParts.Where(s => !string.IsNullOrEmpty(s))))
+        };
 
         foreach (var msg in context.Messages)
         {
@@ -434,12 +448,10 @@ public class OpenAIChatService : IChatService
                     }
                     messages.Add(assistantMsg);
                     break;
-                case "system":
-                    messages.Add(new SystemChatMessage(msg.Content));
-                    break;
                 case "tool":
                     messages.Add(new ToolChatMessage(msg.ToolCallId ?? string.Empty, msg.Content));
                     break;
+                // "system" 角色已在上面合并到主 system prompt，无需单独处理
             }
         }
 
@@ -459,7 +471,7 @@ public class OpenAIChatService : IChatService
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);
 
-    public async Task<(bool Success, string Message)> TestConnectionAsync()
+    public async Task<(bool Success, string? Message)> TestConnectionAsync()
     {
         if (_chatClient == null)
         {
@@ -474,12 +486,31 @@ public class OpenAIChatService : IChatService
                 new UserChatMessage("test")
             };
 
-            var options = new ChatCompletionOptions { MaxOutputTokenCount = 10 };
+            var options = new ChatCompletionOptions
+            {
+                Temperature = (float)_config.Temperature,
+                MaxOutputTokenCount = Math.Min(_config.MaxTokens, 10),
+                TopP = (float)_config.TopP
+            };
+
+            // 携带工具定义，模拟真实对话场景
+            if (_config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true)
+            {
+                foreach (var tool in _functionRegistry.GetToolDefinitions())
+                {
+                    if (tool is ChatTool chatTool)
+                    {
+                        options.Tools.Add(chatTool);
+                    }
+                }
+                Log.Debug("Test 携带 {Count} 个工具", options.Tools.Count);
+            }
+
             var response = await _chatClient.CompleteChatAsync(messages, options);
-            
+
             if (response?.Value?.Content == null || response.Value.Content.Count == 0)
             {
-                return (false, "连接成功但未收到有效响应（可能是安全过滤或模型拒绝回答）");
+                return (false, _localizationService?.GetString("Config.TestConnectNoRespond"));
             }
 
             var content = response.Value.Content[0].Text;

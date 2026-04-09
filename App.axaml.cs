@@ -1,8 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Data.Core;
-using Avalonia.Data.Core.Plugins;
 using System;
 using System.IO;
 using System.Linq;
@@ -201,10 +199,6 @@ public partial class App : Application
         // 桌面平台使用经典桌面生命周期
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Avoid duplicate validations from both Avalonia and the CommunityToolkit.
-            // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
-            DisableAvaloniaDataAnnotationValidation();
-
             // 获取配置服务并加载初始主题
             var configService = Services.GetRequiredService<IConfigService>();
             var config = configService.Load();
@@ -436,10 +430,11 @@ public partial class App : Application
             var promptService = sp.GetRequiredService<IPromptService>();
             var historyService = sp.GetService<IConversationHistoryService>();
             var tokenService = sp.GetService<ITokenService>();
+            var locationService = sp.GetService<ILocalizationService>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService);
         });
 
         // 对话历史服务（单例）
@@ -495,18 +490,5 @@ public partial class App : Application
         });
 
         Log.Debug("依赖注入服务配置完成");
-    }
-
-    private void DisableAvaloniaDataAnnotationValidation()
-    {
-        // Get an array of plugins to remove
-        var dataValidationPluginsToRemove =
-            BindingPlugins.DataValidators.OfType<DataAnnotationsValidationPlugin>().ToArray();
-
-        // remove each entry found
-        foreach (var plugin in dataValidationPluginsToRemove)
-        {
-            BindingPlugins.DataValidators.Remove(plugin);
-        }
     }
 }
