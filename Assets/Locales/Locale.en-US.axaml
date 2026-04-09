@@ -61,6 +61,7 @@
     <system:String x:Key="Config.ModelId">Model ID:</system:String>
     <system:String x:Key="Config.ParamTemp">Temperature:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">Max Tokens:</system:String>
+    <system:String x:Key="Config.EnableFunctionCalling">Function Calling:</system:String>
     <system:String x:Key="Config.CtxUsage">Context Usage:</system:String>
     <system:String x:Key="Config.MemMaxCtx">Max Context Tokens:</system:String>
     <system:String x:Key="Config.MemCompThresh">Compression Threshold:</system:String>
@@ -69,6 +70,8 @@
     <system:String x:Key="Config.CompressionPreview">Compression Preview</system:String>
     <system:String x:Key="Config.InheritPrimary">Inherit Primary Settings</system:String>
     <system:String x:Key="Config.Enable">Enable Web Search</system:String>
+    <system:String x:Key="Config.TestConnectNoRespond">Connection successful but no valid response received (may be due to security filtering or model refusal to respond).</system:String>
+    
 
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">Run Test</system:String>

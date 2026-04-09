@@ -61,6 +61,7 @@
     <system:String x:Key="Config.ModelId">模型 ID:</system:String>
     <system:String x:Key="Config.ParamTemp">温度参数:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">最大 Token 数:</system:String>
+    <system:String x:Key="Config.EnableFunctionCalling">函数调用:</system:String>
     <system:String x:Key="Config.CtxUsage">当前上下文:</system:String>
     <system:String x:Key="Config.MemMaxCtx">上下文限制:</system:String>
     <system:String x:Key="Config.MemCompThresh">压缩阈值:</system:String>
@@ -70,6 +71,7 @@
     <system:String x:Key="Config.InheritPrimary">继承主配置</system:String>
     <system:String x:Key="Config.SkipRegenerateConfirm">跳过重新生成确认</system:String>
     <system:String x:Key="Config.SkipEditMessageConfirm">跳过编辑确认</system:String>
+    <system:String x:Key="Config.TestConnectNoRespond">连接成功但未收到有效响应（可能是安全过滤或模型拒绝回答）</system:String>
 
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">运行测试</system:String>
