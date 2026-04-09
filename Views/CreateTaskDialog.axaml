@@ -76,7 +76,7 @@
                             TextWrapping="Wrap"
                             MinHeight="80"
                             MaxHeight="120"
-                            Watermark="{loc:Loc TaskDialog.IntentPlaceholder}"/>
+                            PlaceholderText="{loc:Loc TaskDialog.IntentPlaceholder}"/>
                 </StackPanel>
 
                 <!-- 循环 -->

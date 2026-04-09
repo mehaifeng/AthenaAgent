@@ -44,7 +44,7 @@ public partial class LogsTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _selectedLogLevel = "All";
 
-    public ObservableCollection<string> LogLevels { get; } = new() { "All", "VERBOSE", "DEBUG", "INFORMATION", "WARNING", "ERROR", "FATAL" };
+    public ObservableCollection<string> LogLevels { get; } = new() { "All", "DEBUG", "INFO", "WARN", "ERROR", "FATAL" };
 
     [ObservableProperty]
     private int _selectedLogPageSize = 50;
@@ -129,10 +129,9 @@ public class LogEntryViewModel
     /// </summary>
     public Avalonia.Media.IBrush LevelColor => _entry.Level.ToUpper() switch
     {
-        "VERBOSE" => Avalonia.Media.Brushes.Gray,
         "DEBUG" => Avalonia.Media.Brushes.Gray,
-        "INFORMATION" => Avalonia.Media.Brushes.Green,
-        "WARNING" => Avalonia.Media.Brushes.Orange,
+        "INFO" => Avalonia.Media.Brushes.Green,
+        "WARN" => Avalonia.Media.Brushes.Orange,
         "ERROR" => Avalonia.Media.Brushes.Red,
         "FATAL" => Avalonia.Media.Brushes.Red,
         _ => Avalonia.Media.Brushes.White

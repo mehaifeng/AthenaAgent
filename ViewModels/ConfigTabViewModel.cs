@@ -313,7 +313,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             _chatService.UpdateConfig(Config);
             var (success, message) = await _chatService.TestConnectionAsync();
-            ConnectionStatus = message.TrimEnd().Replace("\n", " ");
+            ConnectionStatus = message?.TrimEnd().Replace("\n", _localizationService?.GetString("Config.TestConnectNoRespond"))?? string.Empty;
         }
         finally { IsTestingConnection = false; }
     }

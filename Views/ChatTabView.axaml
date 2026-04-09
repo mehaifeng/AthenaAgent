@@ -240,7 +240,7 @@
 
                 <TextBox Grid.Column="1"
                          Text="{Binding InputText}"
-                         Watermark="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
+                         PlaceholderText="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
                          VerticalContentAlignment="Center"

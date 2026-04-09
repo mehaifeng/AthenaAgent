@@ -54,7 +54,7 @@
 
                     <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="12">
                         <TextBlock Text="{loc:Loc Logs.Keyword}" VerticalAlignment="Center" Width="80" FontSize="12" Opacity="0.8"/>
-                        <TextBox Text="{Binding SearchLogText}" Width="150" Watermark="{loc:Loc Logs.OptionalFilter}" />
+                        <TextBox Text="{Binding SearchLogText}" Width="150" PlaceholderText="{loc:Loc Logs.OptionalFilter}" />
                     </StackPanel>
                 </Grid>
 
@@ -102,10 +102,10 @@
                                                VerticalAlignment="Center"/>
                                     <!-- Level Indicator -->
                                     <Border Grid.Column="1"
-                                            Width="70"
+                                            Width="65"
                                             Background="{Binding LevelColor}"
-                                            Padding="4,2"
-                                            HorizontalAlignment="Left"
+                                            Padding="4"
+                                            HorizontalAlignment="Center"
                                             VerticalAlignment="Center"
                                             CornerRadius="4">
                                         <TextBlock Text="{Binding Level}"

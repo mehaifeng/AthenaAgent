@@ -103,13 +103,13 @@
                     <Border Grid.Row="2" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="0,1,0,0" Padding="12" >
                         <StackPanel Spacing="8">
                             <Grid ColumnDefinitions="*,Auto">
-                                <TextBox Text="{Binding NewFolderName}" Watermark="{loc:Loc Files.MkdirPlaceholder}" />
+                                <TextBox Text="{Binding NewFolderName}" PlaceholderText="{loc:Loc Files.MkdirPlaceholder}" />
                                 <Button Grid.Column="1" Command="{Binding NewFolderCommand}" Padding="12,4" Margin="8,0,0,0">
                                     <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
                                 </Button>
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto">
-                                <TextBox Text="{Binding NewFileName}" Watermark="{loc:Loc Files.TouchPlaceholder}" />
+                                <TextBox Text="{Binding NewFileName}" PlaceholderText="{loc:Loc Files.TouchPlaceholder}" />
                                 <Button Grid.Column="1" Command="{Binding NewFileCommand}" Padding="12,4" Margin="8,0,0,0">
                                     <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
                                 </Button>
@@ -198,7 +198,7 @@
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Padding="16"
-                                Watermark="{loc:Loc Files.NoFileSelected}"/>
+                                PlaceholderText="{loc:Loc Files.NoFileSelected}"/>
                     </Grid>
                 </Grid>
             </Border>
