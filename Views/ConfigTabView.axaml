@@ -77,7 +77,7 @@
                         <Grid Grid.Row="1"
                             ColumnDefinitions="Auto,*"
                             ColumnSpacing="20"
-                            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                             HorizontalAlignment="Stretch">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
@@ -89,7 +89,7 @@
                             <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Watermark="e.g. gpt-4" Margin="0,0,0,12"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" PlaceholderText="e.g. gpt-4" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
                             <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
@@ -108,10 +108,13 @@
                                         Margin="12,0,0,0"/>
                             </Grid>
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="1000000" Increment="1000" Margin="0,0,0,12" HorizontalAlignment="Stretch"/>
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.EnableFunctionCalling}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding Config.EnableFunctionCalling}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
 
-                            <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,0">
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="1000000" Increment="1000" Margin="0,0,0,12" HorizontalAlignment="Stretch"/>
+
+                            <Grid Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,0">
                                 <Button Grid.Column="0"
                                         Command="{Binding TestConnectionCommand}"
                                         IsEnabled="{Binding CanTestConnection}"
@@ -154,10 +157,10 @@
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Margin="0,0,0,8" Watermark="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
 
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Margin="0,0,0,8" Watermark="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SecondaryModel}" Margin="0,0,0,8"/>
@@ -212,10 +215,10 @@
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" Watermark="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
