@@ -81,7 +81,7 @@
 
     <Application.Styles>
         <semi:SemiTheme Locale="zh-CN" />
-        <u-semi:SemiTheme Locale="zh-CN"/>
+        <semi:UrsaSemiTheme Locale="zh-CN"/>
         <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml"/>
 
         <!-- 全局样式：使 TabItem 标题稍微大一点 -->

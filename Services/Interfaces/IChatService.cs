@@ -31,7 +31,7 @@ public interface IChatService
     /// 测试 API 连接
     /// </summary>
     /// <returns>是否连接成功</returns>
-    Task<(bool Success, string Message)> TestConnectionAsync();
+    Task<(bool Success, string? Message)> TestConnectionAsync();
 
     /// <summary>
     /// 更新配置
