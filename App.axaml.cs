@@ -202,7 +202,8 @@ public partial class App : Application
             // 获取配置服务并加载初始主题
             var configService = Services.GetRequiredService<IConfigService>();
             var config = configService.Load();
-            SetTheme(config.Theme);
+            var initialTheme = config.Theme;
+            SetTheme(initialTheme);
 
             // 从 DI 容器获取 ViewModel
             var mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
@@ -211,6 +212,16 @@ public partial class App : Application
             {
                 DataContext = mainViewModel,
             };
+
+            // 启动动画：等待窗口完全加载后播放
+            if (desktop.MainWindow is Views.MainWindow mainWindow)
+            {
+                desktop.MainWindow.Opened += async (s, e) =>
+                {
+                    await Task.Delay(100); // 等待UI完全渲染
+                    await mainWindow.ShowThemeSplashAsync(initialTheme);
+                };
+            }
 
             // 更新托盘菜单文本（NativeMenu 不支持 XAML 绑定）
             UpdateTrayMenuText();
@@ -261,7 +272,7 @@ public partial class App : Application
     /// 全局设置主题
     /// </summary>
     /// <param name="themeName">"Dark" 或 "Light"</param>
-    public static void SetTheme(string themeName)
+    public static async void SetTheme(string themeName)
     {
         if (Current == null) return;
 
@@ -270,6 +281,12 @@ public partial class App : Application
 
         Current.RequestedThemeVariant = theme;
         Log.Information("主题已切换为: {Theme}", theme);
+
+        // 触发主题过渡动画
+        if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow is Views.MainWindow mainWindow)
+        {
+            await mainWindow.ShowThemeSplashAsync(themeName ?? "Dark");
+        }
     }
 
     /// <summary>

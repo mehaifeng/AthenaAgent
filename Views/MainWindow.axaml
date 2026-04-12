@@ -23,6 +23,14 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="*,Auto">
+        <!-- 主题过渡动画图片覆盖层 -->
+        <Image x:Name="ThemeSplashImage"
+               Grid.Row="0"
+               Stretch="UniformToFill"
+               Opacity="0"
+               IsHitTestVisible="False"
+               ZIndex="100"/>
+
         <!-- TabControl (功能模块) -->
         <TabControl Grid.Row="0"
                     SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"

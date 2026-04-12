@@ -11,6 +11,7 @@ using Serilog;
 using Athena.UI.Services;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input.Platform;
 
 namespace Athena.UI.ViewModels;
 
