@@ -1,3 +1,7 @@
+[![中文](https://img.shields.io/badge/-中文-red?style=flat-square)](README_CN.md) · **English**
+
+---
+
 # Athena Assistant
 
 Athena is a sophisticated, highly autonomous desktop AI assistant built with **.NET 10** and **Avalonia UI**. It serves as an intellectual partner with deep system integration, proactive capabilities, and a modern, polished interface.
