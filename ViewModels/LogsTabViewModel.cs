@@ -120,20 +120,29 @@ public class LogEntryViewModel
     }
 
     public DateTime Timestamp => _entry.Timestamp;
-    public string Level => _entry.Level;
+    public string Level => _entry.Level switch
+    {
+        "Information" => "INFO",
+        "Debug" => "DEBUG",
+        "Warning" => "WARN",
+        "Error" => "ERROR",
+        "Fatal" => "FATAL",
+        "Verbose" => "VERBOSE",
+        _ => "None"
+    };
     public string Message => _entry.Message;
     public string? Exception => _entry.Exception;
 
     /// <summary>
     /// 根据日志级别返回颜色
     /// </summary>
-    public Avalonia.Media.IBrush LevelColor => _entry.Level.ToUpper() switch
+    public Avalonia.Media.IBrush LevelColor => _entry.Level switch
     {
-        "DEBUG" => Avalonia.Media.Brushes.Gray,
-        "INFO" => Avalonia.Media.Brushes.Green,
-        "WARN" => Avalonia.Media.Brushes.Orange,
-        "ERROR" => Avalonia.Media.Brushes.Red,
-        "FATAL" => Avalonia.Media.Brushes.Red,
+        "Debug" => Avalonia.Media.Brushes.Gray,
+        "Information" => Avalonia.Media.Brushes.Green,
+        "Warning" => Avalonia.Media.Brushes.Orange,
+        "Error" => Avalonia.Media.Brushes.Red,
+        "Fatal" => Avalonia.Media.Brushes.Red,
         _ => Avalonia.Media.Brushes.White
     };
 }

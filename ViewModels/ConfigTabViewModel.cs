@@ -67,6 +67,7 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     private CancellationTokenSource? _autoSaveCts;
     private bool _isInternalSaving;
+    private string? _lastAppliedTheme;
 
     private static readonly Dictionary<string, string> ProviderUrls = new()
     {
@@ -260,7 +261,12 @@ public partial class ConfigTabViewModel : ViewModelBase
                 // Dispatch UI-related updates back to the UI thread
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
                 {
-                    App.SetTheme(Config.Theme);
+                    // Only trigger theme transition if theme actually changed
+                    if (_lastAppliedTheme != Config.Theme)
+                    {
+                        _lastAppliedTheme = Config.Theme;
+                        App.SetTheme(Config.Theme);
+                    }
                     _chatService?.UpdateConfig(Config);
                     if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
                     if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
@@ -289,6 +295,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             Config = await _configService.LoadAsync();
             ContextTokensThreshold = Config.CompressionThreshold;
             if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
+            _lastAppliedTheme = Config.Theme; // Sync initial theme to avoid triggering animation on first config change
 
             if (_localizationService != null)
             {
