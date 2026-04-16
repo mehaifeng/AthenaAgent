@@ -129,19 +129,34 @@ public partial class App : Application
         {
             try
             {
-                // 在 UI 线程获取托盘图标实例
-                TrayIcon? trayIcon = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => TrayIcon.GetIcons(this)?.FirstOrDefault());
-                if (trayIcon == null) return;
+                // 在 UI 线程获取托盘图标实例、原始图标和窗口可见性状态
+                var (trayIcon, originalIcon) = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync<(TrayIcon?, WindowIcon?)>(() =>
+                {
+                    var ti = TrayIcon.GetIcons(this)?.FirstOrDefault();
+                    return (ti, ti?.Icon);
+                });
+                if (trayIcon == null || originalIcon == null) return;
 
-                // 备份原始图标（同样需要在 UI 线程访问属性）
-                var originalIcon = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => trayIcon.Icon);
                 bool isIconVisible = true;
 
                 while (!token.IsCancellationRequested)
                 {
+                    // 每次切换前在 UI 线程检查窗口是否已激活
+                    bool isActive = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        var desktop = this.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+                        var win = desktop?.MainWindow;
+                        return win != null && win.IsVisible && win.IsActive;
+                    });
+
+                    if (isActive)
+                    {
+                        Log.Debug("窗口已激活，停止托盘闪烁");
+                        break;
+                    }
+
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        // 通过切换图标来实现闪烁
                         trayIcon.Icon = isIconVisible ? null : originalIcon;
                         isIconVisible = !isIconVisible;
                     });
@@ -161,7 +176,6 @@ public partial class App : Application
                     var trayIcon = TrayIcon.GetIcons(this)?.FirstOrDefault();
                     if (trayIcon != null)
                     {
-                        // 如果图标为空，则重新尝试加载
                         if (trayIcon.Icon == null)
                         {
                             try
@@ -269,6 +283,11 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// 主题变更事件广播，供各 ViewModel 同步状态用
+    /// </summary>
+    public static event Action<string>? ThemeChanged;
+
+    /// <summary>
     /// 全局设置主题
     /// </summary>
     /// <param name="themeName">"Dark" 或 "Light"</param>
@@ -290,6 +309,9 @@ public partial class App : Application
             Current.RequestedThemeVariant = theme;
         }
         Log.Information("主题已切换为: {Theme}", theme);
+
+        // 广播给所有订阅者（ConfigTabViewModel / ChatTabViewModel 同步按钮状态）
+        ThemeChanged?.Invoke(themeName ?? "Dark");
     }
 
     /// <summary>

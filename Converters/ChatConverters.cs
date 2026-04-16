@@ -64,19 +64,17 @@ public class OpacityConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
-public class ThemeToBoolConverter : IValueConverter
+/// <summary>
+/// Compares the tag value against the parameter; returns true for IsVisible binding.
+/// Used to show either Moon or Sun icon based on the current ThemeIcon tag.
+/// </summary>
+public class ThemeTagToVisibilityConverter : IValueConverter
 {
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        // Dark -> True (Checked), Light -> False (Unchecked)
-        return value?.ToString() == "Dark";
-    }
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value?.ToString() == parameter?.ToString();
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        // True -> Dark, False -> Light
-        return (bool)(value ?? false) ? "Dark" : "Light";
-    }
+        => throw new NotImplementedException();
 }
 
 public class LocConverter : IValueConverter
