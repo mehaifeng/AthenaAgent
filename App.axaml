@@ -63,9 +63,9 @@
             <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
             <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
-            <conv:ThemeToBoolConverter x:Key="ThemeToBoolConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
             <conv:OpacityConverter x:Key="OpacityConverter"/>
+            <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
 
             <!-- 字体设置 -->
             <FontFamily x:Key="MainFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>

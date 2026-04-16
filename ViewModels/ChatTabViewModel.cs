@@ -55,6 +55,9 @@ public partial class ChatTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _currentTheme = "Dark";
 
+    [ObservableProperty]
+    private string _themeIcon = "Moon"; // "Moon"=当前Dark点一下切Light, "Sun"=当前Light点一下切Dark
+
     public ObservableCollection<ChatMessage> Messages { get; } = new();
 
     public string ContextTokensInfo => _tokenService?.TokenInfoText ?? "0 / 0 tokens";
@@ -100,7 +103,18 @@ public partial class ChatTabViewModel : ViewModelBase
             var config = _configService.Load();
             if (_tokenService != null) _tokenService.MaxTokens = config.MaxContextTokens;
             CurrentTheme = config.Theme;
+            ThemeIcon = config.Theme == "Dark" ? "Moon" : "Sun";
         }
+
+        // 监听全局主题变更（来自 ConfigTabView 或其他入口），同步按钮状态
+        App.ThemeChanged += theme =>
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                CurrentTheme = theme;
+                ThemeIcon = theme == "Dark" ? "Moon" : "Sun";
+            });
+        };
 
         Messages.CollectionChanged += (s, e) => 
         {
@@ -143,6 +157,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private void ToggleTheme()
     {
         CurrentTheme = CurrentTheme == "Dark" ? "Light" : "Dark";
+        ThemeIcon = CurrentTheme == "Dark" ? "Moon" : "Sun";
         App.SetTheme(CurrentTheme);
         if (_configService != null)
         {
