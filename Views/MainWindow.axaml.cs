@@ -44,6 +44,12 @@ public partial class MainWindow : Window
     {
         if (_themeSplashImage == null) return;
 
+        // 如果主题与当前 Avalonia 主题相同，跳过动画（避免 ConfigTabView auto-save 重复触发）
+        var isTargetDark = theme?.ToLower() != "light";
+        var currentVariant = Application.Current?.RequestedThemeVariant;
+        var isCurrentDark = currentVariant == Avalonia.Styling.ThemeVariant.Dark;
+        if (isTargetDark == isCurrentDark) return;
+
         try
         {
             // 根据主题选择对应的图片

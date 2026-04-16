@@ -82,17 +82,17 @@
                            Foreground="{DynamicResource Chat.TimestampFg}"
                            FontSize="12" />
 
-                <ToggleButton Grid.Column="2"
-                              VerticalAlignment="Center"
-                              Command="{Binding ToggleThemeCommand}" 
-                              IsChecked="{Binding CurrentTheme, Converter={StaticResource ThemeToBoolConverter}, Mode=OneWay}"
-                              Margin="0,0,8,0"
-                              ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
+                <Button Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Command="{Binding ToggleThemeCommand}"
+                        Tag="{Binding ThemeIcon}"
+                        Margin="0,0,8,0"
+                        ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
                     <Panel>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}" IsVisible="{Binding $parent[ToggleButton].IsChecked}"/>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}" IsVisible="{Binding !$parent[ToggleButton].IsChecked}"/>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}" IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}" IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
                     </Panel>
-                </ToggleButton>
+                </Button>
                 
                 <Button Grid.Column="3" 
                         VerticalAlignment="Center"
@@ -245,7 +245,11 @@
                          TextWrapping="Wrap"
                          VerticalContentAlignment="Center"
                          MaxHeight="150"
-                         IsEnabled="{Binding !IsSending}"/>
+                         IsEnabled="{Binding !IsSending}">
+                    <TextBox.KeyBindings>
+                        <KeyBinding Command="{Binding SendMessageCommand}" Gesture="Enter"/>
+                    </TextBox.KeyBindings>
+                </TextBox>
 
                 <Button Grid.Column="2"
                         Command="{Binding SendMessageCommand}"
