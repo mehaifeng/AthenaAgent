@@ -28,7 +28,6 @@ public class FunctionRegistry : IFunctionRegistry
         ProactiveMessagingFunctions proactiveFunctions,
         KnowledgeBaseFunctions knowledgeFunctions,
         ConfigurationFunctions configFunctions,
-        FileSystemFunctions fileSystemFunctions,
         CliFunctions cliFunctions,
         WebSearchFunctions webSearchFunctions,
         IConfigService? configService,
@@ -39,18 +38,16 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
-            $"Executes a single executable or shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — prefer 'powershell' for shell built-ins" : "POSIX — use zsh/bash")}). " +
-            "CRITICAL: The 'command' field MUST be a single executable name (e.g., 'powershell', 'git', 'npm'). " +
-            "ALL parameters, flags, and URLs MUST be passed as separate strings in the 'arguments' array. " +
-            "For example, to open a URL on Windows: command='powershell', arguments=['start', 'https://example.com']. " +
-            "DO NOT use this for file system tasks like 'ls' or 'mkdir'—use dedicated file tools instead.",
+            $"Executes a command or command chain via shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — cmd.exe" : "POSIX — zsh")}). " +
+            "Supports full shell syntax: pipes (|), redirects (>), chains (&&, ||), glob patterns (*, ?), and subshells. " +
+            "Examples: 'cat file.txt | grep pattern' / 'ls -la *.cs > output.txt' / 'find . -name \"*.md\" | head -20'. " +
+            "For file operations: use 'cat/read', 'echo/printf/write', 'rm/del', 'mv/move', 'cp/copy', 'mkdir', 'ls/dir'.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    command = new { type = "string", description = "The executable name ONLY (e.g., 'powershell', 'dotnet'). NO spaces or arguments allowed here." },
-                    arguments = new { type = "array", items = new { type = "string" }, description = "List of arguments. Each flag or parameter should be a separate string (e.g., ['-c', 'dir'] or ['start', 'url'])." },
+                    command = new { type = "string", description = "Shell command or command chain with pipes, redirects, and glob patterns. Examples: 'git status', 'cat file.txt | grep foo', 'ls -la *.cs'" },
                     workingDirectory = new { type = "string", description = "The directory where the command should be executed." },
                     waitForExit = new { type = "boolean", description = "If true (default), waits for completion. Set to false for GUI apps or background tasks.", @default = true }
                 },
@@ -146,141 +143,6 @@ public class FunctionRegistry : IFunctionRegistry
             {
                 type = "object",
                 properties = new { section = new { type = "string", description = "Category: 'AI', 'Appearance', 'Memory', or 'All'.", @default = "All" } }
-            });
-
-        // --- File System Control ---
-        RegisterFunction("get_file_info", fileSystemFunctions.GetFileInfoAsync,
-            "Gets metadata of a file without reading its content. Always call this first before reading any file larger than a few KB to understand its size, line count, and type before deciding how to read it.",
-            new
-            {
-                type = "object",
-                properties = new { path = new { type = "string", description = "Absolute or relative path to the file." } },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("search_in_file", fileSystemFunctions.SearchInFileAsync,
-            "Searches for a keyword or pattern in a file and returns matching positions with surrounding context. For code files, use this to locate class names, method names, or symbols before reading. For unstructured text, use this to find topic-relevant fragments before reading chunks.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    path = new { type = "string", description = "Path to the file." },
-                    pattern = new { type = "string", description = "Keyword or regex pattern to search for." },
-                    contextLines = new { type = "integer", description = "Lines of context to include around each match.", @default = 3 },
-                    maxMatches = new { type = "integer", description = "Maximum number of matches to return.", @default = 10 }
-                },
-                required = new[] { "path", "pattern" }
-            });
-
-        RegisterFunction("get_document_outline", fileSystemFunctions.GetDocumentOutlineAsync,
-            "Returns the structural outline of a document without full content. For Markdown returns headings and line numbers. For JSON/YAML returns top-level keys. For code files returns class and method signatures. For unstructured text returns the first sentence of each detected paragraph block.",
-            new
-            {
-                type = "object",
-                properties = new { path = new { type = "string", description = "Path to the file." } },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
-            "Reads file content. Behavior adapts to file size automatically: files under 50KB are returned in full; larger files are split into chunks and require chunkIndex. For code files, use startLine/endLine after locating the target with search_in_file. For structured documents, use sectionTitle. For unstructured text, use chunkIndex to paginate.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    path = new { type = "string", description = "Path to the file." },
-                    startLine = new { type = "integer", description = "First line to read (1-based). For code files only." },
-                    endLine = new { type = "integer", description = "Last line to read (inclusive). For code files only." },
-                    sectionTitle = new { type = "string", description = "Heading or section name to jump to. For structured documents (Markdown, etc.)." },
-                    chunkIndex = new { type = "integer", description = "0-based chunk index for large or unstructured files. Get total chunk count from get_file_info first." }
-                },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("write_system_file", fileSystemFunctions.WriteSystemFileAsync,
-            "Creates a new file or fully overwrites an existing one. Only use this for new files or when replacing the entire content. For partial edits to existing files, use modify_system_file instead.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    path = new { type = "string", description = "Path to the file." },
-                    content = new { type = "string", description = "The full content to write." }
-                },
-                required = new[] { "path", "content" }
-            });
-
-        RegisterFunction("modify_system_file", fileSystemFunctions.ModifySystemFileAsync,
-            "Modifies a specific fragment of an existing file using SEARCH/REPLACE format. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target location.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    path = new { type = "string", description = "Path to the file." },
-                    diffContent = new { type = "string", description = "Modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
-                    fuzzyMatch = new { type = "boolean", description = "Whether to tolerate minor whitespace differences in the SEARCH block. Defaults to true.", @default = true }
-                },
-                required = new[] { "path", "diffContent" }
-            });
-
-        RegisterFunction("delete_system_file", fileSystemFunctions.DeleteSystemFileAsync,
-            "Permanently deletes a file. This action is irreversible. Always confirm with the user before calling this tool.",
-            new
-            {
-                type = "object",
-                properties = new { path = new { type = "string", description = "Path to the file." } },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("list_system_directory", fileSystemFunctions.ListSystemDirectoryAsync,
-            "Lists files and subdirectories at a given path. Use this to explore unfamiliar directory structures before deciding which files to read.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    path = new { type = "string", description = "Path to the directory." },
-                    recursive = new { type = "boolean", description = "Whether to list subdirectories recursively.", @default = false },
-                    filter = new { type = "string", description = "Optional glob pattern to filter results, e.g. '*.cs' or '*.md'." }
-                },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("create_directory", fileSystemFunctions.CreateDirectoryAsync,
-            "Creates a new directory at the specified path. If the parent directories do not exist, they will be created as well.",
-            new
-            {
-                type = "object",
-                properties = new { path = new { type = "string", description = "Path to the directory to create." } },
-                required = new[] { "path" }
-            });
-
-        RegisterFunction("move_system_file", fileSystemFunctions.MoveSystemFileAsync,
-            "Moves or renames a file or directory. Source and destination must be valid paths.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    sourcePath = new { type = "string", description = "Current path of the file or directory." },
-                    destinationPath = new { type = "string", description = "Target path for the file or directory." }
-                },
-                required = new[] { "sourcePath", "destinationPath" }
-            });
-
-        RegisterFunction("copy_system_file", fileSystemFunctions.CopySystemFileAsync,
-            "Copies a file from the source path to the destination path. Source must be an existing file.",
-            new
-            {
-                type = "object",
-                properties = new
-                {
-                    sourcePath = new { type = "string", description = "Path of the source file." },
-                    destinationPath = new { type = "string", description = "Target path for the copy." }
-                },
-                required = new[] { "sourcePath", "destinationPath" }
             });
 
         _logger.Information("FunctionRegistry initialized with {Count} functions", _tools.Count);

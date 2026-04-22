@@ -416,14 +416,6 @@ public partial class App : Application
             return new ConfigurationFunctions(configService, sp, logger);
         });
 
-        services.AddSingleton<FileSystemFunctions>(sp =>
-        {
-            var fileSystemService = sp.GetRequiredService<IFileSystemService>();
-            var knowledgeBaseService = sp.GetRequiredService<IKnowledgeBaseService>();
-            var logger = Log.ForContext<FileSystemFunctions>();
-            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger);
-        });
-
         services.AddSingleton<CliFunctions>(sp =>
         {
             var cliService = sp.GetRequiredService<ICliService>();
@@ -452,13 +444,12 @@ public partial class App : Application
             var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
             var knowledgeFunctions = sp.GetRequiredService<KnowledgeBaseFunctions>();
             var configFunctions = sp.GetRequiredService<ConfigurationFunctions>();
-            var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var cliFunctions = sp.GetRequiredService<CliFunctions>();
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
             var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, cliFunctions, webSearchFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）

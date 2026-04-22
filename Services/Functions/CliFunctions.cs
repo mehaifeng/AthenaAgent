@@ -2,7 +2,7 @@ using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -15,9 +15,6 @@ public class CliFunctions
     private readonly ICliService _cliService;
     private readonly ILogger _logger;
 
-    // 禁止在终端中使用的文件系统操作命令（AI 应优先使用现有的文件系统工具）
-    private static readonly string[] RestrictedCommands = { "mkdir", "rm", "rmdir", "ls", "dir", "cp", "mv", "copy", "move", "del", "erase" };
-
     public CliFunctions(ICliService cliService, ILogger logger)
     {
         _cliService = cliService;
@@ -27,21 +24,33 @@ public class CliFunctions
     /// <summary>
     /// 执行控制台命令并捕获输出
     /// </summary>
-    public async Task<FunctionResult> ExecuteTerminalCommandAsync(string command, List<string>? arguments = null, string? workingDirectory = null, bool waitForExit = true)
+    public async Task<FunctionResult> ExecuteTerminalCommandAsync(string command, string? workingDirectory = null, bool waitForExit = true)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(command))
                 return FunctionResult.FailureResult("错误: 必须提供 command 参数。");
 
-            // 检查是否为简单的文件系统操作
-            if (RestrictedCommands.Contains(command.ToLower().Trim()))
+            // 检测是否包含 shell 特殊操作符
+            bool needsShell = Regex.IsMatch(command, @"[|&;<>]|^[~*?]");
+
+            string shell;
+            string[] shellArgs;
+
+            if (OperatingSystem.IsWindows())
             {
-                return FunctionResult.FailureResult($"为了安全性与一致性，请使用现有的文件系统操作工具（如 list_system_directory, create_directory, delete_system_file 等）来完成此类任务，而不是直接调用终端命令 '{command}'。");
+                // Windows: cmd.exe 处理管道和重定向
+                shell = "cmd";
+                shellArgs = new[] { "/c", command };
+            }
+            else
+            {
+                // macOS/Linux: zsh 处理管道和重定向
+                shell = "zsh";
+                shellArgs = new[] { "-c", command };
             }
 
-            var args = arguments ?? new List<string>();
-            var result = await _cliService.ExecuteAsync(command, args, workingDirectory, null, waitForExit);
+            var result = await _cliService.ExecuteAsync(shell, shellArgs, workingDirectory, null, waitForExit);
 
             if (result.IsSuccess)
             {
@@ -50,6 +59,7 @@ public class CliFunctions
                 {
                     stdout = result.StandardOutput,
                     stderr = result.StandardError,
+                    exitCode = result.ExitCode,
                     runTime = result.RunTime.TotalSeconds + "s",
                     pid = result.ProcessId
                 });
