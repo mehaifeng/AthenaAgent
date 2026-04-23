@@ -9,7 +9,7 @@ namespace Athena.UI.Services.Functions;
 
 /// <summary>
 /// 知识库管理相关的 Function Calling 实现
-/// 仅保留核心的向量检索和专用知识创建，通用文件操作由 FileSystemFunctions 处理
+/// 仅保留核心的向量检索和专用知识创建
 /// </summary>
 public class KnowledgeBaseFunctions
 {
@@ -23,7 +23,7 @@ public class KnowledgeBaseFunctions
     }
 
     /// <summary>
-    /// 创建知识文件（仅用于创建新记录，如需修改请使用通用系统文件修改工具）
+    /// 创建知识文件（仅用于创建新记录，如需修改请通过 CLI 工具处理）
     /// </summary>
     /// <param name="filePath">相对路径，如 'user_preferences/coding_style.md'</param>
     /// <param name="content">Markdown 格式的文件内容</param>
@@ -43,7 +43,7 @@ public class KnowledgeBaseFunctions
             // 检查文件是否已存在
             if (await _knowledgeBase.FileExistsAsync(filePath))
             {
-                return FunctionResult.FailureResult($"记录已存在: {filePath}。如果需要修改，请使用 modify_system_file 工具。");
+                return FunctionResult.FailureResult($"记录已存在: {filePath}。如果需要修改，请使用 execute_terminal_command。");
             }
 
             await _knowledgeBase.CreateFileAsync(filePath, content);

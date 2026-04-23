@@ -89,10 +89,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _keepRecentRounds = 3;
 
-    // 文件系统控制策略
-    [ObservableProperty]
-    private FileSystemPolicyConfig _fileSystemPolicy = new();
-
     // Web Search 配置
     [ObservableProperty]
     private bool _webSearchEnabled = false;

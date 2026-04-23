@@ -22,7 +22,7 @@ namespace Athena.UI.ViewModels;
 /// </summary>
 public partial class KnowledgeBaseTabViewModel : ViewModelBase
 {
-    private readonly IFileSystemService? _fileSystemService;
+    private readonly IKnowledgeBaseFileService? _knowledgeBaseFileService;
     private readonly IPlatformPathService? _pathService;
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
     private readonly ILocalizationService? _localizationService;
@@ -53,12 +53,12 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     public KnowledgeBaseTabViewModel() : this(null, null, null, null) { }
 
     public KnowledgeBaseTabViewModel(
-        IFileSystemService? fileSystemService, 
+        IKnowledgeBaseFileService? knowledgeBaseFileService,
         IPlatformPathService? pathService,
         IKnowledgeBaseService? knowledgeBaseService,
         ILocalizationService? localizationService = null)
     {
-        _fileSystemService = fileSystemService;
+        _knowledgeBaseFileService = knowledgeBaseFileService;
         _pathService = pathService;
         _knowledgeBaseService = knowledgeBaseService;
         _localizationService = localizationService;
@@ -98,10 +98,10 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
 
     private async Task LoadFileContentAsync(string absolutePath)
     {
-        if (_fileSystemService == null) return;
+        if (_knowledgeBaseFileService == null) return;
         try
         {
-            var content = await _fileSystemService.ReadFileAsync(absolutePath);
+            var content = await _knowledgeBaseFileService.ReadFileAsync(absolutePath);
             EditingFileContent = content ?? "[ FILE_CONTENT_EMPTY ]";
             IsEditingFile = false;  // 加载后默认只读/预览模式
         }
@@ -188,12 +188,12 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
         {
             var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
             var newDirPath = Path.Combine(baseDir, NewFolderName);
-            Directory.CreateDirectory(newDirPath);
             
             // 在新文件夹下创建一个 README.md 引导
-            if (_fileSystemService != null)
+            if (_knowledgeBaseFileService != null)
             {
-                await _fileSystemService.WriteFileAsync(Path.Combine(newDirPath, "README.md"), $"# {NewFolderName}\nCreated at {DateTime.Now}");
+                await _knowledgeBaseFileService.CreateDirectoryAsync(newDirPath);
+                await _knowledgeBaseFileService.WriteFileAsync(Path.Combine(newDirPath, "README.md"), $"# {NewFolderName}\nCreated at {DateTime.Now}");
             }
 
             NewFolderName = string.Empty;
@@ -205,7 +205,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task NewFileAsync()
     {
-        if (_fileSystemService == null || string.IsNullOrWhiteSpace(NewFileName)) return;
+        if (_knowledgeBaseFileService == null || string.IsNullOrWhiteSpace(NewFileName)) return;
         try
         {
             var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
@@ -214,7 +214,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
             if (!Path.HasExtension(fileName)) fileName += ".md";
             
             var fullPath = Path.Combine(baseDir, fileName);
-            await _fileSystemService.WriteFileAsync(fullPath, $"# {Path.GetFileNameWithoutExtension(fileName)}\n\nCreated at {DateTime.Now}");
+            await _knowledgeBaseFileService.WriteFileAsync(fullPath, $"# {Path.GetFileNameWithoutExtension(fileName)}\n\nCreated at {DateTime.Now}");
             
             NewFileName = string.Empty;
             await RefreshFilesAsync();
@@ -244,11 +244,11 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
         {
             if (SelectedFile.IsDirectory)
             {
-                Directory.Delete(SelectedFile.FullPath, true);
+                await _knowledgeBaseFileService!.DeleteDirectoryAsync(SelectedFile.FullPath);
             }
             else
             {
-                await _fileSystemService!.DeleteFileAsync(SelectedFile.FullPath);
+                await _knowledgeBaseFileService!.DeleteFileAsync(SelectedFile.FullPath);
             }
             
             EditingFileContent = string.Empty;
@@ -268,10 +268,10 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task SaveFileAsync()
     {
-        if (_fileSystemService == null || SelectedFile == null || SelectedFile.IsDirectory) return;
+        if (_knowledgeBaseFileService == null || SelectedFile == null || SelectedFile.IsDirectory) return;
         try
         {
-            await _fileSystemService.WriteFileAsync(SelectedFile.FullPath, EditingFileContent);
+            await _knowledgeBaseFileService.WriteFileAsync(SelectedFile.FullPath, EditingFileContent);
             IsEditingFile = false;
             
             // 如果是知识库目录下的文件，触发知识库刷新向量（可选）
@@ -298,7 +298,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     {
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
         var storageProvider = desktop.MainWindow?.StorageProvider;
-        if (storageProvider == null || _fileSystemService == null) return;
+        if (storageProvider == null || _knowledgeBaseFileService == null) return;
         
         var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -316,7 +316,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
             try 
             { 
                 var content = await File.ReadAllTextAsync(file.Path.LocalPath); 
-                await _fileSystemService.WriteFileAsync(Path.Combine(baseDir, file.Name), content); 
+                await _knowledgeBaseFileService.WriteFileAsync(Path.Combine(baseDir, file.Name), content); 
             }
             catch (Exception ex) { _logger.Error(ex, "导入失败: {File}", file.Name); }
         }

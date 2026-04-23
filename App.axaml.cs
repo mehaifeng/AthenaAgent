@@ -339,15 +339,6 @@ public partial class App : Application
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
 
-        // 系统文件服务（单例）
-        services.AddSingleton<IFileSystemService>(sp =>
-        {
-            var configService = sp.GetRequiredService<IConfigService>();
-            var pathService = sp.GetRequiredService<IPlatformPathService>();
-            var logger = Log.ForContext<FileSystemService>();
-            return new FileSystemService(configService, pathService, logger);
-        });
-
         // 任务调度器（单例，UI 和 Function Calling 共享）
         services.AddSingleton<ITaskScheduler>(sp =>
         {
@@ -392,6 +383,14 @@ public partial class App : Application
             });
 
             return service;
+        });
+
+        services.AddSingleton<IKnowledgeBaseFileService>(sp =>
+        {
+            var knowledgeBaseService = sp.GetRequiredService<IKnowledgeBaseService>();
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<KnowledgeBaseFileService>();
+            return new KnowledgeBaseFileService(knowledgeBaseService, pathService, logger);
         });
 
         // Function 相关类（使用工厂方法提供 Logger）
@@ -499,7 +498,7 @@ public partial class App : Application
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
             var embeddingService = sp.GetService<IEmbeddingService>();
             var localizationService = sp.GetService<ILocalizationService>();
-            var fileSystemService = sp.GetService<IFileSystemService>();
+            var knowledgeBaseFileService = sp.GetService<IKnowledgeBaseFileService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
@@ -515,7 +514,7 @@ public partial class App : Application
                 knowledgeBaseService,
                 embeddingService,
                 localizationService,
-                fileSystemService,
+                knowledgeBaseFileService,
                 platformPathService,
                 functionRegistry,
                 tokenService,
