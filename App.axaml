@@ -1,17 +1,11 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Athena.UI.App"
-             xmlns:local="using:Athena.UI"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:conv="using:Athena.UI.Converters"
              xmlns:semi="https://irihi.tech/semi"
-             xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              RequestedThemeVariant="Default">
-
-    <Application.DataTemplates>
-        <local:ViewLocator/>
-    </Application.DataTemplates>
 
     <TrayIcon.Icons>
         <TrayIcons>
@@ -60,22 +54,12 @@
             <!-- 转换器 -->
             <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
             <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
-            <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
-            <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
             <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
 
-            <!-- 字体设置 -->
-            <FontFamily x:Key="MainFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-            <FontFamily x:Key="ContentControlThemeFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
-
-            <!-- 字号设置 -->
-            <x:Double x:Key="TitleFontSize">18</x:Double>
-            <x:Double x:Key="BodyFontSize">14</x:Double>
-            <x:Double x:Key="SmallFontSize">12</x:Double>
         </ResourceDictionary>
     </Application.Resources>
 

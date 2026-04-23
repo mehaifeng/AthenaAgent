@@ -19,7 +19,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Converters\" />
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
@@ -47,7 +46,6 @@
   <ItemGroup>
     <!-- Avalonia UI -->
     <PackageReference Include="Avalonia" Version="12.0.1" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.1" />
 
     <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
@@ -65,8 +63,6 @@
     <PackageReference Include="OpenAI" Version="2.10.0" />
 
     <!-- 配置和依赖注入 -->
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0-preview.3.26207.106" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0-preview.3.26207.106" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.3.26207.106" />
     <PackageReference Include="Semi.Avalonia" Version="12.0.0" />
 
@@ -86,6 +82,5 @@
   <ItemGroup>
     <PackageReference Include="LiveMarkdown.Avalonia" Version="2.0.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.1" />
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.92.0" />
   </ItemGroup>
 </Project>

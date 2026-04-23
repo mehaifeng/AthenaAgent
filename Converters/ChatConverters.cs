@@ -2,7 +2,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Athena.UI.Services.Interfaces;
 using System;
 using System.Globalization;
@@ -27,19 +26,6 @@ public class IntToColumnConverter : IValueConverter
         if (parameter?.ToString() == "UserAlign") return isUser ? 1 : 0;
         return 0;
     }
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-// 移除 RoleToBrushConverter 和 RoleToBgConverter 的复杂逻辑，改为简单的占位符或删除（如果不再使用）
-public class RoleToBrushConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-public class RoleToBgConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
