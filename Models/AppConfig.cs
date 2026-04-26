@@ -109,6 +109,70 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _webSearchAppId = string.Empty;
 
+    // Headless Browser 配置
+    [ObservableProperty]
+    private bool _browserEnabled = false;
+
+    [ObservableProperty]
+    private bool _browserHeadless = true;
+
+    [ObservableProperty]
+    private bool _browserUseVisionMode = true;
+
+    [ObservableProperty]
+    private int _browserViewportWidth = 1280;
+
+    [ObservableProperty]
+    private int _browserViewportHeight = 900;
+
+    [ObservableProperty]
+    private int _browserMaxSteps = 12;
+
+    [ObservableProperty]
+    private int _browserOperationTimeoutSeconds = 30;
+
+    [ObservableProperty]
+    private int _browserSessionTtlMinutes = 10;
+
+    [ObservableProperty]
+    private bool _browserPersistSession = false;
+
+    [ObservableProperty]
+    private bool _browserDownloadEnabled = false;
+
+    [ObservableProperty]
+    private double _browserScreenshotScale = 1.0;
+
+    [ObservableProperty]
+    private int _browserImageQuality = 85;
+
+    [ObservableProperty]
+    private bool _browserSomEnabled = true;
+
+    [ObservableProperty]
+    private int _browserSomMaxElements = 80;
+
+    [ObservableProperty]
+    private bool _browserSomIncludeText = true;
+
+    [ObservableProperty]
+    private string _browserVisionProvider = "OpenAI";
+
+    [ObservableProperty]
+    private string _browserVisionBaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _browserVisionApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _browserVisionModel = "gpt-4o-mini";
+
+    [ObservableProperty]
+    private int _browserVisionMaxTokens = 1000;
+
+    [ObservableProperty]
+    private double _browserVisionTemperature = 0.2;
+
     // 用户偏好设置
     [ObservableProperty]
     private bool _skipRegenerateConfirm;

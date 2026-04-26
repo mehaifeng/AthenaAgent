@@ -11,6 +11,7 @@ using Athena.UI.Views;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Functions;
+using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
 using Athena.UI.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -439,11 +440,56 @@ public partial class App : Application
             return new WebSearchService(configService, logger);
         });
 
+        // Headless Browser 服务
+        services.AddSingleton<IBrowserSessionManager>(sp =>
+        {
+            var logger = Log.ForContext<BrowserSessionManager>();
+            return new BrowserSessionManager(logger);
+        });
+
+        services.AddSingleton<ISomAnnotator>(sp =>
+        {
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<SomAnnotator>();
+            return new SomAnnotator(pathService, logger);
+        });
+
+        services.AddSingleton<IHeadlessBrowserService>(sp =>
+        {
+            var sessionManager = sp.GetRequiredService<IBrowserSessionManager>();
+            var somAnnotator = sp.GetRequiredService<ISomAnnotator>();
+            var logger = Log.ForContext<PlaywrightBrowserService>();
+            return new PlaywrightBrowserService(sessionManager, somAnnotator, logger);
+        });
+
+        services.AddSingleton<IBrowserVisionService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var logger = Log.ForContext<BrowserVisionService>();
+            return new BrowserVisionService(configService, logger);
+        });
+
+        services.AddSingleton<IBrowserAgentService>(sp =>
+        {
+            var browserService = sp.GetRequiredService<IHeadlessBrowserService>();
+            var browserVisionService = sp.GetRequiredService<IBrowserVisionService>();
+            var configService = sp.GetRequiredService<IConfigService>();
+            var logger = Log.ForContext<BrowserAgentService>();
+            return new BrowserAgentService(browserService, browserVisionService, configService, logger);
+        });
+
         services.AddSingleton<WebSearchFunctions>(sp =>
         {
             var webSearchService = sp.GetRequiredService<IWebSearchService>();
             var logger = Log.ForContext<WebSearchFunctions>();
             return new WebSearchFunctions(webSearchService, logger);
+        });
+
+        services.AddSingleton<BrowserTaskFunctions>(sp =>
+        {
+            var browserAgentService = sp.GetRequiredService<IBrowserAgentService>();
+            var logger = Log.ForContext<BrowserTaskFunctions>();
+            return new BrowserTaskFunctions(browserAgentService, logger);
         });
 
         // Function Registry（单例）
@@ -455,10 +501,11 @@ public partial class App : Application
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var cliFunctions = sp.GetRequiredService<CliFunctions>();
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
+            var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
             var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, browserTaskFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）
@@ -513,6 +560,8 @@ public partial class App : Application
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
             var webSearchService = sp.GetService<IWebSearchService>();
+            var browserService = sp.GetService<IHeadlessBrowserService>();
+            var browserVisionService = sp.GetService<IBrowserVisionService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -528,7 +577,9 @@ public partial class App : Application
                 platformPathService,
                 functionRegistry,
                 tokenService,
-                webSearchService);
+                webSearchService,
+                browserService,
+                browserVisionService);
         });
 
         Log.Debug("依赖注入服务配置完成");

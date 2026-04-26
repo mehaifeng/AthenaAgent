@@ -22,6 +22,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IConversationHistoryService? _historyService;
     private readonly ILocalizationService? _localizationService;
     private readonly IWebSearchService? _webSearchService;
+    private readonly IHeadlessBrowserService? _browserService;
+    private readonly IBrowserVisionService? _browserVisionService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -58,6 +60,9 @@ public partial class ConfigTabViewModel : ViewModelBase
     public bool CanTestSecondary => !IsTestingSecondary;
     public bool CanTestEmbedding => !IsTestingEmbedding;
     public bool CanTestWebSearch => !IsTestingWebSearch;
+    public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
+    public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
+    public bool CanTestBrowserVision => !IsTestingBrowserVision;
 
     [ObservableProperty]
     private string _secondaryTestStatus = string.Empty;
@@ -114,9 +119,9 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null)
     {
         _configService = configService;
         _chatService = chatService;
@@ -124,6 +129,8 @@ public partial class ConfigTabViewModel : ViewModelBase
         _historyService = historyService;
         _localizationService = localizationService;
         _webSearchService = webSearchService;
+        _browserService = browserService;
+        _browserVisionService = browserVisionService;
 
         if (_localizationService != null)
         {
@@ -215,6 +222,13 @@ public partial class ConfigTabViewModel : ViewModelBase
                     config.EmbeddingBaseUrl = url;
                 }
             }
+            else if (e.PropertyName == nameof(AppConfig.BrowserVisionProvider))
+            {
+                if (ProviderUrls.TryGetValue(config.BrowserVisionProvider, out var url))
+                {
+                    config.BrowserVisionBaseUrl = url;
+                }
+            }
             
             // Trigger auto-save on any property change
             RequestAutoSave();
@@ -255,6 +269,7 @@ public partial class ConfigTabViewModel : ViewModelBase
                     _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
                 }
 
+                NormalizeBrowserConfig();
                 await _configService.SaveAsync(Config);
 
                 // Dispatch UI-related updates back to the UI thread
@@ -280,6 +295,20 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             _isInternalSaving = false;
         }
+    }
+
+    private void NormalizeBrowserConfig()
+    {
+        Config.BrowserViewportWidth = Math.Clamp(Config.BrowserViewportWidth, 320, 3840);
+        Config.BrowserViewportHeight = Math.Clamp(Config.BrowserViewportHeight, 240, 2160);
+        Config.BrowserMaxSteps = Math.Clamp(Config.BrowserMaxSteps, 1, 50);
+        Config.BrowserOperationTimeoutSeconds = Math.Clamp(Config.BrowserOperationTimeoutSeconds, 5, 300);
+        Config.BrowserSessionTtlMinutes = Math.Clamp(Config.BrowserSessionTtlMinutes, 1, 120);
+        Config.BrowserScreenshotScale = Math.Clamp(Config.BrowserScreenshotScale, 0.25, 2.0);
+        Config.BrowserImageQuality = Math.Clamp(Config.BrowserImageQuality, 30, 100);
+        Config.BrowserSomMaxElements = Math.Clamp(Config.BrowserSomMaxElements, 10, 200);
+        Config.BrowserVisionMaxTokens = Math.Clamp(Config.BrowserVisionMaxTokens, 100, 8000);
+        Config.BrowserVisionTemperature = Math.Clamp(Config.BrowserVisionTemperature, 0, 2);
     }
 
     private async Task LoadConfigAsync()
@@ -325,6 +354,26 @@ public partial class ConfigTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(TestWebSearchCommand))]
     private bool _isTestingWebSearch;
 
+    [ObservableProperty]
+    private string _browserRuntimeStatus = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
+    private bool _isTestingBrowserRuntime;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
+    private bool _isInstallingBrowserRuntime;
+
+    [ObservableProperty]
+    private string _browserVisionTestStatus = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestBrowserVisionCommand))]
+    private bool _isTestingBrowserVision;
+
     [RelayCommand(CanExecute = nameof(CanTestWebSearch))]
     private async Task TestWebSearchAsync()
     {
@@ -342,6 +391,61 @@ public partial class ConfigTabViewModel : ViewModelBase
             WebSearchTestStatus = message;
         }
         finally { IsTestingWebSearch = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTestBrowserRuntime))]
+    private async Task TestBrowserRuntimeAsync()
+    {
+        if (_browserService == null) { BrowserRuntimeStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
+
+        IsTestingBrowserRuntime = true;
+        BrowserRuntimeStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
+        try
+        {
+            var status = await _browserService.GetRuntimeStatusAsync();
+            BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
+        }
+        finally { IsTestingBrowserRuntime = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanInstallBrowserRuntime))]
+    private async Task InstallBrowserRuntimeAsync()
+    {
+        if (_browserService == null) { BrowserRuntimeStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
+
+        IsInstallingBrowserRuntime = true;
+        BrowserRuntimeStatus = _localizationService?.GetString("Status.InstallingBrowserRuntime") ?? "Installing browser runtime...";
+        try
+        {
+            var result = await _browserService.InstallRuntimeAsync();
+            BrowserRuntimeStatus = result.Message;
+        }
+        finally { IsInstallingBrowserRuntime = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTestBrowserVision))]
+    private async Task TestBrowserVisionAsync()
+    {
+        if (_browserVisionService == null) { BrowserVisionTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (!Config.BrowserEnabled) { BrowserVisionTestStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
+        if (string.IsNullOrWhiteSpace(Config.BrowserVisionApiKey) && string.IsNullOrWhiteSpace(Config.ApiKey)) { BrowserVisionTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
+
+        IsTestingBrowserVision = true;
+        BrowserVisionTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
+        try
+        {
+            NormalizeBrowserConfig();
+            if (_configService != null)
+            {
+                await _configService.SaveAsync(Config);
+            }
+
+            var (success, message) = await _browserVisionService.TestConnectionAsync();
+            BrowserVisionTestStatus = message;
+        }
+        finally { IsTestingBrowserVision = false; }
     }
 
     [RelayCommand(CanExecute = nameof(CanTestSecondary))]
