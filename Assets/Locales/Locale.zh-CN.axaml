@@ -206,11 +206,40 @@
     <system:String x:Key="Config.TestConnection">测试连接</system:String>
     <system:String x:Key="Config.Test">测试</system:String>
 
+    <!-- Headless Browser -->
+    <system:String x:Key="Config.Browser">浏览器</system:String>
+    <system:String x:Key="Config.BrowserDescription">启用后，雅典娜可以在隔离会话中使用无头浏览器观察和操作网页。低层浏览器步骤不会写入主对话上下文。</system:String>
+    <system:String x:Key="Config.BrowserEnabled">启用浏览器:</system:String>
+    <system:String x:Key="Config.BrowserVisionMode">视觉模式:</system:String>
+    <system:String x:Key="Config.BrowserHeadless">无头模式:</system:String>
+    <system:String x:Key="Config.BrowserDiagnostics">运行时诊断</system:String>
+    <system:String x:Key="Config.BrowserRuntimeStatus">浏览器运行时:</system:String>
+    <system:String x:Key="Config.BrowserTestRuntime">测试运行时</system:String>
+    <system:String x:Key="Config.BrowserInstallRuntime">安装 Chromium</system:String>
+    <system:String x:Key="Config.BrowserRuntime">运行时</system:String>
+    <system:String x:Key="Config.BrowserViewportWidth">视口宽度:</system:String>
+    <system:String x:Key="Config.BrowserViewportHeight">视口高度:</system:String>
+    <system:String x:Key="Config.BrowserOperationTimeout">单步超时（秒）:</system:String>
+    <system:String x:Key="Config.BrowserMaxSteps">最大步骤数:</system:String>
+    <system:String x:Key="Config.BrowserSessionPolicy">会话策略</system:String>
+    <system:String x:Key="Config.BrowserSessionTtl">会话 TTL（分钟）:</system:String>
+    <system:String x:Key="Config.BrowserPersistSession">保留会话状态:</system:String>
+    <system:String x:Key="Config.BrowserDownloadEnabled">允许下载:</system:String>
+    <system:String x:Key="Config.BrowserSom">SoM 标注</system:String>
+    <system:String x:Key="Config.BrowserSomEnabled">启用 SoM:</system:String>
+    <system:String x:Key="Config.BrowserSomMaxElements">最多标注元素:</system:String>
+    <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本:</system:String>
+    <system:String x:Key="Config.BrowserScreenshotScale">截图缩放:</system:String>
+    <system:String x:Key="Config.BrowserImageQuality">图像质量:</system:String>
+    <system:String x:Key="Config.BrowserVisionModel">视觉模型</system:String>
+
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">请先输入 API Key</system:String>
     <system:String x:Key="Status.TestingConnection">测试中...</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">请先启用 Web Search</system:String>
+    <system:String x:Key="Status.EnableBrowserFirst">请先启用浏览器</system:String>
+    <system:String x:Key="Status.InstallingBrowserRuntime">正在安装浏览器运行时...</system:String>
 
     <!-- Tool Execution Status -->
     <system:String x:Key="Tool.Calling">正在调用: {0}...</system:String>

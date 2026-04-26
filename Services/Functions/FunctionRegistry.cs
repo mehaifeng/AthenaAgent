@@ -31,6 +31,7 @@ public class FunctionRegistry : IFunctionRegistry
         FileSystemFunctions fileSystemFunctions,
         CliFunctions cliFunctions,
         WebSearchFunctions webSearchFunctions,
+        BrowserTaskFunctions browserTaskFunctions,
         IConfigService? configService,
         ILogger logger)
     {
@@ -124,6 +125,21 @@ public class FunctionRegistry : IFunctionRegistry
                     maxResults = new { type = "integer", description = "Maximum number of search results to return.", @default = 5 }
                 },
                 required = new[] { "query" }
+            });
+
+        // --- Headless Browser (high-level entry only) ---
+        RegisterFunction("run_browser_task", browserTaskFunctions.RunBrowserTaskAsync,
+            "Runs an isolated visual browser task using a headless Chromium session. Use this when the user needs interactive webpage inspection or operation, such as opening a page, reading visible content, clicking a visible control, filling a simple form, or navigating a site. The browser task keeps screenshots and low-level browser actions out of the main chat context. NOTE: Browser and Browser Vision must be configured in settings.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    instruction = new { type = "string", description = "The browser task to perform, including the user's goal and any constraints." },
+                    startUrl = new { type = "string", description = "Optional URL to open first. Provide this when the task is tied to a specific page." },
+                    maxSteps = new { type = "integer", description = "Optional maximum number of internal browser steps. Defaults to the browser setting.", @default = 12 }
+                },
+                required = new[] { "instruction" }
             });
 
         // --- Self-Configuration ---

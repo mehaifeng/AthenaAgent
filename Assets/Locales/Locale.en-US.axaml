@@ -206,11 +206,40 @@
     <system:String x:Key="Config.TestConnection">Test Connection</system:String>
     <system:String x:Key="Config.Test">Test</system:String>
 
+    <!-- Headless Browser -->
+    <system:String x:Key="Config.Browser">Browser</system:String>
+    <system:String x:Key="Config.BrowserDescription">When enabled, Athena can observe and operate web pages in isolated headless browser sessions. Low-level browser steps are kept out of the main chat context.</system:String>
+    <system:String x:Key="Config.BrowserEnabled">Enable Browser:</system:String>
+    <system:String x:Key="Config.BrowserVisionMode">Vision Mode:</system:String>
+    <system:String x:Key="Config.BrowserHeadless">Headless Mode:</system:String>
+    <system:String x:Key="Config.BrowserDiagnostics">Runtime Diagnostics</system:String>
+    <system:String x:Key="Config.BrowserRuntimeStatus">Browser Runtime:</system:String>
+    <system:String x:Key="Config.BrowserTestRuntime">Test Runtime</system:String>
+    <system:String x:Key="Config.BrowserInstallRuntime">Install Chromium</system:String>
+    <system:String x:Key="Config.BrowserRuntime">Runtime</system:String>
+    <system:String x:Key="Config.BrowserViewportWidth">Viewport Width:</system:String>
+    <system:String x:Key="Config.BrowserViewportHeight">Viewport Height:</system:String>
+    <system:String x:Key="Config.BrowserOperationTimeout">Step Timeout (sec):</system:String>
+    <system:String x:Key="Config.BrowserMaxSteps">Max Steps:</system:String>
+    <system:String x:Key="Config.BrowserSessionPolicy">Session Policy</system:String>
+    <system:String x:Key="Config.BrowserSessionTtl">Session TTL (min):</system:String>
+    <system:String x:Key="Config.BrowserPersistSession">Persist Session State:</system:String>
+    <system:String x:Key="Config.BrowserDownloadEnabled">Allow Downloads:</system:String>
+    <system:String x:Key="Config.BrowserSom">SoM Annotation</system:String>
+    <system:String x:Key="Config.BrowserSomEnabled">Enable SoM:</system:String>
+    <system:String x:Key="Config.BrowserSomMaxElements">Max Marked Elements:</system:String>
+    <system:String x:Key="Config.BrowserSomIncludeText">Include Element Text:</system:String>
+    <system:String x:Key="Config.BrowserScreenshotScale">Screenshot Scale:</system:String>
+    <system:String x:Key="Config.BrowserImageQuality">Image Quality:</system:String>
+    <system:String x:Key="Config.BrowserVisionModel">Vision Model</system:String>
+
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">Please enter API Key first</system:String>
     <system:String x:Key="Status.TestingConnection">Testing...</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">Please enable Web Search first</system:String>
+    <system:String x:Key="Status.EnableBrowserFirst">Please enable Browser first</system:String>
+    <system:String x:Key="Status.InstallingBrowserRuntime">Installing browser runtime...</system:String>
 
     <!-- Tool Execution Status -->
     <system:String x:Key="Tool.Calling">Calling: {0}...</system:String>

@@ -63,6 +63,11 @@
 
     <!-- OpenAI SDK -->
     <PackageReference Include="OpenAI" Version="2.10.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.59.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.3-preview.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.3-preview.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.3-preview.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.3-preview.1.1" />
 
     <!-- 配置和依赖注入 -->
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0-preview.3.26207.106" />
