@@ -215,10 +215,64 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             }
 
             var box = element.BoundingBox;
-            await runtimeSession.Page.Mouse.ClickAsync((float)(box.X + box.Width / 2), (float)(box.Y + box.Height / 2));
-            await runtimeSession.Page.Keyboard.TypeAsync(text ?? string.Empty);
+            var requestedText = text ?? string.Empty;
+            var centerX = box.X + box.Width / 2;
+            var centerY = box.Y + box.Height / 2;
+
+            await runtimeSession.Page.Mouse.ClickAsync((float)centerX, (float)centerY);
+            var fillResult = await runtimeSession.Page.EvaluateAsync<TypeFillResult>(FillEditableElementScript, new
+            {
+                x = centerX,
+                y = centerY,
+                text = requestedText
+            });
+
+            if (fillResult == null)
+            {
+                return BrowserActionFailure(BrowserActionType.Type, sessionId, "Type failed: no fill result was returned.");
+            }
+
+            var effect = new BrowserActionEffect
+            {
+                ElementId = element.ElementId,
+                TargetStableKey = element.StableKey,
+                TargetSelector = element.Selector,
+                RequestedText = fillResult.IsSensitive ? null : requestedText,
+                ValueBefore = fillResult.ValueBefore,
+                ValueAfter = fillResult.ValueAfter,
+                Changed = fillResult.Changed,
+                Skipped = fillResult.Skipped,
+                MatchesRequestedValue = fillResult.MatchesRequestedValue,
+                SkipReason = fillResult.SkipReason
+            };
+
             await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
-            return BrowserActionSuccess(BrowserActionType.Type, sessionId, "Type completed.", runtimeSession.Page.Url);
+            if (!fillResult.Success)
+            {
+                return new BrowserActionResult
+                {
+                    Success = false,
+                    Action = BrowserActionType.Type,
+                    Message = $"Type failed: {fillResult.Error ?? "target value did not change as expected."}",
+                    SessionId = sessionId,
+                    Url = runtimeSession.Page.Url,
+                    Effect = effect
+                };
+            }
+
+            var message = fillResult.Skipped
+                ? "Type skipped: target already contains the requested value."
+                : "Type completed: target value verified.";
+
+            return new BrowserActionResult
+            {
+                Success = true,
+                Action = BrowserActionType.Type,
+                Message = message,
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                Effect = effect
+            };
         }
         catch (Exception ex)
         {
@@ -494,24 +548,31 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         var candidates = ParseInteractiveElements(candidatesJson);
 
         return candidates
-            .Where(e => GetBool(e, "isVisible") && GetBool(e, "isEnabled") && GetDouble(e, "width") > 0 && GetDouble(e, "height") > 0)
+            .Where(e => GetBool(e, "isVisible") && GetBool(e, "isEnabled") && GetBool(e, "isTopMost") && GetDouble(e, "width") > 0 && GetDouble(e, "height") > 0)
             .Where(e => GetDouble(e, "x") < viewportWidth && GetDouble(e, "y") < viewportHeight && GetDouble(e, "x") + GetDouble(e, "width") > 0 && GetDouble(e, "y") + GetDouble(e, "height") > 0)
-            .OrderBy(e => GetDouble(e, "y"))
+            .OrderByDescending(e => GetDouble(e, "priority"))
+            .ThenBy(e => GetDouble(e, "y"))
             .ThenBy(e => GetDouble(e, "x"))
             .Take(maxElements)
             .Select((e, index) => new SomElement
             {
                 Index = index + 1,
                 ElementId = $"som-{index + 1}",
+                StableKey = GetString(e, "stableKey"),
                 TagName = GetString(e, "tagName") ?? string.Empty,
                 Role = GetString(e, "role"),
                 Text = includeText ? Truncate(GetString(e, "text"), 120) : null,
                 AriaLabel = includeText ? Truncate(GetString(e, "ariaLabel"), 120) : null,
                 Placeholder = includeText ? Truncate(GetString(e, "placeholder"), 120) : null,
                 Href = Truncate(GetString(e, "href"), 240),
+                Value = includeText ? Truncate(GetString(e, "value"), 120) : null,
+                InputType = GetString(e, "inputType"),
                 Selector = GetString(e, "selector"),
                 IsVisible = GetBool(e, "isVisible"),
                 IsEnabled = GetBool(e, "isEnabled"),
+                IsEditable = GetBool(e, "isEditable"),
+                IsChecked = GetNullableBool(e, "isChecked"),
+                IsSensitive = GetBool(e, "isSensitive"),
                 BoundingBox = new BrowserBoundingBox
                 {
                     X = Math.Max(0, GetDouble(e, "x")),
@@ -583,12 +644,201 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         };
     }
 
+    private static bool? GetNullableBool(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetString(), out var result) => result,
+            _ => null
+        };
+    }
+
     private static string? Truncate(string? value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         var trimmed = value.Trim();
         return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
+
+    private const string FillEditableElementScript = """
+        ({ x, y, text }) => {
+          const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+
+          const deepElementFromPoint = (pointX, pointY) => {
+            let element = document.elementFromPoint(pointX, pointY);
+            let depth = 0;
+            while (element && element.shadowRoot && depth < 8) {
+              const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
+              if (!inner || inner === element) break;
+              element = inner;
+              depth += 1;
+            }
+
+            return element;
+          };
+
+          const parentOrHost = (node) => {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+
+            const root = node.getRootNode && node.getRootNode();
+            return root && root.host ? root.host : null;
+          };
+
+          const inputType = (element) => {
+            const tagName = (element.tagName || '').toLowerCase();
+            if (tagName === 'input') return (element.getAttribute('type') || 'text').toLowerCase();
+            if (tagName === 'textarea') return 'textarea';
+            if (tagName === 'select') return 'select';
+            if (element.isContentEditable) return 'contenteditable';
+            return '';
+          };
+
+          const isSensitive = (element) => inputType(element) === 'password';
+
+          const isTextInputType = (type) => [
+            '',
+            'text',
+            'search',
+            'email',
+            'url',
+            'tel',
+            'password',
+            'number',
+            'date',
+            'datetime-local',
+            'month',
+            'time',
+            'week'
+          ].includes(type);
+
+          const isEditable = (element) => {
+            if (!element || !element.tagName) return false;
+            const tagName = element.tagName.toLowerCase();
+            const type = inputType(element);
+            return tagName === 'textarea' ||
+              tagName === 'select' ||
+              element.isContentEditable ||
+              (tagName === 'input' && isTextInputType(type));
+          };
+
+          const findEditable = (start) => {
+            let node = start;
+            while (node) {
+              if (isEditable(node)) return node;
+              if (node instanceof HTMLLabelElement && node.control && isEditable(node.control)) return node.control;
+              node = parentOrHost(node);
+            }
+
+            return null;
+          };
+
+          const readActualValue = (element) => {
+            const tagName = element.tagName.toLowerCase();
+            if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return element.value || '';
+            if (element.isContentEditable) return element.innerText || element.textContent || '';
+            return '';
+          };
+
+          const publicValue = (element, value) => isSensitive(element) ? null : normalize(value);
+
+          const dispatchValueEvents = (element) => {
+            element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertReplacementText', data: text }));
+            element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          };
+
+          const setNativeValue = (element, value) => {
+            const prototype = Object.getPrototypeOf(element);
+            const descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
+            if (descriptor && descriptor.set) {
+              descriptor.set.call(element, value);
+            } else {
+              element.value = value;
+            }
+          };
+
+          const hit = deepElementFromPoint(x, y);
+          const target = findEditable(hit);
+          if (!target) {
+            return {
+              Success: false,
+              Error: 'No editable target found at the selected element.',
+              ValueBefore: null,
+              ValueAfter: null,
+              Changed: false,
+              Skipped: false,
+              MatchesRequestedValue: false,
+              SkipReason: null,
+              IsSensitive: false
+            };
+          }
+
+          const sensitive = isSensitive(target);
+          const beforeActual = readActualValue(target);
+          if (beforeActual === text) {
+            return {
+              Success: true,
+              Error: null,
+              ValueBefore: publicValue(target, beforeActual),
+              ValueAfter: publicValue(target, beforeActual),
+              Changed: false,
+              Skipped: true,
+              MatchesRequestedValue: true,
+              SkipReason: 'already-matches-requested-value',
+              IsSensitive: sensitive
+            };
+          }
+
+          const tagName = target.tagName.toLowerCase();
+          target.focus();
+          if (tagName === 'select') {
+            const option = Array.from(target.options || []).find(item => item.value === text || normalize(item.textContent || '') === normalize(text));
+            if (!option) {
+              return {
+                Success: false,
+                Error: 'No select option matches the requested text.',
+                ValueBefore: publicValue(target, beforeActual),
+                ValueAfter: publicValue(target, beforeActual),
+                Changed: false,
+                Skipped: false,
+                MatchesRequestedValue: false,
+                SkipReason: null,
+                IsSensitive: sensitive
+              };
+            }
+
+            target.value = option.value;
+            dispatchValueEvents(target);
+          } else if (target.isContentEditable) {
+            target.textContent = text;
+            dispatchValueEvents(target);
+          } else {
+            setNativeValue(target, text);
+            dispatchValueEvents(target);
+          }
+
+          const afterActual = readActualValue(target);
+          const matches = afterActual === text || (tagName === 'select' && normalize(target.selectedOptions?.[0]?.textContent || '') === normalize(text));
+          return {
+            Success: matches,
+            Error: matches ? null : 'Target value did not match requested text after fill.',
+            ValueBefore: publicValue(target, beforeActual),
+            ValueAfter: publicValue(target, afterActual),
+            Changed: beforeActual !== afterActual,
+            Skipped: false,
+            MatchesRequestedValue: matches,
+            SkipReason: null,
+            IsSensitive: sensitive
+          };
+        }
+        """;
 
     private const string InteractiveElementsScript = """
         () => {
@@ -607,6 +857,32 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             '[onclick]'
           ].join(',');
 
+          const modalSelectors = [
+            'dialog[open]',
+            ':modal',
+            ':popover-open',
+            '[role="dialog"]',
+            '[role="alertdialog"]',
+            '[aria-modal="true"]',
+            '[data-modal]',
+            '[data-dialog]',
+            '.modal',
+            '.modal-dialog',
+            '.modal-content',
+            '.popover',
+            '.popup',
+            '.overlay',
+            '.drawer'
+          ];
+
+          const safeMatches = (el, selector) => {
+            try {
+              return !!el.matches && el.matches(selector);
+            } catch {
+              return false;
+            }
+          };
+
           const cssPath = (el) => {
             if (!el || !el.tagName) return '';
             if (el.id) return `#${CSS.escape(el.id)}`;
@@ -620,9 +896,34 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
               }
               parts.unshift(part);
-              node = parent;
+              if (parent) {
+                node = parent;
+                continue;
+              }
+
+              const root = node.getRootNode && node.getRootNode();
+              if (root && root.host) {
+                parts.unshift(':shadow-root');
+                node = root.host;
+                continue;
+              }
+
+              node = null;
             }
             return parts.join(' > ');
+          };
+
+          const collectElements = (root, output = []) => {
+            if (!root || !root.querySelectorAll) return output;
+
+            for (const el of Array.from(root.querySelectorAll('*'))) {
+              output.push(el);
+              if (el.shadowRoot) {
+                collectElements(el.shadowRoot, output);
+              }
+            }
+
+            return output;
           };
 
           const isVisible = (el, rect) => {
@@ -631,6 +932,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
               style.visibility !== 'hidden' &&
               style.display !== 'none' &&
               Number(style.opacity || '1') > 0 &&
+              style.pointerEvents !== 'none' &&
               rect.width > 0 &&
               rect.height > 0;
           };
@@ -639,31 +941,255 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return !el.disabled && el.getAttribute('aria-disabled') !== 'true';
           };
 
+          const getInputType = (el) => {
+            const tagName = (el.tagName || '').toLowerCase();
+            if (tagName === 'input') return (el.getAttribute('type') || 'text').toLowerCase();
+            if (tagName === 'textarea') return 'textarea';
+            if (tagName === 'select') return 'select';
+            if (el.isContentEditable) return 'contenteditable';
+            return '';
+          };
+
+          const isEditableElement = (el) => {
+            const tagName = (el.tagName || '').toLowerCase();
+            const role = (el.getAttribute('role') || '').toLowerCase();
+            return tagName === 'input' ||
+              tagName === 'textarea' ||
+              tagName === 'select' ||
+              el.isContentEditable ||
+              role === 'textbox' ||
+              role === 'searchbox' ||
+              role === 'combobox';
+          };
+
+          const isSensitiveElement = (el) => {
+            const inputType = getInputType(el);
+            return inputType === 'password';
+          };
+
+          const elementValue = (el) => {
+            if (isSensitiveElement(el)) return null;
+
+            const tagName = (el.tagName || '').toLowerCase();
+            const inputType = getInputType(el);
+            if (tagName === 'input' && (inputType === 'checkbox' || inputType === 'radio')) {
+              return el.checked ? 'checked' : 'unchecked';
+            }
+
+            if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+              return normalize(el.value || '');
+            }
+
+            if (el.isContentEditable) {
+              return normalize(el.innerText || el.textContent || '');
+            }
+
+            return null;
+          };
+
+          const elementText = (el) => {
+            if (isSensitiveElement(el)) return '';
+
+            const editableValue = elementValue(el);
+            return normalize(el.innerText || el.textContent || editableValue || '');
+          };
+
+          const stableKey = (el, selectorPath) => {
+            const parts = [
+              selectorPath,
+              (el.tagName || '').toLowerCase(),
+              el.getAttribute('role') || '',
+              el.getAttribute('name') || '',
+              getInputType(el),
+              el.getAttribute('aria-label') || '',
+              el.getAttribute('placeholder') || ''
+            ].map(value => normalize(value)).filter(Boolean);
+
+            return parts.join('|').slice(0, 512);
+          };
+
+          const normalizeClassName = (el) => {
+            if (!el || !el.className) return '';
+            return typeof el.className === 'string' ? el.className : String(el.className.baseVal || '');
+          };
+
+          const looksLikeModalRoot = (el) => {
+            if (modalSelectors.some(modalSelector => safeMatches(el, modalSelector))) return true;
+
+            const className = normalizeClassName(el);
+            const id = el.id || '';
+            return /\b(modal|dialog|popup|popover|overlay|drawer)\b/i.test(`${id} ${className}`);
+          };
+
+          const blocksBackground = (el) => {
+            const role = (el.getAttribute('role') || '').toLowerCase();
+            return safeMatches(el, ':modal') ||
+              el.getAttribute('aria-modal') === 'true' ||
+              role === 'alertdialog';
+          };
+
+          const composedContains = (container, child) => {
+            let node = child;
+            while (node) {
+              if (node === container) return true;
+              if (container.contains && container.contains(node)) return true;
+
+              if (node.parentElement) {
+                node = node.parentElement;
+                continue;
+              }
+
+              const root = node.getRootNode && node.getRootNode();
+              node = root && root.host ? root.host : null;
+            }
+
+            return false;
+          };
+
+          const isLabelRelated = (hit, target) => {
+            if (!hit || !target) return false;
+            if (hit instanceof HTMLLabelElement && hit.control === target) return true;
+
+            if (!target.id || !hit.closest) return false;
+            try {
+              const label = hit.closest(`label[for="${CSS.escape(target.id)}"]`);
+              return !!label;
+            } catch {
+              return false;
+            }
+          };
+
+          const isRelatedHit = (hit, target, shadowHost) => {
+            if (!hit || !target) return false;
+            return hit === target ||
+              target.contains(hit) ||
+              isLabelRelated(hit, target) ||
+              (!!shadowHost && (hit === shadowHost || shadowHost.contains(hit)));
+          };
+
+          const firstRelevantHitMatches = (stack, target, shadowHost) => {
+            for (const hit of stack || []) {
+              if (hit === document.documentElement || hit === document.body) continue;
+              return isRelatedHit(hit, target, shadowHost);
+            }
+
+            return false;
+          };
+
+          const pointHitsElement = (el, x, y) => {
+            if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false;
+
+            const root = el.getRootNode && el.getRootNode();
+            const shadowHost = root && root.host ? root.host : null;
+            const documentStack = document.elementsFromPoint(x, y);
+            if (!firstRelevantHitMatches(documentStack, shadowHost || el, shadowHost) &&
+                !firstRelevantHitMatches(documentStack, el, shadowHost)) {
+              return false;
+            }
+
+            if (root && root !== document && root.elementsFromPoint) {
+              return firstRelevantHitMatches(root.elementsFromPoint(x, y), el, null);
+            }
+
+            return true;
+          };
+
+          const samplePoints = (rect) => {
+            const left = Math.max(0, rect.left);
+            const right = Math.min(window.innerWidth, rect.right);
+            const top = Math.max(0, rect.top);
+            const bottom = Math.min(window.innerHeight, rect.bottom);
+            const width = Math.max(0, right - left);
+            const height = Math.max(0, bottom - top);
+            if (width <= 0 || height <= 0) return [];
+
+            const points = [
+              [left + width / 2, top + height / 2],
+              [left + width * 0.25, top + height * 0.25],
+              [left + width * 0.75, top + height * 0.25],
+              [left + width * 0.25, top + height * 0.75],
+              [left + width * 0.75, top + height * 0.75]
+            ];
+
+            const seenPoints = new Set();
+            return points.filter(([x, y]) => {
+              const key = `${Math.round(x)}:${Math.round(y)}`;
+              if (seenPoints.has(key)) return false;
+              seenPoints.add(key);
+              return true;
+            });
+          };
+
+          const topMostInfo = (el, rect) => {
+            const points = samplePoints(rect);
+            if (points.length === 0) return { center: false, score: 0 };
+
+            let score = 0;
+            let center = false;
+            points.forEach(([x, y], index) => {
+              const hit = pointHitsElement(el, x, y);
+              if (hit) score += 1;
+              if (index === 0) center = hit;
+            });
+
+            return { center, score };
+          };
+
           const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+          const allElements = collectElements(document);
+          const modalRoots = allElements.filter(el => {
+            const rect = el.getBoundingClientRect();
+            return looksLikeModalRoot(el) && isVisible(el, rect);
+          });
+          const blockingModalRoots = modalRoots.filter(blocksBackground);
           const elements = [];
           const seen = new Set();
 
-          for (const el of Array.from(document.querySelectorAll(selector))) {
+          for (const el of allElements.filter(item => safeMatches(item, selector))) {
             if (seen.has(el)) continue;
             seen.add(el);
 
             const rect = el.getBoundingClientRect();
             if (!isVisible(el, rect)) continue;
 
+            const inBlockingModal = blockingModalRoots.some(root => composedContains(root, el));
+            if (blockingModalRoots.length > 0 && !inBlockingModal) continue;
+
+            const hitInfo = topMostInfo(el, rect);
+            const isTopMost = hitInfo.center || hitInfo.score >= Math.min(2, samplePoints(rect).length);
+            if (!isTopMost) continue;
+
+            const modalDepth = modalRoots.filter(root => composedContains(root, el)).length;
+            const priority = (inBlockingModal ? 3000 : 0) + (modalDepth * 100) + hitInfo.score;
+            const selectorPath = cssPath(el);
+            const inputType = getInputType(el);
+            const isEditable = isEditableElement(el);
+            const sensitive = isSensitiveElement(el);
+            const value = elementValue(el);
+            const isCheckable = inputType === 'checkbox' || inputType === 'radio';
+
             elements.push({
               tagName: el.tagName.toLowerCase(),
               role: el.getAttribute('role') || '',
-              text: normalize(el.innerText || el.textContent || el.value || ''),
+              text: elementText(el),
               ariaLabel: normalize(el.getAttribute('aria-label') || ''),
               placeholder: normalize(el.getAttribute('placeholder') || ''),
               href: el.href || el.getAttribute('href') || '',
-              selector: cssPath(el),
+              selector: selectorPath,
+              stableKey: stableKey(el, selectorPath),
+              value,
+              inputType,
               x: rect.x,
               y: rect.y,
               width: rect.width,
               height: rect.height,
               isVisible: true,
-              isEnabled: isEnabled(el)
+              isEnabled: isEnabled(el),
+              isEditable,
+              isChecked: isCheckable ? !!el.checked : null,
+              isSensitive: sensitive,
+              isTopMost: true,
+              priority
             });
           }
 
@@ -674,6 +1200,19 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     private sealed record RuntimeSession(IBrowserContext Context, IPage Page, BrowserSessionOptions Options)
     {
         public ConcurrentDictionary<string, SomElement> Elements { get; } = new();
+    }
+
+    private sealed class TypeFillResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string? ValueBefore { get; set; }
+        public string? ValueAfter { get; set; }
+        public bool Changed { get; set; }
+        public bool Skipped { get; set; }
+        public bool MatchesRequestedValue { get; set; }
+        public string? SkipReason { get; set; }
+        public bool IsSensitive { get; set; }
     }
 
     private sealed class ScrollPosition

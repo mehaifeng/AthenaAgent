@@ -170,20 +170,45 @@ public class BrowserVisionService : IBrowserVisionService
         {
             id = e.ElementId,
             index = e.Index,
+            stableKey = e.StableKey,
             tag = e.TagName,
             role = e.Role,
             text = e.Text,
             ariaLabel = e.AriaLabel,
             placeholder = e.Placeholder,
             href = e.Href,
+            value = e.IsSensitive ? null : e.Value,
+            inputType = e.InputType,
+            isEditable = e.IsEditable,
+            isChecked = e.IsChecked,
+            isSensitive = e.IsSensitive,
             box = new { e.BoundingBox.X, e.BoundingBox.Y, e.BoundingBox.Width, e.BoundingBox.Height }
+        }));
+        var recentActionsJson = JsonSerializer.Serialize(actionHistory.TakeLast(8).Select(a => new
+        {
+            action = a.Action.ToString(),
+            success = a.Success,
+            message = a.Message,
+            effect = a.Effect == null ? null : new
+            {
+                elementId = a.Effect.ElementId,
+                targetStableKey = a.Effect.TargetStableKey,
+                targetSelector = a.Effect.TargetSelector,
+                requestedText = a.Effect.RequestedText,
+                valueBefore = a.Effect.ValueBefore,
+                valueAfter = a.Effect.ValueAfter,
+                changed = a.Effect.Changed,
+                skipped = a.Effect.Skipped,
+                matchesRequestedValue = a.Effect.MatchesRequestedValue,
+                skipReason = a.Effect.SkipReason
+            }
         }));
 
         var prompt = $"""
             Task: {task.Instruction}
             Current URL: {observation.Url}
             Page title: {observation.Title}
-            Recent actions: {string.Join("; ", actionHistory.TakeLast(6).Select(a => $"{a.Action}:{a.Message}"))}
+            Recent actions JSON: {recentActionsJson}
             SoM elements JSON: {elementJson}
             """;
 

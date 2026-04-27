@@ -51,13 +51,13 @@ public class SomAnnotator : ISomAnnotator
             {
                 Style = SKPaintStyle.Stroke,
                 Color = new SKColor(255, 71, 87),
-                StrokeWidth = Math.Max(2, bitmap.Width / 640f),
+                StrokeWidth = Math.Max(1, bitmap.Width / 1280f),
                 IsAntialias = true
             };
             using var labelPaint = new SKPaint
             {
                 Style = SKPaintStyle.Fill,
-                Color = new SKColor(255, 71, 87),
+                Color = new SKColor(255, 71, 87, 128),
                 IsAntialias = true
             };
             using var textPaint = new SKPaint
@@ -66,7 +66,7 @@ public class SomAnnotator : ISomAnnotator
                 IsAntialias = true
             };
             using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
-            using var labelFont = new SKFont(typeface, Math.Max(13, bitmap.Width / 80f));
+            using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 120f, 10f, 12f));
 
             foreach (var element in request.Elements.Take(Math.Max(0, request.MaxElements)))
             {
@@ -103,8 +103,8 @@ public class SomAnnotator : ISomAnnotator
         var label = element.Index.ToString();
         var textWidth = labelFont.MeasureText(label);
         var metrics = labelFont.Metrics;
-        var labelWidth = textWidth + 10;
-        var labelHeight = metrics.Descent - metrics.Ascent + 6;
+        var labelWidth = textWidth + 8;
+        var labelHeight = metrics.Descent - metrics.Ascent + 4;
         var labelX = Math.Max(0, rect.Left);
         var labelY = Math.Max(0, rect.Top - labelHeight);
         if (labelY <= 0)
@@ -113,8 +113,8 @@ public class SomAnnotator : ISomAnnotator
         }
 
         var labelRect = SKRect.Create(labelX, labelY, labelWidth, labelHeight);
-        canvas.DrawRoundRect(labelRect, 4, 4, labelPaint);
-        canvas.DrawText(label, labelX + 5, labelY + 3 - metrics.Ascent, SKTextAlign.Left, labelFont, textPaint);
+        canvas.DrawRoundRect(labelRect, 3, 3, labelPaint);
+        canvas.DrawText(label, labelX + 4, labelY + 2 - metrics.Ascent, SKTextAlign.Left, labelFont, textPaint);
     }
 
     private async Task<SomObservation> CreateObservationAsync(SomAnnotationRequest request, byte[] screenshotBytes, CancellationToken cancellationToken)

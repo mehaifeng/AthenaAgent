@@ -184,6 +184,13 @@ Interactive element candidates:
 - `[contenteditable=true]`
 - visible elements with click handlers when detectable
 
+HTML overlays and modal layers:
+
+- Treat DOM-based modal/popover/dialog layers as first-class SoM targets.
+- Filter candidates by hit testing with `elementsFromPoint` so visually covered background elements are not marked.
+- Prioritize elements inside active dialogs, popovers, and modal roots before normal page elements.
+- Traverse open shadow roots when collecting candidates. Iframe traversal remains a separate hardening item because it requires frame-aware coordinate translation.
+
 Element metadata:
 
 - `ElementId`
@@ -252,7 +259,16 @@ The internal loop should enforce:
 - Per-step timeout.
 - Navigation timeout.
 - Re-observe after every page-changing action.
+- Verified action effects for browser operations that mutate page state.
+- Progress guards that stop repeated actions on unchanged page state.
 - Stop conditions for captcha, login, 2FA, payment, destructive action, or user confirmation requirement.
+
+Type action semantics:
+
+- `type` means fill/replace the target editable value, not append keystrokes.
+- Before and after values should be captured in sanitized action effects.
+- If the target already contains the requested value, the action should be skipped and the agent should choose the next step.
+- Repeating the same completed action on the same page state should terminate as no progress after one corrective feedback turn.
 
 ### 3.8 Main Function Integration
 
@@ -370,6 +386,11 @@ Acceptance criteria:
 - Observation returns annotated image plus element metadata.
 - Labels align with visible elements.
 - Hidden, disabled, and offscreen elements are filtered correctly.
+- DOM modal/dialog/popover contents are labeled ahead of background page elements.
+- Background elements covered by HTML overlays are not labeled.
+- Open shadow DOM controls are included when they are visible and topmost.
+- Type actions are idempotent and verified by reading the target value after fill.
+- Repeated completed actions do not consume all browser steps.
 - Large pages cap the number of annotated elements.
 
 ### Phase 4: Internal Browser Agent

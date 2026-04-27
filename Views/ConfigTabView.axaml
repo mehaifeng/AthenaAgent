@@ -307,13 +307,13 @@
                                                FontSize="12"
                                                Opacity="0.7"/>
 
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                    <Grid ColumnDefinitions="80,*" ColumnSpacing="20" RowDefinitions="Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.BrowserEnabled}" HorizontalAlignment="Left"/>
                                     </Grid>
 
                                     <StackPanel Spacing="16" IsEnabled="{Binding Config.BrowserEnabled}">
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                        <Grid ColumnDefinitions="80,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserVisionMode}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.BrowserUseVisionMode}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
 
