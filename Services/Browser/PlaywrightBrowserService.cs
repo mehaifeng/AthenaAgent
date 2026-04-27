@@ -5,6 +5,7 @@ using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -196,7 +197,27 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             var box = element.BoundingBox;
             await runtimeSession.Page.Mouse.ClickAsync((float)(box.X + box.Width / 2), (float)(box.Y + box.Height / 2));
             await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
-            return BrowserActionSuccess(BrowserActionType.Click, sessionId, "Click completed.", runtimeSession.Page.Url);
+            return new BrowserActionResult
+            {
+                Success = true,
+                Action = BrowserActionType.Click,
+                Message = "Click completed.",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                Effect = new BrowserActionEffect
+                {
+                    ElementId = element.ElementId,
+                    TargetStableKey = element.StableKey,
+                    TargetSelector = element.Selector,
+                    RequestedText = DescribeElement(element),
+                    ValueBefore = element.IsSensitive ? null : element.Value,
+                    ValueAfter = element.IsSensitive ? null : element.Value,
+                    Changed = false,
+                    Skipped = false,
+                    MatchesRequestedValue = false,
+                    SkipReason = null
+                }
+            };
         }
         catch (Exception ex)
         {
@@ -277,6 +298,209 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         catch (Exception ex)
         {
             return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Type failed: {ex.Message}");
+        }
+    }
+
+    public async Task<BrowserActionResult> SelectAsync(string sessionId, string elementId, string optionText, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (!runtimeSession.Elements.TryGetValue(elementId, out var element))
+            {
+                return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Element not found in latest observation: {elementId}");
+            }
+
+            var box = element.BoundingBox;
+            var requestedText = optionText ?? string.Empty;
+            var result = await runtimeSession.Page.EvaluateAsync<SelectControlResult>(SelectElementOptionScript, new
+            {
+                x = box.X + box.Width / 2,
+                y = box.Y + box.Height / 2,
+                text = requestedText
+            });
+
+            if (result == null)
+            {
+                return BrowserActionFailure(BrowserActionType.Type, sessionId, "Select failed: no select result was returned.");
+            }
+
+            var effect = new BrowserActionEffect
+            {
+                ElementId = element.ElementId,
+                TargetStableKey = element.StableKey,
+                TargetSelector = element.Selector,
+                RequestedText = result.SelectedText ?? requestedText,
+                ValueBefore = result.ValueBefore,
+                ValueAfter = result.ValueAfter,
+                Changed = result.Changed,
+                Skipped = result.Skipped,
+                MatchesRequestedValue = result.Success,
+                SkipReason = result.SkipReason
+            };
+
+            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            return new BrowserActionResult
+            {
+                Success = result.Success,
+                Action = BrowserActionType.Type,
+                Message = result.Success
+                    ? "Select completed: option value verified."
+                    : $"Select failed: {result.Error ?? "target option did not match."}",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                Effect = effect,
+                IsRecoverableFailure = false
+            };
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Select failed: {ex.Message}");
+        }
+    }
+
+    public async Task<BrowserActionResult> SetCheckedAsync(string sessionId, string elementId, bool isChecked, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (!runtimeSession.Elements.TryGetValue(elementId, out var element))
+            {
+                return BrowserActionFailure(BrowserActionType.Click, sessionId, $"Element not found in latest observation: {elementId}");
+            }
+
+            var box = element.BoundingBox;
+            var result = await runtimeSession.Page.EvaluateAsync<CheckedControlResult>(SetCheckedElementScript, new
+            {
+                x = box.X + box.Width / 2,
+                y = box.Y + box.Height / 2,
+                isChecked
+            });
+
+            if (result == null)
+            {
+                return BrowserActionFailure(BrowserActionType.Click, sessionId, "Set checked failed: no result was returned.");
+            }
+
+            var effect = new BrowserActionEffect
+            {
+                ElementId = element.ElementId,
+                TargetStableKey = element.StableKey,
+                TargetSelector = element.Selector,
+                RequestedText = isChecked ? "checked" : "unchecked",
+                ValueBefore = result.CheckedBefore?.ToString(),
+                ValueAfter = result.CheckedAfter?.ToString(),
+                Changed = result.Changed,
+                Skipped = result.Skipped,
+                MatchesRequestedValue = result.Success,
+                SkipReason = result.SkipReason
+            };
+
+            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            return new BrowserActionResult
+            {
+                Success = result.Success,
+                Action = BrowserActionType.Click,
+                Message = result.Success
+                    ? "Set checked completed: checked state verified."
+                    : $"Set checked failed: {result.Error ?? "checked state did not match."}",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                Effect = effect
+            };
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.Click, sessionId, $"Set checked failed: {ex.Message}");
+        }
+    }
+
+    public async Task<BrowserActionResult> UploadAsync(string sessionId, string elementId, string filePath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (!runtimeSession.Elements.TryGetValue(elementId, out var element))
+            {
+                return BrowserActionFailure(BrowserActionType.Upload, sessionId, $"Element not found in latest observation: {elementId}");
+            }
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return BrowserActionFailure(BrowserActionType.Upload, sessionId, "Upload failed: file path is required.");
+            }
+
+            var absolutePath = Path.GetFullPath(filePath);
+            if (!File.Exists(absolutePath))
+            {
+                return BrowserActionFailure(BrowserActionType.Upload, sessionId, $"Upload failed: file does not exist: {absolutePath}");
+            }
+
+            var fileName = Path.GetFileName(absolutePath);
+            var box = element.BoundingBox;
+            var centerX = box.X + box.Width / 2;
+            var centerY = box.Y + box.Height / 2;
+
+            await using var handle = await runtimeSession.Page.EvaluateHandleAsync(FindFileInputElementScript, new
+            {
+                x = centerX,
+                y = centerY
+            });
+
+            var inputHandle = handle.AsElement();
+            if (inputHandle == null)
+            {
+                return BrowserActionFailure(BrowserActionType.Upload, sessionId, "Upload failed: no file input target found at the selected element.");
+            }
+
+            var before = await inputHandle.EvaluateAsync<FileInputState>(FileInputStateScript);
+            await inputHandle.SetInputFilesAsync(absolutePath);
+            var after = await inputHandle.EvaluateAsync<FileInputState>(FileInputStateScript);
+            var matches = after.FileNames.Any(name => string.Equals(name, fileName, StringComparison.Ordinal));
+
+            var effect = new BrowserActionEffect
+            {
+                ElementId = element.ElementId,
+                TargetStableKey = element.StableKey,
+                TargetSelector = element.Selector,
+                RequestedText = fileName,
+                ValueBefore = string.Join(", ", before.FileNames),
+                ValueAfter = string.Join(", ", after.FileNames),
+                Changed = !before.FileNames.SequenceEqual(after.FileNames, StringComparer.Ordinal),
+                Skipped = false,
+                MatchesRequestedValue = matches,
+                SkipReason = null
+            };
+
+            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            if (!matches)
+            {
+                return new BrowserActionResult
+                {
+                    Success = false,
+                    Action = BrowserActionType.Upload,
+                    Message = "Upload failed: selected file was not reflected by the file input.",
+                    SessionId = sessionId,
+                    Url = runtimeSession.Page.Url,
+                    Effect = effect,
+                    Risk = BrowserRiskType.Upload
+                };
+            }
+
+            return new BrowserActionResult
+            {
+                Success = true,
+                Action = BrowserActionType.Upload,
+                Message = $"Upload completed: selected file `{fileName}`.",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                Effect = effect,
+                Risk = BrowserRiskType.Upload
+            };
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.Upload, sessionId, $"Upload failed: {ex.Message}");
         }
     }
 
@@ -667,6 +891,15 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 
+    private static string? DescribeElement(SomElement element)
+    {
+        var text = FirstNonWhiteSpace(element.Text, element.AriaLabel, element.Placeholder, element.Value, element.InputType, element.Role, element.TagName);
+        return Truncate(text, 120);
+    }
+
+    private static string? FirstNonWhiteSpace(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
     private const string FillEditableElementScript = """
         ({ x, y, text }) => {
           const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
@@ -712,6 +945,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             'tel',
             'password',
             'number',
+            'color',
+            'range',
             'date',
             'datetime-local',
             'month',
@@ -840,6 +1075,295 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         """;
 
+    private const string SelectElementOptionScript = """
+        ({ x, y, text }) => {
+          const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+
+          const deepElementFromPoint = (pointX, pointY) => {
+            let element = document.elementFromPoint(pointX, pointY);
+            let depth = 0;
+            while (element && element.shadowRoot && depth < 8) {
+              const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
+              if (!inner || inner === element) break;
+              element = inner;
+              depth += 1;
+            }
+
+            return element;
+          };
+
+          const parentOrHost = (node) => {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+            const root = node.getRootNode && node.getRootNode();
+            return root && root.host ? root.host : null;
+          };
+
+          const isSelect = (element) => element && element.tagName && element.tagName.toLowerCase() === 'select';
+
+          const findSelect = (start) => {
+            let node = start;
+            while (node) {
+              if (isSelect(node)) return node;
+              if (node instanceof HTMLLabelElement && isSelect(node.control)) return node.control;
+              if (node.querySelector) {
+                const nested = node.querySelector('select');
+                if (nested) return nested;
+              }
+              node = parentOrHost(node);
+            }
+
+            return null;
+          };
+
+          const select = findSelect(deepElementFromPoint(x, y));
+          if (!select) {
+            return {
+              Success: false,
+              Error: 'No native select target found at the selected element.',
+              ValueBefore: null,
+              ValueAfter: null,
+              SelectedText: null,
+              Changed: false,
+              Skipped: false,
+              SkipReason: null
+            };
+          }
+
+          const beforeValue = select.value || '';
+          const beforeText = normalize(select.selectedOptions?.[0]?.textContent || '');
+          const requested = normalize(text);
+          let option = Array.from(select.options || []).find(item => !item.disabled && (item.value === text || normalize(item.textContent || '') === requested));
+          if (!option && !requested) {
+            option = Array.from(select.options || []).find(item => !item.disabled && item.value !== beforeValue) ||
+              Array.from(select.options || []).find(item => !item.disabled);
+          }
+
+          if (!option) {
+            return {
+              Success: false,
+              Error: 'No select option matches the requested text.',
+              ValueBefore: beforeText || beforeValue,
+              ValueAfter: beforeText || beforeValue,
+              SelectedText: null,
+              Changed: false,
+              Skipped: false,
+              SkipReason: null
+            };
+          }
+
+          const selectedText = normalize(option.textContent || '');
+          if (select.value === option.value) {
+            return {
+              Success: true,
+              Error: null,
+              ValueBefore: beforeText || beforeValue,
+              ValueAfter: selectedText || option.value,
+              SelectedText: selectedText || option.value,
+              Changed: false,
+              Skipped: true,
+              SkipReason: 'already-selected'
+            };
+          }
+
+          select.value = option.value;
+          select.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          select.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          const afterValue = select.value || '';
+          const afterText = normalize(select.selectedOptions?.[0]?.textContent || '');
+          const matches = afterValue === option.value || afterText === selectedText;
+          return {
+            Success: matches,
+            Error: matches ? null : 'Selected option did not match after change.',
+            ValueBefore: beforeText || beforeValue,
+            ValueAfter: afterText || afterValue,
+            SelectedText: selectedText || option.value,
+            Changed: beforeValue !== afterValue,
+            Skipped: false,
+            SkipReason: null
+          };
+        }
+        """;
+
+    private const string SetCheckedElementScript = """
+        ({ x, y, isChecked }) => {
+          const deepElementFromPoint = (pointX, pointY) => {
+            let element = document.elementFromPoint(pointX, pointY);
+            let depth = 0;
+            while (element && element.shadowRoot && depth < 8) {
+              const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
+              if (!inner || inner === element) break;
+              element = inner;
+              depth += 1;
+            }
+
+            return element;
+          };
+
+          const parentOrHost = (node) => {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+            const root = node.getRootNode && node.getRootNode();
+            return root && root.host ? root.host : null;
+          };
+
+          const role = (element) => (element?.getAttribute?.('role') || '').toLowerCase();
+          const inputType = (element) => element?.tagName?.toLowerCase() === 'input'
+            ? (element.getAttribute('type') || 'text').toLowerCase()
+            : '';
+          const isNativeCheckable = (element) => element?.tagName?.toLowerCase() === 'input' && ['checkbox', 'radio'].includes(inputType(element));
+          const isAriaCheckable = (element) => ['checkbox', 'radio'].includes(role(element)) || element?.hasAttribute?.('aria-checked');
+          const readChecked = (element) => {
+            if (!element) return null;
+            if (isNativeCheckable(element)) return !!element.checked;
+            const value = (element.getAttribute('aria-checked') || '').toLowerCase();
+            if (value === 'true') return true;
+            if (value === 'false') return false;
+            return null;
+          };
+
+          const findCheckable = (start) => {
+            let node = start;
+            while (node) {
+              if (isNativeCheckable(node) || isAriaCheckable(node)) return { target: node, clickTarget: node };
+              if (node instanceof HTMLLabelElement && isNativeCheckable(node.control)) return { target: node.control, clickTarget: node };
+              const label = node.closest && node.closest('label');
+              if (label instanceof HTMLLabelElement && isNativeCheckable(label.control)) return { target: label.control, clickTarget: label };
+              if (node.querySelector) {
+                const nested = Array.from(node.querySelectorAll('input')).find(isNativeCheckable) ||
+                  Array.from(node.querySelectorAll('[role="checkbox"],[role="radio"],[aria-checked]')).find(isAriaCheckable);
+                if (nested) return { target: nested, clickTarget: node };
+              }
+              node = parentOrHost(node);
+            }
+
+            return null;
+          };
+
+          const found = findCheckable(deepElementFromPoint(x, y));
+          if (!found) {
+            return {
+              Success: false,
+              Error: 'No checkbox or radio target found at the selected element.',
+              CheckedBefore: null,
+              CheckedAfter: null,
+              Changed: false,
+              Skipped: false,
+              SkipReason: null
+            };
+          }
+
+          const before = readChecked(found.target);
+          if (before === isChecked) {
+            return {
+              Success: true,
+              Error: null,
+              CheckedBefore: before,
+              CheckedAfter: before,
+              Changed: false,
+              Skipped: true,
+              SkipReason: 'already-matches-requested-state'
+            };
+          }
+
+          if (inputType(found.target) === 'radio' && isChecked === false) {
+            return {
+              Success: false,
+              Error: 'Radio controls cannot be unchecked directly.',
+              CheckedBefore: before,
+              CheckedAfter: before,
+              Changed: false,
+              Skipped: false,
+              SkipReason: null
+            };
+          }
+
+          found.clickTarget.click();
+          const after = readChecked(found.target);
+          const success = after === isChecked;
+          return {
+            Success: success,
+            Error: success ? null : 'Checked state did not match after click.',
+            CheckedBefore: before,
+            CheckedAfter: after,
+            Changed: before !== after,
+            Skipped: false,
+            SkipReason: null
+          };
+        }
+        """;
+
+    private const string FindFileInputElementScript = """
+        ({ x, y }) => {
+          const deepElementFromPoint = (pointX, pointY) => {
+            let element = document.elementFromPoint(pointX, pointY);
+            let depth = 0;
+            while (element && element.shadowRoot && depth < 8) {
+              const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
+              if (!inner || inner === element) break;
+              element = inner;
+              depth += 1;
+            }
+
+            return element;
+          };
+
+          const parentOrHost = (node) => {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+
+            const root = node.getRootNode && node.getRootNode();
+            return root && root.host ? root.host : null;
+          };
+
+          const isFileInput = (element) => {
+            return element &&
+              element.tagName &&
+              element.tagName.toLowerCase() === 'input' &&
+              (element.getAttribute('type') || 'text').toLowerCase() === 'file';
+          };
+
+          const labelControl = (element) => {
+            if (!element) return null;
+            if (element instanceof HTMLLabelElement && isFileInput(element.control)) return element.control;
+
+            const label = element.closest && element.closest('label');
+            if (label instanceof HTMLLabelElement && isFileInput(label.control)) return label.control;
+
+            return null;
+          };
+
+          const descendantFileInput = (element) => {
+            if (!element || !element.querySelector) return null;
+            return Array.from(element.querySelectorAll('input')).find(isFileInput) || null;
+          };
+
+          let node = deepElementFromPoint(x, y);
+          while (node) {
+            if (isFileInput(node)) return node;
+
+            const controlled = labelControl(node);
+            if (controlled) return controlled;
+
+            const descendant = descendantFileInput(node);
+            if (descendant) return descendant;
+
+            node = parentOrHost(node);
+          }
+
+          return null;
+        }
+        """;
+
+    private const string FileInputStateScript = """
+        input => ({
+          FileNames: Array.from(input.files || []).map(file => file.name),
+          FileCount: input.files ? input.files.length : 0,
+          Value: input.value || '',
+          Multiple: !!input.multiple
+        })
+        """;
+
     private const string InteractiveElementsScript = """
         () => {
           const selector = [
@@ -854,7 +1378,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             '[role="tab"]',
             '[tabindex]',
             '[contenteditable="true"]',
-            '[onclick]'
+            '[onclick]',
+            'label'
           ].join(',');
 
           const modalSelectors = [
@@ -950,10 +1475,29 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return '';
           };
 
+          const isTextInputType = (type) => [
+            '',
+            'text',
+            'search',
+            'email',
+            'url',
+            'tel',
+            'password',
+            'number',
+            'color',
+            'range',
+            'date',
+            'datetime-local',
+            'month',
+            'time',
+            'week'
+          ].includes(type);
+
           const isEditableElement = (el) => {
             const tagName = (el.tagName || '').toLowerCase();
             const role = (el.getAttribute('role') || '').toLowerCase();
-            return tagName === 'input' ||
+            const inputType = getInputType(el);
+            return (tagName === 'input' && isTextInputType(inputType)) ||
               tagName === 'textarea' ||
               tagName === 'select' ||
               el.isContentEditable ||
@@ -976,6 +1520,10 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
               return el.checked ? 'checked' : 'unchecked';
             }
 
+            if (tagName === 'input' && inputType === 'file') {
+              return normalize(Array.from(el.files || []).map(file => file.name).join(', '));
+            }
+
             if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
               return normalize(el.value || '');
             }
@@ -994,15 +1542,50 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return normalize(el.innerText || el.textContent || editableValue || '');
           };
 
-          const stableKey = (el, selectorPath) => {
+          const isFileInput = (el) => {
+            return el &&
+              (el.tagName || '').toLowerCase() === 'input' &&
+              getInputType(el) === 'file';
+          };
+
+          const isCheckableInput = (el) => {
+            const inputType = getInputType(el);
+            return el &&
+              (el.tagName || '').toLowerCase() === 'input' &&
+              (inputType === 'checkbox' || inputType === 'radio');
+          };
+
+          const isNativeSelect = (el) => {
+            return el && (el.tagName || '').toLowerCase() === 'select';
+          };
+
+          const isAssociatedControl = (el) => isFileInput(el) || isCheckableInput(el) || isNativeSelect(el);
+
+          const associatedControl = (el) => {
+            if (!el) return null;
+            if (isAssociatedControl(el)) return el;
+            if (el instanceof HTMLLabelElement && isAssociatedControl(el.control)) return el.control;
+
+            const label = el.closest && el.closest('label');
+            if (label instanceof HTMLLabelElement && isAssociatedControl(label.control)) return label.control;
+
+            if (el.querySelector) {
+              const nested = Array.from(el.querySelectorAll('input,select')).find(isAssociatedControl);
+              if (nested) return nested;
+            }
+
+            return null;
+          };
+
+          const stableKey = (el, selectorPath, stateElement = el) => {
             const parts = [
               selectorPath,
               (el.tagName || '').toLowerCase(),
-              el.getAttribute('role') || '',
-              el.getAttribute('name') || '',
-              getInputType(el),
-              el.getAttribute('aria-label') || '',
-              el.getAttribute('placeholder') || ''
+              stateElement.getAttribute('role') || el.getAttribute('role') || '',
+              stateElement.getAttribute('name') || el.getAttribute('name') || '',
+              getInputType(stateElement),
+              stateElement.getAttribute('aria-label') || el.getAttribute('aria-label') || '',
+              stateElement.getAttribute('placeholder') || el.getAttribute('placeholder') || ''
             ].map(value => normalize(value)).filter(Boolean);
 
             return parts.join('|').slice(0, 512);
@@ -1152,6 +1735,10 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             const rect = el.getBoundingClientRect();
             if (!isVisible(el, rect)) continue;
 
+            const tagName = (el.tagName || '').toLowerCase();
+            const stateControl = associatedControl(el);
+            if (tagName === 'label' && !stateControl) continue;
+
             const inBlockingModal = blockingModalRoots.some(root => composedContains(root, el));
             if (blockingModalRoots.length > 0 && !inBlockingModal) continue;
 
@@ -1162,21 +1749,22 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             const modalDepth = modalRoots.filter(root => composedContains(root, el)).length;
             const priority = (inBlockingModal ? 3000 : 0) + (modalDepth * 100) + hitInfo.score;
             const selectorPath = cssPath(el);
-            const inputType = getInputType(el);
-            const isEditable = isEditableElement(el);
-            const sensitive = isSensitiveElement(el);
-            const value = elementValue(el);
+            const stateElement = stateControl || el;
+            const inputType = getInputType(stateElement);
+            const isEditable = isEditableElement(stateElement);
+            const sensitive = isSensitiveElement(stateElement);
+            const value = elementValue(stateElement);
             const isCheckable = inputType === 'checkbox' || inputType === 'radio';
 
             elements.push({
-              tagName: el.tagName.toLowerCase(),
-              role: el.getAttribute('role') || '',
+              tagName,
+              role: stateElement.getAttribute('role') || el.getAttribute('role') || '',
               text: elementText(el),
-              ariaLabel: normalize(el.getAttribute('aria-label') || ''),
-              placeholder: normalize(el.getAttribute('placeholder') || ''),
+              ariaLabel: normalize(stateElement.getAttribute('aria-label') || el.getAttribute('aria-label') || ''),
+              placeholder: normalize(stateElement.getAttribute('placeholder') || el.getAttribute('placeholder') || ''),
               href: el.href || el.getAttribute('href') || '',
               selector: selectorPath,
-              stableKey: stableKey(el, selectorPath),
+              stableKey: stableKey(el, selectorPath, stateElement),
               value,
               inputType,
               x: rect.x,
@@ -1184,9 +1772,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
               width: rect.width,
               height: rect.height,
               isVisible: true,
-              isEnabled: isEnabled(el),
+              isEnabled: isEnabled(stateElement),
               isEditable,
-              isChecked: isCheckable ? !!el.checked : null,
+              isChecked: isCheckable ? !!stateElement.checked : null,
               isSensitive: sensitive,
               isTopMost: true,
               priority
@@ -1200,6 +1788,37 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     private sealed record RuntimeSession(IBrowserContext Context, IPage Page, BrowserSessionOptions Options)
     {
         public ConcurrentDictionary<string, SomElement> Elements { get; } = new();
+    }
+
+    private sealed class FileInputState
+    {
+        public List<string> FileNames { get; set; } = new();
+        public int FileCount { get; set; }
+        public string? Value { get; set; }
+        public bool Multiple { get; set; }
+    }
+
+    private sealed class SelectControlResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string? ValueBefore { get; set; }
+        public string? ValueAfter { get; set; }
+        public string? SelectedText { get; set; }
+        public bool Changed { get; set; }
+        public bool Skipped { get; set; }
+        public string? SkipReason { get; set; }
+    }
+
+    private sealed class CheckedControlResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public bool? CheckedBefore { get; set; }
+        public bool? CheckedAfter { get; set; }
+        public bool Changed { get; set; }
+        public bool Skipped { get; set; }
+        public string? SkipReason { get; set; }
     }
 
     private sealed class TypeFillResult

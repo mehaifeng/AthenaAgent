@@ -129,7 +129,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Headless Browser (high-level entry only) ---
         RegisterFunction("run_browser_task", browserTaskFunctions.RunBrowserTaskAsync,
-            "Runs an isolated visual browser task using a headless Chromium session. Use this when the user needs interactive webpage inspection or operation, such as opening a page, reading visible content, clicking a visible control, filling a simple form, or navigating a site. The browser task keeps screenshots and low-level browser actions out of the main chat context. NOTE: Browser and Browser Vision must be configured in settings.",
+            "Runs an isolated visual browser task using a headless Chromium session. Use this when the user needs interactive webpage inspection or operation, such as opening a page, reading visible content, clicking a visible control, filling a simple form, uploading a local file to a file input, or navigating a site. The browser task keeps screenshots and low-level browser actions out of the main chat context. NOTE: Browser and Browser Vision must be configured in settings.",
             new
             {
                 type = "object",
@@ -137,7 +137,7 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     instruction = new { type = "string", description = "The browser task to perform, including the user's goal and any constraints." },
                     startUrl = new { type = "string", description = "Optional URL to open first. Provide this when the task is tied to a specific page." },
-                    maxSteps = new { type = "integer", description = "Optional maximum number of internal browser steps. Defaults to the browser setting.", @default = 12 }
+                    maxSteps = new { type = "integer", description = "Optional maximum number of internal browser steps. Defaults to the browser setting; complex multi-control tasks may automatically use a larger internal limit.", @default = 40 }
                 },
                 required = new[] { "instruction" }
             });
