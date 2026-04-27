@@ -43,10 +43,22 @@ public class BrowserTaskFunctions
                 summary = result.Summary,
                 finalUrl = result.FinalUrl,
                 annotatedScreenshotPath = result.FinalObservation?.AnnotatedScreenshotPath,
-                evidence = result.Evidence.Take(8).ToList(),
+                evidence = result.Evidence.TakeLast(16).ToList(),
                 actionsTakenCount = result.ActionsTakenCount,
+                completionStatus = result.CompletionStatus.ToString(),
                 requiresUserInput = result.RequiresUserInput,
                 error = result.Error,
+                goals = result.GoalResults.Select(g => new
+                {
+                    index = g.Index,
+                    type = g.Type.ToString(),
+                    label = g.Label,
+                    value = g.Value,
+                    status = g.Status.ToString(),
+                    attempts = g.Attempts,
+                    message = g.Message,
+                    elementId = g.ElementId
+                }).ToList(),
                 markedElements = result.FinalObservation?.Elements.Select(e => new
                 {
                     id = e.ElementId,
@@ -56,13 +68,24 @@ public class BrowserTaskFunctions
                     text = e.Text,
                     ariaLabel = e.AriaLabel,
                     placeholder = e.Placeholder,
-                    href = e.Href
+                    href = e.Href,
+                    inputType = e.InputType,
+                    value = e.IsSensitive ? null : e.Value,
+                    isChecked = e.IsChecked
                 }).Take(20).ToList()
             };
 
-            return result.Success
-                ? FunctionResult.SuccessResult("Browser task completed.", compactData)
-                : FunctionResult.FailureResult(result.Error ?? result.Summary);
+            if (result.Success)
+            {
+                return FunctionResult.SuccessResult("Browser task completed.", compactData);
+            }
+
+            return new FunctionResult
+            {
+                Success = false,
+                Message = result.Error ?? result.Summary,
+                Data = compactData
+            };
         }
         catch (Exception ex)
         {

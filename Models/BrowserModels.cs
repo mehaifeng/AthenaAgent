@@ -15,7 +15,8 @@ public enum BrowserActionType
     Wait,
     ExtractText,
     Close,
-    Finish
+    Finish,
+    Upload
 }
 
 public enum BrowserRiskType
@@ -31,6 +32,37 @@ public enum BrowserRiskType
     LocalNetwork,
     Captcha,
     TwoFactor
+}
+
+public enum BrowserTaskCompletionStatus
+{
+    Unknown,
+    Completed,
+    CompletedWithRecoverableFailures,
+    Failed,
+    MaxStepsReached
+}
+
+public enum BrowserTaskGoalType
+{
+    Navigate,
+    Fill,
+    Select,
+    Upload,
+    SetChecked,
+    Click,
+    Submit,
+    Extract,
+    Verify
+}
+
+public enum BrowserTaskGoalStatus
+{
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Skipped
 }
 
 public class BrowserViewport
@@ -157,6 +189,7 @@ public class BrowserActionRequest
     public string? Url { get; set; }
     public string? ElementId { get; set; }
     public string? Text { get; set; }
+    public string? FilePath { get; set; }
     public string? Key { get; set; }
     public int DeltaX { get; set; }
     public int DeltaY { get; set; }
@@ -192,6 +225,7 @@ public class BrowserActionResult
     public BrowserActionEffect? Effect { get; set; }
     public BrowserRiskType Risk { get; set; } = BrowserRiskType.None;
     public bool RequiresUserConfirmation { get; set; }
+    public bool IsRecoverableFailure { get; set; }
 }
 
 public class BrowserTaskRequest
@@ -201,6 +235,41 @@ public class BrowserTaskRequest
     public int? MaxSteps { get; set; }
     public bool CloseSessionOnCompletion { get; set; } = true;
     public List<BrowserActionRequest> PlannedActions { get; set; } = new();
+}
+
+public class BrowserTaskPlan
+{
+    public string? Summary { get; set; }
+    public List<BrowserTaskGoal> Goals { get; set; } = new();
+}
+
+public class BrowserTaskGoal
+{
+    public string GoalId { get; set; } = Guid.NewGuid().ToString("N");
+    public int Index { get; set; }
+    public BrowserTaskGoalType Type { get; set; } = BrowserTaskGoalType.Verify;
+    public string Label { get; set; } = string.Empty;
+    public string? Value { get; set; }
+    public string? Url { get; set; }
+    public bool? Checked { get; set; }
+    public bool Optional { get; set; }
+    public int MaxAttempts { get; set; } = 2;
+    public BrowserTaskGoalStatus Status { get; set; } = BrowserTaskGoalStatus.Pending;
+    public string? Message { get; set; }
+}
+
+public class BrowserGoalResult
+{
+    public string GoalId { get; set; } = string.Empty;
+    public int Index { get; set; }
+    public BrowserTaskGoalType Type { get; set; }
+    public string Label { get; set; } = string.Empty;
+    public string? Value { get; set; }
+    public BrowserTaskGoalStatus Status { get; set; }
+    public int Attempts { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string? ElementId { get; set; }
+    public List<string> Evidence { get; set; } = new();
 }
 
 public class BrowserTaskResult
@@ -215,4 +284,6 @@ public class BrowserTaskResult
     public string? SessionId { get; set; }
     public SomObservation? FinalObservation { get; set; }
     public List<BrowserActionResult> ActionHistory { get; set; } = new();
+    public BrowserTaskCompletionStatus CompletionStatus { get; set; } = BrowserTaskCompletionStatus.Unknown;
+    public List<BrowserGoalResult> GoalResults { get; set; } = new();
 }
