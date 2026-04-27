@@ -20,6 +20,12 @@ public interface IHeadlessBrowserService
 
     Task<BrowserActionResult> TypeAsync(string sessionId, string elementId, string text, CancellationToken cancellationToken = default);
 
+    Task<BrowserActionResult> SelectAsync(string sessionId, string elementId, string optionText, CancellationToken cancellationToken = default);
+
+    Task<BrowserActionResult> SetCheckedAsync(string sessionId, string elementId, bool isChecked, CancellationToken cancellationToken = default);
+
+    Task<BrowserActionResult> UploadAsync(string sessionId, string elementId, string filePath, CancellationToken cancellationToken = default);
+
     Task<BrowserActionResult> PressKeyAsync(string sessionId, string key, CancellationToken cancellationToken = default);
 
     Task<BrowserActionResult> ScrollAsync(string sessionId, int deltaX, int deltaY, CancellationToken cancellationToken = default);

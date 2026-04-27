@@ -188,6 +188,7 @@ public class BrowserVisionService : IBrowserVisionService
         {
             action = a.Action.ToString(),
             success = a.Success,
+            recoverableFailure = a.IsRecoverableFailure,
             message = a.Message,
             effect = a.Effect == null ? null : new
             {
@@ -239,6 +240,7 @@ public class BrowserVisionService : IBrowserVisionService
                 ElementId = ReadDecisionString(decision.TargetElementId),
                 Url = NormalizeUrl(decision.Url),
                 Text = decision.Text,
+                FilePath = NullIfWhiteSpace(decision.FilePath) ?? NullIfWhiteSpace(decision.FilePathSnake) ?? NullIfWhiteSpace(decision.Text),
                 Key = decision.Key,
                 DeltaX = decision.DeltaX ?? 0,
                 DeltaY = decision.DeltaY ?? 700,
@@ -261,7 +263,12 @@ public class BrowserVisionService : IBrowserVisionService
                 return Finish("Vision model selected press_key without a key.", isFailure: true);
             }
 
-            if (action == BrowserActionType.Click || action == BrowserActionType.Type)
+            if (action == BrowserActionType.Upload && string.IsNullOrWhiteSpace(request.FilePath))
+            {
+                return Finish("Vision model selected upload without a filePath.", isFailure: true);
+            }
+
+            if (action == BrowserActionType.Click || action == BrowserActionType.Type || action == BrowserActionType.Upload)
             {
                 var canonicalElementId = NormalizeElementId(request.ElementId, observation);
                 if (canonicalElementId == null)
@@ -287,6 +294,7 @@ public class BrowserVisionService : IBrowserVisionService
             "navigate" or "goto" or "go_to" or "open" or "open_url" => BrowserActionType.Navigate,
             "click" => BrowserActionType.Click,
             "type" => BrowserActionType.Type,
+            "upload" or "set_file" or "set_input_files" or "file_upload" => BrowserActionType.Upload,
             "press_key" or "presskey" => BrowserActionType.PressKey,
             "scroll" => BrowserActionType.Scroll,
             "wait" => BrowserActionType.Wait,
@@ -427,6 +435,12 @@ public class BrowserVisionService : IBrowserVisionService
 
         [JsonPropertyName("text")]
         public string? Text { get; set; }
+
+        [JsonPropertyName("filePath")]
+        public string? FilePath { get; set; }
+
+        [JsonPropertyName("file_path")]
+        public string? FilePathSnake { get; set; }
 
         [JsonPropertyName("key")]
         public string? Key { get; set; }
