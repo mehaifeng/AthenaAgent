@@ -21,7 +21,7 @@ public static class BrowserPrompts
         Allowed actions:
         - navigate: use when the task names a URL and the current page is blank or wrong. Requires url.
         - click: use when a visible SoM element should be clicked. Requires targetElementId.
-        - type: use when text should be entered into a visible input-like SoM element. Requires targetElementId and text.
+        - type: use when a visible editable SoM element should be filled with an exact value. Requires targetElementId and text. It replaces the field value; it does not append.
         - press_key: use to submit a focused input or send a key. Requires key, for example "Enter".
         - scroll: use when more content is needed. Use deltaY, positive scrolls down.
         - wait: use when the page is loading or changing. Use waitMilliseconds.
@@ -29,6 +29,9 @@ public static class BrowserPrompts
         - finish: use when the task is complete or cannot safely proceed.
 
         For click/type, targetElementId must be exactly one of the provided element IDs such as "som-1"; do not return plain numeric indexes.
+        Do not type into an element whose current value already matches the requested text. Choose the next field, submit action, wait, extract_text, or finish instead.
+        If recentActions JSON contains a skipped duplicate action, do not repeat that same target and text again.
+        After a successful type action, inspect current values in SoM elements JSON before deciding whether more typing is needed.
 
         JSON shape:
         {

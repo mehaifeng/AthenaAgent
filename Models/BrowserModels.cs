@@ -101,15 +101,21 @@ public class SomElement
 {
     public string ElementId { get; set; } = string.Empty;
     public int Index { get; set; }
+    public string? StableKey { get; set; }
     public string TagName { get; set; } = string.Empty;
     public string? Role { get; set; }
     public string? Text { get; set; }
     public string? AriaLabel { get; set; }
     public string? Placeholder { get; set; }
     public string? Href { get; set; }
+    public string? Value { get; set; }
+    public string? InputType { get; set; }
     public BrowserBoundingBox BoundingBox { get; set; } = new();
     public bool IsVisible { get; set; }
     public bool IsEnabled { get; set; }
+    public bool IsEditable { get; set; }
+    public bool? IsChecked { get; set; }
+    public bool IsSensitive { get; set; }
     public string? Selector { get; set; }
 }
 
@@ -160,6 +166,20 @@ public class BrowserActionRequest
     public bool IsTerminalFailure { get; set; }
 }
 
+public class BrowserActionEffect
+{
+    public string? ElementId { get; set; }
+    public string? TargetStableKey { get; set; }
+    public string? TargetSelector { get; set; }
+    public string? RequestedText { get; set; }
+    public string? ValueBefore { get; set; }
+    public string? ValueAfter { get; set; }
+    public bool Changed { get; set; }
+    public bool Skipped { get; set; }
+    public bool MatchesRequestedValue { get; set; }
+    public string? SkipReason { get; set; }
+}
+
 public class BrowserActionResult
 {
     public bool Success { get; set; }
@@ -169,6 +189,7 @@ public class BrowserActionResult
     public string? Url { get; set; }
     public SomObservation? Observation { get; set; }
     public string? ExtractedText { get; set; }
+    public BrowserActionEffect? Effect { get; set; }
     public BrowserRiskType Risk { get; set; } = BrowserRiskType.None;
     public bool RequiresUserConfirmation { get; set; }
 }
