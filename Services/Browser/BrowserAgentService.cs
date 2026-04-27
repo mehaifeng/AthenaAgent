@@ -152,6 +152,7 @@ public class BrowserAgentService : IBrowserAgentService
     {
         SomObservation? finalObservation = null;
         var maxSteps = Math.Clamp(request.MaxSteps ?? config.BrowserMaxSteps, 1, 50);
+        var progressState = new BrowserProgressState();
 
         var initialUrl = string.IsNullOrWhiteSpace(request.StartUrl)
             ? ExtractFirstUrl(request.Instruction)
@@ -194,7 +195,23 @@ public class BrowserAgentService : IBrowserAgentService
                 break;
             }
 
+            var guardedResult = GuardRepeatedAction(nextAction, finalObservation, progressState);
+            if (guardedResult != null)
+            {
+                history.Add(guardedResult);
+                AddEvidence(evidence, guardedResult);
+                if (!guardedResult.Success)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            var actionSignature = BuildActionSignature(nextAction, finalObservation);
+            var observationFingerprint = BuildObservationFingerprint(finalObservation);
             var result = await ExecuteActionAsync(nextAction, cancellationToken);
+            progressState.RecordExecuted(actionSignature, observationFingerprint, result);
             history.Add(result);
             AddEvidence(evidence, result);
 
@@ -249,6 +266,127 @@ public class BrowserAgentService : IBrowserAgentService
                 SessionId = action.SessionId
             }
         };
+    }
+
+    private static BrowserActionResult? GuardRepeatedAction(BrowserActionRequest action, SomObservation observation, BrowserProgressState progressState)
+    {
+        var actionSignature = BuildActionSignature(action, observation);
+        var observationFingerprint = BuildObservationFingerprint(observation);
+        var target = FindObservedElement(action, observation);
+
+        if (action.Action == BrowserActionType.Type)
+        {
+            var requestedText = action.Text ?? string.Empty;
+            var targetAlreadyMatches = target?.IsSensitive != true
+                && target?.Value != null
+                && string.Equals(target.Value, requestedText, StringComparison.Ordinal);
+            var alreadyCompleted = targetAlreadyMatches || progressState.CompletedTypeSignatures.Contains(actionSignature);
+
+            if (alreadyCompleted)
+            {
+                var duplicateKey = $"{observationFingerprint}|{actionSignature}";
+                if (progressState.SkippedDuplicateKeys.Contains(duplicateKey))
+                {
+                    return RepeatedActionFailure(action, target, "No progress after repeated completed Type action.");
+                }
+
+                progressState.SkippedDuplicateKeys.Add(duplicateKey);
+                return SkippedCompletedType(action, target);
+            }
+        }
+
+        if (IsNoProgressGuardedAction(action.Action)
+            && string.Equals(progressState.LastActionSignature, actionSignature, StringComparison.Ordinal)
+            && string.Equals(progressState.LastObservationFingerprint, observationFingerprint, StringComparison.Ordinal)
+            && progressState.RepeatedSameActionCount >= 1)
+        {
+            return RepeatedActionFailure(action, target, $"No progress after repeated {action.Action} action on the same page state.");
+        }
+
+        return null;
+    }
+
+    private static BrowserActionResult SkippedCompletedType(BrowserActionRequest action, SomElement? target) =>
+        new()
+        {
+            Success = true,
+            Action = BrowserActionType.Type,
+            Message = "Type skipped: target already contains the requested value; choose the next browser action.",
+            SessionId = action.SessionId,
+            Effect = new BrowserActionEffect
+            {
+                ElementId = target?.ElementId ?? action.ElementId,
+                TargetStableKey = target?.StableKey,
+                TargetSelector = target?.Selector,
+                RequestedText = target is { IsSensitive: false } ? action.Text : null,
+                ValueBefore = target?.IsSensitive == true ? null : target?.Value,
+                ValueAfter = target?.IsSensitive == true ? null : target?.Value,
+                Changed = false,
+                Skipped = true,
+                MatchesRequestedValue = true,
+                SkipReason = "already-completed-in-observation"
+            }
+        };
+
+    private static BrowserActionResult RepeatedActionFailure(BrowserActionRequest action, SomElement? target, string message) =>
+        new()
+        {
+            Success = false,
+            Action = action.Action,
+            Message = message,
+            SessionId = action.SessionId,
+            Effect = new BrowserActionEffect
+            {
+                ElementId = target?.ElementId ?? action.ElementId,
+                TargetStableKey = target?.StableKey,
+                TargetSelector = target?.Selector,
+                RequestedText = action.Action == BrowserActionType.Type && target is { IsSensitive: false } ? action.Text : null,
+                ValueBefore = target?.IsSensitive == true ? null : target?.Value,
+                ValueAfter = target?.IsSensitive == true ? null : target?.Value,
+                Changed = false,
+                Skipped = true,
+                MatchesRequestedValue = action.Action == BrowserActionType.Type,
+                SkipReason = "repeated-no-progress"
+            }
+        };
+
+    private static bool IsNoProgressGuardedAction(BrowserActionType action) =>
+        action is BrowserActionType.Click or BrowserActionType.Type or BrowserActionType.PressKey or BrowserActionType.Wait;
+
+    private static SomElement? FindObservedElement(BrowserActionRequest action, SomObservation observation)
+    {
+        if (string.IsNullOrWhiteSpace(action.ElementId))
+        {
+            return null;
+        }
+
+        return observation.Elements.FirstOrDefault(e => string.Equals(e.ElementId, action.ElementId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildActionSignature(BrowserActionRequest action, SomObservation observation)
+    {
+        var target = FindObservedElement(action, observation);
+        var targetKey = target?.StableKey ?? target?.Selector ?? action.ElementId ?? string.Empty;
+        var payload = action.Action switch
+        {
+            BrowserActionType.Type => action.Text ?? string.Empty,
+            BrowserActionType.PressKey => action.Key ?? string.Empty,
+            BrowserActionType.Scroll => $"{action.DeltaX}:{action.DeltaY}",
+            BrowserActionType.Wait => action.WaitMilliseconds.ToString(),
+            BrowserActionType.Navigate => action.Url ?? string.Empty,
+            _ => string.Empty
+        };
+
+        return $"{action.Action}|{observation.Url}|{targetKey}|{payload}";
+    }
+
+    private static string BuildObservationFingerprint(SomObservation observation)
+    {
+        var elementState = string.Join(";",
+            observation.Elements.Take(80).Select(e =>
+                $"{e.StableKey ?? e.Selector ?? e.ElementId}:{(e.IsSensitive ? "<sensitive>" : e.Value ?? string.Empty)}:{e.IsChecked?.ToString() ?? string.Empty}"));
+
+        return $"{observation.Url}|{observation.Title}|{observation.ScrollX}:{observation.ScrollY}|{elementState}";
     }
 
     private static BrowserSessionOptions CreateSessionOptions(AppConfig config) =>
@@ -306,7 +444,14 @@ public class BrowserAgentService : IBrowserAgentService
                 evidence.Add($"Extracted text preview: {TrimForEvidence(result.ExtractedText)}");
                 break;
             default:
-                evidence.Add($"{result.Action}: {result.Message}");
+                if (result.Effect != null)
+                {
+                    evidence.Add($"{result.Action}: {result.Message} Target={result.Effect.ElementId ?? result.Effect.TargetStableKey ?? "(none)"}, Changed={result.Effect.Changed}, Skipped={result.Effect.Skipped}, MatchesRequestedValue={result.Effect.MatchesRequestedValue}.");
+                }
+                else
+                {
+                    evidence.Add($"{result.Action}: {result.Message}");
+                }
                 break;
         }
     }
@@ -391,4 +536,34 @@ public class BrowserAgentService : IBrowserAgentService
             Summary = message,
             Error = message
         };
+
+    private sealed class BrowserProgressState
+    {
+        public string? LastActionSignature { get; private set; }
+        public string? LastObservationFingerprint { get; private set; }
+        public int RepeatedSameActionCount { get; private set; }
+        public HashSet<string> CompletedTypeSignatures { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> SkippedDuplicateKeys { get; } = new(StringComparer.Ordinal);
+
+        public void RecordExecuted(string actionSignature, string observationFingerprint, BrowserActionResult result)
+        {
+            if (result.Action == BrowserActionType.Type && result.Success && result.Effect?.MatchesRequestedValue == true)
+            {
+                CompletedTypeSignatures.Add(actionSignature);
+            }
+
+            if (string.Equals(LastActionSignature, actionSignature, StringComparison.Ordinal)
+                && string.Equals(LastObservationFingerprint, observationFingerprint, StringComparison.Ordinal))
+            {
+                RepeatedSameActionCount++;
+            }
+            else
+            {
+                RepeatedSameActionCount = 0;
+            }
+
+            LastActionSignature = actionSignature;
+            LastObservationFingerprint = observationFingerprint;
+        }
+    }
 }
