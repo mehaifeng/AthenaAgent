@@ -34,6 +34,10 @@ public interface IHeadlessBrowserService
 
     Task<BrowserActionResult> ExtractTextAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    Task<BrowserActionResult> SavePdfAsync(string sessionId, string? fileName = null, CancellationToken cancellationToken = default);
+
+    Task<BrowserActionResult> EvaluateAsync(string sessionId, string code, CancellationToken cancellationToken = default);
+
     Task CloseSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 
     Task<(bool Success, string Message)> TestRuntimeAsync(CancellationToken cancellationToken = default);

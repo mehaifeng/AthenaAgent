@@ -8,8 +8,9 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 ## ✨ Key Features
 
-- **🧠 Multi-Model Intelligence**: Utilizes a tiered architecture with specialized models for reasoning (GPT-4o), context management (GPT-4o-mini), and semantic search.
+- **🧠 Multi-Model Intelligence**: Utilizes a tiered architecture with configurable specialized models for reasoning, context management, and semantic search.
 - **🛠️ Direct Tool Calling**: Seamlessly interacts with your local system via secure file operations, web search, terminal execution, and application configuration.
+- **🌐 Browser Automation**: Runs isolated browser sessions to inspect web pages, click visible controls, fill simple forms, upload local files, and extract page evidence.
 - **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files, ensuring privacy and instant retrieval.
 - **⏰ Proactive Engagement**: Features an integrated task scheduler for reminders, follow-ups, and automated system checks.
 - **🌍 Modern Cross-Platform UI**: Built with Avalonia UI and the Semi Design aesthetic, supporting both light/dark modes and multi-lingual interfaces (English & Chinese).

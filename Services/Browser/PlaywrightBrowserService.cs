@@ -115,7 +115,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
         var browser = await EnsureBrowserAsync(options.Headless, cancellationToken);
         var session = await _sessionManager.CreateAsync(options, cancellationToken);
-        var context = await browser.NewContextAsync(new BrowserNewContextOptions
+        var storageStatePath = options.PersistSession ? GetPersistentStorageStatePath() : null;
+        var contextOptions = new BrowserNewContextOptions
         {
             AcceptDownloads = options.DownloadEnabled,
             ViewportSize = new ViewportSize
@@ -124,13 +125,20 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 Height = Math.Max(240, options.Viewport.Height)
             },
             DeviceScaleFactor = (float)options.Viewport.DeviceScaleFactor
-        });
+        };
+
+        if (!string.IsNullOrWhiteSpace(storageStatePath) && File.Exists(storageStatePath))
+        {
+            contextOptions.StorageStatePath = storageStatePath;
+        }
+
+        var context = await browser.NewContextAsync(contextOptions);
 
         context.SetDefaultTimeout(options.OperationTimeoutSeconds * 1000);
         context.SetDefaultNavigationTimeout(options.OperationTimeoutSeconds * 1000);
 
         var page = await context.NewPageAsync();
-        _runtimeSessions[session.SessionId] = new RuntimeSession(context, page, options);
+        _runtimeSessions[session.SessionId] = new RuntimeSession(context, page, options, storageStatePath);
 
         _logger.Information("Playwright runtime session initialized: {SessionId}", session.SessionId);
         return session;
@@ -182,6 +190,48 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
 
         throw new InvalidOperationException("Observation failed.");
+    }
+
+    public async Task<SomObservation> ObserveWithoutElementsAsync(string sessionId, string? errorMessage = null, CancellationToken cancellationToken = default)
+    {
+        var runtimeSession = GetRuntimeSession(sessionId);
+        var screenshot = await runtimeSession.Page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            FullPage = false,
+            Type = ScreenshotType.Png
+        });
+
+        var title = await runtimeSession.Page.TitleAsync();
+        var scroll = await runtimeSession.Page.EvaluateAsync<ScrollPosition>("() => ({ x: Math.round(window.scrollX), y: Math.round(window.scrollY) })");
+        var viewport = runtimeSession.Page.ViewportSize;
+        var viewportWidth = viewport?.Width ?? runtimeSession.Options.Viewport.Width;
+        var viewportHeight = viewport?.Height ?? runtimeSession.Options.Viewport.Height;
+
+        var observation = await _somAnnotator.AnnotateAsync(new SomAnnotationRequest
+        {
+            SessionId = sessionId,
+            Url = runtimeSession.Page.Url,
+            Title = title,
+            ScreenshotPng = screenshot,
+            ViewportWidth = viewportWidth,
+            ViewportHeight = viewportHeight,
+            ScrollX = scroll.X,
+            ScrollY = scroll.Y,
+            MaxElements = runtimeSession.Options.SomMaxElements,
+            IncludeElementText = runtimeSession.Options.SomIncludeText,
+            DrawAnnotations = false,
+            ScreenshotScale = runtimeSession.Options.ScreenshotScale,
+            ImageQuality = runtimeSession.Options.ImageQuality,
+            Elements = new List<SomElement>()
+        }, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            runtimeSession.LastObservationFallbackReason = errorMessage;
+        }
+
+        await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+        return observation;
     }
 
     public async Task<BrowserActionResult> ClickAsync(string sessionId, string elementId, CancellationToken cancellationToken = default)
@@ -277,7 +327,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                     Message = $"Type failed: {fillResult.Error ?? "target value did not change as expected."}",
                     SessionId = sessionId,
                     Url = runtimeSession.Page.Url,
-                    Effect = effect
+                    Effect = effect,
+                    IsRecoverableFailure = true
                 };
             }
 
@@ -350,7 +401,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 SessionId = sessionId,
                 Url = runtimeSession.Page.Url,
                 Effect = effect,
-                IsRecoverableFailure = false
+                IsRecoverableFailure = !result.Success
             };
         }
         catch (Exception ex)
@@ -406,7 +457,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                     : $"Set checked failed: {result.Error ?? "checked state did not match."}",
                 SessionId = sessionId,
                 Url = runtimeSession.Page.Url,
-                Effect = effect
+                Effect = effect,
+                IsRecoverableFailure = !result.Success
             };
         }
         catch (Exception ex)
@@ -483,7 +535,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                     SessionId = sessionId,
                     Url = runtimeSession.Page.Url,
                     Effect = effect,
-                    Risk = BrowserRiskType.Upload
+                    Risk = BrowserRiskType.Upload,
+                    IsRecoverableFailure = true
                 };
             }
 
@@ -572,12 +625,95 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
     }
 
+    public async Task<BrowserActionResult> SavePdfAsync(string sessionId, string? fileName = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            var title = await runtimeSession.Page.TitleAsync();
+            var resolvedFileName = SanitizeArtifactFileName(fileName, string.IsNullOrWhiteSpace(title) ? "page" : title, ".pdf");
+            var directory = GetArtifactDirectory(sessionId);
+            Directory.CreateDirectory(directory);
+            var path = GetUniqueArtifactPath(directory, resolvedFileName);
+
+            await runtimeSession.Page.PdfAsync(new PagePdfOptions
+            {
+                Path = path,
+                PrintBackground = true
+            });
+
+            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            return new BrowserActionResult
+            {
+                Success = true,
+                Action = BrowserActionType.SaveAsPdf,
+                Message = $"PDF saved: {path}",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                ExtractedContent = $"PDF saved: {path}",
+                LongTermMemory = $"Saved current page as PDF: {path}",
+                Attachments = { path },
+                Metadata = { ["pdfPath"] = path }
+            };
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.SaveAsPdf, sessionId, $"Save PDF failed: {ex.Message}");
+        }
+    }
+
+    public async Task<BrowserActionResult> EvaluateAsync(string sessionId, string code, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return BrowserActionFailure(BrowserActionType.Evaluate, sessionId, "Evaluate failed: code is required.");
+            }
+
+            var value = await runtimeSession.Page.EvaluateAsync<JsonElement>(code);
+            var text = value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? "null"
+                : value.GetRawText();
+            if (text.Length > 20000)
+            {
+                text = text[..20000] + "\n... [truncated]";
+            }
+
+            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            return new BrowserActionResult
+            {
+                Success = true,
+                Action = BrowserActionType.Evaluate,
+                Message = "JavaScript evaluated.",
+                SessionId = sessionId,
+                Url = runtimeSession.Page.Url,
+                ExtractedContent = text,
+                LongTermMemory = $"JavaScript evaluated. Result length={text.Length}."
+            };
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.Evaluate, sessionId, $"Evaluate failed: {ex.Message}");
+        }
+    }
+
     public async Task CloseSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (_runtimeSessions.TryRemove(sessionId, out var runtimeSession))
         {
             try
             {
+                if (runtimeSession.Options.PersistSession && !string.IsNullOrWhiteSpace(runtimeSession.StorageStatePath))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(runtimeSession.StorageStatePath)!);
+                    await runtimeSession.Context.StorageStateAsync(new BrowserContextStorageStateOptions
+                    {
+                        Path = runtimeSession.StorageStatePath
+                    });
+                }
+
                 await runtimeSession.Context.CloseAsync();
             }
             catch (Exception ex)
@@ -663,6 +799,71 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         throw new InvalidOperationException($"Browser session not found: {sessionId}");
     }
 
+    private static string GetPersistentStorageStatePath()
+    {
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = AppContext.BaseDirectory;
+        }
+
+        return Path.Combine(root, "Athena", "Browser", "persistent-storage-state.json");
+    }
+
+    private static string GetArtifactDirectory(string sessionId)
+    {
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = AppContext.BaseDirectory;
+        }
+
+        return Path.Combine(root, "Athena", "Browser", "Artifacts", SanitizePathSegment(sessionId));
+    }
+
+    private static string SanitizeArtifactFileName(string? requestedName, string fallbackName, string extension)
+    {
+        var raw = string.IsNullOrWhiteSpace(requestedName) ? fallbackName : requestedName;
+        var sanitized = SanitizePathSegment(Path.GetFileNameWithoutExtension(raw));
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = "artifact";
+        }
+
+        return sanitized.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+            ? sanitized
+            : sanitized + extension;
+    }
+
+    private static string SanitizePathSegment(string value)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(value.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "artifact" : sanitized;
+    }
+
+    private static string GetUniqueArtifactPath(string directory, string fileName)
+    {
+        var path = Path.Combine(directory, fileName);
+        if (!File.Exists(path))
+        {
+            return path;
+        }
+
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 1; index < 1000; index++)
+        {
+            var candidate = Path.Combine(directory, $"{stem}_{index}{extension}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(directory, $"{stem}_{Guid.NewGuid():N}{extension}");
+    }
+
     private static BrowserActionResult BrowserActionSuccess(BrowserActionType action, string sessionId, string message, string? url) =>
         new()
         {
@@ -721,6 +922,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             ScrollY = scroll.Y,
             MaxElements = runtimeSession.Options.SomMaxElements,
             IncludeElementText = runtimeSession.Options.SomIncludeText,
+            DrawAnnotations = runtimeSession.Options.ObservationMode == BrowserObservationMode.VisionWithSom,
+            ScreenshotScale = runtimeSession.Options.ScreenshotScale,
+            ImageQuality = runtimeSession.Options.ImageQuality,
             Elements = elements
         }, cancellationToken);
     }
@@ -764,24 +968,22 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             ex.Message.Contains("Cannot find context with specified id", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<List<SomElement>> ExtractInteractiveElementsAsync(RuntimeSession runtimeSession, int viewportWidth, int viewportHeight)
+    private async Task<List<SomElement>> ExtractInteractiveElementsAsync(RuntimeSession runtimeSession, int viewportWidth, int viewportHeight)
     {
-        var candidatesJson = await runtimeSession.Page.EvaluateAsync<JsonElement>(InteractiveElementsScript);
+        var extractionJson = await runtimeSession.Page.EvaluateAsync<JsonElement>(InteractiveElementsScript);
         var maxElements = Math.Max(0, runtimeSession.Options.SomMaxElements);
         var includeText = runtimeSession.Options.SomIncludeText;
-        var candidates = ParseInteractiveElements(candidatesJson);
+        var candidates = ParseInteractiveElements(extractionJson);
 
-        return candidates
+        var filteredCandidates = candidates
             .Where(e => GetBool(e, "isVisible") && GetBool(e, "isEnabled") && GetBool(e, "isTopMost") && GetDouble(e, "width") > 0 && GetDouble(e, "height") > 0)
             .Where(e => GetDouble(e, "x") < viewportWidth && GetDouble(e, "y") < viewportHeight && GetDouble(e, "x") + GetDouble(e, "width") > 0 && GetDouble(e, "y") + GetDouble(e, "height") > 0)
             .OrderByDescending(e => GetDouble(e, "priority"))
             .ThenBy(e => GetDouble(e, "y"))
             .ThenBy(e => GetDouble(e, "x"))
             .Take(maxElements)
-            .Select((e, index) => new SomElement
+            .Select(e => new SomElement
             {
-                Index = index + 1,
-                ElementId = $"som-{index + 1}",
                 StableKey = GetString(e, "stableKey"),
                 TagName = GetString(e, "tagName") ?? string.Empty,
                 Role = GetString(e, "role"),
@@ -806,10 +1008,29 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 }
             })
             .ToList();
+
+        AssignStableElementIds(runtimeSession, filteredCandidates);
+
+        var sameOriginIframes = GetInt(extractionJson, "sameOriginIframeCount");
+        var crossOriginIframes = GetInt(extractionJson, "crossOriginIframeCount");
+        var prePaintCount = GetInt(extractionJson, "prePaintCandidateCount");
+        var postPaintCount = GetInt(extractionJson, "postPaintCandidateCount");
+        var reused = filteredCandidates.Count(e => runtimeSession.SeenElementIds.Contains(e.ElementId));
+        var reuseRate = filteredCandidates.Count == 0 ? 0.0 : (double)reused / filteredCandidates.Count;
+        _logger.Debug(
+            "SoM extraction stats: candidates={Candidates}, prePaint={PrePaint}, postPaint={PostPaint}, sameOriginIframes={SameOriginIframes}, crossOriginIframes={CrossOriginIframes}, elementReuseRate={ReuseRate:P1}",
+            filteredCandidates.Count, prePaintCount, postPaintCount, sameOriginIframes, crossOriginIframes, reuseRate);
+
+        return filteredCandidates;
     }
 
     private static List<JsonElement> ParseInteractiveElements(JsonElement json)
     {
+        if (json.ValueKind == JsonValueKind.Object && json.TryGetProperty("elements", out var wrappedElements) && wrappedElements.ValueKind == JsonValueKind.Array)
+        {
+            json = wrappedElements;
+        }
+
         if (json.ValueKind != JsonValueKind.Array)
         {
             return new List<JsonElement>();
@@ -884,6 +1105,124 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         };
     }
 
+    private static int GetInt(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return 0;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var number) => number,
+            JsonValueKind.String when int.TryParse(value.GetString(), out var number) => number,
+            _ => 0
+        };
+    }
+
+    private static string BuildMatchKey(SomElement element)
+    {
+        return string.Join("|", new[]
+        {
+            element.Selector ?? string.Empty,
+            element.Role ?? string.Empty,
+            element.InputType ?? string.Empty
+        }).ToLowerInvariant();
+    }
+
+    private static double ComputeIoU(BrowserBoundingBox a, BrowserBoundingBox b)
+    {
+        var x1 = Math.Max(a.X, b.X);
+        var y1 = Math.Max(a.Y, b.Y);
+        var x2 = Math.Min(a.X + a.Width, b.X + b.Width);
+        var y2 = Math.Min(a.Y + a.Height, b.Y + b.Height);
+        var intersection = Math.Max(0, x2 - x1) * Math.Max(0, y2 - y1);
+        if (intersection <= 0) return 0;
+
+        var union = (a.Width * a.Height) + (b.Width * b.Height) - intersection;
+        return union <= 0 ? 0 : intersection / union;
+    }
+
+    private static void AssignStableElementIds(RuntimeSession runtimeSession, List<SomElement> elements)
+    {
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var previous = runtimeSession.LastElements.ToList();
+
+        foreach (var element in elements)
+        {
+            string? selectedId = null;
+            if (!string.IsNullOrWhiteSpace(element.StableKey) && runtimeSession.StableKeyToElementId.TryGetValue(element.StableKey, out var stableId) && !usedIds.Contains(stableId))
+            {
+                selectedId = stableId;
+            }
+
+            if (selectedId == null)
+            {
+                var matchKey = BuildMatchKey(element);
+                var matchedBySignature = previous.FirstOrDefault(p => !usedIds.Contains(p.ElementId) && BuildMatchKey(p) == matchKey);
+                if (matchedBySignature != null)
+                {
+                    selectedId = matchedBySignature.ElementId;
+                }
+            }
+
+            if (selectedId == null)
+            {
+                var matchedByIou = previous
+                    .Where(p => !usedIds.Contains(p.ElementId))
+                    .Select(p => new { p.ElementId, IoU = ComputeIoU(p.BoundingBox, element.BoundingBox) })
+                    .OrderByDescending(p => p.IoU)
+                    .FirstOrDefault();
+                if (matchedByIou != null && matchedByIou.IoU >= 0.65)
+                {
+                    selectedId = matchedByIou.ElementId;
+                }
+            }
+
+            if (selectedId == null)
+            {
+                runtimeSession.NextElementOrdinal++;
+                selectedId = $"som-{runtimeSession.NextElementOrdinal}";
+            }
+
+            element.ElementId = selectedId;
+            usedIds.Add(selectedId);
+        }
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            elements[i].Index = i + 1;
+        }
+
+        runtimeSession.SeenElementIds.Clear();
+        foreach (var current in runtimeSession.LastElements)
+        {
+            runtimeSession.SeenElementIds.Add(current.ElementId);
+        }
+
+        runtimeSession.LastElements.Clear();
+        runtimeSession.LastElements.AddRange(elements);
+
+        foreach (var element in elements)
+        {
+            if (!string.IsNullOrWhiteSpace(element.StableKey))
+            {
+                runtimeSession.StableKeyToElementId[element.StableKey] = element.ElementId;
+            }
+        }
+
+        var activeIds = new HashSet<string>(elements.Select(e => e.ElementId), StringComparer.OrdinalIgnoreCase);
+        var staleKeys = runtimeSession.StableKeyToElementId
+            .Where(pair => !activeIds.Contains(pair.Value))
+            .Select(pair => pair.Key)
+            .Take(Math.Max(0, runtimeSession.StableKeyToElementId.Count - 500))
+            .ToList();
+        foreach (var key in staleKeys)
+        {
+            runtimeSession.StableKeyToElementId.Remove(key);
+        }
+    }
+
     private static string? Truncate(string? value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
@@ -904,14 +1243,30 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         ({ x, y, text }) => {
           const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 
-          const deepElementFromPoint = (pointX, pointY) => {
-            let element = document.elementFromPoint(pointX, pointY);
-            let depth = 0;
-            while (element && element.shadowRoot && depth < 8) {
+          const deepElementFromPoint = (doc, pointX, pointY, depth = 0) => {
+            if (!doc || depth > 12 || pointX < 0 || pointY < 0) return null;
+            let element = doc.elementFromPoint(pointX, pointY);
+            if (!element) return null;
+
+            let shadowDepth = 0;
+            while (element && element.shadowRoot && shadowDepth < 8) {
               const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
               if (!inner || inner === element) break;
               element = inner;
-              depth += 1;
+              shadowDepth += 1;
+            }
+
+            if (element && element.tagName && element.tagName.toLowerCase() === 'iframe') {
+              try {
+                const frameDoc = element.contentDocument;
+                if (frameDoc) {
+                  const rect = element.getBoundingClientRect();
+                  const nested = deepElementFromPoint(frameDoc, pointX - rect.left, pointY - rect.top, depth + 1);
+                  if (nested) return nested;
+                }
+              } catch {
+                // Cross-origin iframe is not accessible by script.
+              }
             }
 
             return element;
@@ -999,7 +1354,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             }
           };
 
-          const hit = deepElementFromPoint(x, y);
+          const hit = deepElementFromPoint(document, x, y);
           const target = findEditable(hit);
           if (!target) {
             return {
@@ -1079,16 +1434,27 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         ({ x, y, text }) => {
           const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 
-          const deepElementFromPoint = (pointX, pointY) => {
-            let element = document.elementFromPoint(pointX, pointY);
-            let depth = 0;
-            while (element && element.shadowRoot && depth < 8) {
+          const deepElementFromPoint = (doc, pointX, pointY, depth = 0) => {
+            if (!doc || depth > 12 || pointX < 0 || pointY < 0) return null;
+            let element = doc.elementFromPoint(pointX, pointY);
+            if (!element) return null;
+            let shadowDepth = 0;
+            while (element && element.shadowRoot && shadowDepth < 8) {
               const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
               if (!inner || inner === element) break;
               element = inner;
-              depth += 1;
+              shadowDepth += 1;
             }
-
+            if (element && element.tagName && element.tagName.toLowerCase() === 'iframe') {
+              try {
+                const frameDoc = element.contentDocument;
+                if (frameDoc) {
+                  const rect = element.getBoundingClientRect();
+                  const nested = deepElementFromPoint(frameDoc, pointX - rect.left, pointY - rect.top, depth + 1);
+                  if (nested) return nested;
+                }
+              } catch {}
+            }
             return element;
           };
 
@@ -1116,7 +1482,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return null;
           };
 
-          const select = findSelect(deepElementFromPoint(x, y));
+          const select = findSelect(deepElementFromPoint(document, x, y));
           if (!select) {
             return {
               Success: false,
@@ -1187,16 +1553,27 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
     private const string SetCheckedElementScript = """
         ({ x, y, isChecked }) => {
-          const deepElementFromPoint = (pointX, pointY) => {
-            let element = document.elementFromPoint(pointX, pointY);
-            let depth = 0;
-            while (element && element.shadowRoot && depth < 8) {
+          const deepElementFromPoint = (doc, pointX, pointY, depth = 0) => {
+            if (!doc || depth > 12 || pointX < 0 || pointY < 0) return null;
+            let element = doc.elementFromPoint(pointX, pointY);
+            if (!element) return null;
+            let shadowDepth = 0;
+            while (element && element.shadowRoot && shadowDepth < 8) {
               const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
               if (!inner || inner === element) break;
               element = inner;
-              depth += 1;
+              shadowDepth += 1;
             }
-
+            if (element && element.tagName && element.tagName.toLowerCase() === 'iframe') {
+              try {
+                const frameDoc = element.contentDocument;
+                if (frameDoc) {
+                  const rect = element.getBoundingClientRect();
+                  const nested = deepElementFromPoint(frameDoc, pointX - rect.left, pointY - rect.top, depth + 1);
+                  if (nested) return nested;
+                }
+              } catch {}
+            }
             return element;
           };
 
@@ -1240,7 +1617,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return null;
           };
 
-          const found = findCheckable(deepElementFromPoint(x, y));
+          const found = findCheckable(deepElementFromPoint(document, x, y));
           if (!found) {
             return {
               Success: false,
@@ -1295,16 +1672,27 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
     private const string FindFileInputElementScript = """
         ({ x, y }) => {
-          const deepElementFromPoint = (pointX, pointY) => {
-            let element = document.elementFromPoint(pointX, pointY);
-            let depth = 0;
-            while (element && element.shadowRoot && depth < 8) {
+          const deepElementFromPoint = (doc, pointX, pointY, depth = 0) => {
+            if (!doc || depth > 12 || pointX < 0 || pointY < 0) return null;
+            let element = doc.elementFromPoint(pointX, pointY);
+            if (!element) return null;
+            let shadowDepth = 0;
+            while (element && element.shadowRoot && shadowDepth < 8) {
               const inner = element.shadowRoot.elementFromPoint(pointX, pointY);
               if (!inner || inner === element) break;
               element = inner;
-              depth += 1;
+              shadowDepth += 1;
             }
-
+            if (element && element.tagName && element.tagName.toLowerCase() === 'iframe') {
+              try {
+                const frameDoc = element.contentDocument;
+                if (frameDoc) {
+                  const rect = element.getBoundingClientRect();
+                  const nested = deepElementFromPoint(frameDoc, pointX - rect.left, pointY - rect.top, depth + 1);
+                  if (nested) return nested;
+                }
+              } catch {}
+            }
             return element;
           };
 
@@ -1338,7 +1726,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return Array.from(element.querySelectorAll('input')).find(isFileInput) || null;
           };
 
-          let node = deepElementFromPoint(x, y);
+          let node = deepElementFromPoint(document, x, y);
           while (node) {
             if (isFileInput(node)) return node;
 
@@ -1366,54 +1754,22 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
     private const string InteractiveElementsScript = """
         () => {
-          const selector = [
-            'a[href]',
-            'button',
-            'input',
-            'textarea',
-            'select',
-            '[role="button"]',
-            '[role="link"]',
-            '[role="menuitem"]',
-            '[role="tab"]',
-            '[tabindex]',
-            '[contenteditable="true"]',
-            '[onclick]',
-            'label'
-          ].join(',');
+          const selector = ['a[href]','button','input','textarea','select','summary','details','[role="button"]','[role="link"]','[role="menuitem"]','[role="tab"]','[role="checkbox"]','[role="radio"]','[role="option"]','[role="switch"]','[role="combobox"]','[role="textbox"]','[role="searchbox"]','[role="slider"]','[role="spinbutton"]','[tabindex]','[contenteditable="true"]','[onclick]','[aria-haspopup]','[aria-expanded]','[aria-controls]','[aria-pressed]','[aria-selected]','[aria-checked]','[data-action]','label'].join(',');
+          const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+          const maxIframeDepth = 5;
+          const maxIframeCount = 30;
+          let sameOriginIframeCount = 0;
+          let crossOriginIframeCount = 0;
+          let visitedIframes = 0;
 
-          const modalSelectors = [
-            'dialog[open]',
-            ':modal',
-            ':popover-open',
-            '[role="dialog"]',
-            '[role="alertdialog"]',
-            '[aria-modal="true"]',
-            '[data-modal]',
-            '[data-dialog]',
-            '.modal',
-            '.modal-dialog',
-            '.modal-content',
-            '.popover',
-            '.popup',
-            '.overlay',
-            '.drawer'
-          ];
-
-          const safeMatches = (el, selector) => {
-            try {
-              return !!el.matches && el.matches(selector);
-            } catch {
-              return false;
-            }
-          };
-
+          const safeMatches = (el, rule) => { try { return !!el.matches && el.matches(rule); } catch { return false; } };
+          const normalizeClassName = (el) => !el || !el.className ? '' : (typeof el.className === 'string' ? el.className : String(el.className.baseVal || ''));
           const cssPath = (el) => {
             if (!el || !el.tagName) return '';
             if (el.id) return `#${CSS.escape(el.id)}`;
             const parts = [];
             let node = el;
-            while (node && node.nodeType === Node.ELEMENT_NODE && parts.length < 5) {
+            while (node && node.nodeType === Node.ELEMENT_NODE && parts.length < 6) {
               let part = node.tagName.toLowerCase();
               const parent = node.parentElement;
               if (parent) {
@@ -1421,34 +1777,16 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
               }
               parts.unshift(part);
-              if (parent) {
-                node = parent;
-                continue;
+              if (parent) node = parent;
+              else {
+                const root = node.getRootNode && node.getRootNode();
+                if (root && root.host) {
+                  parts.unshift(':shadow-root');
+                  node = root.host;
+                } else node = null;
               }
-
-              const root = node.getRootNode && node.getRootNode();
-              if (root && root.host) {
-                parts.unshift(':shadow-root');
-                node = root.host;
-                continue;
-              }
-
-              node = null;
             }
             return parts.join(' > ');
-          };
-
-          const collectElements = (root, output = []) => {
-            if (!root || !root.querySelectorAll) return output;
-
-            for (const el of Array.from(root.querySelectorAll('*'))) {
-              output.push(el);
-              if (el.shadowRoot) {
-                collectElements(el.shadowRoot, output);
-              }
-            }
-
-            return output;
           };
 
           const isVisible = (el, rect) => {
@@ -1466,7 +1804,59 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return !el.disabled && el.getAttribute('aria-disabled') !== 'true';
           };
 
+          const hasEventHandler = (el) => {
+            if (!el || !el.getAttributeNames) return false;
+            return el.getAttributeNames().some(name => /^on(mouse|click|pointer|key|touch)/i.test(name));
+          };
+
+          const hasInteractiveAriaState = (el) => {
+            if (!el || !el.hasAttribute) return false;
+            return el.hasAttribute('aria-haspopup') ||
+              el.hasAttribute('aria-expanded') ||
+              el.hasAttribute('aria-controls') ||
+              el.hasAttribute('aria-pressed') ||
+              el.hasAttribute('aria-selected') ||
+              el.hasAttribute('aria-checked');
+          };
+
+          const hasInteractiveRole = (el) => {
+            const roleValue = (el?.getAttribute?.('role') || '').toLowerCase();
+            return [
+              'button', 'link', 'menuitem', 'tab', 'checkbox', 'radio', 'option', 'switch',
+              'combobox', 'textbox', 'searchbox', 'slider', 'spinbutton', 'gridcell', 'row'
+            ].includes(roleValue);
+          };
+
+          const hasInteractiveClassHint = (el) => {
+            const className = normalizeClassName(el).toLowerCase();
+            const id = (el.id || '').toLowerCase();
+            const hints = ['btn', 'button', 'link', 'tab', 'toggle', 'switch', 'menu', 'dropdown', 'select', 'item', 'icon'];
+            return hints.some(hint => className.includes(hint) || id.includes(hint));
+          };
+
+          const hasUsableTabIndex = (el) => {
+            const raw = el?.getAttribute?.('tabindex');
+            if (raw === null || raw === undefined) return false;
+            const value = Number(raw);
+            return Number.isFinite(value) && value >= 0;
+          };
+
+          const isLikelyInteractive = (el) => {
+            if (!el) return false;
+            if (safeMatches(el, selector)) return true;
+
+            const style = window.getComputedStyle(el);
+            const pointerLike = style && style.cursor === 'pointer' && style.pointerEvents !== 'none';
+
+            return hasEventHandler(el) ||
+              hasInteractiveRole(el) ||
+              hasInteractiveAriaState(el) ||
+              hasUsableTabIndex(el) ||
+              (pointerLike && (hasInteractiveClassHint(el) || !!el.getAttribute('data-action') || !!el.getAttribute('data-testid')));
+          };
+
           const getInputType = (el) => {
+            if (!el) return '';
             const tagName = (el.tagName || '').toLowerCase();
             if (tagName === 'input') return (el.getAttribute('type') || 'text').toLowerCase();
             if (tagName === 'textarea') return 'textarea';
@@ -1549,9 +1939,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
           };
 
           const isCheckableInput = (el) => {
+            if (!el) return false;
             const inputType = getInputType(el);
-            return el &&
-              (el.tagName || '').toLowerCase() === 'input' &&
+            return (el.tagName || '').toLowerCase() === 'input' &&
               (inputType === 'checkbox' || inputType === 'radio');
           };
 
@@ -1577,8 +1967,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return null;
           };
 
-          const stableKey = (el, selectorPath, stateElement = el) => {
+          const stableKey = (el, selectorPath, contextPath, stateElement = el) => {
             const parts = [
+              contextPath,
               selectorPath,
               (el.tagName || '').toLowerCase(),
               stateElement.getAttribute('role') || el.getAttribute('role') || '',
@@ -1591,90 +1982,35 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return parts.join('|').slice(0, 512);
           };
 
-          const normalizeClassName = (el) => {
-            if (!el || !el.className) return '';
-            return typeof el.className === 'string' ? el.className : String(el.className.baseVal || '');
-          };
-
-          const looksLikeModalRoot = (el) => {
-            if (modalSelectors.some(modalSelector => safeMatches(el, modalSelector))) return true;
-
-            const className = normalizeClassName(el);
-            const id = el.id || '';
-            return /\b(modal|dialog|popup|popover|overlay|drawer)\b/i.test(`${id} ${className}`);
-          };
-
-          const blocksBackground = (el) => {
-            const role = (el.getAttribute('role') || '').toLowerCase();
-            return safeMatches(el, ':modal') ||
-              el.getAttribute('aria-modal') === 'true' ||
-              role === 'alertdialog';
-          };
-
-          const composedContains = (container, child) => {
-            let node = child;
-            while (node) {
-              if (node === container) return true;
-              if (container.contains && container.contains(node)) return true;
-
-              if (node.parentElement) {
-                node = node.parentElement;
-                continue;
-              }
-
-              const root = node.getRootNode && node.getRootNode();
-              node = root && root.host ? root.host : null;
+          const deepElementFromPoint = (doc, x, y, depth = 0) => {
+            if (!doc || depth > 12 || x < 0 || y < 0) return null;
+            let element = doc.elementFromPoint(x, y);
+            if (!element) return null;
+            let shadowDepth = 0;
+            while (element && element.shadowRoot && shadowDepth < 8) {
+              const inner = element.shadowRoot.elementFromPoint(x, y);
+              if (!inner || inner === element) break;
+              element = inner;
+              shadowDepth += 1;
             }
-
-            return false;
-          };
-
-          const isLabelRelated = (hit, target) => {
-            if (!hit || !target) return false;
-            if (hit instanceof HTMLLabelElement && hit.control === target) return true;
-
-            if (!target.id || !hit.closest) return false;
-            try {
-              const label = hit.closest(`label[for="${CSS.escape(target.id)}"]`);
-              return !!label;
-            } catch {
-              return false;
+            if (element && element.tagName && element.tagName.toLowerCase() === 'iframe') {
+              try {
+                const frameDoc = element.contentDocument;
+                if (frameDoc) {
+                  const rect = element.getBoundingClientRect();
+                  const nested = deepElementFromPoint(frameDoc, x - rect.left, y - rect.top, depth + 1);
+                  if (nested) return nested;
+                }
+              } catch {}
             }
-          };
-
-          const isRelatedHit = (hit, target, shadowHost) => {
-            if (!hit || !target) return false;
-            return hit === target ||
-              target.contains(hit) ||
-              isLabelRelated(hit, target) ||
-              (!!shadowHost && (hit === shadowHost || shadowHost.contains(hit)));
-          };
-
-          const firstRelevantHitMatches = (stack, target, shadowHost) => {
-            for (const hit of stack || []) {
-              if (hit === document.documentElement || hit === document.body) continue;
-              return isRelatedHit(hit, target, shadowHost);
-            }
-
-            return false;
+            return element;
           };
 
           const pointHitsElement = (el, x, y) => {
             if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false;
-
-            const root = el.getRootNode && el.getRootNode();
-            const shadowHost = root && root.host ? root.host : null;
-            const documentStack = document.elementsFromPoint(x, y);
-            if (!firstRelevantHitMatches(documentStack, shadowHost || el, shadowHost) &&
-                !firstRelevantHitMatches(documentStack, el, shadowHost)) {
-              return false;
-            }
-
-            if (root && root !== document && root.elementsFromPoint) {
-              return firstRelevantHitMatches(root.elementsFromPoint(x, y), el, null);
-            }
-
-            return true;
+            const hit = deepElementFromPoint(document, x, y);
+            if (!hit) return false;
+            return hit === el || el.contains(hit) || hit.contains(el);
           };
 
           const samplePoints = (rect) => {
@@ -1718,19 +2054,57 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return { center, score };
           };
 
-          const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
-          const allElements = collectElements(document);
-          const modalRoots = allElements.filter(el => {
-            const rect = el.getBoundingClientRect();
-            return looksLikeModalRoot(el) && isVisible(el, rect);
-          });
-          const blockingModalRoots = modalRoots.filter(blocksBackground);
-          const elements = [];
-          const seen = new Set();
+          const isOccluderLike = (el, rect) => {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const opacity = Number(style?.opacity || '1');
+            const bg = (style?.backgroundColor || '').toLowerCase();
+            const cls = `${el.id || ''} ${normalizeClassName(el)}`.toLowerCase();
+            const role = (el.getAttribute('role') || '').toLowerCase();
+            const overlayHint = /modal|dialog|overlay|backdrop|popup|drawer/.test(cls) || role === 'dialog' || role === 'alertdialog' || el.getAttribute('aria-modal') === 'true';
+            const hasBg = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
+            return rect.width > 24 && rect.height > 24 && opacity >= 0.7 && hasBg && (overlayHint || style?.position === 'fixed');
+          };
 
-          for (const el of allElements.filter(item => safeMatches(item, selector))) {
+          const intersectionArea = (a, b) => {
+            const x1 = Math.max(a.left, b.left);
+            const y1 = Math.max(a.top, b.top);
+            const x2 = Math.min(a.right, b.right);
+            const y2 = Math.min(a.bottom, b.bottom);
+            return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+          };
+
+          const collectElements = (doc, contextPath, xOffset, yOffset, depth, output = []) => {
+            if (!doc || !doc.querySelectorAll) return output;
+            for (const el of Array.from(doc.querySelectorAll('*'))) {
+              output.push({ el, contextPath, xOffset, yOffset });
+              if (el.shadowRoot) collectElements(el.shadowRoot, `${contextPath}/shadow:${(el.tagName || '').toLowerCase()}`, xOffset, yOffset, depth, output);
+              if ((el.tagName || '').toLowerCase() === 'iframe' && depth < maxIframeDepth && visitedIframes < maxIframeCount) {
+                visitedIframes += 1;
+                const rect = el.getBoundingClientRect();
+                try {
+                  const frameDoc = el.contentDocument;
+                  if (frameDoc) {
+                    sameOriginIframeCount += 1;
+                    collectElements(frameDoc, `${contextPath}/iframe:${cssPath(el) || 'frame'}`, xOffset + rect.left, yOffset + rect.top, depth + 1, output);
+                  }
+                } catch {
+                  crossOriginIframeCount += 1;
+                }
+              }
+            }
+            return output;
+          };
+
+          const collected = collectElements(document, 'main', 0, 0, 0, []);
+          const prelim = [];
+          const occluders = [];
+          const seen = new Set();
+          for (const entry of collected) {
+            const el = entry.el;
             if (seen.has(el)) continue;
             seen.add(el);
+            if (!isLikelyInteractive(el)) continue;
 
             const rect = el.getBoundingClientRect();
             if (!isVisible(el, rect)) continue;
@@ -1739,15 +2113,10 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             const stateControl = associatedControl(el);
             if (tagName === 'label' && !stateControl) continue;
 
-            const inBlockingModal = blockingModalRoots.some(root => composedContains(root, el));
-            if (blockingModalRoots.length > 0 && !inBlockingModal) continue;
-
             const hitInfo = topMostInfo(el, rect);
             const isTopMost = hitInfo.center || hitInfo.score >= Math.min(2, samplePoints(rect).length);
             if (!isTopMost) continue;
-
-            const modalDepth = modalRoots.filter(root => composedContains(root, el)).length;
-            const priority = (inBlockingModal ? 3000 : 0) + (modalDepth * 100) + hitInfo.score;
+            const priority = hitInfo.score;
             const selectorPath = cssPath(el);
             const stateElement = stateControl || el;
             const inputType = getInputType(stateElement);
@@ -1755,8 +2124,13 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             const sensitive = isSensitiveElement(stateElement);
             const value = elementValue(stateElement);
             const isCheckable = inputType === 'checkbox' || inputType === 'radio';
-
-            elements.push({
+            const globalRect = {
+              left: rect.left + entry.xOffset,
+              top: rect.top + entry.yOffset,
+              right: rect.right + entry.xOffset,
+              bottom: rect.bottom + entry.yOffset
+            };
+            const candidate = {
               tagName,
               role: stateElement.getAttribute('role') || el.getAttribute('role') || '',
               text: elementText(el),
@@ -1764,11 +2138,11 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
               placeholder: normalize(stateElement.getAttribute('placeholder') || el.getAttribute('placeholder') || ''),
               href: el.href || el.getAttribute('href') || '',
               selector: selectorPath,
-              stableKey: stableKey(el, selectorPath, stateElement),
+              stableKey: stableKey(el, selectorPath, entry.contextPath, stateElement),
               value,
               inputType,
-              x: rect.x,
-              y: rect.y,
+              x: rect.x + entry.xOffset,
+              y: rect.y + entry.yOffset,
               width: rect.width,
               height: rect.height,
               isVisible: true,
@@ -1777,17 +2151,44 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
               isChecked: isCheckable ? !!stateElement.checked : null,
               isSensitive: sensitive,
               isTopMost: true,
-              priority
-            });
+              priority,
+              visibilityScore: hitInfo.score,
+              contextPath: entry.contextPath
+            };
+            prelim.push({ candidate, globalRect, priority });
+            if (isOccluderLike(el, rect)) occluders.push({ rect: globalRect, priority });
           }
 
-          return elements;
+          const sortedOccluders = occluders.sort((a, b) => b.priority - a.priority);
+          const kept = [];
+          for (const item of prelim.sort((a, b) => b.priority - a.priority)) {
+            const totalArea = Math.max(1, item.globalRect.right - item.globalRect.left) * Math.max(1, item.globalRect.bottom - item.globalRect.top);
+            let covered = 0;
+            for (const occ of sortedOccluders) {
+              covered += intersectionArea(item.globalRect, occ.rect);
+              if ((covered / totalArea) >= 0.90) break;
+            }
+            if ((covered / totalArea) < 0.90) kept.push(item.candidate);
+          }
+
+          return {
+            elements: kept,
+            prePaintCandidateCount: prelim.length,
+            postPaintCandidateCount: kept.length,
+            sameOriginIframeCount,
+            crossOriginIframeCount
+          };
         }
         """;
 
-    private sealed record RuntimeSession(IBrowserContext Context, IPage Page, BrowserSessionOptions Options)
+    private sealed record RuntimeSession(IBrowserContext Context, IPage Page, BrowserSessionOptions Options, string? StorageStatePath)
     {
         public ConcurrentDictionary<string, SomElement> Elements { get; } = new();
+        public string? LastObservationFallbackReason { get; set; }
+        public int NextElementOrdinal { get; set; }
+        public List<SomElement> LastElements { get; } = new();
+        public HashSet<string> SeenElementIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> StableKeyToElementId { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class FileInputState

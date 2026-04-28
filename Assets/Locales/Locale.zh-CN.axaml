@@ -210,7 +210,7 @@
     <system:String x:Key="Config.Browser">浏览器</system:String>
     <system:String x:Key="Config.BrowserDescription">启用后，雅典娜可以在隔离会话中使用无头浏览器观察和操作网页。低层浏览器步骤不会写入主对话上下文。</system:String>
     <system:String x:Key="Config.BrowserEnabled">启用浏览器:</system:String>
-    <system:String x:Key="Config.BrowserVisionMode">视觉模式:</system:String>
+    <system:String x:Key="Config.BrowserObservationMode">感知模式:</system:String>
     <system:String x:Key="Config.BrowserHeadless">无头模式:</system:String>
     <system:String x:Key="Config.BrowserDiagnostics">运行时诊断</system:String>
     <system:String x:Key="Config.BrowserRuntimeStatus">浏览器运行时:</system:String>
@@ -225,8 +225,7 @@
     <system:String x:Key="Config.BrowserSessionTtl">会话 TTL（分钟）:</system:String>
     <system:String x:Key="Config.BrowserPersistSession">保留会话状态:</system:String>
     <system:String x:Key="Config.BrowserDownloadEnabled">允许下载:</system:String>
-    <system:String x:Key="Config.BrowserSom">SoM 标注</system:String>
-    <system:String x:Key="Config.BrowserSomEnabled">启用 SoM:</system:String>
+    <system:String x:Key="Config.BrowserElementMap">元素地图</system:String>
     <system:String x:Key="Config.BrowserSomMaxElements">最多标注元素:</system:String>
     <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">截图缩放:</system:String>

@@ -53,6 +53,37 @@ public static class BrowserPrompts
         - Return only compact task results, current URL, and key evidence to the caller.
         """;
 
+    public const string AgentOutputPrompt = """
+        You are Athena's isolated browser agent.
+
+        Return valid JSON only. No markdown.
+
+        You must return this JSON shape:
+        {
+          "thinking": "brief private browser reasoning",
+          "evaluation_previous_goal": "success|failure|unknown plus short reason",
+          "memory": "persistent facts learned so far",
+          "next_goal": "the next browser goal",
+          "current_plan_item": 1,
+          "plan_update": ["optional compact plan notes"],
+          "action": [
+            { "click": { "index": 1 } }
+          ]
+        }
+
+        Use only action names from available_actions_json. For click/input/upload/dropdown/select actions, prefer `elementId` (or `targetElementId`) and use index only as fallback when no elementId is available.
+
+        Action rules:
+        - Use search for web search tasks; use navigate for an exact URL.
+        - Use done only when the task is complete, blocked, unsafe, or cannot proceed.
+        - done must be the only action in its step.
+        - Do not continue a multi-action sequence after search, navigate, go_back, switch_tab, evaluate, or any action likely to change the page.
+        - Do not type into a field if browser_state already shows the requested value.
+        - For extraction, report only information observed in browser_state, action results, or screenshot.
+        - If login, payment, captcha, two-factor auth, destructive actions, or private network access is required, return done with success=false and explain the blocker.
+        - Keep actions compact. Use at most 5 actions per step.
+        """;
+
     public const string VisionDecisionPrompt = """
         You are Athena's browser vision controller. Use the annotated screenshot and SoM element list to choose exactly one next browser action.
 

@@ -7,6 +7,14 @@ namespace Athena.UI.Services.Interfaces;
 
 public interface IBrowserVisionService
 {
+    Task<BrowserAgentOutput> DecideNextActionsAsync(
+        BrowserTaskRequest task,
+        BrowserStateSummary browserState,
+        BrowserAgentStepInfo stepInfo,
+        IReadOnlyList<BrowserActionResult> actionHistory,
+        IReadOnlyList<BrowserActionDefinition> availableActions,
+        CancellationToken cancellationToken = default);
+
     Task<BrowserActionRequest> DecideNextActionAsync(
         BrowserTaskRequest task,
         SomObservation observation,
