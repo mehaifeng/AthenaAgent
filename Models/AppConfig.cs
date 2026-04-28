@@ -117,7 +117,7 @@ public partial class AppConfig : ObservableObject
     private bool _browserHeadless = true;
 
     [ObservableProperty]
-    private bool _browserUseVisionMode = true;
+    private BrowserObservationMode _browserObservationMode = BrowserObservationMode.VisionWithSom;
 
     [ObservableProperty]
     private int _browserViewportWidth = 1280;
@@ -145,9 +145,6 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private int _browserImageQuality = 85;
-
-    [ObservableProperty]
-    private bool _browserSomEnabled = true;
 
     [ObservableProperty]
     private int _browserSomMaxElements = 80;

@@ -41,7 +41,7 @@ public class ConfigService : IConfigService
         {
             var json = await File.ReadAllTextAsync(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
-            return config ?? new AppConfig();
+            return ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
         }
         catch
         {
@@ -63,7 +63,7 @@ public class ConfigService : IConfigService
         {
             var json = File.ReadAllText(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
-            return config ?? new AppConfig();
+            return ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
         }
         catch
         {
@@ -76,5 +76,55 @@ public class ConfigService : IConfigService
         var json = JsonSerializer.Serialize(config, JsonOptions);
         await File.WriteAllTextAsync(ConfigFilePath, json);
         ConfigChanged?.Invoke(this, config);
+    }
+
+    private static AppConfig ApplyLegacyBrowserObservationMode(AppConfig config, string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            if (root.TryGetProperty("browserObservationMode", out _))
+            {
+                return config;
+            }
+
+            var hasLegacyVision = TryGetBool(root, "browserUseVisionMode", out var useVision);
+            var hasLegacySom = TryGetBool(root, "browserSomEnabled", out var somEnabled);
+            if (!hasLegacyVision && !hasLegacySom)
+            {
+                return config;
+            }
+
+            useVision = hasLegacyVision ? useVision : true;
+            somEnabled = hasLegacySom ? somEnabled : true;
+            config.BrowserObservationMode = !useVision
+                ? BrowserObservationMode.DomOnly
+                : BrowserObservationMode.VisionWithSom;
+        }
+        catch
+        {
+            // Ignore migration failures; default config values remain valid.
+        }
+
+        return config;
+    }
+
+    private static bool TryGetBool(JsonElement root, string propertyName, out bool value)
+    {
+        value = false;
+        if (!root.TryGetProperty(propertyName, out var element))
+        {
+            return false;
+        }
+
+        if (element.ValueKind == JsonValueKind.True || element.ValueKind == JsonValueKind.False)
+        {
+            value = element.GetBoolean();
+            return true;
+        }
+
+        return element.ValueKind == JsonValueKind.String && bool.TryParse(element.GetString(), out value);
     }
 }

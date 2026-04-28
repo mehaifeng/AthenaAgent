@@ -26,6 +26,67 @@ public class BrowserVisionService : IBrowserVisionService
         _logger = logger.ForContext<BrowserVisionService>();
     }
 
+    public async Task<BrowserAgentOutput> DecideNextActionsAsync(
+        BrowserTaskRequest task,
+        BrowserStateSummary browserState,
+        BrowserAgentStepInfo stepInfo,
+        IReadOnlyList<BrowserActionResult> actionHistory,
+        IReadOnlyList<BrowserActionDefinition> availableActions,
+        CancellationToken cancellationToken = default)
+    {
+        var config = _configService.Load();
+        var effectiveConfig = ResolveEffectiveConfig(config);
+        if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
+        {
+            return DoneOutput("Browser model API key is not configured.", success: false);
+        }
+
+        if (string.IsNullOrWhiteSpace(effectiveConfig.Model))
+        {
+            return DoneOutput("Browser model is not configured.", success: false);
+        }
+
+        try
+        {
+            var clientOptions = new OpenAIClientOptions();
+            if (!string.IsNullOrWhiteSpace(effectiveConfig.BaseUrl))
+            {
+                clientOptions.Endpoint = new Uri(effectiveConfig.BaseUrl);
+            }
+
+            var client = new OpenAIClient(new ApiKeyCredential(effectiveConfig.ApiKey), clientOptions);
+            var chatClient = client.GetChatClient(effectiveConfig.Model);
+            var messages = BuildAgentMessages(task, browserState, stepInfo, actionHistory, availableActions);
+            var options = new ChatCompletionOptions
+            {
+                Temperature = (float)effectiveConfig.Temperature,
+                MaxOutputTokenCount = effectiveConfig.MaxTokens
+            };
+
+            var completion = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            var content = completion.Value.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var output = ParseAgentOutput(content);
+            if (output.Action.Count == 0)
+            {
+                output.Action.Add(CreateDoneAction("Browser model returned no actions.", success: false));
+            }
+
+            _logger.Information(
+                "Browser agent output received. Model={Model}, Step={Step}, Actions={ActionCount}, FirstAction={FirstAction}, ResponseLength={ResponseLength}",
+                effectiveConfig.Model,
+                stepInfo.StepNumber,
+                output.Action.Count,
+                output.Action.FirstOrDefault()?.Name ?? "(none)",
+                content.Length);
+            return output;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Browser agent model call failed");
+            return DoneOutput($"Browser agent model call failed: {ex.Message}", success: false);
+        }
+    }
+
     public async Task<BrowserActionRequest> DecideNextActionAsync(
         BrowserTaskRequest task,
         SomObservation observation,
@@ -220,6 +281,206 @@ public class BrowserVisionService : IBrowserVisionService
                 ChatMessageContentPart.CreateTextPart(prompt),
                 ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), observation.ScreenshotMimeType, ChatImageDetailLevel.Low))
         };
+    }
+
+    private static List<OpenAI.Chat.ChatMessage> BuildAgentMessages(
+        BrowserTaskRequest task,
+        BrowserStateSummary browserState,
+        BrowserAgentStepInfo stepInfo,
+        IReadOnlyList<BrowserActionResult> actionHistory,
+        IReadOnlyList<BrowserActionDefinition> availableActions)
+    {
+        var actionsJson = JsonSerializer.Serialize(availableActions.Select(action => new
+        {
+            name = action.Name,
+            description = action.Description,
+            parameters = action.ParametersJsonSchema,
+            terminatesSequence = action.TerminatesSequence,
+            isTerminal = action.IsTerminal
+        }));
+
+        var elementsJson = JsonSerializer.Serialize(browserState.Elements.Select(e => new
+        {
+            index = e.Index,
+            id = e.ElementId,
+            tag = e.TagName,
+            role = e.Role,
+            text = e.Text,
+            ariaLabel = e.AriaLabel,
+            placeholder = e.Placeholder,
+            href = e.Href,
+            value = e.IsSensitive ? null : e.Value,
+            inputType = e.InputType,
+            isEditable = e.IsEditable,
+            isChecked = e.IsChecked,
+            isSensitive = e.IsSensitive,
+            box = new { e.BoundingBox.X, e.BoundingBox.Y, e.BoundingBox.Width, e.BoundingBox.Height }
+        }));
+
+        var recentActionsJson = JsonSerializer.Serialize(actionHistory.TakeLast(12).Select(a => new
+        {
+            action = a.ActionName ?? a.Action.ToString(),
+            success = a.Success,
+            done = a.IsDone,
+            message = a.Message,
+            error = a.Error,
+            extractedContent = TrimForPrompt(a.ExtractedContent ?? a.ExtractedText, 1200),
+            url = a.Url
+        }));
+
+        var stateJson = JsonSerializer.Serialize(new
+        {
+            url = browserState.Url,
+            title = browserState.Title,
+            tabs = browserState.Tabs,
+            page = browserState.PageInfo,
+            elements = browserState.Elements.Count,
+            browserErrors = browserState.BrowserErrors
+        });
+
+        var prompt = $"""
+            <task>
+            {task.Instruction}
+            </task>
+
+            <step>
+            {stepInfo.StepNumber}/{stepInfo.MaxSteps}
+            </step>
+
+            <agent_memory>
+            {TrimForPrompt(stepInfo.LongTermMemory, 4000)}
+            </agent_memory>
+
+            <read_state>
+            {TrimForPrompt(stepInfo.ReadState, 4000)}
+            </read_state>
+
+            <browser_state_json>
+            {stateJson}
+            </browser_state_json>
+
+            <som_elements_json>
+            {elementsJson}
+            </som_elements_json>
+
+            <recent_actions_json>
+            {recentActionsJson}
+            </recent_actions_json>
+
+            <available_actions_json>
+            {actionsJson}
+            </available_actions_json>
+            """;
+
+        if (stepInfo.UseVision && !string.IsNullOrWhiteSpace(browserState.ScreenshotBase64))
+        {
+            var imageBytes = Convert.FromBase64String(browserState.ScreenshotBase64);
+            return new List<OpenAI.Chat.ChatMessage>
+            {
+                new SystemChatMessage(BrowserPrompts.AgentOutputPrompt),
+                new UserChatMessage(
+                    ChatMessageContentPart.CreateTextPart(prompt),
+                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), browserState.ScreenshotMimeType ?? "image/png", ChatImageDetailLevel.Low))
+            };
+        }
+
+        return new List<OpenAI.Chat.ChatMessage>
+        {
+            new SystemChatMessage(BrowserPrompts.AgentOutputPrompt),
+            new UserChatMessage(prompt)
+        };
+    }
+
+    private static BrowserAgentOutput ParseAgentOutput(string content)
+    {
+        var json = ExtractJson(content);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var output = new BrowserAgentOutput
+        {
+            Thinking = ReadString(root, "thinking"),
+            EvaluationPreviousGoal = ReadString(root, "evaluation_previous_goal") ?? ReadString(root, "evaluationPreviousGoal"),
+            Memory = ReadString(root, "memory"),
+            NextGoal = ReadString(root, "next_goal") ?? ReadString(root, "nextGoal"),
+            CurrentPlanItem = ReadInt(root, "current_plan_item") ?? ReadInt(root, "currentPlanItem")
+        };
+
+        if (root.TryGetProperty("plan_update", out var planUpdate) || root.TryGetProperty("planUpdate", out planUpdate))
+        {
+            if (planUpdate.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in planUpdate.EnumerateArray())
+                {
+                    var value = ReadJsonElementString(item);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        output.PlanUpdate.Add(value);
+                    }
+                }
+            }
+        }
+
+        if ((root.TryGetProperty("action", out var actionElement) || root.TryGetProperty("actions", out actionElement))
+            && actionElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in actionElement.EnumerateArray())
+            {
+                var action = ParseAgentAction(item);
+                if (!string.IsNullOrWhiteSpace(action.Name))
+                {
+                    output.Action.Add(action);
+                }
+            }
+        }
+
+        return output;
+    }
+
+    private static BrowserAgentAction ParseAgentAction(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return new BrowserAgentAction();
+        }
+
+        var properties = item.EnumerateObject().ToList();
+        if (properties.Count == 1
+            && !string.Equals(properties[0].Name, "name", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(properties[0].Name, "action", StringComparison.OrdinalIgnoreCase))
+        {
+            var action = new BrowserAgentAction
+            {
+                Name = BrowserActionRegistry.NormalizeName(properties[0].Name)
+            };
+
+            if (properties[0].Value.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var parameter in properties[0].Value.EnumerateObject())
+                {
+                    action.Parameters[parameter.Name] = parameter.Value.Clone();
+                }
+            }
+
+            return action;
+        }
+
+        var flat = new BrowserAgentAction
+        {
+            Name = BrowserActionRegistry.NormalizeName(ReadString(item, "name") ?? ReadString(item, "action"))
+        };
+
+        foreach (var property in properties)
+        {
+            if (string.Equals(property.Name, "name", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(property.Name, "action", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            flat.Parameters[property.Name] = property.Value.Clone();
+        }
+
+        return flat;
     }
 
     private static BrowserActionRequest ParseDecision(string content, BrowserTaskRequest task, SomObservation observation)
@@ -421,6 +682,60 @@ public class BrowserVisionService : IBrowserVisionService
             Confidence = 0,
             IsTerminalFailure = isFailure
         };
+
+    private static BrowserAgentOutput DoneOutput(string text, bool success) => new()
+    {
+        EvaluationPreviousGoal = success ? "success" : "failure",
+        Memory = text,
+        NextGoal = "done",
+        Action = { CreateDoneAction(text, success) }
+    };
+
+    private static BrowserAgentAction CreateDoneAction(string text, bool success) => new()
+    {
+        Name = "done",
+        Parameters = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["text"] = JsonSerializer.SerializeToElement(text),
+            ["success"] = JsonSerializer.SerializeToElement(success)
+        }
+    };
+
+    private static string? ReadString(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return ReadJsonElementString(value);
+    }
+
+    private static int? ReadInt(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return int.TryParse(ReadJsonElementString(value), out var parsed) ? parsed : null;
+    }
+
+    private static string? TrimForPrompt(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength] + "\n... [truncated]";
+    }
 
     private sealed class VisionDecision
     {

@@ -88,6 +88,13 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> Providers { get; } = new(ProviderUrls.Keys);
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
+    public ObservableCollection<BrowserObservationMode> BrowserObservationModes { get; } = new()
+    {
+        BrowserObservationMode.VisionWithSom,
+        BrowserObservationMode.DomOnly
+    };
+
+    public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
     public ObservableCollection<string> Languages { get; }
 
@@ -173,6 +180,10 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(IsBaiduProvider));
                 }
+                else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
+                {
+                    OnPropertyChanged(nameof(IsBrowserVisionEnabled));
+                }
             };
         }
     }
@@ -228,6 +239,10 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     config.BrowserVisionBaseUrl = url;
                 }
+            }
+            else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
+            {
+                OnPropertyChanged(nameof(IsBrowserVisionEnabled));
             }
             
             // Trigger auto-save on any property change
