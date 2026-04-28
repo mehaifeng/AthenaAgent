@@ -68,14 +68,18 @@ public class SomAnnotator : ISomAnnotator
             using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
             using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 120f, 10f, 12f));
 
-            foreach (var element in request.Elements.Take(Math.Max(0, request.MaxElements)))
+            if (request.DrawAnnotations)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                DrawElement(canvas, element, scaleX, scaleY, borderPaint, labelPaint, textPaint, labelFont);
+                foreach (var element in request.Elements.Take(Math.Max(0, request.MaxElements)))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    DrawElement(canvas, element, scaleX, scaleY, borderPaint, labelPaint, textPaint, labelFont);
+                }
             }
 
             using var image = surface.Snapshot();
-            using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
+            using var outputImage = ResizeImageIfNeeded(image, request.ScreenshotScale);
+            using var encoded = outputImage.Encode(SKEncodedImageFormat.Png, Math.Clamp(request.ImageQuality, 30, 100));
             var annotatedBytes = encoded.ToArray();
 
             return await CreateObservationAsync(request, annotatedBytes, cancellationToken);
@@ -85,6 +89,23 @@ public class SomAnnotator : ISomAnnotator
             _logger.Warning(ex, "SoM annotation failed, returning original screenshot");
             return await CreateObservationAsync(request, request.ScreenshotPng, cancellationToken);
         }
+    }
+
+    private static SKImage ResizeImageIfNeeded(SKImage image, double scale)
+    {
+        var normalizedScale = Math.Clamp(scale, 0.25, 2.0);
+        if (Math.Abs(normalizedScale - 1.0) < 0.001)
+        {
+            return image;
+        }
+
+        var width = Math.Max(1, (int)Math.Round(image.Width * normalizedScale));
+        var height = Math.Max(1, (int)Math.Round(image.Height * normalizedScale));
+        var info = new SKImageInfo(width, height, image.ColorType, image.AlphaType);
+        using var surface = SKSurface.Create(info);
+        var dest = SKRect.Create(0, 0, width, height);
+        surface.Canvas.DrawImage(image, dest, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        return surface.Snapshot();
     }
 
     private static void DrawElement(SKCanvas canvas, SomElement element, float scaleX, float scaleY, SKPaint borderPaint, SKPaint labelPaint, SKPaint textPaint, SKFont labelFont)

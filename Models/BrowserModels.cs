@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace Athena.UI.Models;
 
@@ -16,7 +17,26 @@ public enum BrowserActionType
     ExtractText,
     Close,
     Finish,
-    Upload
+    Upload,
+    Search,
+    GoBack,
+    Input,
+    SwitchTab,
+    CloseTab,
+    SearchPage,
+    FindElements,
+    FindText,
+    Screenshot,
+    SaveAsPdf,
+    DropdownOptions,
+    SelectDropdown,
+    Evaluate
+}
+
+public enum BrowserObservationMode
+{
+    DomOnly,
+    VisionWithSom
 }
 
 public enum BrowserRiskType
@@ -77,7 +97,7 @@ public class BrowserSessionOptions
     public bool Headless { get; set; } = true;
     public bool PersistSession { get; set; }
     public bool DownloadEnabled { get; set; }
-    public bool SomEnabled { get; set; } = true;
+    public BrowserObservationMode ObservationMode { get; set; } = BrowserObservationMode.VisionWithSom;
     public int SomMaxElements { get; set; } = 80;
     public bool SomIncludeText { get; set; } = true;
     public double ScreenshotScale { get; set; } = 1.0;
@@ -179,6 +199,9 @@ public class SomAnnotationRequest
     public int ScrollY { get; set; }
     public int MaxElements { get; set; } = 80;
     public bool IncludeElementText { get; set; } = true;
+    public bool DrawAnnotations { get; set; } = true;
+    public double ScreenshotScale { get; set; } = 1.0;
+    public int ImageQuality { get; set; } = 85;
     public List<SomElement> Elements { get; set; } = new();
 }
 
@@ -217,15 +240,160 @@ public class BrowserActionResult
 {
     public bool Success { get; set; }
     public BrowserActionType Action { get; set; } = BrowserActionType.None;
+    public string? ActionName { get; set; }
     public string Message { get; set; } = string.Empty;
     public string? SessionId { get; set; }
     public string? Url { get; set; }
     public SomObservation? Observation { get; set; }
     public string? ExtractedText { get; set; }
+    public string? ExtractedContent { get; set; }
+    public bool IncludeExtractedContentOnlyOnce { get; set; }
+    public string? LongTermMemory { get; set; }
+    public bool IsDone { get; set; }
+    public bool? CompletionSuccess { get; set; }
+    public string? Error { get; set; }
+    public bool PageChanged { get; set; }
+    public List<string> Attachments { get; set; } = new();
+    public Dictionary<string, string?> Metadata { get; set; } = new();
     public BrowserActionEffect? Effect { get; set; }
     public BrowserRiskType Risk { get; set; } = BrowserRiskType.None;
     public bool RequiresUserConfirmation { get; set; }
     public bool IsRecoverableFailure { get; set; }
+}
+
+public class BrowserAgentOutput
+{
+    public string? Thinking { get; set; }
+    public string? EvaluationPreviousGoal { get; set; }
+    public string? Memory { get; set; }
+    public string? NextGoal { get; set; }
+    public int? CurrentPlanItem { get; set; }
+    public List<string> PlanUpdate { get; set; } = new();
+    public List<BrowserAgentAction> Action { get; set; } = new();
+}
+
+public class BrowserAgentAction
+{
+    public string Name { get; set; } = string.Empty;
+    public Dictionary<string, JsonElement> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public string? GetString(string name)
+    {
+        if (!Parameters.TryGetValue(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => value.ToString(),
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            _ => value.ToString()
+        };
+    }
+
+    public int? GetInt32(string name)
+    {
+        if (!Parameters.TryGetValue(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return int.TryParse(GetString(name), out var parsed) ? parsed : null;
+    }
+
+    public double? GetDouble(string name)
+    {
+        if (!Parameters.TryGetValue(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number))
+        {
+            return number;
+        }
+
+        return double.TryParse(GetString(name), out var parsed) ? parsed : null;
+    }
+
+    public bool? GetBool(string name)
+    {
+        if (!Parameters.TryGetValue(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => bool.TryParse(GetString(name), out var parsed) ? parsed : null
+        };
+    }
+}
+
+public class BrowserAgentStepInfo
+{
+    public int StepNumber { get; set; }
+    public int MaxSteps { get; set; }
+    public int ConsecutiveFailures { get; set; }
+    public string LongTermMemory { get; set; } = string.Empty;
+    public string ReadState { get; set; } = string.Empty;
+    public bool UseVision { get; set; }
+}
+
+public class BrowserActionDefinition
+{
+    public string Name { get; set; } = string.Empty;
+    public BrowserActionType Type { get; set; } = BrowserActionType.None;
+    public string Description { get; set; } = string.Empty;
+    public string ParametersJsonSchema { get; set; } = "{}";
+    public bool TerminatesSequence { get; set; }
+    public bool IsTerminal { get; set; }
+}
+
+public class BrowserTabInfo
+{
+    public string TabId { get; set; } = string.Empty;
+    public string? Url { get; set; }
+    public string? Title { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public class BrowserPageInfo
+{
+    public int ViewportWidth { get; set; }
+    public int ViewportHeight { get; set; }
+    public int ScrollX { get; set; }
+    public int ScrollY { get; set; }
+    public int PixelsAbove { get; set; }
+    public int PixelsBelow { get; set; }
+}
+
+public class BrowserStateSummary
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string? Url { get; set; }
+    public string? Title { get; set; }
+    public List<BrowserTabInfo> Tabs { get; set; } = new();
+    public BrowserPageInfo PageInfo { get; set; } = new();
+    public SomObservation? Observation { get; set; }
+    public string? ScreenshotBase64 { get; set; }
+    public string? ScreenshotMimeType { get; set; }
+    public List<SomElement> Elements { get; set; } = new();
+    public List<string> BrowserErrors { get; set; } = new();
+    public List<string> ClosedPopupMessages { get; set; } = new();
+    public List<string> PendingDownloads { get; set; } = new();
+    public Dictionary<string, string?> Metadata { get; set; } = new();
+    public int DomVersion { get; set; }
+    public DateTime CapturedAt { get; set; } = DateTime.Now;
 }
 
 public class BrowserTaskRequest

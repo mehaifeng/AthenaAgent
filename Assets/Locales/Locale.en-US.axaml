@@ -210,7 +210,7 @@
     <system:String x:Key="Config.Browser">Browser</system:String>
     <system:String x:Key="Config.BrowserDescription">When enabled, Athena can observe and operate web pages in isolated headless browser sessions. Low-level browser steps are kept out of the main chat context.</system:String>
     <system:String x:Key="Config.BrowserEnabled">Enable Browser:</system:String>
-    <system:String x:Key="Config.BrowserVisionMode">Vision Mode:</system:String>
+    <system:String x:Key="Config.BrowserObservationMode">Observation Mode:</system:String>
     <system:String x:Key="Config.BrowserHeadless">Headless Mode:</system:String>
     <system:String x:Key="Config.BrowserDiagnostics">Runtime Diagnostics</system:String>
     <system:String x:Key="Config.BrowserRuntimeStatus">Browser Runtime:</system:String>
@@ -225,8 +225,7 @@
     <system:String x:Key="Config.BrowserSessionTtl">Session TTL (min):</system:String>
     <system:String x:Key="Config.BrowserPersistSession">Persist Session State:</system:String>
     <system:String x:Key="Config.BrowserDownloadEnabled">Allow Downloads:</system:String>
-    <system:String x:Key="Config.BrowserSom">SoM Annotation</system:String>
-    <system:String x:Key="Config.BrowserSomEnabled">Enable SoM:</system:String>
+    <system:String x:Key="Config.BrowserElementMap">Element Map</system:String>
     <system:String x:Key="Config.BrowserSomMaxElements">Max Marked Elements:</system:String>
     <system:String x:Key="Config.BrowserSomIncludeText">Include Element Text:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">Screenshot Scale:</system:String>
