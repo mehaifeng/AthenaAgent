@@ -33,6 +33,7 @@
     <system:String x:Key="Chat.InputPlaceholder">Type a message...</system:String>
     <system:String x:Key="Chat.MaxContextReached">Context limit reached</system:String>
     <system:String x:Key="Chat.BtnExecute">Send</system:String>
+    <system:String x:Key="Chat.BtnStop">Stop response</system:String>
     <system:String x:Key="Chat.RoleUser">You</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
 

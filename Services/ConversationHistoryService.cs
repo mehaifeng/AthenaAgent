@@ -19,6 +19,8 @@ namespace Athena.UI.Services;
 /// </summary>
 public class ConversationHistoryService : IConversationHistoryService
 {
+    private const string DraftFileName = "_chat_draft.json";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -26,6 +28,7 @@ public class ConversationHistoryService : IConversationHistoryService
     };
 
     private readonly string _historyDirectory;
+    private readonly string _draftFilePath;
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
     private AppConfig? _secondaryConfig;
@@ -51,6 +54,7 @@ public class ConversationHistoryService : IConversationHistoryService
             );
         }
         Directory.CreateDirectory(_historyDirectory);
+        _draftFilePath = Path.Combine(_historyDirectory, DraftFileName);
         Log.Information("对话历史服务初始化，存储目录: {Dir}", _historyDirectory);
     }
 
@@ -120,7 +124,10 @@ public class ConversationHistoryService : IConversationHistoryService
 
         try
         {
-            var files = Directory.GetFiles(_historyDirectory, "*.json");
+            var files = Directory
+                .GetFiles(_historyDirectory, "*.json")
+                .Where(file => !string.Equals(Path.GetFileName(file), DraftFileName, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             foreach (var file in files)
             {
                 try
@@ -185,7 +192,7 @@ public class ConversationHistoryService : IConversationHistoryService
         return Task.CompletedTask;
     }
 
-    public async Task<Models.ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<Models.ChatMessage> messages, bool forceGenerateSummary = false)
+    public async Task<Models.ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<Models.ChatMessage> messages, bool forceGenerateSummary = false, string? contextSummary = null)
     {
         var messageList = messages.ToList();
 
@@ -195,6 +202,7 @@ public class ConversationHistoryService : IConversationHistoryService
         var item = new Models.ConversationHistoryItem
         {
             Summary = summary,
+            ContextSummary = contextSummary,
             MessageCount = messageList.Count,
             Messages = messageList,
             CreatedAt = messageList.FirstOrDefault()?.Timestamp ?? DateTime.Now,
@@ -298,6 +306,58 @@ public class ConversationHistoryService : IConversationHistoryService
         }
 
         return null;
+    }
+
+    public void SaveDraft(ConversationDraftSnapshot snapshot)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(snapshot, JsonOptions);
+            File.WriteAllText(_draftFilePath, json);
+            Log.Information("保存主对话草稿，消息数: {Count}", snapshot.Messages.Count);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "保存主对话草稿失败");
+            throw;
+        }
+    }
+
+    public ConversationDraftSnapshot? LoadDraft()
+    {
+        try
+        {
+            if (!File.Exists(_draftFilePath))
+            {
+                return null;
+            }
+
+            var json = File.ReadAllText(_draftFilePath);
+            return JsonSerializer.Deserialize<ConversationDraftSnapshot>(json, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "加载主对话草稿失败");
+            return null;
+        }
+    }
+
+    public void DeleteDraft()
+    {
+        try
+        {
+            if (!File.Exists(_draftFilePath))
+            {
+                return;
+            }
+
+            File.Delete(_draftFilePath);
+            Log.Information("删除主对话草稿");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "删除主对话草稿失败");
+        }
     }
 
     public async Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentRounds = 3)

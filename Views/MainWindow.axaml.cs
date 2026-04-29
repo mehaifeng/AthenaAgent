@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using System;
 using System.Threading.Tasks;
 
@@ -10,11 +11,19 @@ namespace Athena.UI.Views;
 public partial class MainWindow : Window
 {
     private Image? _themeSplashImage;
+    private TabControl? _mainTabControl;
+    private ChatTabView? _chatTabView;
 
     public MainWindow()
     {
         InitializeComponent();
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
+        _mainTabControl = this.FindControl<TabControl>("MainTabControl");
+        _chatTabView = this.FindControl<ChatTabView>("ChatTabView");
+        if (_mainTabControl != null)
+        {
+            _mainTabControl.SelectionChanged += OnMainTabSelectionChanged;
+        }
         // 窗口显示之前就设置好 Splash 图片的初始状态：
         // Opacity=1 让窗口打开时图片立即覆盖在 UI 上，
         // ShowThemeSplashAsync 根据 IsLoaded 决定是否需要从 0 渐入
@@ -26,6 +35,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnMainTabSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        ScrollChatToBottomIfVisible();
+    }
+
+    public void ScrollChatToBottomIfVisible()
+    {
+        if (_mainTabControl?.SelectedIndex == 0 && _chatTabView != null)
+        {
+            Dispatcher.UIThread.Post(_chatTabView.ScrollToBottomIfHasMessages, DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(_chatTabView.ScrollToBottomIfHasMessages, DispatcherPriority.Background);
+        }
+    }
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (Application.Current is App app && !app.IsQuitting)
@@ -34,6 +57,15 @@ public partial class MainWindow : Window
             this.Hide();
         }
         base.OnClosing(e);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_mainTabControl != null)
+        {
+            _mainTabControl.SelectionChanged -= OnMainTabSelectionChanged;
+        }
+        base.OnClosed(e);
     }
 
     /// <summary>

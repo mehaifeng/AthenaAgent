@@ -132,6 +132,7 @@ public class OpenAIChatService : IChatService
 
         while (iteration < maxIterations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             iteration++;
 
             // [核心改进]：在每一轮迭代开始前检查 Token，确保工具调用链中也能自动压缩
@@ -298,8 +299,10 @@ public class OpenAIChatService : IChatService
 
             foreach (var toolCall in toolCalls)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
+                cancellationToken.ThrowIfCancellationRequested();
                 
                 var resultJson = result.ToJson();
                 Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}", 
