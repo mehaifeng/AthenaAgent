@@ -5,6 +5,7 @@ using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -15,6 +16,8 @@ namespace Athena.UI.Services.Browser;
 
 public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposable
 {
+    private const int NewTabDetectTimeoutMs = 1500;
+    private const int NewTabLoadTimeoutMs = 3000;
     private readonly IBrowserSessionManager _sessionManager;
     private readonly ISomAnnotator _somAnnotator;
     private readonly ILogger _logger;
@@ -137,8 +140,11 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         context.SetDefaultTimeout(options.OperationTimeoutSeconds * 1000);
         context.SetDefaultNavigationTimeout(options.OperationTimeoutSeconds * 1000);
 
+        var runtimeSession = new RuntimeSession(context, options, storageStatePath);
+        context.Page += (_, page) => runtimeSession.TrackOrAddPage(page, activate: false);
         var page = await context.NewPageAsync();
-        _runtimeSessions[session.SessionId] = new RuntimeSession(context, page, options, storageStatePath);
+        runtimeSession.TrackOrAddPage(page, activate: true);
+        _runtimeSessions[session.SessionId] = runtimeSession;
 
         _logger.Information("Playwright runtime session initialized: {SessionId}", session.SessionId);
         return session;
@@ -224,6 +230,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             ImageQuality = runtimeSession.Options.ImageQuality,
             Elements = new List<SomElement>()
         }, cancellationToken);
+        runtimeSession.UpdateActiveTabSnapshot(title, runtimeSession.Page.Url);
 
         if (!string.IsNullOrWhiteSpace(errorMessage))
         {
@@ -245,15 +252,20 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             }
 
             var box = element.BoundingBox;
-            await runtimeSession.Page.Mouse.ClickAsync((float)(box.X + box.Width / 2), (float)(box.Y + box.Height / 2));
-            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
-            return new BrowserActionResult
+            var pageBefore = runtimeSession.Page;
+            var activeTabBefore = runtimeSession.GetActiveTabId();
+            var follow = await ExecuteWithAutoTabFollowAsync(runtimeSession, () =>
+                pageBefore.Mouse.ClickAsync((float)(box.X + box.Width / 2), (float)(box.Y + box.Height / 2)), cancellationToken);
+            var pageAfter = runtimeSession.Page;
+
+            await _sessionManager.TouchAsync(sessionId, pageAfter.Url, cancellationToken);
+            var result = new BrowserActionResult
             {
                 Success = true,
                 Action = BrowserActionType.Click,
                 Message = "Click completed.",
                 SessionId = sessionId,
-                Url = runtimeSession.Page.Url,
+                Url = pageAfter.Url,
                 Effect = new BrowserActionEffect
                 {
                     ElementId = element.ElementId,
@@ -268,6 +280,11 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                     SkipReason = null
                 }
             };
+            result.Metadata["activeTabBefore"] = activeTabBefore;
+            result.Metadata["activeTabAfter"] = runtimeSession.GetActiveTabId();
+            result.Metadata["autoSwitched"] = follow.AutoSwitched.ToString();
+            result.Metadata["openedTabId"] = follow.OpenedTabId;
+            return result;
         }
         catch (Exception ex)
         {
@@ -562,9 +579,17 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         try
         {
             var runtimeSession = GetRuntimeSession(sessionId);
-            await runtimeSession.Page.Keyboard.PressAsync(key);
-            await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
-            return BrowserActionSuccess(BrowserActionType.PressKey, sessionId, "Key press completed.", runtimeSession.Page.Url);
+            var pageBefore = runtimeSession.Page;
+            var activeTabBefore = runtimeSession.GetActiveTabId();
+            var follow = await ExecuteWithAutoTabFollowAsync(runtimeSession, () => pageBefore.Keyboard.PressAsync(key), cancellationToken);
+            var pageAfter = runtimeSession.Page;
+            await _sessionManager.TouchAsync(sessionId, pageAfter.Url, cancellationToken);
+            var result = BrowserActionSuccess(BrowserActionType.PressKey, sessionId, "Key press completed.", pageAfter.Url);
+            result.Metadata["activeTabBefore"] = activeTabBefore;
+            result.Metadata["activeTabAfter"] = runtimeSession.GetActiveTabId();
+            result.Metadata["autoSwitched"] = follow.AutoSwitched.ToString();
+            result.Metadata["openedTabId"] = follow.OpenedTabId;
+            return result;
         }
         catch (Exception ex)
         {
@@ -699,6 +724,73 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
     }
 
+    public List<BrowserTabInfo> GetTabsSnapshot(string sessionId)
+    {
+        var runtimeSession = GetRuntimeSession(sessionId);
+        return runtimeSession.GetTabSnapshot();
+    }
+
+    public async Task<BrowserActionResult> SwitchTabAsync(string sessionId, string tabId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (string.IsNullOrWhiteSpace(tabId))
+            {
+                return BrowserActionFailure(BrowserActionType.SwitchTab, sessionId, "Switch tab failed: tab_id is required.");
+            }
+
+            if (!runtimeSession.TrySetActiveTab(tabId, out var page))
+            {
+                return BrowserActionFailure(BrowserActionType.SwitchTab, sessionId, $"Switch tab failed: tab not found or closed: {tabId}");
+            }
+
+            await page.BringToFrontAsync();
+            await _sessionManager.TouchAsync(sessionId, page.Url, cancellationToken);
+            var result = BrowserActionSuccess(BrowserActionType.SwitchTab, sessionId, $"Switched to {tabId}.", page.Url);
+            result.Metadata["activeTabAfter"] = tabId;
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.SwitchTab, sessionId, $"Switch tab failed: {ex.Message}");
+        }
+    }
+
+    public async Task<BrowserActionResult> CloseTabAsync(string sessionId, string tabId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var runtimeSession = GetRuntimeSession(sessionId);
+            if (string.IsNullOrWhiteSpace(tabId))
+            {
+                return BrowserActionFailure(BrowserActionType.CloseTab, sessionId, "Close tab failed: tab_id is required.");
+            }
+
+            if (!runtimeSession.TryGetTab(tabId, out var page))
+            {
+                return BrowserActionFailure(BrowserActionType.CloseTab, sessionId, $"Close tab failed: tab not found or already closed: {tabId}");
+            }
+
+            var wasActive = string.Equals(runtimeSession.GetActiveTabId(), tabId, StringComparison.OrdinalIgnoreCase);
+            await page.CloseAsync();
+            runtimeSession.MarkPageClosed(page);
+            var activeAfter = runtimeSession.GetActiveTabId();
+            var activePage = runtimeSession.Page;
+            await _sessionManager.TouchAsync(sessionId, activePage.Url, cancellationToken);
+            var result = BrowserActionSuccess(BrowserActionType.CloseTab, sessionId, wasActive
+                ? $"Closed {tabId}. Active tab moved to {activeAfter ?? "unknown"}."
+                : $"Closed {tabId}.", activePage.Url);
+            result.Metadata["closedTabId"] = tabId;
+            result.Metadata["activeTabAfter"] = activeAfter;
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return BrowserActionFailure(BrowserActionType.CloseTab, sessionId, $"Close tab failed: {ex.Message}");
+        }
+    }
+
     public async Task CloseSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (_runtimeSessions.TryRemove(sessionId, out var runtimeSession))
@@ -793,10 +885,60 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     {
         if (_runtimeSessions.TryGetValue(sessionId, out var runtimeSession))
         {
+            runtimeSession.TrackExistingPages(activateNewest: false);
             return runtimeSession;
         }
 
         throw new InvalidOperationException($"Browser session not found: {sessionId}");
+    }
+
+    private async Task<AutoTabFollowResult> ExecuteWithAutoTabFollowAsync(RuntimeSession runtimeSession, Func<Task> action, CancellationToken cancellationToken)
+    {
+        var beforePages = runtimeSession.Context.Pages.ToList();
+        await action();
+        runtimeSession.TrackExistingPages(activateNewest: false);
+        var newPage = await WaitForNewPageAsync(runtimeSession, beforePages, cancellationToken);
+        if (newPage == null)
+        {
+            return AutoTabFollowResult.None;
+        }
+
+        var tabId = runtimeSession.TrackOrAddPage(newPage, activate: true);
+        try
+        {
+            await newPage.BringToFrontAsync();
+            await newPage.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new PageWaitForLoadStateOptions
+            {
+                Timeout = NewTabLoadTimeoutMs
+            });
+        }
+        catch (TimeoutException)
+        {
+            // Best-effort: tab is already active, and a future observe retry can recover.
+        }
+
+        return new AutoTabFollowResult(true, tabId);
+    }
+
+    private static async Task<IPage?> WaitForNewPageAsync(RuntimeSession runtimeSession, IReadOnlyCollection<IPage> beforePages, CancellationToken cancellationToken)
+    {
+        var known = new HashSet<IPage>(beforePages);
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.ElapsedMilliseconds < NewTabDetectTimeoutMs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var page in runtimeSession.Context.Pages)
+            {
+                if (!known.Contains(page))
+                {
+                    return page;
+                }
+            }
+
+            await Task.Delay(100, cancellationToken);
+        }
+
+        return null;
     }
 
     private static string GetPersistentStorageStatePath()
@@ -909,6 +1051,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
 
         await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+        runtimeSession.UpdateActiveTabSnapshot(title, runtimeSession.Page.Url);
 
         return await _somAnnotator.AnnotateAsync(new SomAnnotationRequest
         {
@@ -972,16 +1115,17 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     {
         var extractionJson = await runtimeSession.Page.EvaluateAsync<JsonElement>(InteractiveElementsScript);
         var maxElements = Math.Max(0, runtimeSession.Options.SomMaxElements);
+        var candidateBudget = Math.Max(maxElements, maxElements * 3);
         var includeText = runtimeSession.Options.SomIncludeText;
         var candidates = ParseInteractiveElements(extractionJson);
 
-        var filteredCandidates = candidates
+        var rankedCandidates = candidates
             .Where(e => GetBool(e, "isVisible") && GetBool(e, "isEnabled") && GetBool(e, "isTopMost") && GetDouble(e, "width") > 0 && GetDouble(e, "height") > 0)
             .Where(e => GetDouble(e, "x") < viewportWidth && GetDouble(e, "y") < viewportHeight && GetDouble(e, "x") + GetDouble(e, "width") > 0 && GetDouble(e, "y") + GetDouble(e, "height") > 0)
             .OrderByDescending(e => GetDouble(e, "priority"))
             .ThenBy(e => GetDouble(e, "y"))
             .ThenBy(e => GetDouble(e, "x"))
-            .Take(maxElements)
+            .Take(candidateBudget)
             .Select(e => new SomElement
             {
                 StableKey = GetString(e, "stableKey"),
@@ -1009,6 +1153,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             })
             .ToList();
 
+        var filteredCandidates = rankedCandidates.Take(maxElements).ToList();
         AssignStableElementIds(runtimeSession, filteredCandidates);
 
         var sameOriginIframes = GetInt(extractionJson, "sameOriginIframeCount");
@@ -1806,7 +1951,12 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
           const hasEventHandler = (el) => {
             if (!el || !el.getAttributeNames) return false;
-            return el.getAttributeNames().some(name => /^on(mouse|click|pointer|key|touch)/i.test(name));
+            if (el.getAttributeNames().some(name => /^on(mouse|click|pointer|key|touch)/i.test(name))) return true;
+            return typeof el.onclick === 'function' ||
+              typeof el.onmousedown === 'function' ||
+              typeof el.onpointerdown === 'function' ||
+              typeof el.ontouchstart === 'function' ||
+              typeof el.onkeyup === 'function';
           };
 
           const hasInteractiveAriaState = (el) => {
@@ -1847,12 +1997,21 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
             const style = window.getComputedStyle(el);
             const pointerLike = style && style.cursor === 'pointer' && style.pointerEvents !== 'none';
+            const textLike = normalize(el.innerText || el.textContent || '').length > 0;
+            const dataHint = !!el.getAttribute('data-action') || !!el.getAttribute('data-testid') || !!el.getAttribute('data-value') || !!el.getAttribute('data-id');
+            const classHint = hasInteractiveClassHint(el);
+            const pointerByStructure = pointerLike && (
+              classHint ||
+              dataHint ||
+              textLike ||
+              safeMatches(el, 'li,div,span,td,[class*="cell"],[class*="item"],[class*="option"],[class*="tab"],[class*="btn"],[title]')
+            );
 
             return hasEventHandler(el) ||
               hasInteractiveRole(el) ||
               hasInteractiveAriaState(el) ||
               hasUsableTabIndex(el) ||
-              (pointerLike && (hasInteractiveClassHint(el) || !!el.getAttribute('data-action') || !!el.getAttribute('data-testid')));
+              pointerByStructure;
           };
 
           const getInputType = (el) => {
@@ -2097,6 +2256,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
           };
 
           const collected = collectElements(document, 'main', 0, 0, 0, []);
+          const sampledNodes = [];
           const prelim = [];
           const occluders = [];
           const seen = new Set();
@@ -2114,7 +2274,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             if (tagName === 'label' && !stateControl) continue;
 
             const hitInfo = topMostInfo(el, rect);
-            const isTopMost = hitInfo.center || hitInfo.score >= Math.min(2, samplePoints(rect).length);
+            const minScore = Math.max(1, Math.floor(samplePoints(rect).length * 0.34));
+            const isTopMost = hitInfo.center || hitInfo.score >= minScore;
             if (!isTopMost) continue;
             const priority = hitInfo.score;
             const selectorPath = cssPath(el);
@@ -2159,9 +2320,74 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             if (isOccluderLike(el, rect)) occluders.push({ rect: globalRect, priority });
           }
 
+          const sampleViewportHits = () => {
+            const columns = 8;
+            const rows = 6;
+            for (let i = 0; i < columns; i++) {
+              for (let j = 0; j < rows; j++) {
+                const x = Math.round(((i + 0.5) / columns) * window.innerWidth);
+                const y = Math.round(((j + 0.5) / rows) * window.innerHeight);
+                const hit = deepElementFromPoint(document, x, y);
+                if (!hit || sampledNodes.includes(hit)) continue;
+                sampledNodes.push(hit);
+                let node = hit;
+                let guard = 0;
+                while (node && guard < 6) {
+                  if (node.tagName && isLikelyInteractive(node)) {
+                    const rect = node.getBoundingClientRect();
+                    if (isVisible(node, rect)) {
+                      const globalRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+                      const selectorPath = cssPath(node);
+                      const stateElement = associatedControl(node) || node;
+                      prelim.push({
+                        candidate: {
+                          tagName: (node.tagName || '').toLowerCase(),
+                          role: stateElement.getAttribute('role') || node.getAttribute('role') || '',
+                          text: elementText(node),
+                          ariaLabel: normalize(stateElement.getAttribute('aria-label') || node.getAttribute('aria-label') || ''),
+                          placeholder: normalize(stateElement.getAttribute('placeholder') || node.getAttribute('placeholder') || ''),
+                          href: node.href || node.getAttribute('href') || '',
+                          selector: selectorPath,
+                          stableKey: stableKey(node, selectorPath, 'main/sampled', stateElement),
+                          value: elementValue(stateElement),
+                          inputType: getInputType(stateElement),
+                          x: rect.x,
+                          y: rect.y,
+                          width: rect.width,
+                          height: rect.height,
+                          isVisible: true,
+                          isEnabled: isEnabled(stateElement),
+                          isEditable: isEditableElement(stateElement),
+                          isChecked: null,
+                          isSensitive: isSensitiveElement(stateElement),
+                          isTopMost: true,
+                          priority: 1.2,
+                          visibilityScore: 1,
+                          contextPath: 'main/sampled'
+                        },
+                        globalRect,
+                        priority: 1.2
+                      });
+                    }
+                    break;
+                  }
+
+                  node = node.parentElement || ((node.getRootNode && node.getRootNode().host) ? node.getRootNode().host : null);
+                  guard += 1;
+                }
+              }
+            }
+          };
+
+          sampleViewportHits();
+
           const sortedOccluders = occluders.sort((a, b) => b.priority - a.priority);
           const kept = [];
+          const dedup = new Set();
           for (const item of prelim.sort((a, b) => b.priority - a.priority)) {
+            const key = `${item.candidate.selector}|${Math.round(item.candidate.x)}|${Math.round(item.candidate.y)}|${Math.round(item.candidate.width)}|${Math.round(item.candidate.height)}`;
+            if (dedup.has(key)) continue;
+            dedup.add(key);
             const totalArea = Math.max(1, item.globalRect.right - item.globalRect.left) * Math.max(1, item.globalRect.bottom - item.globalRect.top);
             let covered = 0;
             for (const occ of sortedOccluders) {
@@ -2181,14 +2407,227 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         """;
 
-    private sealed record RuntimeSession(IBrowserContext Context, IPage Page, BrowserSessionOptions Options, string? StorageStatePath)
+    private sealed class RuntimeSession
     {
+        private readonly object _tabLock = new();
+        private readonly Dictionary<string, RuntimeTab> _tabs = new(StringComparer.OrdinalIgnoreCase);
+        private int _nextTabOrdinal;
+        private string? _activeTabId;
+
+        public RuntimeSession(IBrowserContext context, BrowserSessionOptions options, string? storageStatePath)
+        {
+            Context = context;
+            Options = options;
+            StorageStatePath = storageStatePath;
+        }
+
+        public IBrowserContext Context { get; }
+        public BrowserSessionOptions Options { get; }
+        public string? StorageStatePath { get; }
         public ConcurrentDictionary<string, SomElement> Elements { get; } = new();
         public string? LastObservationFallbackReason { get; set; }
         public int NextElementOrdinal { get; set; }
         public List<SomElement> LastElements { get; } = new();
         public HashSet<string> SeenElementIds { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, string> StableKeyToElementId { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public IPage Page => GetActivePage();
+
+        public string TrackOrAddPage(IPage page, bool activate)
+        {
+            lock (_tabLock)
+            {
+                foreach (var existing in _tabs.Values)
+                {
+                    if (ReferenceEquals(existing.Page, page))
+                    {
+                        existing.IsClosed = false;
+                        existing.LastKnownUrl = page.Url;
+                        if (activate)
+                        {
+                            _activeTabId = existing.TabId;
+                        }
+
+                        return existing.TabId;
+                    }
+                }
+
+                var tabId = $"tab-{++_nextTabOrdinal}";
+                var tab = new RuntimeTab(tabId, page)
+                {
+                    LastKnownUrl = page.Url
+                };
+                _tabs[tabId] = tab;
+                SubscribePageEvents(tab);
+                if (activate || string.IsNullOrWhiteSpace(_activeTabId))
+                {
+                    _activeTabId = tabId;
+                }
+
+                return tabId;
+            }
+        }
+
+        public void TrackExistingPages(bool activateNewest)
+        {
+            var pages = Context.Pages.ToList();
+            foreach (var page in pages)
+            {
+                TrackOrAddPage(page, activate: false);
+            }
+
+            if (activateNewest && pages.Count > 0)
+            {
+                TrackOrAddPage(pages[^1], activate: true);
+            }
+        }
+
+        public void MarkPageClosed(IPage page)
+        {
+            lock (_tabLock)
+            {
+                var closed = _tabs.Values.FirstOrDefault(tab => ReferenceEquals(tab.Page, page));
+                if (closed == null)
+                {
+                    return;
+                }
+
+                closed.IsClosed = true;
+                if (string.Equals(_activeTabId, closed.TabId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _activeTabId = _tabs.Values
+                        .Where(tab => !tab.IsClosed)
+                        .OrderByDescending(tab => tab.OpenedAtUtc)
+                        .Select(tab => tab.TabId)
+                        .FirstOrDefault();
+                }
+            }
+        }
+
+        public bool TrySetActiveTab(string tabId, out IPage page)
+        {
+            lock (_tabLock)
+            {
+                if (_tabs.TryGetValue(tabId, out var tab) && !tab.IsClosed)
+                {
+                    _activeTabId = tabId;
+                    page = tab.Page;
+                    return true;
+                }
+            }
+
+            page = null!;
+            return false;
+        }
+
+        public bool TryGetTab(string tabId, out IPage page)
+        {
+            lock (_tabLock)
+            {
+                if (_tabs.TryGetValue(tabId, out var tab) && !tab.IsClosed)
+                {
+                    page = tab.Page;
+                    return true;
+                }
+            }
+
+            page = null!;
+            return false;
+        }
+
+        public string? GetActiveTabId()
+        {
+            lock (_tabLock)
+            {
+                EnsureActiveTabUnlocked();
+                return _activeTabId;
+            }
+        }
+
+        public List<BrowserTabInfo> GetTabSnapshot()
+        {
+            lock (_tabLock)
+            {
+                EnsureActiveTabUnlocked();
+                return _tabs.Values
+                    .Where(tab => !tab.IsClosed)
+                    .OrderBy(tab => tab.OpenedAtUtc)
+                    .Select(tab => new BrowserTabInfo
+                    {
+                        TabId = tab.TabId,
+                        Url = string.IsNullOrWhiteSpace(tab.Page.Url) ? tab.LastKnownUrl : tab.Page.Url,
+                        Title = tab.LastKnownTitle,
+                        IsActive = string.Equals(tab.TabId, _activeTabId, StringComparison.OrdinalIgnoreCase)
+                    })
+                    .ToList();
+            }
+        }
+
+        public void UpdateActiveTabSnapshot(string? title, string? url)
+        {
+            lock (_tabLock)
+            {
+                EnsureActiveTabUnlocked();
+                if (!string.IsNullOrWhiteSpace(_activeTabId) && _tabs.TryGetValue(_activeTabId, out var tab))
+                {
+                    tab.LastKnownTitle = title;
+                    tab.LastKnownUrl = url;
+                }
+            }
+        }
+
+        private IPage GetActivePage()
+        {
+            lock (_tabLock)
+            {
+                EnsureActiveTabUnlocked();
+                if (!string.IsNullOrWhiteSpace(_activeTabId) && _tabs.TryGetValue(_activeTabId, out var tab) && !tab.IsClosed)
+                {
+                    return tab.Page;
+                }
+
+                throw new InvalidOperationException("No active browser tab is available for this session.");
+            }
+        }
+
+        private void EnsureActiveTabUnlocked()
+        {
+            if (!string.IsNullOrWhiteSpace(_activeTabId) && _tabs.TryGetValue(_activeTabId, out var active) && !active.IsClosed)
+            {
+                return;
+            }
+
+            _activeTabId = _tabs.Values
+                .Where(tab => !tab.IsClosed)
+                .OrderByDescending(tab => tab.OpenedAtUtc)
+                .Select(tab => tab.TabId)
+                .FirstOrDefault();
+        }
+
+        private void SubscribePageEvents(RuntimeTab tab)
+        {
+            tab.Page.Close += (_, _) => MarkPageClosed(tab.Page);
+        }
+    }
+
+    private sealed class RuntimeTab
+    {
+        public RuntimeTab(string tabId, IPage page)
+        {
+            TabId = tabId;
+            Page = page;
+        }
+
+        public string TabId { get; }
+        public IPage Page { get; }
+        public DateTime OpenedAtUtc { get; } = DateTime.UtcNow;
+        public bool IsClosed { get; set; }
+        public string? LastKnownUrl { get; set; }
+        public string? LastKnownTitle { get; set; }
+    }
+
+    private sealed record AutoTabFollowResult(bool AutoSwitched, string? OpenedTabId)
+    {
+        public static AutoTabFollowResult None { get; } = new(false, null);
     }
 
     private sealed class FileInputState

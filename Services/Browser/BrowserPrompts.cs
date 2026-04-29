@@ -77,6 +77,8 @@ public static class BrowserPrompts
         - Use search for web search tasks; use navigate for an exact URL.
         - Use done only when the task is complete, blocked, unsafe, or cannot proceed.
         - done must be the only action in its step.
+        - When browser_state_json.tabs has multiple tabs, prefer switch_tab to inspect them before repeating click actions that open new pages.
+        - Do not repeat the same click/input target in consecutive steps when recent_actions_json indicates no progress or repeated new tab opening.
         - Do not continue a multi-action sequence after search, navigate, go_back, switch_tab, evaluate, or any action likely to change the page.
         - Do not type into a field if browser_state already shows the requested value.
         - For extraction, report only information observed in browser_state, action results, or screenshot.
@@ -99,6 +101,7 @@ public static class BrowserPrompts
         - wait: use when the page is loading or changing. Use waitMilliseconds.
         - extract_text: use when the page appears sufficient and textual evidence should be extracted.
         - finish: use only when the entire task is complete or cannot safely proceed.
+        - switch_tab: use when multiple tabs exist and the needed content is likely in another tab. Requires tab_id.
 
         For click/type/upload, targetElementId must be exactly one of the provided element IDs such as "som-1"; do not return plain numeric indexes.
         Use upload only when the task provides a local file path. The filePath must be the exact local path from the task.
@@ -110,9 +113,10 @@ public static class BrowserPrompts
 
         JSON shape:
         {
-          "action": "navigate|click|type|upload|press_key|scroll|wait|extract_text|finish",
+          "action": "navigate|click|type|upload|press_key|scroll|wait|extract_text|switch_tab|finish",
           "url": "optional absolute http/https URL",
           "targetElementId": "som-1",
+          "tab_id": "optional tab id such as tab-2",
           "text": "optional text",
           "filePath": "optional local file path for upload",
           "key": "optional key such as Enter",
