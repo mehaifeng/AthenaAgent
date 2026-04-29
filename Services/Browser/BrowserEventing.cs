@@ -514,6 +514,30 @@ public sealed class BrowserStateWatchdog : BrowserWatchdog
     private BrowserStateSummary CreateStateFromObservation(SomObservation observation, bool includeScreenshot)
     {
         var domVersion = Session.DomVersion + 1;
+        var tabs = _browserService is PlaywrightBrowserService playwrightService
+            ? playwrightService.GetTabsSnapshot(Session.SessionId)
+            : new List<BrowserTabInfo>
+            {
+                new()
+                {
+                    TabId = "main",
+                    Url = observation.Url,
+                    Title = observation.Title,
+                    IsActive = true
+                }
+            };
+
+        if (tabs.Count == 0)
+        {
+            tabs.Add(new BrowserTabInfo
+            {
+                TabId = "main",
+                Url = observation.Url,
+                Title = observation.Title,
+                IsActive = true
+            });
+        }
+
         return new BrowserStateSummary
         {
             SessionId = Session.SessionId,
@@ -525,16 +549,7 @@ public sealed class BrowserStateWatchdog : BrowserWatchdog
             Elements = observation.Elements,
             DomVersion = domVersion,
             CapturedAt = observation.CapturedAt,
-            Tabs =
-            [
-                new BrowserTabInfo
-                {
-                    TabId = "main",
-                    Url = observation.Url,
-                    Title = observation.Title,
-                    IsActive = true
-                }
-            ],
+            Tabs = tabs,
             PageInfo = new BrowserPageInfo
             {
                 ViewportWidth = observation.ViewportWidth,
@@ -643,8 +658,8 @@ public sealed class BrowserDefaultActionWatchdog : BrowserWatchdog
             "save_as_pdf" => await _browserService.SavePdfAsync(Session.SessionId, action.GetString("file_name") ?? action.GetString("fileName"), cancellationToken),
             "dropdown_options" => DropdownOptions(action),
             "select_dropdown" => await _browserService.SelectAsync(Session.SessionId, ResolveElementId(action), action.GetString("text") ?? string.Empty, cancellationToken),
-            "switch_tab" => Failure(BrowserActionType.SwitchTab, name, "Tab switching is registered but only the active isolated tab is currently exposed."),
-            "close_tab" => Failure(BrowserActionType.CloseTab, name, "Closing arbitrary tabs is registered but only the isolated task tab can be closed by session cleanup."),
+            "switch_tab" => await SwitchTabAsync(action, cancellationToken),
+            "close_tab" => await CloseTabAsync(action, cancellationToken),
             "evaluate" => await _browserService.EvaluateAsync(Session.SessionId, action.GetString("code") ?? string.Empty, cancellationToken),
             "done" => Done(action),
             _ => Failure(definition.Type, name, $"Unsupported browser action: {name}")
@@ -741,6 +756,28 @@ public sealed class BrowserDefaultActionWatchdog : BrowserWatchdog
             ? "Extracted visible page text."
             : $"Extracted page text for query: {query}";
         return result;
+    }
+
+    private async Task<BrowserActionResult> SwitchTabAsync(BrowserAgentAction action, CancellationToken cancellationToken)
+    {
+        if (_browserService is not PlaywrightBrowserService playwrightService)
+        {
+            return Failure(BrowserActionType.SwitchTab, "switch_tab", "Switch tab is not available for the current browser runtime.");
+        }
+
+        var tabId = action.GetString("tab_id") ?? action.GetString("tabId") ?? string.Empty;
+        return await playwrightService.SwitchTabAsync(Session.SessionId, tabId, cancellationToken);
+    }
+
+    private async Task<BrowserActionResult> CloseTabAsync(BrowserAgentAction action, CancellationToken cancellationToken)
+    {
+        if (_browserService is not PlaywrightBrowserService playwrightService)
+        {
+            return Failure(BrowserActionType.CloseTab, "close_tab", "Close tab is not available for the current browser runtime.");
+        }
+
+        var tabId = action.GetString("tab_id") ?? action.GetString("tabId") ?? string.Empty;
+        return await playwrightService.CloseTabAsync(Session.SessionId, tabId, cancellationToken);
     }
 
     private async Task<BrowserActionResult> SearchPageAsync(BrowserAgentAction action, CancellationToken cancellationToken)
