@@ -69,6 +69,7 @@ public partial class App : Application
     {
         StopTrayFlashing();
         IsQuitting = true;
+        PersistSessionState();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Shutdown();
@@ -233,8 +234,10 @@ public partial class App : Application
             {
                 desktop.MainWindow.Opened += async (s, e) =>
                 {
+                    mainWindow.ScrollChatToBottomIfVisible();
                     await Task.Delay(100); // 等待UI完全渲染
                     await mainWindow.ShowThemeSplashAsync(initialTheme);
+                    mainWindow.ScrollChatToBottomIfVisible();
                 };
             }
 
@@ -255,6 +258,23 @@ public partial class App : Application
     {
         // macOS Dock 右键退出时，确保真正退出
         IsQuitting = true;
+        PersistSessionState();
+    }
+
+    private void PersistSessionState()
+    {
+        try
+        {
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+                && desktop.MainWindow?.DataContext is MainWindowViewModel viewModel)
+            {
+                viewModel.PersistSessionState();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "保存主对话会话状态失败");
+        }
     }
 
     /// <summary>

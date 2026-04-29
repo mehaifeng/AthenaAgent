@@ -39,7 +39,8 @@
 
             <!-- 聊天 -->
             <TabItem Header="{loc:Loc Tab.ChatLink}">
-                <views:ChatTabView DataContext="{Binding ChatTabViewModel}"/>
+                <views:ChatTabView x:Name="ChatTabView"
+                                   DataContext="{Binding ChatTabViewModel}"/>
             </TabItem>
 
             <!-- 配置 -->

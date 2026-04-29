@@ -256,8 +256,22 @@
                         Margin="12,0,0,0"
                         Classes="accent"
                         Padding="20,8"
+                        IsVisible="{Binding !IsSending}"
                         ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
                     <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
+                </Button>
+
+                <Button Grid.Column="2"
+                        Command="{Binding StopResponseCommand}"
+                        Margin="12,0,0,0"
+                        Classes="accent"
+                        Padding="20,8"
+                        IsVisible="{Binding IsSending}"
+                        ToolTip.Tip="{loc:Loc Chat.BtnStop}">
+                    <PathIcon Data="{StaticResource SemiIconStop}"
+                              Width="16"
+                              Height="16"
+                              Foreground="{DynamicResource SemiRed6}"/>
                 </Button>
             </Grid>
         </Border>
