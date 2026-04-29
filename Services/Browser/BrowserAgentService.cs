@@ -16,6 +16,7 @@ public class BrowserAgentService : IBrowserAgentService
 {
     private const int MaxActionsPerStep = 5;
     private const int MaxConsecutiveFailures = 3;
+    private const int OpenLoopWindow = 6;
 
     private readonly IHeadlessBrowserService _browserService;
     private readonly IBrowserVisionService _browserVisionService;
@@ -71,6 +72,7 @@ public class BrowserAgentService : IBrowserAgentService
         var longTermMemory = new StringBuilder();
         var readState = new StringBuilder();
         var consecutiveFailures = 0;
+        var openLoopRecoveryAttempted = false;
         var reachedMaxSteps = false;
 
         try
@@ -154,6 +156,33 @@ public class BrowserAgentService : IBrowserAgentService
                             ? ResolveCompletedStatus(history)
                             : BrowserTaskCompletionStatus.Failed;
                         break;
+                    }
+
+                    if (LooksLikeRepeatedOpenLoop(history))
+                    {
+                        if (openLoopRecoveryAttempted)
+                        {
+                            var loopFailure = BrowserActionFailure(BrowserActionType.Finish, session.SessionId, "Browser task stopped due to repeated new-tab opening without progress.");
+                            loopFailure.IsDone = true;
+                            loopFailure.CompletionSuccess = false;
+                            loopFailure.IsRecoverableFailure = false;
+                            RecordResult(history, evidence, longTermMemory, readState, loopFailure);
+                            completionStatus = BrowserTaskCompletionStatus.Failed;
+                            break;
+                        }
+
+                        openLoopRecoveryAttempted = true;
+                        var recovered = await TryRecoverFromOpenLoopAsync(session, useVision, history, evidence, longTermMemory, readState, cancellationToken);
+                        if (!recovered)
+                        {
+                            var loopFailure = BrowserActionFailure(BrowserActionType.Finish, session.SessionId, "Browser task stopped after repeated new-tab opening and failed recovery.");
+                            loopFailure.IsDone = true;
+                            loopFailure.CompletionSuccess = false;
+                            loopFailure.IsRecoverableFailure = false;
+                            RecordResult(history, evidence, longTermMemory, readState, loopFailure);
+                            completionStatus = BrowserTaskCompletionStatus.Failed;
+                            break;
+                        }
                     }
 
                     if (stepResults.Count == 1 && !stepResults[0].Success)
@@ -422,6 +451,98 @@ public class BrowserAgentService : IBrowserAgentService
         }
     }
 
+    private static bool LooksLikeRepeatedOpenLoop(IReadOnlyList<BrowserActionResult> history)
+    {
+        if (history.Count < 3)
+        {
+            return false;
+        }
+
+        var recent = history.TakeLast(OpenLoopWindow)
+            .Where(item => item.Action is BrowserActionType.Click or BrowserActionType.PressKey)
+            .ToList();
+        if (recent.Count < 3)
+        {
+            return false;
+        }
+
+        var openEvents = recent
+            .Where(item => item.Metadata.TryGetValue("openedTabId", out var openedTabId) && !string.IsNullOrWhiteSpace(openedTabId))
+            .ToList();
+        if (openEvents.Count < 2)
+        {
+            return false;
+        }
+
+        var repeatedTarget = openEvents
+            .Where(item => !string.IsNullOrWhiteSpace(item.Effect?.ElementId))
+            .GroupBy(item => item.Effect!.ElementId!, StringComparer.OrdinalIgnoreCase)
+            .Any(group => group.Count() >= 2);
+        if (!repeatedTarget)
+        {
+            return false;
+        }
+
+        var normalizedUrls = openEvents
+            .Select(item => NormalizeUrl(item.Url))
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return normalizedUrls.Count <= 1;
+    }
+
+    private async Task<bool> TryRecoverFromOpenLoopAsync(
+        BrowserSession session,
+        bool useVision,
+        List<BrowserActionResult> history,
+        List<string> evidence,
+        StringBuilder longTermMemory,
+        StringBuilder readState,
+        CancellationToken cancellationToken)
+    {
+        if (_browserService is not PlaywrightBrowserService playwrightService)
+        {
+            return false;
+        }
+
+        var tabs = playwrightService.GetTabsSnapshot(session.SessionId);
+        var active = tabs.FirstOrDefault(tab => tab.IsActive);
+        var candidate = tabs
+            .Where(tab => !tab.IsActive)
+            .OrderByDescending(tab => ParseTabOrdinal(tab.TabId))
+            .FirstOrDefault();
+        if (candidate == null)
+        {
+            return false;
+        }
+
+        var switched = await playwrightService.SwitchTabAsync(session.SessionId, candidate.TabId, cancellationToken);
+        switched.LongTermMemory ??= $"Loop guard switched tab from `{active?.TabId ?? "unknown"}` to `{candidate.TabId}`.";
+        switched.Metadata["loopGuardTriggered"] = "true";
+        RecordResult(history, evidence, longTermMemory, readState, switched);
+        if (!switched.Success)
+        {
+            return false;
+        }
+
+        var state = await session.GetStateAsync(useVision, cancellationToken);
+        var recovered = new BrowserActionResult
+        {
+            Success = true,
+            Action = BrowserActionType.Observe,
+            ActionName = "observe",
+            Message = $"Loop guard refreshed state on tab `{candidate.TabId}`.",
+            SessionId = session.SessionId,
+            Url = state.Url,
+            Observation = state.Observation,
+            Metadata = { ["loopGuardTriggered"] = "true", ["loopGuardRecovered"] = "true" },
+            LongTermMemory = $"Loop guard refreshed state after repeated new-tab opening. Active tab: {candidate.TabId}."
+        };
+        RecordResult(history, evidence, longTermMemory, readState, recovered);
+        return true;
+    }
+
     private static BrowserTaskCompletionStatus ResolveCompletedStatus(IReadOnlyList<BrowserActionResult> history) =>
         history.Any(item => !item.Success && item.IsRecoverableFailure)
             ? BrowserTaskCompletionStatus.CompletedWithRecoverableFailures
@@ -499,6 +620,30 @@ public class BrowserAgentService : IBrowserAgentService
         }
 
         return postDomVersion != preDomVersion;
+    }
+
+    private static int ParseTabOrdinal(string? tabId)
+    {
+        if (string.IsNullOrWhiteSpace(tabId))
+        {
+            return -1;
+        }
+
+        return tabId.StartsWith("tab-", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(tabId[4..], out var number)
+            ? number
+            : -1;
+    }
+
+    private static string NormalizeUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = url.Trim();
+        return trimmed.EndsWith("/", StringComparison.Ordinal) ? trimmed[..^1] : trimmed;
     }
 
     private static int ResolveMaxSteps(BrowserTaskRequest request, AppConfig config) =>
