@@ -28,7 +28,7 @@ public interface IConversationHistoryService
     /// <summary>
     /// 从消息集合创建对话历史条目
     /// </summary>
-    Task<ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<ChatMessage> messages, bool forceGenerateSummary = false);
+    Task<ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<ChatMessage> messages, bool forceGenerateSummary = false, string? contextSummary = null);
 
     /// <summary>
     /// 生成对话摘要
@@ -39,6 +39,21 @@ public interface IConversationHistoryService
     /// 根据 ID 加载对话历史
     /// </summary>
     Task<ConversationHistoryItem?> LoadByIdAsync(string id);
+
+    /// <summary>
+    /// 保存主聊天页的未归档对话快照
+    /// </summary>
+    void SaveDraft(ConversationDraftSnapshot snapshot);
+
+    /// <summary>
+    /// 加载主聊天页的未归档对话快照
+    /// </summary>
+    ConversationDraftSnapshot? LoadDraft();
+
+    /// <summary>
+    /// 删除主聊天页的未归档对话快照
+    /// </summary>
+    void DeleteDraft();
 
     /// <summary>
     /// 更新次级模型配置

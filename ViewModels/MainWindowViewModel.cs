@@ -151,6 +151,11 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedTabIndex = 0; // Switch to CHAT
     }
 
+    public void PersistSessionState()
+    {
+        ChatTabViewModel.PersistDraft();
+    }
+
     #region Global Commands (Proxy to Tab ViewModels if needed)
 
     #endregion

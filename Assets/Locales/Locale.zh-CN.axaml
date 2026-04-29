@@ -33,6 +33,7 @@
     <system:String x:Key="Chat.InputPlaceholder">输入消息...</system:String>
     <system:String x:Key="Chat.MaxContextReached">已达到上下文限制</system:String>
     <system:String x:Key="Chat.BtnExecute">发送</system:String>
+    <system:String x:Key="Chat.BtnStop">停止回复</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
 

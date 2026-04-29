@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
@@ -38,6 +40,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
     private bool _isSending;
 
     [ObservableProperty]
@@ -69,12 +72,13 @@ public partial class ChatTabViewModel : ViewModelBase
     public event EventHandler? SwitchToTasksTabRequested;
 
     private ConversationContext _currentContext = new();
+    private CancellationTokenSource? _responseCts;
     
     // 记录当前加载的历史对话 ID，如果是新对话则为空
     private string? _currentHistoryId;
     
-    // 记录加载时的消息数量，用于判断是否发生了修改
-    private int _initialMessageCount;
+    // 记录加载历史时的初始签名，用于判断是否发生了修改
+    private string? _initialConversationSignature;
 
     public ChatTabViewModel() : this(null, null, null, null, null, null, null, null) { }
 
@@ -124,6 +128,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         // 计算初始 Token（系统提示词和工具声明的基底开销）
         UpdateContextTokensDisplay();
+
+        RestoreDraftIfNeeded();
     }
 
     [RelayCommand(CanExecute = nameof(CanSendMessage))]
@@ -151,7 +157,17 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private bool CanSendMessage() => !IsSending && !IsCompressing && !string.IsNullOrWhiteSpace(InputText);
 
+    private bool CanStopResponse() => IsSending;
+
     private bool CanModifyMessages() => !IsSending && !IsCompressing;
+
+    [RelayCommand(CanExecute = nameof(CanStopResponse))]
+    private void StopResponse()
+    {
+        if (!IsSending) return;
+        _logger.Information("用户请求停止当前回复");
+        _responseCts?.Cancel();
+    }
 
     [RelayCommand]
     private void ToggleTheme()
@@ -173,19 +189,21 @@ public partial class ChatTabViewModel : ViewModelBase
         IsResetting = true;
         try
         {
-            // 如果是从历史加载且未发生新对话，就不再重复保存为新历史
-            bool isModified = string.IsNullOrEmpty(_currentHistoryId) || Messages.Count != _initialMessageCount;
-
             // 保存当前对话到历史记录
-            if (Messages.Count > 0 && _historyService != null && isModified)
+            if (Messages.Count > 0 && _historyService != null && IsConversationModified())
             {
-                await _historyService.CreateFromMessagesAsync(Messages, forceGenerateSummary: true);
+                await _historyService.CreateFromMessagesAsync(Messages, forceGenerateSummary: true, contextSummary: _tokenService?.CompressionPreview);
             }
 
             Messages.Clear();
             _currentContext.Reset();
             _currentHistoryId = null;
-            _initialMessageCount = 0;
+            _initialConversationSignature = null;
+            if (_tokenService != null)
+            {
+                _tokenService.CompressionPreview = string.Empty;
+            }
+            _historyService?.DeleteDraft();
             UpdateConversationContext();
             UpdateContextTokensDisplay();
             await Task.Delay(300); // Visual feedback
@@ -244,7 +262,9 @@ public partial class ChatTabViewModel : ViewModelBase
                 };
                 
                 var dialog = new Views.ConfirmDialog(vm);
-                await dialog.ShowDialog(GetMainWindow());
+                var owner = GetMainWindow();
+                if (owner == null) return;
+                await dialog.ShowDialog(owner);
                 
                 if (vm.Result != true) return;
                 
@@ -320,7 +340,9 @@ public partial class ChatTabViewModel : ViewModelBase
                 };
                 
                 var dialog = new Views.ConfirmDialog(vm);
-                await dialog.ShowDialog(GetMainWindow());
+                var owner = GetMainWindow();
+                if (owner == null) return;
+                await dialog.ShowDialog(owner);
                 
                 if (vm.Result != true) return;
                 
@@ -474,6 +496,10 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (_chatService == null) return;
 
+        _responseCts?.Dispose();
+        _responseCts = new CancellationTokenSource();
+        var cancellationToken = _responseCts.Token;
+
         IsSending = true;
         var assistantMsg = new ChatMessage 
         { 
@@ -489,6 +515,7 @@ public partial class ChatTabViewModel : ViewModelBase
             await foreach (var contentDelta in _chatService.StreamMessageAsync(
                 input, 
                 _currentContext, 
+                cancellationToken: cancellationToken,
                 onMessageAdded: msg => {
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
@@ -557,6 +584,10 @@ public partial class ChatTabViewModel : ViewModelBase
                 App.StartTrayFlashing();
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.Information("当前回复已停止");
+        }
         catch (Exception ex)
         {
             _logger.Error(ex, "Get AI response failed");
@@ -574,8 +605,11 @@ public partial class ChatTabViewModel : ViewModelBase
             {
                 Messages.Remove(assistantMsg);
             }
-            
+
+            UpdateConversationContext();
             IsSending = false;
+            _responseCts?.Dispose();
+            _responseCts = null;
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
         }
@@ -710,22 +744,186 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             Messages.Clear();
             _currentHistoryId = history.Id;
+            if (_tokenService != null)
+            {
+                _tokenService.CompressionPreview = history.ContextSummary ?? string.Empty;
+            }
             
             if (history.Messages != null)
             {
                 foreach (var msg in history.Messages)
                 {
+                    PrepareRestoredMessage(msg);
                     Messages.Add(msg);
                 }
             }
             
-            _initialMessageCount = Messages.Count;
+            _initialConversationSignature = CreateConversationSignature();
             UpdateConversationContext();
             UpdateContextTokensDisplay();
+            UpdateBubbleButtonVisibility();
         }
     }
 
     public void NotifyHistoryDeleted(string id)
     {
+        if (string.Equals(_currentHistoryId, id, StringComparison.Ordinal))
+        {
+            _currentHistoryId = null;
+            _initialConversationSignature = null;
+        }
+    }
+
+    public void PersistDraft()
+    {
+        if (_historyService == null) return;
+
+        if (!HasConversationStateToPersist() || !IsConversationModified())
+        {
+            _historyService.DeleteDraft();
+            return;
+        }
+
+        var snapshot = new ConversationDraftSnapshot
+        {
+            CurrentHistoryId = _currentHistoryId,
+            InitialConversationSignature = _initialConversationSignature,
+            ContextSummary = _tokenService?.CompressionPreview,
+            Messages = Messages
+                .Where(ShouldPersistMessage)
+                .Select(CloneMessageForPersistence)
+                .ToList(),
+            UpdatedAt = DateTime.Now
+        };
+
+        if (snapshot.Messages.Count == 0 && string.IsNullOrWhiteSpace(snapshot.ContextSummary))
+        {
+            _historyService.DeleteDraft();
+            return;
+        }
+
+        _historyService.SaveDraft(snapshot);
+    }
+
+    private void RestoreDraftIfNeeded()
+    {
+        if (_historyService == null) return;
+
+        var snapshot = _historyService.LoadDraft();
+        if (snapshot == null)
+        {
+            return;
+        }
+
+        if ((snapshot.Messages == null || snapshot.Messages.Count == 0) && string.IsNullOrWhiteSpace(snapshot.ContextSummary))
+        {
+            _historyService.DeleteDraft();
+            return;
+        }
+
+        Messages.Clear();
+        _currentHistoryId = snapshot.CurrentHistoryId;
+        _initialConversationSignature = snapshot.InitialConversationSignature;
+
+        if (_tokenService != null)
+        {
+            _tokenService.CompressionPreview = snapshot.ContextSummary ?? string.Empty;
+        }
+
+        if (snapshot.Messages != null)
+        {
+            foreach (var msg in snapshot.Messages)
+            {
+                PrepareRestoredMessage(msg);
+                Messages.Add(msg);
+            }
+        }
+
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+        _logger.Information("已恢复主对话草稿，消息数: {Count}", Messages.Count);
+    }
+
+    private bool HasConversationStateToPersist()
+    {
+        return Messages.Any(ShouldPersistMessage) || !string.IsNullOrWhiteSpace(_tokenService?.CompressionPreview);
+    }
+
+    private bool IsConversationModified()
+    {
+        if (!HasConversationStateToPersist())
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(_currentHistoryId))
+        {
+            return true;
+        }
+
+        return !string.Equals(_initialConversationSignature, CreateConversationSignature(), StringComparison.Ordinal);
+    }
+
+    private string CreateConversationSignature()
+    {
+        var signatureModel = new
+        {
+            ContextSummary = _tokenService?.CompressionPreview ?? string.Empty,
+            Messages = Messages
+                .Where(ShouldPersistMessage)
+                .Select(msg => new
+                {
+                    msg.Role,
+                    msg.Content,
+                    msg.Timestamp,
+                    msg.ToolCallId,
+                    msg.ToolCallsJson,
+                    msg.IsCompressed
+                })
+                .ToList()
+        };
+
+        return JsonSerializer.Serialize(signatureModel);
+    }
+
+    private static bool ShouldPersistMessage(ChatMessage msg)
+    {
+        return !(msg.Role == "assistant"
+            && msg.IsLoading
+            && string.IsNullOrWhiteSpace(msg.Content)
+            && string.IsNullOrWhiteSpace(msg.ToolCallsJson));
+    }
+
+    private static ChatMessage CloneMessageForPersistence(ChatMessage msg)
+    {
+        return new ChatMessage
+        {
+            Role = msg.Role,
+            Content = msg.Content,
+            EditContent = string.Empty,
+            Timestamp = msg.Timestamp,
+            IsHeartbeat = msg.IsHeartbeat,
+            IsLoading = false,
+            IsEditing = false,
+            ToolCallId = msg.ToolCallId,
+            ToolCallsJson = msg.ToolCallsJson,
+            IsCompressed = msg.IsCompressed,
+            CanEdit = false,
+            CanRegenerate = false,
+            IsHidden = msg.IsHidden,
+            ToolExecutionSummary = string.Empty,
+            ToolName = msg.ToolName
+        };
+    }
+
+    private static void PrepareRestoredMessage(ChatMessage msg)
+    {
+        msg.IsLoading = false;
+        msg.IsEditing = false;
+        msg.EditContent = string.Empty;
+        msg.CanEdit = false;
+        msg.CanRegenerate = false;
+        msg.ToolExecutionSummary = string.Empty;
     }
 }

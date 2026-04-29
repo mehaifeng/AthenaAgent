@@ -2,6 +2,7 @@ using Athena.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Threading;
 using System.Collections.Specialized;
 using System.ComponentModel;
 
@@ -22,11 +23,21 @@ public partial class ChatTabView : UserControl
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)
     {
+        if (_viewModel != null)
+        {
+            _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
         if (DataContext is ChatTabViewModel viewModel)
         {
             _viewModel = viewModel;
             viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        }
+        else
+        {
+            _viewModel = null;
         }
     }
 
@@ -43,6 +54,20 @@ public partial class ChatTabView : UserControl
         if (e.Action == NotifyCollectionChangedAction.Add && !_isUserScrolling) ScrollToBottom();
     }
 
+    private void OnIsVisibleChanged(bool isVisible)
+    {
+        if (isVisible) ScrollToBottomIfHasMessages();
+    }
+
+    public void ScrollToBottomIfHasMessages()
+    {
+        if (_viewModel?.Messages.Count > 0)
+        {
+            _isUserScrolling = false;
+            ScrollToBottom();
+        }
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -54,6 +79,31 @@ public partial class ChatTabView : UserControl
             _chatScrollViewer.PointerReleased += OnPointerReleased;
             _chatScrollViewer.PointerWheelChanged += OnPointerWheelChanged;
         }
+
+        ScrollToBottomIfHasMessages();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
+        {
+            OnIsVisibleChanged(true);
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (_chatScrollViewer != null)
+        {
+            _chatScrollViewer.ScrollChanged -= OnScrollChanged;
+            _chatScrollViewer.PointerPressed -= OnPointerPressed;
+            _chatScrollViewer.PointerReleased -= OnPointerReleased;
+            _chatScrollViewer.PointerWheelChanged -= OnPointerWheelChanged;
+        }
+        _chatScrollViewer = null;
+        base.OnDetachedFromVisualTree(e);
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
@@ -83,6 +133,9 @@ public partial class ChatTabView : UserControl
     private void ScrollToBottom()
     {
         if (_chatScrollViewer != null)
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), Avalonia.Threading.DispatcherPriority.Background);
+        {
+            Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Background);
+        }
     }
 }
