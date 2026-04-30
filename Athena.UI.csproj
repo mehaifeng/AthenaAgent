@@ -21,6 +21,7 @@
   <ItemGroup>
     <Folder Include="Converters\" />
     <AvaloniaResource Include="Assets\**" />
+    <Compile Remove="Athena.Updater\**\*.cs" />
   </ItemGroup>
 
   <!-- AthenaSoul.md 作为嵌入式资源 -->

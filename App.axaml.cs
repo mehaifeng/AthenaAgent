@@ -460,6 +460,12 @@ public partial class App : Application
             return new WebSearchService(configService, logger);
         });
 
+        services.AddSingleton<IUpdateService>(sp =>
+        {
+            var logger = Log.ForContext<GitHubUpdateService>();
+            return new GitHubUpdateService(logger);
+        });
+
         // Headless Browser 服务
         services.AddSingleton<IBrowserSessionManager>(sp =>
         {
@@ -588,6 +594,7 @@ public partial class App : Application
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
             var webSearchService = sp.GetService<IWebSearchService>();
+            var updateService = sp.GetService<IUpdateService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
 
@@ -606,6 +613,7 @@ public partial class App : Application
                 functionRegistry,
                 tokenService,
                 webSearchService,
+                updateService,
                 browserService,
                 browserVisionService);
         });
