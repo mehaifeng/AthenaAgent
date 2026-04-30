@@ -24,6 +24,25 @@ public sealed class UpdateApplyResult
     public string ErrorMessage { get; init; } = string.Empty;
 }
 
+public enum UpdateProgressStage
+{
+    Preparing,
+    DownloadingManifest,
+    DownloadingPackage,
+    VerifyingPackage,
+    ExtractingPackage,
+    LaunchingUpdater
+}
+
+public sealed class UpdateProgressInfo
+{
+    public UpdateProgressStage Stage { get; init; }
+    public double? Progress { get; init; }
+    public string ItemName { get; init; } = string.Empty;
+    public long? BytesReceived { get; init; }
+    public long? TotalBytes { get; init; }
+}
+
 public sealed class UpdateManifest
 {
     public string Version { get; init; } = string.Empty;

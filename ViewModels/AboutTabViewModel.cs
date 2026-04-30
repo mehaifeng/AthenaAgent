@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Athena.UI.Models;
 
 namespace Athena.UI.ViewModels;
 
@@ -26,6 +27,18 @@ public partial class AboutTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _currentVersion;
+
+    [ObservableProperty]
+    private bool _isUpdateProgressVisible;
+
+    [ObservableProperty]
+    private bool _isUpdateProgressIndeterminate;
+
+    [ObservableProperty]
+    private double _updateProgressValue;
+
+    [ObservableProperty]
+    private string _updateProgressStatus = string.Empty;
 
     public bool CanCheckForUpdates => !IsCheckingUpdates;
 
@@ -112,7 +125,9 @@ public partial class AboutTabViewModel : ViewModelBase
                 return;
             }
 
-            var applyResult = await _updateService.PrepareAndLaunchUpdateAsync(checkResult);
+            ResetUpdateProgress();
+            var progress = new Progress<UpdateProgressInfo>(UpdateProgress);
+            var applyResult = await _updateService.PrepareAndLaunchUpdateAsync(checkResult, progress);
             if (!applyResult.IsSuccess)
             {
                 if (applyResult.IsPermissionDenied)
@@ -159,6 +174,7 @@ public partial class AboutTabViewModel : ViewModelBase
         }
         finally
         {
+            ResetUpdateProgress();
             IsCheckingUpdates = false;
         }
     }
@@ -207,6 +223,47 @@ public partial class AboutTabViewModel : ViewModelBase
     private string GetString(string key, string fallback)
     {
         return _localizationService?.GetString(key, fallback) ?? fallback;
+    }
+
+    private void UpdateProgress(UpdateProgressInfo progress)
+    {
+        IsUpdateProgressVisible = true;
+        IsUpdateProgressIndeterminate = !progress.Progress.HasValue;
+        UpdateProgressValue = progress.Progress.HasValue
+            ? Math.Clamp(progress.Progress.Value * 100d, 0d, 100d)
+            : 0d;
+
+        UpdateProgressStatus = progress.Stage switch
+        {
+            UpdateProgressStage.Preparing => GetString("About.Update.Progress.Preparing", "Preparing update..."),
+            UpdateProgressStage.DownloadingManifest => GetString("About.Update.Progress.Manifest", "Downloading update metadata..."),
+            UpdateProgressStage.DownloadingPackage => FormatDownloadStatus(progress),
+            UpdateProgressStage.VerifyingPackage => GetString("About.Update.Progress.Verifying", "Verifying package..."),
+            UpdateProgressStage.ExtractingPackage => GetString("About.Update.Progress.Extracting", "Extracting update package..."),
+            UpdateProgressStage.LaunchingUpdater => GetString("About.Update.Progress.Launching", "Launching updater..."),
+            _ => string.Empty
+        };
+    }
+
+    private string FormatDownloadStatus(UpdateProgressInfo progress)
+    {
+        if (progress.Progress.HasValue)
+        {
+            return string.Format(
+                CultureInfo.CurrentCulture,
+                GetString("About.Update.Progress.Downloading.WithPercent", "Downloading update package... {0:0}%"),
+                progress.Progress.Value * 100d);
+        }
+
+        return GetString("About.Update.Progress.Downloading", "Downloading update package...");
+    }
+
+    private void ResetUpdateProgress()
+    {
+        IsUpdateProgressVisible = false;
+        IsUpdateProgressIndeterminate = false;
+        UpdateProgressValue = 0;
+        UpdateProgressStatus = string.Empty;
     }
 
     private static string BuildReleaseNotesPreview(string releaseNotes)
