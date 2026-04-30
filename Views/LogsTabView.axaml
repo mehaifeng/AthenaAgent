@@ -92,6 +92,7 @@
                             <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                                     BorderThickness="0,0,0,1"
                                     Padding="5,0"
+                                    MaxHeight="96"
                                     Opacity="0.9">
                                 <Grid ColumnDefinitions="100,100,*">
                                     <!-- Timestamp -->
@@ -120,10 +121,19 @@
                                     <TextBlock Grid.Column="2"
                                               Text="{Binding Message}"
                                               TextWrapping="Wrap"
+                                              MaxHeight="72"
+                                              TextTrimming="CharacterEllipsis"
                                               FontSize="12"
                                               VerticalAlignment="Center"
                                               LineHeight="18"/>
                                 </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{loc:Loc Chat.BtnCopy}"
+                                                  Command="{Binding $parent[ListBox].((vm:LogsTabViewModel)DataContext).CopyLogDetailsCommand}"
+                                                  CommandParameter="{Binding .}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

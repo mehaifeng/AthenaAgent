@@ -53,6 +53,7 @@ public class LogService : ILogService
 
     public async Task<LogQueryResult> QueryLogsAsync(LogQueryParams queryParams)
     {
+        queryParams ??= new LogQueryParams();
         var result = new LogQueryResult
         {
             Page = queryParams.Page,
@@ -78,10 +79,11 @@ public class LogService : ILogService
             parameters.Add(new SqliteParameter("@EndTime", queryParams.EndTime.Value.ToString("O")));
         }
 
-        if (!string.IsNullOrEmpty(queryParams.Level) && queryParams.Level != "All")
+        var normalizedLevel = NormalizeLevelFilter(queryParams.Level);
+        if (!string.IsNullOrEmpty(normalizedLevel))
         {
             whereClauses.Add("Level = @Level");
-            parameters.Add(new SqliteParameter("@Level", queryParams.Level.ToUpper()));
+            parameters.Add(new SqliteParameter("@Level", normalizedLevel));
         }
 
         if (!string.IsNullOrWhiteSpace(queryParams.SearchKeyword))
@@ -149,22 +151,28 @@ public class LogService : ILogService
         await vacuumCommand.ExecuteNonQueryAsync();
     }
 
-    public async Task<string> ExportLogsAsync(DateTime? startTime, DateTime? endTime)
+    public async Task<string> ExportLogsAsync(LogQueryParams queryParams, string? outputPath = null)
     {
-        var queryParams = new LogQueryParams
+        queryParams ??= new LogQueryParams();
+        var exportQuery = new LogQueryParams
         {
-            StartTime = startTime,
-            EndTime = endTime,
+            StartTime = queryParams.StartTime,
+            EndTime = queryParams.EndTime,
+            Level = queryParams.Level,
+            SearchKeyword = queryParams.SearchKeyword,
+            Page = 1,
             PageSize = int.MaxValue
         };
 
-        var result = await QueryLogsAsync(queryParams);
-
-        var exportDir = Path.Combine(_logDir, "Exports");
-        Directory.CreateDirectory(exportDir);
-
-        var fileName = $"logs_export_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
-        var filePath = Path.Combine(exportDir, fileName);
+        var result = await QueryLogsAsync(exportQuery);
+        var filePath = outputPath;
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            var exportDir = Path.Combine(_logDir, "Exports");
+            Directory.CreateDirectory(exportDir);
+            var fileName = $"logs_export_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+            filePath = Path.Combine(exportDir, fileName);
+        }
 
         var sb = new StringBuilder();
         sb.AppendLine($"=== Athena Log Export ===");
@@ -183,5 +191,25 @@ public class LogService : ILogService
 
         await File.WriteAllTextAsync(filePath, sb.ToString());
         return filePath;
+    }
+
+    private static string? NormalizeLevelFilter(string? level)
+    {
+        if (string.IsNullOrWhiteSpace(level))
+        {
+            return null;
+        }
+
+        return level.Trim().ToUpperInvariant() switch
+        {
+            "ALL" => null,
+            "DEBUG" => "Debug",
+            "INFO" or "INFORMATION" => "Information",
+            "WARN" or "WARNING" => "Warning",
+            "ERROR" => "Error",
+            "FATAL" => "Fatal",
+            "VERBOSE" => "Verbose",
+            _ => level
+        };
     }
 }
