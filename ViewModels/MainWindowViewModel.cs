@@ -68,7 +68,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _tasksTabViewModel = new TasksTabViewModel();
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
-        _aboutTabViewModel = new AboutTabViewModel();
+        _aboutTabViewModel = new AboutTabViewModel(_localizationService);
     }
 
     /// <summary>
@@ -101,7 +101,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
         _logsTabViewModel = new LogsTabViewModel(logService);
-        _aboutTabViewModel = new AboutTabViewModel();
+        _aboutTabViewModel = new AboutTabViewModel(localizationService);
 
         if (historyService != null)
         {
