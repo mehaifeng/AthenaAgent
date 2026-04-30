@@ -4,6 +4,8 @@ VisualStudioVersion = 18.4.11519.219 insiders
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.UI", "Athena.UI.csproj", "{D33D6958-A49A-EF67-D391-8A4CF29C4636}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.Updater", "Athena.Updater\Athena.Updater.csproj", "{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{D33D6958-A49A-EF67-D391-8A4CF29C4636}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D33D6958-A49A-EF67-D391-8A4CF29C4636}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D33D6958-A49A-EF67-D391-8A4CF29C4636}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
