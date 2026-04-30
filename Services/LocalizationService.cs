@@ -141,15 +141,24 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
     {
         if (_currentResources == null)
         {
-            return defaultValue;
+            return NormalizeResourceString(defaultValue);
         }
 
         if (_currentResources.TryGetValue(key, out var value) && value is string strValue)
         {
-            return strValue;
+            return NormalizeResourceString(strValue);
         }
 
-        return defaultValue;
+        return NormalizeResourceString(defaultValue);
+    }
+
+    private static string NormalizeResourceString(string value)
+    {
+        return value
+            .Replace("\\r\\n", Environment.NewLine, StringComparison.Ordinal)
+            .Replace("\\n", Environment.NewLine, StringComparison.Ordinal)
+            .Replace("\\r", "\r", StringComparison.Ordinal)
+            .Replace("\\t", "\t", StringComparison.Ordinal);
     }
 
     /// <inheritdoc />
