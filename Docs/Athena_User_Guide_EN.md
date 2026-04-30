@@ -2,12 +2,12 @@
 
 ## 1. Scope
 This guide focuses on four things only:
-- What the Chat home page (`ChatTabView`) does.
+- What the Chat home page does.
 - What each major Settings section means and how to configure it.
 - How proactive messages work and how to set them up.
-- How to guide conversations for long-running, coherent context quality with the knowledge base.
+- How LLM actively learns user preferences through the knowledge base and maintains long-term context coherence.
 
-## 2. Chat Home (ChatTabView)
+## 2. Chat Home
 ### 2.1 Core interactions
 - Send message: press `Enter` or click Send.
 - Streaming response: output arrives incrementally; you can stop generation at any time.
@@ -18,11 +18,6 @@ This guide focuses on four things only:
 - Top bar shows token usage so you can monitor context growth.
 - When threshold is reached, history can be compressed (summary + recent rounds kept).
 - Draft restore: unfinished main conversation can be recovered after restart.
-
-### 2.3 Why this matters
-- Edit + regenerate lets you correct direction inside the same thread instead of fragmenting work.
-- Stop response prevents wrong branches from polluting later turns.
-- Compression + draft restore is the baseline for sustained multi-session collaboration.
 
 ## 3. Settings: Meaning and Configuration
 Settings are auto-saved; no manual save button is required.
@@ -67,13 +62,12 @@ Recommendation:
 - For important projects, regularly verify that the summary still preserves key constraints.
 
 ## 4. Proactive Messages
-Proactive messages are triggered by task scheduler events. At trigger time, Athena switches to Chat and injects a hidden trigger message so the assistant can initiate the interaction.
+Proactive messages are triggered by the system scheduling mechanism. At trigger time, Athena switches to Chat and injects a hidden trigger message so the assistant can initiate the interaction.
 
-### 4.1 Setup steps
-1. Open `Tasks` and create a task.
-2. Set trigger time, intent, and recurrence.
-3. Set task type to `Foreground / Proactive`.
-4. At runtime, Chat will be activated and the intent will be executed.
+### 4.1 Creation methods
+You can create proactive messages in two ways:
+1. Manual creation: open `Tasks`, create a task, set trigger time, intent, and recurrence, then set task type to `Foreground / Proactive`.
+2. LLM-assisted creation: directly tell the LLM your reminder goal and schedule in chat, and it will create the proactive task through built-in system mechanisms.
 
 ### 4.2 Intent writing template (recommended)
 Write intent as an executable instruction, not a vague reminder:
@@ -88,37 +82,22 @@ Example:
 - Proactive is for interruptions you want to see and interact with.
 - Background is for silent execution without interrupting chat flow.
 
-## 5. Conversation Guidance for Long-Term Coherence
+## 5. How LLM Learns You Through the Knowledge Base
 
-### 5.1 Make the first turn structured
-Use these four blocks in your opening message:
-- Goal: final deliverable.
-- Constraints: stack, timeline, non-negotiables.
-- Current state: progress, files, failures.
-- Output format: checklist, steps, patch plan, validation list.
+### 5.1 Active memory behavior
+- LLM continuously learns your working style from both live conversations and knowledge base content, including preferred structure, decision boundaries, and priority patterns.
+- During long sessions, context compression keeps critical summaries so user preferences and project constraints stay available.
+- With draft restore and continued sessions, LLM builds a progressively more stable collaboration profile for you.
 
-### 5.2 Advance one primary decision per turn
-- Keep each turn focused on one key decision.
-- Ask for the “smallest next action” at the end of each round.
+### 5.2 Long-term memory vs short-term memory
+- Knowledge base stores long-term stable facts: terminology, standards, architecture boundaries, historical decisions.
+- Live chat carries short-term dynamic facts: daily progress, temporary tactics, active risks.
+- LLM combines both layers automatically: stable constraints first, then latest state updates.
 
-### 5.3 Maintain explicit long-term anchors
-Repeat these anchors over time:
-- Canonical terminology.
-- Hard constraints (for example compatibility and data integrity).
-- Stage acceptance criteria.
-
-This helps compression preserve what actually matters.
-
-### 5.4 Work with the knowledge base deliberately
-- Put stable facts in KB: standards, glossary, architecture boundaries, historical decisions.
-- Keep volatile details in live chat: temporary plans, daily changes, active experiments.
-- In prompts, explicitly say “follow knowledge base rules first” to reduce drift.
-
-### 5.5 Correct drift quickly
-Preferred order:
-1. Stop response immediately.
-2. Edit latest user message to restore constraints, then regenerate.
-3. If needed, delete the wrong branch and continue from the last correct node.
+### 5.3 Minimal user effort
+- You do not need to restate full constraints every turn; only provide updates when goals or boundaries change.
+- If answers drift, one correction like “continue with existing KB rules and current goal” is usually enough to recover focus.
+- Periodically promote newly stable rules into the knowledge base so LLM can proactively reuse them next time.
 
 ## 6. Reusable High-Quality Prompt Template
 Use this structure repeatedly:
