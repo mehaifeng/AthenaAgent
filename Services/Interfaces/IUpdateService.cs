@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
@@ -8,5 +9,8 @@ public interface IUpdateService
 {
     string GetCurrentVersion();
     Task<UpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken = default);
-    Task<UpdateApplyResult> PrepareAndLaunchUpdateAsync(UpdateCheckResult checkResult, CancellationToken cancellationToken = default);
+    Task<UpdateApplyResult> PrepareAndLaunchUpdateAsync(
+        UpdateCheckResult checkResult,
+        IProgress<UpdateProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default);
 }

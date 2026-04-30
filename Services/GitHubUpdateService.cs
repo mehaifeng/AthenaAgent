@@ -147,7 +147,10 @@ public sealed class GitHubUpdateService : IUpdateService
         }
     }
 
-    public async Task<UpdateApplyResult> PrepareAndLaunchUpdateAsync(UpdateCheckResult checkResult, CancellationToken cancellationToken = default)
+    public async Task<UpdateApplyResult> PrepareAndLaunchUpdateAsync(
+        UpdateCheckResult checkResult,
+        IProgress<UpdateProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (!checkResult.IsSuccess || !checkResult.IsUpdateAvailable || string.IsNullOrWhiteSpace(checkResult.ManifestDownloadUrl))
         {
@@ -174,8 +177,15 @@ public sealed class GitHubUpdateService : IUpdateService
 
         try
         {
+            ReportProgress(progress, UpdateProgressStage.Preparing);
+
             var manifestPath = Path.Combine(workRoot, ManifestAssetName);
-            await DownloadFileAsync(checkResult.ManifestDownloadUrl, manifestPath, cancellationToken);
+            await DownloadFileAsync(
+                checkResult.ManifestDownloadUrl,
+                manifestPath,
+                UpdateProgressStage.DownloadingManifest,
+                progress,
+                cancellationToken);
 
             var manifest = await ReadManifestAsync(manifestPath, cancellationToken);
             if (manifest == null)
@@ -204,10 +214,16 @@ public sealed class GitHubUpdateService : IUpdateService
             }
 
             var packagePath = Path.Combine(workRoot, packageFileName);
-            await DownloadFileAsync(package.Url, packagePath, cancellationToken);
+            await DownloadFileAsync(
+                package.Url,
+                packagePath,
+                UpdateProgressStage.DownloadingPackage,
+                progress,
+                cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(package.Sha256))
             {
+                ReportProgress(progress, UpdateProgressStage.VerifyingPackage, 1, packageFileName);
                 var checksum = await ComputeSha256Async(packagePath, cancellationToken);
                 if (!string.Equals(checksum, package.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
@@ -225,6 +241,7 @@ public sealed class GitHubUpdateService : IUpdateService
 
             var stagingDir = Path.Combine(workRoot, "staging");
             Directory.CreateDirectory(stagingDir);
+            ReportProgress(progress, UpdateProgressStage.ExtractingPackage, null, packageFileName);
             await ExtractPackageAsync(packagePath, package.ArchiveType, stagingDir, cancellationToken);
             var payloadRoot = ResolvePayloadRoot(stagingDir);
 
@@ -266,6 +283,7 @@ public sealed class GitHubUpdateService : IUpdateService
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? workRoot
             };
+            ReportProgress(progress, UpdateProgressStage.LaunchingUpdater, 1, packageFileName);
             Process.Start(startInfo);
 
             _logger.Information("Updater launched. Version={Version}, Session={SessionFile}", checkResult.LatestVersion, sessionFile);
@@ -428,13 +446,56 @@ public sealed class GitHubUpdateService : IUpdateService
         };
     }
 
-    private async Task DownloadFileAsync(string url, string destinationPath, CancellationToken cancellationToken)
+    private async Task DownloadFileAsync(
+        string url,
+        string destinationPath,
+        UpdateProgressStage stage,
+        IProgress<UpdateProgressInfo>? progress,
+        CancellationToken cancellationToken)
     {
         using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
+        var totalBytes = response.Content.Headers.ContentLength;
+        var itemName = Path.GetFileName(destinationPath);
         await using var sourceStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var destinationStream = File.Create(destinationPath);
-        await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+        var buffer = new byte[81920];
+        long bytesReceived = 0;
+        ReportProgress(progress, stage, totalBytes.HasValue && totalBytes.Value > 0 ? 0 : null, itemName, bytesReceived, totalBytes);
+
+        while (true)
+        {
+            var bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            if (bytesRead == 0)
+            {
+                break;
+            }
+
+            await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+            bytesReceived += bytesRead;
+            double? progressValue = totalBytes.HasValue && totalBytes.Value > 0
+                ? Math.Min(1d, (double)bytesReceived / totalBytes.Value)
+                : null;
+            ReportProgress(progress, stage, progressValue, itemName, bytesReceived, totalBytes);
+        }
+    }
+
+    private static void ReportProgress(
+        IProgress<UpdateProgressInfo>? progress,
+        UpdateProgressStage stage,
+        double? progressValue = null,
+        string itemName = "",
+        long? bytesReceived = null,
+        long? totalBytes = null)
+    {
+        progress?.Report(new UpdateProgressInfo
+        {
+            Stage = stage,
+            Progress = progressValue,
+            ItemName = itemName,
+            BytesReceived = bytesReceived,
+            TotalBytes = totalBytes
+        });
     }
 
     private static async Task<string> ComputeSha256Async(string filePath, CancellationToken cancellationToken)

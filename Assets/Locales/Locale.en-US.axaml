@@ -165,6 +165,13 @@
     <system:String x:Key="About.Update.PermissionDenied.Title">Permission Required</system:String>
     <system:String x:Key="About.Update.PermissionDenied.Message">Cannot write to the install directory. Please restart Athena with administrator/root privileges, then try again.</system:String>
     <system:String x:Key="About.Update.UnknownDate">Unknown</system:String>
+    <system:String x:Key="About.Update.Progress.Preparing">Preparing update...</system:String>
+    <system:String x:Key="About.Update.Progress.Manifest">Downloading update metadata...</system:String>
+    <system:String x:Key="About.Update.Progress.Downloading">Downloading update package...</system:String>
+    <system:String x:Key="About.Update.Progress.Downloading.WithPercent">Downloading update package... {0:0}%</system:String>
+    <system:String x:Key="About.Update.Progress.Verifying">Verifying package...</system:String>
+    <system:String x:Key="About.Update.Progress.Extracting">Extracting update package...</system:String>
+    <system:String x:Key="About.Update.Progress.Launching">Launching updater...</system:String>
 
     <!-- Create Task Dialog -->
     <system:String x:Key="TaskDialog.Title">Create New Task</system:String>

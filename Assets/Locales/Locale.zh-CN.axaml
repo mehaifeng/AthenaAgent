@@ -165,6 +165,13 @@
     <system:String x:Key="About.Update.PermissionDenied.Title">需要更高权限</system:String>
     <system:String x:Key="About.Update.PermissionDenied.Message">无法写入安装目录，请以管理员/Root 权限重启 Athena 后重试。</system:String>
     <system:String x:Key="About.Update.UnknownDate">未知</system:String>
+    <system:String x:Key="About.Update.Progress.Preparing">正在准备更新...</system:String>
+    <system:String x:Key="About.Update.Progress.Manifest">正在下载更新元数据...</system:String>
+    <system:String x:Key="About.Update.Progress.Downloading">正在下载更新包...</system:String>
+    <system:String x:Key="About.Update.Progress.Downloading.WithPercent">正在下载更新包... {0:0}%</system:String>
+    <system:String x:Key="About.Update.Progress.Verifying">正在校验更新包...</system:String>
+    <system:String x:Key="About.Update.Progress.Extracting">正在解压更新包...</system:String>
+    <system:String x:Key="About.Update.Progress.Launching">正在启动更新器...</system:String>
 
     <!-- Create Task Dialog -->
     <system:String x:Key="TaskDialog.Title">创建新任务</system:String>
