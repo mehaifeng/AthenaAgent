@@ -63,7 +63,7 @@ public interface ILogService
     /// <summary>
     /// 导出日志到文件
     /// </summary>
-    Task<string> ExportLogsAsync(DateTime? startTime, DateTime? endTime);
+    Task<string> ExportLogsAsync(LogQueryParams queryParams, string? outputPath = null);
 
     /// <summary>
     /// 获取数据库路径
