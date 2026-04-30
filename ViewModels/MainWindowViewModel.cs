@@ -68,7 +68,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _tasksTabViewModel = new TasksTabViewModel();
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
-        _aboutTabViewModel = new AboutTabViewModel(_localizationService);
+        _aboutTabViewModel = new AboutTabViewModel(_localizationService, null);
     }
 
     /// <summary>
@@ -89,6 +89,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
         IWebSearchService? webSearchService,
+        IUpdateService? updateService,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null)
     {
@@ -101,7 +102,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
         _logsTabViewModel = new LogsTabViewModel(logService);
-        _aboutTabViewModel = new AboutTabViewModel(localizationService);
+        _aboutTabViewModel = new AboutTabViewModel(localizationService, updateService);
 
         if (historyService != null)
         {
