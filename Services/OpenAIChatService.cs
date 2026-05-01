@@ -150,6 +150,7 @@ public class OpenAIChatService : IChatService
                         Role = m.Role, 
                         Content = m.Content, 
                         ToolCallsJson = m.ToolCallsJson, 
+                        ReasoningContent = m.ReasoningContent,
                         IsCompressed = false 
                     }).ToList();
 
@@ -203,9 +204,12 @@ public class OpenAIChatService : IChatService
             var toolCallBuilders = new Dictionary<int, ToolCallBuilder>();
             ChatFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
+            var assistantReasoning = new StringBuilder();
 
             await foreach (var update in stream.WithCancellation(cancellationToken))
             {
+                AppendReasoningContent(update, assistantReasoning);
+
                 foreach (var contentPart in update.ContentUpdate)
                 {
                     if (!string.IsNullOrEmpty(contentPart.Text))
@@ -263,12 +267,22 @@ public class OpenAIChatService : IChatService
             }
 
             Log.Debug("流式响应第 {Iteration} 轮, {Tools} tool calls", iteration, toolCallBuilders.Count);
+            var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
 
             if (finishReason != ChatFinishReason.ToolCalls || toolCallBuilders.Count == 0)
             {
-                if (assistantContent.Length > 0)
+                if (assistantContent.Length > 0 || reasoningContent != null)
                 {
-                    context.AddAssistantMessage(assistantContent.ToString());
+                    context.AddAssistantMessage(assistantContent.ToString(), reasoningContent: reasoningContent);
+                    if (reasoningContent != null)
+                    {
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Role = "assistant",
+                            ReasoningContent = reasoningContent,
+                            Timestamp = DateTime.Now
+                        });
+                    }
                 }
                 yield break;
             }
@@ -283,7 +297,7 @@ public class OpenAIChatService : IChatService
 
             // 保存带工具调用的助手消息到上下文
             var toolCallsJson = JsonSerializer.Serialize(toolCalls);
-            context.AddAssistantMessage(assistantContent.ToString(), toolCallsJson);
+            context.AddAssistantMessage(assistantContent.ToString(), toolCallsJson, reasoningContent);
 
             // 通知 UI 产生了带工具调用的助手消息
             var intermediateAssistantMsg = new Models.ChatMessage
@@ -291,11 +305,12 @@ public class OpenAIChatService : IChatService
                 Role = "assistant",
                 Content = assistantContent.ToString(),
                 ToolCallsJson = toolCallsJson,
+                ReasoningContent = reasoningContent,
                 Timestamp = DateTime.Now
             };
             onMessageAdded?.Invoke(intermediateAssistantMsg);
 
-            messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString()));
+            messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString(), reasoningContent));
 
             foreach (var toolCall in toolCalls)
             {
@@ -329,7 +344,10 @@ public class OpenAIChatService : IChatService
         Log.Debug("循环自然结束，迭代次数: {Iteration}", iteration);
     }
 
-    private static AssistantChatMessage CreateAssistantMessageWithToolCalls(IEnumerable<ToolCallInfo> toolCalls, string? content = null)
+    private static AssistantChatMessage CreateAssistantMessageWithToolCalls(
+        IEnumerable<ToolCallInfo> toolCalls,
+        string? content = null,
+        string? reasoningContent = null)
     {
         var message = new AssistantChatMessage(content ?? "");
 
@@ -342,7 +360,31 @@ public class OpenAIChatService : IChatService
             ));
         }
 
+        ApplyReasoningContent(message, reasoningContent);
         return message;
+    }
+
+    private static void AppendReasoningContent(StreamingChatCompletionUpdate update, StringBuilder reasoningBuilder)
+    {
+#pragma warning disable SCME0001
+        if (update.Patch.TryGetValue("$.choices[0].delta.reasoning_content"u8, out string? reasoningChunk)
+            && reasoningChunk != null)
+        {
+            reasoningBuilder.Append(reasoningChunk);
+        }
+#pragma warning restore SCME0001
+    }
+
+    private static void ApplyReasoningContent(AssistantChatMessage message, string? reasoningContent)
+    {
+        if (reasoningContent == null)
+        {
+            return;
+        }
+
+#pragma warning disable SCME0001
+        message.Patch.Set("$.reasoning_content"u8, reasoningContent);
+#pragma warning restore SCME0001
     }
 
     private record ToolCallInfo(string Id, string FunctionName, string Arguments);
@@ -426,6 +468,7 @@ public class OpenAIChatService : IChatService
                     break;
                 case "assistant":
                     var assistantMsg = new AssistantChatMessage(msg.Content);
+                    ApplyReasoningContent(assistantMsg, msg.ReasoningContent);
                     if (!string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
                         try
