@@ -76,6 +76,12 @@ public partial class ChatMessage : ObservableObject
     private string? _toolCallsJson;
 
     /// <summary>
+    /// DeepSeek thinking 模式等模型要求回放的推理内容
+    /// </summary>
+    [ObservableProperty]
+    private string? _reasoningContent;
+
+    /// <summary>
     /// 是否已参与压缩（归档进摘要）
     /// </summary>
     [ObservableProperty]
