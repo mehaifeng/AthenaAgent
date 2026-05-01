@@ -40,9 +40,15 @@ public class ConversationContext
         _messages.Add(new ContextMessage { Role = "user", Content = content, Timestamp = timestamp ?? DateTime.Now });
     }
 
-    public void AddAssistantMessage(string content, string? toolCallsJson = null)
+    public void AddAssistantMessage(string content, string? toolCallsJson = null, string? reasoningContent = null)
     {
-        _messages.Add(new ContextMessage { Role = "assistant", Content = content, ToolCallsJson = toolCallsJson });
+        _messages.Add(new ContextMessage
+        {
+            Role = "assistant",
+            Content = content,
+            ToolCallsJson = toolCallsJson,
+            ReasoningContent = reasoningContent
+        });
     }
 
     public void AddToolMessage(string content, string? toolCallId = null)
@@ -90,6 +96,10 @@ public class ConversationContext
                 {
                     total += EstimateTokens(msg.ToolCallsJson); // 计入模型生成的工具调用 JSON
                 }
+                if (!string.IsNullOrEmpty(msg.ReasoningContent))
+                {
+                    total += EstimateTokens(msg.ReasoningContent); // 计入思维链回放所需的 reasoning_content
+                }
             }
             return total;
         }
@@ -104,5 +114,6 @@ public class ContextMessage
     public string Content { get; set; } = string.Empty;
     public string? ToolCallId { get; set; }
     public string? ToolCallsJson { get; set; }
+    public string? ReasoningContent { get; set; }
     public DateTime Timestamp { get; set; }
 }

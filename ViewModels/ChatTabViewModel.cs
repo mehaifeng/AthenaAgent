@@ -519,13 +519,14 @@ public partial class ChatTabViewModel : ViewModelBase
                 onMessageAdded: msg => {
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
-                        // Hide intermediate tool call records
+                        // 真实的工具调用回合保存在隐藏消息里，当前可见气泡只保留工具后的最终答复
                         msg.IsHidden = true;
-                        msg.Content = string.Empty; // Prevent duplicate text
                         Messages.Add(msg);
 
                         // Update the main bubble's status
                         assistantMsg.IsLoading = false;
+                        assistantMsg.Content = string.Empty;
+                        assistantMsg.ReasoningContent = null;
                         try
                         {
                             var toolCalls = System.Text.Json.Nodes.JsonNode.Parse(msg.ToolCallsJson)?.AsArray();
@@ -538,6 +539,10 @@ public partial class ChatTabViewModel : ViewModelBase
                             else assistantMsg.ToolExecutionSummary = _localizationService?.GetString("Tool.CallingTool") ?? "Calling tool...";
                         }
                         catch { assistantMsg.ToolExecutionSummary = _localizationService?.GetString("Tool.CallingTool") ?? "Calling tool..."; }
+                    }
+                    else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
+                    {
+                        assistantMsg.ReasoningContent = msg.ReasoningContent;
                     }
                     else if (msg.Role == "tool")
                     {
@@ -601,7 +606,9 @@ public partial class ChatTabViewModel : ViewModelBase
             assistantMsg.ToolExecutionSummary = string.Empty;
             
             // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
-            if (string.IsNullOrWhiteSpace(assistantMsg.Content) && string.IsNullOrEmpty(assistantMsg.ToolCallsJson))
+            if (string.IsNullOrWhiteSpace(assistantMsg.Content)
+                && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
+                && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
             {
                 Messages.Remove(assistantMsg);
             }
@@ -641,9 +648,11 @@ public partial class ChatTabViewModel : ViewModelBase
             else if (msg.Role == "assistant") 
             {
                 // 仅添加有内容的助手消息
-                if (!string.IsNullOrEmpty(msg.Content) || !string.IsNullOrEmpty(msg.ToolCallsJson))
+                if (!string.IsNullOrEmpty(msg.Content)
+                    || !string.IsNullOrEmpty(msg.ToolCallsJson)
+                    || !string.IsNullOrEmpty(msg.ReasoningContent))
                 {
-                    _currentContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson);
+                    _currentContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson, msg.ReasoningContent);
                 }
             }
             else if (msg.Role == "tool") 
@@ -879,6 +888,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     msg.Timestamp,
                     msg.ToolCallId,
                     msg.ToolCallsJson,
+                    msg.ReasoningContent,
                     msg.IsCompressed
                 })
                 .ToList()
@@ -892,7 +902,8 @@ public partial class ChatTabViewModel : ViewModelBase
         return !(msg.Role == "assistant"
             && msg.IsLoading
             && string.IsNullOrWhiteSpace(msg.Content)
-            && string.IsNullOrWhiteSpace(msg.ToolCallsJson));
+            && string.IsNullOrWhiteSpace(msg.ToolCallsJson)
+            && string.IsNullOrWhiteSpace(msg.ReasoningContent));
     }
 
     private static ChatMessage CloneMessageForPersistence(ChatMessage msg)
@@ -908,6 +919,7 @@ public partial class ChatTabViewModel : ViewModelBase
             IsEditing = false,
             ToolCallId = msg.ToolCallId,
             ToolCallsJson = msg.ToolCallsJson,
+            ReasoningContent = msg.ReasoningContent,
             IsCompressed = msg.IsCompressed,
             CanEdit = false,
             CanRegenerate = false,

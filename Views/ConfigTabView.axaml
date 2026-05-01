@@ -497,7 +497,7 @@
                             </Grid>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="1000000" Increment="1000" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="99999999999" Increment="1000" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.MemCompThresh}" VerticalAlignment="Center" Opacity="0.8"/>
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.CompressionThreshold}" Minimum="500" Maximum="{Binding Config.MaxContextTokens}" Increment="500" HorizontalAlignment="Stretch" IsEnabled="{Binding Config.AutoCompress}" Margin="0,0,0,12"/>

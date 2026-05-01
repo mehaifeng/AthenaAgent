@@ -252,7 +252,7 @@ public class ConversationHistoryService : IConversationHistoryService
                              && string.IsNullOrEmpty(msg.ToolCallsJson) 
                              && !string.IsNullOrWhiteSpace(msg.Content))
                     {
-                        openAiMessages.Add(new AssistantChatMessage(msg.Content));
+                        openAiMessages.Add(CreateAssistantHistoryMessage(msg.Content, msg.ReasoningContent));
                     }
                 }
 
@@ -467,5 +467,19 @@ public class ConversationHistoryService : IConversationHistoryService
             var failedTemplate = GetString("History.ConnectionFailed", "Connection failed: {0}");
             return (false, string.Format(failedTemplate, ex.Message));
         }
+    }
+
+    private static AssistantChatMessage CreateAssistantHistoryMessage(string content, string? reasoningContent)
+    {
+        var message = new AssistantChatMessage(content);
+        if (reasoningContent == null)
+        {
+            return message;
+        }
+
+#pragma warning disable SCME0001
+        message.Patch.Set("$.reasoning_content"u8, reasoningContent);
+#pragma warning restore SCME0001
+        return message;
     }
 }
