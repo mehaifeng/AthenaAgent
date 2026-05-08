@@ -665,10 +665,20 @@ public partial class ChatTabViewModel : ViewModelBase
     public void UpdateContextTokensDisplay()
     {
         if (_tokenService == null || _promptService == null || _functionRegistry == null) return;
+        var config = _configService?.Load();
+        var functionCallingEnabled = config?.EnableFunctionCalling == true && _functionRegistry.HasFunctions;
         
         // 赋予上下文准确的初始估算
-        _currentContext.SetMainPersona(_promptService.GetPrompt(PromptType.MainPersona));
-        _currentContext.ToolsDeclarationTokenCount = _functionRegistry.GetToolDeclarationTokenCount();
+        var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona);
+        if (functionCallingEnabled)
+        {
+            systemPrompt = _promptService.GetPrompt(PromptType.ToolCallingPolicy) + "\n\n---\n\n" + systemPrompt;
+        }
+
+        _currentContext.SetMainPersona(systemPrompt);
+        _currentContext.ToolsDeclarationTokenCount = functionCallingEnabled
+            ? _functionRegistry.GetToolDeclarationTokenCount()
+            : 0;
         
         int tokens = _currentContext.EstimatedTokenCount;
 
