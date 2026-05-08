@@ -129,6 +129,7 @@ public class OpenAIChatService : IChatService
     {
         var iteration = 0;
         const int maxIterations = 50;
+        var disabledToolCallRetries = 0;
 
         while (iteration < maxIterations)
         {
@@ -268,8 +269,24 @@ public class OpenAIChatService : IChatService
 
             Log.Debug("流式响应第 {Iteration} 轮, {Tools} tool calls", iteration, toolCallBuilders.Count);
             var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
+            var hasToolCalls = finishReason == ChatFinishReason.ToolCalls || toolCallBuilders.Count > 0;
 
-            if (finishReason != ChatFinishReason.ToolCalls || toolCallBuilders.Count == 0)
+            if (!IsFunctionCallingEnabled() && hasToolCalls)
+            {
+                Log.Warning("Function Calling is disabled, but the model returned structured tool calls. Retry={Retry}", disabledToolCallRetries);
+
+                if (disabledToolCallRetries == 0)
+                {
+                    disabledToolCallRetries++;
+                    messages.Add(new UserChatMessage("[Internal instruction: function calling is disabled. Do not call tools. Answer the user's last request in plain text only.]"));
+                    continue;
+                }
+
+                yield return "[错误] 当前已关闭函数调用，但模型仍返回了结构化工具调用。已阻止执行。";
+                yield break;
+            }
+
+            if (!hasToolCalls)
             {
                 if (assistantContent.Length > 0 || reasoningContent != null)
                 {
@@ -411,7 +428,19 @@ public class OpenAIChatService : IChatService
         Log.Debug("API 参数: Temperature={Temp}, MaxTokens={MaxTokens}, TopP={TopP}",
             _config.Temperature, _config.MaxTokens, _config.TopP);
 
-        if (_config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true)
+        ApplyToolOptions(options);
+
+        return options;
+    }
+
+    private bool IsFunctionCallingEnabled()
+    {
+        return _config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true;
+    }
+
+    private void ApplyToolOptions(ChatCompletionOptions options)
+    {
+        if (IsFunctionCallingEnabled())
         {
             foreach (var tool in _functionRegistry.GetToolDefinitions())
             {
@@ -421,9 +450,11 @@ public class OpenAIChatService : IChatService
                 }
             }
             Log.Debug("携带 {Count} 个工具", options.Tools.Count);
+            return;
         }
 
-        return options;
+        options.ToolChoice = ChatToolChoice.CreateNoneChoice();
+        Log.Debug("Function Calling disabled; ToolChoice=None");
     }
 
     private const string TimestampFormat = "[yyMMddHHmmss-ddd] ";
@@ -431,10 +462,18 @@ public class OpenAIChatService : IChatService
     private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
         var persona = _promptService.GetPrompt(PromptType.MainPersona);
-        context.SetMainPersona(persona);
 
         // 将所有 system prompt 合并为一条，避免部分 API（如 MiniMax）对多 system 消息的限制
-        var systemParts = new List<string> { persona, GetPlatformContextMessage() };
+        var baseSystemParts = new List<string>();
+        if (IsFunctionCallingEnabled())
+        {
+            baseSystemParts.Add(_promptService.GetPrompt(PromptType.ToolCallingPolicy));
+        }
+        baseSystemParts.Add(persona);
+        baseSystemParts.Add(GetPlatformContextMessage(IsFunctionCallingEnabled()));
+        context.SetMainPersona(string.Join("\n\n---\n\n", baseSystemParts.Where(s => !string.IsNullOrEmpty(s))));
+
+        var systemParts = new List<string>(baseSystemParts);
         if (!string.IsNullOrEmpty(context.Summary))
         {
             systemParts.Add(context.Summary);
@@ -528,18 +567,7 @@ public class OpenAIChatService : IChatService
                 TopP = (float)_config.TopP
             };
 
-            // 携带工具定义，模拟真实对话场景
-            if (_config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true)
-            {
-                foreach (var tool in _functionRegistry.GetToolDefinitions())
-                {
-                    if (tool is ChatTool chatTool)
-                    {
-                        options.Tools.Add(chatTool);
-                    }
-                }
-                Log.Debug("Test 携带 {Count} 个工具", options.Tools.Count);
-            }
+            ApplyToolOptions(options);
 
             var response = await _chatClient.CompleteChatAsync(messages, options);
 
@@ -570,7 +598,7 @@ public class OpenAIChatService : IChatService
     /// <summary>
     /// 生成平台上下文 system message，让模型知道当前运行环境
     /// </summary>
-    private static string GetPlatformContextMessage()
+    private static string GetPlatformContextMessage(bool includeToolGuidance)
     {
         string os, shell, pathSep, lineEnding, examplePath;
 
@@ -599,13 +627,21 @@ public class OpenAIChatService : IChatService
             examplePath = "/home/username/documents";
         }
 
-        return $"""
+        var platformContext = $"""
             ## Runtime Environment (injected — do not modify)
             - OS: {os}
             - Default shell: {shell}
             - Path separator: `{pathSep}`
             - Line endings: {lineEnding}
             - Example path: `{examplePath}`
+            """;
+
+        if (!includeToolGuidance)
+        {
+            return platformContext;
+        }
+
+        return platformContext + $"""
 
             When using `execute_terminal_command`, always use commands and syntax appropriate for **{os}**.
             - On Windows: use PowerShell cmdlets or cmd syntax (e.g., `Get-ChildItem`, `ipconfig`, `tasklist`)
