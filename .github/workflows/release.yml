@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, for example 0.1.5 or v0.1.5"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a prerelease"
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: "Create the GitHub Release as a draft"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release options
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.prerelease }}" = "true" ]; then
+              echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"
+            fi
+            if [ "${{ inputs.draft }}" = "true" ]; then
+              echo "draft=--draft" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and upload release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x ./release.sh
+          ./release.sh "${{ steps.options.outputs.tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --upload \
+            --generate-notes \
+            ${{ steps.options.outputs.prerelease }} \
+            ${{ steps.options.outputs.draft }}
