@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.ClientModel;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ using Athena.UI.Services;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 
 namespace Athena.UI.ViewModels;
 
@@ -27,6 +30,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     [ObservableProperty]
@@ -56,12 +60,22 @@ public partial class ChatTabViewModel : ViewModelBase
     private bool _isCompressing;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAttachmentStatusMessage))]
+    private string _attachmentStatusMessage = string.Empty;
+
+    [ObservableProperty]
     private string _currentTheme = "Dark";
 
     [ObservableProperty]
     private string _themeIcon = "Moon"; // "Moon"=当前Dark点一下切Light, "Sun"=当前Light点一下切Dark
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
+
+    public ObservableCollection<ChatAttachment> PendingAttachments { get; } = new();
+
+    public bool HasPendingAttachments => PendingAttachments.Count > 0;
+
+    public bool HasAttachmentStatusMessage => !string.IsNullOrWhiteSpace(AttachmentStatusMessage);
 
     public string ContextTokensInfo => _tokenService?.TokenInfoText ?? "0 / 0 tokens";
 
@@ -80,7 +94,7 @@ public partial class ChatTabViewModel : ViewModelBase
     // 记录加载历史时的初始签名，用于判断是否发生了修改
     private string? _initialConversationSignature;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -90,7 +104,8 @@ public partial class ChatTabViewModel : ViewModelBase
         ITaskScheduler? taskScheduler,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
-        ILocalizationService? localizationService)
+        ILocalizationService? localizationService,
+        IAttachmentStoreService? attachmentStoreService = null)
     {
         _chatService = chatService;
         _configService = configService;
@@ -100,6 +115,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
         _localizationService = localizationService;
+        _attachmentStoreService = attachmentStoreService;
 
         // Initialize from config
         if (_configService != null)
@@ -126,6 +142,12 @@ public partial class ChatTabViewModel : ViewModelBase
             UpdateBubbleButtonVisibility();
         };
 
+        PendingAttachments.CollectionChanged += (s, e) =>
+        {
+            OnPropertyChanged(nameof(HasPendingAttachments));
+            SendMessageCommand.NotifyCanExecuteChanged();
+        };
+
         // 计算初始 Token（系统提示词和工具声明的基底开销）
         UpdateContextTokensDisplay();
 
@@ -135,7 +157,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanSendMessage))]
     private async Task SendMessageAsync()
     {
-        if (string.IsNullOrWhiteSpace(InputText)) return;
+        if (string.IsNullOrWhiteSpace(InputText) && PendingAttachments.Count == 0) return;
 
         // 在发送前检查是否需要压缩上下文
         if (_tokenService != null && _configService != null)
@@ -149,13 +171,24 @@ public partial class ChatTabViewModel : ViewModelBase
         }
 
         var userContent = InputText;
+        var attachments = PendingAttachments.Select(CloneAttachmentForMessage).ToList();
         InputText = string.Empty;
+        PendingAttachments.Clear();
+        AttachmentStatusMessage = string.Empty;
 
-        Messages.Add(new ChatMessage { Role = "user", Content = userContent, Timestamp = DateTime.Now });
-        await GetAiResponseAsync(userContent);
+        Messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Content = userContent,
+            Attachments = new ObservableCollection<ChatAttachment>(attachments),
+            Timestamp = DateTime.Now
+        });
+
+        UpdateConversationContext();
+        await GetAiResponseAsync(userContent, addToContext: false);
     }
 
-    private bool CanSendMessage() => !IsSending && !IsCompressing && !string.IsNullOrWhiteSpace(InputText);
+    private bool CanSendMessage() => !IsSending && !IsCompressing && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
 
     private bool CanStopResponse() => IsSending;
 
@@ -196,6 +229,7 @@ public partial class ChatTabViewModel : ViewModelBase
             }
 
             Messages.Clear();
+            ClearPendingAttachments(deleteStoredFiles: true);
             _currentContext.Reset();
             _currentHistoryId = null;
             _initialConversationSignature = null;
@@ -452,9 +486,113 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void AttachFile()
+    private async Task AttachFileAsync()
     {
-        // File attachment logic
+        if (_attachmentStoreService == null)
+        {
+            AttachmentStatusMessage = GetString("Chat.Attach.ServiceUnavailable", "Attachment service is unavailable.");
+            return;
+        }
+
+        var owner = GetMainWindow();
+        var storageProvider = owner?.StorageProvider;
+        if (storageProvider == null)
+        {
+            AttachmentStatusMessage = GetString("Chat.Attach.NoStorageProvider", "File picker is unavailable.");
+            return;
+        }
+
+        var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = GetString("Chat.Attach.SelectImages", "Select images"),
+            AllowMultiple = true,
+            FileTypeFilter =
+            [
+                new FilePickerFileType(GetString("Chat.Attach.ImageFiles", "Image files"))
+                {
+                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"],
+                    MimeTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"],
+                    AppleUniformTypeIdentifiers = ["public.png", "public.jpeg", "org.webmproject.webp", "com.compuserve.gif"]
+                }
+            ]
+        });
+
+        await AddStorageFilesAsync(files);
+    }
+
+    [RelayCommand]
+    private void RemovePendingAttachment(ChatAttachment? attachment)
+    {
+        if (attachment == null) return;
+
+        if (PendingAttachments.Remove(attachment))
+        {
+            _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            AttachmentStatusMessage = string.Empty;
+        }
+    }
+
+    public async Task AddStorageFilesAsync(IEnumerable<IStorageFile> files)
+    {
+        if (_attachmentStoreService == null) return;
+
+        var available = _attachmentStoreService.MaxPendingAttachments - PendingAttachments.Count;
+        if (available <= 0)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                _attachmentStoreService.MaxPendingAttachments);
+            return;
+        }
+
+        try
+        {
+            var allFiles = files.ToList();
+            var selected = allFiles.Take(available).ToList();
+            var imported = await _attachmentStoreService.ImportFilesAsync(selected);
+            foreach (var attachment in imported)
+            {
+                PendingAttachments.Add(attachment);
+            }
+
+            AttachmentStatusMessage = allFiles.Count > selected.Count
+                ? string.Format(
+                    GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                    _attachmentStoreService.MaxPendingAttachments)
+                : string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "添加附件失败");
+            AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
+        }
+    }
+
+    public async Task AddClipboardBitmapAsync(Bitmap bitmap)
+    {
+        if (_attachmentStoreService == null) return;
+
+        if (PendingAttachments.Count >= _attachmentStoreService.MaxPendingAttachments)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                _attachmentStoreService.MaxPendingAttachments);
+            return;
+        }
+
+        try
+        {
+            var attachment = await _attachmentStoreService.ImportBitmapAsync(
+                bitmap,
+                $"clipboard-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+            PendingAttachments.Add(attachment);
+            AttachmentStatusMessage = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "粘贴图片失败");
+            AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
+        }
     }
 
     /// <summary>
@@ -598,7 +736,7 @@ public partial class ChatTabViewModel : ViewModelBase
             _logger.Error(ex, "Get AI response failed");
             assistantMsg.IsLoading = false;
             assistantMsg.ToolExecutionSummary = string.Empty;
-            assistantMsg.Content = $"Error: {ex.Message}";
+            assistantMsg.Content = ToChatErrorMessage(ex);
         }
         finally
         {
@@ -643,7 +781,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (msg.Role == "user") 
             {
-                _currentContext.AddUserMessage(msg.Content, msg.Timestamp);
+                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments);
             }
             else if (msg.Role == "assistant") 
             {
@@ -773,6 +911,10 @@ public partial class ChatTabViewModel : ViewModelBase
                 foreach (var msg in history.Messages)
                 {
                     PrepareRestoredMessage(msg);
+                    if (_attachmentStoreService != null)
+                    {
+                        await _attachmentStoreService.LoadPreviewsAsync(msg.Attachments);
+                    }
                     Messages.Add(msg);
                 }
             }
@@ -854,6 +996,7 @@ public partial class ChatTabViewModel : ViewModelBase
             foreach (var msg in snapshot.Messages)
             {
                 PrepareRestoredMessage(msg);
+                _ = _attachmentStoreService?.LoadPreviewsAsync(msg.Attachments);
                 Messages.Add(msg);
             }
         }
@@ -899,7 +1042,18 @@ public partial class ChatTabViewModel : ViewModelBase
                     msg.ToolCallId,
                     msg.ToolCallsJson,
                     msg.ReasoningContent,
-                    msg.IsCompressed
+                    msg.IsCompressed,
+                    Attachments = msg.Attachments.Select(a => new
+                    {
+                        a.Id,
+                        a.Kind,
+                        a.FileName,
+                        a.StoredPath,
+                        a.MimeType,
+                        a.SizeBytes,
+                        a.Width,
+                        a.Height
+                    }).ToList()
                 })
                 .ToList()
         };
@@ -912,6 +1066,7 @@ public partial class ChatTabViewModel : ViewModelBase
         return !(msg.Role == "assistant"
             && msg.IsLoading
             && string.IsNullOrWhiteSpace(msg.Content)
+            && msg.Attachments.Count == 0
             && string.IsNullOrWhiteSpace(msg.ToolCallsJson)
             && string.IsNullOrWhiteSpace(msg.ReasoningContent));
     }
@@ -930,6 +1085,7 @@ public partial class ChatTabViewModel : ViewModelBase
             ToolCallId = msg.ToolCallId,
             ToolCallsJson = msg.ToolCallsJson,
             ReasoningContent = msg.ReasoningContent,
+            Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachmentForMessage)),
             IsCompressed = msg.IsCompressed,
             CanEdit = false,
             CanRegenerate = false,
@@ -947,5 +1103,83 @@ public partial class ChatTabViewModel : ViewModelBase
         msg.CanEdit = false;
         msg.CanRegenerate = false;
         msg.ToolExecutionSummary = string.Empty;
+    }
+
+    private void ClearPendingAttachments(bool deleteStoredFiles)
+    {
+        if (deleteStoredFiles)
+        {
+            foreach (var attachment in PendingAttachments.ToList())
+            {
+                _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            }
+        }
+
+        PendingAttachments.Clear();
+        AttachmentStatusMessage = string.Empty;
+    }
+
+    private string GetString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
+    }
+
+    private string ToAttachmentErrorMessage(Exception ex)
+    {
+        if (ex.Message.Contains("too large", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetString("Chat.Attach.ErrorTooLarge", "One of the selected images is too large.");
+        }
+
+        if (ex.Message.Contains("Unsupported", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetString("Chat.Attach.ErrorUnsupported", "Only PNG, JPG, WEBP, and GIF images are supported for now.");
+        }
+
+        return string.Format(GetString("Chat.Attach.ErrorGeneric", "Failed to add attachment: {0}"), ex.Message);
+    }
+
+    private string ToChatErrorMessage(Exception ex)
+    {
+        if (_currentContext.Messages.Any(m => m.Attachments.Any(a => a.Kind == AttachmentKind.Image))
+            && IsLikelyImageInputFailure(ex))
+        {
+            return GetString(
+                "Chat.Error.ImageUnsupported",
+                "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.");
+        }
+
+        return $"Error: {ex.Message}";
+    }
+
+    private static bool IsLikelyImageInputFailure(Exception ex)
+    {
+        if (ex is ClientResultException clientException
+            && clientException.Status is 400 or 415 or 422)
+        {
+            return true;
+        }
+
+        return ex.Message.Contains("image", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("vision", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("modal", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ChatAttachment CloneAttachmentForMessage(ChatAttachment attachment)
+    {
+        return new ChatAttachment
+        {
+            Id = attachment.Id,
+            Kind = attachment.Kind,
+            FileName = attachment.FileName,
+            StoredPath = attachment.StoredPath,
+            MimeType = attachment.MimeType,
+            SizeBytes = attachment.SizeBytes,
+            Width = attachment.Width,
+            Height = attachment.Height,
+            CreatedAt = attachment.CreatedAt,
+            PreviewImage = attachment.PreviewImage
+        };
     }
 }

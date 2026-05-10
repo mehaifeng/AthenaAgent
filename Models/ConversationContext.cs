@@ -35,9 +35,15 @@ public class ConversationContext
 
     public IReadOnlyList<ContextMessage> Messages => _messages.AsReadOnly();
 
-    public void AddUserMessage(string content, DateTime? timestamp = null)
+    public void AddUserMessage(string content, DateTime? timestamp = null, IEnumerable<ChatAttachment>? attachments = null)
     {
-        _messages.Add(new ContextMessage { Role = "user", Content = content, Timestamp = timestamp ?? DateTime.Now });
+        _messages.Add(new ContextMessage
+        {
+            Role = "user",
+            Content = content,
+            Timestamp = timestamp ?? DateTime.Now,
+            Attachments = attachments?.Select(CloneAttachment).ToList() ?? new List<ChatAttachment>()
+        });
     }
 
     public void AddAssistantMessage(string content, string? toolCallsJson = null, string? reasoningContent = null)
@@ -100,12 +106,29 @@ public class ConversationContext
                 {
                     total += EstimateTokens(msg.ReasoningContent); // 计入思维链回放所需的 reasoning_content
                 }
+                total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Image) * 1000;
             }
             return total;
         }
     }
 
     public bool NeedsCompression(int threshold) => EstimatedTokenCount > threshold;
+
+    private static ChatAttachment CloneAttachment(ChatAttachment attachment)
+    {
+        return new ChatAttachment
+        {
+            Id = attachment.Id,
+            Kind = attachment.Kind,
+            FileName = attachment.FileName,
+            StoredPath = attachment.StoredPath,
+            MimeType = attachment.MimeType,
+            SizeBytes = attachment.SizeBytes,
+            Width = attachment.Width,
+            Height = attachment.Height,
+            CreatedAt = attachment.CreatedAt
+        };
+    }
 }
 
 public class ContextMessage
@@ -116,4 +139,5 @@ public class ContextMessage
     public string? ToolCallsJson { get; set; }
     public string? ReasoningContent { get; set; }
     public DateTime Timestamp { get; set; }
+    public List<ChatAttachment> Attachments { get; set; } = new();
 }

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
+using System.Collections.ObjectModel;
 
 namespace Athena.UI.Models;
 
@@ -8,6 +9,8 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class ChatMessage : ObservableObject
 {
+    public ObservableCollection<ChatAttachment> Attachments { get; set; } = new();
+
     /// <summary>
     /// 消息角色: user, assistant, system
     /// </summary>
@@ -119,6 +122,8 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     public bool IsContentVisible => !IsEditing && !string.IsNullOrWhiteSpace(Content);
 
+    public bool HasAttachments => Attachments.Count > 0;
+
     /// <summary>
     /// 是否强制隐藏（用于隐藏带有工具调用的中间助手消息）
     /// </summary>
@@ -130,7 +135,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasToolExecutionSummary || IsLoading || IsEditing);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasAttachments || HasToolExecutionSummary || IsLoading || IsEditing);
 
     /// <summary>
     /// 工具执行摘要提示

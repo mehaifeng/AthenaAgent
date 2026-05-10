@@ -31,6 +31,11 @@ public interface IPlatformPathService
     string GetHistoryDirectory();
 
     /// <summary>
+    /// 获取附件目录
+    /// </summary>
+    string GetAttachmentDirectory();
+
+    /// <summary>
     /// 获取任务调度器文件路径
     /// </summary>
     string GetTaskSchedulerFilePath();
