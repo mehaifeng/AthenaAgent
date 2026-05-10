@@ -34,6 +34,17 @@
     <system:String x:Key="Chat.MaxContextReached">Context limit reached</system:String>
     <system:String x:Key="Chat.BtnExecute">Send</system:String>
     <system:String x:Key="Chat.BtnStop">Stop response</system:String>
+    <system:String x:Key="Chat.Attach.Add">Attach files</system:String>
+    <system:String x:Key="Chat.Attach.Remove">Remove attachment</system:String>
+    <system:String x:Key="Chat.Attach.SelectImages">Select images</system:String>
+    <system:String x:Key="Chat.Attach.ImageFiles">Image files</system:String>
+    <system:String x:Key="Chat.Attach.ServiceUnavailable">Attachment service is unavailable.</system:String>
+    <system:String x:Key="Chat.Attach.NoStorageProvider">File picker is unavailable.</system:String>
+    <system:String x:Key="Chat.Attach.MaxCount">You can attach up to {0} files.</system:String>
+    <system:String x:Key="Chat.Attach.ErrorTooLarge">One of the selected images is too large.</system:String>
+    <system:String x:Key="Chat.Attach.ErrorUnsupported">Only PNG, JPG, WEBP, and GIF images are supported for now.</system:String>
+    <system:String x:Key="Chat.Attach.ErrorGeneric">Failed to add attachment: {0}</system:String>
+    <system:String x:Key="Chat.Error.ImageUnsupported">The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.</system:String>
     <system:String x:Key="Chat.RoleUser">You</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
 

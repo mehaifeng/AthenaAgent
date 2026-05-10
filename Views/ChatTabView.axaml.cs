@@ -2,15 +2,22 @@ using Athena.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.IO;
+using System.Linq;
 
 namespace Athena.UI.Views;
 
 public partial class ChatTabView : UserControl
 {
     private ScrollViewer? _chatScrollViewer;
+    private TextBox? _messageInputTextBox;
     private ChatTabViewModel? _viewModel;
     private bool _isUserScrolling;
     private double _lastScrollOffset;
@@ -80,6 +87,12 @@ public partial class ChatTabView : UserControl
             _chatScrollViewer.PointerWheelChanged += OnPointerWheelChanged;
         }
 
+        _messageInputTextBox = this.FindControl<TextBox>("MessageInputTextBox");
+        if (_messageInputTextBox != null)
+        {
+            _messageInputTextBox.PastingFromClipboard += OnMessageInputPastingFromClipboard;
+        }
+
         ScrollToBottomIfHasMessages();
     }
 
@@ -103,7 +116,48 @@ public partial class ChatTabView : UserControl
             _chatScrollViewer.PointerWheelChanged -= OnPointerWheelChanged;
         }
         _chatScrollViewer = null;
+        if (_messageInputTextBox != null)
+        {
+            _messageInputTextBox.PastingFromClipboard -= OnMessageInputPastingFromClipboard;
+        }
+        _messageInputTextBox = null;
         base.OnDetachedFromVisualTree(e);
+    }
+
+    private async void OnMessageInputPastingFromClipboard(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null) return;
+
+        var textBox = sender as TextBox;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+        e.Handled = true;
+
+        var bitmap = await clipboard.TryGetBitmapAsync();
+        if (bitmap != null)
+        {
+            e.Handled = true;
+            await _viewModel.AddClipboardBitmapAsync(bitmap);
+            return;
+        }
+
+        var files = await clipboard.TryGetFilesAsync();
+        var imageFiles = files?
+            .OfType<IStorageFile>()
+            .Where(file => IsSupportedImageName(file.Name))
+            .ToList();
+
+        if (imageFiles?.Count > 0)
+        {
+            await _viewModel.AddStorageFilesAsync(imageFiles);
+            return;
+        }
+
+        var text = await clipboard.TryGetTextAsync();
+        if (!string.IsNullOrEmpty(text) && textBox != null)
+        {
+            InsertText(textBox, text);
+        }
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
@@ -137,5 +191,26 @@ public partial class ChatTabView : UserControl
             Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
             Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Background);
         }
+    }
+
+    private static bool IsSupportedImageName(string fileName)
+    {
+        var extension = Path.GetExtension(fileName);
+        return extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".webp", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".gif", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void InsertText(TextBox textBox, string text)
+    {
+        var current = textBox.Text ?? string.Empty;
+        var start = Math.Min(textBox.SelectionStart, textBox.SelectionEnd);
+        var end = Math.Max(textBox.SelectionStart, textBox.SelectionEnd);
+        textBox.Text = current.Remove(start, end - start).Insert(start, text);
+        textBox.CaretIndex = start + text.Length;
+        textBox.SelectionStart = textBox.CaretIndex;
+        textBox.SelectionEnd = textBox.CaretIndex;
     }
 }

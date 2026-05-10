@@ -466,6 +466,13 @@ public partial class App : Application
             return new GitHubUpdateService(logger);
         });
 
+        services.AddSingleton<IAttachmentStoreService>(sp =>
+        {
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<AttachmentStoreService>();
+            return new AttachmentStoreService(pathService, logger);
+        });
+
         // Headless Browser 服务
         services.AddSingleton<IBrowserSessionManager>(sp =>
         {
@@ -595,6 +602,7 @@ public partial class App : Application
             var tokenService = sp.GetService<ITokenService>();
             var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
+            var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
 
@@ -614,6 +622,7 @@ public partial class App : Application
                 tokenService,
                 webSearchService,
                 updateService,
+                attachmentStoreService,
                 browserService,
                 browserVisionService);
         });
