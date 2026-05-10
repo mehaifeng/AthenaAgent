@@ -34,6 +34,17 @@
     <system:String x:Key="Chat.MaxContextReached">已达到上下文限制</system:String>
     <system:String x:Key="Chat.BtnExecute">发送</system:String>
     <system:String x:Key="Chat.BtnStop">停止回复</system:String>
+    <system:String x:Key="Chat.Attach.Add">添加附件</system:String>
+    <system:String x:Key="Chat.Attach.Remove">移除附件</system:String>
+    <system:String x:Key="Chat.Attach.SelectImages">选择图片</system:String>
+    <system:String x:Key="Chat.Attach.ImageFiles">图片文件</system:String>
+    <system:String x:Key="Chat.Attach.ServiceUnavailable">附件服务不可用。</system:String>
+    <system:String x:Key="Chat.Attach.NoStorageProvider">文件选择器不可用。</system:String>
+    <system:String x:Key="Chat.Attach.MaxCount">最多可添加 {0} 个附件。</system:String>
+    <system:String x:Key="Chat.Attach.ErrorTooLarge">选择的图片中有文件过大。</system:String>
+    <system:String x:Key="Chat.Attach.ErrorUnsupported">当前仅支持 PNG、JPG、WEBP 和 GIF 图片。</system:String>
+    <system:String x:Key="Chat.Attach.ErrorGeneric">添加附件失败: {0}</system:String>
+    <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型或服务端不支持图片输入，请切换为支持视觉的主模型后重试。</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
 
