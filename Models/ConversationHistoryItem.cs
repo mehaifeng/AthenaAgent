@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Athena.UI.Models;
 
@@ -47,4 +48,19 @@ public class ConversationHistoryItem
     /// 显示用的时间文本
     /// </summary>
     public string DisplayTime => UpdatedAt.ToString("yyyy-MM-dd HH:mm");
+
+    [JsonIgnore]
+    public bool IsArchivePlaceholder { get; set; }
+
+    [JsonIgnore]
+    public string? ArchiveStagePath { get; set; }
+
+    [JsonIgnore]
+    public string? ArchiveStatusText { get; set; }
+
+    [JsonIgnore]
+    public bool HasArchiveStatus => !string.IsNullOrWhiteSpace(ArchiveStatusText);
+
+    [JsonIgnore]
+    public bool AreActionsEnabled => !IsArchivePlaceholder;
 }
