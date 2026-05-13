@@ -44,6 +44,10 @@
     <system:String x:Key="Chat.Attach.ErrorTooLarge">One of the selected images is too large.</system:String>
     <system:String x:Key="Chat.Attach.ErrorUnsupported">Only PNG, JPG, WEBP, and GIF images are supported for now.</system:String>
     <system:String x:Key="Chat.Attach.ErrorGeneric">Failed to add attachment: {0}</system:String>
+    <system:String x:Key="Chat.Archive.Saving">Previous conversation is being saved in the background.</system:String>
+    <system:String x:Key="Chat.Archive.StageFailed">Failed to queue the previous conversation: {0}</system:String>
+    <system:String x:Key="Chat.Archive.RetryLater">Previous conversation save failed. It has been kept for retry.</system:String>
+    <system:String x:Key="Chat.Archive.ErrorUnavailable">Background archive service is unavailable.</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.</system:String>
     <system:String x:Key="Chat.RoleUser">You</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
@@ -109,6 +113,8 @@
     <system:String x:Key="History.Time">Time:</system:String>
     <system:String x:Key="History.BtnRestore">Restore</system:String>
     <system:String x:Key="History.BtnDel">Delete</system:String>
+    <system:String x:Key="History.PendingSummary">Summarizing conversation...</system:String>
+    <system:String x:Key="History.PendingStatus">Summarizing now</system:String>
     <system:String x:Key="History.NoRecords">No records found</system:String>
     <system:String x:Key="History.FooterHint">Select 'Restore' to load a previous session.</system:String>
 

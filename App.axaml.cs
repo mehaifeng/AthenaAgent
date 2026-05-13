@@ -584,6 +584,14 @@ public partial class App : Application
             return service;
         });
 
+        services.AddSingleton<IConversationArchiveService>(sp =>
+        {
+            var historyService = sp.GetRequiredService<IConversationHistoryService>();
+            var platformPathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<ConversationArchiveService>();
+            return new ConversationArchiveService(historyService, platformPathService, logger);
+        });
+
         // ViewModels
         services.AddSingleton<MainWindowViewModel>(sp =>
         {
@@ -603,6 +611,7 @@ public partial class App : Application
             var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
+            var archiveService = sp.GetService<IConversationArchiveService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
 
@@ -623,6 +632,7 @@ public partial class App : Application
                 webSearchService,
                 updateService,
                 attachmentStoreService,
+                archiveService,
                 browserService,
                 browserVisionService);
         });

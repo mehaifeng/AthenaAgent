@@ -44,6 +44,10 @@
     <system:String x:Key="Chat.Attach.ErrorTooLarge">选择的图片中有文件过大。</system:String>
     <system:String x:Key="Chat.Attach.ErrorUnsupported">当前仅支持 PNG、JPG、WEBP 和 GIF 图片。</system:String>
     <system:String x:Key="Chat.Attach.ErrorGeneric">添加附件失败: {0}</system:String>
+    <system:String x:Key="Chat.Archive.Saving">上一对话正在后台保存。</system:String>
+    <system:String x:Key="Chat.Archive.StageFailed">上一对话加入后台保存队列失败: {0}</system:String>
+    <system:String x:Key="Chat.Archive.RetryLater">上一对话保存失败，已保留待重试。</system:String>
+    <system:String x:Key="Chat.Archive.ErrorUnavailable">后台归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型或服务端不支持图片输入，请切换为支持视觉的主模型后重试。</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
@@ -109,6 +113,8 @@
     <system:String x:Key="History.Time">时间:</system:String>
     <system:String x:Key="History.BtnRestore">恢复</system:String>
     <system:String x:Key="History.BtnDel">删除</system:String>
+    <system:String x:Key="History.PendingSummary">正在总结这段对话...</system:String>
+    <system:String x:Key="History.PendingStatus">正在总结中</system:String>
     <system:String x:Key="History.NoRecords">未找到记录</system:String>
     <system:String x:Key="History.FooterHint">选择“恢复”将历史对话加载到当前记忆。</system:String>
 

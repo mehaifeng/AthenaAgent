@@ -5,11 +5,11 @@ using OpenAI.Chat;
 using Serilog;
 using System;
 using System.ClientModel;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
@@ -192,26 +192,33 @@ public class ConversationHistoryService : IConversationHistoryService
         return Task.CompletedTask;
     }
 
-    public async Task<Models.ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<Models.ChatMessage> messages, bool forceGenerateSummary = false, string? contextSummary = null)
+    public async Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
     {
-        var messageList = messages.ToList();
+        ct.ThrowIfCancellationRequested();
 
-        // 如果不需要强制生成摘要，直接使用现有的摘要逻辑（可能会使用简单的截取方式）
-        var summary = await GenerateSummaryAsync(messageList, forceGenerateSummary);
+        var messageList = ConversationPersistenceHelper.CloneMessages(snapshot.Messages);
+        var summary = await GenerateSummaryAsync(messageList, snapshot.ForceGenerateSummary);
+        var historyId = string.IsNullOrWhiteSpace(snapshot.HistoryId)
+            ? Guid.NewGuid().ToString()
+            : snapshot.HistoryId!;
 
-        var item = new Models.ConversationHistoryItem
+        var existingItem = await LoadByIdAsync(historyId);
+        var createdAt = existingItem?.CreatedAt
+            ?? messageList.FirstOrDefault()?.Timestamp
+            ?? snapshot.CapturedAt;
+
+        var item = new ConversationHistoryItem
         {
+            Id = historyId,
             Summary = summary,
-            ContextSummary = contextSummary,
+            ContextSummary = snapshot.ContextSummary,
             MessageCount = messageList.Count,
             Messages = messageList,
-            CreatedAt = messageList.FirstOrDefault()?.Timestamp ?? DateTime.Now,
-            UpdatedAt = DateTime.Now
+            CreatedAt = createdAt,
+            UpdatedAt = snapshot.CapturedAt
         };
 
-        // 自动保存
         await SaveAsync(item);
-
         return item;
     }
 

@@ -82,6 +82,38 @@ public class ConversationContext
         _summary = null;
     }
 
+    public ConversationContext Clone()
+    {
+        var clone = new ConversationContext(_maxTokens)
+        {
+            ToolsDeclarationTokenCount = ToolsDeclarationTokenCount
+        };
+
+        clone.SetMainPersona(_mainPersona);
+        clone.SetSummary(_summary);
+
+        foreach (var message in _messages)
+        {
+            switch (message.Role)
+            {
+                case "user":
+                    clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments);
+                    break;
+                case "assistant":
+                    clone.AddAssistantMessage(message.Content, message.ToolCallsJson, message.ReasoningContent);
+                    break;
+                case "tool":
+                    clone.AddToolMessage(message.Content, message.ToolCallId);
+                    break;
+                case "system":
+                    clone.AddSystemMessage(message.Content);
+                    break;
+            }
+        }
+
+        return clone;
+    }
+
     public static int EstimateTokens(string? content)
     {
         if (string.IsNullOrEmpty(content)) return 0;
