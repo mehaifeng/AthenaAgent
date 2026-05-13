@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.UI", "Athena.UI.cspr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.Updater", "Athena.Updater\Athena.Updater.csproj", "{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.Archive.Tests", "Athena.Archive.Tests\Athena.Archive.Tests.csproj", "{B68DAEA6-0B11-4739-B7E4-B9F621181AD0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +22,10 @@ Global
 		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F9FB7781-C9A5-4AD8-9A8B-8540DD2B7D54}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B68DAEA6-0B11-4739-B7E4-B9F621181AD0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B68DAEA6-0B11-4739-B7E4-B9F621181AD0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B68DAEA6-0B11-4739-B7E4-B9F621181AD0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B68DAEA6-0B11-4739-B7E4-B9F621181AD0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -31,6 +31,11 @@ public interface IPlatformPathService
     string GetHistoryDirectory();
 
     /// <summary>
+    /// 获取待处理归档目录
+    /// </summary>
+    string GetPendingArchiveDirectory();
+
+    /// <summary>
     /// 获取附件目录
     /// </summary>
     string GetAttachmentDirectory();

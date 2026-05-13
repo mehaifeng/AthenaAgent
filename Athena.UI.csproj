@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\Athena.ico</ApplicationIcon>
-    
+
     <!-- macOS 打包配置 -->
     <CFBundleName>Athena</CFBundleName>
     <CFBundleDisplayName>Athena</CFBundleDisplayName>
@@ -20,9 +20,17 @@
 
   <ItemGroup>
     <Folder Include="Converters\" />
-    <AvaloniaResource Include="Assets\**" />
-    <Compile Remove="Athena.Updater\**\*.cs" />
-    <Compile Remove="**\obj\**\*.cs" />
+    <AvaloniaXaml Remove="**\*.axaml" />
+    <AvaloniaXaml Remove="**\*.paml" />
+    <AvaloniaXaml Include="**/*.axaml" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" SubType="Designer" />
+    <Compile Update="**/*.axaml.cs">
+      <DependentUpon>%(Filename)</DependentUpon>
+    </Compile>
+    <None Remove="**/*.axaml" />
+    <AvaloniaResource Include="Assets/**" />
+    <Compile Remove="Athena.Archive.Tests/**/*.cs" />
+    <Compile Remove="Athena.Updater/**/*.cs" />
+    <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
   <!-- AthenaSoul.md 作为嵌入式资源 -->
@@ -33,16 +41,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\Athena.ico" />
+    <Content Include="Assets/Athena.ico" />
   </ItemGroup>
 
   <!-- 编译时将 AthenaSoul.md 复制到输出目录的 AthenaData/KnowledgeBase -->
   <Target Name="CopyAthenaSoulToKnowledgeBase" AfterTargets="Build">
     <PropertyGroup>
-      <AthenaDataPath>$(TargetDir)AthenaData\KnowledgeBase</AthenaDataPath>
+      <AthenaDataPath>$(TargetDir)AthenaData/KnowledgeBase</AthenaDataPath>
     </PropertyGroup>
     <MakeDir Directories="$(AthenaDataPath)" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Assets\AthenaSoul.md" DestinationFiles="$(AthenaDataPath)\AthenaSoul.md" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/Assets/AthenaSoul.md" DestinationFiles="$(AthenaDataPath)/AthenaSoul.md" SkipUnchangedFiles="true" />
     <Message Text="AthenaSoul.md copied to $(AthenaDataPath)" Importance="high" />
   </Target>
 

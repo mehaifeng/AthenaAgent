@@ -1,0 +1,77 @@
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+
+namespace Athena.UI.Models;
+
+/// <summary>
+/// 对话消息与附件的持久化辅助方法
+/// </summary>
+public static class ConversationPersistenceHelper
+{
+    public static bool ShouldPersistMessage(ChatMessage msg)
+    {
+        return !(msg.Role == "assistant"
+            && msg.IsLoading
+            && string.IsNullOrWhiteSpace(msg.Content)
+            && msg.Attachments.Count == 0
+            && string.IsNullOrWhiteSpace(msg.ToolCallsJson)
+            && string.IsNullOrWhiteSpace(msg.ReasoningContent));
+    }
+
+    public static List<ChatMessage> CloneMessages(IEnumerable<ChatMessage> messages)
+    {
+        return messages.Select(CloneMessage).ToList();
+    }
+
+    public static ChatMessage CloneMessage(ChatMessage msg)
+    {
+        return new ChatMessage
+        {
+            Role = msg.Role,
+            Content = msg.Content,
+            EditContent = string.Empty,
+            Timestamp = msg.Timestamp,
+            IsHeartbeat = msg.IsHeartbeat,
+            IsLoading = false,
+            IsEditing = false,
+            ToolCallId = msg.ToolCallId,
+            ToolCallsJson = msg.ToolCallsJson,
+            ReasoningContent = msg.ReasoningContent,
+            Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachment)),
+            IsCompressed = msg.IsCompressed,
+            CanEdit = false,
+            CanRegenerate = false,
+            IsHidden = msg.IsHidden,
+            ToolExecutionSummary = string.Empty,
+            ToolName = msg.ToolName
+        };
+    }
+
+    public static ChatAttachment CloneAttachment(ChatAttachment attachment)
+    {
+        return new ChatAttachment
+        {
+            Id = attachment.Id,
+            Kind = attachment.Kind,
+            FileName = attachment.FileName,
+            StoredPath = attachment.StoredPath,
+            MimeType = attachment.MimeType,
+            SizeBytes = attachment.SizeBytes,
+            Width = attachment.Width,
+            Height = attachment.Height,
+            CreatedAt = attachment.CreatedAt,
+            PreviewImage = attachment.PreviewImage
+        };
+    }
+
+    public static void PrepareRestoredMessage(ChatMessage msg)
+    {
+        msg.IsLoading = false;
+        msg.IsEditing = false;
+        msg.EditContent = string.Empty;
+        msg.CanEdit = false;
+        msg.CanRegenerate = false;
+        msg.ToolExecutionSummary = string.Empty;
+    }
+}

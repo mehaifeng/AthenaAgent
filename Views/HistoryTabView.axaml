@@ -43,15 +43,35 @@
             </Setter>
         </Style>
 
+        <Style Selector="Border.history-item-card.pending-archive">
+            <Setter Property="Background" Value="#FFF8ED"/>
+            <Setter Property="BorderBrush" Value="#E6A23C"/>
+        </Style>
+
+        <Style Selector="TextBlock.pending-archive-status">
+            <Setter Property="Foreground" Value="#B7791F"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
         <!-- 悬停效果 -->
         <Style Selector="ListBoxItem:pointerover Border.history-item-card">
             <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
+
+        <Style Selector="ListBoxItem:pointerover Border.history-item-card.pending-archive">
+            <Setter Property="Background" Value="#FFF4DD"/>
         </Style>
 
         <!-- 选中效果 -->
         <Style Selector="ListBoxItem:selected Border.history-item-card">
             <Setter Property="Background" Value="{DynamicResource SemiBlue1}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource SemiBlue4}"/>
+        </Style>
+
+        <Style Selector="ListBoxItem:selected Border.history-item-card.pending-archive">
+            <Setter Property="Background" Value="#FFF1D2"/>
+            <Setter Property="BorderBrush" Value="#D69E2E"/>
         </Style>
     </UserControl.Styles>
 
@@ -92,7 +112,8 @@
                          x:Name="HistoryListBox">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="models:ConversationHistoryItem">
-                            <Border Classes="history-item-card">
+                            <Border Classes="history-item-card"
+                                    Classes.pending-archive="{Binding IsArchivePlaceholder}">
                                 <Grid ColumnDefinitions="*,60">
 
                                     <!-- Data Block -->
@@ -106,13 +127,27 @@
                                         <Separator Height="1" Margin="0,4,30,4"/>
                                         <StackPanel
                                             Orientation="Horizontal" Spacing="24">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        IsVisible="{Binding !IsArchivePlaceholder}">
                                                 <TextBlock Text="{loc:Loc History.Msgs}" FontSize="12" Opacity="0.6"/>
                                                 <TextBlock Text="{Binding MessageCount}" FontSize="12" FontWeight="SemiBold"/>
                                             </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        IsVisible="{Binding !IsArchivePlaceholder}">
                                                 <TextBlock Text="{loc:Loc History.Time}" FontSize="12" Opacity="0.6"/>
                                                 <TextBlock Text="{Binding DisplayTime}" FontSize="12" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        IsVisible="{Binding HasArchiveStatus}">
+                                                <PathIcon Data="{StaticResource SemiIconLoading}"
+                                                          Width="12"
+                                                          Height="12"
+                                                          Classes="SlowSpin"/>
+                                                <TextBlock Text="{Binding ArchiveStatusText}"
+                                                           Classes="pending-archive-status"/>
                                             </StackPanel>
                                         </StackPanel>
                                     </StackPanel>
@@ -123,6 +158,7 @@
                                                 CommandParameter="{Binding}"
                                                 Theme="{StaticResource AccentButtonTheme}"
                                                 Padding="4"
+                                                IsEnabled="{Binding AreActionsEnabled}"
                                                 ToolTip.Tip="{loc:Loc History.BtnRestore}">
                                             <PathIcon Data="{DynamicResource SemiIconComment}" Height="14" Width="14" Opacity="0.6"/>
                                         </Button>
@@ -131,6 +167,7 @@
                                                 CommandParameter="{Binding}"
                                                 Classes="danger"
                                                 Padding="4"
+                                                IsEnabled="{Binding AreActionsEnabled}"
                                                 ToolTip.Tip="{loc:Loc History.BtnDel}">
                                             <PathIcon Data="{DynamicResource SemiIconDelete}" Width="14" Height="14" Opacity="0.6"/>
                                         </Button>
@@ -151,10 +188,10 @@
         </ScrollViewer>
 
         <!-- FOOTER INFO -->
-        <Border Grid.Row="3" 
+        <Border Grid.Row="3"
                 Background="{DynamicResource App.SectionBg}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}" 
-                BorderThickness="0,1,0,0" 
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="0,1,0,0"
                 Padding="12,8" >
             <TextBlock Text="{loc:Loc History.FooterHint}"
                        HorizontalAlignment="Right"
