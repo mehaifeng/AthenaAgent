@@ -53,7 +53,7 @@
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
         <Style Selector="TextBlock.user-title">
-            <Setter Property="Foreground" Value="{DynamicResource SemiBlue6}"/>
+            <Setter Property="Foreground" Value="{DynamicResource App.EmphasisForeground}"/>
         </Style>
         <Style Selector="TextBlock.assistant-title">
             <Setter Property="Foreground" Value="{DynamicResource SemiGreen6}"/>
@@ -254,7 +254,7 @@
                 <Button Grid.Column="2"
                         Command="{Binding SendMessageCommand}"
                         Margin="12,0,0,0"
-                        Classes="accent"
+                        Theme="{StaticResource AccentButtonTheme}"
                         Padding="20,8"
                         IsVisible="{Binding !IsSending}"
                         ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
@@ -264,7 +264,7 @@
                 <Button Grid.Column="2"
                         Command="{Binding StopResponseCommand}"
                         Margin="12,0,0,0"
-                        Classes="accent"
+                        Theme="{StaticResource AccentButtonTheme}"
                         Padding="20,8"
                         IsVisible="{Binding IsSending}"
                         ToolTip.Tip="{loc:Loc Chat.BtnStop}">

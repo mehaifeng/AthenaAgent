@@ -162,7 +162,7 @@
                        Content="{loc:Loc TaskDialog.BtnCancel}">
                 </Button>
                 <Button Command="{Binding ConfirmCommand}"
-                       Classes="accent"
+                       Theme="{StaticResource AccentButtonTheme}"
                        MinWidth="80"
                        IsEnabled="{Binding Intent, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                        Content="{loc:Loc TaskDialog.BtnCreate}">

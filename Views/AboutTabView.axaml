@@ -35,23 +35,10 @@
                         BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                         BorderThickness="1"
                         CornerRadius="12"
-                        Padding="32">
-                    <StackPanel Spacing="16">
-                        <TextBlock Text="Agent Athena"
-                                   FontSize="32"
-                                   FontWeight="Bold"
-                                   FontFamily="Consola"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource SemiBlue6}"/>
-
-                        <Separator Height="1" Opacity="0.3" Margin="0,8"/>
-
-                        <TextBlock Text="{loc:Loc About.Subtitle}"
-                                   FontSize="14"
-                                   FontWeight="Medium"
-                                   HorizontalAlignment="Center"
-                                   Opacity="0.8"/>
-                    </StackPanel>
+                        ClipToBounds="True">
+                    <Image Source="{DynamicResource About.LogoImage}"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Stretch"/>
                 </Border>
 
                 <!-- 规格信息块 -->

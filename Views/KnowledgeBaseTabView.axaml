@@ -152,7 +152,7 @@
                                     IsVisible="{Binding IsEditingFile}"
                                     FontSize="12" FontWeight="Bold"
                                     VerticalAlignment="Center"
-                                    Foreground="{DynamicResource SemiBlue6}"/>
+                                    Foreground="{DynamicResource App.EmphasisForeground}"/>
                             <TextBlock Text="{loc:Loc Files.ModeRead}"
                                     IsVisible="{Binding !IsEditingFile}"
                                     FontSize="12"
