@@ -631,12 +631,18 @@ public partial class ChatTabViewModel : ViewModelBase
     /// <summary>
     /// 处理来自调度器的主动消息
     /// </summary>
-    public async Task ProcessProactiveMessageAsync(string intent)
+    public async Task<TaskExecutionResult> ProcessProactiveMessageAsync(string intent)
     {
-        if (_chatService == null || _promptService == null || IsSending || IsCompressing)
+        if (_chatService == null || _promptService == null)
         {
-            _logger.Warning("忽略主动消息触发：当前正忙或服务未初始化 (IsSending={IsSending})", IsSending);
-            return;
+            _logger.Warning("忽略主动消息触发：服务未初始化");
+            return TaskExecutionResult.Failed("Chat service or prompt service is not available.");
+        }
+
+        if (IsSending || IsCompressing)
+        {
+            _logger.Warning("延后主动消息触发：当前正忙 (IsSending={IsSending}, IsCompressing={IsCompressing})", IsSending, IsCompressing);
+            return TaskExecutionResult.Busy("Foreground chat is busy.");
         }
 
         _logger.Information("开始处理主动消息逻辑: {Intent}", intent);
@@ -660,7 +666,7 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateConversationContext();
 
         // 触发 AI 响应（addToContext 为 false 因为我们已经手动添加到 Messages 列表并更新了 Context）
-        await GetAiResponseAsync(string.Empty, addToContext: false);
+        return await GetAiResponseAsync(string.Empty, addToContext: false);
     }
 
     private void BeginConversationTransition()
@@ -741,9 +747,12 @@ public partial class ChatTabViewModel : ViewModelBase
         return epoch == Volatile.Read(ref _conversationEpoch);
     }
 
-    private async Task GetAiResponseAsync(string input, bool addToContext = true)
+    private async Task<TaskExecutionResult> GetAiResponseAsync(string input, bool addToContext = true)
     {
-        if (_chatService == null) return;
+        if (_chatService == null)
+        {
+            return TaskExecutionResult.Failed("Chat service is not available.");
+        }
 
         var epoch = Volatile.Read(ref _conversationEpoch);
         _responseCts?.Dispose();
@@ -751,6 +760,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _responseCts = responseCts;
         var cancellationToken = responseCts.Token;
         var requestContext = _currentContext.Clone();
+        var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
         var assistantMsg = new ChatMessage
@@ -850,7 +860,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (!IsCurrentConversationEpoch(epoch))
             {
-                return;
+                return TaskExecutionResult.Interrupted("Conversation context changed.");
             }
 
             UpdateConversationContext();
@@ -867,18 +877,20 @@ public partial class ChatTabViewModel : ViewModelBase
             {
                 _logger.Information("当前回复已停止");
             }
+            outcome = TaskExecutionResult.Interrupted("Response was interrupted.");
         }
         catch (Exception ex)
         {
             if (!IsCurrentConversationEpoch(epoch))
             {
-                return;
+                return TaskExecutionResult.Interrupted("Conversation context changed.");
             }
 
             _logger.Error(ex, "Get AI response failed");
             assistantMsg.IsLoading = false;
             assistantMsg.ToolExecutionSummary = string.Empty;
             assistantMsg.Content = ToChatErrorMessage(ex);
+            outcome = TaskExecutionResult.Failed(ex.Message);
         }
         finally
         {
@@ -907,7 +919,11 @@ public partial class ChatTabViewModel : ViewModelBase
                 UpdateContextTokensDisplay();
                 UpdateBubbleButtonVisibility();
             }
+
+            await NotifySchedulerAvailabilityAsync();
         }
+
+        return outcome;
     }
 
     private void UpdateConversationContext()
@@ -1035,6 +1051,24 @@ public partial class ChatTabViewModel : ViewModelBase
         finally
         {
             IsCompressing = false;
+            await NotifySchedulerAvailabilityAsync();
+        }
+    }
+
+    private async Task NotifySchedulerAvailabilityAsync()
+    {
+        if (_taskScheduler == null || IsSending || IsCompressing)
+        {
+            return;
+        }
+
+        try
+        {
+            await _taskScheduler.RunDueTasksAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "通知任务调度器重新检查到期任务失败");
         }
     }
 

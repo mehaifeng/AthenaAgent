@@ -1,115 +1,147 @@
 using Athena.UI.Models;
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
 
 namespace Athena.UI.ViewModels;
 
 public partial class CreateTaskDialogViewModel : ViewModelBase
 {
     private readonly ILocalizationService? _localizationService;
+    private readonly IRecurrenceService _recurrenceService;
+    private RecurrenceRule _currentRule = RecurrenceRule.None();
+    private DateTime? _previewTriggerTime;
 
-    /// <summary>
-    /// 触发时间
-    /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FullTriggerTime))]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
     private DateTime _triggerDate = DateTime.Today.AddDays(1);
 
     [ObservableProperty]
-    private TimeSpan _triggerTime = new TimeSpan(9, 0, 0);
+    [NotifyPropertyChangedFor(nameof(FullTriggerTime))]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    private TimeSpan _triggerTime = new(9, 0, 0);
 
-    /// <summary>
-    /// 任务意图（LLM 对自己的提醒）
-    /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
     private string _intent = string.Empty;
 
-    /// <summary>
-    /// 循环模式
-    /// </summary>
     [ObservableProperty]
-    private string _recurrence = "none";
-
-    /// <summary>
-    /// 任务类型
-    /// </summary>
-    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskTypeDescription))]
     private TaskType _taskType = TaskType.Proactive;
 
-    /// <summary>
-    /// 可用的循环模式
-    /// </summary>
-    public ObservableCollection<string> RecurrenceOptions { get; } = new()
-    {
-        "none", "daily", "weekly", "every 3 days", "every 2 weeks"
-    };
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCustomRecurrenceVisible))]
+    [NotifyPropertyChangedFor(nameof(IsIntervalEditorVisible))]
+    [NotifyPropertyChangedFor(nameof(IsWeeklyDaysEditorVisible))]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
+    private int _selectedRecurrencePresetIndex;
 
-    /// <summary>
-    /// 循环模式显示名称
-    /// </summary>
-    public ObservableCollection<string> RecurrenceDisplayNames { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsIntervalEditorVisible))]
+    [NotifyPropertyChangedFor(nameof(IsWeeklyDaysEditorVisible))]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
+    private int _selectedCustomModeIndex;
 
-    /// <summary>
-    /// 任务类型显示名称
-    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
+    private int _customInterval = 1;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
+    private int _selectedIntervalUnitIndex = 2;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasValidationError))]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmCommand))]
+    private string _validationError = string.Empty;
+
+    public ObservableCollection<string> RecurrencePresetDisplayNames { get; }
+    public ObservableCollection<string> CustomModeDisplayNames { get; }
+    public ObservableCollection<string> IntervalUnitDisplayNames { get; }
     public ObservableCollection<string> TaskTypeDisplayNames { get; }
+    public ObservableCollection<WeekdaySelectionItem> WeekdaySelections { get; }
 
-    public CreateTaskDialogViewModel() : this(null) { }
+    public CreateTaskDialogViewModel() : this(null, null) { }
 
-    public CreateTaskDialogViewModel(ILocalizationService? localizationService)
+    public CreateTaskDialogViewModel(ILocalizationService? localizationService, IRecurrenceService? recurrenceService = null)
     {
         _localizationService = localizationService;
-        RecurrenceDisplayNames = new ObservableCollection<string>
-        {
+        _recurrenceService = recurrenceService
+            ?? App.Services?.GetService(typeof(IRecurrenceService)) as IRecurrenceService
+            ?? new RecurrenceService(localizationService);
+
+        RecurrencePresetDisplayNames =
+        [
             GetLocalizedString("Recurrence.NoneDisplay", "Once"),
-            GetLocalizedString("Recurrence.DailyDisplay", "Daily"),
-            GetLocalizedString("Recurrence.WeeklyDisplay", "Weekly"),
-            GetLocalizedString("Recurrence.Every3Days", "Every 3 days"),
-            GetLocalizedString("Recurrence.Every2Weeks", "Every 2 weeks")
-        };
-        TaskTypeDisplayNames = new ObservableCollection<string>
-        {
+            GetLocalizedString("Recurrence.DailyDisplay", "Every day"),
+            GetLocalizedString("Recurrence.WorkdaysDisplay", "Weekdays"),
+            GetLocalizedString("Recurrence.WeeklyPresetDisplay", "Every week"),
+            GetLocalizedString("Recurrence.CustomDisplay", "Custom")
+        ];
+
+        CustomModeDisplayNames =
+        [
+            GetLocalizedString("TaskDialog.Custom.IntervalMode", "Interval"),
+            GetLocalizedString("TaskDialog.Custom.WeeklyDaysMode", "Specific weekdays")
+        ];
+
+        IntervalUnitDisplayNames =
+        [
+            GetLocalizedString("Recurrence.Unit.Minutes", "minutes"),
+            GetLocalizedString("Recurrence.Unit.Hours", "hours"),
+            GetLocalizedString("Recurrence.Unit.Days", "days"),
+            GetLocalizedString("Recurrence.Unit.Weeks", "weeks")
+        ];
+
+        TaskTypeDisplayNames =
+        [
             GetLocalizedString("TaskType.Proactive", "Foreground (Proactive Message)"),
             GetLocalizedString("TaskType.Background", "Background (Silent)")
-        };
-    }
+        ];
 
-    private string GetLocalizedString(string key, string defaultValue)
-    {
-        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
-    }
+        WeekdaySelections =
+        [
+            CreateWeekday(DayOfWeek.Monday),
+            CreateWeekday(DayOfWeek.Tuesday),
+            CreateWeekday(DayOfWeek.Wednesday),
+            CreateWeekday(DayOfWeek.Thursday),
+            CreateWeekday(DayOfWeek.Friday),
+            CreateWeekday(DayOfWeek.Saturday),
+            CreateWeekday(DayOfWeek.Sunday)
+        ];
 
-    private int _selectedRecurrenceIndex;
-    public int SelectedRecurrenceIndex
-    {
-        get => _selectedRecurrenceIndex;
-        set
+        foreach (var item in WeekdaySelections)
         {
-            if (SetProperty(ref _selectedRecurrenceIndex, value) && value >= 0 && value < RecurrenceOptions.Count)
-            {
-                Recurrence = RecurrenceOptions[value];
-            }
+            item.PropertyChanged += OnWeekdaySelectionChanged;
         }
+
+        RecalculatePreview();
     }
 
-    private int _selectedTaskTypeIndex;
-    public int SelectedTaskTypeIndex
-    {
-        get => _selectedTaskTypeIndex;
-        set
-        {
-            if (SetProperty(ref _selectedTaskTypeIndex, value))
-            {
-                TaskType = value == 1 ? TaskType.Background : TaskType.Proactive;
-            }
-        }
-    }
+    public bool IsCustomRecurrenceVisible => SelectedRecurrencePresetIndex == 4;
 
-    /// <summary>
-    /// 任务类型说明
-    /// </summary>
+    public bool IsIntervalEditorVisible => IsCustomRecurrenceVisible && SelectedCustomModeIndex == 0;
+
+    public bool IsWeeklyDaysEditorVisible => IsCustomRecurrenceVisible && SelectedCustomModeIndex == 1;
+
+    public bool ShowMinuteSchedulingHint =>
+        _currentRule.Mode == RecurrenceMode.Interval
+        && _currentRule.Unit == RecurrenceUnit.Minute;
+
+    public bool HasValidationError => !string.IsNullOrWhiteSpace(ValidationError);
+
     public string TaskTypeDescription => TaskType switch
     {
         TaskType.Proactive => GetLocalizedString("TaskDialog.ProactiveHint",
@@ -119,36 +151,50 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
         _ => string.Empty
     };
 
-    /// <summary>
-    /// 完整的触发时间
-    /// </summary>
+    public string MinuteSchedulingHint => GetLocalizedString(
+        "TaskDialog.MinuteHint",
+        "High-frequency foreground tasks run serially. One-time tasks wait. Recurring tasks skip collisions.");
+
     public DateTime FullTriggerTime => TriggerDate.Date + TriggerTime;
 
-    /// <summary>
-    /// 对话结果
-    /// </summary>
+    public string RecurrenceSummaryPreview => _recurrenceService.GetSummary(_currentRule);
+
+    public string FirstTriggerPreview => _previewTriggerTime?.ToString("yyyy-MM-dd HH:mm")
+        ?? GetLocalizedString("TaskDialog.FirstTriggerUnavailable", "Unavailable");
+
     public ScheduledTask? Result { get; private set; }
 
-    /// <summary>
-    /// 是否确认
-    /// </summary>
     public bool IsConfirmed { get; private set; }
 
-    /// <summary>
-    /// 确认命令
-    /// </summary>
-    [RelayCommand]
+    public bool CanConfirm =>
+        !string.IsNullOrWhiteSpace(Intent)
+        && !HasValidationError
+        && _previewTriggerTime.HasValue;
+
+    public int SelectedTaskTypeIndex
+    {
+        get => TaskType == TaskType.Background ? 1 : 0;
+        set
+        {
+            TaskType = value == 1 ? TaskType.Background : TaskType.Proactive;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanConfirm))]
     private void Confirm()
     {
-        if (string.IsNullOrWhiteSpace(Intent))
+        if (!_previewTriggerTime.HasValue)
+        {
             return;
+        }
 
         Result = new ScheduledTask
         {
             Id = Guid.NewGuid().ToString(),
-            TriggerTime = FullTriggerTime,
+            TriggerTime = _previewTriggerTime.Value,
+            ScheduleBoundary = FullTriggerTime,
             Intent = Intent.Trim(),
-            Recurrence = Recurrence,
+            RecurrenceRule = _currentRule.Clone(),
             CreatedAt = DateTime.Now,
             TaskType = TaskType
         };
@@ -157,9 +203,6 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
         RequestClose?.Invoke();
     }
 
-    /// <summary>
-    /// 取消命令
-    /// </summary>
     [RelayCommand]
     private void Cancel()
     {
@@ -168,8 +211,148 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
         RequestClose?.Invoke();
     }
 
-    /// <summary>
-    /// 请求关闭窗口
-    /// </summary>
     public Action? RequestClose { get; set; }
+
+    partial void OnTriggerDateChanged(DateTime value) => RecalculatePreview();
+    partial void OnTriggerTimeChanged(TimeSpan value) => RecalculatePreview();
+    partial void OnIntentChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanConfirm));
+        ConfirmCommand.NotifyCanExecuteChanged();
+    }
+    partial void OnTaskTypeChanged(TaskType value) => OnPropertyChanged(nameof(SelectedTaskTypeIndex));
+    partial void OnSelectedRecurrencePresetIndexChanged(int value) => RecalculatePreview();
+    partial void OnSelectedCustomModeIndexChanged(int value) => RecalculatePreview();
+    partial void OnCustomIntervalChanged(int value) => RecalculatePreview();
+    partial void OnSelectedIntervalUnitIndexChanged(int value) => RecalculatePreview();
+
+    private void OnWeekdaySelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WeekdaySelectionItem.IsSelected))
+        {
+            RecalculatePreview();
+        }
+    }
+
+    private void RecalculatePreview()
+    {
+        _currentRule = BuildCurrentRule();
+        var validation = _recurrenceService.Validate(_currentRule);
+
+        if (!validation.IsValid)
+        {
+            _previewTriggerTime = null;
+            ValidationError = validation.Issues.First().Message;
+        }
+        else
+        {
+            _previewTriggerTime = _recurrenceService.GetFirstTriggerTime(FullTriggerTime, _currentRule, DateTime.Now);
+            ValidationError = _previewTriggerTime.HasValue
+                ? string.Empty
+                : GetLocalizedString("TaskDialog.Validation.FutureTrigger", "The first actual trigger time must be in the future.");
+        }
+
+        OnPropertyChanged(nameof(RecurrenceSummaryPreview));
+        OnPropertyChanged(nameof(FirstTriggerPreview));
+        OnPropertyChanged(nameof(ShowMinuteSchedulingHint));
+        OnPropertyChanged(nameof(CanConfirm));
+        ConfirmCommand.NotifyCanExecuteChanged();
+    }
+
+    private RecurrenceRule BuildCurrentRule()
+    {
+        return SelectedRecurrencePresetIndex switch
+        {
+            0 => RecurrenceRule.None(),
+            1 => new RecurrenceRule
+            {
+                Mode = RecurrenceMode.Interval,
+                Interval = 1,
+                Unit = RecurrenceUnit.Day
+            },
+            2 => new RecurrenceRule
+            {
+                Mode = RecurrenceMode.WeeklyDays,
+                Interval = 1,
+                DaysOfWeek =
+                [
+                    DayOfWeek.Monday,
+                    DayOfWeek.Tuesday,
+                    DayOfWeek.Wednesday,
+                    DayOfWeek.Thursday,
+                    DayOfWeek.Friday
+                ]
+            },
+            3 => new RecurrenceRule
+            {
+                Mode = RecurrenceMode.WeeklyDays,
+                Interval = 1,
+                DaysOfWeek = [TriggerDate.DayOfWeek]
+            },
+            4 when SelectedCustomModeIndex == 0 => new RecurrenceRule
+            {
+                Mode = RecurrenceMode.Interval,
+                Interval = CustomInterval,
+                Unit = SelectedIntervalUnitIndex switch
+                {
+                    0 => RecurrenceUnit.Minute,
+                    1 => RecurrenceUnit.Hour,
+                    2 => RecurrenceUnit.Day,
+                    3 => RecurrenceUnit.Week,
+                    _ => RecurrenceUnit.Day
+                }
+            },
+            4 => new RecurrenceRule
+            {
+                Mode = RecurrenceMode.WeeklyDays,
+                Interval = CustomInterval,
+                DaysOfWeek = WeekdaySelections
+                    .Where(x => x.IsSelected)
+                    .Select(x => x.DayOfWeek)
+                    .ToList()
+            },
+            _ => RecurrenceRule.None()
+        };
+    }
+
+    private WeekdaySelectionItem CreateWeekday(DayOfWeek day)
+    {
+        return new WeekdaySelectionItem(day, GetWeekdayLabel(day));
+    }
+
+    private string GetWeekdayLabel(DayOfWeek day)
+    {
+        return day switch
+        {
+            DayOfWeek.Monday => GetLocalizedString("Day.MondayShort", "Mon"),
+            DayOfWeek.Tuesday => GetLocalizedString("Day.TuesdayShort", "Tue"),
+            DayOfWeek.Wednesday => GetLocalizedString("Day.WednesdayShort", "Wed"),
+            DayOfWeek.Thursday => GetLocalizedString("Day.ThursdayShort", "Thu"),
+            DayOfWeek.Friday => GetLocalizedString("Day.FridayShort", "Fri"),
+            DayOfWeek.Saturday => GetLocalizedString("Day.SaturdayShort", "Sat"),
+            DayOfWeek.Sunday => GetLocalizedString("Day.SundayShort", "Sun"),
+            _ => day.ToString()
+        };
+    }
+
+    private string GetLocalizedString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
+    }
+}
+
+public partial class WeekdaySelectionItem : ObservableObject
+{
+    public WeekdaySelectionItem(DayOfWeek dayOfWeek, string displayName)
+    {
+        DayOfWeek = dayOfWeek;
+        DisplayName = displayName;
+    }
+
+    public DayOfWeek DayOfWeek { get; }
+
+    public string DisplayName { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
 }
