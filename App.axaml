@@ -4,6 +4,7 @@
              xmlns:local="using:Athena.UI"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:conv="using:Athena.UI.Converters"
+             xmlns:media="using:Avalonia.Media.Imaging"
              xmlns:semi="https://irihi.tech/semi"
              xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
@@ -39,6 +40,95 @@
             <ResourceDictionary.ThemeDictionaries>
                 <!-- 语义化颜色定义：深色模式 -->
                 <ResourceDictionary x:Key="Dark">
+                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/DarkLogo.PNG</media:Bitmap>
+                    <SolidColorBrush x:Key="App.EmphasisForeground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#F2F2F2" />
+                    <SolidColorBrush x:Key="App.EmphasisActiveForeground" Color="#D9D9D9" />
+                    <SolidColorBrush x:Key="App.EmphasisDisabledForeground" Color="#7A7A7A" />
+                    <SolidColorBrush x:Key="App.InverseForeground" Color="#111111" />
+                    <SolidColorBrush x:Key="App.SelectedBackground" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="App.SelectedBackgroundPointerover" Color="#464646" />
+                    <SolidColorBrush x:Key="App.SelectedBackgroundActive" Color="#525252" />
+                    <SolidColorBrush x:Key="App.SelectedBorderBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="App.FocusBorderBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="App.AccentButtonBackground" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="App.AccentButtonPointeroverBackground" Color="#464646" />
+                    <SolidColorBrush x:Key="App.AccentButtonPressedBackground" Color="#525252" />
+                    <SolidColorBrush x:Key="App.AccentButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedBackground" Color="#D3D3D3" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedPointeroverBackground" Color="#DFDFDF" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedPressedBackground" Color="#C2C2C2" />
+                    <SolidColorBrush x:Key="SemiColorPrimary" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryPointerover" Color="#F2F2F2" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryActive" Color="#D9D9D9" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryDisabled" Color="#7A7A7A" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLight" Color="#33FFFFFF" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLightPointerover" Color="#4DFFFFFF" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLightActive" Color="#66FFFFFF" />
+                    <StaticResource x:Key="ButtonDefaultPrimaryForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidForeground" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedForeground" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ButtonInputInnerPointeroverForeground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonInputInnerPressedForeground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="TabItemLinePipeSelectedBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="TabItemLineHeaderSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="TabItemButtonHeaderSelectedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="TabItemButtonHeaderSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="TabItemIconSelectedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ListBoxItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ListBoxItemSelectedPointeroverBackground" ResourceKey="App.SelectedBackgroundPointerover" />
+                    <StaticResource x:Key="TreeViewItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ComboBoxItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ComboBoxItemSelectedPointeroverBackground" ResourceKey="App.SelectedBackgroundPointerover" />
+                    <StaticResource x:Key="SliderTrackForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="SliderThumbBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="SliderThumbPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="SliderThumbPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="TextBoxFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="ComboBoxSelectorFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="CalendarDatePickerFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="CheckBoxPointeroverBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDefaultBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDisabledBorderBrush" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxGlyphFill" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="RadioButtonUncheckIconPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonUncheckIconPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDefaultBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDisabledBorderBrush" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="RadioButtonCheckGlyphFill" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="RadioButtonButtonCheckedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="RadioButtonCardCheckDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedDefaultBackground" ResourceKey="App.ToggleCheckedBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedPointeroverBackground" ResourceKey="App.ToggleCheckedPointeroverBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedPressedBackground" ResourceKey="App.ToggleCheckedPressedBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="SimpleToggleSwitchContainerCheckedForeground" ResourceKey="App.InverseForeground" />
                     <SolidColorBrush x:Key="App.SectionBg" Color="#232324" />
                     <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#1C2438" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
@@ -48,6 +138,95 @@
                 </ResourceDictionary>
                 <!-- 语义化颜色 definition：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
+                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/LightLogo.PNG</media:Bitmap>
+                    <SolidColorBrush x:Key="App.EmphasisForeground" Color="#111111" />
+                    <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#000000" />
+                    <SolidColorBrush x:Key="App.EmphasisActiveForeground" Color="#2A2A2A" />
+                    <SolidColorBrush x:Key="App.EmphasisDisabledForeground" Color="#A0A0A0" />
+                    <SolidColorBrush x:Key="App.InverseForeground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="App.SelectedBackground" Color="#E7E7E7" />
+                    <SolidColorBrush x:Key="App.SelectedBackgroundPointerover" Color="#DCDCDC" />
+                    <SolidColorBrush x:Key="App.SelectedBackgroundActive" Color="#D1D1D1" />
+                    <SolidColorBrush x:Key="App.SelectedBorderBrush" Color="#111111" />
+                    <SolidColorBrush x:Key="App.FocusBorderBrush" Color="#111111" />
+                    <SolidColorBrush x:Key="App.AccentButtonBackground" Color="#E7E7E7" />
+                    <SolidColorBrush x:Key="App.AccentButtonPointeroverBackground" Color="#DCDCDC" />
+                    <SolidColorBrush x:Key="App.AccentButtonPressedBackground" Color="#D1D1D1" />
+                    <SolidColorBrush x:Key="App.AccentButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedBackground" Color="#111111" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedPointeroverBackground" Color="#000000" />
+                    <SolidColorBrush x:Key="App.ToggleCheckedPressedBackground" Color="#2A2A2A" />
+                    <SolidColorBrush x:Key="SemiColorPrimary" Color="#111111" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryPointerover" Color="#000000" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryActive" Color="#2A2A2A" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryDisabled" Color="#A0A0A0" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLight" Color="#1A111111" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLightPointerover" Color="#26111111" />
+                    <SolidColorBrush x:Key="SemiColorPrimaryLightActive" Color="#33111111" />
+                    <StaticResource x:Key="ButtonDefaultPrimaryForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidForeground" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedForeground" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonSolidPrimaryPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ButtonInputInnerPointeroverForeground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="ButtonInputInnerPressedForeground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="TabItemLinePipeSelectedBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="TabItemLineHeaderSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="TabItemButtonHeaderSelectedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="TabItemButtonHeaderSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="TabItemIconSelectedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="ListBoxItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ListBoxItemSelectedPointeroverBackground" ResourceKey="App.SelectedBackgroundPointerover" />
+                    <StaticResource x:Key="TreeViewItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ComboBoxItemSelectedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="ComboBoxItemSelectedPointeroverBackground" ResourceKey="App.SelectedBackgroundPointerover" />
+                    <StaticResource x:Key="SliderTrackForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="SliderThumbBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="SliderThumbPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="SliderThumbPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="TextBoxFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="ComboBoxSelectorFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="CalendarDatePickerFocusBorderBrush" ResourceKey="App.FocusBorderBrush" />
+                    <StaticResource x:Key="CheckBoxPointeroverBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDefaultBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="CheckBoxCheckedDisabledBorderBrush" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="CheckBoxCardCheckedPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="CheckBoxGlyphFill" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="RadioButtonUncheckIconPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonUncheckIconPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDefaultBackground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPointeroverBackground" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPressedBackground" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="RadioButtonCheckIconDisabledBorderBrush" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="RadioButtonCheckGlyphFill" ResourceKey="App.InverseForeground" />
+                    <StaticResource x:Key="RadioButtonButtonCheckedForeground" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckedBackground" ResourceKey="App.SelectedBackground" />
+                    <StaticResource x:Key="RadioButtonCardCheckDefaultBorderBrush" ResourceKey="App.EmphasisForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckPointeroverBorderBrush" ResourceKey="App.EmphasisPointeroverForeground" />
+                    <StaticResource x:Key="RadioButtonCardCheckPressedBorderBrush" ResourceKey="App.EmphasisActiveForeground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedDefaultBackground" ResourceKey="App.ToggleCheckedBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedPointeroverBackground" ResourceKey="App.ToggleCheckedPointeroverBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedPressedBackground" ResourceKey="App.ToggleCheckedPressedBackground" />
+                    <StaticResource x:Key="ToggleSwitchContainerCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
+                    <StaticResource x:Key="SimpleToggleSwitchContainerCheckedForeground" ResourceKey="App.InverseForeground" />
                     <SolidColorBrush x:Key="App.SectionBg" Color="#F6F6F6" />
                     <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#E8F2FF" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
@@ -76,6 +255,23 @@
             <x:Double x:Key="TitleFontSize">18</x:Double>
             <x:Double x:Key="BodyFontSize">14</x:Double>
             <x:Double x:Key="SmallFontSize">12</x:Double>
+
+            <ControlTheme x:Key="AccentButtonTheme"
+                          BasedOn="{StaticResource SolidButton}"
+                          TargetType="Button">
+                <Setter Property="Foreground" Value="{DynamicResource App.EmphasisForeground}" />
+                <Setter Property="Background" Value="{DynamicResource App.AccentButtonBackground}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource App.AccentButtonBorderBrush}" />
+                <Style Selector="^:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource App.AccentButtonPointeroverBackground}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.AccentButtonBorderBrush}" />
+                </Style>
+                <Style Selector="^:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Foreground" Value="{DynamicResource App.EmphasisForeground}" />
+                    <Setter Property="Background" Value="{DynamicResource App.AccentButtonPressedBackground}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.AccentButtonBorderBrush}" />
+                </Style>
+            </ControlTheme>
         </ResourceDictionary>
     </Application.Resources>
 

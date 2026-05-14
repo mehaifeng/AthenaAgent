@@ -35,7 +35,7 @@
                     MinWidth="80"
                     Content="{Binding CancelText}"/>
             <Button Command="{Binding ConfirmCommand}"
-                    Classes="accent"
+                    Theme="{StaticResource AccentButtonTheme}"
                     MinWidth="80"
                     Content="{Binding ConfirmText}"/>
         </StackPanel>

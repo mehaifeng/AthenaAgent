@@ -49,8 +49,8 @@
 
         <!-- 选中时改变卡片背景和边框 -->
         <Style Selector="ListBoxItem:selected Border.task-item-card">
-            <Setter Property="Background" Value="{DynamicResource SemiBlue1}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiBlue4}"/>
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SelectedBorderBrush}"/>
         </Style>
     </UserControl.Styles>
 

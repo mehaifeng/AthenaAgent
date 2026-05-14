@@ -2,6 +2,8 @@ using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Avalonia;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
@@ -65,7 +67,16 @@ public partial class LogsTabViewModel : ViewModelBase
         _logService = logService;
         LogEndTime = DateTime.Today.AddDays(1);
         LogStartTime = DateTime.Today.AddDays(-7);
+        App.ThemeChanged += OnThemeChanged;
         RefreshLogsAsync().ConfigureAwait(false);
+    }
+
+    private void OnThemeChanged(string _)
+    {
+        foreach (var entry in LogEntries)
+        {
+            entry.RefreshTheme();
+        }
     }
 
     [RelayCommand]
@@ -209,7 +220,7 @@ public partial class LogsTabViewModel : ViewModelBase
 /// <summary>
 /// 日志条目 ViewModel（用于显示）
 /// </summary>
-public class LogEntryViewModel
+public class LogEntryViewModel : ObservableObject
 {
     private readonly LogEntry _entry;
 
@@ -238,16 +249,41 @@ public class LogEntryViewModel
         (string.IsNullOrWhiteSpace(Exception) ? string.Empty : $"{Environment.NewLine}Exception: {Exception}") +
         (string.IsNullOrWhiteSpace(Properties) ? string.Empty : $"{Environment.NewLine}Properties: {Properties}");
 
-    /// <summary>
-    /// 根据日志级别返回颜色
-    /// </summary>
-    public Avalonia.Media.IBrush LevelColor => _entry.Level switch
+    public IBrush LevelBackground => IsDarkTheme()
+        ? _entry.Level switch
+        {
+            "Debug" => new SolidColorBrush(Color.Parse("#8A8A8A")),
+            "Information" => new SolidColorBrush(Color.Parse("#B0B0B0")),
+            "Warning" => new SolidColorBrush(Color.Parse("#C6C6C6")),
+            "Error" => new SolidColorBrush(Color.Parse("#DFDFDF")),
+            "Fatal" => new SolidColorBrush(Color.Parse("#F2F2F2")),
+            _ => new SolidColorBrush(Color.Parse("#A0A0A0"))
+        }
+        : _entry.Level switch
+        {
+            "Debug" => new SolidColorBrush(Color.Parse("#D9D9D9")),
+            "Information" => new SolidColorBrush(Color.Parse("#B8B8B8")),
+            "Warning" => new SolidColorBrush(Color.Parse("#8E8E8E")),
+            "Error" => new SolidColorBrush(Color.Parse("#5E5E5E")),
+            "Fatal" => new SolidColorBrush(Color.Parse("#2E2E2E")),
+            _ => new SolidColorBrush(Color.Parse("#C8C8C8"))
+        };
+
+    public IBrush LevelForeground => IsDarkTheme()
+        ? Brushes.Black
+        : _entry.Level switch
+        {
+            "Error" => Brushes.White,
+            "Fatal" => Brushes.White,
+            _ => Brushes.Black
+        };
+
+    public void RefreshTheme()
     {
-        "Debug" => Avalonia.Media.Brushes.Gray,
-        "Information" => Avalonia.Media.Brushes.Green,
-        "Warning" => Avalonia.Media.Brushes.Orange,
-        "Error" => Avalonia.Media.Brushes.Red,
-        "Fatal" => Avalonia.Media.Brushes.Red,
-        _ => Avalonia.Media.Brushes.White
-    };
+        OnPropertyChanged(nameof(LevelBackground));
+        OnPropertyChanged(nameof(LevelForeground));
+    }
+
+    private static bool IsDarkTheme() =>
+        Application.Current?.RequestedThemeVariant == ThemeVariant.Dark;
 }
