@@ -50,8 +50,8 @@
 
         <!-- 选中效果 -->
         <Style Selector="ListBoxItem:selected Border.history-item-card">
-            <Setter Property="Background" Value="{DynamicResource SemiBlue1}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiBlue4}"/>
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SelectedBorderBrush}"/>
         </Style>
     </UserControl.Styles>
 
