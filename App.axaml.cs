@@ -348,6 +348,13 @@ public partial class App : Application
         // 本地化服务（单例）
         services.AddSingleton<ILocalizationService, LocalizationService>();
 
+        // 重复规则服务（单例）
+        services.AddSingleton<IRecurrenceService>(sp =>
+        {
+            var localizationService = sp.GetRequiredService<ILocalizationService>();
+            return new RecurrenceService(localizationService);
+        });
+
         // 日志服务（单例）
         services.AddSingleton<ILogService, LogService>();
 
@@ -374,7 +381,8 @@ public partial class App : Application
         {
             var logger = Log.ForContext<Services.TaskScheduler>();
             var pathService = sp.GetRequiredService<IPlatformPathService>();
-            var scheduler = new Services.TaskScheduler(logger, pathService);
+            var recurrenceService = sp.GetRequiredService<IRecurrenceService>();
+            var scheduler = new Services.TaskScheduler(logger, pathService, recurrenceService);
             scheduler.Start(); // 启动调度器
             Log.Information("任务调度器已启动");
             return scheduler;
@@ -419,8 +427,9 @@ public partial class App : Application
         services.AddSingleton<ProactiveMessagingFunctions>(sp =>
         {
             var taskScheduler = sp.GetRequiredService<ITaskScheduler>();
+            var recurrenceService = sp.GetRequiredService<IRecurrenceService>();
             var logger = Log.ForContext<ProactiveMessagingFunctions>();
-            return new ProactiveMessagingFunctions(taskScheduler, logger);
+            return new ProactiveMessagingFunctions(taskScheduler, recurrenceService, logger);
         });
 
         services.AddSingleton<KnowledgeBaseFunctions>(sp =>

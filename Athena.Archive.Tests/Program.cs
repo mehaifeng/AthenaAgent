@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services;
+using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Serilog;
 
@@ -17,7 +19,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("fallback summary still saves without secondary model", TestFallbackSummaryAsync),
-    ("archive queue stages locally and retries on restart", TestArchiveQueueReplayAsync)
+    ("archive queue stages locally and retries on restart", TestArchiveQueueReplayAsync),
+    ("recurrence migration and validation works", TestRecurrenceMigrationAndValidationAsync),
+    ("first trigger handles weekday boundaries", TestFirstTriggerCalculationAsync),
+    ("scheduler serializes foreground work and skips recurring collisions", TestSchedulerForegroundSerialPolicyAsync),
+    ("scheduler advances long-running recurring task to next future slot", TestSchedulerLongRunningRecurringAsync),
+    ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync)
 };
 
 var failures = new List<string>();
@@ -181,6 +188,215 @@ static async Task TestArchiveQueueReplayAsync()
     await AwaitWithTimeout(completion.Task, "archive replay completion");
     AssertEqual(0, Directory.GetFiles(harness.PathService.GetPendingArchiveDirectory(), "*.json").Length, "replayed archive should be deleted");
     AssertEqual(1, succeedingHistory.UpsertedSnapshots.Count, "replayed archive should be delivered to history service");
+}
+
+static Task TestRecurrenceMigrationAndValidationAsync()
+{
+    var service = new RecurrenceService(new TestLocalizationService());
+    var anchor = new DateTime(2026, 5, 14, 9, 0, 0, DateTimeKind.Local);
+
+    var none = service.MigrateLegacyRule("none", anchor);
+    var daily = service.MigrateLegacyRule("daily", anchor);
+    var weekly = service.MigrateLegacyRule("weekly", anchor);
+    var everyThreeDays = service.MigrateLegacyRule("every 3 days", anchor);
+    var everyTwoWeeks = service.MigrateLegacyRule("every 2 weeks", anchor);
+
+    AssertEqual(RecurrenceMode.None, none.Mode, "none should migrate to none");
+    AssertEqual(RecurrenceMode.Interval, daily.Mode, "daily should migrate to interval");
+    AssertEqual(1, daily.Interval, "daily interval should be 1");
+    AssertEqual(RecurrenceUnit.Day, daily.Unit, "daily unit should be day");
+    AssertEqual(RecurrenceMode.WeeklyDays, weekly.Mode, "weekly should migrate to weekly_days");
+    AssertEqual(anchor.DayOfWeek, weekly.DaysOfWeek?.Single() ?? DayOfWeek.Sunday, "weekly should keep the anchor weekday");
+    AssertEqual(3, everyThreeDays.Interval, "every 3 days interval should be 3");
+    AssertEqual(RecurrenceUnit.Day, everyThreeDays.Unit, "every 3 days unit should be day");
+    AssertEqual(2, everyTwoWeeks.Interval, "every 2 weeks interval should be 2");
+    AssertEqual(RecurrenceUnit.Week, everyTwoWeeks.Unit, "every 2 weeks unit should be week");
+
+    var invalidInterval = service.Validate(new RecurrenceRule
+    {
+        Mode = RecurrenceMode.Interval,
+        Interval = 0,
+        Unit = RecurrenceUnit.Minute
+    });
+    AssertFalse(invalidInterval.IsValid, "zero interval should be invalid");
+
+    var invalidDays = service.Validate(new RecurrenceRule
+    {
+        Mode = RecurrenceMode.WeeklyDays,
+        Interval = 1,
+        DaysOfWeek = []
+    });
+    AssertFalse(invalidDays.IsValid, "weekly_days without days should be invalid");
+
+    return Task.CompletedTask;
+}
+
+static Task TestFirstTriggerCalculationAsync()
+{
+    var service = new RecurrenceService(new TestLocalizationService());
+    var now = new DateTime(2026, 5, 14, 8, 0, 0, DateTimeKind.Local);
+    var boundary = new DateTime(2026, 5, 16, 9, 0, 0, DateTimeKind.Local); // Saturday
+    var rule = new RecurrenceRule
+    {
+        Mode = RecurrenceMode.WeeklyDays,
+        Interval = 1,
+        DaysOfWeek =
+        [
+            DayOfWeek.Monday,
+            DayOfWeek.Tuesday,
+            DayOfWeek.Wednesday,
+            DayOfWeek.Thursday,
+            DayOfWeek.Friday
+        ]
+    };
+
+    var firstTrigger = service.GetFirstTriggerTime(boundary, rule, now);
+    AssertEqual(new DateTime(2026, 5, 18, 9, 0, 0, DateTimeKind.Local), firstTrigger, "workday recurrence should skip to the next matching weekday");
+    return Task.CompletedTask;
+}
+
+static async Task TestSchedulerForegroundSerialPolicyAsync()
+{
+    using var harness = new TestHarness();
+    var recurrenceService = new RecurrenceService(new TestLocalizationService());
+    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
+    scheduler.Start();
+
+    var dispatchedTaskIds = new List<string>();
+    scheduler.ProactiveMessageTriggered += (_, e) => dispatchedTaskIds.Add(e.TaskId);
+
+    var now = DateTime.Now;
+    var oneTimeTask = new ScheduledTask
+    {
+        Id = "one-time-a",
+        TriggerTime = now.AddMinutes(1),
+        ScheduleBoundary = now.AddMinutes(1),
+        Intent = "one-time-a",
+        RecurrenceRule = RecurrenceRule.None(),
+        CreatedAt = now,
+        TaskType = TaskType.Proactive
+    };
+    var recurringTask = new ScheduledTask
+    {
+        Id = "recurring-b",
+        TriggerTime = now.AddMinutes(1),
+        ScheduleBoundary = now.AddMinutes(1),
+        Intent = "recurring-b",
+        RecurrenceRule = new RecurrenceRule
+        {
+            Mode = RecurrenceMode.Interval,
+            Interval = 1,
+            Unit = RecurrenceUnit.Minute
+        },
+        CreatedAt = now,
+        TaskType = TaskType.Proactive
+    };
+
+    await scheduler.ScheduleAsync(oneTimeTask);
+    await scheduler.ScheduleAsync(recurringTask);
+    oneTimeTask.TriggerTime = DateTime.Now.AddSeconds(-5);
+    recurringTask.TriggerTime = DateTime.Now.AddSeconds(-5);
+
+    await scheduler.RunDueTasksAsync();
+    AssertEqual(1, dispatchedTaskIds.Count, "only one foreground task should dispatch at a time");
+    AssertEqual("one-time-a", dispatchedTaskIds[0], "one-time task should win when due at the same time");
+    AssertTrue(recurringTask.TriggerTime > DateTime.Now, "recurring collision should be skipped to a future time");
+
+    var waitingTask = new ScheduledTask
+    {
+        Id = "one-time-c",
+        TriggerTime = DateTime.Now.AddSeconds(-5),
+        ScheduleBoundary = DateTime.Now.AddMinutes(2),
+        Intent = "one-time-c",
+        RecurrenceRule = RecurrenceRule.None(),
+        CreatedAt = now,
+        TaskType = TaskType.Proactive
+    };
+    await scheduler.ScheduleAsync(waitingTask);
+    waitingTask.TriggerTime = DateTime.Now.AddSeconds(-5);
+
+    await scheduler.RunDueTasksAsync();
+    AssertEqual(1, dispatchedTaskIds.Count, "new one-time task should wait while another foreground task is still running");
+    AssertFalse(waitingTask.IsExecuted, "waiting one-time task should stay pending");
+
+    await scheduler.CompleteTaskExecutionAsync(oneTimeTask.Id, TaskExecutionOutcome.Succeeded, "done");
+    AssertEqual(2, dispatchedTaskIds.Count, "scheduler should dispatch the waiting one-time task after completion");
+    AssertEqual("one-time-c", dispatchedTaskIds[1], "waiting task should run next");
+
+    await scheduler.CompleteTaskExecutionAsync(waitingTask.Id, TaskExecutionOutcome.Succeeded, "done");
+    AssertTrue(waitingTask.IsExecuted, "one-time waiting task should complete after execution");
+}
+
+static async Task TestSchedulerLongRunningRecurringAsync()
+{
+    using var harness = new TestHarness();
+    var recurrenceService = new RecurrenceService(new TestLocalizationService());
+    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
+    scheduler.Start();
+    scheduler.ProactiveMessageTriggered += (_, _) => { };
+
+    var boundary = DateTime.Now.AddMinutes(-5);
+    var task = new ScheduledTask
+    {
+        Id = "recurring-long",
+        TriggerTime = DateTime.Now.AddMinutes(1),
+        ScheduleBoundary = boundary,
+        Intent = "recurring-long",
+        RecurrenceRule = new RecurrenceRule
+        {
+            Mode = RecurrenceMode.Interval,
+            Interval = 1,
+            Unit = RecurrenceUnit.Minute
+        },
+        CreatedAt = DateTime.Now,
+        TaskType = TaskType.Proactive
+    };
+
+    await scheduler.ScheduleAsync(task);
+    task.TriggerTime = DateTime.Now.AddSeconds(-5);
+    await scheduler.RunDueTasksAsync();
+    await scheduler.CompleteTaskExecutionAsync(task.Id, TaskExecutionOutcome.Succeeded, "completed after long run");
+
+    AssertTrue(task.TriggerTime > DateTime.Now, "recurring task should advance to a future slot after completion");
+    AssertTrue(task.TriggerTime < DateTime.Now.AddMinutes(2), "recurring task should not replay every missed interval");
+}
+
+static async Task TestCreateTaskStructuredResponsesAsync()
+{
+    using var harness = new TestHarness();
+    var recurrenceService = new RecurrenceService(new TestLocalizationService());
+    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
+    var functions = new ProactiveMessagingFunctions(scheduler, recurrenceService, Log.ForContext<ProactiveMessagingFunctions>());
+
+    var success = await functions.ScheduleProactiveMessage(
+        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
+        "check progress",
+        new RecurrenceRuleInput
+        {
+            Mode = "interval",
+            Interval = 1,
+            Unit = "day"
+        });
+
+    AssertTrue(success.Success, "valid create_task request should succeed");
+    var successData = JsonSerializer.SerializeToElement(success.Data);
+    AssertTrue(successData.GetProperty("validation").GetProperty("isValid").GetBoolean(), "success result should include valid validation data");
+    AssertTrue(successData.TryGetProperty("normalizedRecurrence", out _), "success result should include normalized recurrence");
+
+    var failure = await functions.ScheduleProactiveMessage(
+        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
+        "broken rule",
+        new RecurrenceRuleInput
+        {
+            Mode = "weekly_days",
+            Interval = 1,
+            DaysOfWeek = []
+        });
+
+    AssertFalse(failure.Success, "invalid create_task request should fail");
+    var failureData = JsonSerializer.SerializeToElement(failure.Data);
+    AssertFalse(failureData.GetProperty("validation").GetProperty("isValid").GetBoolean(), "failure result should include invalid validation data");
+    AssertTrue(failureData.GetProperty("validation").GetProperty("issues").GetArrayLength() > 0, "failure result should expose structured validation issues");
 }
 
 static async Task AwaitWithTimeout(Task task, string operation)

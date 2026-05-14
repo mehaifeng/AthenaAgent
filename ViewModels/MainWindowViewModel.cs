@@ -129,16 +129,27 @@ public partial class MainWindowViewModel : ViewModelBase
         // 必须在 UI 线程处理，因为涉及切换 Tab 和修改 ObservableCollection
         Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
         {
+            var executionResult = TaskExecutionResult.Failed("Proactive task did not start.");
             _logger.Information("收到主动消息触发事件: {Intent}", e.Intent);
-            
-            // 1. 托盘闪烁提醒
-            App.StartTrayFlashing();
 
-            // 2. 切换到聊天 Tab
-            SelectedTabIndex = 0;
-
-            // 3. 执行消息注入和 AI 响应逻辑
-            await ChatTabViewModel.ProcessProactiveMessageAsync(e.Intent);
+            try
+            {
+                App.StartTrayFlashing();
+                SelectedTabIndex = 0;
+                executionResult = await ChatTabViewModel.ProcessProactiveMessageAsync(e.Intent);
+            }
+            catch (Exception ex)
+            {
+                executionResult = TaskExecutionResult.Failed(ex.Message);
+                _logger.Error(ex, "处理主动消息时发生异常: {TaskId}", e.TaskId);
+            }
+            finally
+            {
+                if (sender is ITaskScheduler taskScheduler)
+                {
+                    await taskScheduler.CompleteTaskExecutionAsync(e.TaskId, executionResult.Outcome, executionResult.Note);
+                }
+            }
         });
     }
 
