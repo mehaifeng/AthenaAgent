@@ -14,11 +14,13 @@ namespace Athena.UI.Services.Functions;
 public class ProactiveMessagingFunctions
 {
     private readonly ITaskScheduler _taskScheduler;
+    private readonly IRecurrenceService _recurrenceService;
     private readonly ILogger _logger;
 
-    public ProactiveMessagingFunctions(ITaskScheduler taskScheduler, ILogger logger)
+    public ProactiveMessagingFunctions(ITaskScheduler taskScheduler, IRecurrenceService recurrenceService, ILogger logger)
     {
         _taskScheduler = taskScheduler;
+        _recurrenceService = recurrenceService;
         _logger = logger.ForContext<ProactiveMessagingFunctions>();
     }
 
@@ -27,52 +29,119 @@ public class ProactiveMessagingFunctions
     /// </summary>
     /// <param name="scheduledTime">触发时间（如 "2024-02-10 08:00", "in 2 hours", "tomorrow morning"）</param>
     /// <param name="intent">任务意图（AI 对自己的提醒）</param>
-    /// <param name="recurrence">循环模式（none, daily, weekly, every N days）</param>
+    /// <param name="recurrence">结构化循环规则</param>
     /// <returns>操作结果</returns>
     public async Task<FunctionResult> ScheduleProactiveMessage(
         string scheduledTime,
         string intent,
-        string recurrence = "none")
+        RecurrenceRuleInput? recurrence = null)
     {
         try
         {
-            var triggerTime = ParseScheduleTime(scheduledTime);
+            var triggerBoundary = ParseScheduleTime(scheduledTime);
+            var validation = new RecurrenceValidationResult();
+            var normalizedRecurrence = _recurrenceService.Normalize(recurrence, validation);
+            validation = MergeValidation(validation, _recurrenceService.Validate(normalizedRecurrence));
 
-            if (triggerTime <= DateTime.Now)
+            var normalizedTrigger = _recurrenceService.GetFirstTriggerTime(triggerBoundary, normalizedRecurrence, DateTime.Now);
+            if (!normalizedTrigger.HasValue)
             {
-                return FunctionResult.FailureResult("触发时间必须是未来时间");
+                validation.Issues.Add(new RecurrenceValidationIssue
+                {
+                    Code = "trigger_not_in_future",
+                    Message = "The first actual trigger time must be in the future."
+                });
+            }
+            else if (normalizedTrigger.Value != triggerBoundary)
+            {
+                validation.Warnings.Add($"First actual trigger normalized to {normalizedTrigger.Value:yyyy-MM-dd HH:mm}.");
+            }
+
+            var recurrenceSummary = _recurrenceService.GetSummary(normalizedRecurrence);
+            var validationData = new
+            {
+                isValid = validation.IsValid,
+                issues = validation.Issues,
+                warnings = validation.Warnings,
+                supportedRecurrencePatterns = validation.SupportedRecurrencePatterns
+            };
+
+            if (!validation.IsValid || !normalizedTrigger.HasValue)
+            {
+                return FunctionResult.FailureResult(
+                    "Task validation failed. Ask the user to choose a supported recurrence rule or a future trigger time.",
+                    new
+                    {
+                        validation = validationData,
+                        normalizedRecurrence,
+                        normalizedTriggerTime = normalizedTrigger?.ToString("O"),
+                        recurrenceSummary
+                    });
             }
 
             var task = new ScheduledTask
             {
                 Id = Guid.NewGuid().ToString(),
-                TriggerTime = triggerTime,
-                Intent = intent,
-                Recurrence = NormalizeRecurrence(recurrence),
-                CreatedAt = DateTime.Now
+                TriggerTime = normalizedTrigger.Value,
+                ScheduleBoundary = triggerBoundary,
+                Intent = intent.Trim(),
+                RecurrenceRule = normalizedRecurrence,
+                CreatedAt = DateTime.Now,
+                TaskType = TaskType.Proactive
             };
 
             await _taskScheduler.ScheduleAsync(task);
 
             _logger.Information("Function: 安排主动消息 {TaskId} 于 {TriggerTime}",
-                task.Id, triggerTime);
+                task.Id, normalizedTrigger.Value);
 
             return FunctionResult.SuccessResult(
-                $"已安排于 {triggerTime:yyyy-MM-dd HH:mm} 触发。任务ID: {task.Id}",
-                new { taskId = task.Id, triggerTime = triggerTime.ToString("O") });
+                $"Task scheduled for {normalizedTrigger:yyyy-MM-dd HH:mm}. Task ID: {task.Id}",
+                new
+                {
+                    taskId = task.Id,
+                    normalizedTriggerTime = normalizedTrigger.Value.ToString("O"),
+                    normalizedRecurrence,
+                    recurrenceSummary,
+                    warnings = validation.Warnings,
+                    validation = validationData
+                });
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "安排主动消息失败");
-            return FunctionResult.FailureResult($"安排失败: {ex.Message}");
+            return FunctionResult.FailureResult($"安排失败: {ex.Message}",
+                new
+                {
+                    validation = new
+                    {
+                        isValid = false,
+                        issues = new[]
+                        {
+                            new RecurrenceValidationIssue
+                            {
+                                Code = "schedule_parse_failed",
+                                Message = ex.Message
+                            }
+                        },
+                        warnings = Array.Empty<string>(),
+                        supportedRecurrencePatterns = new[]
+                        {
+                            "once",
+                            "every N minutes",
+                            "every N hours",
+                            "every N days",
+                            "every N weeks",
+                            "every N weeks on specific weekdays"
+                        }
+                    }
+                });
         }
     }
 
     /// <summary>
     /// 取消已安排的消息
     /// </summary>
-    /// <param name="taskId">任务 ID</param>
-    /// <returns>操作结果</returns>
     public async Task<FunctionResult> CancelScheduledMessage(string taskId)
     {
         try
@@ -84,10 +153,8 @@ public class ProactiveMessagingFunctions
                 _logger.Information("Function: 取消任务 {TaskId}", taskId);
                 return FunctionResult.SuccessResult("任务已取消");
             }
-            else
-            {
-                return FunctionResult.FailureResult("未找到该任务");
-            }
+
+            return FunctionResult.FailureResult("未找到该任务");
         }
         catch (Exception ex)
         {
@@ -99,7 +166,6 @@ public class ProactiveMessagingFunctions
     /// <summary>
     /// 列出所有已安排的消息
     /// </summary>
-    /// <returns>任务列表</returns>
     public async Task<FunctionResult> ListScheduledMessages()
     {
         try
@@ -111,14 +177,19 @@ public class ProactiveMessagingFunctions
                 taskId = t.Id,
                 scheduledTime = t.TriggerTime.ToString("yyyy-MM-dd HH:mm"),
                 intent = t.Intent,
-                recurrence = t.Recurrence,
-                createdAt = t.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                normalizedRecurrence = _recurrenceService.Normalize(t.RecurrenceRule),
+                recurrenceSummary = _recurrenceService.GetSummary(t.RecurrenceRule),
+                createdAt = t.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                taskType = t.TaskType.ToString(),
+                lastExecutionAt = t.LastExecutionAt?.ToString("O"),
+                lastExecutionOutcome = t.LastExecutionOutcome,
+                lastExecutionNote = t.LastExecutionNote
             }).ToList();
 
             _logger.Information("Function: 列出 {Count} 个计划任务", taskList.Count);
 
             return FunctionResult.SuccessResult(
-                $"共有 {taskList.Count} 个待执行任务",
+                $"共有 {taskList.Count} 个活动任务",
                 taskList);
         }
         catch (Exception ex)
@@ -133,21 +204,18 @@ public class ProactiveMessagingFunctions
     /// </summary>
     private DateTime ParseScheduleTime(string timeString)
     {
-        var input = timeString.Trim().ToLower();
+        var input = timeString.Trim().ToLowerInvariant();
 
-        // 尝试解析相对时间
-        if (input.StartsWith("in "))
+        if (input.StartsWith("in ", StringComparison.Ordinal))
         {
             return ParseRelativeTime(input[3..]);
         }
 
-        // 尝试解析特殊关键词
-        if (input.Contains("tomorrow"))
+        if (input.Contains("tomorrow", StringComparison.Ordinal))
         {
             return ParseTomorrowTime(input);
         }
 
-        // 尝试直接解析日期时间
         if (DateTime.TryParse(timeString, out var result))
         {
             return result;
@@ -156,15 +224,12 @@ public class ProactiveMessagingFunctions
         throw new ArgumentException($"无法解析时间: {timeString}");
     }
 
-    /// <summary>
-    /// 解析相对时间（如 "2 hours", "30 minutes", "30 seconds"）
-    /// </summary>
     private DateTime ParseRelativeTime(string relative)
     {
-        var parts = relative.Trim().Split(' ');
+        var parts = relative.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length >= 2 && int.TryParse(parts[0], out var amount))
         {
-            var unit = parts[1].ToLower();
+            var unit = parts[1].ToLowerInvariant();
             return unit switch
             {
                 "second" or "seconds" or "sec" => DateTime.Now.AddSeconds(amount),
@@ -179,15 +244,10 @@ public class ProactiveMessagingFunctions
         throw new ArgumentException($"无法解析相对时间: {relative}");
     }
 
-    /// <summary>
-    /// 解析 "tomorrow" 相关时间
-    /// </summary>
     private DateTime ParseTomorrowTime(string input)
     {
         var tomorrow = DateTime.Today.AddDays(1);
-
-        // 提取时间部分
-        var timePart = input.Replace("tomorrow", "").Trim();
+        var timePart = input.Replace("tomorrow", "", StringComparison.Ordinal).Trim();
         if (!string.IsNullOrEmpty(timePart))
         {
             if (TimeSpan.TryParse(timePart, out var time))
@@ -195,33 +255,42 @@ public class ProactiveMessagingFunctions
                 return tomorrow + time;
             }
 
-            // 尝试解析 "morning" = 9:00, "afternoon" = 14:00, "evening" = 18:00
-            if (timePart.Contains("morning"))
+            if (timePart.Contains("morning", StringComparison.Ordinal))
+            {
                 return tomorrow.AddHours(9);
-            if (timePart.Contains("afternoon"))
+            }
+
+            if (timePart.Contains("afternoon", StringComparison.Ordinal))
+            {
                 return tomorrow.AddHours(14);
-            if (timePart.Contains("evening"))
+            }
+
+            if (timePart.Contains("evening", StringComparison.Ordinal))
+            {
                 return tomorrow.AddHours(18);
+            }
         }
 
-        // 默认明天早上 9 点
         return tomorrow.AddHours(9);
     }
 
-    /// <summary>
-    /// 标准化循环模式
-    /// </summary>
-    private string NormalizeRecurrence(string recurrence)
+    private static RecurrenceValidationResult MergeValidation(RecurrenceValidationResult left, RecurrenceValidationResult right)
     {
-        var normalized = recurrence.Trim().ToLower();
-
-        return normalized switch
+        foreach (var issue in right.Issues)
         {
-            "none" or "once" or "one-time" or "一次性" => "none",
-            "daily" or "every day" or "每天" => "daily",
-            "weekly" or "every week" or "每周" => "weekly",
-            _ when normalized.StartsWith("every ") => normalized,
-            _ => "none"
-        };
+            left.Issues.Add(issue);
+        }
+
+        foreach (var warning in right.Warnings)
+        {
+            left.Warnings.Add(warning);
+        }
+
+        foreach (var pattern in right.SupportedRecurrencePatterns.Where(p => !left.SupportedRecurrencePatterns.Contains(p)))
+        {
+            left.SupportedRecurrencePatterns.Add(pattern);
+        }
+
+        return left;
     }
 }
