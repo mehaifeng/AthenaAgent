@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.ClientModel;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,11 +15,21 @@ using Athena.UI.Services;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 
 namespace Athena.UI.ViewModels;
 
 public partial class ChatTabViewModel : ViewModelBase
 {
+    private enum TransitionStageResult
+    {
+        NotNeeded,
+        Staged,
+        Failed
+    }
+
     private readonly IChatService? _chatService;
     private readonly IConfigService? _configService;
     private readonly IConversationHistoryService? _historyService;
@@ -27,6 +38,8 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IAttachmentStoreService? _attachmentStoreService;
+    private readonly IConversationArchiveService? _archiveService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     [ObservableProperty]
@@ -44,6 +57,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private bool _isSending;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
     private bool _isResetting;
 
     [ObservableProperty]
@@ -56,12 +70,39 @@ public partial class ChatTabViewModel : ViewModelBase
     private bool _isCompressing;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAttachmentStatusMessage))]
+    private string _attachmentStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveStatusMessage))]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveNeutralStatus))]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveErrorStatus))]
+    private string _backgroundArchiveStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveNeutralStatus))]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveErrorStatus))]
+    private bool _isBackgroundArchiveError;
+
+    [ObservableProperty]
     private string _currentTheme = "Dark";
 
     [ObservableProperty]
     private string _themeIcon = "Moon"; // "Moon"=当前Dark点一下切Light, "Sun"=当前Light点一下切Dark
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
+
+    public ObservableCollection<ChatAttachment> PendingAttachments { get; } = new();
+
+    public bool HasPendingAttachments => PendingAttachments.Count > 0;
+
+    public bool HasAttachmentStatusMessage => !string.IsNullOrWhiteSpace(AttachmentStatusMessage);
+
+    public bool HasBackgroundArchiveStatusMessage => !string.IsNullOrWhiteSpace(BackgroundArchiveStatusMessage);
+
+    public bool HasBackgroundArchiveNeutralStatus => HasBackgroundArchiveStatusMessage && !IsBackgroundArchiveError;
+
+    public bool HasBackgroundArchiveErrorStatus => HasBackgroundArchiveStatusMessage && IsBackgroundArchiveError;
 
     public string ContextTokensInfo => _tokenService?.TokenInfoText ?? "0 / 0 tokens";
 
@@ -73,14 +114,18 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
-    
+    private readonly SemaphoreSlim _conversationTransitionLock = new(1, 1);
+    private int _conversationEpoch;
+
     // 记录当前加载的历史对话 ID，如果是新对话则为空
     private string? _currentHistoryId;
-    
+
     // 记录加载历史时的初始签名，用于判断是否发生了修改
     private string? _initialConversationSignature;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null) { }
+    private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
+
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -90,7 +135,9 @@ public partial class ChatTabViewModel : ViewModelBase
         ITaskScheduler? taskScheduler,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
-        ILocalizationService? localizationService)
+        ILocalizationService? localizationService,
+        IAttachmentStoreService? attachmentStoreService = null,
+        IConversationArchiveService? archiveService = null)
     {
         _chatService = chatService;
         _configService = configService;
@@ -100,6 +147,8 @@ public partial class ChatTabViewModel : ViewModelBase
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
         _localizationService = localizationService;
+        _attachmentStoreService = attachmentStoreService;
+        _archiveService = archiveService;
 
         // Initialize from config
         if (_configService != null)
@@ -120,14 +169,26 @@ public partial class ChatTabViewModel : ViewModelBase
             });
         };
 
-        Messages.CollectionChanged += (s, e) => 
+        Messages.CollectionChanged += (s, e) =>
         {
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
         };
 
+        PendingAttachments.CollectionChanged += (s, e) =>
+        {
+            OnPropertyChanged(nameof(HasPendingAttachments));
+            SendMessageCommand.NotifyCanExecuteChanged();
+        };
+
         // 计算初始 Token（系统提示词和工具声明的基底开销）
         UpdateContextTokensDisplay();
+
+        if (_archiveService != null)
+        {
+            _archiveService.ArchiveCompleted += OnArchiveCompleted;
+            _archiveService.ArchiveFailed += OnArchiveFailed;
+        }
 
         RestoreDraftIfNeeded();
     }
@@ -135,7 +196,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanSendMessage))]
     private async Task SendMessageAsync()
     {
-        if (string.IsNullOrWhiteSpace(InputText)) return;
+        if (string.IsNullOrWhiteSpace(InputText) && PendingAttachments.Count == 0) return;
 
         // 在发送前检查是否需要压缩上下文
         if (_tokenService != null && _configService != null)
@@ -149,13 +210,24 @@ public partial class ChatTabViewModel : ViewModelBase
         }
 
         var userContent = InputText;
+        var attachments = PendingAttachments.Select(CloneAttachmentForMessage).ToList();
         InputText = string.Empty;
+        PendingAttachments.Clear();
+        AttachmentStatusMessage = string.Empty;
 
-        Messages.Add(new ChatMessage { Role = "user", Content = userContent, Timestamp = DateTime.Now });
-        await GetAiResponseAsync(userContent);
+        Messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Content = userContent,
+            Attachments = new ObservableCollection<ChatAttachment>(attachments),
+            Timestamp = DateTime.Now
+        });
+
+        UpdateConversationContext();
+        await GetAiResponseAsync(userContent, addToContext: false);
     }
 
-    private bool CanSendMessage() => !IsSending && !IsCompressing && !string.IsNullOrWhiteSpace(InputText);
+    private bool CanSendMessage() => !IsSending && !IsCompressing && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
 
     private bool CanStopResponse() => IsSending;
 
@@ -183,34 +255,29 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    private bool CanStartNewConversation() => !IsResetting;
+
+    [RelayCommand(CanExecute = nameof(CanStartNewConversation))]
     private async Task NewConversationAsync()
     {
-        IsResetting = true;
+        await _conversationTransitionLock.WaitAsync();
         try
         {
-            // 保存当前对话到历史记录
-            if (Messages.Count > 0 && _historyService != null && IsConversationModified())
+            IsResetting = true;
+            BeginConversationTransition();
+
+            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
+            if (stagedSnapshot == TransitionStageResult.Failed)
             {
-                await _historyService.CreateFromMessagesAsync(Messages, forceGenerateSummary: true, contextSummary: _tokenService?.CompressionPreview);
+                return;
             }
 
-            Messages.Clear();
-            _currentContext.Reset();
-            _currentHistoryId = null;
-            _initialConversationSignature = null;
-            if (_tokenService != null)
-            {
-                _tokenService.CompressionPreview = string.Empty;
-            }
-            _historyService?.DeleteDraft();
-            UpdateConversationContext();
-            UpdateContextTokensDisplay();
-            await Task.Delay(300); // Visual feedback
+            ResetConversationState();
         }
         finally
         {
             IsResetting = false;
+            _conversationTransitionLock.Release();
         }
     }
 
@@ -233,11 +300,11 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (message == null || !message.IsEditing) return;
         var newContent = message.EditContent.Trim();
-        
+
         // 检查该消息后面是否有后续消息
         int msgIndex = Messages.IndexOf(message);
         bool hasSubsequentMessages = msgIndex >= 0 && msgIndex < Messages.Count - 1;
-        
+
         if (hasSubsequentMessages)
         {
             // 检查用户偏好设置
@@ -260,14 +327,14 @@ public partial class ChatTabViewModel : ViewModelBase
                     ConfirmText = "是",
                     CancelText = "否"
                 };
-                
+
                 var dialog = new Views.ConfirmDialog(vm);
                 var owner = GetMainWindow();
                 if (owner == null) return;
                 await dialog.ShowDialog(owner);
-                
+
                 if (vm.Result != true) return;
-                
+
                 // 如果用户勾选了"不再询问"，保存偏好
                 if (vm.ShouldNotAskAgain && _configService != null)
                 {
@@ -275,7 +342,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     cfg.SkipEditConfirm = true;
                     await _configService.SaveAsync(cfg);
                 }
-                
+
                 // 清理后续消息（与 Regenerate 相同的逻辑）
                 while (Messages.Count > msgIndex + 1)
                 {
@@ -283,12 +350,12 @@ public partial class ChatTabViewModel : ViewModelBase
                 }
             }
         }
-        
+
         if (!string.IsNullOrWhiteSpace(newContent))
         {
             message.Content = newContent;
             message.IsEditing = false;
-            
+
             if (hasSubsequentMessages)
             {
                 // 编辑后重新生成
@@ -312,13 +379,13 @@ public partial class ChatTabViewModel : ViewModelBase
     private async Task RegenerateResponseAsync(ChatMessage? message)
     {
         if (message == null || _chatService == null) return;
-        
+
         int msgIndex = Messages.IndexOf(message);
         if (msgIndex < 0) return;
 
         // 检查是否是最新消息
         bool isNotLatest = msgIndex < Messages.Count - 1;
-        
+
         if (isNotLatest)
         {
             // 检查用户偏好设置
@@ -338,14 +405,14 @@ public partial class ChatTabViewModel : ViewModelBase
                     ConfirmText = "是",
                     CancelText = "否"
                 };
-                
+
                 var dialog = new Views.ConfirmDialog(vm);
                 var owner = GetMainWindow();
                 if (owner == null) return;
                 await dialog.ShowDialog(owner);
-                
+
                 if (vm.Result != true) return;
-                
+
                 // 如果用户勾选了"不再询问"，保存偏好
                 if (vm.ShouldNotAskAgain && _configService != null)
                 {
@@ -376,7 +443,7 @@ public partial class ChatTabViewModel : ViewModelBase
         }
 
         UpdateConversationContext();
-        
+
         // 基于该干净的节点重新生成
         var lastUserMsg = Messages[lastUserIndex];
         await GetAiResponseAsync(lastUserMsg.Content, addToContext: false);
@@ -386,9 +453,9 @@ public partial class ChatTabViewModel : ViewModelBase
     private void DeleteMessage(ChatMessage? message)
     {
         if (message == null) return;
-        
+
         int msgIndex = Messages.IndexOf(message);
-        
+
         // 删除 tool 消息时，向上级联删除对应的 assistant tool_calls 消息
         if (message.Role == "tool")
         {
@@ -409,7 +476,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 }
             }
         }
-        
+
         // 级联删除：如果删除的是带工具调用的助手消息，也要删除其后的工具结果
         if (message.Role == "assistant" && !string.IsNullOrEmpty(message.ToolCallsJson))
         {
@@ -418,7 +485,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 Messages.RemoveAt(msgIndex + 1);
             }
         }
-        
+
         Messages.Remove(message);
         UpdateConversationContext();
         UpdateContextTokensDisplay();
@@ -430,7 +497,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (message != null)
         {
-            if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) 
+            if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 var clipboard = TopLevel.GetTopLevel(desktop.MainWindow)?.Clipboard;
                 clipboard?.SetTextAsync(message.Content?? string.Empty);
@@ -452,27 +519,137 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void AttachFile()
+    private async Task AttachFileAsync()
     {
-        // File attachment logic
+        if (_attachmentStoreService == null)
+        {
+            AttachmentStatusMessage = GetString("Chat.Attach.ServiceUnavailable", "Attachment service is unavailable.");
+            return;
+        }
+
+        var owner = GetMainWindow();
+        var storageProvider = owner?.StorageProvider;
+        if (storageProvider == null)
+        {
+            AttachmentStatusMessage = GetString("Chat.Attach.NoStorageProvider", "File picker is unavailable.");
+            return;
+        }
+
+        var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = GetString("Chat.Attach.SelectImages", "Select images"),
+            AllowMultiple = true,
+            FileTypeFilter =
+            [
+                new FilePickerFileType(GetString("Chat.Attach.ImageFiles", "Image files"))
+                {
+                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"],
+                    MimeTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"],
+                    AppleUniformTypeIdentifiers = ["public.png", "public.jpeg", "org.webmproject.webp", "com.compuserve.gif"]
+                }
+            ]
+        });
+
+        await AddStorageFilesAsync(files);
+    }
+
+    [RelayCommand]
+    private void RemovePendingAttachment(ChatAttachment? attachment)
+    {
+        if (attachment == null) return;
+
+        if (PendingAttachments.Remove(attachment))
+        {
+            _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            AttachmentStatusMessage = string.Empty;
+        }
+    }
+
+    public async Task AddStorageFilesAsync(IEnumerable<IStorageFile> files)
+    {
+        if (_attachmentStoreService == null) return;
+
+        var available = _attachmentStoreService.MaxPendingAttachments - PendingAttachments.Count;
+        if (available <= 0)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                _attachmentStoreService.MaxPendingAttachments);
+            return;
+        }
+
+        try
+        {
+            var allFiles = files.ToList();
+            var selected = allFiles.Take(available).ToList();
+            var imported = await _attachmentStoreService.ImportFilesAsync(selected);
+            foreach (var attachment in imported)
+            {
+                PendingAttachments.Add(attachment);
+            }
+
+            AttachmentStatusMessage = allFiles.Count > selected.Count
+                ? string.Format(
+                    GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                    _attachmentStoreService.MaxPendingAttachments)
+                : string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "添加附件失败");
+            AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
+        }
+    }
+
+    public async Task AddClipboardBitmapAsync(Bitmap bitmap)
+    {
+        if (_attachmentStoreService == null) return;
+
+        if (PendingAttachments.Count >= _attachmentStoreService.MaxPendingAttachments)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                _attachmentStoreService.MaxPendingAttachments);
+            return;
+        }
+
+        try
+        {
+            var attachment = await _attachmentStoreService.ImportBitmapAsync(
+                bitmap,
+                $"clipboard-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+            PendingAttachments.Add(attachment);
+            AttachmentStatusMessage = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "粘贴图片失败");
+            AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
+        }
     }
 
     /// <summary>
     /// 处理来自调度器的主动消息
     /// </summary>
-    public async Task ProcessProactiveMessageAsync(string intent)
+    public async Task<TaskExecutionResult> ProcessProactiveMessageAsync(string intent)
     {
-        if (_chatService == null || _promptService == null || IsSending || IsCompressing)
+        if (_chatService == null || _promptService == null)
         {
-            _logger.Warning("忽略主动消息触发：当前正忙或服务未初始化 (IsSending={IsSending})", IsSending);
-            return;
+            _logger.Warning("忽略主动消息触发：服务未初始化");
+            return TaskExecutionResult.Failed("Chat service or prompt service is not available.");
+        }
+
+        if (IsSending || IsCompressing)
+        {
+            _logger.Warning("延后主动消息触发：当前正忙 (IsSending={IsSending}, IsCompressing={IsCompressing})", IsSending, IsCompressing);
+            return TaskExecutionResult.Busy("Foreground chat is busy.");
         }
 
         _logger.Information("开始处理主动消息逻辑: {Intent}", intent);
 
         // 构造主动触发指令
         var proactivePrompt = _promptService.GetProactiveMessagePrompt(intent, DateTime.Now);
-        
+
         // 重要：为了绕过大多数 LLM API 不允许以 System 消息结尾或纯 System 消息序列的限制，
         // 我们将主动指令作为一条“隐藏的用户消息”注入。
         var triggerMsg = new ChatMessage
@@ -482,41 +659,131 @@ public partial class ChatTabViewModel : ViewModelBase
             IsHidden = true, // 在 UI 中不可见
             Timestamp = DateTime.Now
         };
-        
+
         Messages.Add(triggerMsg);
 
         // 确保上下文包含这条新消息
         UpdateConversationContext();
 
         // 触发 AI 响应（addToContext 为 false 因为我们已经手动添加到 Messages 列表并更新了 Context）
-        await GetAiResponseAsync(string.Empty, addToContext: false);
+        return await GetAiResponseAsync(string.Empty, addToContext: false);
     }
 
-    private async Task GetAiResponseAsync(string input, bool addToContext = true)
+    private void BeginConversationTransition()
     {
-        if (_chatService == null) return;
+        Interlocked.Increment(ref _conversationEpoch);
+        _responseCts?.Cancel();
+        FinalizePendingAssistantMessages();
+        IsSending = false;
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+    }
 
+    private ConversationArchiveSnapshot? CaptureArchiveSnapshotIfNeeded()
+    {
+        if (!IsConversationModified())
+        {
+            return null;
+        }
+
+        var messages = Messages
+            .Where(ConversationPersistenceHelper.ShouldPersistMessage)
+            .Select(ConversationPersistenceHelper.CloneMessage)
+            .ToList();
+
+        if (messages.Count == 0)
+        {
+            return null;
+        }
+
+        return new ConversationArchiveSnapshot
+        {
+            HistoryId = _currentHistoryId,
+            ContextSummary = _tokenService?.CompressionPreview,
+            Messages = messages,
+            CapturedAt = DateTime.Now,
+            ForceGenerateSummary = true
+        };
+    }
+
+    private void ResetConversationState()
+    {
+        Messages.Clear();
+        InputText = string.Empty;
+        ClearPendingAttachments(deleteStoredFiles: true);
+        _currentContext.Reset();
+        _currentHistoryId = null;
+        _initialConversationSignature = null;
+
+        if (_tokenService != null)
+        {
+            _tokenService.CompressionPreview = string.Empty;
+        }
+
+        _historyService?.DeleteDraft();
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+    }
+
+    private void FinalizePendingAssistantMessages()
+    {
+        foreach (var message in Messages.Where(m => m.Role == "assistant" && m.IsLoading).ToList())
+        {
+            var shouldRemove = !ConversationPersistenceHelper.ShouldPersistMessage(message);
+            message.IsLoading = false;
+            message.ToolExecutionSummary = string.Empty;
+
+            if (shouldRemove)
+            {
+                Messages.Remove(message);
+            }
+        }
+    }
+
+    private bool IsCurrentConversationEpoch(int epoch)
+    {
+        return epoch == Volatile.Read(ref _conversationEpoch);
+    }
+
+    private async Task<TaskExecutionResult> GetAiResponseAsync(string input, bool addToContext = true)
+    {
+        if (_chatService == null)
+        {
+            return TaskExecutionResult.Failed("Chat service is not available.");
+        }
+
+        var epoch = Volatile.Read(ref _conversationEpoch);
         _responseCts?.Dispose();
-        _responseCts = new CancellationTokenSource();
-        var cancellationToken = _responseCts.Token;
+        var responseCts = new CancellationTokenSource();
+        _responseCts = responseCts;
+        var cancellationToken = responseCts.Token;
+        var requestContext = _currentContext.Clone();
+        var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
-        var assistantMsg = new ChatMessage 
-        { 
-            Role = "assistant", 
-            Content = string.Empty, 
+        var assistantMsg = new ChatMessage
+        {
+            Role = "assistant",
+            Content = string.Empty,
             Timestamp = DateTime.Now,
-            IsLoading = true 
+            IsLoading = true
         };
         Messages.Add(assistantMsg);
 
         try
         {
             await foreach (var contentDelta in _chatService.StreamMessageAsync(
-                input, 
-                _currentContext, 
+                input,
+                requestContext,
                 cancellationToken: cancellationToken,
                 onMessageAdded: msg => {
+                    if (!IsCurrentConversationEpoch(epoch))
+                    {
+                        return;
+                    }
+
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
                         // 真实的工具调用回合保存在隐藏消息里，当前可见气泡只保留工具后的最终答复
@@ -556,6 +823,11 @@ public partial class ChatTabViewModel : ViewModelBase
                     }
                 },
                 onContextCompressed: (summary, count) => {
+                    if (!IsCurrentConversationEpoch(epoch))
+                    {
+                        return;
+                    }
+
                     // 同步 UI 消息状态：标记前 count 条当前未压缩的消息为已压缩
                     int marked = 0;
                     foreach (var m in Messages)
@@ -573,12 +845,22 @@ public partial class ChatTabViewModel : ViewModelBase
                 },
                 addToContext: addToContext))
             {
+                if (!IsCurrentConversationEpoch(epoch))
+                {
+                    continue;
+                }
+
                 if (!string.IsNullOrEmpty(contentDelta))
                 {
                     assistantMsg.IsLoading = false; // 收到文字后停止 loading 动画
                     assistantMsg.ToolExecutionSummary = string.Empty; // 开始输出正式回复，隐藏工具调用状态
                     assistantMsg.Content += contentDelta;
                 }
+            }
+
+            if (!IsCurrentConversationEpoch(epoch))
+            {
+                return TaskExecutionResult.Interrupted("Conversation context changed.");
             }
 
             UpdateConversationContext();
@@ -591,41 +873,63 @@ public partial class ChatTabViewModel : ViewModelBase
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.Information("当前回复已停止");
+            if (IsCurrentConversationEpoch(epoch))
+            {
+                _logger.Information("当前回复已停止");
+            }
+            outcome = TaskExecutionResult.Interrupted("Response was interrupted.");
         }
         catch (Exception ex)
         {
+            if (!IsCurrentConversationEpoch(epoch))
+            {
+                return TaskExecutionResult.Interrupted("Conversation context changed.");
+            }
+
             _logger.Error(ex, "Get AI response failed");
             assistantMsg.IsLoading = false;
             assistantMsg.ToolExecutionSummary = string.Empty;
-            assistantMsg.Content = $"Error: {ex.Message}";
+            assistantMsg.Content = ToChatErrorMessage(ex);
+            outcome = TaskExecutionResult.Failed(ex.Message);
         }
         finally
         {
-            assistantMsg.IsLoading = false;
-            assistantMsg.ToolExecutionSummary = string.Empty;
-            
-            // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
-            if (string.IsNullOrWhiteSpace(assistantMsg.Content)
-                && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
-                && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
+            if (ReferenceEquals(_responseCts, responseCts))
             {
-                Messages.Remove(assistantMsg);
+                _responseCts = null;
             }
 
-            UpdateConversationContext();
-            IsSending = false;
-            _responseCts?.Dispose();
-            _responseCts = null;
-            UpdateContextTokensDisplay();
-            UpdateBubbleButtonVisibility();
+            responseCts.Dispose();
+
+            if (IsCurrentConversationEpoch(epoch))
+            {
+                assistantMsg.IsLoading = false;
+                assistantMsg.ToolExecutionSummary = string.Empty;
+
+                // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
+                if (string.IsNullOrWhiteSpace(assistantMsg.Content)
+                    && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
+                    && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
+                {
+                    Messages.Remove(assistantMsg);
+                }
+
+                UpdateConversationContext();
+                IsSending = false;
+                UpdateContextTokensDisplay();
+                UpdateBubbleButtonVisibility();
+            }
+
+            await NotifySchedulerAvailabilityAsync();
         }
+
+        return outcome;
     }
 
     private void UpdateConversationContext()
     {
         _currentContext.Clear();
-        
+
         // 赋予当前的压缩摘要（如果有）
         if (_tokenService != null && !string.IsNullOrEmpty(_tokenService.CompressionPreview))
         {
@@ -641,11 +945,11 @@ public partial class ChatTabViewModel : ViewModelBase
             // 已被压缩归档的消息不再进入发送给大模型的 context.messages 列表
             if (msg.IsCompressed) continue;
 
-            if (msg.Role == "user") 
+            if (msg.Role == "user")
             {
-                _currentContext.AddUserMessage(msg.Content, msg.Timestamp);
+                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments);
             }
-            else if (msg.Role == "assistant") 
+            else if (msg.Role == "assistant")
             {
                 // 仅添加有内容的助手消息
                 if (!string.IsNullOrEmpty(msg.Content)
@@ -655,7 +959,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     _currentContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson, msg.ReasoningContent);
                 }
             }
-            else if (msg.Role == "tool") 
+            else if (msg.Role == "tool")
             {
                 _currentContext.AddToolMessage(msg.Content, msg.ToolCallId);
             }
@@ -667,7 +971,7 @@ public partial class ChatTabViewModel : ViewModelBase
         if (_tokenService == null || _promptService == null || _functionRegistry == null) return;
         var config = _configService?.Load();
         var functionCallingEnabled = config?.EnableFunctionCalling == true && _functionRegistry.HasFunctions;
-        
+
         // 赋予上下文准确的初始估算
         var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona);
         if (functionCallingEnabled)
@@ -679,22 +983,22 @@ public partial class ChatTabViewModel : ViewModelBase
         _currentContext.ToolsDeclarationTokenCount = functionCallingEnabled
             ? _functionRegistry.GetToolDeclarationTokenCount()
             : 0;
-        
+
         int tokens = _currentContext.EstimatedTokenCount;
 
         _tokenService.CurrentTokens = tokens;
-        
+
         OnPropertyChanged(nameof(ContextTokensInfo));
     }
 
     private void UpdateBubbleButtonVisibility()
     {
-        foreach (var msg in Messages) 
-        { 
-            msg.CanEdit = false; 
-            msg.CanRegenerate = false; 
+        foreach (var msg in Messages)
+        {
+            msg.CanEdit = false;
+            msg.CanRegenerate = false;
         }
-        
+
         // 发送中或压缩中，所有操作按钮不可用
         if (IsSending || IsCompressing || Messages.Count == 0) return;
 
@@ -722,7 +1026,7 @@ public partial class ChatTabViewModel : ViewModelBase
     public async Task InternalCompressContextAsync()
     {
         if (_historyService == null || _configService == null) return;
-        
+
         var config = _configService.Load();
         IsCompressing = true;
         try
@@ -747,6 +1051,24 @@ public partial class ChatTabViewModel : ViewModelBase
         finally
         {
             IsCompressing = false;
+            await NotifySchedulerAvailabilityAsync();
+        }
+    }
+
+    private async Task NotifySchedulerAvailabilityAsync()
+    {
+        if (_taskScheduler == null || IsSending || IsCompressing)
+        {
+            return;
+        }
+
+        try
+        {
+            await _taskScheduler.RunDueTasksAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "通知任务调度器重新检查到期任务失败");
         }
     }
 
@@ -757,30 +1079,92 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public async Task LoadHistoryConversationAsync(ConversationHistoryItem item)
     {
-        if (_historyService == null) return;
-        var history = await _historyService.LoadByIdAsync(item.Id);
-        if (history != null)
+        if (_historyService == null || item.IsArchivePlaceholder) return;
+
+        await _conversationTransitionLock.WaitAsync();
+        try
         {
-            Messages.Clear();
+            IsResetting = true;
+            BeginConversationTransition();
+
+            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
+            if (stagedSnapshot == TransitionStageResult.Failed)
+            {
+                return;
+            }
+
+            var history = await _historyService.LoadByIdAsync(item.Id);
+            if (history == null)
+            {
+                _logger.Warning("未找到要加载的历史对话: {Id}", item.Id);
+                return;
+            }
+
+            ResetConversationState();
             _currentHistoryId = history.Id;
             if (_tokenService != null)
             {
                 _tokenService.CompressionPreview = history.ContextSummary ?? string.Empty;
             }
-            
+
             if (history.Messages != null)
             {
                 foreach (var msg in history.Messages)
                 {
-                    PrepareRestoredMessage(msg);
+                    ConversationPersistenceHelper.PrepareRestoredMessage(msg);
+                    if (_attachmentStoreService != null)
+                    {
+                        await _attachmentStoreService.LoadPreviewsAsync(msg.Attachments);
+                    }
+
                     Messages.Add(msg);
                 }
             }
-            
+
             _initialConversationSignature = CreateConversationSignature();
             UpdateConversationContext();
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
+        }
+        finally
+        {
+            IsResetting = false;
+            _conversationTransitionLock.Release();
+        }
+    }
+
+    private async Task<TransitionStageResult> TryStageCurrentConversationForTransitionAsync()
+    {
+        var snapshot = CaptureArchiveSnapshotIfNeeded();
+        if (snapshot == null)
+        {
+            return TransitionStageResult.NotNeeded;
+        }
+
+        if (_archiveService == null)
+        {
+            SetBackgroundArchiveStatus(GetString("Chat.Archive.ErrorUnavailable", "Background archive service is unavailable."), isError: true);
+            return TransitionStageResult.Failed;
+        }
+
+        try
+        {
+            _latestArchiveCaptureAt = snapshot.CapturedAt;
+            await _archiveService.StageArchiveAsync(snapshot);
+            SetBackgroundArchiveStatus(
+                GetString("Chat.Archive.Saving", "Previous conversation is being saved in the background."),
+                isError: false);
+            return TransitionStageResult.Staged;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "写入待归档队列失败");
+            SetBackgroundArchiveStatus(
+                string.Format(
+                    GetString("Chat.Archive.StageFailed", "Failed to queue the previous conversation: {0}"),
+                    ex.Message),
+                isError: true);
+            return TransitionStageResult.Failed;
         }
     }
 
@@ -809,8 +1193,8 @@ public partial class ChatTabViewModel : ViewModelBase
             InitialConversationSignature = _initialConversationSignature,
             ContextSummary = _tokenService?.CompressionPreview,
             Messages = Messages
-                .Where(ShouldPersistMessage)
-                .Select(CloneMessageForPersistence)
+                .Where(ConversationPersistenceHelper.ShouldPersistMessage)
+                .Select(ConversationPersistenceHelper.CloneMessage)
                 .ToList(),
             UpdatedAt = DateTime.Now
         };
@@ -853,7 +1237,8 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             foreach (var msg in snapshot.Messages)
             {
-                PrepareRestoredMessage(msg);
+                ConversationPersistenceHelper.PrepareRestoredMessage(msg);
+                _ = _attachmentStoreService?.LoadPreviewsAsync(msg.Attachments);
                 Messages.Add(msg);
             }
         }
@@ -866,7 +1251,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private bool HasConversationStateToPersist()
     {
-        return Messages.Any(ShouldPersistMessage) || !string.IsNullOrWhiteSpace(_tokenService?.CompressionPreview);
+        return Messages.Any(ConversationPersistenceHelper.ShouldPersistMessage)
+            || !string.IsNullOrWhiteSpace(_tokenService?.CompressionPreview);
     }
 
     private bool IsConversationModified()
@@ -890,7 +1276,7 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             ContextSummary = _tokenService?.CompressionPreview ?? string.Empty,
             Messages = Messages
-                .Where(ShouldPersistMessage)
+                .Where(ConversationPersistenceHelper.ShouldPersistMessage)
                 .Select(msg => new
                 {
                     msg.Role,
@@ -899,7 +1285,18 @@ public partial class ChatTabViewModel : ViewModelBase
                     msg.ToolCallId,
                     msg.ToolCallsJson,
                     msg.ReasoningContent,
-                    msg.IsCompressed
+                    msg.IsCompressed,
+                    Attachments = msg.Attachments.Select(a => new
+                    {
+                        a.Id,
+                        a.Kind,
+                        a.FileName,
+                        a.StoredPath,
+                        a.MimeType,
+                        a.SizeBytes,
+                        a.Width,
+                        a.Height
+                    }).ToList()
                 })
                 .ToList()
         };
@@ -907,45 +1304,108 @@ public partial class ChatTabViewModel : ViewModelBase
         return JsonSerializer.Serialize(signatureModel);
     }
 
-    private static bool ShouldPersistMessage(ChatMessage msg)
+    private void ClearPendingAttachments(bool deleteStoredFiles)
     {
-        return !(msg.Role == "assistant"
-            && msg.IsLoading
-            && string.IsNullOrWhiteSpace(msg.Content)
-            && string.IsNullOrWhiteSpace(msg.ToolCallsJson)
-            && string.IsNullOrWhiteSpace(msg.ReasoningContent));
-    }
-
-    private static ChatMessage CloneMessageForPersistence(ChatMessage msg)
-    {
-        return new ChatMessage
+        if (deleteStoredFiles)
         {
-            Role = msg.Role,
-            Content = msg.Content,
-            EditContent = string.Empty,
-            Timestamp = msg.Timestamp,
-            IsHeartbeat = msg.IsHeartbeat,
-            IsLoading = false,
-            IsEditing = false,
-            ToolCallId = msg.ToolCallId,
-            ToolCallsJson = msg.ToolCallsJson,
-            ReasoningContent = msg.ReasoningContent,
-            IsCompressed = msg.IsCompressed,
-            CanEdit = false,
-            CanRegenerate = false,
-            IsHidden = msg.IsHidden,
-            ToolExecutionSummary = string.Empty,
-            ToolName = msg.ToolName
-        };
+            foreach (var attachment in PendingAttachments.ToList())
+            {
+                _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            }
+        }
+
+        PendingAttachments.Clear();
+        AttachmentStatusMessage = string.Empty;
     }
 
-    private static void PrepareRestoredMessage(ChatMessage msg)
+    private void OnArchiveCompleted(object? sender, ConversationArchiveResultEventArgs e)
     {
-        msg.IsLoading = false;
-        msg.IsEditing = false;
-        msg.EditContent = string.Empty;
-        msg.CanEdit = false;
-        msg.CanRegenerate = false;
-        msg.ToolExecutionSummary = string.Empty;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            if (e.Snapshot.CapturedAt != _latestArchiveCaptureAt)
+            {
+                return;
+            }
+
+            await Task.Delay(2500);
+            if (e.Snapshot.CapturedAt == _latestArchiveCaptureAt && !IsBackgroundArchiveError)
+            {
+                BackgroundArchiveStatusMessage = string.Empty;
+                IsBackgroundArchiveError = false;
+            }
+        });
+    }
+
+    private void OnArchiveFailed(object? sender, ConversationArchiveResultEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (e.Snapshot.CapturedAt != _latestArchiveCaptureAt)
+            {
+                return;
+            }
+
+            SetBackgroundArchiveStatus(
+                GetString("Chat.Archive.RetryLater", "Previous conversation save failed. It has been kept for retry."),
+                isError: true);
+        });
+    }
+
+    private void SetBackgroundArchiveStatus(string message, bool isError)
+    {
+        BackgroundArchiveStatusMessage = message;
+        IsBackgroundArchiveError = isError;
+    }
+
+    private string GetString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
+    }
+
+    private string ToAttachmentErrorMessage(Exception ex)
+    {
+        if (ex.Message.Contains("too large", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetString("Chat.Attach.ErrorTooLarge", "One of the selected images is too large.");
+        }
+
+        if (ex.Message.Contains("Unsupported", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetString("Chat.Attach.ErrorUnsupported", "Only PNG, JPG, WEBP, and GIF images are supported for now.");
+        }
+
+        return string.Format(GetString("Chat.Attach.ErrorGeneric", "Failed to add attachment: {0}"), ex.Message);
+    }
+
+    private string ToChatErrorMessage(Exception ex)
+    {
+        if (_currentContext.Messages.Any(m => m.Attachments.Any(a => a.Kind == AttachmentKind.Image))
+            && IsLikelyImageInputFailure(ex))
+        {
+            return GetString(
+                "Chat.Error.ImageUnsupported",
+                "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.");
+        }
+
+        return $"Error: {ex.Message}";
+    }
+
+    private static bool IsLikelyImageInputFailure(Exception ex)
+    {
+        if (ex is ClientResultException clientException
+            && clientException.Status is 400 or 415 or 422)
+        {
+            return true;
+        }
+
+        return ex.Message.Contains("image", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("vision", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("modal", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ChatAttachment CloneAttachmentForMessage(ChatAttachment attachment)
+    {
+        return ConversationPersistenceHelper.CloneAttachment(attachment);
     }
 }

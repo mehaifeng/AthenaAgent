@@ -1,7 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace Athena.UI.Models
 {
@@ -36,7 +34,10 @@ namespace Athena.UI.Models
         private string _intent = string.Empty;
 
         [ObservableProperty]
-        private string _recurrence = "none";
+        private DateTime _scheduleBoundary;
+
+        [ObservableProperty]
+        private RecurrenceRule _recurrenceRule = RecurrenceRule.None();
 
         [ObservableProperty]
         private bool _isExecuted;
@@ -50,15 +51,28 @@ namespace Athena.UI.Models
         [ObservableProperty]
         private TaskType _taskType = TaskType.Proactive;
 
+        [ObservableProperty]
+        private DateTime? _lastExecutionAt;
+
+        [ObservableProperty]
+        private string? _lastExecutionOutcome;
+
+        [ObservableProperty]
+        private string? _lastExecutionNote;
+
         public string TriggerTimeDisplay => TriggerTime.ToString("yyyy-MM-dd HH:mm");
 
-        public string RecurrenceDisplay => Recurrence switch
+        public string RecurrenceDisplay
         {
-            "none" => GetLocalizedString("Recurrence.NoneDisplay", "Once"),
-            "daily" => GetLocalizedString("Recurrence.DailyDisplay", "Daily"),
-            "weekly" => GetLocalizedString("Recurrence.WeeklyDisplay", "Weekly"),
-            _ => Recurrence
-        };
+            get
+            {
+                var recurrenceService = App.Services?.GetService(typeof(Services.Interfaces.IRecurrenceService))
+                    as Services.Interfaces.IRecurrenceService;
+
+                return recurrenceService?.GetSummary(RecurrenceRule)
+                    ?? GetLocalizedString("Recurrence.NoneDisplay", "Once");
+            }
+        }
 
         public string TaskTypeDisplay => TaskType switch
         {

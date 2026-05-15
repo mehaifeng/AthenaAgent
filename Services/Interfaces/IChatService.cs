@@ -22,6 +22,7 @@ public interface IChatService
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
         ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
         CancellationToken cancellationToken = default,
         Action<ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
