@@ -6,6 +6,7 @@ using Serilog;
 using System;
 using System.ClientModel;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -20,7 +21,7 @@ namespace Athena.UI.Services;
 /// </summary>
 public class OpenAIChatService : IChatService
 {
-    private readonly IFunctionRegistry? _functionRegistry;
+    private readonly IFunctionRegistry _functionRegistry;
     private readonly IPromptService _promptService;
     private readonly IConversationHistoryService? _historyService;
     private readonly ITokenService? _tokenService;
@@ -32,7 +33,7 @@ public class OpenAIChatService : IChatService
     public OpenAIChatService(
         AppConfig config,
         IPromptService promptService,
-        IFunctionRegistry? functionRegistry = null,
+        IFunctionRegistry functionRegistry,
         IConversationHistoryService? historyService = null,
         ITokenService? tokenService = null,
         ILocalizationService? localizationService = null)
@@ -86,6 +87,7 @@ public class OpenAIChatService : IChatService
     public async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
         ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
@@ -99,12 +101,14 @@ public class OpenAIChatService : IChatService
         }
 
         // 仅在明确要求时才加入上下文，防止 Regenerate 或 Edit 流程中重复添加
-        if (!string.IsNullOrWhiteSpace(userMessage) && addToContext)
+        if ((attachments?.Count > 0 || !string.IsNullOrWhiteSpace(userMessage)) && addToContext)
         {
-            context.AddUserMessage(userMessage);
+            context.AddUserMessage(userMessage, attachments: attachments);
         }
 
-        Log.Information("开始处理消息，用户输入长度: {Length}", userMessage?.Length ?? 0);
+        Log.Information("开始处理消息，用户输入长度: {Length}, 附件数: {AttachmentCount}",
+            userMessage?.Length ?? 0,
+            attachments?.Count ?? 0);
 
         var messages = BuildMessages(context);
         Log.Information("构建消息列表完成，消息数: {Count}", messages.Count);
@@ -152,6 +156,7 @@ public class OpenAIChatService : IChatService
                         Content = m.Content, 
                         ToolCallsJson = m.ToolCallsJson, 
                         ReasoningContent = m.ReasoningContent,
+                        Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(m.Attachments),
                         IsCompressed = false 
                     }).ToList();
 
@@ -186,7 +191,7 @@ public class OpenAIChatService : IChatService
             }
             catch (Exception ex)
             {
-                error = ex.Message;
+                error = FormatApiError(ex, context.Messages.Any(HasImageAttachment));
             }
 
             if (error != null)
@@ -503,7 +508,14 @@ public class OpenAIChatService : IChatService
                     var timestamp = msg.Timestamp != default
                         ? msg.Timestamp.ToString(TimestampFormat)
                         : string.Empty;
-                    messages.Add(new UserChatMessage(timestamp + msg.Content));
+                    if (HasImageAttachment(msg))
+                    {
+                        messages.Add(CreateUserMessageWithAttachments(timestamp, msg));
+                    }
+                    else
+                    {
+                        messages.Add(new UserChatMessage(timestamp + msg.Content));
+                    }
                     break;
                 case "assistant":
                     var assistantMsg = new AssistantChatMessage(msg.Content);
@@ -541,6 +553,65 @@ public class OpenAIChatService : IChatService
         }
 
         return messages;
+    }
+
+    private static bool HasImageAttachment(ContextMessage message)
+    {
+        return message.Attachments.Any(a => a.Kind == AttachmentKind.Image);
+    }
+
+    private static UserChatMessage CreateUserMessageWithAttachments(string timestamp, ContextMessage message)
+    {
+        var parts = new List<ChatMessageContentPart>();
+        var text = timestamp + message.Content;
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            parts.Add(ChatMessageContentPart.CreateTextPart(text));
+        }
+
+        foreach (var attachment in message.Attachments.Where(a => a.Kind == AttachmentKind.Image))
+        {
+            if (string.IsNullOrWhiteSpace(attachment.StoredPath) || !File.Exists(attachment.StoredPath))
+            {
+                throw new FileNotFoundException($"Attachment file not found: {attachment.FileName}", attachment.StoredPath);
+            }
+
+            var bytes = File.ReadAllBytes(attachment.StoredPath);
+            parts.Add(ChatMessageContentPart.CreateImagePart(
+                BinaryData.FromBytes(bytes),
+                attachment.MimeType,
+                ChatImageDetailLevel.Auto));
+        }
+
+        return new UserChatMessage(parts);
+    }
+
+    private string FormatApiError(Exception exception, bool requestHasImages)
+    {
+        if (requestHasImages && IsLikelyImageInputFailure(exception))
+        {
+            return _localizationService?.GetString(
+                "Chat.Error.ImageUnsupported",
+                "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.")
+                ?? "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.";
+        }
+
+        return exception.Message;
+    }
+
+    private static bool IsLikelyImageInputFailure(Exception exception)
+    {
+        if (exception is ClientResultException clientException
+            && clientException.Status is 400 or 415 or 422)
+        {
+            return true;
+        }
+
+        var message = exception.Message;
+        return message.Contains("image", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("vision", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("modal", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
     }
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);

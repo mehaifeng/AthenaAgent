@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="OpenAI" Version="2.10.0" />
+    <PackageReference Include="Serilog" Version="4.3.2-dev-02419" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Models/AttachmentKind.cs" Link="Source/Models/AttachmentKind.cs" />
+    <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
+    <Compile Include="../Models/ChatMessage.cs" Link="Source/Models/ChatMessage.cs" />
+    <Compile Include="../Models/ConversationArchiveSnapshot.cs" Link="Source/Models/ConversationArchiveSnapshot.cs" />
+    <Compile Include="../Models/ConversationArchiveResultEventArgs.cs" Link="Source/Models/ConversationArchiveResultEventArgs.cs" />
+    <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
+    <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
+    <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
+    <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />
+    <Compile Include="../Models/RecurrenceRule.cs" Link="Source/Models/RecurrenceRule.cs" />
+    <Compile Include="../Models/ScheduledTask.cs" Link="Source/Models/ScheduledTask.cs" />
+    <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
+    <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
+    <Compile Include="../Services/ConversationHistoryService.cs" Link="Source/Services/ConversationHistoryService.cs" />
+    <Compile Include="../Services/Functions/ProactiveMessagingFunctions.cs" Link="Source/Services/Functions/ProactiveMessagingFunctions.cs" />
+    <Compile Include="../Services/RecurrenceService.cs" Link="Source/Services/RecurrenceService.cs" />
+    <Compile Include="../Services/TaskScheduler.cs" Link="Source/Services/TaskScheduler.cs" />
+    <Compile Include="../Services/Interfaces/IConversationArchiveService.cs" Link="Source/Services/Interfaces/IConversationArchiveService.cs" />
+    <Compile Include="../Services/Interfaces/IConversationHistoryService.cs" Link="Source/Services/Interfaces/IConversationHistoryService.cs" />
+    <Compile Include="../Services/Interfaces/IFunctionRegistry.cs" Link="Source/Services/Interfaces/IFunctionRegistry.cs" />
+    <Compile Include="../Services/Interfaces/ILocalizationService.cs" Link="Source/Services/Interfaces/ILocalizationService.cs" />
+    <Compile Include="../Services/Interfaces/IPlatformPathService.cs" Link="Source/Services/Interfaces/IPlatformPathService.cs" />
+    <Compile Include="../Services/Interfaces/IPromptService.cs" Link="Source/Services/Interfaces/IPromptService.cs" />
+    <Compile Include="../Services/Interfaces/IRecurrenceService.cs" Link="Source/Services/Interfaces/IRecurrenceService.cs" />
+    <Compile Include="../Services/Interfaces/ITaskScheduler.cs" Link="Source/Services/Interfaces/ITaskScheduler.cs" />
+  </ItemGroup>
+</Project>

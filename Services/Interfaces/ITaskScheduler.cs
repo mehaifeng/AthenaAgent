@@ -100,6 +100,16 @@ public interface ITaskScheduler
     Task ClearAllAsync();
 
     /// <summary>
+    /// 手动触发一次到期任务检查。
+    /// </summary>
+    Task RunDueTasksAsync();
+
+    /// <summary>
+    /// 回报前台任务执行结果。
+    /// </summary>
+    Task CompleteTaskExecutionAsync(string taskId, TaskExecutionOutcome outcome, string? note = null);
+
+    /// <summary>
     /// 前台任务触发事件
     /// 当前台任务到期时触发，MainWindow 订阅此事件处理主动消息
     /// </summary>

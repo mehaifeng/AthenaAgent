@@ -1,6 +1,6 @@
 using Athena.UI.Models;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Interfaces;
@@ -26,9 +26,9 @@ public interface IConversationHistoryService
     Task DeleteAsync(string id);
 
     /// <summary>
-    /// 从消息集合创建对话历史条目
+    /// 从对话快照创建或更新历史条目
     /// </summary>
-    Task<ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<ChatMessage> messages, bool forceGenerateSummary = false, string? contextSummary = null);
+    Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default);
 
     /// <summary>
     /// 生成对话摘要

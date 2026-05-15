@@ -2,8 +2,8 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -22,8 +22,12 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     private readonly Timer _timer;
     private readonly ILogger _logger;
     private readonly IPlatformPathService? _pathService;
+    private readonly IRecurrenceService _recurrenceService;
+    private readonly SemaphoreSlim _checkLock = new(1, 1);
+    private readonly HashSet<string> _waitingForegroundTaskIds = new(StringComparer.Ordinal);
     private bool _isRunning;
     private bool _disposed;
+    private string? _activeForegroundTaskId;
 
     /// <summary>
     /// 共享的任务集合
@@ -40,19 +44,18 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     /// </summary>
     public event EventHandler<BackgroundTaskEventArgs>? BackgroundTaskTriggered;
 
-    public TaskScheduler(ILogger logger, IPlatformPathService? pathService = null)
+    public TaskScheduler(ILogger logger, IPlatformPathService? pathService = null, IRecurrenceService? recurrenceService = null)
     {
         _logger = logger;
         _pathService = pathService;
+        _recurrenceService = recurrenceService ?? new RecurrenceService();
 
-        // 初始化数据目录和文件路径
         if (_pathService != null)
         {
             _tasksFilePath = _pathService.GetTaskSchedulerFilePath();
         }
         else
         {
-            // 兜底逻辑
             var dataDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Athena"
@@ -61,20 +64,14 @@ public class TaskScheduler : ITaskScheduler, IDisposable
             _tasksFilePath = Path.Combine(dataDir, "scheduled_tasks.json");
         }
 
-        // 确保目录存在
         var dir = Path.GetDirectoryName(_tasksFilePath);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
         }
 
-        // 初始化任务集合
         Tasks = new ObservableCollection<ScheduledTask>();
-
-        // 从文件加载任务
         LoadTasksFromFile();
-
-        // 初始化定时器（每分钟检查一次）
         _timer = new Timer(CheckTasks, null, Timeout.Infinite, Timeout.Infinite);
 
         _logger.Information("TaskScheduler initialized at {Path} with {Count} tasks", _tasksFilePath, Tasks.Count);
@@ -88,7 +85,6 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         if (_isRunning) return;
 
         _isRunning = true;
-        // 立即检查一次，然后每分钟检查
         _timer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1));
         _logger.Information("TaskScheduler started");
     }
@@ -111,16 +107,28 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     public async Task ScheduleAsync(ScheduledTask task)
     {
         if (task == null)
+        {
             throw new ArgumentNullException(nameof(task));
+        }
 
-        // 确保有唯一 ID
+        task.RecurrenceRule = _recurrenceService.Normalize(task.RecurrenceRule);
+        task.ScheduleBoundary = task.ScheduleBoundary == default ? task.TriggerTime : task.ScheduleBoundary;
+
         if (string.IsNullOrEmpty(task.Id))
+        {
             task.Id = Guid.NewGuid().ToString();
+        }
 
-        // 添加到集合
+        var firstTrigger = _recurrenceService.GetFirstTriggerTime(task.ScheduleBoundary, task.RecurrenceRule, DateTime.Now);
+        if (!firstTrigger.HasValue)
+        {
+            throw new InvalidOperationException("Task cannot be scheduled because its first trigger time is not in the future.");
+        }
+
+        task.TriggerTime = firstTrigger.Value;
+        task.IsExecuted = false;
         Tasks.Add(task);
 
-        // 持久化
         await SaveTasksToFileAsync();
 
         _logger.Information("Task scheduled: {TaskId} at {TriggerTime} - {Intent}",
@@ -140,6 +148,12 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         }
 
         Tasks.Remove(task);
+        _waitingForegroundTaskIds.Remove(taskId);
+        if (string.Equals(_activeForegroundTaskId, taskId, StringComparison.Ordinal))
+        {
+            _activeForegroundTaskId = null;
+        }
+
         await SaveTasksToFileAsync();
 
         _logger.Information("Task cancelled: {TaskId}", taskId);
@@ -147,12 +161,12 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     }
 
     /// <summary>
-    /// 获取所有待执行的任务
+    /// 获取所有活动任务
     /// </summary>
     public Task<List<ScheduledTask>> GetUpcomingTasksAsync()
     {
         var upcoming = Tasks
-            .Where(t => !t.IsExecuted && t.TriggerTime > DateTime.Now)
+            .Where(t => !t.IsExecuted)
             .OrderBy(t => t.TriggerTime)
             .ToList();
 
@@ -173,31 +187,115 @@ public class TaskScheduler : ITaskScheduler, IDisposable
     public async Task ClearAllAsync()
     {
         Tasks.Clear();
+        _waitingForegroundTaskIds.Clear();
+        _activeForegroundTaskId = null;
         await SaveTasksToFileAsync();
         _logger.Information("All tasks cleared");
+    }
+
+    public Task RunDueTasksAsync()
+    {
+        return CheckTasksCoreAsync(includeWaitingForegroundTasks: true);
+    }
+
+    public async Task CompleteTaskExecutionAsync(string taskId, TaskExecutionOutcome outcome, string? note = null)
+    {
+        var shouldRecheck = false;
+
+        await _checkLock.WaitAsync();
+        try
+        {
+            var task = GetTask(taskId);
+            if (task == null)
+            {
+                _logger.Warning("Received completion for missing task {TaskId}", taskId);
+                return;
+            }
+
+            if (string.Equals(_activeForegroundTaskId, taskId, StringComparison.Ordinal))
+            {
+                _activeForegroundTaskId = null;
+            }
+
+            ApplyForegroundCompletion(task, outcome, note, DateTime.Now);
+            await SaveTasksToFileAsync();
+            shouldRecheck = true;
+        }
+        finally
+        {
+            _checkLock.Release();
+        }
+
+        if (shouldRecheck)
+        {
+            await CheckTasksCoreAsync(includeWaitingForegroundTasks: true);
+        }
+    }
+
+    private void CheckTasks(object? state)
+    {
+        _ = CheckTasksCoreAsync(includeWaitingForegroundTasks: false);
     }
 
     /// <summary>
     /// 定时检查任务
     /// </summary>
-    private async void CheckTasks(object? state)
+    private async Task CheckTasksCoreAsync(bool includeWaitingForegroundTasks)
     {
-        if (!_isRunning) return;
+        if (!_isRunning || _disposed)
+        {
+            return;
+        }
+
+        if (!await _checkLock.WaitAsync(0))
+        {
+            _logger.Debug("Skip task check because a previous check is still running");
+            return;
+        }
 
         try
         {
             var now = DateTime.Now;
-            var tasksToTrigger = Tasks
-                .Where(t => t.TriggerTime <= now && !t.IsExecuted)
+            var changed = false;
+
+            var dueTasks = Tasks
+                .Where(t => !t.IsExecuted && t.TriggerTime <= now)
                 .OrderBy(t => t.TriggerTime)
+                .ThenBy(t => t.RecurrenceRule.IsRecurring)
                 .ToList();
 
-            foreach (var task in tasksToTrigger)
+            foreach (var task in dueTasks.Where(t => t.TaskType == Models.TaskType.Background))
             {
-                await ExecuteTaskAsync(task);
+                await ExecuteBackgroundTaskAsync(task, now);
+                changed = true;
             }
 
-            if (tasksToTrigger.Any())
+            var dueForeground = dueTasks
+                .Where(t => t.TaskType == Models.TaskType.Proactive)
+                .ToList();
+
+            if (_activeForegroundTaskId != null)
+            {
+                changed |= HandleBusyForegroundTasks(dueForeground, now);
+            }
+            else
+            {
+                var candidate = SelectForegroundCandidate(dueForeground, includeWaitingForegroundTasks);
+                if (candidate != null)
+                {
+                    await DispatchForegroundTaskAsync(candidate);
+                    changed = true;
+                }
+
+                if (_activeForegroundTaskId != null)
+                {
+                    changed |= HandleBusyForegroundTasks(
+                        dueForeground.Where(t => t.Id != candidate?.Id),
+                        now);
+                }
+            }
+
+            if (changed)
             {
                 await SaveTasksToFileAsync();
             }
@@ -206,95 +304,173 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         {
             _logger.Error(ex, "Error checking tasks");
         }
+        finally
+        {
+            _checkLock.Release();
+        }
     }
 
-    /// <summary>
-    /// 执行任务
-    /// </summary>
-    private async Task ExecuteTaskAsync(ScheduledTask task)
+    private ScheduledTask? SelectForegroundCandidate(IEnumerable<ScheduledTask> dueForeground, bool includeWaitingForegroundTasks)
     {
-        _logger.Information("Executing task: {TaskId} [{Type}] - {Intent}", task.Id, task.TaskType, task.Intent);
+        return dueForeground
+            .Where(t => includeWaitingForegroundTasks || !_waitingForegroundTaskIds.Contains(t.Id))
+            .OrderBy(t => t.RecurrenceRule.IsRecurring)
+            .ThenBy(t => t.TriggerTime)
+            .FirstOrDefault();
+    }
 
-        try
+    private bool HandleBusyForegroundTasks(IEnumerable<ScheduledTask> dueForeground, DateTime now)
+    {
+        var changed = false;
+        foreach (var task in dueForeground)
         {
-            if (task.TaskType == Models.TaskType.Background)
+            if (task.RecurrenceRule.IsRecurring)
             {
-                // 后台任务：静默触发，不干扰用户
-                BackgroundTaskTriggered?.Invoke(this, new BackgroundTaskEventArgs
+                var nextTrigger = _recurrenceService.GetNextTriggerTime(task.ScheduleBoundary, task.RecurrenceRule, now);
+                if (nextTrigger.HasValue)
                 {
-                    TaskId = task.Id,
-                    Intent = task.Intent,
-                    TriggeredAt = DateTime.Now,
-                    Task = task
-                });
+                    task.TriggerTime = nextTrigger.Value;
+                    task.IsExecuted = false;
+                    task.LastExecutionAt = now;
+                    task.LastExecutionOutcome = TaskExecutionOutcome.Busy.ToString();
+                    task.LastExecutionNote = "Skipped while another foreground task was busy.";
+                    _waitingForegroundTaskIds.Remove(task.Id);
+                    changed = true;
+
+                    _logger.Information("Skipped recurring foreground task {TaskId} while busy. Next trigger: {NextTrigger}",
+                        task.Id, task.TriggerTime);
+                }
             }
             else
             {
-                // 前台任务：触发主动消息，进入聊天界面
-                ProactiveMessageTriggered?.Invoke(this, new ProactiveMessageEventArgs
-                {
-                    TaskId = task.Id,
-                    Intent = task.Intent,
-                    TriggeredAt = DateTime.Now,
-                    Task = task
-                });
+                _waitingForegroundTaskIds.Add(task.Id);
+                _logger.Information("Deferred one-time foreground task {TaskId} while busy", task.Id);
             }
+        }
 
-            // 处理循环任务
-            if (!string.IsNullOrEmpty(task.Recurrence) && task.Recurrence != "none")
-            {
-                task.TriggerTime = CalculateNextTrigger(task.TriggerTime, task.Recurrence);
-                task.IsExecuted = false;
-                _logger.Information("Recurring task rescheduled: {TaskId} to {NextTrigger}",
-                    task.Id, task.TriggerTime);
-            }
-            else
-            {
-                // 一次性任务标记为已执行
-                task.IsExecuted = true;
-            }
-        }
-        catch (Exception ex)
+        return changed;
+    }
+
+    private async Task DispatchForegroundTaskAsync(ScheduledTask task)
+    {
+        _waitingForegroundTaskIds.Remove(task.Id);
+        _activeForegroundTaskId = task.Id;
+
+        if (ProactiveMessageTriggered == null)
         {
-            _logger.Error(ex, "Error executing task: {TaskId}", task.Id);
+            _logger.Warning("No proactive task subscriber registered for task {TaskId}", task.Id);
+            _activeForegroundTaskId = null;
+            ApplyForegroundCompletion(task, TaskExecutionOutcome.Failed, "No proactive task handler registered.", DateTime.Now);
+            return;
         }
+
+        _logger.Information("Dispatching foreground task: {TaskId} - {Intent}", task.Id, task.Intent);
+
+        ProactiveMessageTriggered.Invoke(this, new ProactiveMessageEventArgs
+        {
+            TaskId = task.Id,
+            Intent = task.Intent,
+            TriggeredAt = DateTime.Now,
+            Task = task
+        });
 
         await Task.CompletedTask;
     }
 
-    /// <summary>
-    /// 计算下次触发时间
-    /// </summary>
-    private DateTime CalculateNextTrigger(DateTime lastTrigger, string recurrence)
+    private async Task ExecuteBackgroundTaskAsync(ScheduledTask task, DateTime now)
     {
-        return recurrence.ToLower() switch
+        _logger.Information("Executing background task: {TaskId} - {Intent}", task.Id, task.Intent);
+
+        var outcome = TaskExecutionOutcome.Succeeded;
+        string? note = null;
+
+        try
         {
-            "daily" => lastTrigger.AddDays(1),
-            "weekly" => lastTrigger.AddDays(7),
-            var s when s.StartsWith("every ") => ParseCustomRecurrence(lastTrigger, s),
-            _ => lastTrigger
-        };
+            BackgroundTaskTriggered?.Invoke(this, new BackgroundTaskEventArgs
+            {
+                TaskId = task.Id,
+                Intent = task.Intent,
+                TriggeredAt = now,
+                Task = task
+            });
+        }
+        catch (Exception ex)
+        {
+            outcome = TaskExecutionOutcome.Failed;
+            note = ex.Message;
+            _logger.Error(ex, "Error executing background task: {TaskId}", task.Id);
+        }
+
+        ApplyBackgroundCompletion(task, outcome, note, now);
+        await Task.CompletedTask;
     }
 
-    /// <summary>
-    /// 解析自定义循环周期
-    /// </summary>
-    private DateTime ParseCustomRecurrence(DateTime lastTrigger, string recurrence)
+    private void ApplyForegroundCompletion(ScheduledTask task, TaskExecutionOutcome outcome, string? note, DateTime completedAt)
     {
-        // 解析 "every 3 days", "every 2 hours" 等
-        var parts = recurrence.Split(' ');
-        if (parts.Length >= 3 && int.TryParse(parts[1], out var amount))
+        task.LastExecutionAt = completedAt;
+        task.LastExecutionOutcome = outcome.ToString();
+        task.LastExecutionNote = note;
+
+        if (outcome == TaskExecutionOutcome.Busy)
         {
-            var unit = parts[2].ToLower();
-            return unit switch
+            if (task.RecurrenceRule.IsRecurring)
             {
-                "hours" or "hour" => lastTrigger.AddHours(amount),
-                "days" or "day" => lastTrigger.AddDays(amount),
-                "weeks" or "week" => lastTrigger.AddDays(amount * 7),
-                _ => lastTrigger
-            };
+                var nextTrigger = _recurrenceService.GetNextTriggerTime(task.ScheduleBoundary, task.RecurrenceRule, completedAt);
+                if (nextTrigger.HasValue)
+                {
+                    task.TriggerTime = nextTrigger.Value;
+                }
+                task.IsExecuted = false;
+                _waitingForegroundTaskIds.Remove(task.Id);
+            }
+            else
+            {
+                _waitingForegroundTaskIds.Add(task.Id);
+                task.IsExecuted = false;
+            }
+
+            return;
         }
-        return lastTrigger;
+
+        _waitingForegroundTaskIds.Remove(task.Id);
+
+        if (task.RecurrenceRule.IsRecurring)
+        {
+            var nextTrigger = _recurrenceService.GetNextTriggerTime(task.ScheduleBoundary, task.RecurrenceRule, completedAt);
+            if (nextTrigger.HasValue)
+            {
+                task.TriggerTime = nextTrigger.Value;
+            }
+            task.IsExecuted = false;
+        }
+        else
+        {
+            task.IsExecuted = true;
+        }
+
+        _logger.Information("Foreground task completed: {TaskId}, outcome={Outcome}, next={NextTrigger}",
+            task.Id, outcome, task.IsExecuted ? "completed" : task.TriggerTime);
+    }
+
+    private void ApplyBackgroundCompletion(ScheduledTask task, TaskExecutionOutcome outcome, string? note, DateTime completedAt)
+    {
+        task.LastExecutionAt = completedAt;
+        task.LastExecutionOutcome = outcome.ToString();
+        task.LastExecutionNote = note;
+
+        if (task.RecurrenceRule.IsRecurring)
+        {
+            var nextTrigger = _recurrenceService.GetNextTriggerTime(task.ScheduleBoundary, task.RecurrenceRule, completedAt);
+            if (nextTrigger.HasValue)
+            {
+                task.TriggerTime = nextTrigger.Value;
+            }
+            task.IsExecuted = false;
+        }
+        else
+        {
+            task.IsExecuted = true;
+        }
     }
 
     /// <summary>
@@ -313,35 +489,46 @@ public class TaskScheduler : ITaskScheduler, IDisposable
             var json = File.ReadAllText(_tasksFilePath);
             var tasks = JsonSerializer.Deserialize<List<ScheduledTaskData>>(json);
 
-            if (tasks != null)
+            if (tasks == null)
             {
-                Tasks.Clear();
-                foreach (var data in tasks)
-                {
-                    // 只加载未执行的或循环任务
-                    if (!data.IsExecuted || (data.Recurrence != "none" && !string.IsNullOrEmpty(data.Recurrence)))
-                    {
-                        // 兼容旧数据：如果 TaskType 不存在或无效，默认为 Proactive
-                        var taskType = Models.TaskType.Proactive;
-                        if (Enum.TryParse<Models.TaskType>(data.TaskType, ignoreCase: true, out var parsed))
-                        {
-                            taskType = parsed;
-                        }
-
-                        Tasks.Add(new ScheduledTask
-                        {
-                            Id = data.Id,
-                            TriggerTime = data.TriggerTime,
-                            Intent = data.Intent,
-                            Recurrence = data.Recurrence,
-                            IsExecuted = data.IsExecuted,
-                            CreatedAt = data.CreatedAt,
-                            TaskType = taskType
-                        });
-                    }
-                }
-                _logger.Information("Loaded {Count} tasks from file", Tasks.Count);
+                return;
             }
+
+            Tasks.Clear();
+            foreach (var data in tasks)
+            {
+                var taskType = Models.TaskType.Proactive;
+                if (Enum.TryParse<Models.TaskType>(data.TaskType, ignoreCase: true, out var parsedTaskType))
+                {
+                    taskType = parsedTaskType;
+                }
+
+                var recurrenceRule = data.RecurrenceRule != null
+                    ? _recurrenceService.Normalize(data.RecurrenceRule)
+                    : _recurrenceService.MigrateLegacyRule(data.Recurrence, data.ScheduleBoundary ?? data.TriggerTime);
+
+                var task = new ScheduledTask
+                {
+                    Id = data.Id,
+                    TriggerTime = data.TriggerTime,
+                    Intent = data.Intent,
+                    RecurrenceRule = recurrenceRule,
+                    IsExecuted = data.IsExecuted,
+                    CreatedAt = data.CreatedAt,
+                    TaskType = taskType,
+                    ScheduleBoundary = data.ScheduleBoundary ?? data.TriggerTime,
+                    LastExecutionAt = data.LastExecutionAt,
+                    LastExecutionOutcome = data.LastExecutionOutcome,
+                    LastExecutionNote = data.LastExecutionNote
+                };
+
+                if (!task.IsExecuted || task.RecurrenceRule.IsRecurring)
+                {
+                    Tasks.Add(task);
+                }
+            }
+
+            _logger.Information("Loaded {Count} tasks from file", Tasks.Count);
         }
         catch (Exception ex)
         {
@@ -361,10 +548,14 @@ public class TaskScheduler : ITaskScheduler, IDisposable
                 Id = t.Id,
                 TriggerTime = t.TriggerTime,
                 Intent = t.Intent,
-                Recurrence = t.Recurrence,
+                RecurrenceRule = _recurrenceService.Normalize(t.RecurrenceRule),
                 IsExecuted = t.IsExecuted,
                 CreatedAt = t.CreatedAt,
-                TaskType = t.TaskType.ToString()
+                TaskType = t.TaskType.ToString(),
+                ScheduleBoundary = t.ScheduleBoundary,
+                LastExecutionAt = t.LastExecutionAt,
+                LastExecutionOutcome = t.LastExecutionOutcome,
+                LastExecutionNote = t.LastExecutionNote
             }).ToList();
 
             var options = new JsonSerializerOptions
@@ -391,10 +582,15 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         public string Id { get; set; } = string.Empty;
         public DateTime TriggerTime { get; set; }
         public string Intent { get; set; } = string.Empty;
-        public string Recurrence { get; set; } = "none";
+        public string? Recurrence { get; set; } = "none";
+        public RecurrenceRule? RecurrenceRule { get; set; }
         public bool IsExecuted { get; set; }
         public DateTime CreatedAt { get; set; }
         public string TaskType { get; set; } = "Proactive";
+        public DateTime? ScheduleBoundary { get; set; }
+        public DateTime? LastExecutionAt { get; set; }
+        public string? LastExecutionOutcome { get; set; }
+        public string? LastExecutionNote { get; set; }
     }
 
     public void Dispose()
@@ -402,7 +598,8 @@ public class TaskScheduler : ITaskScheduler, IDisposable
         if (_disposed) return;
 
         Stop();
-        _timer?.Dispose();
+        _timer.Dispose();
+        _checkLock.Dispose();
         _disposed = true;
 
         _logger.Information("TaskScheduler disposed");

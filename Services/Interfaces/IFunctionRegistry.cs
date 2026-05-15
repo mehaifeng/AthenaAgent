@@ -16,8 +16,8 @@ public class FunctionResult
     public static FunctionResult SuccessResult(string message = "", object? data = null) =>
         new() { Success = true, Message = message, Data = data };
 
-    public static FunctionResult FailureResult(string message) =>
-        new() { Success = false, Message = message };
+    public static FunctionResult FailureResult(string message, object? data = null) =>
+        new() { Success = false, Message = message, Data = data };
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
