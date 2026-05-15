@@ -58,6 +58,24 @@
         <Style Selector="TextBlock.assistant-title">
             <Setter Property="Foreground" Value="{DynamicResource SemiGreen6}"/>
         </Style>
+
+        <Style Selector="Border.attachment-card">
+            <Setter Property="Width" Value="116"/>
+            <Setter Property="MinHeight" Value="92"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="Padding" Value="6"/>
+        </Style>
+
+        <Style Selector="Button.attachment-remove-button">
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Padding" Value="3"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="40,*,Auto">
@@ -152,6 +170,49 @@
                                                    IsVisible="{Binding IsContentVisible}"
                                                    HorizontalAlignment="Stretch" />
 
+                                        <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ChatAttachment">
+                                                    <Border Classes="attachment-card" Margin="0,4,8,4">
+                                                        <Grid RowDefinitions="56,Auto,Auto">
+                                                            <Border Grid.Row="0"
+                                                                    CornerRadius="5"
+                                                                    ClipToBounds="True"
+                                                                    Background="{DynamicResource SemiGreyLowBrush}">
+                                                                <Image Source="{Binding PreviewImage}"
+                                                                       Stretch="UniformToFill"
+                                                                       IsVisible="{Binding IsImage}"/>
+                                                            </Border>
+                                                            <Border Grid.Row="0"
+                                                                    IsVisible="{Binding !IsImage}"
+                                                                    Background="{DynamicResource SemiGreyLowBrush}"
+                                                                    CornerRadius="5">
+                                                                <TextBlock Text="{Binding FileExtension}"
+                                                                           HorizontalAlignment="Center"
+                                                                           VerticalAlignment="Center"
+                                                                           FontSize="13"
+                                                                           FontWeight="Bold"/>
+                                                            </Border>
+                                                            <TextBlock Grid.Row="1"
+                                                                       Text="{Binding DisplayName}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       FontSize="11"
+                                                                       Margin="0,5,0,0"/>
+                                                            <TextBlock Grid.Row="2"
+                                                                       Text="{Binding DisplaySize}"
+                                                                       FontSize="10"
+                                                                       Opacity="0.65"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
                                         <TextBox Text="{Binding EditContent}"
                                                  IsVisible="{Binding IsEditing}"
                                                  AcceptsReturn="True" TextWrapping="Wrap"
@@ -230,15 +291,100 @@
                 BorderBrush="{DynamicResource App.SectionBg}"
                 BorderThickness="0,1,0,0" 
                 Padding="12" >
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <Button Grid.Column="0" 
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                <ItemsControl Grid.Row="0"
+                              Grid.ColumnSpan="3"
+                              ItemsSource="{Binding PendingAttachments}"
+                              IsVisible="{Binding HasPendingAttachments}"
+                              Margin="0,0,0,8">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ChatAttachment">
+                            <Border Classes="attachment-card" Margin="0,0,8,8">
+                                <Grid RowDefinitions="56,Auto,Auto">
+                                    <Border Grid.Row="0"
+                                            CornerRadius="5"
+                                            ClipToBounds="True"
+                                            Background="{DynamicResource SemiGreyLowBrush}">
+                                        <Image Source="{Binding PreviewImage}"
+                                               Stretch="UniformToFill"
+                                               IsVisible="{Binding IsImage}"/>
+                                    </Border>
+                                    <Border Grid.Row="0"
+                                            IsVisible="{Binding !IsImage}"
+                                            Background="{DynamicResource SemiGreyLowBrush}"
+                                            CornerRadius="5">
+                                        <TextBlock Text="{Binding FileExtension}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="13"
+                                                   FontWeight="Bold"/>
+                                    </Border>
+                                    <Button Grid.Row="0"
+                                            Classes="attachment-remove-button"
+                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RemovePendingAttachmentCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="{loc:Loc Chat.Attach.Remove}">
+                                        <PathIcon Data="{StaticResource SemiIconClose}" Width="12" Height="12"/>
+                                    </Button>
+                                    <TextBlock Grid.Row="1"
+                                               Text="{Binding DisplayName}"
+                                               TextTrimming="CharacterEllipsis"
+                                               FontSize="11"
+                                               Margin="0,5,0,0"/>
+                                    <TextBlock Grid.Row="2"
+                                               Text="{Binding DisplaySize}"
+                                               FontSize="10"
+                                               Opacity="0.65"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Grid.Row="1"
+                           Grid.ColumnSpan="3"
+                           Text="{Binding BackgroundArchiveStatusMessage}"
+                           Foreground="{DynamicResource Chat.TimestampFg}"
+                           FontSize="12"
+                           Margin="0,0,0,8"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasBackgroundArchiveNeutralStatus}"/>
+
+                <TextBlock Grid.Row="1"
+                           Grid.ColumnSpan="3"
+                           Text="{Binding BackgroundArchiveStatusMessage}"
+                           Foreground="{DynamicResource SemiRed6}"
+                           FontSize="12"
+                           Margin="0,0,0,8"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasBackgroundArchiveErrorStatus}"/>
+
+                <TextBlock Grid.Row="2"
+                           Grid.ColumnSpan="3"
+                           Text="{Binding AttachmentStatusMessage}"
+                           IsVisible="{Binding HasAttachmentStatusMessage}"
+                           Foreground="{DynamicResource SemiRed6}"
+                           FontSize="12"
+                           Margin="0,0,0,8"/>
+
+                <Button Grid.Row="3"
+                        Grid.Column="0"
                         Command="{Binding AttachFileCommand}" 
                         VerticalAlignment="Center" 
-                        Margin="0,0,8,0">
+                        Margin="0,0,8,0"
+                        IsEnabled="{Binding !IsSending}"
+                        ToolTip.Tip="{loc:Loc Chat.Attach.Add}">
                     <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
                 </Button>
 
-                <TextBox Grid.Column="1"
+                <TextBox x:Name="MessageInputTextBox"
+                         Grid.Row="3"
+                         Grid.Column="1"
                          Text="{Binding InputText}"
                          PlaceholderText="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
                          AcceptsReturn="True"
@@ -251,7 +397,8 @@
                     </TextBox.KeyBindings>
                 </TextBox>
 
-                <Button Grid.Column="2"
+                <Button Grid.Row="3"
+                        Grid.Column="2"
                         Command="{Binding SendMessageCommand}"
                         Margin="12,0,0,0"
                         Theme="{StaticResource AccentButtonTheme}"
@@ -261,7 +408,8 @@
                     <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
                 </Button>
 
-                <Button Grid.Column="2"
+                <Button Grid.Row="3"
+                        Grid.Column="2"
                         Command="{Binding StopResponseCommand}"
                         Margin="12,0,0,0"
                         Theme="{StaticResource AccentButtonTheme}"

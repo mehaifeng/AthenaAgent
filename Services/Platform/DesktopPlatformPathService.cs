@@ -33,6 +33,10 @@ public class DesktopPlatformPathService : IPlatformPathService
 
     public string GetHistoryDirectory() => Path.Combine(_baseDirectory, "history");
 
+    public string GetPendingArchiveDirectory() => Path.Combine(_baseDirectory, "PendingArchives");
+
+    public string GetAttachmentDirectory() => Path.Combine(_baseDirectory, "Attachments");
+
     public string GetTaskSchedulerFilePath() => Path.Combine(_baseDirectory, "scheduled_tasks.json");
 
     public string GetVectorStoreFilePath() => Path.Combine(GetKnowledgeBaseDirectory(), "vectors.db");

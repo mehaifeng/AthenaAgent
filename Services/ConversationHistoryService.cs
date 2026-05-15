@@ -5,11 +5,11 @@ using OpenAI.Chat;
 using Serilog;
 using System;
 using System.ClientModel;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
@@ -192,26 +192,33 @@ public class ConversationHistoryService : IConversationHistoryService
         return Task.CompletedTask;
     }
 
-    public async Task<Models.ConversationHistoryItem> CreateFromMessagesAsync(ObservableCollection<Models.ChatMessage> messages, bool forceGenerateSummary = false, string? contextSummary = null)
+    public async Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
     {
-        var messageList = messages.ToList();
+        ct.ThrowIfCancellationRequested();
 
-        // 如果不需要强制生成摘要，直接使用现有的摘要逻辑（可能会使用简单的截取方式）
-        var summary = await GenerateSummaryAsync(messageList, forceGenerateSummary);
+        var messageList = ConversationPersistenceHelper.CloneMessages(snapshot.Messages);
+        var summary = await GenerateSummaryAsync(messageList, snapshot.ForceGenerateSummary);
+        var historyId = string.IsNullOrWhiteSpace(snapshot.HistoryId)
+            ? Guid.NewGuid().ToString()
+            : snapshot.HistoryId!;
 
-        var item = new Models.ConversationHistoryItem
+        var existingItem = await LoadByIdAsync(historyId);
+        var createdAt = existingItem?.CreatedAt
+            ?? messageList.FirstOrDefault()?.Timestamp
+            ?? snapshot.CapturedAt;
+
+        var item = new ConversationHistoryItem
         {
+            Id = historyId,
             Summary = summary,
-            ContextSummary = contextSummary,
+            ContextSummary = snapshot.ContextSummary,
             MessageCount = messageList.Count,
             Messages = messageList,
-            CreatedAt = messageList.FirstOrDefault()?.Timestamp ?? DateTime.Now,
-            UpdatedAt = DateTime.Now
+            CreatedAt = createdAt,
+            UpdatedAt = snapshot.CapturedAt
         };
 
-        // 自动保存
         await SaveAsync(item);
-
         return item;
     }
 
@@ -244,9 +251,13 @@ public class ConversationHistoryService : IConversationHistoryService
                 foreach (var msg in contextMessages)
                 {
                     // 仅保留纯文本对话进行总结，忽略 tool 角色和带工具调用的 assistant 消息
-                    if (msg.Role?.ToLower() == "user" && !string.IsNullOrWhiteSpace(msg.Content))
+                    if (msg.Role?.ToLower() == "user")
                     {
-                        openAiMessages.Add(new UserChatMessage(msg.Content));
+                        var summaryContent = FormatMessageForSummary(msg);
+                        if (!string.IsNullOrWhiteSpace(summaryContent))
+                        {
+                            openAiMessages.Add(new UserChatMessage(summaryContent));
+                        }
                     }
                     else if ((msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai") 
                              && string.IsNullOrEmpty(msg.ToolCallsJson) 
@@ -276,7 +287,10 @@ public class ConversationHistoryService : IConversationHistoryService
         }
 
         // 默认方式：取第一条用户消息的前 30 个字符
-        var firstUserMessage = messages.FirstOrDefault(m => m.Role?.ToLower() == "user")?.Content;
+        var firstUserMessage = messages
+            .Where(m => m.Role?.ToLower() == "user")
+            .Select(FormatMessageForSummary)
+            .FirstOrDefault(content => !string.IsNullOrWhiteSpace(content));
         if (string.IsNullOrEmpty(firstUserMessage))
         {
             return GetString("History.NewConversation", "New conversation");
@@ -406,7 +420,7 @@ public class ConversationHistoryService : IConversationHistoryService
             var summaryPrompt = _promptService.GetPrompt(PromptType.ContextCompressionStrategy) + "\n\n" +
                 string.Join("\n", olderMessages
                     .Where(m => m.Role == "user" || (m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson)))
-                    .Select(m => $"[{m.Role}]: {m.Content}"));
+                    .Select(m => $"[{m.Role}]: {FormatMessageForSummary(m)}"));
 
             var openAiMessages = new List<OpenAI.Chat.ChatMessage>
             {
@@ -481,5 +495,21 @@ public class ConversationHistoryService : IConversationHistoryService
         message.Patch.Set("$.reasoning_content"u8, reasoningContent);
 #pragma warning restore SCME0001
         return message;
+    }
+
+    private static string FormatMessageForSummary(Models.ChatMessage message)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(message.Content))
+        {
+            parts.Add(message.Content);
+        }
+
+        if (message.Attachments.Count > 0)
+        {
+            parts.Add(string.Join(" ", message.Attachments.Select(a => $"[{a.DisplayKind}: {a.FileName}]")));
+        }
+
+        return string.Join("\n", parts);
     }
 }

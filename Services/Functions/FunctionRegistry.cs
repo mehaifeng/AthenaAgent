@@ -60,15 +60,26 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Tasks & Reminders ---
         RegisterFunction("create_task", proactiveFunctions.ScheduleProactiveMessage,
-            "Schedules a proactive conversation task. Use this to set reminders or follow-ups based on explicit or implicit time mentions (e.g., 'remind me in 5m', 'next Friday', 'later').",
+            "Schedules a proactive conversation task. Use this to set reminders or follow-ups based on explicit or implicit time mentions. Supported recurrence modes are: none, interval, and weekly_days. Do not invent free-text recurrence strings.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    scheduledTime = new { type = "string", description = "Natural language time description (e.g., '2024-08-15 09:00', 'in 2 hours', 'every Friday 3pm')." },
+                    scheduledTime = new { type = "string", description = "Natural language time description for the schedule boundary (e.g., '2024-08-15 09:00', 'in 2 hours', 'tomorrow morning')." },
                     intent = new { type = "string", description = "The topic or message for the proactive session." },
-                    recurrence = new { type = "string", description = "Recurrence pattern: 'none' (default), 'daily', 'weekly', 'every N days'.", @default = "none" }
+                    recurrence = new
+                    {
+                        type = "object",
+                        description = "Optional structured recurrence rule. Supported forms: {mode:'none'}; {mode:'interval', interval:N, unit:'minute|hour|day|week'}; {mode:'weekly_days', interval:N, daysOfWeek:['Monday','Friday']}.",
+                        properties = new
+                        {
+                            mode = new { type = "string", @enum = new[] { "none", "interval", "weekly_days" } },
+                            interval = new { type = "integer", description = "Positive integer. Required for interval and weekly_days." },
+                            unit = new { type = "string", @enum = new[] { "minute", "hour", "day", "week" }, description = "Required only when mode='interval'." },
+                            daysOfWeek = new { type = "array", items = new { type = "string", @enum = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" } }, description = "Required only when mode='weekly_days'." }
+                        }
+                    }
                 },
                 required = new[] { "scheduledTime", "intent" }
             });
