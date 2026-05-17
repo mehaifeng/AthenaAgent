@@ -1,0 +1,55 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:Athena.UI.Models"
+        x:Class="Athena.UI.Views.ImagePreviewWindow"
+        x:DataType="models:ChatAttachment"
+        Width="960"
+        Height="720"
+        MinWidth="480"
+        MinHeight="360"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource App.SectionBg}"
+        Title="{Binding DisplayName}">
+
+    <Grid RowDefinitions="Auto,*">
+        <Border Grid.Row="0"
+                Padding="16,12"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding DisplayName}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding DisplaySize}"
+                               FontSize="11"
+                               Opacity="0.7"/>
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Name="CloseButton"
+                        Padding="12,4"
+                        HorizontalAlignment="Right">
+                    <PathIcon Data="{StaticResource SemiIconClose}"
+                              Width="14"
+                              Height="14"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                Padding="16">
+            <Grid Name="ImageViewport"
+                  ClipToBounds="True">
+                <Image Name="PreviewImage"
+                       Stretch="Uniform"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       MaxWidth="{Binding #ImageViewport.Bounds.Width}"
+                       MaxHeight="{Binding #ImageViewport.Bounds.Height}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

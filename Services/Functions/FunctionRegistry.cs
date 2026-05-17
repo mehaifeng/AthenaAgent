@@ -20,7 +20,6 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
     private readonly IConfigService? _configService;
-    private int? _cachedToolDeclarationTokens = null;
 
     public bool HasFunctions => _tools.Count > 0;
 
@@ -31,6 +30,7 @@ public class FunctionRegistry : IFunctionRegistry
         FileSystemFunctions fileSystemFunctions,
         CliFunctions cliFunctions,
         WebSearchFunctions webSearchFunctions,
+        ImageGenerationFunctions imageGenerationFunctions,
         BrowserTaskFunctions browserTaskFunctions,
         IConfigService? configService,
         ILogger logger)
@@ -136,6 +136,18 @@ public class FunctionRegistry : IFunctionRegistry
                     maxResults = new { type = "integer", description = "Maximum number of search results to return.", @default = 5 }
                 },
                 required = new[] { "query" }
+            });
+
+        RegisterFunction("generate_image", imageGenerationFunctions.GenerateImageAsync,
+            "Generates a single image and attaches it to the current assistant reply. Use this only when the user explicitly asks for an image or the best answer is an image instead of plain text.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    prompt = new { type = "string", description = "The final image prompt to render." }
+                },
+                required = new[] { "prompt" }
             });
 
         // --- Headless Browser (high-level entry only) ---
@@ -374,12 +386,12 @@ public class FunctionRegistry : IFunctionRegistry
         _logger.Debug("Registered function: {Name}", name);
     }
 
-    public IEnumerable<object> GetToolDefinitions() => _tools;
+    public IEnumerable<object> GetToolDefinitions() => FilterTools(_tools);
 
     public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames)
     {
         var nameSet = new HashSet<string>(toolNames, StringComparer.OrdinalIgnoreCase);
-        return _tools.Where(t => t is ChatTool chatTool && nameSet.Contains(chatTool.FunctionName));
+        return FilterTools(_tools.Where(t => t is ChatTool chatTool && nameSet.Contains(chatTool.FunctionName)));
     }
 
     public async Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
@@ -406,13 +418,8 @@ public class FunctionRegistry : IFunctionRegistry
 
     public int GetToolDeclarationTokenCount()
     {
-        if (_cachedToolDeclarationTokens.HasValue)
-        {
-            return _cachedToolDeclarationTokens.Value;
-        }
-
         int totalTokens = 0;
-        foreach (var tool in _tools)
+        foreach (var tool in FilterTools(_tools).OfType<ChatTool>())
         {
             // Simple estimation: serialize the tool definition and estimate based on length.
             // A more precise calculation would involve tokenizing the JSON representation.
@@ -420,8 +427,28 @@ public class FunctionRegistry : IFunctionRegistry
             totalTokens += Models.ConversationContext.EstimateTokens(serializedTool);
         }
 
-        _cachedToolDeclarationTokens = totalTokens;
         _logger.Debug("Calculated total tool declaration tokens: {Tokens}", totalTokens);
         return totalTokens;
+    }
+
+    private IEnumerable<object> FilterTools(IEnumerable<object> tools)
+    {
+        var config = _configService?.Load();
+        foreach (var tool in tools)
+        {
+            if (tool is not ChatTool chatTool)
+            {
+                yield return tool;
+                continue;
+            }
+
+            if (string.Equals(chatTool.FunctionName, "generate_image", StringComparison.OrdinalIgnoreCase)
+                && config?.ImageGenerationEnabled != true)
+            {
+                continue;
+            }
+
+            yield return tool;
+        }
     }
 }

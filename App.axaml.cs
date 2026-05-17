@@ -482,6 +482,20 @@ public partial class App : Application
             return new AttachmentStoreService(pathService, logger);
         });
 
+        services.AddSingleton<IImageGenerationService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var attachmentStoreService = sp.GetRequiredService<IAttachmentStoreService>();
+            var logger = Log.ForContext<OpenAIImageGenerationService>();
+            return new OpenAIImageGenerationService(configService, attachmentStoreService, logger);
+        });
+
+        services.AddSingleton<IAudioPlaybackService>(sp =>
+        {
+            var logger = Log.ForContext<LibVlcAudioPlaybackService>();
+            return new LibVlcAudioPlaybackService(logger);
+        });
+
         // Headless Browser 服务
         services.AddSingleton<IBrowserSessionManager>(sp =>
         {
@@ -535,6 +549,13 @@ public partial class App : Application
             return new WebSearchFunctions(webSearchService, logger);
         });
 
+        services.AddSingleton<ImageGenerationFunctions>(sp =>
+        {
+            var imageGenerationService = sp.GetRequiredService<IImageGenerationService>();
+            var logger = Log.ForContext<ImageGenerationFunctions>();
+            return new ImageGenerationFunctions(imageGenerationService, logger);
+        });
+
         services.AddSingleton<BrowserTaskFunctions>(sp =>
         {
             var browserAgentService = sp.GetRequiredService<IBrowserAgentService>();
@@ -551,11 +572,12 @@ public partial class App : Application
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var cliFunctions = sp.GetRequiredService<CliFunctions>();
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
+            var imageGenerationFunctions = sp.GetRequiredService<ImageGenerationFunctions>();
             var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
             var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, browserTaskFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）
@@ -570,10 +592,11 @@ public partial class App : Application
             var historyService = sp.GetService<IConversationHistoryService>();
             var tokenService = sp.GetService<ITokenService>();
             var locationService = sp.GetService<ILocalizationService>();
+            var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService);
         });
 
         // 对话历史服务（单例）
@@ -620,6 +643,7 @@ public partial class App : Application
             var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
+            var audioPlaybackService = sp.GetService<IAudioPlaybackService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
@@ -641,6 +665,7 @@ public partial class App : Application
                 webSearchService,
                 updateService,
                 attachmentStoreService,
+                audioPlaybackService,
                 archiveService,
                 browserService,
                 browserVisionService);

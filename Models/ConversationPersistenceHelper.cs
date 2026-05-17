@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -38,6 +39,7 @@ public static class ConversationPersistenceHelper
             ToolCallId = msg.ToolCallId,
             ToolCallsJson = msg.ToolCallsJson,
             ReasoningContent = msg.ReasoningContent,
+            OutputAudioReferenceId = msg.OutputAudioReferenceId,
             Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachment)),
             IsCompressed = msg.IsCompressed,
             CanEdit = false,
@@ -61,7 +63,8 @@ public static class ConversationPersistenceHelper
             Width = attachment.Width,
             Height = attachment.Height,
             CreatedAt = attachment.CreatedAt,
-            PreviewImage = attachment.PreviewImage
+            PreviewImage = attachment.PreviewImage,
+            Duration = attachment.Duration
         };
     }
 
@@ -73,5 +76,10 @@ public static class ConversationPersistenceHelper
         msg.CanEdit = false;
         msg.CanRegenerate = false;
         msg.ToolExecutionSummary = string.Empty;
+        foreach (var attachment in msg.Attachments)
+        {
+            attachment.IsPlaying = false;
+            attachment.Position = TimeSpan.Zero;
+        }
     }
 }

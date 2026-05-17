@@ -10,6 +10,7 @@ public partial class ChatAttachment : ObservableObject
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsImage))]
+    [NotifyPropertyChangedFor(nameof(IsAudio))]
     [NotifyPropertyChangedFor(nameof(DisplayKind))]
     private AttachmentKind _kind = AttachmentKind.Unknown;
 
@@ -44,13 +45,32 @@ public partial class ChatAttachment : ObservableObject
     [property: JsonIgnore]
     private IImage? _previewImage;
 
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private bool _isPlaying;
+
+    [ObservableProperty]
+    [property: JsonIgnore]
+    [NotifyPropertyChangedFor(nameof(DurationText))]
+    private TimeSpan _duration;
+
+    [ObservableProperty]
+    [property: JsonIgnore]
+    [NotifyPropertyChangedFor(nameof(PositionText))]
+    [NotifyPropertyChangedFor(nameof(PlaybackProgress))]
+    private TimeSpan _position;
+
     [JsonIgnore]
     public bool IsImage => Kind == AttachmentKind.Image;
+
+    [JsonIgnore]
+    public bool IsAudio => Kind == AttachmentKind.Audio;
 
     [JsonIgnore]
     public string DisplayKind => Kind switch
     {
         AttachmentKind.Image => "Image",
+        AttachmentKind.Audio => "Audio",
         AttachmentKind.Document => "Document",
         AttachmentKind.Code => "Code",
         _ => "File"
@@ -78,5 +98,27 @@ public partial class ChatAttachment : ObservableObject
             if (SizeBytes < 1024 * 1024) return $"{SizeBytes / 1024d:0.#} KB";
             return $"{SizeBytes / 1024d / 1024d:0.#} MB";
         }
+    }
+
+    [JsonIgnore]
+    public string DurationText => Duration > TimeSpan.Zero ? FormatTime(Duration) : "--:--";
+
+    [JsonIgnore]
+    public string PositionText => FormatTime(Position);
+
+    [JsonIgnore]
+    public double PlaybackProgress =>
+        Duration > TimeSpan.Zero
+            ? Math.Clamp(Position.TotalSeconds / Duration.TotalSeconds, 0d, 1d)
+            : 0d;
+
+    private static string FormatTime(TimeSpan value)
+    {
+        if (value.TotalHours >= 1)
+        {
+            return value.ToString(@"h\:mm\:ss");
+        }
+
+        return value.ToString(@"m\:ss");
     }
 }

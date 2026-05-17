@@ -58,9 +58,13 @@
     <system:String x:Key="Config.SectionPrimaryAI">主 AI 模型</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">次级 AI 模型</system:String>
     <system:String x:Key="Config.SectionEmbedding">向量嵌入模型</system:String>
+    <system:String x:Key="Config.SectionChatAudio">对话音频输出</system:String>
+    <system:String x:Key="Config.SectionImageGeneration">图像生成</system:String>
     <system:String x:Key="Config.SectionMemory">记忆管理</system:String>
     <system:String x:Key="Config.BgTasks">后台任务</system:String>
     <system:String x:Key="Config.VectorKb">向量知识库</system:String>
+    <system:String x:Key="Config.AudioOutput">音频输出</system:String>
+    <system:String x:Key="Config.ImageGeneration">图像生成</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">后台任务与辅助核心</system:String>
     <system:String x:Key="Config.Enable">启用Web Search</system:String>
 
@@ -78,6 +82,12 @@
     <system:String x:Key="Config.ParamTemp">温度参数:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">最大 Token 数:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">函数调用:</system:String>
+    <system:String x:Key="Config.ChatAudioEnabled">启用对话音频:</system:String>
+    <system:String x:Key="Config.ChatAudioVoice">音频语音:</system:String>
+    <system:String x:Key="Config.ImageGenerationEnabled">启用图像生成:</system:String>
+    <system:String x:Key="Config.ImageGenerationModel">图像模型:</system:String>
+    <system:String x:Key="Config.ImageGenerationBaseUrl">图像 Base URL:</system:String>
+    <system:String x:Key="Config.ImageGenerationApiKey">图像 API 密钥:</system:String>
     <system:String x:Key="Config.CtxUsage">当前上下文:</system:String>
     <system:String x:Key="Config.MemMaxCtx">上下文限制:</system:String>
     <system:String x:Key="Config.MemCompThresh">压缩阈值:</system:String>
