@@ -17,6 +17,7 @@ Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
+    ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("fallback summary still saves without secondary model", TestFallbackSummaryAsync),
     ("archive queue stages locally and retries on restart", TestArchiveQueueReplayAsync),
@@ -64,6 +65,36 @@ static Task TestSnapshotFilterAsync()
 
     AssertFalse(ConversationPersistenceHelper.ShouldPersistMessage(loadingBubble), "empty loading bubble should be skipped");
     AssertTrue(ConversationPersistenceHelper.ShouldPersistMessage(partialBubble), "partial assistant text should be archived");
+    return Task.CompletedTask;
+}
+
+static Task TestAudioPersistenceCloneAsync()
+{
+    var source = new ChatMessage
+    {
+        Role = "assistant",
+        Content = "audio reply",
+        OutputAudioReferenceId = "audio_123",
+        Attachments =
+        [
+            new ChatAttachment
+            {
+                Kind = AttachmentKind.Audio,
+                FileName = "reply.mp3",
+                StoredPath = "/tmp/reply.mp3",
+                MimeType = "audio/mpeg",
+                Duration = TimeSpan.FromSeconds(12),
+                SizeBytes = 1024
+            }
+        ]
+    };
+
+    var clone = ConversationPersistenceHelper.CloneMessage(source);
+
+    AssertEqual("audio_123", clone.OutputAudioReferenceId, "audio reference should be preserved");
+    AssertEqual(1, clone.Attachments.Count, "audio attachment should be cloned");
+    AssertEqual(AttachmentKind.Audio, clone.Attachments[0].Kind, "attachment kind should stay audio");
+    AssertEqual(TimeSpan.FromSeconds(12), clone.Attachments[0].Duration, "audio duration should be preserved");
     return Task.CompletedTask;
 }
 

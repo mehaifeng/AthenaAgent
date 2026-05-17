@@ -26,6 +26,7 @@ public class OpenAIChatService : IChatService
     private readonly IConversationHistoryService? _historyService;
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IAttachmentStoreService? _attachmentStoreService;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -36,7 +37,8 @@ public class OpenAIChatService : IChatService
         IFunctionRegistry functionRegistry,
         IConversationHistoryService? historyService = null,
         ITokenService? tokenService = null,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        IAttachmentStoreService? attachmentStoreService = null)
     {
         _config = config;
         _promptService = promptService;
@@ -44,6 +46,7 @@ public class OpenAIChatService : IChatService
         _historyService = historyService;
         _tokenService = tokenService;
         _localizationService = localizationService;
+        _attachmentStoreService = attachmentStoreService;
         InitializeClient();
     }
 
@@ -211,6 +214,9 @@ public class OpenAIChatService : IChatService
             ChatFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
             var assistantReasoning = new StringBuilder();
+            var audioTranscript = new StringBuilder();
+            await using var outputAudioStream = new MemoryStream();
+            string? outputAudioId = null;
 
             await foreach (var update in stream.WithCancellation(cancellationToken))
             {
@@ -226,6 +232,30 @@ public class OpenAIChatService : IChatService
                         yield return text;
                     }
                 }
+
+#pragma warning disable OPENAI001
+                if (update.OutputAudioUpdate != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(update.OutputAudioUpdate.Id))
+                    {
+                        outputAudioId ??= update.OutputAudioUpdate.Id;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(update.OutputAudioUpdate.TranscriptUpdate))
+                    {
+                        audioTranscript.Append(update.OutputAudioUpdate.TranscriptUpdate);
+                    }
+
+                    if (update.OutputAudioUpdate.AudioBytesUpdate != null)
+                    {
+                        var audioChunk = update.OutputAudioUpdate.AudioBytesUpdate.ToArray();
+                        if (audioChunk.Length > 0)
+                        {
+                            await outputAudioStream.WriteAsync(audioChunk, cancellationToken);
+                        }
+                    }
+                }
+#pragma warning restore OPENAI001
 
                 foreach (var toolCallUpdate in update.ToolCallUpdates)
                 {
@@ -293,9 +323,40 @@ public class OpenAIChatService : IChatService
 
             if (!hasToolCalls)
             {
-                if (assistantContent.Length > 0 || reasoningContent != null)
+                ChatAttachment? audioAttachment = null;
+                if (outputAudioStream.Length > 0 && _attachmentStoreService != null)
                 {
-                    context.AddAssistantMessage(assistantContent.ToString(), reasoningContent: reasoningContent);
+                    audioAttachment = await CreateAssistantAudioAttachmentAsync(outputAudioStream.ToArray(), cancellationToken);
+                }
+
+                var finalContent = assistantContent.Length > 0
+                    ? assistantContent.ToString()
+                    : audioTranscript.ToString();
+
+                if (assistantContent.Length == 0 && !string.IsNullOrWhiteSpace(finalContent))
+                {
+                    yield return finalContent;
+                }
+
+                if (!string.IsNullOrWhiteSpace(finalContent) || reasoningContent != null || audioAttachment != null)
+                {
+                    context.AddAssistantMessage(
+                        finalContent,
+                        reasoningContent: reasoningContent,
+                        attachments: audioAttachment != null ? [audioAttachment] : null,
+                        outputAudioReferenceId: outputAudioId);
+
+                    if (audioAttachment != null)
+                    {
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Role = "assistant",
+                            Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { audioAttachment },
+                            OutputAudioReferenceId = outputAudioId,
+                            Timestamp = DateTime.Now
+                        });
+                    }
+
                     if (reasoningContent != null)
                     {
                         onMessageAdded?.Invoke(new Models.ChatMessage
@@ -345,6 +406,16 @@ public class OpenAIChatService : IChatService
                 Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}", 
                     toolCall.FunctionName, 
                     resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
+
+                if (result.GeneratedAttachments.Count > 0)
+                {
+                    onMessageAdded?.Invoke(new Models.ChatMessage
+                    {
+                        Role = "assistant",
+                        Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(result.GeneratedAttachments),
+                        Timestamp = DateTime.Now
+                    });
+                }
                 
                 // 通知 UI 产生了工具结果消息
                 var toolResultMsg = new Models.ChatMessage
@@ -433,6 +504,7 @@ public class OpenAIChatService : IChatService
         Log.Debug("API 参数: Temperature={Temp}, MaxTokens={MaxTokens}, TopP={TopP}",
             _config.Temperature, _config.MaxTokens, _config.TopP);
 
+        ApplyAudioOptions(options);
         ApplyToolOptions(options);
 
         return options;
@@ -460,6 +532,19 @@ public class OpenAIChatService : IChatService
 
         options.ToolChoice = ChatToolChoice.CreateNoneChoice();
         Log.Debug("Function Calling disabled; ToolChoice=None");
+    }
+
+    private void ApplyAudioOptions(ChatCompletionOptions options)
+    {
+        if (!_config.ChatAudioEnabled)
+        {
+            return;
+        }
+
+#pragma warning disable OPENAI001
+        options.ResponseModalities = ChatResponseModalities.Text | ChatResponseModalities.Audio;
+        options.AudioOptions = new ChatAudioOptions(ParseAudioVoice(_config.ChatAudioVoice), ChatOutputAudioFormat.Mp3);
+#pragma warning restore OPENAI001
     }
 
     private const string TimestampFormat = "[yyMMddHHmmss-ddd] ";
@@ -520,6 +605,12 @@ public class OpenAIChatService : IChatService
                 case "assistant":
                     var assistantMsg = new AssistantChatMessage(msg.Content);
                     ApplyReasoningContent(assistantMsg, msg.ReasoningContent);
+                    if (!string.IsNullOrWhiteSpace(msg.OutputAudioReferenceId))
+                    {
+#pragma warning disable OPENAI001
+                        assistantMsg.OutputAudioReference = new ChatOutputAudioReference(msg.OutputAudioReferenceId);
+#pragma warning restore OPENAI001
+                    }
                     if (!string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
                         try
@@ -615,6 +706,40 @@ public class OpenAIChatService : IChatService
     }
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);
+
+    private async Task<ChatAttachment?> CreateAssistantAudioAttachmentAsync(byte[] audioBytes, CancellationToken cancellationToken)
+    {
+        if (_attachmentStoreService == null || audioBytes.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _attachmentStoreService.CreateGeneratedAudioAsync(
+                audioBytes,
+                $"assistant-{DateTime.Now:yyyyMMdd-HHmmss}.mp3",
+                "audio/mpeg",
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "保存 assistant 音频附件失败");
+            return null;
+        }
+    }
+
+#pragma warning disable OPENAI001
+    private static ChatOutputAudioVoice ParseAudioVoice(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return ChatOutputAudioVoice.Alloy;
+        }
+
+        return new ChatOutputAudioVoice(value);
+    }
+#pragma warning restore OPENAI001
 
     public async Task<(bool Success, string? Message)> TestConnectionAsync()
     {

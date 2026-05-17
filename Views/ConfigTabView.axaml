@@ -248,6 +248,38 @@
                                 </StackPanel>
                             </TabItem>
 
+                            <TabItem Header="{loc:Loc Config.AudioOutput}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SectionChatAudio}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ChatAudioEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ChatAudioEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.ImageGeneration}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SectionImageGeneration}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationModel}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.ImageGenerationModel}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationBaseUrl}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ImageGenerationBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationApiKey}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageGenerationApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+
                             <TabItem Header="{loc:Loc Config.WebSearch}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <!-- 启用开关 -->

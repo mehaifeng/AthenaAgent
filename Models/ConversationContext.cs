@@ -46,14 +46,21 @@ public class ConversationContext
         });
     }
 
-    public void AddAssistantMessage(string content, string? toolCallsJson = null, string? reasoningContent = null)
+    public void AddAssistantMessage(
+        string content,
+        string? toolCallsJson = null,
+        string? reasoningContent = null,
+        IEnumerable<ChatAttachment>? attachments = null,
+        string? outputAudioReferenceId = null)
     {
         _messages.Add(new ContextMessage
         {
             Role = "assistant",
             Content = content,
             ToolCallsJson = toolCallsJson,
-            ReasoningContent = reasoningContent
+            ReasoningContent = reasoningContent,
+            OutputAudioReferenceId = outputAudioReferenceId,
+            Attachments = attachments?.Select(CloneAttachment).ToList() ?? new List<ChatAttachment>()
         });
     }
 
@@ -100,7 +107,12 @@ public class ConversationContext
                     clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments);
                     break;
                 case "assistant":
-                    clone.AddAssistantMessage(message.Content, message.ToolCallsJson, message.ReasoningContent);
+                    clone.AddAssistantMessage(
+                        message.Content,
+                        message.ToolCallsJson,
+                        message.ReasoningContent,
+                        message.Attachments,
+                        message.OutputAudioReferenceId);
                     break;
                 case "tool":
                     clone.AddToolMessage(message.Content, message.ToolCallId);
@@ -139,6 +151,7 @@ public class ConversationContext
                     total += EstimateTokens(msg.ReasoningContent); // 计入思维链回放所需的 reasoning_content
                 }
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Image) * 1000;
+                total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Audio) * 300;
             }
             return total;
         }
@@ -158,7 +171,8 @@ public class ConversationContext
             SizeBytes = attachment.SizeBytes,
             Width = attachment.Width,
             Height = attachment.Height,
-            CreatedAt = attachment.CreatedAt
+            CreatedAt = attachment.CreatedAt,
+            Duration = attachment.Duration
         };
     }
 }
@@ -170,6 +184,7 @@ public class ContextMessage
     public string? ToolCallId { get; set; }
     public string? ToolCallsJson { get; set; }
     public string? ReasoningContent { get; set; }
+    public string? OutputAudioReferenceId { get; set; }
     public DateTime Timestamp { get; set; }
     public List<ChatAttachment> Attachments { get; set; } = new();
 }

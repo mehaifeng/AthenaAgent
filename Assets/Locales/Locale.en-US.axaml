@@ -58,9 +58,13 @@
     <system:String x:Key="Config.SectionPrimaryAI">Primary AI Model</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">Secondary AI Model</system:String>
     <system:String x:Key="Config.SectionEmbedding">Embedding Model</system:String>
+    <system:String x:Key="Config.SectionChatAudio">Chat Audio Output</system:String>
+    <system:String x:Key="Config.SectionImageGeneration">Image Generation</system:String>
     <system:String x:Key="Config.SectionMemory">Memory Management</system:String>
     <system:String x:Key="Config.BgTasks">Background Tasks</system:String>
     <system:String x:Key="Config.VectorKb">Vector Knowledge Base</system:String>
+    <system:String x:Key="Config.AudioOutput">Audio Output</system:String>
+    <system:String x:Key="Config.ImageGeneration">Image Generation</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">Background Tasks and Auxiliary Core</system:String>
     <system:String x:Key="Config.SkipRegenerateConfirm">Skp regenrate confirm</system:String>
     <system:String x:Key="Config.SkipEditMessageConfirm">skip edit confirm</system:String>
@@ -78,6 +82,12 @@
     <system:String x:Key="Config.ParamTemp">Temperature:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">Max Tokens:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">Function Calling:</system:String>
+    <system:String x:Key="Config.ChatAudioEnabled">Enable Chat Audio:</system:String>
+    <system:String x:Key="Config.ChatAudioVoice">Audio Voice:</system:String>
+    <system:String x:Key="Config.ImageGenerationEnabled">Enable Image Generation:</system:String>
+    <system:String x:Key="Config.ImageGenerationModel">Image Model:</system:String>
+    <system:String x:Key="Config.ImageGenerationBaseUrl">Image Base URL:</system:String>
+    <system:String x:Key="Config.ImageGenerationApiKey">Image API Key:</system:String>
     <system:String x:Key="Config.CtxUsage">Context Usage:</system:String>
     <system:String x:Key="Config.MemMaxCtx">Max Context Tokens:</system:String>
     <system:String x:Key="Config.MemCompThresh">Compression Threshold:</system:String>
