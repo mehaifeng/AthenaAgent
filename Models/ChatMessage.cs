@@ -84,6 +84,9 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     private string? _reasoningContent;
 
+    [ObservableProperty]
+    private string? _outputAudioReferenceId;
+
     /// <summary>
     /// 是否已参与压缩（归档进摘要）
     /// </summary>

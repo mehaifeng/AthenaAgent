@@ -18,6 +18,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System.Collections.Specialized;
 
 namespace Athena.UI.ViewModels;
 
@@ -39,6 +40,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
+    private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly IConversationArchiveService? _archiveService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
@@ -125,7 +127,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -137,6 +139,7 @@ public partial class ChatTabViewModel : ViewModelBase
         ITokenService? tokenService,
         ILocalizationService? localizationService,
         IAttachmentStoreService? attachmentStoreService = null,
+        IAudioPlaybackService? audioPlaybackService = null,
         IConversationArchiveService? archiveService = null)
     {
         _chatService = chatService;
@@ -148,6 +151,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _tokenService = tokenService;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
+        _audioPlaybackService = audioPlaybackService;
         _archiveService = archiveService;
 
         // Initialize from config
@@ -188,6 +192,11 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             _archiveService.ArchiveCompleted += OnArchiveCompleted;
             _archiveService.ArchiveFailed += OnArchiveFailed;
+        }
+
+        if (_audioPlaybackService != null)
+        {
+            _audioPlaybackService.PlaybackStateChanged += OnPlaybackStateChanged;
         }
 
         RestoreDraftIfNeeded();
@@ -314,6 +323,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 // 用户选择了跳过确认，直接清理后续消息
                 while (Messages.Count > msgIndex + 1)
                 {
+                    DeleteMessageAttachments(Messages[msgIndex + 1]);
                     Messages.RemoveAt(msgIndex + 1);
                 }
             }
@@ -346,6 +356,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 // 清理后续消息（与 Regenerate 相同的逻辑）
                 while (Messages.Count > msgIndex + 1)
                 {
+                    DeleteMessageAttachments(Messages[msgIndex + 1]);
                     Messages.RemoveAt(msgIndex + 1);
                 }
             }
@@ -439,6 +450,7 @@ public partial class ChatTabViewModel : ViewModelBase
         // 彻底清空提问之后的所有上下文，包括工具结果等干扰项
         while (Messages.Count > lastUserIndex + 1)
         {
+            DeleteMessageAttachments(Messages[lastUserIndex + 1]);
             Messages.RemoveAt(lastUserIndex + 1);
         }
 
@@ -467,6 +479,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     // 删除这条 assistant 及其后所有 tool 消息
                     while (Messages.Count > i)
                     {
+                        DeleteMessageAttachments(Messages[i]);
                         Messages.RemoveAt(i);
                     }
                     UpdateConversationContext();
@@ -482,10 +495,12 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             while (msgIndex + 1 < Messages.Count && Messages[msgIndex + 1].Role == "tool")
             {
+                DeleteMessageAttachments(Messages[msgIndex + 1]);
                 Messages.RemoveAt(msgIndex + 1);
             }
         }
 
+        DeleteMessageAttachments(message);
         Messages.Remove(message);
         UpdateConversationContext();
         UpdateContextTokensDisplay();
@@ -504,6 +519,24 @@ public partial class ChatTabViewModel : ViewModelBase
                 _logger.Debug("Copying message content to clipboard");
             }
         }
+    }
+
+    [RelayCommand]
+    private async Task OpenImageAttachmentAsync(ChatAttachment? attachment)
+    {
+        if (attachment == null || !attachment.IsImage || string.IsNullOrWhiteSpace(attachment.StoredPath))
+        {
+            return;
+        }
+
+        var owner = GetMainWindow();
+        if (owner == null)
+        {
+            return;
+        }
+
+        var window = new Views.ImagePreviewWindow(attachment);
+        await window.ShowDialog(owner);
     }
 
     /// <summary>
@@ -737,6 +770,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (shouldRemove)
             {
+                DeleteMessageAttachments(message);
                 Messages.Remove(message);
             }
         }
@@ -786,13 +820,13 @@ public partial class ChatTabViewModel : ViewModelBase
 
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
-                        // 真实的工具调用回合保存在隐藏消息里，当前可见气泡只保留工具后的最终答复
+                        // 真实的工具调用回合保存在隐藏消息里；主气泡保留已经流式显示给用户的正文，
+                        // 仅追加工具执行状态，避免正文在流结束后突然消失。
                         msg.IsHidden = true;
                         Messages.Add(msg);
 
                         // Update the main bubble's status
                         assistantMsg.IsLoading = false;
-                        assistantMsg.Content = string.Empty;
                         assistantMsg.ReasoningContent = null;
                         try
                         {
@@ -810,6 +844,20 @@ public partial class ChatTabViewModel : ViewModelBase
                     else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
                     {
                         assistantMsg.ReasoningContent = msg.ReasoningContent;
+                    }
+                    else if (msg.Role == "assistant" && msg.Attachments.Count > 0)
+                    {
+                        foreach (var attachment in msg.Attachments.Select(CloneAttachmentForMessage))
+                        {
+                            assistantMsg.Attachments.Add(attachment);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(msg.OutputAudioReferenceId))
+                        {
+                            assistantMsg.OutputAudioReferenceId = msg.OutputAudioReferenceId;
+                        }
+
+                        assistantMsg.IsLoading = false;
                     }
                     else if (msg.Role == "tool")
                     {
@@ -911,7 +959,10 @@ public partial class ChatTabViewModel : ViewModelBase
                     && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
                     && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
                 {
-                    Messages.Remove(assistantMsg);
+                    if (assistantMsg.Attachments.Count == 0)
+                    {
+                        Messages.Remove(assistantMsg);
+                    }
                 }
 
                 UpdateConversationContext();
@@ -954,9 +1005,16 @@ public partial class ChatTabViewModel : ViewModelBase
                 // 仅添加有内容的助手消息
                 if (!string.IsNullOrEmpty(msg.Content)
                     || !string.IsNullOrEmpty(msg.ToolCallsJson)
-                    || !string.IsNullOrEmpty(msg.ReasoningContent))
+                    || !string.IsNullOrEmpty(msg.ReasoningContent)
+                    || msg.Attachments.Count > 0
+                    || !string.IsNullOrEmpty(msg.OutputAudioReferenceId))
                 {
-                    _currentContext.AddAssistantMessage(msg.Content, msg.ToolCallsJson, msg.ReasoningContent);
+                    _currentContext.AddAssistantMessage(
+                        msg.Content,
+                        msg.ToolCallsJson,
+                        msg.ReasoningContent,
+                        msg.Attachments,
+                        msg.OutputAudioReferenceId);
                 }
             }
             else if (msg.Role == "tool")
@@ -1402,6 +1460,86 @@ public partial class ChatTabViewModel : ViewModelBase
             || ex.Message.Contains("vision", StringComparison.OrdinalIgnoreCase)
             || ex.Message.Contains("modal", StringComparison.OrdinalIgnoreCase)
             || ex.Message.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [RelayCommand]
+    private void PlayAudioAttachment(ChatAttachment? attachment)
+    {
+        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
+        {
+            return;
+        }
+
+        if (_audioPlaybackService.Play(attachment))
+        {
+            UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
+        }
+    }
+
+    [RelayCommand]
+    private void PauseAudioAttachment(ChatAttachment? attachment)
+    {
+        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
+        {
+            return;
+        }
+
+        _audioPlaybackService.Pause();
+        UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
+    }
+
+    [RelayCommand]
+    private void SeekAudioAttachment(ChatAttachment? attachment)
+    {
+        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
+        {
+            return;
+        }
+
+        _audioPlaybackService.Seek(attachment.Position);
+    }
+
+    private void OnPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateAudioAttachmentStates(e.AttachmentId, e.IsPlaying, e.Position, e.Duration);
+        });
+    }
+
+    private void UpdateAudioAttachmentStates(string? attachmentId, bool isPlaying, TimeSpan position, TimeSpan duration)
+    {
+        foreach (var attachment in Messages.SelectMany(m => m.Attachments).Where(a => a.IsAudio))
+        {
+            var selected = attachment.Id == attachmentId;
+            attachment.IsPlaying = selected && isPlaying;
+            if (selected)
+            {
+                if (duration > TimeSpan.Zero)
+                {
+                    attachment.Duration = duration;
+                }
+
+                attachment.Position = position;
+            }
+            else if (isPlaying)
+            {
+                attachment.IsPlaying = false;
+            }
+        }
+    }
+
+    private void DeleteMessageAttachments(ChatMessage message)
+    {
+        if (_attachmentStoreService == null)
+        {
+            return;
+        }
+
+        foreach (var attachment in message.Attachments.ToList())
+        {
+            _attachmentStoreService.DeleteStoredAttachment(attachment);
+        }
     }
 
     private static ChatAttachment CloneAttachmentForMessage(ChatAttachment attachment)

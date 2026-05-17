@@ -44,6 +44,24 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _enableFunctionCalling = true;
 
+    [ObservableProperty]
+    private bool _chatAudioEnabled;
+
+    [ObservableProperty]
+    private string _chatAudioVoice = "alloy";
+
+    [ObservableProperty]
+    private bool _imageGenerationEnabled = true;
+
+    [ObservableProperty]
+    private string _imageGenerationModel = "gpt-image-1";
+
+    [ObservableProperty]
+    private string _imageGenerationBaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _imageGenerationApiKey = string.Empty;
+
     // 次级模型配置（用于摘要生成等后台任务）
     [ObservableProperty]
     private string _secondaryProvider = "OpenAI";

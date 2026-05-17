@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Athena.UI.Models;
 
 namespace Athena.UI.Services.Interfaces;
 
@@ -12,12 +13,31 @@ public class FunctionResult
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
     public object? Data { get; set; }
+    public IReadOnlyList<ChatAttachment> GeneratedAttachments { get; set; } = [];
 
-    public static FunctionResult SuccessResult(string message = "", object? data = null) =>
-        new() { Success = true, Message = message, Data = data };
+    public static FunctionResult SuccessResult(
+        string message = "",
+        object? data = null,
+        IReadOnlyList<ChatAttachment>? generatedAttachments = null) =>
+        new()
+        {
+            Success = true,
+            Message = message,
+            Data = data,
+            GeneratedAttachments = generatedAttachments ?? []
+        };
 
-    public static FunctionResult FailureResult(string message, object? data = null) =>
-        new() { Success = false, Message = message, Data = data };
+    public static FunctionResult FailureResult(
+        string message,
+        object? data = null,
+        IReadOnlyList<ChatAttachment>? generatedAttachments = null) =>
+        new()
+        {
+            Success = false,
+            Message = message,
+            Data = data,
+            GeneratedAttachments = generatedAttachments ?? []
+        };
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
