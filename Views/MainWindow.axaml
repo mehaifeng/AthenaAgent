@@ -16,7 +16,7 @@
         Height="900"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/Athena.ico"
-        FontFamily="{DynamicResource MonospaceFontFamily}">
+        FontFamily="{DynamicResource MainFontFamily}">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
