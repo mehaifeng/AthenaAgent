@@ -247,9 +247,9 @@
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
 
             <!-- 字体设置 -->
-            <FontFamily x:Key="MainFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
+            <FontFamily x:Key="MainFontFamily">avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-            <FontFamily x:Key="ContentControlThemeFontFamily">Inter, Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica Neue, Microsoft YaHei, sans-serif</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
 
             <!-- 字号设置 -->
             <x:Double x:Key="TitleFontSize">18</x:Double>
@@ -279,6 +279,26 @@
         <semi:SemiTheme Locale="zh-CN" />
         <semi:UrsaSemiTheme Locale="zh-CN"/>
         <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml"/>
+
+        <Style Selector="Window, UserControl, TextBlock, SelectableTextBlock, TextBox, Button, ToggleButton, CheckBox, RadioButton, ComboBox, ComboBoxItem, ListBoxItem, TreeViewItem, TabItem, MenuItem">
+            <Setter Property="TextElement.FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
+
+        <Style Selector="lmd|MarkdownRenderer">
+            <Setter Property="TextElement.FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
+
+        <Style Selector="lmd|MarkdownTextBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
+
+        <Style Selector="lmd|MarkdownRenderer TextBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
+
+        <Style Selector="lmd|MarkdownRenderer SelectableTextBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
 
         <!-- 全局样式：使 TabItem 标题稍微大一点 -->
         <Style Selector="TabItem">
