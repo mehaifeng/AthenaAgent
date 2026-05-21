@@ -130,6 +130,15 @@
                     <StaticResource x:Key="ToggleSwitchContainerCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
                     <StaticResource x:Key="SimpleToggleSwitchContainerCheckedForeground" ResourceKey="App.InverseForeground" />
                     <SolidColorBrush x:Key="App.SectionBg" Color="#232324" />
+                    <SolidColorBrush x:Key="History.PendingCardBackground" Color="#2B2417" />
+                    <SolidColorBrush x:Key="History.PendingCardPointeroverBackground" Color="#342B1C" />
+                    <SolidColorBrush x:Key="History.PendingCardSelectedBackground" Color="#3B3020" />
+                    <SolidColorBrush x:Key="History.PendingCardBorderBrush" Color="#B8892F" />
+                    <SolidColorBrush x:Key="History.PendingCardSelectedBorderBrush" Color="#E6BE62" />
+                    <SolidColorBrush x:Key="History.PendingTitleForeground" Color="#FFF2D2" />
+                    <SolidColorBrush x:Key="History.PendingMetaForeground" Color="#E0B96A" />
+                    <SolidColorBrush x:Key="History.PendingStatusForeground" Color="#FFD27A" />
+                    <SolidColorBrush x:Key="History.PendingSeparatorBrush" Color="#66B8892F" />
                     <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#1C2438" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
@@ -228,6 +237,15 @@
                     <StaticResource x:Key="ToggleSwitchContainerCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
                     <StaticResource x:Key="SimpleToggleSwitchContainerCheckedForeground" ResourceKey="App.InverseForeground" />
                     <SolidColorBrush x:Key="App.SectionBg" Color="#F6F6F6" />
+                    <SolidColorBrush x:Key="History.PendingCardBackground" Color="#FFF7E8" />
+                    <SolidColorBrush x:Key="History.PendingCardPointeroverBackground" Color="#FFF1DC" />
+                    <SolidColorBrush x:Key="History.PendingCardSelectedBackground" Color="#FFEACF" />
+                    <SolidColorBrush x:Key="History.PendingCardBorderBrush" Color="#E0B35A" />
+                    <SolidColorBrush x:Key="History.PendingCardSelectedBorderBrush" Color="#C8902E" />
+                    <SolidColorBrush x:Key="History.PendingTitleForeground" Color="#6E4916" />
+                    <SolidColorBrush x:Key="History.PendingMetaForeground" Color="#9B6A22" />
+                    <SolidColorBrush x:Key="History.PendingStatusForeground" Color="#8C5A12" />
+                    <SolidColorBrush x:Key="History.PendingSeparatorBrush" Color="#66D7B372" />
                     <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#E8F2FF" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
