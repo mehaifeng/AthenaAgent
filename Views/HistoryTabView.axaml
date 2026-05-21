@@ -44,14 +44,27 @@
         </Style>
 
         <Style Selector="Border.history-item-card.pending-archive">
-            <Setter Property="Background" Value="#FFF8ED"/>
-            <Setter Property="BorderBrush" Value="#E6A23C"/>
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource History.PendingCardBorderBrush}"/>
         </Style>
 
         <Style Selector="TextBlock.pending-archive-status">
-            <Setter Property="Foreground" Value="#B7791F"/>
+            <Setter Property="Foreground" Value="{DynamicResource History.PendingStatusForeground}"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style Selector="TextBlock.pending-archive-title">
+            <Setter Property="Foreground" Value="{DynamicResource History.PendingTitleForeground}"/>
+        </Style>
+
+        <Style Selector="TextBlock.pending-archive-meta">
+            <Setter Property="Foreground" Value="{DynamicResource History.PendingMetaForeground}"/>
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <Style Selector="Separator.pending-archive-separator">
+            <Setter Property="Background" Value="{DynamicResource History.PendingSeparatorBrush}"/>
         </Style>
 
         <!-- 悬停效果 -->
@@ -60,7 +73,7 @@
         </Style>
 
         <Style Selector="ListBoxItem:pointerover Border.history-item-card.pending-archive">
-            <Setter Property="Background" Value="#FFF4DD"/>
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardPointeroverBackground}"/>
         </Style>
 
         <!-- 选中效果 -->
@@ -70,8 +83,8 @@
         </Style>
 
         <Style Selector="ListBoxItem:selected Border.history-item-card.pending-archive">
-            <Setter Property="Background" Value="#FFF1D2"/>
-            <Setter Property="BorderBrush" Value="#D69E2E"/>
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardSelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource History.PendingCardSelectedBorderBrush}"/>
         </Style>
     </UserControl.Styles>
 
@@ -123,8 +136,11 @@
                                             TextWrapping="Wrap"
                                             MaxLines="2"
                                             FontSize="14"
-                                            FontWeight="SemiBold"/>
-                                        <Separator Height="1" Margin="0,4,30,4"/>
+                                            FontWeight="SemiBold"
+                                            Classes.pending-archive-title="{Binding IsArchivePlaceholder}"/>
+                                        <Separator Height="1"
+                                                   Margin="0,4,30,4"
+                                                   Classes.pending-archive-separator="{Binding IsArchivePlaceholder}"/>
                                         <StackPanel
                                             Orientation="Horizontal" Spacing="24">
                                             <StackPanel Orientation="Horizontal"
@@ -145,6 +161,7 @@
                                                 <PathIcon Data="{StaticResource SemiIconLoading}"
                                                           Width="12"
                                                           Height="12"
+                                                          Foreground="{DynamicResource History.PendingStatusForeground}"
                                                           Classes="SlowSpin"/>
                                                 <TextBlock Text="{Binding ArchiveStatusText}"
                                                            Classes="pending-archive-status"/>
