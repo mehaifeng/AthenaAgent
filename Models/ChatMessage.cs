@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace Athena.UI.Models;
 
@@ -11,6 +13,8 @@ public partial class ChatMessage : ObservableObject
 {
     public ObservableCollection<ChatAttachment> Attachments { get; set; } = new();
 
+    public ObservableCollection<ChatMessageSegment> Segments { get; set; } = new();
+
     /// <summary>
     /// 消息角色: user, assistant, system
     /// </summary>
@@ -19,6 +23,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsUser))]
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
     private string _role = string.Empty;
 
     /// <summary>
@@ -28,6 +33,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(DisplayText))]
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
     private string _content = string.Empty;
 
     /// <summary>
@@ -35,6 +41,7 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
     private string _editContent = string.Empty;
 
     /// <summary>
@@ -64,6 +71,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanShowEdit))]
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
     private bool _isEditing;
 
     /// <summary>
@@ -127,6 +135,21 @@ public partial class ChatMessage : ObservableObject
 
     public bool HasAttachments => Attachments.Count > 0;
 
+    public bool HasSegments => Segments.Count > 0;
+
+    public bool UsesSegmentLayout => HasSegments;
+
+    public bool HasImageSegments => Segments.Any(segment => segment.IsGeneratedImage);
+
+    public bool ShouldShowLegacyMarkdown => !UsesSegmentLayout && IsContentVisible;
+
+    public IEnumerable<ChatAttachment> AttachmentPanelItems =>
+        UsesSegmentLayout
+            ? Attachments.Where(attachment => !attachment.IsImage)
+            : Attachments;
+
+    public bool ShouldShowAttachmentPanel => AttachmentPanelItems.Any();
+
     /// <summary>
     /// 是否强制隐藏（用于隐藏带有工具调用的中间助手消息）
     /// </summary>
@@ -138,7 +161,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasAttachments || HasToolExecutionSummary || IsLoading || IsEditing);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || IsLoading || IsEditing);
 
     /// <summary>
     /// 工具执行摘要提示
@@ -192,4 +215,32 @@ public partial class ChatMessage : ObservableObject
     /// 是否在 UI 中可见（system 和 tool 消息只对 LLM 可见，不对用户显示）
     /// </summary>
     public bool IsVisibleToUser => Role != "system" && Role != "tool";
+
+    public void NotifyAttachmentsChanged()
+    {
+        OnPropertyChanged(nameof(HasAttachments));
+        OnPropertyChanged(nameof(AttachmentPanelItems));
+        OnPropertyChanged(nameof(ShouldShowAttachmentPanel));
+        OnPropertyChanged(nameof(IsBubbleVisible));
+    }
+
+    public void NotifySegmentsChanged()
+    {
+        OnPropertyChanged(nameof(HasSegments));
+        OnPropertyChanged(nameof(UsesSegmentLayout));
+        OnPropertyChanged(nameof(HasImageSegments));
+        OnPropertyChanged(nameof(ShouldShowLegacyMarkdown));
+        OnPropertyChanged(nameof(AttachmentPanelItems));
+        OnPropertyChanged(nameof(ShouldShowAttachmentPanel));
+        OnPropertyChanged(nameof(IsBubbleVisible));
+    }
+
+    public void ResolveSegmentAttachments()
+    {
+        foreach (var segment in Segments.Where(segment => segment.IsGeneratedImage))
+        {
+            segment.Attachment = Attachments.FirstOrDefault(attachment =>
+                string.Equals(attachment.Id, segment.AttachmentId, StringComparison.Ordinal));
+        }
+    }
 }

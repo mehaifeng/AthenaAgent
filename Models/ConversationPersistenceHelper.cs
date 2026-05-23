@@ -41,12 +41,23 @@ public static class ConversationPersistenceHelper
             ReasoningContent = msg.ReasoningContent,
             OutputAudioReferenceId = msg.OutputAudioReferenceId,
             Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachment)),
+            Segments = new ObservableCollection<ChatMessageSegment>(msg.Segments.Select(CloneSegment)),
             IsCompressed = msg.IsCompressed,
             CanEdit = false,
             CanRegenerate = false,
             IsHidden = msg.IsHidden,
             ToolExecutionSummary = string.Empty,
             ToolName = msg.ToolName
+        };
+    }
+
+    public static ChatMessageSegment CloneSegment(ChatMessageSegment segment)
+    {
+        return new ChatMessageSegment
+        {
+            Kind = segment.Kind,
+            Text = segment.Text,
+            AttachmentId = segment.AttachmentId
         };
     }
 
@@ -81,5 +92,7 @@ public static class ConversationPersistenceHelper
             attachment.IsPlaying = false;
             attachment.Position = TimeSpan.Zero;
         }
+
+        msg.ResolveSegmentAttachments();
     }
 }

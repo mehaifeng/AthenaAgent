@@ -847,9 +847,36 @@ public partial class ChatTabViewModel : ViewModelBase
                     }
                     else if (msg.Role == "assistant" && msg.Attachments.Count > 0)
                     {
-                        foreach (var attachment in msg.Attachments.Select(CloneAttachmentForMessage))
+                        var attachments = msg.Attachments
+                            .Select(CloneAttachmentForMessage)
+                            .ToList();
+
+                        foreach (var attachment in attachments)
                         {
                             assistantMsg.Attachments.Add(attachment);
+                        }
+
+                        assistantMsg.NotifyAttachmentsChanged();
+
+                        var generatedImageAttachments = attachments
+                            .Where(attachment => attachment.IsImage)
+                            .ToList();
+
+                        if (generatedImageAttachments.Count > 0)
+                        {
+                            EnsureSegmentLayout(assistantMsg);
+
+                            foreach (var attachment in generatedImageAttachments)
+                            {
+                                assistantMsg.Segments.Add(new ChatMessageSegment
+                                {
+                                    Kind = ChatMessageSegmentKind.GeneratedImage,
+                                    AttachmentId = attachment.Id,
+                                    Attachment = attachment
+                                });
+                            }
+
+                            assistantMsg.NotifySegmentsChanged();
                         }
 
                         if (!string.IsNullOrWhiteSpace(msg.OutputAudioReferenceId))
@@ -903,6 +930,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     assistantMsg.IsLoading = false; // 收到文字后停止 loading 动画
                     assistantMsg.ToolExecutionSummary = string.Empty; // 开始输出正式回复，隐藏工具调用状态
                     assistantMsg.Content += contentDelta;
+                    AppendAssistantMarkdownSegment(assistantMsg, contentDelta);
                 }
             }
 
@@ -1354,6 +1382,12 @@ public partial class ChatTabViewModel : ViewModelBase
                         a.SizeBytes,
                         a.Width,
                         a.Height
+                    }).ToList(),
+                    Segments = msg.Segments.Select(segment => new
+                    {
+                        segment.Kind,
+                        segment.Text,
+                        segment.AttachmentId
                     }).ToList()
                 })
                 .ToList()
@@ -1545,5 +1579,46 @@ public partial class ChatTabViewModel : ViewModelBase
     private static ChatAttachment CloneAttachmentForMessage(ChatAttachment attachment)
     {
         return ConversationPersistenceHelper.CloneAttachment(attachment);
+    }
+
+    private static void EnsureSegmentLayout(ChatMessage message)
+    {
+        if (message.Segments.Count > 0)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(message.Content))
+        {
+            message.Segments.Add(new ChatMessageSegment
+            {
+                Kind = ChatMessageSegmentKind.Markdown,
+                Text = message.Content
+            });
+        }
+
+        message.NotifySegmentsChanged();
+    }
+
+    private static void AppendAssistantMarkdownSegment(ChatMessage message, string contentDelta)
+    {
+        if (message.Segments.Count == 0)
+        {
+            return;
+        }
+
+        var lastSegment = message.Segments[^1];
+        if (lastSegment.IsMarkdown)
+        {
+            lastSegment.Text += contentDelta;
+            return;
+        }
+
+        message.Segments.Add(new ChatMessageSegment
+        {
+            Kind = ChatMessageSegmentKind.Markdown,
+            Text = contentDelta
+        });
+        message.NotifySegmentsChanged();
     }
 }
