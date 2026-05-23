@@ -143,6 +143,15 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonForeground" Color="#D9D9DB" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonBackground" Color="#00FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonBorderBrush" Color="#00FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonPointeroverBackground" Color="#14FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonPressedBackground" Color="#20FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBackground" Color="#18FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPointeroverBackground" Color="#24FFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPressedBackground" Color="#2EFFFFFF" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBorderBrush" Color="#33FFFFFF" />
                     <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#FFFFFF" />
                 </ResourceDictionary>
                 <!-- 语义化颜色 definition：浅色模式 -->
@@ -250,6 +259,15 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#D29E00" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonForeground" Color="#5C6068" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonBackground" Color="#00000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonBorderBrush" Color="#00000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonPointeroverBackground" Color="#12000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonPressedBackground" Color="#1B000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBackground" Color="#14000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPointeroverBackground" Color="#1B000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPressedBackground" Color="#22000000" />
+                    <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBorderBrush" Color="#1A000000" />
                     <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#1F1F1F" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
@@ -308,6 +326,165 @@
 
         <Style Selector="lmd|MarkdownTextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+        </Style>
+
+        <Style Selector="lmd|CodeBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
+            <Setter Property="Template">
+                <ControlTemplate TargetType="lmd:CodeBlock">
+                    <StackPanel Orientation="Vertical" Spacing="0">
+                        <Border
+                            Background="{DynamicResource BorderColor}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4,4,0,0">
+                            <DockPanel Margin="6,1" LastChildFill="True">
+                                <TextBlock
+                                    x:Name="PART_LanguageTextBlock"
+                                    DockPanel.Dock="Left"
+                                    VerticalAlignment="Center"
+                                    FontSize="{DynamicResource SmallFontSize}"
+                                    Opacity="0.84"
+                                    Text="{TemplateBinding Language}"/>
+
+                                <StackPanel
+                                    DockPanel.Dock="Right"
+                                    HorizontalAlignment="Right"
+                                    Orientation="Horizontal"
+                                    Spacing="4">
+                                    <ToggleButton
+                                        x:Name="PART_ToggleTextWrapButton"
+                                        Width="22"
+                                        Height="22"
+                                        Padding="0"
+                                        CornerRadius="4"
+                                        Focusable="False"
+                                        IsChecked="{TemplateBinding IsCodeWrapped, Mode=TwoWay}">
+                                        <Viewbox Width="13" Height="13">
+                                            <Path
+                                                Width="24"
+                                                Height="24"
+                                                Stroke="{TemplateBinding Foreground}"
+                                                StrokeThickness="2">
+                                                <Path.Data>
+                                                    <GeometryGroup>
+                                                        <StreamGeometry>F1 M24,24z M0,0z M16,16L14,18 16,20</StreamGeometry>
+                                                        <StreamGeometry>F1 M24,24z M0,0z M3,12L18,12A3,3,0,1,1,18,18L14,18</StreamGeometry>
+                                                        <StreamGeometry>F1 M24,24z M0,0z M3,18L10,18</StreamGeometry>
+                                                        <StreamGeometry>F1 M24,24z M0,0z M3,6L21,6</StreamGeometry>
+                                                    </GeometryGroup>
+                                                </Path.Data>
+                                            </Path>
+                                        </Viewbox>
+                                    </ToggleButton>
+                                    <Button
+                                        x:Name="PART_CopyButton"
+                                        Width="22"
+                                        Height="22"
+                                        Padding="0"
+                                        CornerRadius="4"
+                                        Focusable="False">
+                                        <Viewbox Width="13" Height="13">
+                                            <Path
+                                                Width="24"
+                                                Height="24"
+                                                Stroke="{TemplateBinding Foreground}"
+                                                StrokeThickness="2">
+                                                <Path.Data>
+                                                    <GeometryGroup>
+                                                        <RectangleGeometry
+                                                            RadiusX="2"
+                                                            RadiusY="2"
+                                                            Rect="8,8,14,14"/>
+                                                        <StreamGeometry>F1 M24,24z M0,0z M4,16C2.9,16,2,15.1,2,14L2,4C2,2.9,2.9,2,4,2L14,2C15.1,2,16,2.9,16,4</StreamGeometry>
+                                                    </GeometryGroup>
+                                                </Path.Data>
+                                            </Path>
+                                        </Viewbox>
+                                    </Button>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border
+                            Background="{DynamicResource SecondaryCardBackgroundColor}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1,0,1,1"
+                            CornerRadius="0,0,4,4">
+                            <ScrollViewer
+                                x:Name="PART_ScrollViewer"
+                                HorizontalScrollBarVisibility="{TemplateBinding HorizontalScrollBarVisibility}"
+                                VerticalScrollBarVisibility="Auto">
+                                <lmd:MarkdownTextBlock
+                                    x:Name="PART_CodeTextBlock"
+                                    Margin="4"
+                                    FontFamily="{TemplateBinding FontFamily}"
+                                    TextWrapping="{TemplateBinding TextWrapping}"/>
+                            </ScrollViewer>
+                        </Border>
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter>
+
+            <Style Selector="^ /template/ ToggleButton#PART_ToggleTextWrapButton">
+                <Setter Property="ToolTip.Tip" Value="Toggle wrap"/>
+                <Setter Property="Foreground" Value="{DynamicResource CodeBlock.ToolButtonForeground}"/>
+                <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonBackground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+
+                <Style Selector="^ /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonPointeroverBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonPressedBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonCheckedBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:checked /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonCheckedBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonCheckedBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonCheckedPointeroverBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonCheckedBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonCheckedPressedBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonCheckedBorderBrush}"/>
+                </Style>
+            </Style>
+
+            <Style Selector="^ /template/ Button#PART_CopyButton">
+                <Setter Property="Foreground" Value="{DynamicResource CodeBlock.ToolButtonForeground}"/>
+                <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonBackground}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+
+                <Style Selector="^ /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonPointeroverBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonBorderBrush}"/>
+                </Style>
+
+                <Style Selector="^:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                    <Setter Property="Background" Value="{DynamicResource CodeBlock.ToolButtonPressedBackground}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource CodeBlock.ToolButtonCheckedBorderBrush}"/>
+                </Style>
+            </Style>
         </Style>
 
         <Style Selector="lmd|MarkdownRenderer TextBlock">
