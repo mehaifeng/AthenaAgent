@@ -152,7 +152,7 @@ public class AttachmentStoreService : IAttachmentStoreService
         try
         {
             using var stream = File.OpenRead(attachment.StoredPath);
-            var bitmap = Bitmap.DecodeToWidth(stream, 120);
+            var bitmap = new Bitmap(stream);
             attachment.PreviewImage = bitmap;
             attachment.Width = attachment.Width == 0 ? (int)Math.Round(bitmap.Size.Width) : attachment.Width;
             attachment.Height = attachment.Height == 0 ? (int)Math.Round(bitmap.Size.Height) : attachment.Height;

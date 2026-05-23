@@ -78,6 +78,13 @@
             <Setter Property="Padding" Value="10,8"/>
         </Style>
 
+        <Style Selector="Border.inline-generated-image">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="MaxWidth" Value="560"/>
+        </Style>
+
         <Style Selector="Button.attachment-remove-button">
             <Setter Property="Width" Value="20"/>
             <Setter Property="Height" Value="20"/>
@@ -176,10 +183,37 @@
                                     <StackPanel Spacing="4">
                                         <lmd:MarkdownRenderer
                                                    loc:MarkdownHelper.Text="{Binding DisplayText}"
-                                                   IsVisible="{Binding IsContentVisible}"
+                                                   IsVisible="{Binding ShouldShowLegacyMarkdown}"
                                                    HorizontalAlignment="Stretch" />
 
-                                        <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                                        <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding UsesSegmentLayout}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                    <StackPanel Margin="0,0,0,6">
+                                                        <lmd:MarkdownRenderer
+                                                            loc:MarkdownHelper.Text="{Binding Text}"
+                                                            IsVisible="{Binding IsMarkdown}"
+                                                            HorizontalAlignment="Stretch" />
+
+                                                        <Button IsVisible="{Binding IsGeneratedImage}"
+                                                                Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                CommandParameter="{Binding Attachment}"
+                                                                Padding="0"
+                                                                Background="Transparent"
+                                                                BorderThickness="0"
+                                                                HorizontalAlignment="Left">
+                                                            <Border Classes="inline-generated-image">
+                                                                <Image Source="{Binding Attachment.PreviewImage}"
+                                                                       Stretch="Uniform"
+                                                                       MaxWidth="560"/>
+                                                            </Border>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <ItemsControl ItemsSource="{Binding AttachmentPanelItems}" IsVisible="{Binding ShouldShowAttachmentPanel}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <WrapPanel Orientation="Horizontal"/>
