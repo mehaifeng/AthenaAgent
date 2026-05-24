@@ -139,13 +139,15 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("generate_image", imageGenerationFunctions.GenerateImageAsync,
-            "Generates a single image and attaches it to the current assistant reply. Use this only when the user explicitly asks for an image or the best answer is an image instead of plain text.",
+            "Generates a single image and attaches it to the current assistant reply. Use this only when the user explicitly asks for an image or the best answer is an image instead of plain text. continuityMode='new_root' starts a brand-new visual lineage. continuityMode='continue_last' continues only the latest generated image in the current conversation. continuityMode='continue_match' first resolves an earlier image lineage in the current conversation by matching referenceQuery against prior image prompts, then continues that lineage from its latest available image. For continue_match, referenceQuery must be a distinctive content description, not vague phrases like 'that one' or 'the earlier image'. If the backend cannot do reference-image generation, the tool will fail instead of silently creating an unrelated new image. If the user's intent is ambiguous, ask before calling this tool.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    prompt = new { type = "string", description = "The final image prompt to render." }
+                    prompt = new { type = "string", description = "The final image prompt to render." },
+                    continuityMode = new { type = "string", @enum = new[] { "new_root", "continue_last", "continue_match" }, description = "Use new_root to start a fresh lineage, continue_last to continue only the latest image in the current conversation, or continue_match to semantically resolve and continue an earlier lineage from the current conversation.", @default = "new_root" },
+                    referenceQuery = new { type = "string", description = "Required when continuityMode is continue_match. Provide a distinctive content-based description of the earlier image lineage you want to continue." }
                 },
                 required = new[] { "prompt" }
             });

@@ -482,6 +482,15 @@ public partial class App : Application
             return new AttachmentStoreService(pathService, logger);
         });
 
+        services.AddSingleton<IConversationSessionAccessor, ConversationSessionAccessor>();
+
+        services.AddSingleton<IImageGenerationSessionService>(sp =>
+        {
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var logger = Log.ForContext<ImageGenerationSessionService>();
+            return new ImageGenerationSessionService(pathService, logger);
+        });
+
         services.AddSingleton<IImageGenerationService>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
@@ -552,8 +561,10 @@ public partial class App : Application
         services.AddSingleton<ImageGenerationFunctions>(sp =>
         {
             var imageGenerationService = sp.GetRequiredService<IImageGenerationService>();
+            var imageGenerationSessionService = sp.GetRequiredService<IImageGenerationSessionService>();
+            var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
             var logger = Log.ForContext<ImageGenerationFunctions>();
-            return new ImageGenerationFunctions(imageGenerationService, logger);
+            return new ImageGenerationFunctions(imageGenerationService, imageGenerationSessionService, conversationSessionAccessor, logger);
         });
 
         services.AddSingleton<BrowserTaskFunctions>(sp =>
@@ -593,10 +604,11 @@ public partial class App : Application
             var tokenService = sp.GetService<ITokenService>();
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
+            var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService, conversationSessionAccessor);
         });
 
         // 对话历史服务（单例）
@@ -606,8 +618,9 @@ public partial class App : Application
             var configService = sp.GetService<IConfigService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var localizationService = sp.GetService<ILocalizationService>();
+            var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
             var config = configService?.Load();
-            var service = new ConversationHistoryService(promptService, platformPathService, localizationService);
+            var service = new ConversationHistoryService(promptService, platformPathService, localizationService, imageGenerationSessionService);
             if (config != null)
             {
                 service.UpdateSecondaryConfig(config);
@@ -645,6 +658,7 @@ public partial class App : Application
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var audioPlaybackService = sp.GetService<IAudioPlaybackService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
+            var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
 
@@ -667,6 +681,7 @@ public partial class App : Application
                 attachmentStoreService,
                 audioPlaybackService,
                 archiveService,
+                imageGenerationSessionService,
                 browserService,
                 browserVisionService);
         });

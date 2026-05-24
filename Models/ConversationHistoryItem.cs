@@ -9,6 +9,8 @@ namespace Athena.UI.Models;
 /// </summary>
 public class ConversationHistoryItem
 {
+    public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
+
     /// <summary>
     /// 唯一标识
     /// </summary>

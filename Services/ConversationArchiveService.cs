@@ -55,9 +55,21 @@ public class ConversationArchiveService : IConversationArchiveService
 
         var stagedSnapshot = new ConversationArchiveSnapshot
         {
+            ConversationId = snapshot.ConversationId,
             HistoryId = snapshot.HistoryId,
             ContextSummary = snapshot.ContextSummary,
             Messages = ConversationPersistenceHelper.CloneMessages(snapshot.Messages),
+            ImageSession = snapshot.ImageSession == null
+                ? null
+                : new ImageGenerationSessionSnapshot
+                {
+                    ConversationId = snapshot.ImageSession.ConversationId,
+                    HistoryId = snapshot.ImageSession.HistoryId,
+                    ActiveLineageId = snapshot.ImageSession.ActiveLineageId,
+                    CreatedAt = snapshot.ImageSession.CreatedAt,
+                    UpdatedAt = snapshot.ImageSession.UpdatedAt,
+                    Turns = snapshot.ImageSession.Turns.Select(CloneTurn).ToList()
+                },
             CapturedAt = snapshot.CapturedAt,
             ForceGenerateSummary = snapshot.ForceGenerateSummary
         };
@@ -145,5 +157,25 @@ public class ConversationArchiveService : IConversationArchiveService
         {
             return null;
         }
+    }
+
+    private static ImageGenerationTurnRecord CloneTurn(ImageGenerationTurnRecord turn)
+    {
+        return new ImageGenerationTurnRecord
+        {
+            Id = turn.Id,
+            LineageId = turn.LineageId,
+            ParentTurnId = turn.ParentTurnId,
+            Prompt = turn.Prompt,
+            RevisedPrompt = turn.RevisedPrompt,
+            AttachmentId = turn.AttachmentId,
+            FileName = turn.FileName,
+            StoredPath = turn.StoredPath,
+            MimeType = turn.MimeType,
+            ContinuityMode = turn.ContinuityMode,
+            ContinuityStatus = turn.ContinuityStatus,
+            Warning = turn.Warning,
+            CreatedAt = turn.CreatedAt
+        };
     }
 }

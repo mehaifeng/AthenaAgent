@@ -41,6 +41,11 @@ public interface IPlatformPathService
     string GetAttachmentDirectory();
 
     /// <summary>
+    /// 获取图像生成会话目录
+    /// </summary>
+    string GetImageGenerationSessionDirectory();
+
+    /// <summary>
     /// 获取任务调度器文件路径
     /// </summary>
     string GetTaskSchedulerFilePath();

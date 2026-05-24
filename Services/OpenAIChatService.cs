@@ -27,6 +27,7 @@ public class OpenAIChatService : IChatService
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
+    private readonly IConversationSessionAccessor? _conversationSessionAccessor;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -38,7 +39,8 @@ public class OpenAIChatService : IChatService
         IConversationHistoryService? historyService = null,
         ITokenService? tokenService = null,
         ILocalizationService? localizationService = null,
-        IAttachmentStoreService? attachmentStoreService = null)
+        IAttachmentStoreService? attachmentStoreService = null,
+        IConversationSessionAccessor? conversationSessionAccessor = null)
     {
         _config = config;
         _promptService = promptService;
@@ -47,6 +49,7 @@ public class OpenAIChatService : IChatService
         _tokenService = tokenService;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
+        _conversationSessionAccessor = conversationSessionAccessor;
         InitializeClient();
     }
 
@@ -117,6 +120,7 @@ public class OpenAIChatService : IChatService
         Log.Information("构建消息列表完成，消息数: {Count}", messages.Count);
 
         var contentBuilder = new StringBuilder();
+        using var conversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
 
         await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed))
         {
@@ -399,6 +403,7 @@ public class OpenAIChatService : IChatService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
+                using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
                 cancellationToken.ThrowIfCancellationRequested();
                 

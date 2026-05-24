@@ -8,6 +8,8 @@ namespace Athena.UI.Models;
 /// </summary>
 public class ConversationDraftSnapshot
 {
+    public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
+
     /// <summary>
     /// 当前关联的历史记录 ID；若为新对话则为空
     /// </summary>
