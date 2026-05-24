@@ -37,6 +37,8 @@ public class DesktopPlatformPathService : IPlatformPathService
 
     public string GetAttachmentDirectory() => Path.Combine(_baseDirectory, "Attachments");
 
+    public string GetImageGenerationSessionDirectory() => Path.Combine(_baseDirectory, "ImageGenerationSessions");
+
     public string GetTaskSchedulerFilePath() => Path.Combine(_baseDirectory, "scheduled_tasks.json");
 
     public string GetVectorStoreFilePath() => Path.Combine(GetKnowledgeBaseDirectory(), "vectors.db");

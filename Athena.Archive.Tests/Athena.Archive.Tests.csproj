@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Stubs/AppConfig.cs" />
     <PackageReference Include="Avalonia" Version="12.0.3" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="OpenAI" Version="2.10.0" />
@@ -14,6 +15,8 @@
 
   <ItemGroup>
     <Compile Include="../Models/AttachmentKind.cs" Link="Source/Models/AttachmentKind.cs" />
+    <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
     <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
     <Compile Include="../Models/ChatMessage.cs" Link="Source/Models/ChatMessage.cs" />
     <Compile Include="../Models/ChatMessageSegment.cs" Link="Source/Models/ChatMessageSegment.cs" />
@@ -23,17 +26,27 @@
     <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
     <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
     <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />
+    <Compile Include="../Models/FileSystemPolicyConfig.cs" Link="Source/Models/FileSystemPolicyConfig.cs" />
+    <Compile Include="../Models/ImageGenerationSessionRecord.cs" Link="Source/Models/ImageGenerationSessionRecord.cs" />
     <Compile Include="../Models/RecurrenceRule.cs" Link="Source/Models/RecurrenceRule.cs" />
     <Compile Include="../Models/ScheduledTask.cs" Link="Source/Models/ScheduledTask.cs" />
     <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
     <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
     <Compile Include="../Services/ConversationHistoryService.cs" Link="Source/Services/ConversationHistoryService.cs" />
+    <Compile Include="../Services/ImageGenerationSessionService.cs" Link="Source/Services/ImageGenerationSessionService.cs" />
+    <Compile Include="../Services/OpenAIImageGenerationService.cs" Link="Source/Services/OpenAIImageGenerationService.cs" />
+    <Compile Include="../Services/Functions/ImageGenerationFunctions.cs" Link="Source/Services/Functions/ImageGenerationFunctions.cs" />
     <Compile Include="../Services/Functions/ProactiveMessagingFunctions.cs" Link="Source/Services/Functions/ProactiveMessagingFunctions.cs" />
     <Compile Include="../Services/RecurrenceService.cs" Link="Source/Services/RecurrenceService.cs" />
     <Compile Include="../Services/TaskScheduler.cs" Link="Source/Services/TaskScheduler.cs" />
+    <Compile Include="../Services/Interfaces/IAttachmentStoreService.cs" Link="Source/Services/Interfaces/IAttachmentStoreService.cs" />
+    <Compile Include="../Services/Interfaces/IConfigService.cs" Link="Source/Services/Interfaces/IConfigService.cs" />
     <Compile Include="../Services/Interfaces/IConversationArchiveService.cs" Link="Source/Services/Interfaces/IConversationArchiveService.cs" />
     <Compile Include="../Services/Interfaces/IConversationHistoryService.cs" Link="Source/Services/Interfaces/IConversationHistoryService.cs" />
     <Compile Include="../Services/Interfaces/IFunctionRegistry.cs" Link="Source/Services/Interfaces/IFunctionRegistry.cs" />
+    <Compile Include="../Services/Interfaces/IConversationSessionAccessor.cs" Link="Source/Services/Interfaces/IConversationSessionAccessor.cs" />
+    <Compile Include="../Services/Interfaces/IImageGenerationService.cs" Link="Source/Services/Interfaces/IImageGenerationService.cs" />
+    <Compile Include="../Services/Interfaces/IImageGenerationSessionService.cs" Link="Source/Services/Interfaces/IImageGenerationSessionService.cs" />
     <Compile Include="../Services/Interfaces/ILocalizationService.cs" Link="Source/Services/Interfaces/ILocalizationService.cs" />
     <Compile Include="../Services/Interfaces/IPlatformPathService.cs" Link="Source/Services/Interfaces/IPlatformPathService.cs" />
     <Compile Include="../Services/Interfaces/IPromptService.cs" Link="Source/Services/Interfaces/IPromptService.cs" />

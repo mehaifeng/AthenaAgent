@@ -8,11 +8,15 @@ namespace Athena.UI.Models;
 /// </summary>
 public class ConversationArchiveSnapshot
 {
+    public string ConversationId { get; init; } = Guid.NewGuid().ToString("N");
+
     public string? HistoryId { get; init; }
 
     public string? ContextSummary { get; init; }
 
     public List<ChatMessage> Messages { get; init; } = new();
+
+    public ImageGenerationSessionSnapshot? ImageSession { get; init; }
 
     public DateTime CapturedAt { get; init; } = DateTime.Now;
 

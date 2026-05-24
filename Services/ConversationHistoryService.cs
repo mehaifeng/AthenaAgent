@@ -31,14 +31,20 @@ public class ConversationHistoryService : IConversationHistoryService
     private readonly string _draftFilePath;
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private AppConfig? _secondaryConfig;
     private OpenAIClient? _secondaryClient;
     private ChatClient? _secondaryChatClient;
 
-    public ConversationHistoryService(IPromptService promptService, IPlatformPathService? platformPathService = null, ILocalizationService? localizationService = null)
+    public ConversationHistoryService(
+        IPromptService promptService,
+        IPlatformPathService? platformPathService = null,
+        ILocalizationService? localizationService = null,
+        IImageGenerationSessionService? imageGenerationSessionService = null)
     {
         _promptService = promptService;
         _localizationService = localizationService;
+        _imageGenerationSessionService = imageGenerationSessionService;
 
         if (platformPathService != null)
         {
@@ -180,6 +186,17 @@ public class ConversationHistoryService : IConversationHistoryService
             var filePath = Path.Combine(_historyDirectory, $"{id}.json");
             if (File.Exists(filePath))
             {
+                try
+                {
+                    var json = File.ReadAllText(filePath);
+                    var item = JsonSerializer.Deserialize<Models.ConversationHistoryItem>(json, JsonOptions);
+                    DeleteImageSessionAsync(item?.ConversationId).GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "删除历史时读取图像会话关联失败: {Id}", id);
+                }
+
                 File.Delete(filePath);
                 Log.Information("删除对话历史: {Id}", id);
             }
@@ -190,6 +207,16 @@ public class ConversationHistoryService : IConversationHistoryService
         }
 
         return Task.CompletedTask;
+    }
+
+    public async Task DeleteImageSessionAsync(string? conversationId)
+    {
+        if (_imageGenerationSessionService == null || string.IsNullOrWhiteSpace(conversationId))
+        {
+            return;
+        }
+
+        await _imageGenerationSessionService.DeleteAsync(conversationId);
     }
 
     public async Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
@@ -209,6 +236,9 @@ public class ConversationHistoryService : IConversationHistoryService
 
         var item = new ConversationHistoryItem
         {
+            ConversationId = string.IsNullOrWhiteSpace(snapshot.ConversationId)
+                ? (existingItem?.ConversationId ?? Guid.NewGuid().ToString("N"))
+                : snapshot.ConversationId,
             Id = historyId,
             Summary = summary,
             ContextSummary = snapshot.ContextSummary,
@@ -219,6 +249,21 @@ public class ConversationHistoryService : IConversationHistoryService
         };
 
         await SaveAsync(item);
+        if (snapshot.ImageSession != null && _imageGenerationSessionService != null)
+        {
+            var imageSessionSnapshot = new ImageGenerationSessionSnapshot
+            {
+                ConversationId = item.ConversationId,
+                HistoryId = item.Id,
+                ActiveLineageId = snapshot.ImageSession.ActiveLineageId,
+                CreatedAt = snapshot.ImageSession.CreatedAt,
+                UpdatedAt = snapshot.ImageSession.UpdatedAt,
+                Turns = snapshot.ImageSession.Turns.Select(CloneTurn).ToList()
+            };
+
+            await _imageGenerationSessionService.PersistSnapshotAsync(imageSessionSnapshot, ct);
+        }
+
         return item;
     }
 
@@ -372,6 +417,26 @@ public class ConversationHistoryService : IConversationHistoryService
         {
             Log.Error(ex, "删除主对话草稿失败");
         }
+    }
+
+    private static ImageGenerationTurnRecord CloneTurn(ImageGenerationTurnRecord turn)
+    {
+        return new ImageGenerationTurnRecord
+        {
+            Id = turn.Id,
+            LineageId = turn.LineageId,
+            ParentTurnId = turn.ParentTurnId,
+            Prompt = turn.Prompt,
+            RevisedPrompt = turn.RevisedPrompt,
+            AttachmentId = turn.AttachmentId,
+            FileName = turn.FileName,
+            StoredPath = turn.StoredPath,
+            MimeType = turn.MimeType,
+            ContinuityMode = turn.ContinuityMode,
+            ContinuityStatus = turn.ContinuityStatus,
+            Warning = turn.Warning,
+            CreatedAt = turn.CreatedAt
+        };
     }
 
     public async Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentRounds = 3)

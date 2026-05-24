@@ -19,6 +19,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
+    ("upsert persists linked image session", TestImageSessionUpsertAsync),
+    ("image session snapshot reloads persisted lineage", TestImageSessionSnapshotAsync),
+    ("continue_match resolves earlier lineage and persists revived active lineage", TestContinueMatchPersistenceAsync),
+    ("continue_match ambiguity returns candidates", TestReferenceResolutionAmbiguousAsync),
+    ("continue_match skips missing assets and surfaces asset-missing state", TestReferenceResolutionMissingAssetAsync),
+    ("continue_match function returns structured failures and success metadata", TestImageGenerationFunctionContinueMatchAsync),
+    ("image generation payload includes reference images and doubao extras", TestReferenceImagePayloadAsync),
+    ("image generation payload omits continuity fields for new roots", TestPromptOnlyPayloadAsync),
+    ("image generation rejects missing continuity image files", TestMissingReferenceImageAsync),
     ("fallback summary still saves without secondary model", TestFallbackSummaryAsync),
     ("archive queue stages locally and retries on restart", TestArchiveQueueReplayAsync),
     ("recurrence migration and validation works", TestRecurrenceMigrationAndValidationAsync),
@@ -180,6 +189,377 @@ static async Task TestFallbackSummaryAsync()
     var item = await service.UpsertFromSnapshotAsync(snapshot);
     AssertEqual("This is a deliberately long fi...", item.Summary, "summary should fall back to first user message");
     AssertTrue(File.Exists(Path.Combine(harness.PathService.GetHistoryDirectory(), $"{item.Id}.json")), "history file should still be written");
+}
+
+static async Task TestImageSessionUpsertAsync()
+{
+    using var harness = new TestHarness();
+    var service = harness.CreateHistoryService();
+    var conversationId = Guid.NewGuid().ToString("N");
+    var snapshot = new ConversationArchiveSnapshot
+    {
+        ConversationId = conversationId,
+        CapturedAt = new DateTime(2026, 5, 2, 11, 0, 0, DateTimeKind.Local),
+        ForceGenerateSummary = false,
+        Messages =
+        [
+            new ChatMessage
+            {
+                Role = "user",
+                Content = "draw something",
+                Timestamp = new DateTime(2026, 5, 2, 11, 0, 0, DateTimeKind.Local)
+            }
+        ],
+        ImageSession = new ImageGenerationSessionSnapshot
+        {
+            ConversationId = conversationId,
+            ActiveLineageId = "lineage-a",
+            Turns =
+            [
+                new ImageGenerationTurnRecord
+                {
+                    Id = "turn-a",
+                    LineageId = "lineage-a",
+                    Prompt = "draw something",
+                    AttachmentId = "attachment-a",
+                    FileName = "generated-a.png",
+                    StoredPath = "/tmp/generated-a.png",
+                    MimeType = "image/png",
+                    ContinuityMode = ImageContinuityMode.NewRoot,
+                    ContinuityStatus = ImageContinuityStatus.PixelContinuity
+                }
+            ]
+        }
+    };
+
+    var item = await service.UpsertFromSnapshotAsync(snapshot);
+    var imageSessionFile = Path.Combine(harness.PathService.GetImageGenerationSessionDirectory(), $"{conversationId}.json");
+    AssertEqual(conversationId, item.ConversationId, "history item should preserve conversation id");
+    AssertTrue(File.Exists(imageSessionFile), "image session file should be written");
+
+    var json = await File.ReadAllTextAsync(imageSessionFile);
+    var restored = JsonSerializer.Deserialize<ImageGenerationSessionRecord>(json, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    AssertEqual(item.Id, restored?.HistoryId, "image session should bind to history id");
+    AssertEqual(1, restored?.Turns.Count ?? 0, "image session should persist turns");
+}
+
+static async Task TestImageSessionSnapshotAsync()
+{
+    using var harness = new TestHarness();
+    var service = new ImageGenerationSessionService(harness.PathService, Log.ForContext<ImageGenerationSessionService>());
+    var conversationId = Guid.NewGuid().ToString("N");
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: "history-a",
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "draw a classroom",
+            Attachment = new ChatAttachment
+            {
+                Id = "attachment-a",
+                Kind = AttachmentKind.Image,
+                FileName = "generated-a.png",
+                StoredPath = "/tmp/generated-a.png",
+                MimeType = "image/png",
+                CreatedAt = new DateTime(2026, 5, 24, 12, 0, 0, DateTimeKind.Local)
+            }
+        });
+
+    var snapshot = await service.CreateSnapshotAsync(conversationId);
+    AssertTrue(snapshot != null, "snapshot should be created for persisted image session");
+    AssertEqual(conversationId, snapshot!.ConversationId, "snapshot should preserve conversation id");
+    AssertEqual("history-a", snapshot.HistoryId, "snapshot should preserve bound history id");
+    AssertEqual(1, snapshot.Turns.Count, "snapshot should include persisted turns");
+    AssertEqual("attachment-a", snapshot.Turns[0].AttachmentId, "snapshot should preserve active turn attachment");
+}
+
+static async Task TestContinueMatchPersistenceAsync()
+{
+    using var harness = new TestHarness();
+    using var classroomA = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var eagle = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var classroomB = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var revived = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var followUp = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    var service = new ImageGenerationSessionService(harness.PathService, Log.ForContext<ImageGenerationSessionService>());
+    var conversationId = Guid.NewGuid().ToString("N");
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Chinese high school classroom, a sleepy boy on the desk and a teacher nearby",
+            Attachment = CreateImageAttachment("attachment-a", "classroom-a.png", classroomA.Path, new DateTime(2026, 5, 24, 12, 0, 0, DateTimeKind.Local))
+        });
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.ContinueLast,
+            Prompt = "Make the classroom scene warmer and more cinematic",
+            Attachment = CreateImageAttachment("attachment-b", "classroom-b.png", classroomB.Path, new DateTime(2026, 5, 24, 12, 1, 0, DateTimeKind.Local))
+        });
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "A bald eagle gliding above a mountain lake",
+            Attachment = CreateImageAttachment("attachment-c", "eagle.png", eagle.Path, new DateTime(2026, 5, 24, 12, 2, 0, DateTimeKind.Local))
+        });
+
+    var resolution = await service.ResolveReferenceTurnAsync(conversationId, "classroom sleepy student teacher");
+    AssertEqual(ImageReferenceResolutionStatus.Resolved, resolution.Status, "reference query should resolve classroom lineage");
+    AssertEqual("attachment-b", resolution.ResolvedTurn?.AttachmentId, "resolved reference should use latest turn in the matched lineage");
+
+    var persisted = await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.ContinueMatched,
+            ReferenceTurnId = resolution.ResolvedTurn?.Id,
+            Prompt = "Now make the sleepy student wake up",
+            Attachment = CreateImageAttachment("attachment-d", "revived.png", revived.Path, new DateTime(2026, 5, 24, 12, 3, 0, DateTimeKind.Local))
+        });
+
+    var revivedTurn = persisted!.Turns.Last();
+    AssertEqual(resolution.ResolvedTurn?.Id, revivedTurn.ParentTurnId, "continue_match should point to the resolved latest turn");
+    AssertEqual(resolution.ResolvedTurn?.LineageId, revivedTurn.LineageId, "continue_match should revive the matched lineage");
+    AssertEqual(resolution.ResolvedTurn?.LineageId, persisted.ActiveLineageId, "matched lineage should become active");
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.ContinueLast,
+            Prompt = "Add more sunlight on the awakened student",
+            Attachment = CreateImageAttachment("attachment-e", "follow-up.png", followUp.Path, new DateTime(2026, 5, 24, 12, 4, 0, DateTimeKind.Local))
+        });
+
+    var activeTurn = await service.GetActiveTurnAsync(conversationId);
+    AssertEqual("attachment-e", activeTurn?.AttachmentId, "continue_last should now continue the revived lineage");
+    AssertEqual(revivedTurn.LineageId, activeTurn?.LineageId, "revived lineage should remain active after continue_last");
+}
+
+static async Task TestReferenceResolutionAmbiguousAsync()
+{
+    using var harness = new TestHarness();
+    using var classroomA = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var classroomB = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    var service = new ImageGenerationSessionService(harness.PathService, Log.ForContext<ImageGenerationSessionService>());
+    var conversationId = Guid.NewGuid().ToString("N");
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Classroom scene with a sleeping student by the window",
+            Attachment = CreateImageAttachment("attachment-a", "classroom-a.png", classroomA.Path, new DateTime(2026, 5, 24, 13, 0, 0, DateTimeKind.Local))
+        });
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Classroom scene with a teacher writing on the chalkboard",
+            Attachment = CreateImageAttachment("attachment-b", "classroom-b.png", classroomB.Path, new DateTime(2026, 5, 24, 13, 1, 0, DateTimeKind.Local))
+        });
+
+    var resolution = await service.ResolveReferenceTurnAsync(conversationId, "classroom scene");
+    AssertEqual(ImageReferenceResolutionStatus.Ambiguous, resolution.Status, "shared classroom literal matches should be ambiguous");
+    AssertEqual(2, resolution.Candidates.Count, "ambiguous result should include both candidate lineages");
+}
+
+static async Task TestReferenceResolutionMissingAssetAsync()
+{
+    using var harness = new TestHarness();
+    var missingPath = Path.Combine(harness.Root, "missing.png");
+    var service = new ImageGenerationSessionService(harness.PathService, Log.ForContext<ImageGenerationSessionService>());
+    var conversationId = Guid.NewGuid().ToString("N");
+
+    await service.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "A classroom with a sleeping student",
+            Attachment = CreateImageAttachment("attachment-a", "missing.png", missingPath, new DateTime(2026, 5, 24, 14, 0, 0, DateTimeKind.Local))
+        });
+
+    var resolution = await service.ResolveReferenceTurnAsync(conversationId, "sleeping student");
+    AssertEqual(ImageReferenceResolutionStatus.AssetMissing, resolution.Status, "missing backing files should surface as asset missing");
+}
+
+static async Task TestImageGenerationFunctionContinueMatchAsync()
+{
+    using var harness = new TestHarness();
+    using var source = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var output = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    var sessionService = new ImageGenerationSessionService(harness.PathService, Log.ForContext<ImageGenerationSessionService>());
+    var conversationId = Guid.NewGuid().ToString("N");
+
+    await sessionService.CaptureAndPersistAsync(
+        conversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Chinese high school classroom, sleepy boy on desk, teacher nearby",
+            Attachment = CreateImageAttachment("attachment-a", "source.png", source.Path, new DateTime(2026, 5, 24, 15, 0, 0, DateTimeKind.Local))
+        });
+    var seededSession = await sessionService.LoadAsync(conversationId);
+    var seededTurn = seededSession!.Turns.Single();
+
+    var imageService = new StubImageGenerationService
+    {
+        NextResult = new ImageGenerationResult
+        {
+            Success = true,
+            Message = "generated",
+            RevisedPrompt = "revised classroom scene",
+            UsedPixelContinuity = true,
+            Attachment = CreateImageAttachment("attachment-b", "output.png", output.Path, new DateTime(2026, 5, 24, 15, 1, 0, DateTimeKind.Local))
+        }
+    };
+
+    var functions = new ImageGenerationFunctions(
+        imageService,
+        sessionService,
+        new TestConversationSessionAccessor(conversationId),
+        Log.ForContext<ImageGenerationFunctions>());
+
+    var missingQuery = await functions.GenerateImageAsync("add warm sunset light", "continue_match");
+    AssertFalse(missingQuery.Success, "continue_match without referenceQuery should fail");
+    AssertJsonPropertyEquals("reference_query_required", missingQuery.Data, "code", "missing query should return the required code");
+
+    var success = await functions.GenerateImageAsync("add warm sunset light", "continue_match", "sleepy boy classroom");
+    AssertTrue(success.Success, "continue_match should succeed for a resolvable query");
+    AssertEqual(1, imageService.LastRequest?.ReferenceImages.Count ?? 0, "resolved match should supply one reference image");
+    AssertEqual("add warm sunset light", imageService.LastRequest?.Prompt, "image generation should use the user's original prompt without wrapper text");
+    AssertJsonPropertyEquals("semantic_match", success.Data, "referenceSelectionMode", "success metadata should identify semantic match selection");
+    AssertJsonPropertyEquals(seededTurn.Id, success.Data, "resolvedTurnId", "success metadata should expose resolved turn id");
+
+    var ambiguousConversationId = Guid.NewGuid().ToString("N");
+    using var classroomB = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    using var classroomC = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    await sessionService.CaptureAndPersistAsync(
+        ambiguousConversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Classroom scene with a sleepy student near the window",
+            Attachment = CreateImageAttachment("attachment-c", "classroom-b.png", classroomB.Path, new DateTime(2026, 5, 24, 15, 2, 0, DateTimeKind.Local))
+        });
+    await sessionService.CaptureAndPersistAsync(
+        ambiguousConversationId,
+        historyId: null,
+        new ImageGenerationSessionUpdate
+        {
+            ContinuityMode = ImageContinuityMode.NewRoot,
+            Prompt = "Classroom scene with a teacher at the chalkboard",
+            Attachment = CreateImageAttachment("attachment-d", "classroom-c.png", classroomC.Path, new DateTime(2026, 5, 24, 15, 3, 0, DateTimeKind.Local))
+        });
+
+    var ambiguousFunctions = new ImageGenerationFunctions(
+        imageService,
+        sessionService,
+        new TestConversationSessionAccessor(ambiguousConversationId),
+        Log.ForContext<ImageGenerationFunctions>());
+
+    var ambiguous = await ambiguousFunctions.GenerateImageAsync("change the lighting", "continue_match", "classroom scene");
+    AssertFalse(ambiguous.Success, "ambiguous reference query should fail");
+    AssertJsonPropertyEquals("reference_ambiguous", ambiguous.Data, "code", "ambiguous query should expose the ambiguity code");
+}
+
+static Task TestReferenceImagePayloadAsync()
+{
+    using var tempFile = new TempFile(".png", [0x89, 0x50, 0x4E, 0x47]);
+    var payload = OpenAIImageGenerationService.BuildGenerationRequestPayload(
+        "doubao-seedream-5.0-lite",
+        "keep the same style",
+        OpenAIImageGenerationService.PrepareReferenceImages(
+        [
+            new ImageGenerationReferenceImage
+            {
+                StoredPath = tempFile.Path,
+                FileName = "source.png",
+                MimeType = "image/png"
+            }
+        ]),
+        "https://ark.cn-beijing.volces.com/api/v3");
+
+    using var document = JsonDocument.Parse(payload.ToArray());
+    var root = document.RootElement;
+    AssertEqual("doubao-seedream-5.0-lite", root.GetProperty("model").GetString(), "payload should preserve model");
+    AssertEqual("b64_json", root.GetProperty("response_format").GetString(), "payload should request base64 output");
+    AssertEqual("disabled", root.GetProperty("sequential_image_generation").GetString(), "doubao continuity should disable sequential multi-image generation");
+    AssertFalse(root.GetProperty("watermark").GetBoolean(), "doubao continuity payload should disable watermark");
+
+    var imageArray = root.GetProperty("image");
+    AssertEqual(1, imageArray.GetArrayLength(), "continuity payload should carry exactly one reference image");
+    AssertTrue(imageArray[0].GetString()!.StartsWith("data:image/png;base64,", StringComparison.Ordinal), "reference image should be encoded as a data URI");
+    return Task.CompletedTask;
+}
+
+static Task TestPromptOnlyPayloadAsync()
+{
+    var payload = OpenAIImageGenerationService.BuildGenerationRequestPayload(
+        "gpt-image-1",
+        "draw an eagle",
+        [],
+        "https://api.openai.com/v1");
+
+    using var document = JsonDocument.Parse(payload.ToArray());
+    var root = document.RootElement;
+    AssertFalse(root.TryGetProperty("image", out _), "new root payload should not include reference images");
+    AssertFalse(root.TryGetProperty("watermark", out _), "new root payload should not include doubao-only fields");
+    AssertFalse(root.TryGetProperty("sequential_image_generation", out _), "new root payload should not include continuity-specific sequencing controls");
+    return Task.CompletedTask;
+}
+
+static async Task TestMissingReferenceImageAsync()
+{
+    var service = new OpenAIImageGenerationService(
+        new TestConfigService(new AppConfig
+        {
+            ImageGenerationEnabled = true,
+            ApiKey = "test-key",
+            ImageGenerationModel = "gpt-image-1"
+        }),
+        new TestAttachmentStoreService(),
+        Log.ForContext<OpenAIImageGenerationService>());
+
+    var result = await service.GenerateImageAsync(new ImageGenerationRequest
+    {
+        Prompt = "continue the scene",
+        ReferenceImages =
+        [
+            new ImageGenerationReferenceImage
+            {
+                StoredPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png"),
+                FileName = "missing.png",
+                MimeType = "image/png"
+            }
+        ]
+    });
+
+    AssertFalse(result.Success, "missing continuity image should fail");
+    AssertTrue(result.Message.Contains("not found", StringComparison.OrdinalIgnoreCase), "missing continuity image error should be explicit");
 }
 
 static async Task TestArchiveQueueReplayAsync()
@@ -466,6 +846,35 @@ static void AssertEqual<T>(T expected, T actual, string message)
     }
 }
 
+static void AssertJsonPropertyEquals(string expected, object? data, string propertyName, string message)
+{
+    if (data == null)
+    {
+        throw new InvalidOperationException($"{message}. Data was null.");
+    }
+
+    using var document = JsonDocument.Parse(JsonSerializer.Serialize(data));
+    if (!document.RootElement.TryGetProperty(propertyName, out var property))
+    {
+        throw new InvalidOperationException($"{message}. Property '{propertyName}' was missing.");
+    }
+
+    AssertEqual(expected, property.GetString(), message);
+}
+
+static ChatAttachment CreateImageAttachment(string id, string fileName, string storedPath, DateTime createdAt)
+{
+    return new ChatAttachment
+    {
+        Id = id,
+        Kind = AttachmentKind.Image,
+        FileName = fileName,
+        StoredPath = storedPath,
+        MimeType = "image/png",
+        CreatedAt = createdAt
+    };
+}
+
 sealed class TestHarness : IDisposable
 {
     public TestHarness()
@@ -481,7 +890,7 @@ sealed class TestHarness : IDisposable
 
     public ConversationHistoryService CreateHistoryService()
     {
-        return new ConversationHistoryService(new TestPromptService(), PathService, new TestLocalizationService());
+        return new ConversationHistoryService(new TestPromptService(), PathService, new TestLocalizationService(), new ImageGenerationSessionService(PathService, Log.ForContext<ImageGenerationSessionService>()));
     }
 
     public void Dispose()
@@ -567,7 +976,19 @@ sealed class TestPlatformPathService(string root) : IPlatformPathService
         return path;
     }
 
-    public string GetAttachmentDirectory() => Path.Combine(root, "attachments");
+    public string GetAttachmentDirectory()
+    {
+        var path = Path.Combine(root, "attachments");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    public string GetImageGenerationSessionDirectory()
+    {
+        var path = Path.Combine(root, "image-sessions");
+        Directory.CreateDirectory(path);
+        return path;
+    }
 
     public string GetTaskSchedulerFilePath() => Path.Combine(root, "tasks.json");
 
@@ -587,6 +1008,8 @@ sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHist
     public Task<string> GenerateSummaryAsync(List<ChatMessage> messages) => Task.FromResult("summary");
 
     public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => Task.FromResult<ConversationHistoryItem?>(null);
+
+    public Task DeleteImageSessionAsync(string? conversationId) => Task.CompletedTask;
 
     public void SaveDraft(ConversationDraftSnapshot snapshot)
     {
@@ -622,6 +1045,7 @@ sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHist
         UpsertedSnapshots.Add(snapshot);
         return Task.FromResult(new ConversationHistoryItem
         {
+            ConversationId = snapshot.ConversationId,
             Id = snapshot.HistoryId ?? Guid.NewGuid().ToString("N"),
             CreatedAt = snapshot.CapturedAt,
             UpdatedAt = snapshot.CapturedAt,
@@ -629,5 +1053,103 @@ sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHist
             MessageCount = snapshot.Messages.Count,
             Messages = snapshot.Messages.ToList()
         });
+    }
+}
+
+sealed class TestConfigService(AppConfig config) : IConfigService
+{
+    public Task<AppConfig> LoadAsync() => Task.FromResult(config);
+
+    public AppConfig Load() => config;
+
+    public Task SaveAsync(AppConfig config)
+    {
+        throw new NotSupportedException();
+    }
+
+    public string ConfigFilePath => string.Empty;
+
+    public event EventHandler<AppConfig>? ConfigChanged;
+}
+
+sealed class TestAttachmentStoreService : IAttachmentStoreService
+{
+    public int MaxPendingAttachments => 10;
+
+    public long MaxImageBytes => 20 * 1024 * 1024;
+
+    public Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(IEnumerable<Avalonia.Platform.Storage.IStorageFile> files, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
+    public Task<ChatAttachment> ImportBitmapAsync(Avalonia.Media.Imaging.Bitmap bitmap, string fileName, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
+    public Task<ChatAttachment> CreateGeneratedImageAsync(byte[] bytes, string fileName, string mimeType, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
+    public Task<ChatAttachment> CreateGeneratedAudioAsync(byte[] bytes, string fileName, string mimeType, TimeSpan? duration = null, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
+    public Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task LoadPreviewsAsync(IEnumerable<ChatAttachment> attachments, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public void DeleteStoredAttachment(ChatAttachment attachment)
+    {
+    }
+}
+
+sealed class TestConversationSessionAccessor(string conversationId) : IConversationSessionAccessor
+{
+    public string? CurrentConversationId => conversationId;
+
+    public IDisposable Enter(string nextConversationId) => throw new NotSupportedException();
+}
+
+sealed class StubImageGenerationService : IImageGenerationService
+{
+    public bool IsConfigured { get; set; } = true;
+
+    public ImageGenerationRequest? LastRequest { get; private set; }
+
+    public required ImageGenerationResult NextResult { get; init; }
+
+    public Task<ImageGenerationResult> GenerateImageAsync(ImageGenerationRequest request, CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        return Task.FromResult(NextResult);
+    }
+}
+
+sealed class TempFile : IDisposable
+{
+    public TempFile(string extension, byte[] bytes)
+    {
+        Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid():N}{extension}");
+        File.WriteAllBytes(Path, bytes);
+    }
+
+    public string Path { get; }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (File.Exists(Path))
+            {
+                File.Delete(Path);
+            }
+        }
+        catch
+        {
+        }
     }
 }
