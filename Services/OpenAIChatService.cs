@@ -8,6 +8,9 @@ using System.ClientModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json.Nodes;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -28,6 +31,7 @@ public class OpenAIChatService : IChatService
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IConversationSessionAccessor? _conversationSessionAccessor;
+    private readonly ISystemAudioService? _systemAudioService;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -40,7 +44,8 @@ public class OpenAIChatService : IChatService
         ITokenService? tokenService = null,
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
-        IConversationSessionAccessor? conversationSessionAccessor = null)
+        IConversationSessionAccessor? conversationSessionAccessor = null,
+        ISystemAudioService? systemAudioService = null)
     {
         _config = config;
         _promptService = promptService;
@@ -50,6 +55,7 @@ public class OpenAIChatService : IChatService
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
         _conversationSessionAccessor = conversationSessionAccessor;
+        _systemAudioService = systemAudioService;
         InitializeClient();
     }
 
@@ -218,9 +224,6 @@ public class OpenAIChatService : IChatService
             ChatFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
             var assistantReasoning = new StringBuilder();
-            var audioTranscript = new StringBuilder();
-            await using var outputAudioStream = new MemoryStream();
-            string? outputAudioId = null;
 
             await foreach (var update in stream.WithCancellation(cancellationToken))
             {
@@ -236,30 +239,6 @@ public class OpenAIChatService : IChatService
                         yield return text;
                     }
                 }
-
-#pragma warning disable OPENAI001
-                if (update.OutputAudioUpdate != null)
-                {
-                    if (!string.IsNullOrWhiteSpace(update.OutputAudioUpdate.Id))
-                    {
-                        outputAudioId ??= update.OutputAudioUpdate.Id;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(update.OutputAudioUpdate.TranscriptUpdate))
-                    {
-                        audioTranscript.Append(update.OutputAudioUpdate.TranscriptUpdate);
-                    }
-
-                    if (update.OutputAudioUpdate.AudioBytesUpdate != null)
-                    {
-                        var audioChunk = update.OutputAudioUpdate.AudioBytesUpdate.ToArray();
-                        if (audioChunk.Length > 0)
-                        {
-                            await outputAudioStream.WriteAsync(audioChunk, cancellationToken);
-                        }
-                    }
-                }
-#pragma warning restore OPENAI001
 
                 foreach (var toolCallUpdate in update.ToolCallUpdates)
                 {
@@ -328,27 +307,28 @@ public class OpenAIChatService : IChatService
             if (!hasToolCalls)
             {
                 ChatAttachment? audioAttachment = null;
-                if (outputAudioStream.Length > 0 && _attachmentStoreService != null)
-                {
-                    audioAttachment = await CreateAssistantAudioAttachmentAsync(outputAudioStream.ToArray(), cancellationToken);
-                }
+                string audioErrorMessage = string.Empty;
 
-                var finalContent = assistantContent.Length > 0
-                    ? assistantContent.ToString()
-                    : audioTranscript.ToString();
+                var finalContent = assistantContent.ToString();
+
+                if (_config.ChatAudioEnabled && !string.IsNullOrWhiteSpace(finalContent))
+                {
+                    var audioResult = await GenerateSpeechAttachmentAsync(finalContent, cancellationToken);
+                    audioAttachment = audioResult.Attachment;
+                    audioErrorMessage = audioResult.ErrorMessage;
+                }
 
                 if (assistantContent.Length == 0 && !string.IsNullOrWhiteSpace(finalContent))
                 {
                     yield return finalContent;
                 }
 
-                if (!string.IsNullOrWhiteSpace(finalContent) || reasoningContent != null || audioAttachment != null)
+                if (!string.IsNullOrWhiteSpace(finalContent) || reasoningContent != null || audioAttachment != null || !string.IsNullOrWhiteSpace(audioErrorMessage))
                 {
                     context.AddAssistantMessage(
                         finalContent,
                         reasoningContent: reasoningContent,
-                        attachments: audioAttachment != null ? [audioAttachment] : null,
-                        outputAudioReferenceId: outputAudioId);
+                        attachments: audioAttachment != null ? [audioAttachment] : null);
 
                     if (audioAttachment != null)
                     {
@@ -356,7 +336,16 @@ public class OpenAIChatService : IChatService
                         {
                             Role = "assistant",
                             Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { audioAttachment },
-                            OutputAudioReferenceId = outputAudioId,
+                            AudioErrorMessage = audioErrorMessage,
+                            Timestamp = DateTime.Now
+                        });
+                    }
+                    else if (!string.IsNullOrWhiteSpace(audioErrorMessage))
+                    {
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Role = "assistant",
+                            AudioErrorMessage = audioErrorMessage,
                             Timestamp = DateTime.Now
                         });
                     }
@@ -509,7 +498,6 @@ public class OpenAIChatService : IChatService
         Log.Debug("API 参数: Temperature={Temp}, MaxTokens={MaxTokens}, TopP={TopP}",
             _config.Temperature, _config.MaxTokens, _config.TopP);
 
-        ApplyAudioOptions(options);
         ApplyToolOptions(options);
 
         return options;
@@ -537,19 +525,6 @@ public class OpenAIChatService : IChatService
 
         options.ToolChoice = ChatToolChoice.CreateNoneChoice();
         Log.Debug("Function Calling disabled; ToolChoice=None");
-    }
-
-    private void ApplyAudioOptions(ChatCompletionOptions options)
-    {
-        if (!_config.ChatAudioEnabled)
-        {
-            return;
-        }
-
-#pragma warning disable OPENAI001
-        options.ResponseModalities = ChatResponseModalities.Text | ChatResponseModalities.Audio;
-        options.AudioOptions = new ChatAudioOptions(ParseAudioVoice(_config.ChatAudioVoice), ChatOutputAudioFormat.Mp3);
-#pragma warning restore OPENAI001
     }
 
     private const string TimestampFormat = "[yyMMddHHmmss-ddd] ";
@@ -712,39 +687,34 @@ public class OpenAIChatService : IChatService
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);
 
-    private async Task<ChatAttachment?> CreateAssistantAudioAttachmentAsync(byte[] audioBytes, CancellationToken cancellationToken)
+    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> CreateAssistantAudioAttachmentAsync(byte[] audioBytes, CancellationToken cancellationToken)
     {
-        if (_attachmentStoreService == null || audioBytes.Length == 0)
-        {
-            return null;
-        }
+        return await CreateAssistantAudioAttachmentAsync(
+            audioBytes,
+            $"assistant-{DateTime.Now:yyyyMMdd-HHmmss}.mp3",
+            "audio/mpeg",
+            cancellationToken);
+    }
 
+    private static string GetSystemSpeechTempPath()
+    {
+        var extension = OperatingSystem.IsMacOS() ? ".aiff" : ".wav";
+        return Path.Combine(Path.GetTempPath(), $"athena-tts-{Guid.NewGuid():N}{extension}");
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
         try
         {
-            return await _attachmentStoreService.CreateGeneratedAudioAsync(
-                audioBytes,
-                $"assistant-{DateTime.Now:yyyyMMdd-HHmmss}.mp3",
-                "audio/mpeg",
-                cancellationToken: cancellationToken);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
-        catch (Exception ex)
+        catch
         {
-            Log.Warning(ex, "保存 assistant 音频附件失败");
-            return null;
         }
     }
-
-#pragma warning disable OPENAI001
-    private static ChatOutputAudioVoice ParseAudioVoice(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return ChatOutputAudioVoice.Alloy;
-        }
-
-        return new ChatOutputAudioVoice(value);
-    }
-#pragma warning restore OPENAI001
 
     public async Task<(bool Success, string? Message)> TestConnectionAsync()
     {
@@ -786,6 +756,190 @@ public class OpenAIChatService : IChatService
         {
             Log.Error(ex, "API 连接测试失败");
             return (false, $"连接失败: {ex.Message}");
+        }
+    }
+
+    public async Task<AudioOutputTestResult> TestAudioOutputAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_config.ChatAudioEnabled)
+        {
+            return new AudioOutputTestResult
+            {
+                Success = false,
+                Message = "Please enable chat audio output first."
+            };
+        }
+
+        var audioConfig = AudioConfigResolver.Resolve(_config);
+        if (!string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl)))
+        {
+            return new AudioOutputTestResult
+            {
+                Success = false,
+                Message = "Please configure the audio API key and base URL."
+            };
+        }
+
+        try
+        {
+            var storeResult = await GenerateSpeechAttachmentAsync("Hello from Athena audio output test.", cancellationToken);
+            if (storeResult.Attachment == null)
+            {
+                return new AudioOutputTestResult
+                {
+                    Success = false,
+                    Message = string.IsNullOrWhiteSpace(storeResult.ErrorMessage)
+                        ? "Failed to create a playable test audio attachment."
+                        : storeResult.ErrorMessage
+                };
+            }
+
+            return new AudioOutputTestResult
+            {
+                Success = true,
+                Message = "Audio output test succeeded.",
+                Attachment = storeResult.Attachment
+            };
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "音频输出测试失败");
+            return new AudioOutputTestResult
+            {
+                Success = false,
+                Message = $"Audio output test failed: {ex.Message}"
+            };
+        }
+    }
+
+    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSpeechAttachmentAsync(string text, CancellationToken cancellationToken)
+    {
+        var audioConfig = AudioConfigResolver.Resolve(_config);
+        if (string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GenerateSystemSpeechAttachmentAsync(text, audioConfig, cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl))
+        {
+            return (null, "Audio output is not fully configured.");
+        }
+
+        try
+        {
+            using var httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(Math.Max(_config.Timeout, 30))
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, audioConfig.BaseUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", audioConfig.ApiKey);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("audio/mpeg"));
+
+            var payload = new JsonObject
+            {
+                ["model"] = audioConfig.Model,
+                ["input"] = text.Length > 4096 ? text[..4096] : text,
+                ["voice"] = audioConfig.Voice,
+                ["response_format"] = "mp3"
+            };
+
+            request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                return (null, $"Audio output request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {errorBody}".Trim());
+            }
+
+            var audioBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (audioBytes.Length == 0)
+            {
+                return (null, "Audio output request returned an empty body.");
+            }
+
+            return await CreateAssistantAudioAttachmentAsync(audioBytes, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "独立音频输出生成失败");
+            return (null, $"Audio output generation failed: {ex.Message}");
+        }
+    }
+
+    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSystemSpeechAttachmentAsync(
+        string text,
+        ResolvedAudioConfig audioConfig,
+        CancellationToken cancellationToken)
+    {
+        if (_systemAudioService == null || !_systemAudioService.IsSupported)
+        {
+            return (null, "System audio output is unavailable on this device.");
+        }
+
+        var input = text.Length > 4096 ? text[..4096] : text;
+        var tempFile = GetSystemSpeechTempPath();
+
+        try
+        {
+            var mimeType = OperatingSystem.IsMacOS() ? "audio/aiff" : "audio/wav";
+            var result = await _systemAudioService.SynthesizeToFileAsync(input, audioConfig.Voice, tempFile, cancellationToken);
+            if (!result.Success)
+            {
+                return (null, $"System audio output failed: {result.Message}".Trim());
+            }
+
+            if (!File.Exists(tempFile))
+            {
+                return (null, "System audio output did not produce an audio file.");
+            }
+
+            var bytes = await File.ReadAllBytesAsync(tempFile, cancellationToken);
+            if (bytes.Length == 0)
+            {
+                return (null, "System audio output produced an empty audio file.");
+            }
+
+            return await CreateAssistantAudioAttachmentAsync(bytes, Path.GetFileName(tempFile), mimeType, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "系统音频输出生成失败");
+            return (null, $"System audio output generation failed: {ex.Message}");
+        }
+        finally
+        {
+            TryDeleteTempFile(tempFile);
+        }
+    }
+
+    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> CreateAssistantAudioAttachmentAsync(
+        byte[] audioBytes,
+        string fileName,
+        string mimeType,
+        CancellationToken cancellationToken)
+    {
+        if (_attachmentStoreService == null || audioBytes.Length == 0)
+        {
+            return (null, "Audio attachment storage is unavailable.");
+        }
+
+        try
+        {
+            var attachment = await _attachmentStoreService.CreateGeneratedAudioAsync(
+                audioBytes,
+                fileName,
+                mimeType,
+                cancellationToken: cancellationToken);
+            attachment.AudioProvider = AudioConfigResolver.Resolve(_config).Provider;
+            return (attachment, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "保存 assistant 音频附件失败");
+            return (null, $"Failed to save audio output: {ex.Message}");
         }
     }
 

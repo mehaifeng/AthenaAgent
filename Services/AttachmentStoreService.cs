@@ -28,6 +28,8 @@ public class AttachmentStoreService : IAttachmentStoreService
         [".mp3"] = "audio/mpeg",
         [".wav"] = "audio/wav",
         [".aac"] = "audio/aac",
+        [".aiff"] = "audio/aiff",
+        [".aif"] = "audio/aiff",
         [".flac"] = "audio/flac",
         [".opus"] = "audio/opus",
         [".m4a"] = "audio/mp4"

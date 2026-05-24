@@ -95,6 +95,11 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     private string? _outputAudioReferenceId;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAudioError))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    private string _audioErrorMessage = string.Empty;
+
     /// <summary>
     /// 是否已参与压缩（归档进摘要）
     /// </summary>
@@ -161,7 +166,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || IsLoading || IsEditing);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading || IsEditing);
 
     /// <summary>
     /// 工具执行摘要提示
@@ -178,6 +183,8 @@ public partial class ChatMessage : ObservableObject
     private string _toolName = string.Empty;
 
     public bool HasToolExecutionSummary => !string.IsNullOrEmpty(ToolExecutionSummary);
+
+    public bool HasAudioError => !string.IsNullOrWhiteSpace(AudioErrorMessage);
 
     /// <summary>
     /// 是否可以复制该消息

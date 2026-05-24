@@ -24,6 +24,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IWebSearchService? _webSearchService;
     private readonly IHeadlessBrowserService? _browserService;
     private readonly IBrowserVisionService? _browserVisionService;
+    private readonly IAudioPlaybackService? _audioPlaybackService;
+    private readonly ISystemAudioService? _systemAudioService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -63,12 +65,25 @@ public partial class ConfigTabViewModel : ViewModelBase
     public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
     public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
     public bool CanTestBrowserVision => !IsTestingBrowserVision;
+    public bool CanTestAudioOutput => !IsTestingAudioOutput;
+    public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
+    public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
 
     [ObservableProperty]
     private string _secondaryTestStatus = string.Empty;
 
     [ObservableProperty]
     private string _embeddingTestStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _audioOutputTestStatus = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TestAudioOutputCommand))]
+    private bool _isTestingAudioOutput;
+
+    [ObservableProperty]
+    private ChatAttachment? _audioTestAttachment;
 
     private CancellationTokenSource? _autoSaveCts;
     private bool _isInternalSaving;
@@ -109,6 +124,16 @@ public partial class ConfigTabViewModel : ViewModelBase
         { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
     };
 
+    private static readonly Dictionary<string, string> AudioProviderUrls = new()
+    {
+        { "OpenAI", "https://api.openai.com/v1/audio/speech" },
+        { "OpenRouter", "https://openrouter.ai/api/v1/audio/speech" },
+        { "System", string.Empty },
+        { "Custom", string.Empty }
+    };
+
+    public ObservableCollection<string> AudioProviders { get; } = new(AudioProviderUrls.Keys);
+
     [ObservableProperty]
     private int _selectedLanguageIndex;
 
@@ -126,9 +151,9 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null)
     {
         _configService = configService;
         _chatService = chatService;
@@ -138,6 +163,8 @@ public partial class ConfigTabViewModel : ViewModelBase
         _webSearchService = webSearchService;
         _browserService = browserService;
         _browserVisionService = browserVisionService;
+        _audioPlaybackService = audioPlaybackService;
+        _systemAudioService = systemAudioService;
 
         if (_localizationService != null)
         {
@@ -155,6 +182,11 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (_configService != null)
         {
             _configService.ConfigChanged += OnExternalConfigChanged;
+        }
+
+        if (_audioPlaybackService != null)
+        {
+            _audioPlaybackService.PlaybackStateChanged += OnAudioPlaybackStateChanged;
         }
     }
 
@@ -180,6 +212,15 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(IsBaiduProvider));
                 }
+                else if (e.PropertyName == nameof(AppConfig.ChatAudioProvider))
+                {
+                    OnPropertyChanged(nameof(IsRemoteAudioProvider));
+                    OnPropertyChanged(nameof(CanEditRemoteAudioFields));
+                }
+                else if (e.PropertyName == nameof(AppConfig.ChatAudioEnabled))
+                {
+                    OnPropertyChanged(nameof(CanEditRemoteAudioFields));
+                }
                 else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
                 {
                     OnPropertyChanged(nameof(IsBrowserVisionEnabled));
@@ -197,10 +238,29 @@ public partial class ConfigTabViewModel : ViewModelBase
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
+            NormalizeExternalAudioConfig(newConfig);
             Config = newConfig;
             if (TokenService != null) TokenService.MaxTokens = newConfig.MaxContextTokens;
             _logger.Information("ConfigTab: 检测到外部配置变更，已刷新 UI");
         });
+    }
+
+    private void NormalizeExternalAudioConfig(AppConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.ChatAudioProvider))
+        {
+            config.ChatAudioProvider = "OpenAI";
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl))
+        {
+            config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(config.ChatAudioProvider);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ChatAudioModel))
+        {
+            config.ChatAudioModel = "gpt-4o-mini-tts";
+        }
     }
 
     private void SetupConfigListener(AppConfig? config)
@@ -217,6 +277,13 @@ public partial class ConfigTabViewModel : ViewModelBase
                 if (ProviderUrls.TryGetValue(config.Provider, out var url))
                 {
                     config.BaseUrl = url;
+                }
+            }
+            else if (e.PropertyName == nameof(AppConfig.ChatAudioProvider))
+            {
+                if (AudioProviderUrls.TryGetValue(config.ChatAudioProvider, out var url))
+                {
+                    config.ChatAudioBaseUrl = url;
                 }
             }
             else if (e.PropertyName == nameof(AppConfig.SecondaryProvider))
@@ -285,6 +352,7 @@ public partial class ConfigTabViewModel : ViewModelBase
                 }
 
                 NormalizeBrowserConfig();
+                NormalizeAudioConfig();
                 await _configService.SaveAsync(Config);
 
                 // Dispatch UI-related updates back to the UI thread
@@ -326,11 +394,35 @@ public partial class ConfigTabViewModel : ViewModelBase
         Config.BrowserVisionTemperature = Math.Clamp(Config.BrowserVisionTemperature, 0, 2);
     }
 
+    private void NormalizeAudioConfig()
+    {
+        if (string.IsNullOrWhiteSpace(Config.ChatAudioProvider))
+        {
+            Config.ChatAudioProvider = "OpenAI";
+        }
+
+        if (string.IsNullOrWhiteSpace(Config.ChatAudioBaseUrl))
+        {
+            Config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(Config.ChatAudioProvider);
+        }
+
+        if (string.IsNullOrWhiteSpace(Config.ChatAudioModel))
+        {
+            Config.ChatAudioModel = "gpt-4o-mini-tts";
+        }
+
+        if (string.IsNullOrWhiteSpace(Config.ChatAudioVoice))
+        {
+            Config.ChatAudioVoice = "alloy";
+        }
+    }
+
     private async Task LoadConfigAsync()
     {
         if (_configService != null)
         {
             Config = await _configService.LoadAsync();
+            NormalizeAudioConfig();
             ContextTokensThreshold = Config.CompressionThreshold;
             if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
 
@@ -498,6 +590,78 @@ public partial class ConfigTabViewModel : ViewModelBase
         finally { IsTestingEmbedding = false; }
     }
 
+    [RelayCommand(CanExecute = nameof(CanTestAudioOutput))]
+    private async Task TestAudioOutputAsync()
+    {
+        if (_chatService == null)
+        {
+            AudioOutputTestStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            return;
+        }
+
+        if (!Config.ChatAudioEnabled)
+        {
+            AudioOutputTestStatus = GetString("Status.EnableAudioOutputFirst", "Please enable chat audio output first");
+            return;
+        }
+
+        IsTestingAudioOutput = true;
+        AudioOutputTestStatus = GetString("Status.TestingConnection", "Testing...");
+        AudioTestAttachment = null;
+        try
+        {
+            var result = await _chatService.TestAudioOutputAsync();
+            AudioOutputTestStatus = result.Message;
+            if (result.Attachment != null)
+            {
+                AudioTestAttachment = result.Attachment;
+            }
+        }
+        finally
+        {
+            IsTestingAudioOutput = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task PlayAudioTestAttachment()
+    {
+        if (AudioTestAttachment == null)
+        {
+            return;
+        }
+
+        if (AudioTestAttachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
+        {
+            AudioTestAttachment.IsPlaying = true;
+            var result = await _systemAudioService.PlayFileAsync(AudioTestAttachment.StoredPath);
+            AudioTestAttachment.IsPlaying = false;
+            if (!result.Success)
+            {
+                AudioOutputTestStatus = string.Format(
+                    GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
+                    result.Message);
+            }
+            return;
+        }
+
+        if (_audioPlaybackService == null || !_audioPlaybackService.Play(AudioTestAttachment))
+        {
+            AudioOutputTestStatus = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
+        }
+    }
+
+    [RelayCommand]
+    private void PauseAudioTestAttachment()
+    {
+        if (AudioTestAttachment == null || _audioPlaybackService == null)
+        {
+            return;
+        }
+
+        _audioPlaybackService.Pause();
+    }
+
     /// <summary>
     /// 更新 Web Search Base URL（供应商切换时调用）
     /// </summary>
@@ -541,5 +705,29 @@ public partial class ConfigTabViewModel : ViewModelBase
             if (ChatTabViewModel != null) ChatTabViewModel.InternalUndoCompression();
             _logger.Information("压缩摘要已清空");
         }
+    }
+
+    private void OnAudioPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
+    {
+        if (AudioTestAttachment == null || AudioTestAttachment.Id != e.AttachmentId)
+        {
+            return;
+        }
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            AudioTestAttachment.IsPlaying = e.IsPlaying;
+            if (e.Duration > TimeSpan.Zero)
+            {
+                AudioTestAttachment.Duration = e.Duration;
+            }
+
+            AudioTestAttachment.Position = e.Position;
+        });
+    }
+
+    private string GetString(string key, string defaultValue)
+    {
+        return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
     }
 }

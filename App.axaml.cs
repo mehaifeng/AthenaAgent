@@ -360,6 +360,12 @@ public partial class App : Application
 
         // CLI 服务（单例）
         services.AddSingleton<ICliService, CliService>();
+        services.AddSingleton<ISystemAudioService>(sp =>
+        {
+            var cliService = sp.GetRequiredService<ICliService>();
+            var logger = Log.ForContext<SystemAudioService>();
+            return new SystemAudioService(cliService, logger);
+        });
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
@@ -605,10 +611,11 @@ public partial class App : Application
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
+            var systemAudioService = sp.GetService<ISystemAudioService>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService, conversationSessionAccessor);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService);
         });
 
         // 对话历史服务（单例）
@@ -657,6 +664,7 @@ public partial class App : Application
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var audioPlaybackService = sp.GetService<IAudioPlaybackService>();
+            var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
@@ -680,6 +688,7 @@ public partial class App : Application
                 updateService,
                 attachmentStoreService,
                 audioPlaybackService,
+                systemAudioService,
                 archiveService,
                 imageGenerationSessionService,
                 browserService,

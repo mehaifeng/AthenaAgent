@@ -92,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IUpdateService? updateService,
         IAttachmentStoreService? attachmentStoreService,
         IAudioPlaybackService? audioPlaybackService,
+        ISystemAudioService? systemAudioService,
         IConversationArchiveService? archiveService,
         IImageGenerationSessionService? imageGenerationSessionService,
         IHeadlessBrowserService? browserService = null,
@@ -100,8 +101,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _localizationService = localizationService;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, archiveService, imageGenerationSessionService);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);

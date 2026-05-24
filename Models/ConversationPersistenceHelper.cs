@@ -40,6 +40,7 @@ public static class ConversationPersistenceHelper
             ToolCallsJson = msg.ToolCallsJson,
             ReasoningContent = msg.ReasoningContent,
             OutputAudioReferenceId = msg.OutputAudioReferenceId,
+            AudioErrorMessage = msg.AudioErrorMessage,
             Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachment)),
             Segments = new ObservableCollection<ChatMessageSegment>(msg.Segments.Select(CloneSegment)),
             IsCompressed = msg.IsCompressed,
@@ -73,6 +74,7 @@ public static class ConversationPersistenceHelper
             SizeBytes = attachment.SizeBytes,
             Width = attachment.Width,
             Height = attachment.Height,
+            AudioProvider = attachment.AudioProvider,
             CreatedAt = attachment.CreatedAt,
             PreviewImage = attachment.PreviewImage,
             Duration = attachment.Duration

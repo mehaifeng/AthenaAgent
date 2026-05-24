@@ -252,7 +252,7 @@
                                                             </Border>
                                                         </Button>
 
-                                                        <Border Classes="attachment-card" IsVisible="{Binding !IsImage}">
+                                                        <Border Classes="attachment-card" IsVisible="{Binding IsGenericFile}">
                                                             <Grid RowDefinitions="56,Auto,Auto">
                                                                 <Border Grid.Row="0"
                                                                         Background="{DynamicResource SemiGreyLowBrush}"
@@ -323,6 +323,18 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+
+                                        <Border IsVisible="{Binding HasAudioError}"
+                                                Background="{DynamicResource App.SectionBg}"
+                                                BorderBrush="{DynamicResource SemiRed6}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="10,8">
+                                            <TextBlock Text="{Binding AudioErrorMessage}"
+                                                       Foreground="{DynamicResource SemiRed6}"
+                                                       TextWrapping="Wrap"
+                                                       FontSize="12"/>
+                                        </Border>
 
                                         <TextBox Text="{Binding EditContent}"
                                                  IsVisible="{Binding IsEditing}"
