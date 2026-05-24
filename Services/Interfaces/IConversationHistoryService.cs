@@ -41,6 +41,11 @@ public interface IConversationHistoryService
     Task<ConversationHistoryItem?> LoadByIdAsync(string id);
 
     /// <summary>
+    /// 删除与对话关联的图像生成会话
+    /// </summary>
+    Task DeleteImageSessionAsync(string? conversationId);
+
+    /// <summary>
     /// 保存主聊天页的未归档对话快照
     /// </summary>
     void SaveDraft(ConversationDraftSnapshot snapshot);

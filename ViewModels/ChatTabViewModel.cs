@@ -42,6 +42,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly IConversationArchiveService? _archiveService;
+    private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     [ObservableProperty]
@@ -124,10 +125,11 @@ public partial class ChatTabViewModel : ViewModelBase
 
     // 记录加载历史时的初始签名，用于判断是否发生了修改
     private string? _initialConversationSignature;
+    private string _conversationId = Guid.NewGuid().ToString("N");
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -140,7 +142,8 @@ public partial class ChatTabViewModel : ViewModelBase
         ILocalizationService? localizationService,
         IAttachmentStoreService? attachmentStoreService = null,
         IAudioPlaybackService? audioPlaybackService = null,
-        IConversationArchiveService? archiveService = null)
+        IConversationArchiveService? archiveService = null,
+        IImageGenerationSessionService? imageGenerationSessionService = null)
     {
         _chatService = chatService;
         _configService = configService;
@@ -153,6 +156,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _attachmentStoreService = attachmentStoreService;
         _audioPlaybackService = audioPlaybackService;
         _archiveService = archiveService;
+        _imageGenerationSessionService = imageGenerationSessionService;
 
         // Initialize from config
         if (_configService != null)
@@ -371,11 +375,13 @@ public partial class ChatTabViewModel : ViewModelBase
             {
                 // 编辑后重新生成
                 UpdateConversationContext();
+                await ReconcileImageGenerationSessionAsync();
                 await GetAiResponseAsync(message.Content, addToContext: false);
             }
             else
             {
                 UpdateConversationContext();
+                await ReconcileImageGenerationSessionAsync();
             }
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
@@ -455,6 +461,7 @@ public partial class ChatTabViewModel : ViewModelBase
         }
 
         UpdateConversationContext();
+        await ReconcileImageGenerationSessionAsync();
 
         // 基于该干净的节点重新生成
         var lastUserMsg = Messages[lastUserIndex];
@@ -462,7 +469,7 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanModifyMessages))]
-    private void DeleteMessage(ChatMessage? message)
+    private async Task DeleteMessage(ChatMessage? message)
     {
         if (message == null) return;
 
@@ -483,6 +490,7 @@ public partial class ChatTabViewModel : ViewModelBase
                         Messages.RemoveAt(i);
                     }
                     UpdateConversationContext();
+                    await ReconcileImageGenerationSessionAsync();
                     UpdateContextTokensDisplay();
                     UpdateBubbleButtonVisibility();
                     return;
@@ -503,6 +511,7 @@ public partial class ChatTabViewModel : ViewModelBase
         DeleteMessageAttachments(message);
         Messages.Remove(message);
         UpdateConversationContext();
+        await ReconcileImageGenerationSessionAsync();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
     }
@@ -713,7 +722,7 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateBubbleButtonVisibility();
     }
 
-    private ConversationArchiveSnapshot? CaptureArchiveSnapshotIfNeeded()
+    private async Task<ConversationArchiveSnapshot?> CaptureArchiveSnapshotIfNeededAsync()
     {
         if (!IsConversationModified())
         {
@@ -730,11 +739,19 @@ public partial class ChatTabViewModel : ViewModelBase
             return null;
         }
 
+        ImageGenerationSessionSnapshot? imageSessionSnapshot = null;
+        if (_imageGenerationSessionService != null)
+        {
+            imageSessionSnapshot = await _imageGenerationSessionService.CreateSnapshotAsync(_conversationId);
+        }
+
         return new ConversationArchiveSnapshot
         {
+            ConversationId = _conversationId,
             HistoryId = _currentHistoryId,
             ContextSummary = _tokenService?.CompressionPreview,
             Messages = messages,
+            ImageSession = imageSessionSnapshot,
             CapturedAt = DateTime.Now,
             ForceGenerateSummary = true
         };
@@ -745,7 +762,13 @@ public partial class ChatTabViewModel : ViewModelBase
         Messages.Clear();
         InputText = string.Empty;
         ClearPendingAttachments(deleteStoredFiles: true);
+        if (_imageGenerationSessionService != null)
+        {
+            _imageGenerationSessionService.DeleteAsync(_conversationId).GetAwaiter().GetResult();
+        }
         _currentContext.Reset();
+        _conversationId = Guid.NewGuid().ToString("N");
+        _currentContext.ConversationId = _conversationId;
         _currentHistoryId = null;
         _initialConversationSignature = null;
 
@@ -794,6 +817,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _responseCts = responseCts;
         var cancellationToken = responseCts.Token;
         var requestContext = _currentContext.Clone();
+        requestContext.ConversationId = _conversationId;
         var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
@@ -994,6 +1018,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 }
 
                 UpdateConversationContext();
+                await ReconcileImageGenerationSessionAsync();
                 IsSending = false;
                 UpdateContextTokensDisplay();
                 UpdateBubbleButtonVisibility();
@@ -1008,6 +1033,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private void UpdateConversationContext()
     {
         _currentContext.Clear();
+        _currentContext.ConversationId = _conversationId;
 
         // 赋予当前的压缩摘要（如果有）
         if (_tokenService != null && !string.IsNullOrEmpty(_tokenService.CompressionPreview))
@@ -1050,6 +1076,23 @@ public partial class ChatTabViewModel : ViewModelBase
                 _currentContext.AddToolMessage(msg.Content, msg.ToolCallId);
             }
         }
+    }
+
+    private async Task ReconcileImageGenerationSessionAsync()
+    {
+        if (_imageGenerationSessionService == null)
+        {
+            return;
+        }
+
+        var survivingAttachmentIds = Messages
+            .SelectMany(msg => msg.Attachments)
+            .Where(attachment => attachment.IsImage)
+            .Select(attachment => attachment.Id)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        await _imageGenerationSessionService.ReconcileAsync(_conversationId, survivingAttachmentIds);
     }
 
     public void UpdateContextTokensDisplay()
@@ -1187,6 +1230,10 @@ public partial class ChatTabViewModel : ViewModelBase
             }
 
             ResetConversationState();
+            _conversationId = string.IsNullOrWhiteSpace(history.ConversationId)
+                ? Guid.NewGuid().ToString("N")
+                : history.ConversationId;
+            _currentContext.ConversationId = _conversationId;
             _currentHistoryId = history.Id;
             if (_tokenService != null)
             {
@@ -1207,6 +1254,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 }
             }
 
+            await ReconcileImageGenerationSessionAsync();
+
             _initialConversationSignature = CreateConversationSignature();
             UpdateConversationContext();
             UpdateContextTokensDisplay();
@@ -1221,7 +1270,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private async Task<TransitionStageResult> TryStageCurrentConversationForTransitionAsync()
     {
-        var snapshot = CaptureArchiveSnapshotIfNeeded();
+        var snapshot = await CaptureArchiveSnapshotIfNeededAsync();
         if (snapshot == null)
         {
             return TransitionStageResult.NotNeeded;
@@ -1275,6 +1324,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
         var snapshot = new ConversationDraftSnapshot
         {
+            ConversationId = _conversationId,
             CurrentHistoryId = _currentHistoryId,
             InitialConversationSignature = _initialConversationSignature,
             ContextSummary = _tokenService?.CompressionPreview,
@@ -1311,6 +1361,10 @@ public partial class ChatTabViewModel : ViewModelBase
         }
 
         Messages.Clear();
+        _conversationId = string.IsNullOrWhiteSpace(snapshot.ConversationId)
+            ? Guid.NewGuid().ToString("N")
+            : snapshot.ConversationId;
+        _currentContext.ConversationId = _conversationId;
         _currentHistoryId = snapshot.CurrentHistoryId;
         _initialConversationSignature = snapshot.InitialConversationSignature;
 
@@ -1328,6 +1382,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 Messages.Add(msg);
             }
         }
+
+        _ = ReconcileImageGenerationSessionAsync();
 
         UpdateConversationContext();
         UpdateContextTokensDisplay();

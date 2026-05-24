@@ -14,6 +14,8 @@ public class ConversationContext
     private string _mainPersona = string.Empty;
     private string? _summary;
 
+    public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
+
     public int ToolsDeclarationTokenCount { get; set; } = 0;
 
     public ConversationContext(int maxTokens = 8000)
@@ -93,7 +95,8 @@ public class ConversationContext
     {
         var clone = new ConversationContext(_maxTokens)
         {
-            ToolsDeclarationTokenCount = ToolsDeclarationTokenCount
+            ToolsDeclarationTokenCount = ToolsDeclarationTokenCount,
+            ConversationId = ConversationId
         };
 
         clone.SetMainPersona(_mainPersona);
