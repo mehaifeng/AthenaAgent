@@ -49,6 +49,9 @@
     <system:String x:Key="Chat.Archive.RetryLater">Previous conversation save failed. It has been kept for retry.</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">Background archive service is unavailable.</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackUnavailable">Audio playback is unavailable on this device.</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackFailed">Failed to start audio playback.</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackFailedDetail">Failed to play system audio: {0}</system:String>
     <system:String x:Key="Chat.RoleUser">You</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
 
@@ -83,7 +86,9 @@
     <system:String x:Key="Config.ParamMaxTokens">Max Tokens:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">Function Calling:</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">Enable Chat Audio:</system:String>
+    <system:String x:Key="Config.ChatAudioAutoPlay">Auto-play Assistant Audio:</system:String>
     <system:String x:Key="Config.ChatAudioVoice">Audio Voice:</system:String>
+    <system:String x:Key="Config.TestAudioOutput">Test Audio Output:</system:String>
     <system:String x:Key="Config.ImageGenerationEnabled">Enable Image Generation:</system:String>
     <system:String x:Key="Config.ImageGenerationModel">Image Model:</system:String>
     <system:String x:Key="Config.ImageGenerationBaseUrl">Image Base URL:</system:String>
@@ -327,6 +332,7 @@
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">Please enter API Key first</system:String>
     <system:String x:Key="Status.TestingConnection">Testing...</system:String>
+    <system:String x:Key="Status.EnableAudioOutputFirst">Please enable chat audio output first</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">Please enable Web Search first</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">Please enable Browser first</system:String>
     <system:String x:Key="Status.InstallingBrowserRuntime">Installing browser runtime...</system:String>

@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
+    ("audio config inherits primary settings when audio values are empty", TestAudioConfigInheritanceAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
     ("image session snapshot reloads persisted lineage", TestImageSessionSnapshotAsync),
@@ -84,6 +85,7 @@ static Task TestAudioPersistenceCloneAsync()
         Role = "assistant",
         Content = "audio reply",
         OutputAudioReferenceId = "audio_123",
+        AudioErrorMessage = "playback failed",
         Attachments =
         [
             new ChatAttachment
@@ -101,9 +103,33 @@ static Task TestAudioPersistenceCloneAsync()
     var clone = ConversationPersistenceHelper.CloneMessage(source);
 
     AssertEqual("audio_123", clone.OutputAudioReferenceId, "audio reference should be preserved");
+    AssertEqual("playback failed", clone.AudioErrorMessage, "audio error should be preserved");
     AssertEqual(1, clone.Attachments.Count, "audio attachment should be cloned");
     AssertEqual(AttachmentKind.Audio, clone.Attachments[0].Kind, "attachment kind should stay audio");
     AssertEqual(TimeSpan.FromSeconds(12), clone.Attachments[0].Duration, "audio duration should be preserved");
+    return Task.CompletedTask;
+}
+
+static Task TestAudioConfigInheritanceAsync()
+{
+    var config = new AppConfig
+    {
+        Provider = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1",
+        ApiKey = "primary-key",
+        Model = "gpt-5-mini",
+        ChatAudioEnabled = true,
+        ChatAudioVoice = "alloy"
+    };
+
+    var resolved = AudioConfigResolver.Resolve(config);
+
+    AssertEqual("OpenAI", resolved.Provider, "audio provider should default independently");
+    AssertEqual("https://api.openai.com/v1/audio/speech", resolved.BaseUrl, "audio base url should use dedicated audio endpoint");
+    AssertEqual("primary-key", resolved.ApiKey, "audio api key should inherit primary key");
+    AssertEqual("gpt-4o-mini-tts", resolved.Model, "audio model should use dedicated default");
+    AssertEqual("alloy", resolved.Voice, "audio voice should use explicit audio voice");
+    AssertFalse(resolved.AutoPlay, "auto play should default to false");
     return Task.CompletedTask;
 }
 

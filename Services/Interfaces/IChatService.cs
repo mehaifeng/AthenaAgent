@@ -38,4 +38,6 @@ public interface IChatService
     /// 更新配置
     /// </summary>
     void UpdateConfig(AppConfig config);
+
+    Task<AudioOutputTestResult> TestAudioOutputAsync(CancellationToken cancellationToken = default);
 }
