@@ -251,12 +251,96 @@
                             <TabItem Header="{loc:Loc Config.AudioOutput}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionChatAudio}" FontWeight="SemiBold" Opacity="0.8"/>
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ChatAudioEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ChatAudioEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
 
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ChatAudioAutoPlay}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.ChatAudioAutoPlay}" HorizontalAlignment="Left" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AudioProviders}" SelectedItem="{Binding Config.ChatAudioProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ChatAudioBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+
+                                        <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.ChatAudioModel}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
+
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+
+                                        <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.TestAudioOutput}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                            <Button Grid.Column="0"
+                                                    Command="{Binding TestAudioOutputCommand}"
+                                                    IsEnabled="{Binding CanTestAudioOutput}"
+                                                    Theme="{StaticResource AccentButtonTheme}"
+                                                    Padding="16,4">
+                                                <Panel>
+                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingAudioOutput}"/>
+                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingAudioOutput}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                </Panel>
+                                            </Button>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding AudioOutputTestStatus}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="12"
+                                                       Opacity="0.8"/>
+                                        </Grid>
+
+                                        <Border Grid.Row="8" Grid.Column="1"
+                                                IsVisible="{Binding AudioTestAttachment}"
+                                                Background="{DynamicResource App.SectionBg}"
+                                                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="10,8">
+                                            <StackPanel Spacing="6">
+                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                    <Button Grid.Column="0"
+                                                            Command="{Binding PlayAudioTestAttachmentCommand}"
+                                                            IsVisible="{Binding !AudioTestAttachment.IsPlaying}">
+                                                        <TextBlock Text="Play" FontSize="11"/>
+                                                    </Button>
+                                                    <Button Grid.Column="1"
+                                                            Margin="8,0,0,0"
+                                                            Command="{Binding PauseAudioTestAttachmentCommand}"
+                                                            IsVisible="{Binding AudioTestAttachment.IsPlaying}">
+                                                        <TextBlock Text="Pause" FontSize="11"/>
+                                                    </Button>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{Binding AudioTestAttachment.DisplayName}"
+                                                               Margin="8,0,8,0"
+                                                               VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Grid.Column="3"
+                                                               Text="{Binding AudioTestAttachment.DisplaySize}"
+                                                               FontSize="10"
+                                                               Opacity="0.65"
+                                                               VerticalAlignment="Center"/>
+                                                </Grid>
+                                                <ProgressBar Minimum="0"
+                                                             Maximum="1"
+                                                             Value="{Binding AudioTestAttachment.PlaybackProgress}"
+                                                             Height="4"/>
+                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding AudioTestAttachment.PositionText}"
+                                                               FontSize="10"
+                                                               Opacity="0.65"/>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{Binding AudioTestAttachment.DurationText}"
+                                                               FontSize="10"
+                                                               Opacity="0.65"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
                                     </Grid>
                                 </StackPanel>
                             </TabItem>

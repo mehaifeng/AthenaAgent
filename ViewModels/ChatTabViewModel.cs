@@ -41,6 +41,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IAudioPlaybackService? _audioPlaybackService;
+    private readonly ISystemAudioService? _systemAudioService;
     private readonly IConversationArchiveService? _archiveService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
@@ -129,7 +130,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -142,6 +143,7 @@ public partial class ChatTabViewModel : ViewModelBase
         ILocalizationService? localizationService,
         IAttachmentStoreService? attachmentStoreService = null,
         IAudioPlaybackService? audioPlaybackService = null,
+        ISystemAudioService? systemAudioService = null,
         IConversationArchiveService? archiveService = null,
         IImageGenerationSessionService? imageGenerationSessionService = null)
     {
@@ -155,6 +157,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
         _audioPlaybackService = audioPlaybackService;
+        _systemAudioService = systemAudioService;
         _archiveService = archiveService;
         _imageGenerationSessionService = imageGenerationSessionService;
 
@@ -908,6 +911,23 @@ public partial class ChatTabViewModel : ViewModelBase
                             assistantMsg.OutputAudioReferenceId = msg.OutputAudioReferenceId;
                         }
 
+                        if (!string.IsNullOrWhiteSpace(msg.AudioErrorMessage))
+                        {
+                            assistantMsg.AudioErrorMessage = msg.AudioErrorMessage;
+                        }
+
+                        assistantMsg.IsLoading = false;
+
+                        var audioAttachment = attachments.FirstOrDefault(attachment => attachment.IsAudio);
+                        if (audioAttachment != null)
+                        {
+                            TryAutoPlayAssistantAudio(audioAttachment, assistantMsg);
+                        }
+                    }
+                    else if (msg.Role == "assistant" && (!string.IsNullOrWhiteSpace(msg.AudioErrorMessage) || !string.IsNullOrWhiteSpace(msg.OutputAudioReferenceId)))
+                    {
+                        assistantMsg.OutputAudioReferenceId = msg.OutputAudioReferenceId;
+                        assistantMsg.AudioErrorMessage = msg.AudioErrorMessage;
                         assistantMsg.IsLoading = false;
                     }
                     else if (msg.Role == "tool")
@@ -1011,7 +1031,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
                     && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
                 {
-                    if (assistantMsg.Attachments.Count == 0)
+                    if (assistantMsg.Attachments.Count == 0 && string.IsNullOrWhiteSpace(assistantMsg.AudioErrorMessage))
                     {
                         Messages.Remove(assistantMsg);
                     }
@@ -1553,14 +1573,32 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void PlayAudioAttachment(ChatAttachment? attachment)
+    private async Task PlayAudioAttachment(ChatAttachment? attachment)
     {
-        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
+        if (attachment == null || !attachment.IsAudio)
         {
             return;
         }
 
-        if (_audioPlaybackService.Play(attachment))
+        if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
+        {
+            UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
+            var result = await _systemAudioService.PlayFileAsync(attachment.StoredPath);
+            UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
+            if (!result.Success)
+            {
+                var owner = Messages.FirstOrDefault(m => m.Attachments.Contains(attachment));
+                if (owner != null)
+                {
+                    owner.AudioErrorMessage = string.Format(
+                        GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
+                        result.Message);
+                }
+            }
+            return;
+        }
+
+        if (_audioPlaybackService?.Play(attachment) == true)
         {
             UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
         }
@@ -1616,6 +1654,58 @@ public partial class ChatTabViewModel : ViewModelBase
             {
                 attachment.IsPlaying = false;
             }
+        }
+    }
+
+    private void TryAutoPlayAssistantAudio(ChatAttachment attachment, ChatMessage message)
+    {
+        if (_audioPlaybackService == null || _configService == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var config = _configService.Load();
+            if (!config.ChatAudioEnabled || !config.ChatAudioAutoPlay)
+            {
+                return;
+            }
+
+            if (!_audioPlaybackService.Play(attachment))
+            {
+                if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
+                {
+                    _ = PlaySystemAudioAttachmentAsync(attachment, message);
+                    return;
+                }
+
+                message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "自动播放 assistant 音频失败");
+            message.AudioErrorMessage = GetString("Chat.Audio.PlaybackFailed", "Failed to start audio playback.");
+        }
+    }
+
+    private async Task PlaySystemAudioAttachmentAsync(ChatAttachment attachment, ChatMessage message)
+    {
+        if (_systemAudioService?.IsSupported != true)
+        {
+            message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
+            return;
+        }
+
+        UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
+        var result = await _systemAudioService.PlayFileAsync(attachment.StoredPath);
+        UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
+        if (!result.Success)
+        {
+            message.AudioErrorMessage = string.Format(
+                GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
+                result.Message);
         }
     }
 

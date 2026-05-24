@@ -49,6 +49,9 @@
     <system:String x:Key="Chat.Archive.RetryLater">上一对话保存失败，已保留待重试。</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">后台归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型或服务端不支持图片输入，请切换为支持视觉的主模型后重试。</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackUnavailable">当前设备不可用音频播放。</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackFailed">启动音频播放失败。</system:String>
+    <system:String x:Key="Chat.Audio.PlaybackFailedDetail">系统音频播放失败: {0}</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
 
@@ -83,7 +86,9 @@
     <system:String x:Key="Config.ParamMaxTokens">最大 Token 数:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">函数调用:</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">启用对话音频:</system:String>
+    <system:String x:Key="Config.ChatAudioAutoPlay">自动播放助手音频:</system:String>
     <system:String x:Key="Config.ChatAudioVoice">音频语音:</system:String>
+    <system:String x:Key="Config.TestAudioOutput">测试音频输出:</system:String>
     <system:String x:Key="Config.ImageGenerationEnabled">启用图像生成:</system:String>
     <system:String x:Key="Config.ImageGenerationModel">图像模型:</system:String>
     <system:String x:Key="Config.ImageGenerationBaseUrl">图像 Base URL:</system:String>
@@ -327,6 +332,7 @@
     <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">请先输入 API Key</system:String>
     <system:String x:Key="Status.TestingConnection">测试中...</system:String>
+    <system:String x:Key="Status.EnableAudioOutputFirst">请先启用对话音频输出</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">请先启用 Web Search</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">请先启用浏览器</system:String>
     <system:String x:Key="Status.InstallingBrowserRuntime">正在安装浏览器运行时...</system:String>

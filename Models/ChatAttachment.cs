@@ -42,6 +42,9 @@ public partial class ChatAttachment : ObservableObject
     private DateTime _createdAt = DateTime.Now;
 
     [ObservableProperty]
+    private string _audioProvider = string.Empty;
+
+    [ObservableProperty]
     [property: JsonIgnore]
     private IImage? _previewImage;
 
@@ -65,6 +68,12 @@ public partial class ChatAttachment : ObservableObject
 
     [JsonIgnore]
     public bool IsAudio => Kind == AttachmentKind.Audio;
+
+    [JsonIgnore]
+    public bool UsesSystemAudioPlayback => string.Equals(AudioProvider, "System", StringComparison.OrdinalIgnoreCase);
+
+    [JsonIgnore]
+    public bool IsGenericFile => !IsImage && !IsAudio;
 
     [JsonIgnore]
     public string DisplayKind => Kind switch

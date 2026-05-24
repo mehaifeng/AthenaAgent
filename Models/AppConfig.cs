@@ -48,7 +48,22 @@ public partial class AppConfig : ObservableObject
     private bool _chatAudioEnabled;
 
     [ObservableProperty]
+    private string _chatAudioProvider = "OpenAI";
+
+    [ObservableProperty]
+    private string _chatAudioBaseUrl = "https://api.openai.com/v1/audio/speech";
+
+    [ObservableProperty]
+    private string _chatAudioApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _chatAudioModel = "gpt-4o-mini-tts";
+
+    [ObservableProperty]
     private string _chatAudioVoice = "alloy";
+
+    [ObservableProperty]
+    private bool _chatAudioAutoPlay;
 
     [ObservableProperty]
     private bool _imageGenerationEnabled = true;

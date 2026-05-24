@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Compile Include="../Models/AttachmentKind.cs" Link="Source/Models/AttachmentKind.cs" />
+    <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
     <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
@@ -33,6 +34,7 @@
     <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
     <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
     <Compile Include="../Services/ConversationHistoryService.cs" Link="Source/Services/ConversationHistoryService.cs" />
+    <Compile Include="../Services/AudioConfigResolver.cs" Link="Source/Services/AudioConfigResolver.cs" />
     <Compile Include="../Services/ImageGenerationSessionService.cs" Link="Source/Services/ImageGenerationSessionService.cs" />
     <Compile Include="../Services/OpenAIImageGenerationService.cs" Link="Source/Services/OpenAIImageGenerationService.cs" />
     <Compile Include="../Services/Functions/ImageGenerationFunctions.cs" Link="Source/Services/Functions/ImageGenerationFunctions.cs" />
