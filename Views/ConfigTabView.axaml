@@ -265,13 +265,19 @@
                                         <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ChatAudioBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
 
                                         <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.ChatAudioModel}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
 
                                         <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" IsVisible="{Binding IsRemoteAudioProvider}"/>
+                                        <ComboBox Grid.Row="6" Grid.Column="1"
+                                                  ItemsSource="{Binding SystemAudioVoices}"
+                                                  SelectedItem="{Binding Config.ChatAudioVoice}"
+                                                  Margin="0,0,0,8"
+                                                  IsEnabled="{Binding Config.ChatAudioEnabled}"
+                                                  IsVisible="{Binding IsSystemAudioProvider}"/>
 
                                         <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.TestAudioOutput}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
@@ -295,7 +301,7 @@
                                         </Grid>
 
                                         <Border Grid.Row="8" Grid.Column="1"
-                                                IsVisible="{Binding AudioTestAttachment}"
+                                                IsVisible="{Binding HasAudioTestAttachment}"
                                                 Background="{DynamicResource App.SectionBg}"
                                                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                                                 BorderThickness="1"

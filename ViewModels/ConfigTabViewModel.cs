@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Ursa.Controls;
@@ -67,7 +68,10 @@ public partial class ConfigTabViewModel : ViewModelBase
     public bool CanTestBrowserVision => !IsTestingBrowserVision;
     public bool CanTestAudioOutput => !IsTestingAudioOutput;
     public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
+    public bool IsSystemAudioProvider => Config.ChatAudioProvider == "System";
     public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
+    public bool HasAudioTestAttachment => AudioTestAttachment != null;
+    public bool HasSystemAudioVoices => SystemAudioVoices.Count > 0;
 
     [ObservableProperty]
     private string _secondaryTestStatus = string.Empty;
@@ -132,10 +136,29 @@ public partial class ConfigTabViewModel : ViewModelBase
         { "Custom", string.Empty }
     };
 
+    private static readonly HashSet<string> RemoteAudioVoices = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer",
+        "verse"
+    };
+
     public ObservableCollection<string> AudioProviders { get; } = new(AudioProviderUrls.Keys);
+    public ObservableCollection<string> SystemAudioVoices { get; } = new();
 
     [ObservableProperty]
     private int _selectedLanguageIndex;
+
+    [ObservableProperty]
+    private bool _isLoadingSystemAudioVoices;
 
     partial void OnSelectedLanguageIndexChanged(int value)
     {
@@ -214,8 +237,10 @@ public partial class ConfigTabViewModel : ViewModelBase
                 }
                 else if (e.PropertyName == nameof(AppConfig.ChatAudioProvider))
                 {
+                    OnPropertyChanged(nameof(IsSystemAudioProvider));
                     OnPropertyChanged(nameof(IsRemoteAudioProvider));
                     OnPropertyChanged(nameof(CanEditRemoteAudioFields));
+                    _ = RefreshSystemAudioVoicesAsync();
                 }
                 else if (e.PropertyName == nameof(AppConfig.ChatAudioEnabled))
                 {
@@ -242,6 +267,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             Config = newConfig;
             if (TokenService != null) TokenService.MaxTokens = newConfig.MaxContextTokens;
             _logger.Information("ConfigTab: 检测到外部配置变更，已刷新 UI");
+            _ = RefreshSystemAudioVoicesAsync();
         });
     }
 
@@ -285,6 +311,8 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     config.ChatAudioBaseUrl = url;
                 }
+
+                NormalizeChatAudioVoiceForProvider(config);
             }
             else if (e.PropertyName == nameof(AppConfig.SecondaryProvider))
             {
@@ -413,7 +441,29 @@ public partial class ConfigTabViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(Config.ChatAudioVoice))
         {
-            Config.ChatAudioVoice = "alloy";
+            Config.ChatAudioVoice = Config.ChatAudioProvider == "System"
+                ? string.Empty
+                : "alloy";
+        }
+
+        NormalizeChatAudioVoiceForProvider(Config);
+    }
+
+    private static void NormalizeChatAudioVoiceForProvider(AppConfig config)
+    {
+        if (config.ChatAudioProvider == "System")
+        {
+            if (string.Equals(config.ChatAudioVoice, "alloy", StringComparison.OrdinalIgnoreCase))
+            {
+                config.ChatAudioVoice = string.Empty;
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ChatAudioVoice) || !RemoteAudioVoices.Contains(config.ChatAudioVoice))
+        {
+            config.ChatAudioVoice = "alloy";
         }
     }
 
@@ -435,7 +485,72 @@ public partial class ConfigTabViewModel : ViewModelBase
                     _localizationService.SwitchLanguage(Config.Language);
                 }
             }
+
+            await RefreshSystemAudioVoicesAsync();
         }
+    }
+
+    partial void OnAudioTestAttachmentChanged(ChatAttachment? value)
+    {
+        OnPropertyChanged(nameof(HasAudioTestAttachment));
+    }
+
+    private async Task RefreshSystemAudioVoicesAsync()
+    {
+        if (_systemAudioService == null || !_systemAudioService.IsSupported || !IsSystemAudioProvider)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                SystemAudioVoices.Clear();
+                OnPropertyChanged(nameof(HasSystemAudioVoices));
+            });
+            return;
+        }
+
+        IsLoadingSystemAudioVoices = true;
+        try
+        {
+            var voices = await _systemAudioService.GetAvailableVoicesAsync();
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                SystemAudioVoices.Clear();
+                foreach (var voice in voices)
+                {
+                    SystemAudioVoices.Add(voice);
+                }
+
+                if (SystemAudioVoices.Count > 0)
+                {
+                    if (!SystemAudioVoices.Contains(Config.ChatAudioVoice))
+                    {
+                        Config.ChatAudioVoice = PickPreferredSystemVoice(SystemAudioVoices) ?? SystemAudioVoices[0];
+                    }
+                }
+                else if (Config.ChatAudioProvider == "System" && Config.ChatAudioVoice == "alloy")
+                {
+                    Config.ChatAudioVoice = string.Empty;
+                }
+
+                OnPropertyChanged(nameof(HasSystemAudioVoices));
+            });
+        }
+        finally
+        {
+            IsLoadingSystemAudioVoices = false;
+        }
+    }
+
+    private static string? PickPreferredSystemVoice(IEnumerable<string> voices)
+    {
+        var voiceList = voices.ToList();
+        if (OperatingSystem.IsWindows())
+        {
+            return voiceList.FirstOrDefault(v => string.Equals(v, "Microsoft Zira Desktop", StringComparison.OrdinalIgnoreCase))
+                ?? voiceList.FirstOrDefault(v => v.Contains("Zira", StringComparison.OrdinalIgnoreCase))
+                ?? voiceList.FirstOrDefault(v => v.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return voiceList.FirstOrDefault();
     }
 
     [RelayCommand(CanExecute = nameof(CanTestConnection))]

@@ -3,6 +3,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -37,7 +38,8 @@ public class SystemAudioService : ISystemAudioService
             }
             else if (OperatingSystem.IsWindows())
             {
-                result = await _cliService.ExecuteAsync("powershell", BuildWindowsSpeechArguments(outputPath, voice, text), ct: cancellationToken);
+                var resolvedVoice = await ResolveWindowsVoiceAsync(voice, cancellationToken);
+                result = await _cliService.ExecuteAsync("powershell", BuildWindowsSpeechArguments(outputPath, resolvedVoice, text), ct: cancellationToken);
             }
             else
             {
@@ -56,6 +58,39 @@ public class SystemAudioService : ISystemAudioService
         {
             _logger.Error(ex, "System TTS synthesis failed");
             return new SystemAudioResult { Success = false, Message = ex.Message };
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> GetAvailableVoicesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            CliResult result;
+
+            if (OperatingSystem.IsMacOS())
+            {
+                result = await _cliService.ExecuteAsync("say", ["-v", "?"], ct: cancellationToken);
+                return ParseMacOsVoices(result);
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                result = await _cliService.ExecuteAsync("espeak-ng", ["--voices"], ct: cancellationToken);
+                return ParseLinuxVoices(result);
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                result = await _cliService.ExecuteAsync("powershell", BuildWindowsListVoicesArguments(), ct: cancellationToken);
+                return ParseWindowsVoices(result);
+            }
+
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to enumerate system voices");
+            return [];
         }
     }
 
@@ -133,6 +168,16 @@ public class SystemAudioService : ISystemAudioService
         return ["-NoProfile", "-Command", script];
     }
 
+    private static IEnumerable<string> BuildWindowsListVoicesArguments()
+    {
+        const string script = "$ErrorActionPreference='Stop';" +
+                              "Add-Type -AssemblyName System.Speech;" +
+                              "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;" +
+                              "$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name };" +
+                              "$s.Dispose();";
+        return ["-NoProfile", "-Command", script];
+    }
+
     private static IEnumerable<string> BuildWindowsPlayArguments(string filePath)
     {
         var escapedPath = EscapePowerShellString(filePath);
@@ -145,5 +190,84 @@ public class SystemAudioService : ISystemAudioService
     private static string EscapePowerShellString(string value)
     {
         return value.Replace("'", "''", StringComparison.Ordinal);
+    }
+
+    private async Task<string> ResolveWindowsVoiceAsync(string voice, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(voice))
+        {
+            return string.Empty;
+        }
+
+        var voices = await GetAvailableVoicesAsync(cancellationToken);
+        if (voices.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return voices.Contains(voice, StringComparer.OrdinalIgnoreCase)
+            ? voices.First(v => string.Equals(v, voice, StringComparison.OrdinalIgnoreCase))
+            : string.Empty;
+    }
+
+    private static IReadOnlyList<string> ParseWindowsVoices(CliResult result)
+    {
+        return result.IsSuccess
+            ? ParseNonEmptyLines(result.StandardOutput)
+            : [];
+    }
+
+    private static IReadOnlyList<string> ParseMacOsVoices(CliResult result)
+    {
+        if (!result.IsSuccess)
+        {
+            return [];
+        }
+
+        var voices = new List<string>();
+        foreach (var line in ParseNonEmptyLines(result.StandardOutput))
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 0)
+            {
+                voices.Add(parts[0]);
+            }
+        }
+
+        return voices;
+    }
+
+    private static IReadOnlyList<string> ParseLinuxVoices(CliResult result)
+    {
+        if (!result.IsSuccess)
+        {
+            return [];
+        }
+
+        var voices = new List<string>();
+        foreach (var line in ParseNonEmptyLines(result.StandardOutput))
+        {
+            if (line.StartsWith("Pty", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 4)
+            {
+                voices.Add(parts[3]);
+            }
+        }
+
+        return voices;
+    }
+
+    private static IReadOnlyList<string> ParseNonEmptyLines(string value)
+    {
+        return value
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }
