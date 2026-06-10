@@ -41,6 +41,8 @@
                 <!-- 语义化颜色定义：深色模式 -->
                 <ResourceDictionary x:Key="Dark">
                     <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/DarkLogo.PNG</media:Bitmap>
+                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Dark.PNG</media:Bitmap>
+                    <SolidColorBrush x:Key="App.BackgroundOverlay" Color="#CC111111" />
                     <SolidColorBrush x:Key="App.EmphasisForeground" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#F2F2F2" />
                     <SolidColorBrush x:Key="App.EmphasisActiveForeground" Color="#D9D9D9" />
@@ -157,6 +159,8 @@
                 <!-- 语义化颜色 definition：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
                     <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/LightLogo.PNG</media:Bitmap>
+                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Light.PNG</media:Bitmap>
+                    <SolidColorBrush x:Key="App.BackgroundOverlay" Color="#CCF6F6F6" />
                     <SolidColorBrush x:Key="App.EmphasisForeground" Color="#111111" />
                     <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#000000" />
                     <SolidColorBrush x:Key="App.EmphasisActiveForeground" Color="#2A2A2A" />
