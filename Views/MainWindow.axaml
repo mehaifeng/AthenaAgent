@@ -23,12 +23,24 @@
     </Design.DataContext>
 
     <Grid RowDefinitions="*,Auto">
+        <!-- 背景图片 -->
+        <Image Source="{DynamicResource App.BackgroundImage}"
+               Grid.Row="0"
+               Grid.RowSpan="2"
+               Stretch="UniformToFill"
+               IsHitTestVisible="False" />
+        <!-- 背景蒙版 -->
+        <Border Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{DynamicResource App.BackgroundOverlay}"
+                IsHitTestVisible="False" />
+
         <!-- 主题过渡动画图片覆盖层 -->
         <Image x:Name="ThemeSplashImage"
                Grid.Row="0"
                Stretch="UniformToFill"
                Opacity="0"
-               IsHitTestVisible="False"
+               IsHitTestVisible="True"
                ZIndex="100"/>
 
         <!-- TabControl (功能模块) -->
