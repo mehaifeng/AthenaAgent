@@ -289,3 +289,4 @@ $RECYCLE.BIN/
 # Application specific
 *.log
 .idea/
+/.claude/settings.local.json
