@@ -287,9 +287,9 @@
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
 
             <!-- 字体设置 -->
-            <FontFamily x:Key="MainFontFamily">avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
+            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-            <FontFamily x:Key="ContentControlThemeFontFamily">avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">Microsoft YaHei, avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
 
             <!-- 字号设置 -->
             <x:Double x:Key="TitleFontSize">18</x:Double>
