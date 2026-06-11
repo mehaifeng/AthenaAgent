@@ -288,10 +288,11 @@ for rid in "${PLATFORMS[@]}"; do
   publish_project "$REPO_ROOT/Athena.Updater/Athena.Updater.csproj" "$rid" "$updater_dir"
 
   cp -R "$app_dir"/. "$package_dir"/
-  cp -R "$updater_dir"/. "$package_dir"/
+  mkdir -p "$package_dir/updater"
+  cp -R "$updater_dir"/. "$package_dir/updater"/
 
   [ -f "$package_dir/$entry_executable" ] || die "Missing entry executable for $rid: $entry_executable"
-  [ -f "$package_dir/$updater_executable" ] || die "Missing updater executable for $rid: $updater_executable"
+  [ -f "$package_dir/updater/$updater_executable" ] || die "Missing updater executable for $rid: $updater_executable"
 
   case "$rid" in
     win-*)

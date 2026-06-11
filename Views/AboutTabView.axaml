@@ -102,11 +102,13 @@
                         </Button>
                         <Button Command="{Binding OpenDocumentationCommand}"
                                 Padding="20,8"
+                                Theme="{StaticResource AccentButtonTheme}"
                                 ToolTip.Tip="{loc:Loc About.BtnViewDocs}">
                             <PathIcon Data="{StaticResource SemiIconArticle}" Width="16" Height="16"/>
                         </Button>
                         <Button Command="{Binding OpenGitHubCommand}"
                                 Padding="20,8"
+                                Theme="{StaticResource AccentButtonTheme}"
                                 ToolTip.Tip="{loc:Loc About.BtnSourceRepo}">
                             <PathIcon Data="{StaticResource SemiIconGithubLogo}" Width="16" Height="16"/>
                         </Button>

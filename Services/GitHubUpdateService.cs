@@ -246,7 +246,7 @@ public sealed class GitHubUpdateService : IUpdateService
             var payloadRoot = ResolvePayloadRoot(stagingDir);
 
             var updaterFileName = OperatingSystem.IsWindows() ? "Athena.Updater.exe" : "Athena.Updater";
-            var updaterPath = Path.Combine(payloadRoot, updaterFileName);
+            var updaterPath = Path.Combine(payloadRoot, "updater", updaterFileName);
             if (!File.Exists(updaterPath))
             {
                 return new UpdateApplyResult
@@ -266,7 +266,7 @@ public sealed class GitHubUpdateService : IUpdateService
                 InstallDirectory = installDir,
                 StagingDirectory = payloadRoot,
                 EntryExecutable = entryExecutable,
-                PreservePaths = manifest.PreservePaths?.Count > 0 ? manifest.PreservePaths : new List<string> { "AthenaData" }
+                PreservePaths = manifest.PreservePaths?.Count > 0 ? manifest.PreservePaths : new List<string> { "AthenaData", "updater" }
             };
 
             var sessionFile = Path.Combine(workRoot, "update-session.json");
