@@ -298,7 +298,7 @@ for rid in "${PLATFORMS[@]}"; do
     win-*)
       ;;
     *)
-      chmod +x "$package_dir/$entry_executable" "$package_dir/$updater_executable"
+      chmod +x "$package_dir/$entry_executable" "$package_dir/updater/$updater_executable"
       ;;
   esac
 
