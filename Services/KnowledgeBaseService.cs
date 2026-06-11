@@ -102,10 +102,41 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
 
         Directory.CreateDirectory(_knowledgeBasePath);
+        EnsureAthenaSoulExists();
         SetupWatcher();
 
         _logger.Information("Knowledge base service initialized at {Path}, vector search: {Enabled}",
             _knowledgeBasePath, _embeddingService?.IsConfigured ?? false);
+    }
+
+    /// <summary>
+    /// 首次启动时从嵌入式资源释放 AthenaSoul.md 到知识库目录
+    /// </summary>
+    private void EnsureAthenaSoulExists()
+    {
+        var targetPath = Path.Combine(_knowledgeBasePath, "AthenaSoul.md");
+        if (File.Exists(targetPath))
+            return;
+
+        try
+        {
+            var assembly = typeof(KnowledgeBaseService).Assembly;
+            using var stream = assembly.GetManifestResourceStream("AthenaSoul.md");
+            if (stream == null)
+            {
+                _logger.Warning("Embedded AthenaSoul.md resource not found");
+                return;
+            }
+
+            using var reader = new StreamReader(stream);
+            var content = reader.ReadToEnd();
+            File.WriteAllText(targetPath, content, Encoding.UTF8);
+            _logger.Information("AthenaSoul.md extracted to {Path}", targetPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to extract AthenaSoul.md");
+        }
     }
 
     private void SetupWatcher()
