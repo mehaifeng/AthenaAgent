@@ -149,10 +149,98 @@ archive_package() {
   )
 }
 
+generate_icns() {
+  # Generate Athena.icns from Athena.ico (or a square PNG) when a pre-built
+  # .icns is not available. The result is cached in Assets/ so subsequent
+  # runs skip the conversion.
+  local icns_path="$REPO_ROOT/Assets/Athena.icns"
+  [ -f "$icns_path" ] && return 0
+
+  local src=""
+  if [ -f "$REPO_ROOT/Assets/Athena.ico" ]; then
+    src="$REPO_ROOT/Assets/Athena.ico"
+  elif [ -f "$REPO_ROOT/Assets/Athena.png" ]; then
+    src="$REPO_ROOT/Assets/Athena.png"
+  else
+    echo "Warning: No Athena.ico or Athena.png found — app will have no icon"
+    return 1
+  fi
+
+  require_command sips
+  require_command iconutil
+
+  local iconset
+  iconset="$(mktemp -d)/Athena.iconset"
+  mkdir -p "$iconset"
+
+  echo "Generating Athena.icns from $(basename "$src")"
+
+  local size
+  for size in 16 32 128 256 512; do
+    sips -s format png -z "$size" "$size" "$src" --out "$iconset/icon_${size}x${size}.png" >/dev/null 2>&1
+    local double=$((size * 2))
+    sips -s format png -z "$double" "$double" "$src" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null 2>&1
+  done
+
+  iconutil -c icns "$iconset" -o "$icns_path"
+  rm -rf "$(dirname "$iconset")"
+
+  echo "Created Assets/Athena.icns"
+}
+
+create_app_bundle() {
+  local package_dir="$1"
+  local app_bundle="$2"
+  local version="$3"
+
+  mkdir -p "$app_bundle/Contents/MacOS"
+  mkdir -p "$app_bundle/Contents/Resources"
+
+  # Copy all publish files into the MacOS directory
+  cp -R "$package_dir"/* "$app_bundle/Contents/MacOS/"
+
+  # Generate Info.plist from csproj CFBundle properties
+  cat > "$app_bundle/Contents/Info.plist" << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Athena.UI</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.athena.ai</string>
+	<key>CFBundleName</key>
+	<string>Athena</string>
+	<key>CFBundleDisplayName</key>
+	<string>Athena</string>
+	<key>CFBundleIconFile</key>
+	<string>Athena</string>
+	<key>CFBundleVersion</key>
+	<string>${version}</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${version}</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+PLIST
+
+  # Copy icon — generate from .ico on the fly if .icns is missing
+  if [ -f "$REPO_ROOT/Assets/Athena.icns" ]; then
+    cp "$REPO_ROOT/Assets/Athena.icns" "$app_bundle/Contents/Resources/"
+  else
+    generate_icns && cp "$REPO_ROOT/Assets/Athena.icns" "$app_bundle/Contents/Resources/" 2>/dev/null || true
+  fi
+}
 create_dmg() {
   local rid="$1"
   local package_dir="$2"
   local dmg_path="$3"
+  local version="$4"
 
   require_command hdiutil
 
@@ -160,8 +248,8 @@ create_dmg() {
   rm -rf "$dmg_staging"
   mkdir -p "$dmg_staging"
 
-  # Copy .app bundle (dotnet publish creates it for osx RIDs)
-  cp -R "$package_dir"/* "$dmg_staging"/
+  # Wrap flat publish output into a proper .app bundle
+  create_app_bundle "$package_dir" "$dmg_staging/Athena.app" "$version"
 
   # Symlink to /Applications for drag-to-install UX
   ln -s /Applications "$dmg_staging/Applications"
@@ -371,7 +459,7 @@ for rid in "${PLATFORMS[@]}"; do
       osx-*)
         dmg_name="Athena-$VERSION-$rid.dmg"
         dmg_path="$OUTPUT_DIR/$dmg_name"
-        create_dmg "$rid" "$package_dir" "$dmg_path"
+        create_dmg "$rid" "$package_dir" "$dmg_path" "$VERSION"
         ASSET_PATHS+=("$dmg_path")
         echo "Created $dmg_name"
         ;;
