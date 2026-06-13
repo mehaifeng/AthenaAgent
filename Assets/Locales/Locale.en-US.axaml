@@ -52,6 +52,8 @@
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">Audio playback is unavailable on this device.</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">Failed to start audio playback.</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailedDetail">Failed to play system audio: {0}</system:String>
+    <system:String x:Key="Chat.Audio.Play">Play</system:String>
+    <system:String x:Key="Chat.Audio.Stop">Stop</system:String>
     <system:String x:Key="Chat.RoleUser">You</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
 

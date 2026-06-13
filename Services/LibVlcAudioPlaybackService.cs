@@ -57,7 +57,7 @@ public class LibVlcAudioPlaybackService : IAudioPlaybackService
             }
 
             var started = _player.Play();
-            NotifyState(attachment.Id, true, attachment.Position, attachment.Duration);
+            NotifyState(attachment.Id, true, TimeSpan.Zero, TimeSpan.Zero);
             return started;
         }
         catch (Exception ex)
@@ -75,7 +75,9 @@ public class LibVlcAudioPlaybackService : IAudioPlaybackService
         }
 
         _player.Pause();
-        NotifyState(_attachmentId, false, TimeSpan.FromMilliseconds(Math.Max(_player.Time, 0)), TimeSpan.FromMilliseconds(Math.Max(_player.Length, 0)));
+        var length = Math.Max(_player.Length, 0L);
+        var time = Math.Max(_player.Time, 0L);
+        NotifyState(_attachmentId, false, TimeSpan.FromMilliseconds(time), TimeSpan.FromMilliseconds(length));
     }
 
     public void Seek(TimeSpan position)
@@ -115,17 +117,29 @@ public class LibVlcAudioPlaybackService : IAudioPlaybackService
 
     private void OnTimeChanged(object? sender, MediaPlayerTimeChangedEventArgs e)
     {
-        NotifyState(_attachmentId, true, TimeSpan.FromMilliseconds(e.Time), TimeSpan.FromMilliseconds(Math.Max(_player?.Length ?? 0L, 0L)));
+        // Report the player's actual playing state — TimeChanged may fire on the
+        // trailing edge of a play->pause transition, and we must not flip the
+        // attachment back to IsPlaying=true after the user pressed Pause.
+        var isPlaying = _player?.IsPlaying == true;
+        var length = _player?.Length ?? 0L;
+        var time = e.Time;
+        NotifyState(_attachmentId, isPlaying, TimeSpan.FromMilliseconds(time), TimeSpan.FromMilliseconds(Math.Max(length, 0L)));
     }
 
     private void OnEndReached(object? sender, EventArgs e)
     {
-        NotifyState(_attachmentId, false, TimeSpan.Zero, TimeSpan.FromMilliseconds(Math.Max(_player?.Length ?? 0L, 0L)));
+        var length = _player?.Length ?? 0L;
+        NotifyState(_attachmentId, false, TimeSpan.Zero, TimeSpan.FromMilliseconds(Math.Max(length, 0L)));
     }
 
     private void OnLengthChanged(object? sender, MediaPlayerLengthChangedEventArgs e)
     {
-        NotifyState(_attachmentId, _player?.IsPlaying == true, TimeSpan.FromMilliseconds(Math.Max(_player?.Time ?? 0L, 0L)), TimeSpan.FromMilliseconds(e.Length));
+        // Always publish duration as soon as the media is parsed, even before
+        // the user has hit Play — otherwise the total-time label stays empty
+        // for the lifetime of the attachment card.
+        var isPlaying = _player?.IsPlaying == true;
+        var time = _player?.Time ?? 0L;
+        NotifyState(_attachmentId, isPlaying, TimeSpan.FromMilliseconds(Math.Max(time, 0L)), TimeSpan.FromMilliseconds(Math.Max(e.Length, 0L)));
     }
 
     private void NotifyState(string? attachmentId, bool isPlaying, TimeSpan position, TimeSpan duration)

@@ -42,6 +42,15 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
+    // Cancels in-flight system (afplay/aplay/powershell) playback so Stop can
+    // actually terminate the external process — pausing the libvlc player does
+    // nothing for system-provider audio.
+    private CancellationTokenSource? _systemAudioCts;
+    // Tracks which attachment is currently playing. When a new clip starts, a
+    // new ID is written. The stale finally block of the *previous* clip checks
+    // this before clearing state — preventing it from undoing the new clip's
+    // IsPlaying=true.
+    private string? _playingAttachmentId;
     private readonly IConversationArchiveService? _archiveService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
@@ -1573,87 +1582,66 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task PlayAudioAttachment(ChatAttachment? attachment)
+    private void ToggleAudioPlayback(ChatAttachment? attachment)
     {
         if (attachment == null || !attachment.IsAudio)
         {
             return;
         }
 
+        // Single toggle: if this clip is playing, stop it; otherwise start it.
+        if (attachment.IsPlaying)
+        {
+            StopAudioPlayback();
+            return;
+        }
+
+        // Only one clip plays at a time — tear down whatever is running first.
+        StopAudioPlayback();
+
         if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
         {
-            UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
-            var result = await _systemAudioService.PlayFileAsync(attachment.StoredPath);
-            UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
-            if (!result.Success)
-            {
-                var owner = Messages.FirstOrDefault(m => m.Attachments.Contains(attachment));
-                if (owner != null)
-                {
-                    owner.AudioErrorMessage = string.Format(
-                        GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
-                        result.Message);
-                }
-            }
+            // Fire-and-forget: the command must return immediately so that the
+            // generated IAsyncRelayCommand keeps CanExecute == true while the
+            // system process (afplay/aplay) is running — otherwise the Stop
+            // button is greyed out for the entire playback duration.
+            _ = PlaySystemAudioAttachmentAsync(attachment, null);
             return;
         }
 
         if (_audioPlaybackService?.Play(attachment) == true)
         {
-            UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
+            UpdateAudioPlayingState(attachment.Id, true);
         }
     }
 
-    [RelayCommand]
-    private void PauseAudioAttachment(ChatAttachment? attachment)
+    private void StopAudioPlayback()
     {
-        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
+        if (_systemAudioCts != null)
         {
-            return;
+            _systemAudioCts.Cancel();
+            _systemAudioCts.Dispose();
+            _systemAudioCts = null;
         }
 
-        _audioPlaybackService.Pause();
-        UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
-    }
-
-    [RelayCommand]
-    private void SeekAudioAttachment(ChatAttachment? attachment)
-    {
-        if (attachment == null || !attachment.IsAudio || _audioPlaybackService == null)
-        {
-            return;
-        }
-
-        _audioPlaybackService.Seek(attachment.Position);
+        _audioPlaybackService?.Stop();
+        _playingAttachmentId = null;
+        UpdateAudioPlayingState(null, false);
     }
 
     private void OnPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
     {
         Dispatcher.UIThread.Post(() =>
         {
-            UpdateAudioAttachmentStates(e.AttachmentId, e.IsPlaying, e.Position, e.Duration);
+            UpdateAudioPlayingState(e.AttachmentId, e.IsPlaying);
         });
     }
 
-    private void UpdateAudioAttachmentStates(string? attachmentId, bool isPlaying, TimeSpan position, TimeSpan duration)
+    private void UpdateAudioPlayingState(string? attachmentId, bool isPlaying)
     {
         foreach (var attachment in Messages.SelectMany(m => m.Attachments).Where(a => a.IsAudio))
         {
-            var selected = attachment.Id == attachmentId;
-            attachment.IsPlaying = selected && isPlaying;
-            if (selected)
-            {
-                if (duration > TimeSpan.Zero)
-                {
-                    attachment.Duration = duration;
-                }
-
-                attachment.Position = position;
-            }
-            else if (isPlaying)
-            {
-                attachment.IsPlaying = false;
-            }
+            attachment.IsPlaying = isPlaying && attachment.Id == attachmentId;
         }
     }
 
@@ -1672,14 +1660,22 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            if (!_audioPlaybackService.Play(attachment))
+            if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
             {
-                if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
-                {
-                    _ = PlaySystemAudioAttachmentAsync(attachment, message);
-                    return;
-                }
+                _ = PlaySystemAudioAttachmentAsync(attachment, message);
+                return;
+            }
 
+            if (_audioPlaybackService.Play(attachment))
+            {
+                UpdateAudioPlayingState(attachment.Id, true);
+            }
+            else if (_systemAudioService?.IsSupported == true)
+            {
+                _ = PlaySystemAudioAttachmentAsync(attachment, message);
+            }
+            else
+            {
                 message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
             }
         }
@@ -1690,22 +1686,56 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    private async Task PlaySystemAudioAttachmentAsync(ChatAttachment attachment, ChatMessage message)
+    private async Task PlaySystemAudioAttachmentAsync(ChatAttachment attachment, ChatMessage? message)
     {
         if (_systemAudioService?.IsSupported != true)
         {
-            message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
+            if (message != null)
+            {
+                message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
+            }
             return;
         }
 
-        UpdateAudioAttachmentStates(attachment.Id, true, attachment.Position, attachment.Duration);
-        var result = await _systemAudioService.PlayFileAsync(attachment.StoredPath);
-        UpdateAudioAttachmentStates(attachment.Id, false, attachment.Position, attachment.Duration);
-        if (!result.Success)
+        var cts = new CancellationTokenSource();
+        var id = attachment.Id;
+        _systemAudioCts = cts;
+        _playingAttachmentId = id;
+        UpdateAudioPlayingState(id, true);
+        try
         {
-            message.AudioErrorMessage = string.Format(
-                GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
-                result.Message);
+            var result = await _systemAudioService.PlayFileAsync(attachment.StoredPath, cts.Token);
+            if (!result.Success && !cts.IsCancellationRequested)
+            {
+                var owner = message ?? Messages.FirstOrDefault(m => m.Attachments.Contains(attachment));
+                if (owner != null)
+                {
+                    owner.AudioErrorMessage = string.Format(
+                        GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
+                        result.Message);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // User pressed Stop or a new clip took over — expected, swallow.
+        }
+        finally
+        {
+            if (_systemAudioCts == cts)
+            {
+                _systemAudioCts.Dispose();
+                _systemAudioCts = null;
+            }
+
+            // Only clear the playing state if *this* clip is still the active
+            // one. If a new clip started while we were cancelled/completing,
+            // its IsPlaying=true must not be clobbered.
+            if (_playingAttachmentId == id)
+            {
+                _playingAttachmentId = null;
+                UpdateAudioPlayingState(id, false);
+            }
         }
     }
 

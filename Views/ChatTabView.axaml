@@ -276,48 +276,34 @@
                                                         </Border>
 
                                                         <Border Classes="audio-attachment-card" IsVisible="{Binding IsAudio}">
-                                                            <StackPanel Spacing="6">
-                                                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                                                    <Button Grid.Column="0"
-                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).PlayAudioAttachmentCommand}"
-                                                                            CommandParameter="{Binding}"
+                                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                <Panel Grid.Column="0" VerticalAlignment="Center">
+                                                                    <Button Width="32" Height="32" Padding="0"
                                                                             IsVisible="{Binding !IsPlaying}"
-                                                                            ToolTip.Tip="Play">
-                                                                        <TextBlock Text="Play" FontSize="11"/>
-                                                                    </Button>
-                                                                    <Button Grid.Column="0"
-                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).PauseAudioAttachmentCommand}"
+                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}"
                                                                             CommandParameter="{Binding}"
-                                                                            IsVisible="{Binding IsPlaying}"
-                                                                            ToolTip.Tip="Pause">
-                                                                        <TextBlock Text="Pause" FontSize="11"/>
+                                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
+                                                                        <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
                                                                     </Button>
-                                                                    <TextBlock Grid.Column="1"
-                                                                               Text="{Binding DisplayName}"
-                                                                               TextTrimming="CharacterEllipsis"
-                                                                               VerticalAlignment="Center"
-                                                                               Margin="8,0,8,0"/>
-                                                                    <TextBlock Grid.Column="2"
-                                                                               Text="{Binding DisplaySize}"
-                                                                               FontSize="10"
-                                                                               Opacity="0.65"
-                                                                               VerticalAlignment="Center"/>
-                                                                </Grid>
-                                                                <ProgressBar Minimum="0"
-                                                                             Maximum="1"
-                                                                             Value="{Binding PlaybackProgress}"
-                                                                             Height="4"/>
-                                                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                                                    <TextBlock Grid.Column="0"
-                                                                               Text="{Binding PositionText}"
-                                                                               FontSize="10"
-                                                                               Opacity="0.65"/>
-                                                                    <TextBlock Grid.Column="2"
-                                                                               Text="{Binding DurationText}"
-                                                                               FontSize="10"
-                                                                               Opacity="0.65"/>
-                                                                </Grid>
-                                                            </StackPanel>
+                                                                    <Button Width="32" Height="32" Padding="0"
+                                                                            IsVisible="{Binding IsPlaying}"
+                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}"
+                                                                            CommandParameter="{Binding}"
+                                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
+                                                                        <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
+                                                                    </Button>
+                                                                </Panel>
+                                                                <TextBlock Grid.Column="1"
+                                                                           Text="{Binding DisplayName}"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           VerticalAlignment="Center"
+                                                                           Margin="8,0,8,0"/>
+                                                                <TextBlock Grid.Column="2"
+                                                                           Text="{Binding DisplaySize}"
+                                                                           FontSize="10"
+                                                                           Opacity="0.65"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Grid>
                                                         </Border>
                                                     </Grid>
                                                 </DataTemplate>
