@@ -10,6 +10,7 @@ Examples:
   ./release.sh 1.2.3
   ./release.sh v1.2.3 --platforms osx-arm64,win-x64,linux-x64
   ./release.sh 1.2.3 --upload --generate-notes
+  ./release.sh 1.2.3 --dmg --upload --generate-notes
 
 Options:
   --platforms <list>   Comma-separated RIDs. Default: osx-arm64,win-x64,linux-x64
@@ -20,6 +21,7 @@ Options:
   --prerelease         Mark the GitHub Release as a prerelease
   --notes-file <file>  Use a release notes file for gh release create
   --generate-notes     Let GitHub auto-generate release notes
+  --dmg                Create DMG for macOS platforms (macOS only, requires hdiutil)
   -h, --help           Show this help text
 EOF
 }
@@ -147,6 +149,32 @@ archive_package() {
   )
 }
 
+create_dmg() {
+  local rid="$1"
+  local package_dir="$2"
+  local dmg_path="$3"
+
+  require_command hdiutil
+
+  local dmg_staging="${package_dir}.dmg_staging"
+  rm -rf "$dmg_staging"
+  mkdir -p "$dmg_staging"
+
+  # Copy .app bundle (dotnet publish creates it for osx RIDs)
+  cp -R "$package_dir"/* "$dmg_staging"/
+
+  # Symlink to /Applications for drag-to-install UX
+  ln -s /Applications "$dmg_staging/Applications"
+
+  rm -f "$dmg_path"
+  hdiutil create -volname "Athena" \
+    -srcfolder "$dmg_staging" \
+    -ov -format UDZO \
+    "$dmg_path"
+
+  rm -rf "$dmg_staging"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
 DEFAULT_REPO="mehaifeng/AthenaAgent"
@@ -160,6 +188,7 @@ DRAFT=0
 PRERELEASE=0
 GENERATE_NOTES=0
 NOTES_FILE=""
+DMG=0
 VERSION_INPUT=""
 
 while [ "$#" -gt 0 ]; do
@@ -204,6 +233,10 @@ while [ "$#" -gt 0 ]; do
       GENERATE_NOTES=1
       shift
       ;;
+    --dmg)
+      DMG=1
+      shift
+      ;;
     -*)
       die "Unknown option: $1"
       ;;
@@ -245,6 +278,15 @@ if [ "$UPLOAD" -eq 1 ]; then
   require_command gh
 fi
 
+if [ "$DMG" -eq 1 ]; then
+  case "$(uname -s)" in
+    Darwin) ;;
+    *)
+      die "--dmg requires macOS (hdiutil is only available on Darwin)"
+      ;;
+  esac
+fi
+
 ORIGINAL_IFS="$IFS"
 IFS=','
 read -r -a PLATFORMS <<<"$PLATFORMS_CSV"
@@ -267,6 +309,9 @@ echo "Releasing Athena $TAG"
 echo "Repo: $REPO"
 echo "Platforms: ${PLATFORMS[*]}"
 echo "Output: $OUTPUT_DIR"
+if [ "$DMG" -eq 1 ]; then
+  echo "DMG: yes (macOS only)"
+fi
 
 for rid in "${PLATFORMS[@]}"; do
   platform_root="$OUTPUT_DIR/$rid"
@@ -302,6 +347,7 @@ for rid in "${PLATFORMS[@]}"; do
       ;;
   esac
 
+  # --- tar.gz (always, for updater) ---
   archive_package "$rid" "$package_dir" "$archive_path"
   sha256="$(sha256_file "$archive_path")"
   asset_url="https://github.com/$REPO/releases/download/$TAG/$archive_name"
@@ -318,6 +364,22 @@ for rid in "${PLATFORMS[@]}"; do
 
   echo "Created $archive_name"
   echo "SHA256  $sha256"
+
+  # --- DMG (optional, macOS only, for first-time install) ---
+  if [ "$DMG" -eq 1 ]; then
+    case "$rid" in
+      osx-*)
+        dmg_name="Athena-$VERSION-$rid.dmg"
+        dmg_path="$OUTPUT_DIR/$dmg_name"
+        create_dmg "$rid" "$package_dir" "$dmg_path"
+        ASSET_PATHS+=("$dmg_path")
+        echo "Created $dmg_name"
+        ;;
+      *)
+        echo "Skipping DMG for $rid (not macOS)"
+        ;;
+    esac
+  fi
 done
 
 MANIFEST_PATH="$OUTPUT_DIR/update-manifest.json"
