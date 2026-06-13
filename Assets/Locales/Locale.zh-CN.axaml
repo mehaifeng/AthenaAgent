@@ -52,6 +52,8 @@
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">当前设备不可用音频播放。</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">启动音频播放失败。</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailedDetail">系统音频播放失败: {0}</system:String>
+    <system:String x:Key="Chat.Audio.Play">播放</system:String>
+    <system:String x:Key="Chat.Audio.Stop">停止</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">雅典娜</system:String>
 

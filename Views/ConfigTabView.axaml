@@ -301,45 +301,32 @@
                                                 BorderThickness="1"
                                                 CornerRadius="8"
                                                 Padding="10,8">
-                                            <StackPanel Spacing="6">
-                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                                                    <Button Grid.Column="0"
-                                                            Command="{Binding PlayAudioTestAttachmentCommand}"
-                                                            IsVisible="{Binding !AudioTestAttachment.IsPlaying}">
-                                                        <TextBlock Text="Play" FontSize="11"/>
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <Panel Grid.Column="0" VerticalAlignment="Center">
+                                                    <Button Width="32" Height="32" Padding="0"
+                                                            IsVisible="{Binding !AudioTestAttachment.IsPlaying}"
+                                                            Command="{Binding ToggleAudioTestPlaybackCommand}"
+                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
+                                                        <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
                                                     </Button>
-                                                    <Button Grid.Column="1"
-                                                            Margin="8,0,0,0"
-                                                            Command="{Binding PauseAudioTestAttachmentCommand}"
-                                                            IsVisible="{Binding AudioTestAttachment.IsPlaying}">
-                                                        <TextBlock Text="Pause" FontSize="11"/>
+                                                    <Button Width="32" Height="32" Padding="0"
+                                                            IsVisible="{Binding AudioTestAttachment.IsPlaying}"
+                                                            Command="{Binding ToggleAudioTestPlaybackCommand}"
+                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
+                                                        <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
                                                     </Button>
-                                                    <TextBlock Grid.Column="2"
-                                                               Text="{Binding AudioTestAttachment.DisplayName}"
-                                                               Margin="8,0,8,0"
-                                                               VerticalAlignment="Center"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="3"
-                                                               Text="{Binding AudioTestAttachment.DisplaySize}"
-                                                               FontSize="10"
-                                                               Opacity="0.65"
-                                                               VerticalAlignment="Center"/>
-                                                </Grid>
-                                                <ProgressBar Minimum="0"
-                                                             Maximum="1"
-                                                             Value="{Binding AudioTestAttachment.PlaybackProgress}"
-                                                             Height="4"/>
-                                                <Grid ColumnDefinitions="Auto,*,Auto">
-                                                    <TextBlock Grid.Column="0"
-                                                               Text="{Binding AudioTestAttachment.PositionText}"
-                                                               FontSize="10"
-                                                               Opacity="0.65"/>
-                                                    <TextBlock Grid.Column="2"
-                                                               Text="{Binding AudioTestAttachment.DurationText}"
-                                                               FontSize="10"
-                                                               Opacity="0.65"/>
-                                                </Grid>
-                                            </StackPanel>
+                                                </Panel>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding AudioTestAttachment.DisplayName}"
+                                                           Margin="8,0,8,0"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding AudioTestAttachment.DisplaySize}"
+                                                           FontSize="10"
+                                                           Opacity="0.65"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
                                         </Border>
                                     </Grid>
                                 </StackPanel>

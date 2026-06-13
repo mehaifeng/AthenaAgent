@@ -26,6 +26,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IBrowserVisionService? _browserVisionService;
     private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
+    // Cancels in-flight system playback so Stop can kill the external process.
+    private CancellationTokenSource? _audioTestCts;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -624,24 +626,26 @@ public partial class ConfigTabViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task PlayAudioTestAttachment()
+    private void ToggleAudioTestPlayback()
     {
         if (AudioTestAttachment == null)
         {
             return;
         }
 
+        if (AudioTestAttachment.IsPlaying)
+        {
+            StopAudioTestPlayback();
+            return;
+        }
+
+        StopAudioTestPlayback();
+
         if (AudioTestAttachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
         {
-            AudioTestAttachment.IsPlaying = true;
-            var result = await _systemAudioService.PlayFileAsync(AudioTestAttachment.StoredPath);
-            AudioTestAttachment.IsPlaying = false;
-            if (!result.Success)
-            {
-                AudioOutputTestStatus = string.Format(
-                    GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
-                    result.Message);
-            }
+            // Fire-and-forget so the command returns immediately and the Stop
+            // button's CanExecute stays true during playback.
+            _ = RunSystemAudioTestPlaybackAsync(AudioTestAttachment);
             return;
         }
 
@@ -651,15 +655,50 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
-    private void PauseAudioTestAttachment()
+    private async Task RunSystemAudioTestPlaybackAsync(ChatAttachment attachment)
     {
-        if (AudioTestAttachment == null || _audioPlaybackService == null)
+        var cts = new CancellationTokenSource();
+        _audioTestCts = cts;
+        attachment.IsPlaying = true;
+        try
         {
-            return;
+            var result = await _systemAudioService!.PlayFileAsync(attachment.StoredPath, cts.Token);
+            if (!result.Success && !cts.IsCancellationRequested)
+            {
+                AudioOutputTestStatus = string.Format(
+                    GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
+                    result.Message);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // User pressed Stop — expected.
+        }
+        finally
+        {
+            if (_audioTestCts == cts)
+            {
+                _audioTestCts.Dispose();
+                _audioTestCts = null;
+                attachment.IsPlaying = false;
+            }
+        }
+    }
+
+    private void StopAudioTestPlayback()
+    {
+        if (_audioTestCts != null)
+        {
+            _audioTestCts.Cancel();
+            _audioTestCts.Dispose();
+            _audioTestCts = null;
         }
 
-        _audioPlaybackService.Pause();
+        _audioPlaybackService?.Stop();
+        if (AudioTestAttachment != null)
+        {
+            AudioTestAttachment.IsPlaying = false;
+        }
     }
 
     /// <summary>
