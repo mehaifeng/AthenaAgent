@@ -28,7 +28,7 @@ permissions:
 jobs:
   release:
     name: Build Release
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -67,6 +67,60 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --upload \
             --generate-notes \
-            --dmg \
             ${{ steps.options.outputs.prerelease }} \
             ${{ steps.options.outputs.draft }}
+
+  dmg:
+    name: Build macOS DMG
+    needs: release
+    runs-on: macos-latest
+    if: ${{ needs.release.result == 'success' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release options
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build DMG for osx-arm64
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x ./release.sh
+          TAG="${{ steps.options.outputs.tag }}"
+          # Build only the macOS platform with DMG; --skip-upload prevents
+          # gh release create so we can append the DMG to the release
+          # the upstream job already created.
+          ./release.sh "${TAG#v}" \
+            --platforms osx-arm64 \
+            --dmg \
+            --skip-upload \
+            --repo "${GITHUB_REPOSITORY}"
+          ls -lh "artifacts/releases/${TAG#v}/"
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.options.outputs.tag }}"
+          cd "artifacts/releases/${TAG#v}"
+          gh release upload "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber \
+            Athena-*.dmg

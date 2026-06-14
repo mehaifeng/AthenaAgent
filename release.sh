@@ -22,6 +22,7 @@ Options:
   --notes-file <file>  Use a release notes file for gh release create
   --generate-notes     Let GitHub auto-generate release notes
   --dmg                Create DMG for macOS platforms (macOS only, requires hdiutil)
+  --skip-upload        Build artifacts but do not call gh release create
   -h, --help           Show this help text
 EOF
 }
@@ -272,6 +273,7 @@ REPO="$DEFAULT_REPO"
 PLATFORMS_CSV="$DEFAULT_PLATFORMS"
 OUTPUT_DIR=""
 UPLOAD=0
+SKIP_UPLOAD=0
 DRAFT=0
 PRERELEASE=0
 GENERATE_NOTES=0
@@ -325,6 +327,10 @@ while [ "$#" -gt 0 ]; do
       DMG=1
       shift
       ;;
+    --skip-upload)
+      SKIP_UPLOAD=1
+      shift
+      ;;
     -*)
       die "Unknown option: $1"
       ;;
@@ -362,7 +368,7 @@ if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then
   die "Notes file does not exist: $NOTES_FILE"
 fi
 
-if [ "$UPLOAD" -eq 1 ]; then
+if [ "$UPLOAD" -eq 1 ] && [ "$SKIP_UPLOAD" -eq 0 ]; then
   require_command gh
 fi
 
@@ -487,7 +493,7 @@ EOF
 echo
 echo "Generated manifest: $MANIFEST_PATH"
 
-if [ "$UPLOAD" -eq 1 ]; then
+if [ "$UPLOAD" -eq 1 ] && [ "$SKIP_UPLOAD" -eq 0 ]; then
   GH_ARGS=(release create "$TAG" --repo "$REPO" --title "$TAG")
 
   if [ -n "$NOTES_FILE" ]; then
