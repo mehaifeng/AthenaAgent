@@ -236,6 +236,17 @@ PLIST
   else
     generate_icns && cp "$REPO_ROOT/Assets/Athena.icns" "$app_bundle/Contents/Resources/" 2>/dev/null || true
   fi
+
+  # Ad-hoc sign the whole .app bundle. dotnet publish signs the
+  # individual executables ad-hoc, but leaves the bundle top level
+  # unsigned — Gatekeeper interprets that mismatch on quarantined
+  # downloads as "app is damaged" and refuses to launch.
+  # codesign -s - (ad-hoc, no identity) over the whole bundle fixes
+  # this without requiring a Developer ID.
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$app_bundle" >/dev/null 2>&1 || \
+      echo "Warning: ad-hoc codesign of $app_bundle failed"
+  fi
 }
 create_dmg() {
   local rid="$1"
