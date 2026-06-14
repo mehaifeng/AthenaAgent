@@ -28,7 +28,7 @@ permissions:
 jobs:
   release:
     name: Build Release
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -67,5 +67,6 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --upload \
             --generate-notes \
+            --dmg \
             ${{ steps.options.outputs.prerelease }} \
             ${{ steps.options.outputs.draft }}
