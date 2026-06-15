@@ -573,13 +573,15 @@ public class OpenAIChatService : IChatService
                     var timestamp = msg.Timestamp != default
                         ? msg.Timestamp.ToString(TimestampFormat)
                         : string.Empty;
+                    // 文档附件解析出的 Markdown 作为文本注入到用户消息中，供 AI 阅读。
+                    var userText = timestamp + msg.Content + BuildDocumentTextBlocks(msg);
                     if (HasImageAttachment(msg))
                     {
-                        messages.Add(CreateUserMessageWithAttachments(timestamp, msg));
+                        messages.Add(CreateUserMessageWithAttachments(userText, msg));
                     }
                     else
                     {
-                        messages.Add(new UserChatMessage(timestamp + msg.Content));
+                        messages.Add(new UserChatMessage(userText));
                     }
                     break;
                 case "assistant":
@@ -631,10 +633,34 @@ public class OpenAIChatService : IChatService
         return message.Attachments.Any(a => a.Kind == AttachmentKind.Image);
     }
 
-    private static UserChatMessage CreateUserMessageWithAttachments(string timestamp, ContextMessage message)
+    /// <summary>
+    /// 将消息中的文档附件解析文本拼接为带文件名标注的 Markdown 块。
+    /// </summary>
+    private static string BuildDocumentTextBlocks(ContextMessage message)
+    {
+        var documents = message.Attachments
+            .Where(a => a.Kind == AttachmentKind.Document && !string.IsNullOrWhiteSpace(a.ExtractedText))
+            .ToList();
+        if (documents.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new System.Text.StringBuilder();
+        foreach (var doc in documents)
+        {
+            builder.Append("\n\n--- ");
+            builder.Append(string.IsNullOrWhiteSpace(doc.FileName) ? "document" : doc.FileName);
+            builder.Append(" ---\n");
+            builder.Append(doc.ExtractedText.Trim());
+        }
+
+        return builder.ToString();
+    }
+
+    private static UserChatMessage CreateUserMessageWithAttachments(string text, ContextMessage message)
     {
         var parts = new List<ChatMessageContentPart>();
-        var text = timestamp + message.Content;
         if (!string.IsNullOrWhiteSpace(text))
         {
             parts.Add(ChatMessageContentPart.CreateTextPart(text));

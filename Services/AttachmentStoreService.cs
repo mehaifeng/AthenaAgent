@@ -23,6 +23,18 @@ public class AttachmentStoreService : IAttachmentStoreService
         [".gif"] = "image/gif"
     };
 
+    // MinerU 支持的文档格式：PDF / Word / PowerPoint / Excel。
+    private static readonly Dictionary<string, string> DocumentMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".pdf"] = "application/pdf",
+        [".doc"] = "application/msword",
+        [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        [".ppt"] = "application/vnd.ms-powerpoint",
+        [".pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        [".xls"] = "application/vnd.ms-excel",
+        [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    };
+
     private static readonly Dictionary<string, string> AudioMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".mp3"] = "audio/mpeg",
@@ -48,6 +60,11 @@ public class AttachmentStoreService : IAttachmentStoreService
 
     public long MaxImageBytes => 20 * 1024 * 1024;
 
+    // MinerU 精度解析单文件上限 200MB；此处按上限放行，超限交由远端报错。
+    public long MaxDocumentBytes => 200L * 1024 * 1024;
+
+    public IReadOnlyCollection<string> SupportedDocumentExtensions => DocumentMimeTypes.Keys;
+
     public async Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(
         IEnumerable<IStorageFile> files,
         CancellationToken cancellationToken = default)
@@ -57,36 +74,59 @@ public class AttachmentStoreService : IAttachmentStoreService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var extension = Path.GetExtension(file.Name);
-            if (!ImageMimeTypes.TryGetValue(extension, out var mimeType))
-            {
-                throw new InvalidOperationException($"Unsupported image file type: {file.Name}");
-            }
 
-            await using var input = await file.OpenReadAsync();
-            if (input.CanSeek && input.Length > MaxImageBytes)
+            if (ImageMimeTypes.TryGetValue(extension, out var imageMime))
             {
-                throw new InvalidOperationException($"Image is too large: {file.Name}");
+                imported.Add(await ImportSingleAsync(file, extension, imageMime, AttachmentKind.Image, MaxImageBytes, "Image", cancellationToken));
             }
-
-            var attachment = CreateAttachment(file.Name, extension, mimeType, AttachmentKind.Image);
-            await using (var output = File.Create(attachment.StoredPath))
+            else if (DocumentMimeTypes.TryGetValue(extension, out var docMime))
             {
-                await input.CopyToAsync(output, cancellationToken);
+                imported.Add(await ImportSingleAsync(file, extension, docMime, AttachmentKind.Document, MaxDocumentBytes, "Document", cancellationToken));
             }
-
-            var info = new FileInfo(attachment.StoredPath);
-            if (info.Length > MaxImageBytes)
+            else
             {
-                DeleteStoredAttachment(attachment);
-                throw new InvalidOperationException($"Image is too large: {file.Name}");
+                throw new InvalidOperationException($"Unsupported file type: {file.Name}");
             }
-
-            attachment.SizeBytes = info.Length;
-            await LoadPreviewAsync(attachment, cancellationToken);
-            imported.Add(attachment);
         }
 
         return imported;
+    }
+
+    private async Task<ChatAttachment> ImportSingleAsync(
+        IStorageFile file,
+        string extension,
+        string mimeType,
+        AttachmentKind kind,
+        long maxBytes,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        await using var input = await file.OpenReadAsync();
+        if (input.CanSeek && input.Length > maxBytes)
+        {
+            throw new InvalidOperationException($"{label} is too large: {file.Name}");
+        }
+
+        var attachment = CreateAttachment(file.Name, extension, mimeType, kind);
+        await using (var output = File.Create(attachment.StoredPath))
+        {
+            await input.CopyToAsync(output, cancellationToken);
+        }
+
+        var info = new FileInfo(attachment.StoredPath);
+        if (info.Length > maxBytes)
+        {
+            DeleteStoredAttachment(attachment);
+            throw new InvalidOperationException($"{label} is too large: {file.Name}");
+        }
+
+        attachment.SizeBytes = info.Length;
+        if (kind == AttachmentKind.Image)
+        {
+            await LoadPreviewAsync(attachment, cancellationToken);
+        }
+
+        return attachment;
     }
 
     public async Task<ChatAttachment> ImportBitmapAsync(

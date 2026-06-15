@@ -14,6 +14,11 @@ public interface IAttachmentStoreService
 
     long MaxImageBytes { get; }
 
+    long MaxDocumentBytes { get; }
+
+    /// <summary>支持作为文档解析的扩展名（含点，小写），如 ".pdf"。</summary>
+    IReadOnlyCollection<string> SupportedDocumentExtensions { get; }
+
     Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(
         IEnumerable<IStorageFile> files,
         CancellationToken cancellationToken = default);
