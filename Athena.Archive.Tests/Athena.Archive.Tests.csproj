@@ -15,6 +15,8 @@
 
   <ItemGroup>
     <Compile Include="../Models/AttachmentKind.cs" Link="Source/Models/AttachmentKind.cs" />
+    <Compile Include="../Models/DocumentParseState.cs" Link="Source/Models/DocumentParseState.cs" />
+    <Compile Include="../Models/DocumentParserMode.cs" Link="Source/Models/DocumentParserMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />

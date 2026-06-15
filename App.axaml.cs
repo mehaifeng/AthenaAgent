@@ -488,6 +488,13 @@ public partial class App : Application
             return new AttachmentStoreService(pathService, logger);
         });
 
+        services.AddSingleton<IDocumentParserService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var logger = Log.ForContext<Services.Parsers.MinerUDocumentParserService>();
+            return new Services.Parsers.MinerUDocumentParserService(configService, logger);
+        });
+
         services.AddSingleton<IConversationSessionAccessor, ConversationSessionAccessor>();
 
         services.AddSingleton<IImageGenerationSessionService>(sp =>
@@ -663,6 +670,7 @@ public partial class App : Application
             var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
+            var documentParserService = sp.GetService<IDocumentParserService>();
             var audioPlaybackService = sp.GetService<IAudioPlaybackService>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
@@ -692,7 +700,8 @@ public partial class App : Application
                 archiveService,
                 imageGenerationSessionService,
                 browserService,
-                browserVisionService);
+                browserVisionService,
+                documentParserService);
         });
 
         Log.Debug("依赖注入服务配置完成");

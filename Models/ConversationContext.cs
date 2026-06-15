@@ -155,6 +155,11 @@ public class ConversationContext
                 }
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Image) * 1000;
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Audio) * 300;
+                // 文档附件解析出的 Markdown 会被注入到发往 AI 的消息中，需计入开销
+                foreach (var doc in msg.Attachments.Where(a => a.Kind == AttachmentKind.Document))
+                {
+                    total += EstimateTokens(doc.ExtractedText);
+                }
             }
             return total;
         }
@@ -175,7 +180,10 @@ public class ConversationContext
             Width = attachment.Width,
             Height = attachment.Height,
             CreatedAt = attachment.CreatedAt,
-            Duration = attachment.Duration
+            Duration = attachment.Duration,
+            ParseState = attachment.ParseState,
+            ExtractedText = attachment.ExtractedText,
+            ParseError = attachment.ParseError
         };
     }
 }

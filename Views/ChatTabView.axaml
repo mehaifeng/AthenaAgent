@@ -253,7 +253,7 @@
                                                         </Button>
 
                                                         <Border Classes="attachment-card" IsVisible="{Binding IsGenericFile}">
-                                                            <Grid RowDefinitions="56,Auto,Auto">
+                                                            <Grid RowDefinitions="56,Auto,Auto,Auto">
                                                                 <Border Grid.Row="0"
                                                                         Background="{DynamicResource SemiGreyLowBrush}"
                                                                         CornerRadius="5">
@@ -272,6 +272,20 @@
                                                                            Text="{Binding DisplaySize}"
                                                                            FontSize="10"
                                                                            Opacity="0.65"/>
+                                                                <TextBlock Grid.Row="3"
+                                                                           Text="{loc:Loc Chat.Attach.Parsed}"
+                                                                           FontSize="10"
+                                                                           Margin="0,3,0,0"
+                                                                           Foreground="{DynamicResource SemiGreen6}"
+                                                                           IsVisible="{Binding IsParsed}"/>
+                                                                <TextBlock Grid.Row="3"
+                                                                           Text="{loc:Loc Chat.Attach.ParseFailedShort}"
+                                                                           FontSize="10"
+                                                                           Margin="0,3,0,0"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip.Tip="{Binding ParseError}"
+                                                                           Foreground="{DynamicResource SemiRed6}"
+                                                                           IsVisible="{Binding IsParseFailed}"/>
                                                             </Grid>
                                                         </Border>
 
@@ -414,7 +428,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="models:ChatAttachment">
                             <Border Classes="attachment-card" Margin="0,0,8,8">
-                                <Grid RowDefinitions="56,Auto,Auto">
+                                <Grid RowDefinitions="56,Auto,Auto,Auto">
                                     <Border Grid.Row="0"
                                             CornerRadius="5"
                                             ClipToBounds="True"
@@ -449,6 +463,26 @@
                                                Text="{Binding DisplaySize}"
                                                FontSize="10"
                                                Opacity="0.65"/>
+
+                                    <!-- 文档解析状态 -->
+                                    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" Margin="0,3,0,0" IsVisible="{Binding IsParsing}">
+                                        <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="10" Height="10" Opacity="0.7"/>
+                                        <TextBlock Text="{loc:Loc Chat.Attach.Parsing}" FontSize="10" Opacity="0.7"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Row="3"
+                                               Text="{loc:Loc Chat.Attach.Parsed}"
+                                               FontSize="10"
+                                               Margin="0,3,0,0"
+                                               Foreground="{DynamicResource SemiGreen6}"
+                                               IsVisible="{Binding IsParsed}"/>
+                                    <TextBlock Grid.Row="3"
+                                               Text="{loc:Loc Chat.Attach.ParseFailedShort}"
+                                               FontSize="10"
+                                               Margin="0,3,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding ParseError}"
+                                               Foreground="{DynamicResource SemiRed6}"
+                                               IsVisible="{Binding IsParseFailed}"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>

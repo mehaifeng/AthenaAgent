@@ -53,6 +53,10 @@ public partial class ChatTabViewModel : ViewModelBase
     private string? _playingAttachmentId;
     private readonly IConversationArchiveService? _archiveService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
+    private readonly IDocumentParserService? _documentParserService;
+    // Tracks in-flight document parsing tasks so send can be gated and parsing
+    // can be cancelled when the conversation is reset.
+    private readonly Dictionary<string, CancellationTokenSource> _documentParseCts = new();
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     [ObservableProperty]
@@ -109,6 +113,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public bool HasPendingAttachments => PendingAttachments.Count > 0;
 
+    public bool HasParsingAttachments => PendingAttachments.Any(a => a.IsParsing);
+
     public bool HasAttachmentStatusMessage => !string.IsNullOrWhiteSpace(AttachmentStatusMessage);
 
     public bool HasBackgroundArchiveStatusMessage => !string.IsNullOrWhiteSpace(BackgroundArchiveStatusMessage);
@@ -139,7 +145,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -154,7 +160,8 @@ public partial class ChatTabViewModel : ViewModelBase
         IAudioPlaybackService? audioPlaybackService = null,
         ISystemAudioService? systemAudioService = null,
         IConversationArchiveService? archiveService = null,
-        IImageGenerationSessionService? imageGenerationSessionService = null)
+        IImageGenerationSessionService? imageGenerationSessionService = null,
+        IDocumentParserService? documentParserService = null)
     {
         _chatService = chatService;
         _configService = configService;
@@ -169,6 +176,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _systemAudioService = systemAudioService;
         _archiveService = archiveService;
         _imageGenerationSessionService = imageGenerationSessionService;
+        _documentParserService = documentParserService;
 
         // Initialize from config
         if (_configService != null)
@@ -252,7 +260,7 @@ public partial class ChatTabViewModel : ViewModelBase
         await GetAiResponseAsync(userContent, addToContext: false);
     }
 
-    private bool CanSendMessage() => !IsSending && !IsCompressing && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
+    private bool CanSendMessage() => !IsSending && !IsCompressing && !HasParsingAttachments && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
 
     private bool CanStopResponse() => IsSending;
 
@@ -589,19 +597,53 @@ public partial class ChatTabViewModel : ViewModelBase
             return;
         }
 
+        var imageFilter = new FilePickerFileType(GetString("Chat.Attach.ImageFiles", "Image files"))
+        {
+            Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"],
+            MimeTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"],
+            AppleUniformTypeIdentifiers = ["public.png", "public.jpeg", "org.webmproject.webp", "com.compuserve.gif"]
+        };
+
+        var filters = new List<FilePickerFileType>();
+        var documentParsingEnabled = _documentParserService?.IsEnabled == true;
+        if (documentParsingEnabled)
+        {
+            // 启用文档解析后，附件按钮支持图片 + MinerU 支持的文档格式。
+            var documentFilter = new FilePickerFileType(GetString("Chat.Attach.DocumentFiles", "Documents"))
+            {
+                Patterns = ["*.pdf", "*.doc", "*.docx", "*.ppt", "*.pptx", "*.xls", "*.xlsx"],
+                MimeTypes =
+                [
+                    "application/pdf",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.ms-powerpoint",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.ms-excel",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ],
+                AppleUniformTypeIdentifiers = ["com.adobe.pdf", "com.microsoft.word.doc", "org.openxmlformats.wordprocessingml.document", "com.microsoft.powerpoint.ppt", "org.openxmlformats.presentationml.presentation", "com.microsoft.excel.xls", "org.openxmlformats.spreadsheetml.sheet"]
+            };
+
+            filters.Add(new FilePickerFileType(GetString("Chat.Attach.SupportedFiles", "Supported files"))
+            {
+                Patterns = [.. imageFilter.Patterns!, .. documentFilter.Patterns!]
+            });
+            filters.Add(imageFilter);
+            filters.Add(documentFilter);
+        }
+        else
+        {
+            filters.Add(imageFilter);
+        }
+
         var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = GetString("Chat.Attach.SelectImages", "Select images"),
+            Title = documentParsingEnabled
+                ? GetString("Chat.Attach.SelectFiles", "Select files")
+                : GetString("Chat.Attach.SelectImages", "Select images"),
             AllowMultiple = true,
-            FileTypeFilter =
-            [
-                new FilePickerFileType(GetString("Chat.Attach.ImageFiles", "Image files"))
-                {
-                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"],
-                    MimeTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"],
-                    AppleUniformTypeIdentifiers = ["public.png", "public.jpeg", "org.webmproject.webp", "com.compuserve.gif"]
-                }
-            ]
+            FileTypeFilter = filters
         });
 
         await AddStorageFilesAsync(files);
@@ -614,8 +656,84 @@ public partial class ChatTabViewModel : ViewModelBase
 
         if (PendingAttachments.Remove(attachment))
         {
+            CancelDocumentParsing(attachment);
             _attachmentStoreService?.DeleteStoredAttachment(attachment);
             AttachmentStatusMessage = string.Empty;
+            OnPropertyChanged(nameof(HasParsingAttachments));
+            SendMessageCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 在后台将文档附件解析为 Markdown 文本（上传 + 轮询），并实时更新卡片状态。
+    /// 解析完成前会阻止发送，确保附带的文档内容随消息一并送达 AI。
+    /// </summary>
+    private void StartDocumentParsing(ChatAttachment attachment)
+    {
+        if (_documentParserService == null || !_documentParserService.IsEnabled)
+        {
+            attachment.ParseState = DocumentParseState.Failed;
+            attachment.ParseError = GetString("Chat.Attach.ParserDisabled", "Document parsing is not enabled.");
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _documentParseCts[attachment.Id] = cts;
+
+        attachment.ParseState = DocumentParseState.Parsing;
+        attachment.ParseError = string.Empty;
+        OnPropertyChanged(nameof(HasParsingAttachments));
+        SendMessageCommand.NotifyCanExecuteChanged();
+
+        _ = Task.Run(async () =>
+        {
+            DocumentParseResult result;
+            try
+            {
+                result = await _documentParserService.ParseAsync(attachment.StoredPath, attachment.FileName, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                result = DocumentParseResult.Fail(ex.Message);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (cts.IsCancellationRequested) return;
+
+                if (result.Success)
+                {
+                    attachment.ExtractedText = result.Markdown;
+                    attachment.ParseState = DocumentParseState.Parsed;
+                }
+                else
+                {
+                    attachment.ParseState = DocumentParseState.Failed;
+                    attachment.ParseError = result.ErrorMessage ?? GetString("Chat.Attach.ParseFailed", "Failed to parse document.");
+                    AttachmentStatusMessage = string.Format(
+                        GetString("Chat.Attach.ParseFailedNamed", "Failed to parse {0}: {1}"),
+                        attachment.DisplayName,
+                        attachment.ParseError);
+                }
+
+                _documentParseCts.Remove(attachment.Id);
+                OnPropertyChanged(nameof(HasParsingAttachments));
+                SendMessageCommand.NotifyCanExecuteChanged();
+            });
+        });
+    }
+
+    private void CancelDocumentParsing(ChatAttachment attachment)
+    {
+        if (_documentParseCts.TryGetValue(attachment.Id, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+            _documentParseCts.Remove(attachment.Id);
         }
     }
 
@@ -640,6 +758,10 @@ public partial class ChatTabViewModel : ViewModelBase
             foreach (var attachment in imported)
             {
                 PendingAttachments.Add(attachment);
+                if (attachment.IsDocument)
+                {
+                    StartDocumentParsing(attachment);
+                }
             }
 
             AttachmentStatusMessage = allFiles.Count > selected.Count
@@ -1483,9 +1605,10 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private void ClearPendingAttachments(bool deleteStoredFiles)
     {
-        if (deleteStoredFiles)
+        foreach (var attachment in PendingAttachments.ToList())
         {
-            foreach (var attachment in PendingAttachments.ToList())
+            CancelDocumentParsing(attachment);
+            if (deleteStoredFiles)
             {
                 _attachmentStoreService?.DeleteStoredAttachment(attachment);
             }
@@ -1493,6 +1616,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         PendingAttachments.Clear();
         AttachmentStatusMessage = string.Empty;
+        OnPropertyChanged(nameof(HasParsingAttachments));
+        SendMessageCommand.NotifyCanExecuteChanged();
     }
 
     private void OnArchiveCompleted(object? sender, ConversationArchiveResultEventArgs e)

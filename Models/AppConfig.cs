@@ -203,6 +203,16 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private double _browserVisionTemperature = 0.2;
 
+    // 文档解析配置（MinerU）
+    [ObservableProperty]
+    private bool _documentParserEnabled = false;
+
+    [ObservableProperty]
+    private DocumentParserMode _documentParserMode = DocumentParserMode.AgentLightweight;
+
+    [ObservableProperty]
+    private string _documentParserToken = string.Empty;
+
     // 用户偏好设置
     [ObservableProperty]
     private bool _skipRegenerateConfirm;

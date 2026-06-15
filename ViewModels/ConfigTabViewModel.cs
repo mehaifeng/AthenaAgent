@@ -136,6 +136,15 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> AudioProviders { get; } = new(AudioProviderUrls.Keys);
 
+    public ObservableCollection<DocumentParserMode> DocumentParserModes { get; } = new()
+    {
+        DocumentParserMode.AgentLightweight,
+        DocumentParserMode.Precision
+    };
+
+    // 仅精度解析方式需要 Token；极速解析无需登录。
+    public bool CanEditParserToken => Config.DocumentParserEnabled && Config.DocumentParserMode == DocumentParserMode.Precision;
+
     [ObservableProperty]
     private int _selectedLanguageIndex;
 
@@ -226,6 +235,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                 else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
                 {
                     OnPropertyChanged(nameof(IsBrowserVisionEnabled));
+                }
+                else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
+                         || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))
+                {
+                    OnPropertyChanged(nameof(CanEditParserToken));
                 }
             };
         }

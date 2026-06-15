@@ -11,6 +11,8 @@ public partial class ChatAttachment : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsImage))]
     [NotifyPropertyChangedFor(nameof(IsAudio))]
+    [NotifyPropertyChangedFor(nameof(IsDocument))]
+    [NotifyPropertyChangedFor(nameof(IsGenericFile))]
     [NotifyPropertyChangedFor(nameof(DisplayKind))]
     private AttachmentKind _kind = AttachmentKind.Unknown;
 
@@ -44,6 +46,21 @@ public partial class ChatAttachment : ObservableObject
     [ObservableProperty]
     private string _audioProvider = string.Empty;
 
+    // 文档解析（MinerU）：解析状态、抽取出的 Markdown 文本与错误信息。
+    // ExtractedText 需要持久化，以便从历史恢复时仍保留可供 AI 阅读的内容。
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsParsing))]
+    [NotifyPropertyChangedFor(nameof(IsParsed))]
+    [NotifyPropertyChangedFor(nameof(IsParseFailed))]
+    private DocumentParseState _parseState = DocumentParseState.None;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasExtractedText))]
+    private string _extractedText = string.Empty;
+
+    [ObservableProperty]
+    private string _parseError = string.Empty;
+
     [ObservableProperty]
     [property: JsonIgnore]
     private IImage? _previewImage;
@@ -71,6 +88,21 @@ public partial class ChatAttachment : ObservableObject
 
     [JsonIgnore]
     public bool IsGenericFile => !IsImage && !IsAudio;
+
+    [JsonIgnore]
+    public bool IsDocument => Kind == AttachmentKind.Document;
+
+    [JsonIgnore]
+    public bool IsParsing => ParseState == DocumentParseState.Parsing;
+
+    [JsonIgnore]
+    public bool IsParsed => ParseState == DocumentParseState.Parsed;
+
+    [JsonIgnore]
+    public bool IsParseFailed => ParseState == DocumentParseState.Failed;
+
+    [JsonIgnore]
+    public bool HasExtractedText => !string.IsNullOrWhiteSpace(ExtractedText);
 
     [JsonIgnore]
     public string DisplayKind => Kind switch

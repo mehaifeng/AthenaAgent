@@ -29,7 +29,7 @@
 
         <!-- SCROLLABLE CONTENT -->
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="16">
-            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
+            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
 
                 <!-- SECTION 1: APPEARANCE -->
                 <Border 
@@ -562,9 +562,53 @@
                     </StackPanel>
                 </Border>
 
-                <!-- SECTION 3: MEMORY MANAGEMENT -->
-                <Border 
+                <!-- SECTION 5: DOCUMENT PARSING (MinerU) -->
+                <Border
                     Grid.Row="3"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.SectionDocumentParser}"
+                                   FontWeight="Bold"
+                                   FontSize="15"/>
+
+                        <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
+                                   TextWrapping="Wrap"
+                                   FontSize="12"
+                                   Opacity="0.7"/>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.DocumentParserEnabled}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DocumentParserMode}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1"
+                                      ItemsSource="{Binding DocumentParserModes}"
+                                      SelectedItem="{Binding Config.DocumentParserMode}"
+                                      IsEnabled="{Binding Config.DocumentParserEnabled}"
+                                      HorizontalAlignment="Stretch"
+                                      Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DocumentParserToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4" Margin="0,0,0,4">
+                                <TextBox Text="{Binding Config.DocumentParserToken}"
+                                         PasswordChar="*"
+                                         IsEnabled="{Binding CanEditParserToken}"
+                                         HorizontalAlignment="Stretch"/>
+                                <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
+                                           TextWrapping="Wrap"
+                                           FontSize="11"
+                                           Opacity="0.6"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- SECTION 3: MEMORY MANAGEMENT -->
+                <Border
+                    Grid.Row="4"
                     Background="{DynamicResource App.SectionBg}"
                     BorderThickness="1"
                     CornerRadius="8"

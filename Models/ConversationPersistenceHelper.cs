@@ -77,7 +77,10 @@ public static class ConversationPersistenceHelper
             AudioProvider = attachment.AudioProvider,
             CreatedAt = attachment.CreatedAt,
             PreviewImage = attachment.PreviewImage,
-            Duration = attachment.Duration
+            Duration = attachment.Duration,
+            ParseState = attachment.ParseState,
+            ExtractedText = attachment.ExtractedText,
+            ParseError = attachment.ParseError
         };
     }
 
