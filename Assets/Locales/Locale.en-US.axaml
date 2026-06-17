@@ -102,6 +102,8 @@
     <system:String x:Key="Config.ApiEndpoint">API Endpoint:</system:String>
     <system:String x:Key="Config.AuthToken">API Key:</system:String>
     <system:String x:Key="Config.ModelId">Model ID:</system:String>
+    <system:String x:Key="Config.LoadModels">Fetch</system:String>
+    <system:String x:Key="Config.LoadModelsHint">Fetch the available model list from this endpoint</system:String>
     <system:String x:Key="Config.ParamTemp">Temperature:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">Max Tokens:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">Function Calling:</system:String>
@@ -352,6 +354,10 @@
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">Please enter API Key first</system:String>
     <system:String x:Key="Status.TestingConnection">Testing...</system:String>
+    <system:String x:Key="Status.LoadingModels">Loading models...</system:String>
+    <system:String x:Key="Status.ModelsLoaded">Loaded {0} models</system:String>
+    <system:String x:Key="Status.NoModelsReturned">Endpoint returned no models</system:String>
+    <system:String x:Key="Status.LoadModelsFailed">Failed to load models: {0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">Please enable chat audio output first</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">Please enable Web Search first</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">Please enable Browser first</system:String>

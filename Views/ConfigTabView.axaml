@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
@@ -89,7 +90,32 @@
                             <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*" Margin="0,0,0,12"/>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" PlaceholderText="e.g. gpt-4" Margin="0,0,0,12"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,12" Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <AutoCompleteBox Grid.Column="0"
+                                                     Text="{Binding Config.Model, Mode=TwoWay}"
+                                                     ItemsSource="{Binding PrimaryModelOptions}"
+                                                     FilterMode="Contains"
+                                                     IsTextCompletionEnabled="False"
+                                                     MinimumPrefixLength="0"
+                                                     Watermark="e.g. gpt-4"
+                                                     HorizontalAlignment="Stretch"/>
+                                    <Button Grid.Column="1"
+                                            Command="{Binding LoadModelsCommand}"
+                                            CommandParameter="Primary"
+                                            IsEnabled="{Binding !IsLoadingPrimaryModels}"
+                                            ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                            MinWidth="64">
+                                        <Panel>
+                                            <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingPrimaryModels}"/>
+                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingPrimaryModels}" Classes="SlowSpin" Width="16" Height="16"/>
+                                        </Panel>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Text="{Binding PrimaryModelsStatus}"
+                                           IsVisible="{Binding PrimaryModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                           TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                            </StackPanel>
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
                             <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
@@ -163,7 +189,31 @@
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SecondaryModel}" Margin="0,0,0,8"/>
+                                        <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                <AutoCompleteBox Grid.Column="0"
+                                                                 Text="{Binding Config.SecondaryModel, Mode=TwoWay}"
+                                                                 ItemsSource="{Binding SecondaryModelOptions}"
+                                                                 FilterMode="Contains"
+                                                                 IsTextCompletionEnabled="False"
+                                                                 MinimumPrefixLength="0"
+                                                                 HorizontalAlignment="Stretch"/>
+                                                <Button Grid.Column="1"
+                                                        Command="{Binding LoadModelsCommand}"
+                                                        CommandParameter="Secondary"
+                                                        IsEnabled="{Binding !IsLoadingSecondaryModels}"
+                                                        ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                        MinWidth="64">
+                                                    <Panel>
+                                                        <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingSecondaryModels}"/>
+                                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingSecondaryModels}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                    </Panel>
+                                                </Button>
+                                            </Grid>
+                                            <TextBlock Text="{Binding SecondaryModelsStatus}"
+                                                       IsVisible="{Binding SecondaryModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                       TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                                        </StackPanel>
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
@@ -221,7 +271,31 @@
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.EmbeddingModel}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                <AutoCompleteBox Grid.Column="0"
+                                                                 Text="{Binding Config.EmbeddingModel, Mode=TwoWay}"
+                                                                 ItemsSource="{Binding EmbeddingModelOptions}"
+                                                                 FilterMode="Contains"
+                                                                 IsTextCompletionEnabled="False"
+                                                                 MinimumPrefixLength="0"
+                                                                 HorizontalAlignment="Stretch"/>
+                                                <Button Grid.Column="1"
+                                                        Command="{Binding LoadModelsCommand}"
+                                                        CommandParameter="Embedding"
+                                                        IsEnabled="{Binding !IsLoadingEmbeddingModels}"
+                                                        ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                        MinWidth="64">
+                                                    <Panel>
+                                                        <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingEmbeddingModels}"/>
+                                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingEmbeddingModels}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                    </Panel>
+                                                </Button>
+                                            </Grid>
+                                            <TextBlock Text="{Binding EmbeddingModelsStatus}"
+                                                       IsVisible="{Binding EmbeddingModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                       TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                                        </StackPanel>
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
@@ -512,7 +586,32 @@
                                             <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.BrowserVisionApiKey}" PasswordChar="*" PlaceholderText="Leave empty to inherit main AI API Key" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.BrowserVisionModel}" PlaceholderText="e.g. gpt-4o-mini" Margin="0,0,0,8"/>
+                                            <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                    <AutoCompleteBox Grid.Column="0"
+                                                                     Text="{Binding Config.BrowserVisionModel, Mode=TwoWay}"
+                                                                     ItemsSource="{Binding BrowserVisionModelOptions}"
+                                                                     FilterMode="Contains"
+                                                                     IsTextCompletionEnabled="False"
+                                                                     MinimumPrefixLength="0"
+                                                                     Watermark="e.g. gpt-4o-mini"
+                                                                     HorizontalAlignment="Stretch"/>
+                                                    <Button Grid.Column="1"
+                                                            Command="{Binding LoadModelsCommand}"
+                                                            CommandParameter="BrowserVision"
+                                                            IsEnabled="{Binding !IsLoadingBrowserVisionModels}"
+                                                            ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                            MinWidth="64">
+                                                        <Panel>
+                                                            <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingBrowserVisionModels}"/>
+                                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingBrowserVisionModels}" Classes="SlowSpin" Width="16" Height="16"/>
+                                                        </Panel>
+                                                    </Button>
+                                                </Grid>
+                                                <TextBlock Text="{Binding BrowserVisionModelsStatus}"
+                                                           IsVisible="{Binding BrowserVisionModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                           TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                                            </StackPanel>
 
                                             <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding Config.BrowserVisionMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
