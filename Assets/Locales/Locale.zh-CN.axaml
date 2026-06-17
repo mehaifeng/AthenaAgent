@@ -102,6 +102,8 @@
     <system:String x:Key="Config.ApiEndpoint">API 端点:</system:String>
     <system:String x:Key="Config.AuthToken">API 密钥:</system:String>
     <system:String x:Key="Config.ModelId">模型 ID:</system:String>
+    <system:String x:Key="Config.LoadModels">获取</system:String>
+    <system:String x:Key="Config.LoadModelsHint">从该端点拉取可用模型列表</system:String>
     <system:String x:Key="Config.ParamTemp">温度参数:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">最大 Token 数:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">函数调用:</system:String>
@@ -352,6 +354,10 @@
     <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>
     <system:String x:Key="Status.EnterApiKeyFirst">请先输入 API Key</system:String>
     <system:String x:Key="Status.TestingConnection">测试中...</system:String>
+    <system:String x:Key="Status.LoadingModels">正在获取模型列表...</system:String>
+    <system:String x:Key="Status.ModelsLoaded">已获取 {0} 个模型</system:String>
+    <system:String x:Key="Status.NoModelsReturned">该端点未返回任何模型</system:String>
+    <system:String x:Key="Status.LoadModelsFailed">获取模型列表失败：{0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">请先启用对话音频输出</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">请先启用 Web Search</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">请先启用浏览器</system:String>

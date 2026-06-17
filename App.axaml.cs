@@ -607,6 +607,9 @@ public partial class App : Application
         // Prompt 服务（单例）
         services.AddSingleton<IPromptService, PromptService>();
 
+        // 模型列表查询服务（无状态，按需用各字段的 BaseUrl/Key 临时构造客户端）
+        services.AddSingleton<IModelCatalogService, ModelCatalogService>();
+
         // AI 对话服务（单例，共享配置）
         services.AddSingleton<IChatService>(sp =>
         {
@@ -677,6 +680,7 @@ public partial class App : Application
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
+            var modelCatalogService = sp.GetService<IModelCatalogService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -701,7 +705,8 @@ public partial class App : Application
                 imageGenerationSessionService,
                 browserService,
                 browserVisionService,
-                documentParserService);
+                documentParserService,
+                modelCatalogService);
         });
 
         Log.Debug("依赖注入服务配置完成");

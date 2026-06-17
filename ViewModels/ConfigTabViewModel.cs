@@ -26,6 +26,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IBrowserVisionService? _browserVisionService;
     private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
+    private readonly IModelCatalogService? _modelCatalogService;
     // Cancels in-flight system playback so Stop can kill the external process.
     private CancellationTokenSource? _audioTestCts;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
@@ -162,9 +163,9 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null, IModelCatalogService? modelCatalogService = null)
     {
         _configService = configService;
         _chatService = chatService;
@@ -176,6 +177,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         _browserVisionService = browserVisionService;
         _audioPlaybackService = audioPlaybackService;
         _systemAudioService = systemAudioService;
+        _modelCatalogService = modelCatalogService;
 
         if (_localizationService != null)
         {
@@ -783,4 +785,147 @@ public partial class ConfigTabViewModel : ViewModelBase
     {
         return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
     }
+
+    #region 模型列表拉取（可编辑下拉框）
+
+    /// <summary>主模型可选列表（通过 /v1/models 拉取，可手动输入覆盖）。</summary>
+    public ObservableCollection<string> PrimaryModelOptions { get; } = new();
+    public ObservableCollection<string> SecondaryModelOptions { get; } = new();
+    public ObservableCollection<string> EmbeddingModelOptions { get; } = new();
+    public ObservableCollection<string> BrowserVisionModelOptions { get; } = new();
+
+    [ObservableProperty]
+    private bool _isLoadingPrimaryModels;
+    [ObservableProperty]
+    private bool _isLoadingSecondaryModels;
+    [ObservableProperty]
+    private bool _isLoadingEmbeddingModels;
+    [ObservableProperty]
+    private bool _isLoadingBrowserVisionModels;
+
+    [ObservableProperty]
+    private string _primaryModelsStatus = string.Empty;
+    [ObservableProperty]
+    private string _secondaryModelsStatus = string.Empty;
+    [ObservableProperty]
+    private string _embeddingModelsStatus = string.Empty;
+    [ObservableProperty]
+    private string _browserVisionModelsStatus = string.Empty;
+
+    [RelayCommand]
+    private Task LoadModelsAsync(string? target) => LoadModelsCoreAsync(target);
+
+    private async Task LoadModelsCoreAsync(string? target)
+    {
+        // 解析目标字段：各自的 BaseUrl/Key，次要/嵌入/视觉为空时回退到主配置。
+        ObservableCollection<string> options;
+        string? baseUrl;
+        string? apiKey;
+        Action<bool> setLoading;
+        Action<string> setStatus;
+        bool alreadyLoading;
+
+        switch (target)
+        {
+            case "Primary":
+                options = PrimaryModelOptions;
+                baseUrl = Config.BaseUrl;
+                apiKey = Config.ApiKey;
+                alreadyLoading = IsLoadingPrimaryModels;
+                setLoading = v => IsLoadingPrimaryModels = v;
+                setStatus = v => PrimaryModelsStatus = v;
+                break;
+            case "Secondary":
+                options = SecondaryModelOptions;
+                baseUrl = FirstNonBlank(Config.SecondaryBaseUrl, Config.BaseUrl);
+                apiKey = FirstNonBlank(Config.SecondaryApiKey, Config.ApiKey);
+                alreadyLoading = IsLoadingSecondaryModels;
+                setLoading = v => IsLoadingSecondaryModels = v;
+                setStatus = v => SecondaryModelsStatus = v;
+                break;
+            case "Embedding":
+                options = EmbeddingModelOptions;
+                baseUrl = FirstNonBlank(Config.EmbeddingBaseUrl, Config.BaseUrl);
+                apiKey = FirstNonBlank(Config.EmbeddingApiKey, Config.ApiKey);
+                alreadyLoading = IsLoadingEmbeddingModels;
+                setLoading = v => IsLoadingEmbeddingModels = v;
+                setStatus = v => EmbeddingModelsStatus = v;
+                break;
+            case "BrowserVision":
+                options = BrowserVisionModelOptions;
+                baseUrl = FirstNonBlank(Config.BrowserVisionBaseUrl, Config.BaseUrl);
+                apiKey = FirstNonBlank(Config.BrowserVisionApiKey, Config.ApiKey);
+                alreadyLoading = IsLoadingBrowserVisionModels;
+                setLoading = v => IsLoadingBrowserVisionModels = v;
+                setStatus = v => BrowserVisionModelsStatus = v;
+                break;
+            default:
+                return;
+        }
+
+        if (alreadyLoading) return; // 防重入
+
+        if (_modelCatalogService == null)
+        {
+            setStatus(GetString("Status.ServiceNotInitialized", "Service not initialized"));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            setStatus(GetString("Status.EnterApiKeyFirst", "Please enter API Key first"));
+            return;
+        }
+
+        setLoading(true);
+        setStatus(GetString("Status.LoadingModels", "Loading models..."));
+        try
+        {
+            var result = await _modelCatalogService.GetModelsAsync(baseUrl, apiKey);
+
+            if (!result.Success)
+            {
+                setStatus(string.Format(
+                    GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
+                    result.ErrorMessage));
+                return;
+            }
+
+            options.Clear();
+            foreach (var model in result.Models)
+            {
+                options.Add(model);
+            }
+
+            if (result.Models.Count == 0)
+            {
+                setStatus(GetString("Status.NoModelsReturned", "Endpoint returned no models"));
+            }
+            else
+            {
+                setStatus(string.Format(
+                    GetString("Status.ModelsLoaded", "Loaded {0} models"),
+                    result.Models.Count));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 页面切换等外部取消，无需提示。
+        }
+        catch (Exception ex)
+        {
+            setStatus(string.Format(
+                GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
+                ex.Message));
+        }
+        finally
+        {
+            setLoading(false);
+        }
+    }
+
+    private static string? FirstNonBlank(string? primary, string? fallback)
+        => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
+
+    #endregion
 }
