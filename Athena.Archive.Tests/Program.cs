@@ -35,7 +35,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("first trigger handles weekday boundaries", TestFirstTriggerCalculationAsync),
     ("scheduler serializes foreground work and skips recurring collisions", TestSchedulerForegroundSerialPolicyAsync),
     ("scheduler advances long-running recurring task to next future slot", TestSchedulerLongRunningRecurringAsync),
-    ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync)
+    ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync),
+    ("diff: exact single-block apply", TestDiffExactApplyAsync),
+    ("diff: trailing-whitespace tolerance", TestDiffTrailingWhitespaceAsync),
+    ("diff: indentation-tolerant match reindents replacement", TestDiffReindentAsync),
+    ("diff: ambiguous match fails with previews and no mutation", TestDiffAmbiguousAsync),
+    ("diff: replaceAll changes every occurrence", TestDiffReplaceAllAsync),
+    ("diff: empty SEARCH is a parse error", TestDiffEmptySearchAsync),
+    ("diff: unmatched block surfaces nearest hint", TestDiffNearestHintAsync),
+    ("diff: multi-block failure rolls back atomically", TestDiffMultiBlockAtomicAsync),
+    ("diff: strict mode rejects whitespace drift", TestDiffStrictModeAsync)
 };
 
 var failures = new List<string>();
@@ -836,6 +845,105 @@ static async Task TestCreateTaskStructuredResponsesAsync()
     AssertTrue(failureData.GetProperty("validation").GetProperty("issues").GetArrayLength() > 0, "failure result should expose structured validation issues");
 }
 
+static List<string> DiffLines(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
+static string DiffJoin(List<string> lines) => string.Join("\n", lines);
+
+static Task TestDiffExactApplyAsync()
+{
+    var lines = DiffLines("int a = 1;\nint b = 2;\nint c = 3;");
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nint b = 2;\n=======\nint b = 20;\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertTrue(result.Success, "exact match should apply");
+    AssertEqual(DiffMatchTier.Exact, result.MatchTier, "exact match should report Exact tier");
+    AssertEqual("int a = 1;\nint b = 20;\nint c = 3;", DiffJoin(lines), "only the target line should change");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffTrailingWhitespaceAsync()
+{
+    var lines = DiffLines("foo   \nbar\nbaz");
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nfoo\nbar\n=======\nFOO\nBAR\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertTrue(result.Success, "trailing whitespace should be tolerated");
+    AssertEqual(DiffMatchTier.TrailingWhitespace, result.MatchTier, "match should be at trailing-whitespace tier");
+    AssertEqual("FOO\nBAR\nbaz", DiffJoin(lines), "replacement should land despite trailing spaces");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffReindentAsync()
+{
+    var lines = DiffLines("class C {\n        void M() {\n            X();\n        }\n}");
+    var diff = "<<<<<<< SEARCH\n    void M() {\n        X();\n    }\n=======\n    void M() {\n        Y();\n        Z();\n    }\n>>>>>>> REPLACE";
+    var parse = DiffApplier.Parse(diff);
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertTrue(result.Success, "indentation drift should be tolerated");
+    AssertEqual(DiffMatchTier.Trimmed, result.MatchTier, "match should be at trimmed tier");
+    AssertEqual("class C {\n        void M() {\n            Y();\n            Z();\n        }\n}", DiffJoin(lines), "replacement should be reindented to the file's indentation");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffAmbiguousAsync()
+{
+    var lines = DiffLines("x();\ny();\nx();");
+    var before = DiffJoin(lines);
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertFalse(result.Success, "ambiguous SEARCH should fail");
+    AssertEqual(2, result.MultipleMatches?.Count ?? 0, "both candidate locations should be reported");
+    AssertEqual(before, DiffJoin(lines), "an ambiguous failure must not mutate the file");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffReplaceAllAsync()
+{
+    var lines = DiffLines("x();\ny();\nx();");
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, true);
+    AssertTrue(result.Success, "replaceAll should succeed despite multiple matches");
+    AssertEqual("z();\ny();\nz();", DiffJoin(lines), "every occurrence should be replaced");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffEmptySearchAsync()
+{
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\n=======\nnew\n>>>>>>> REPLACE");
+    AssertTrue(parse.Error != null, "empty SEARCH should be a parse error");
+    AssertEqual(0, parse.Blocks.Count, "no blocks should be produced from an empty SEARCH");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffNearestHintAsync()
+{
+    var lines = DiffLines("alpha\nbeta\ngamma\ndelta");
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nbeta\nGAMMA_TYPO\n=======\nX\nY\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertFalse(result.Success, "a typo'd SEARCH should not match");
+    AssertTrue(result.NearestHint != null && result.NearestHint.Contains("第 2 行"), "failure should point to the nearest window");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffMultiBlockAtomicAsync()
+{
+    var lines = DiffLines("a\nb\nc");
+    var before = DiffJoin(lines);
+    var diff = "<<<<<<< SEARCH\na\n=======\nA\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nNOPE\n=======\nX\n>>>>>>> REPLACE";
+    var parse = DiffApplier.Parse(diff);
+    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    AssertFalse(result.Success, "a failing second block should fail the whole edit");
+    AssertEqual(2, result.FailedBlockIndex ?? 0, "the failing block index should be reported");
+    AssertEqual(before, DiffJoin(lines), "a partial multi-block edit must roll back");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffStrictModeAsync()
+{
+    var lines = DiffLines("foo   \nbar");
+    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nfoo\n=======\nFOO\n>>>>>>> REPLACE");
+    var result = DiffApplier.Apply(lines, parse.Blocks, false, false);
+    AssertFalse(result.Success, "strict mode should reject whitespace drift");
+    return Task.CompletedTask;
+}
+
 static async Task AwaitWithTimeout(Task task, string operation)
 {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -1106,7 +1214,11 @@ sealed class TestAttachmentStoreService : IAttachmentStoreService
 
     public long MaxDocumentBytes => 200L * 1024 * 1024;
 
+    public long MaxTextBytes => 5L * 1024 * 1024;
+
     public IReadOnlyCollection<string> SupportedDocumentExtensions => System.Array.Empty<string>();
+
+    public IReadOnlyCollection<string> SupportedTextExtensions => System.Array.Empty<string>();
 
     public Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(IEnumerable<Avalonia.Platform.Storage.IStorageFile> files, CancellationToken cancellationToken = default)
     {
@@ -1127,6 +1239,8 @@ sealed class TestAttachmentStoreService : IAttachmentStoreService
     {
         throw new NotSupportedException();
     }
+
+    public Task<string> WriteParsedSidecarAsync(ChatAttachment attachment, string markdown, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
 
     public Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

@@ -35,6 +35,87 @@ public class AttachmentStoreService : IAttachmentStoreService
         [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     };
 
+    // 纯文本 / 代码文件：无需远端解析，直接读取内容作为上下文交给 AI。
+    private static readonly Dictionary<string, string> TextMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".txt"] = "text/plain",
+        [".text"] = "text/plain",
+        [".log"] = "text/plain",
+        [".md"] = "text/markdown",
+        [".markdown"] = "text/markdown",
+        [".rst"] = "text/x-rst",
+        [".json"] = "application/json",
+        [".jsonc"] = "application/json",
+        [".json5"] = "application/json",
+        [".xml"] = "application/xml",
+        [".xaml"] = "application/xml",
+        [".axaml"] = "application/xml",
+        [".svg"] = "image/svg+xml",
+        [".html"] = "text/html",
+        [".htm"] = "text/html",
+        [".css"] = "text/css",
+        [".scss"] = "text/x-scss",
+        [".less"] = "text/x-less",
+        [".yaml"] = "application/x-yaml",
+        [".yml"] = "application/x-yaml",
+        [".toml"] = "application/toml",
+        [".ini"] = "text/plain",
+        [".config"] = "application/xml",
+        [".conf"] = "text/plain",
+        // 注意：.env 装的是密钥，且在 FileSystemPolicy.BlockedExtensions 中被读工具拒绝，
+        // 因此不纳入文本附件白名单（既避免密钥泄露，也避免“能传不能读”的割裂）。
+        [".properties"] = "text/plain",
+        [".csv"] = "text/csv",
+        [".tsv"] = "text/tab-separated-values",
+        // 代码
+        [".cs"] = "text/x-csharp",
+        [".csx"] = "text/x-csharp",
+        [".fs"] = "text/x-fsharp",
+        [".vb"] = "text/x-vb",
+        [".py"] = "text/x-python",
+        [".pyw"] = "text/x-python",
+        [".java"] = "text/x-java",
+        [".kt"] = "text/x-kotlin",
+        [".kts"] = "text/x-kotlin",
+        [".go"] = "text/x-go",
+        [".rs"] = "text/x-rust",
+        [".rb"] = "text/x-ruby",
+        [".php"] = "text/x-php",
+        [".swift"] = "text/x-swift",
+        [".c"] = "text/x-c",
+        [".h"] = "text/x-c",
+        [".cpp"] = "text/x-c++",
+        [".cc"] = "text/x-c++",
+        [".cxx"] = "text/x-c++",
+        [".hpp"] = "text/x-c++",
+        [".m"] = "text/x-objectivec",
+        [".mm"] = "text/x-objectivec",
+        [".js"] = "text/javascript",
+        [".jsx"] = "text/javascript",
+        [".mjs"] = "text/javascript",
+        [".cjs"] = "text/javascript",
+        [".ts"] = "text/x-typescript",
+        [".tsx"] = "text/x-typescript",
+        [".vue"] = "text/x-vue",
+        [".sql"] = "text/x-sql",
+        [".sh"] = "text/x-sh",
+        [".bash"] = "text/x-sh",
+        [".zsh"] = "text/x-sh",
+        [".ps1"] = "text/x-powershell",
+        // .bat / .cmd 在 BlockedExtensions 中，省略以保持导入白名单与读工具策略一致。
+        [".r"] = "text/x-r",
+        [".lua"] = "text/x-lua",
+        [".pl"] = "text/x-perl",
+        [".dart"] = "text/x-dart",
+        [".scala"] = "text/x-scala",
+        [".groovy"] = "text/x-groovy",
+        [".gradle"] = "text/x-groovy",
+        [".dockerfile"] = "text/plain",
+        [".makefile"] = "text/plain",
+        [".gitignore"] = "text/plain",
+        [".editorconfig"] = "text/plain"
+    };
+
     private static readonly Dictionary<string, string> AudioMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".mp3"] = "audio/mpeg",
@@ -63,7 +144,12 @@ public class AttachmentStoreService : IAttachmentStoreService
     // MinerU 精度解析单文件上限 200MB；此处按上限放行，超限交由远端报错。
     public long MaxDocumentBytes => 200L * 1024 * 1024;
 
+    // 纯文本 / 代码文件直接读入上下文，限制 5MB 以避免一次性塞爆上下文窗口。
+    public long MaxTextBytes => 5L * 1024 * 1024;
+
     public IReadOnlyCollection<string> SupportedDocumentExtensions => DocumentMimeTypes.Keys;
+
+    public IReadOnlyCollection<string> SupportedTextExtensions => TextMimeTypes.Keys;
 
     public async Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(
         IEnumerable<IStorageFile> files,
@@ -82,6 +168,10 @@ public class AttachmentStoreService : IAttachmentStoreService
             else if (DocumentMimeTypes.TryGetValue(extension, out var docMime))
             {
                 imported.Add(await ImportSingleAsync(file, extension, docMime, AttachmentKind.Document, MaxDocumentBytes, "Document", cancellationToken));
+            }
+            else if (TextMimeTypes.TryGetValue(extension, out var textMime))
+            {
+                imported.Add(await ImportSingleAsync(file, extension, textMime, AttachmentKind.Code, MaxTextBytes, "Text", cancellationToken));
             }
             else
             {
@@ -124,6 +214,15 @@ public class AttachmentStoreService : IAttachmentStoreService
         if (kind == AttachmentKind.Image)
         {
             await LoadPreviewAsync(attachment, cancellationToken);
+        }
+        else if (kind == AttachmentKind.Code)
+        {
+            // 文本/代码文件无需远端解析，直接读入内容并标记为已解析。
+            // 模型按需读取时直接复用原始文件，不再复制一份。
+            attachment.ExtractedText = await File.ReadAllTextAsync(attachment.StoredPath, cancellationToken);
+            attachment.ParseState = DocumentParseState.Parsed;
+            attachment.RetrievalPath = attachment.StoredPath;
+            attachment.EstimatedTokens = Models.ConversationContext.EstimateTokens(attachment.ExtractedText);
         }
 
         return attachment;
@@ -216,23 +315,55 @@ public class AttachmentStoreService : IAttachmentStoreService
         }
     }
 
+    public async Task<string> WriteParsedSidecarAsync(
+        ChatAttachment attachment,
+        string markdown,
+        CancellationToken cancellationToken = default)
+    {
+        // 把解析出的 Markdown 落盘为与附件同生命周期的 sidecar，供模型按需读取。
+        var directory = Path.GetDirectoryName(attachment.StoredPath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            directory = Path.Combine(_pathService.GetAttachmentDirectory(), DateTime.Now.ToString("yyyyMMdd"));
+        }
+        Directory.CreateDirectory(directory);
+
+        var sidecarPath = Path.Combine(
+            directory,
+            $"{Path.GetFileNameWithoutExtension(attachment.StoredPath)}.parsed.md");
+        await File.WriteAllTextAsync(sidecarPath, markdown ?? string.Empty, cancellationToken);
+        return sidecarPath;
+    }
+
     public void DeleteStoredAttachment(ChatAttachment attachment)
     {
-        if (string.IsNullOrWhiteSpace(attachment.StoredPath))
+        DeleteFileQuietly(attachment.StoredPath);
+
+        // 同时清理解析 sidecar（若 RetrievalPath 指向独立文件而非原始附件）。
+        if (!string.IsNullOrWhiteSpace(attachment.RetrievalPath)
+            && !string.Equals(attachment.RetrievalPath, attachment.StoredPath, StringComparison.OrdinalIgnoreCase))
+        {
+            DeleteFileQuietly(attachment.RetrievalPath);
+        }
+    }
+
+    private void DeleteFileQuietly(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
 
         try
         {
-            if (File.Exists(attachment.StoredPath))
+            if (File.Exists(path))
             {
-                File.Delete(attachment.StoredPath);
+                File.Delete(path);
             }
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "Failed to delete attachment: {Path}", attachment.StoredPath);
+            _logger.Warning(ex, "Failed to delete attachment file: {Path}", path);
         }
     }
 

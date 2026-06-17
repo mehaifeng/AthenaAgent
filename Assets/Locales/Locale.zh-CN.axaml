@@ -19,6 +19,8 @@
 
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">当前对话</system:String>
+    <system:String x:Key="Chat.Raw.Toggle">查看发送给模型的原始上下文(调试)。仅在对话空闲时可用。</system:String>
+    <system:String x:Key="Chat.Raw.ServiceUnavailable">对话服务不可用。</system:String>
     <system:String x:Key="Chat.Buffer">Token: {0}</system:String>
     <system:String x:Key="Chat.BtnTheme">主题</system:String>
     <system:String x:Key="Chat.BtnReset">新对话</system:String>
@@ -46,6 +48,7 @@
     <system:String x:Key="Chat.Attach.ErrorGeneric">添加附件失败: {0}</system:String>
     <system:String x:Key="Chat.Attach.DocumentFiles">文档</system:String>
     <system:String x:Key="Chat.Attach.SupportedFiles">支持的文件</system:String>
+    <system:String x:Key="Chat.Attach.TextFiles">文本与代码文件</system:String>
     <system:String x:Key="Chat.Attach.SelectFiles">选择文件</system:String>
     <system:String x:Key="Chat.Attach.Parsing">解析中…</system:String>
     <system:String x:Key="Chat.Attach.Parsed">已解析</system:String>

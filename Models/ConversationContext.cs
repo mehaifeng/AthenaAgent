@@ -129,6 +129,9 @@ public class ConversationContext
         return clone;
     }
 
+    // 延迟载入的附件只在上下文里放一张“清单卡”（路径+元信息+预览），固定开销近似值。
+    public const int DeferredManifestTokenCost = 500;
+
     public static int EstimateTokens(string? content)
     {
         if (string.IsNullOrEmpty(content)) return 0;
@@ -155,10 +158,12 @@ public class ConversationContext
                 }
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Image) * 1000;
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Audio) * 300;
-                // 文档附件解析出的 Markdown 会被注入到发往 AI 的消息中，需计入开销
-                foreach (var doc in msg.Attachments.Where(a => a.Kind == AttachmentKind.Document))
+                // 文档/文本/代码附件会被注入发往 AI 的消息：内联时计全文，延迟时仅计清单卡开销。
+                foreach (var doc in msg.Attachments.Where(a => a.Kind == AttachmentKind.Document || a.Kind == AttachmentKind.Code))
                 {
-                    total += EstimateTokens(doc.ExtractedText);
+                    total += doc.RetrievalMode == AttachmentRetrievalMode.Deferred
+                        ? DeferredManifestTokenCost
+                        : EstimateTokens(doc.ExtractedText);
                 }
             }
             return total;
@@ -183,7 +188,10 @@ public class ConversationContext
             Duration = attachment.Duration,
             ParseState = attachment.ParseState,
             ExtractedText = attachment.ExtractedText,
-            ParseError = attachment.ParseError
+            ParseError = attachment.ParseError,
+            RetrievalMode = attachment.RetrievalMode,
+            RetrievalPath = attachment.RetrievalPath,
+            EstimatedTokens = attachment.EstimatedTokens
         };
     }
 }

@@ -80,7 +80,10 @@ public static class ConversationPersistenceHelper
             Duration = attachment.Duration,
             ParseState = attachment.ParseState,
             ExtractedText = attachment.ExtractedText,
-            ParseError = attachment.ParseError
+            ParseError = attachment.ParseError,
+            RetrievalMode = attachment.RetrievalMode,
+            RetrievalPath = attachment.RetrievalPath,
+            EstimatedTokens = attachment.EstimatedTokens
         };
     }
 

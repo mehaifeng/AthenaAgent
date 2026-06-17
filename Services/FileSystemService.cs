@@ -19,10 +19,7 @@ public class FileSystemService : IFileSystemService
     private readonly IConfigService _configService;
     private readonly IPlatformPathService _pathService;
     private readonly ILogger _logger;
-    private const string SearchStart = "<<<<<<< SEARCH";
-    private const string Separator = "=======";
-    private const string ReplaceEnd = ">>>>>>> REPLACE";
-    
+
     private const int MaxFileSize = 10 * 1024 * 1024; // 10MB limit for safe operations
     private const int ChunkSizeBytes = 50 * 1024; // 50KB per chunk for reading large files
 
@@ -82,9 +79,29 @@ public class FileSystemService : IFileSystemService
         if (accessRules.BlockedDirectories.Any(dir => fullPath.StartsWith(Path.GetFullPath(ExpandPath(dir)), OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)))
             throw new UnauthorizedAccessException($"由于安全策略，系统关键目录受到保护，访问被拒绝。");
 
+        // 附件库为“受信读取区”：解析后的大文档/大文本是有意落盘供模型按需分块读取的，
+        // 整体大小限制对它们没有意义（实际返回的是 50KB 切片）。因此对该目录下的读取
+        // 豁免整文件大小护栏，仅保留扩展名/目录黑名单与分块约束。
+        bool trustedRead = !isWriteOperation && IsWithinAttachmentRoot(fullPath);
+
         long targetLimit = isWriteOperation ? policy.Global.MaxWriteSizeBytes : policy.Global.MaxReadSizeBytes;
-        if (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit))
+        if (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && !trustedRead && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit))
             throw new InvalidOperationException($"操作超出大小限制 ({targetLimit} bytes)。");
+    }
+
+    private bool IsWithinAttachmentRoot(string fullPath)
+    {
+        try
+        {
+            var root = Path.GetFullPath(_pathService.GetAttachmentDirectory());
+            var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            var normalizedRoot = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(normalizedRoot, comparison);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null)
@@ -144,42 +161,90 @@ public class FileSystemService : IFileSystemService
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true, false, Encoding.UTF8.GetByteCount(content));
-        var dir = Path.GetDirectoryName(fullPath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        await File.WriteAllTextAsync(fullPath, content, Encoding.UTF8);
+        // 无 BOM 写入 + 原子替换，避免污染文件并防止写入中崩溃损坏数据。
+        await AtomicWriteAsync(fullPath, EncodeUtf8(content, withBom: false));
         return true;
     }
 
-    public async Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true)
+    public async Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true, bool replaceAll = false)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true);
-        if (!File.Exists(fullPath)) return new FileUpdateResult { Success = false, Message = "File not found" };
+        if (!File.Exists(fullPath)) return new FileUpdateResult { Success = false, Message = "文件不存在。" };
 
-        var content = await File.ReadAllTextAsync(fullPath);
-        var blocks = ParseDiffBlocks(diffContent);
-        if (blocks.Count == 0) return new FileUpdateResult { Success = false, Message = "No valid SEARCH/REPLACE blocks found" };
+        var parse = DiffApplier.Parse(diffContent);
+        if (parse.Error != null) return new FileUpdateResult { Success = false, Message = parse.Error };
 
-        var currentContent = content;
-        int applied = 0;
-        foreach (var block in blocks)
-        {
-            var result = ApplyDiffBlock(currentContent, block, fuzzyMatch);
-            if (!result.Success) return result;
-            currentContent = result.ModifiedContent!;
-            applied++;
-        }
+        // 读原始字节 → 探测编码/换行风格 → 在按 \n 规范化的行空间内匹配。
+        byte[] raw = await File.ReadAllBytesAsync(fullPath);
+        string text = DecodeUtf8(raw);
+        var profile = FileEncodingProfile.Detect(raw, text);
 
-        await File.WriteAllTextAsync(fullPath, currentContent, Encoding.UTF8);
-        return new FileUpdateResult { Success = true, Message = $"Applied {applied} blocks", AppliedBlocks = applied };
+        var lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
+
+        var applyResult = DiffApplier.Apply(lines, parse.Blocks, fuzzyMatch, replaceAll);
+        if (!applyResult.Success) return applyResult;
+
+        // 按原换行风格与 BOM 还原落盘，避免污染文件。
+        string newText = string.Join(profile.DominantEol, lines);
+        byte[] outBytes = EncodeUtf8(newText, profile.HasUtf8Bom);
+
+        // 以最终字节数复核写入配额。
+        ValidatePathAndSecurity(fullPath, true, false, outBytes.Length);
+
+        await AtomicWriteAsync(fullPath, outBytes);
+        return applyResult;
     }
 
-    public Task<bool> DeleteFileAsync(string absolutePath)
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
+
+    private static string DecodeUtf8(byte[] raw)
+    {
+        int offset = (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) ? 3 : 0;
+        return Utf8NoBom.GetString(raw, offset, raw.Length - offset);
+    }
+
+    private static byte[] EncodeUtf8(string text, bool withBom)
+    {
+        byte[] body = Utf8NoBom.GetBytes(text);
+        if (!withBom) return body;
+        var result = new byte[3 + body.Length];
+        result[0] = 0xEF; result[1] = 0xBB; result[2] = 0xBF;
+        Buffer.BlockCopy(body, 0, result, 3, body.Length);
+        return result;
+    }
+
+    /// <summary>先写同目录临时文件，再原子替换，避免写入中崩溃损坏原文件。</summary>
+    private static async Task AtomicWriteAsync(string fullPath, byte[] bytes)
+    {
+        var dir = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(dir);
+        var tmp = Path.Combine(dir, $".{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
+        await File.WriteAllBytesAsync(tmp, bytes);
+        try
+        {
+            File.Replace(tmp, fullPath, null);
+        }
+        catch
+        {
+            // 跨卷/网络盘等 File.Replace 不支持的场景退化为覆盖移动。
+            File.Move(tmp, fullPath, overwrite: true);
+        }
+    }
+
+    public Task<bool> DeleteFileAsync(string absolutePath, bool recursive = false)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true);
         if (File.Exists(fullPath)) { File.Delete(fullPath); return Task.FromResult(true); }
-        if (Directory.Exists(fullPath)) { Directory.Delete(fullPath, true); return Task.FromResult(true); }
+        if (Directory.Exists(fullPath))
+        {
+            if (!recursive)
+                throw new InvalidOperationException(
+                    $"目标是目录而非文件，删除将递归移除其全部内容。如确需删除，请显式传入 recursive=true。({absolutePath})");
+            Directory.Delete(fullPath, true);
+            return Task.FromResult(true);
+        }
         return Task.FromResult(false);
     }
 
@@ -358,48 +423,4 @@ public class FileSystemService : IFileSystemService
     {
         return Path.GetFullPath(ExpandPath(path));
     }
-
-    #region Diff Implementation (Simplified from current)
-    private class DiffBlock
-    {
-        public string SearchContent { get; set; } = string.Empty;
-        public string ReplaceContent { get; set; } = string.Empty;
-    }
-
-    private List<DiffBlock> ParseDiffBlocks(string diffContent)
-    {
-        var blocks = new List<DiffBlock>();
-        var lines = diffContent.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (lines[i].Trim().StartsWith(SearchStart))
-            {
-                var block = new DiffBlock();
-                var sLines = new List<string>();
-                i++;
-                while (i < lines.Length && !lines[i].Trim().StartsWith(Separator)) sLines.Add(lines[i++]);
-                block.SearchContent = string.Join("\n", sLines).Trim('\r', '\n');
-                if (i < lines.Length && lines[i].Trim().StartsWith(Separator)) i++;
-                var rLines = new List<string>();
-                while (i < lines.Length && !lines[i].Trim().StartsWith(ReplaceEnd)) rLines.Add(lines[i++]);
-                block.ReplaceContent = string.Join("\n", rLines).Trim('\r', '\n');
-                if (!string.IsNullOrEmpty(block.SearchContent)) blocks.Add(block);
-            }
-        }
-        return blocks;
-    }
-
-    private FileUpdateResult ApplyDiffBlock(string content, DiffBlock block, bool fuzzyMatch)
-    {
-        int idx = content.IndexOf(block.SearchContent);
-        if (idx >= 0)
-        {
-            if (content.IndexOf(block.SearchContent, idx + 1) >= 0)
-                return new FileUpdateResult { Success = false, Message = "Multiple matches found, provide more context" };
-            return new FileUpdateResult { Success = true, ModifiedContent = content.Remove(idx, block.SearchContent.Length).Insert(idx, block.ReplaceContent) };
-        }
-        // Fuzzy match omitted here for brevity, but could be added back if needed
-        return new FileUpdateResult { Success = false, Message = "Search block not found" };
-    }
-    #endregion
 }
