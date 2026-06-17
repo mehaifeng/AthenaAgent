@@ -16,8 +16,13 @@ public interface IAttachmentStoreService
 
     long MaxDocumentBytes { get; }
 
+    long MaxTextBytes { get; }
+
     /// <summary>支持作为文档解析的扩展名（含点，小写），如 ".pdf"。</summary>
     IReadOnlyCollection<string> SupportedDocumentExtensions { get; }
+
+    /// <summary>支持直接读入内容的纯文本/代码扩展名（含点，小写），如 ".cs"。</summary>
+    IReadOnlyCollection<string> SupportedTextExtensions { get; }
 
     Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(
         IEnumerable<IStorageFile> files,
@@ -39,6 +44,12 @@ public interface IAttachmentStoreService
         string fileName,
         string mimeType,
         TimeSpan? duration = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>将解析出的 Markdown 写为附件 sidecar 文件，返回其完整路径。</summary>
+    Task<string> WriteParsedSidecarAsync(
+        ChatAttachment attachment,
+        string markdown,
         CancellationToken cancellationToken = default);
 
     Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default);

@@ -253,25 +253,30 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("modify_system_file", fileSystemFunctions.ModifySystemFileAsync,
-            "Modifies a specific fragment of an existing file using SEARCH/REPLACE format. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target location.",
+            "Modifies an existing file using one or more SEARCH/REPLACE blocks. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target. Whitespace, indentation and line-ending (LF/CRLF) differences are tolerated by default. To delete code, leave the REPLACE side empty. If a SEARCH block matches multiple locations the edit fails and reports each location—add surrounding context to disambiguate, or set replaceAll=true to change every occurrence. For creating a new file or replacing entire content, use write_system_file instead.",
             new
             {
                 type = "object",
                 properties = new
                 {
                     path = new { type = "string", description = "Path to the file." },
-                    diffContent = new { type = "string", description = "Modification in SEARCH/REPLACE format:\n<<<<<<< SEARCH\nOld content\n=======\nNew content\n>>>>>>> REPLACE" },
-                    fuzzyMatch = new { type = "boolean", description = "Whether to tolerate minor whitespace differences in the SEARCH block. Defaults to true.", @default = true }
+                    diffContent = new { type = "string", description = "One or more blocks in the format:\n<<<<<<< SEARCH\nExisting lines\n=======\nNew lines\n>>>>>>> REPLACE" },
+                    fuzzyMatch = new { type = "boolean", description = "Tolerate whitespace/indentation/line-ending differences in the SEARCH block. Defaults to true. Set false to require a byte-exact match.", @default = true },
+                    replaceAll = new { type = "boolean", description = "Replace every occurrence of the SEARCH block instead of requiring a unique match. Defaults to false.", @default = false }
                 },
                 required = new[] { "path", "diffContent" }
             });
 
         RegisterFunction("delete_system_file", fileSystemFunctions.DeleteSystemFileAsync,
-            "Permanently deletes a file. This action is irreversible. Always confirm with the user before calling this tool.",
+            "Deletes a file. If the path points to a directory, deletion is REFUSED unless recursive=true is set, in which case the ENTIRE directory tree is permanently removed. This action is irreversible. Always confirm with the user before calling this tool.",
             new
             {
                 type = "object",
-                properties = new { path = new { type = "string", description = "Path to the file." } },
+                properties = new
+                {
+                    path = new { type = "string", description = "Path to the file or directory." },
+                    recursive = new { type = "boolean", description = "Required to be true to delete a directory and all its contents recursively. Has no effect on single files. Defaults to false.", @default = false }
+                },
                 required = new[] { "path" }
             });
 
@@ -327,6 +332,9 @@ public class FunctionRegistry : IFunctionRegistry
         _logger.Information("FunctionRegistry initialized with {Count} functions", _tools.Count);
     }
 
+    // 将参数名归一化为不含下划线的小写形式，用于跨命名风格（snake_case / camelCase）匹配。
+    private static string Canonicalize(string name) => name.Replace("_", string.Empty).ToLowerInvariant();
+
     private void RegisterFunction(string name, Delegate function, string description, object parameters)
     {
         var tool = ChatTool.CreateFunctionTool(
@@ -342,6 +350,16 @@ public class FunctionRegistry : IFunctionRegistry
             try
             {
                 var args = JsonSerializer.Deserialize<JsonElement>(argsJson);
+
+                // 归一化参数名（去下划线 + 小写），容忍模型输出 snake_case / 大小写差异，
+                // 避免与 C# camelCase 形参对不上时静默丢参回落默认值。
+                var propMap = new Dictionary<string, JsonElement>();
+                if (args.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var p in args.EnumerateObject())
+                        propMap[Canonicalize(p.Name)] = p.Value;
+                }
+
                 var method = function.Method;
                 var parameters = method.GetParameters();
                 var argsArray = new object?[parameters.Length];
@@ -349,7 +367,8 @@ public class FunctionRegistry : IFunctionRegistry
                 for (int i = 0; i < parameters.Length; i++)
                 {
                     var param = parameters[i];
-                    if (args.TryGetProperty(param.Name!, out var prop))
+                    if (propMap.TryGetValue(Canonicalize(param.Name!), out var prop)
+                        && prop.ValueKind != JsonValueKind.Null)
                     {
                         argsArray[i] = JsonSerializer.Deserialize(prop.GetRawText(), param.ParameterType);
                     }

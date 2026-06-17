@@ -628,18 +628,177 @@ public class OpenAIChatService : IChatService
         return messages;
     }
 
+    public IReadOnlyList<RawContextEntry> BuildRawContext(ConversationContext context)
+    {
+        try
+        {
+            var messages = BuildMessages(context);
+            var entries = new List<RawContextEntry>(messages.Count);
+
+            int index = 0;
+            foreach (var message in messages)
+            {
+                var role = message switch
+                {
+                    SystemChatMessage => "system",
+                    UserChatMessage => "user",
+                    AssistantChatMessage => "assistant",
+                    ToolChatMessage => "tool",
+                    _ => message.GetType().Name
+                };
+
+                var header = $"[{index++}] {role}";
+                if (message is ToolChatMessage tool)
+                {
+                    header += $"  (tool_call_id={tool.ToolCallId})";
+                }
+
+                var body = new StringBuilder();
+
+                // 工具返回(tool 角色)通常是压缩成单行的 JSON，美化展开以便换行、避免撑大横向滚动条。
+                var isToolMessage = message is ToolChatMessage;
+                foreach (var part in message.Content)
+                {
+                    if (part.Kind == ChatMessageContentPartKind.Text)
+                    {
+                        body.Append(isToolMessage ? UnescapeForDisplay(TryPrettyJson(part.Text)) : part.Text).Append('\n');
+                    }
+                    else if (part.Kind == ChatMessageContentPartKind.Image)
+                    {
+                        var descriptor = part.ImageUri?.ToString()
+                            ?? $"inline bytes ({part.ImageBytesMediaType}, {part.ImageBytes?.ToArray().Length ?? 0} B)";
+                        body.Append("<image: ").Append(descriptor).Append(">\n");
+                    }
+                    else
+                    {
+                        body.Append('<').Append(part.Kind).Append(">\n");
+                    }
+                }
+
+                if (message is AssistantChatMessage assistant && assistant.ToolCalls.Count > 0)
+                {
+                    foreach (var call in assistant.ToolCalls)
+                    {
+                        // 工具调用参数同样是单行 JSON，展开为多行缩进。
+                        body.Append("↳ tool_call ").Append(call.FunctionName).Append('\n');
+                        body.Append(IndentLines(UnescapeForDisplay(TryPrettyJson(call.FunctionArguments?.ToString())), "    ")).Append('\n');
+                    }
+                }
+
+                entries.Add(new RawContextEntry
+                {
+                    Role = role,
+                    Header = header,
+                    Text = body.ToString().TrimEnd('\n')
+                });
+            }
+
+            return entries;
+        }
+        catch (Exception ex)
+        {
+            return new List<RawContextEntry>
+            {
+                new() { Header = "error", Text = "构建 raw 上下文失败: " + ex.Message }
+            };
+        }
+    }
+
+    private static readonly JsonSerializerOptions RawJsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    /// <summary>尝试把单行 JSON 美化为多行缩进；非 JSON 原样返回。</summary>
+    private static string TryPrettyJson(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw ?? string.Empty;
+        var trimmed = raw.TrimStart();
+        if (trimmed.Length == 0 || (trimmed[0] != '{' && trimmed[0] != '['))
+        {
+            return raw;
+        }
+
+        try
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
+            return node?.ToJsonString(RawJsonOptions) ?? raw;
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    private static string IndentLines(string text, string indent)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return indent + text.Replace("\n", "\n" + indent);
+    }
+
+    /// <summary>
+    /// 将文本中的转义序列（\n、\t、\"、\\、\uXXXX 等）还原为真实字符，便于调试阅读。
+    /// 仅用于展示，不要求结果仍是合法 JSON。
+    /// </summary>
+    private static string UnescapeForDisplay(string? text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('\\') < 0) return text ?? string.Empty;
+
+        var sb = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c != '\\' || i == text.Length - 1)
+            {
+                sb.Append(c);
+                continue;
+            }
+
+            var next = text[++i];
+            switch (next)
+            {
+                case 'n': sb.Append('\n'); break;
+                case 'r': break; // 丢弃 CR，避免重复换行
+                case 't': sb.Append('\t'); break;
+                case '"': sb.Append('"'); break;
+                case '\\': sb.Append('\\'); break;
+                case '/': sb.Append('/'); break;
+                case 'b': sb.Append('\b'); break;
+                case 'f': sb.Append('\f'); break;
+                case 'u' when i + 4 < text.Length
+                    && int.TryParse(text.AsSpan(i + 1, 4), System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture, out var code):
+                    sb.Append((char)code);
+                    i += 4;
+                    break;
+                default:
+                    sb.Append('\\').Append(next);
+                    break;
+            }
+        }
+
+        return sb.ToString();
+    }
+
     private static bool HasImageAttachment(ContextMessage message)
     {
         return message.Attachments.Any(a => a.Kind == AttachmentKind.Image);
     }
 
+    // 延迟载入清单卡里附带的开头预览字符数上限。
+    private const int DeferredPreviewChars = 1500;
+
     /// <summary>
-    /// 将消息中的文档附件解析文本拼接为带文件名标注的 Markdown 块。
+    /// 将消息中的文档/文本/代码附件拼接进上下文：
+    /// - 内联（小文件）：直接拼全文；
+    /// - 延迟（大文件）：仅拼“清单卡”——文件指针 + 元信息 + 开头预览 + 读取提示，由模型按需调工具读取。
     /// </summary>
     private static string BuildDocumentTextBlocks(ContextMessage message)
     {
         var documents = message.Attachments
-            .Where(a => a.Kind == AttachmentKind.Document && !string.IsNullOrWhiteSpace(a.ExtractedText))
+            .Where(a => (a.Kind == AttachmentKind.Document || a.Kind == AttachmentKind.Code)
+                && (a.RetrievalMode == AttachmentRetrievalMode.Deferred || !string.IsNullOrWhiteSpace(a.ExtractedText)))
             .ToList();
         if (documents.Count == 0)
         {
@@ -649,13 +808,62 @@ public class OpenAIChatService : IChatService
         var builder = new System.Text.StringBuilder();
         foreach (var doc in documents)
         {
-            builder.Append("\n\n--- ");
-            builder.Append(string.IsNullOrWhiteSpace(doc.FileName) ? "document" : doc.FileName);
-            builder.Append(" ---\n");
-            builder.Append(doc.ExtractedText.Trim());
+            var name = string.IsNullOrWhiteSpace(doc.FileName) ? "document" : doc.FileName;
+            if (doc.RetrievalMode == AttachmentRetrievalMode.Deferred)
+            {
+                builder.Append("\n\n--- ");
+                builder.Append(name);
+                builder.Append(" (内容过大，未全部载入 / not fully loaded) ---\n");
+                builder.Append($"[类型 {doc.Kind} · {FormatSize(doc.SizeBytes)} · 约 {doc.EstimatedTokens} tokens]\n");
+                builder.Append("完整内容位于本地文件: ");
+                builder.Append(doc.RetrievalPath);
+                builder.Append('\n');
+                builder.Append("需要时用 get_document_outline / search_in_file / read_system_file（支持 sectionTitle、startLine-endLine、chunkIndex）读取上述路径，不要凭空作答。\n");
+
+                var preview = ReadHeadPreview(doc.RetrievalPath, DeferredPreviewChars);
+                if (!string.IsNullOrWhiteSpace(preview))
+                {
+                    builder.Append("预览(开头部分):\n");
+                    builder.Append(preview);
+                }
+            }
+            else
+            {
+                builder.Append("\n\n--- ");
+                builder.Append(name);
+                builder.Append(" ---\n");
+                builder.Append(doc.ExtractedText.Trim());
+            }
         }
 
         return builder.ToString();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:0.#} KB";
+        return $"{bytes / 1024d / 1024d:0.#} MB";
+    }
+
+    private static string ReadHeadPreview(string path, int maxChars)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return string.Empty;
+            }
+
+            var buffer = new char[maxChars];
+            using var reader = new StreamReader(path);
+            int read = reader.Read(buffer, 0, maxChars);
+            return read <= 0 ? string.Empty : new string(buffer, 0, read).Trim();
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static UserChatMessage CreateUserMessageWithAttachments(string text, ContextMessage message)

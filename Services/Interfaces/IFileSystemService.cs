@@ -12,8 +12,8 @@ public interface IFileSystemService
 {
     Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null);
     Task<bool> WriteFileAsync(string absolutePath, string content);
-    Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true);
-    Task<bool> DeleteFileAsync(string absolutePath);
+    Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true, bool replaceAll = false);
+    Task<bool> DeleteFileAsync(string absolutePath, bool recursive = false);
     Task<bool> MoveFileAsync(string sourcePath, string destinationPath);
     Task<bool> CopyFileAsync(string sourcePath, string destinationPath);
     Task<bool> CreateDirectoryAsync(string absolutePath);

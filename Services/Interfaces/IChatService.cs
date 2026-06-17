@@ -35,6 +35,12 @@ public interface IChatService
     Task<(bool Success, string? Message)> TestConnectionAsync();
 
     /// <summary>
+    /// 构建即将发送给主模型的「原始上下文」快照（按消息拆分），用于调试。
+    /// 完整复用真实发送时的消息组装逻辑（系统提示、摘要、时间戳、文档/附件注入、工具调用等）。
+    /// </summary>
+    IReadOnlyList<RawContextEntry> BuildRawContext(ConversationContext context);
+
+    /// <summary>
     /// 更新配置
     /// </summary>
     void UpdateConfig(AppConfig config);

@@ -19,6 +19,8 @@
 
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">Conversation</system:String>
+    <system:String x:Key="Chat.Raw.Toggle">Show raw context sent to the model (debug). Available when idle.</system:String>
+    <system:String x:Key="Chat.Raw.ServiceUnavailable">Chat service is unavailable.</system:String>
     <system:String x:Key="Chat.Buffer">Tokens: {0}</system:String>
     <system:String x:Key="Chat.BtnTheme">Theme</system:String>
     <system:String x:Key="Chat.BtnReset">New Chat</system:String>
@@ -46,6 +48,7 @@
     <system:String x:Key="Chat.Attach.ErrorGeneric">Failed to add attachment: {0}</system:String>
     <system:String x:Key="Chat.Attach.DocumentFiles">Documents</system:String>
     <system:String x:Key="Chat.Attach.SupportedFiles">Supported files</system:String>
+    <system:String x:Key="Chat.Attach.TextFiles">Text &amp; code files</system:String>
     <system:String x:Key="Chat.Attach.SelectFiles">Select files</system:String>
     <system:String x:Key="Chat.Attach.Parsing">Parsing…</system:String>
     <system:String x:Key="Chat.Attach.Parsed">Parsed</system:String>

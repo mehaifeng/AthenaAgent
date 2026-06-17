@@ -103,11 +103,24 @@
                 VerticalAlignment="Center"
                 Padding="12,8">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
-                <TextBlock Grid.Column="0"
-                           Text="{loc:Loc Chat.Header}"
-                           FontWeight="Bold"
-                           VerticalAlignment="Center"
-                           FontSize="14"/>
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="{loc:Loc Chat.Header}"
+                               FontWeight="Bold"
+                               VerticalAlignment="Center"
+                               FontSize="14"/>
+
+                    <!-- 调试：切换原始上下文(raw)视图，仅在对话流完成时可用 -->
+                    <ToggleButton IsChecked="{Binding IsRawContextView}"
+                                  IsEnabled="{Binding CanToggleRawContext}"
+                                  VerticalAlignment="Center"
+                                  Padding="6,2"
+                                  FontSize="11"
+                                  Content="RAW"
+                                  ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
+                </StackPanel>
 
                 <TextBlock Grid.Column="1"
                            Text="{Binding ContextTokensInfo}"
@@ -142,7 +155,8 @@
         </Border>
 
         <!-- 聊天消息列表 -->
-        <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12">
+        <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12"
+                      IsVisible="{Binding !IsRawContextView}">
             <ItemsControl ItemsSource="{Binding Messages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
@@ -404,6 +418,37 @@
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- 调试：原始上下文(raw)视图，与消息列表叠放在同一行，按开关切换。
+             按消息拆分为独立块 + 虚拟化列表：选择只作用于单块、滚动只渲染可见块，避免大文本卡顿。 -->
+        <ScrollViewer Grid.Row="1"
+                      IsVisible="{Binding IsRawContextView}"
+                      Margin="0,0,0,15"
+                      Background="{DynamicResource App.SectionBg}">
+            <!-- 不使用虚拟化：条目高度差异极大（折叠/展开），虚拟化的滚动范围估算会导致滚动条跳跃；
+                 默认折叠后折叠态渲染开销很低，普通 StackPanel 即可保证线性、稳定的滚动。 -->
+            <ItemsControl ItemsSource="{Binding RawContextEntries}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:RawContextEntry">
+                        <Expander Margin="0,0,0,8"
+                                  HorizontalAlignment="Stretch"
+                                  IsExpanded="{Binding IsExpanded}">
+                            <Expander.Header>
+                                <TextBlock Text="{Binding Header}"
+                                           FontWeight="Bold"
+                                           FontSize="12"
+                                           FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                                           Foreground="{Binding Role, Converter={StaticResource RawRoleToBrushConverter}}"/>
+                            </Expander.Header>
+                            <SelectableTextBlock Text="{Binding Text}"
+                                                 FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                                                 FontSize="12"
+                                                 TextWrapping="Wrap"/>
+                        </Expander>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

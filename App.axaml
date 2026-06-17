@@ -280,6 +280,7 @@
             <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
             <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
             <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
+            <conv:RawRoleToBrushConverter x:Key="RawRoleToBrushConverter"/>
             <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>

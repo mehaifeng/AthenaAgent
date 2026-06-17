@@ -71,10 +71,12 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
+    [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isSending;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
+    [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isResetting;
 
     [ObservableProperty]
@@ -84,6 +86,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
+    [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isCompressing;
 
     [ObservableProperty]
@@ -106,6 +109,17 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _themeIcon = "Moon"; // "Moon"=当前Dark点一下切Light, "Sun"=当前Light点一下切Dark
+
+    // 调试：原始上下文（发送给主模型的 raw 消息）视图开关与内容。
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
+    private bool _isRawContextView;
+
+    /// <summary>调试：原始上下文按消息拆分的条目（避免单一大文本框选择卡顿）。</summary>
+    public ObservableCollection<RawContextEntry> RawContextEntries { get; } = new();
+
+    /// <summary>仅当对话流处于「完成」态（非发送/压缩/解析/重置）时，才允许切换 raw 视图。</summary>
+    public bool CanToggleRawContext => !IsSending && !IsCompressing && !HasParsingAttachments && !IsResetting;
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
 
@@ -260,7 +274,7 @@ public partial class ChatTabViewModel : ViewModelBase
         await GetAiResponseAsync(userContent, addToContext: false);
     }
 
-    private bool CanSendMessage() => !IsSending && !IsCompressing && !HasParsingAttachments && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
+    private bool CanSendMessage() => !IsSending && !IsCompressing && !HasParsingAttachments && !IsRawContextView && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);
 
     private bool CanStopResponse() => IsSending;
 
@@ -285,6 +299,45 @@ public partial class ChatTabViewModel : ViewModelBase
             var config = _configService.Load();
             config.Theme = CurrentTheme;
             _ = _configService.SaveAsync(config);
+        }
+    }
+
+    /// <summary>
+    /// 调试：进入「原始上下文」视图时，即时构建一次发送给主模型的 raw 消息快照。
+    /// </summary>
+    partial void OnIsRawContextViewChanged(bool value)
+    {
+        if (value)
+        {
+            RefreshRawContext();
+        }
+    }
+
+    private void RefreshRawContext()
+    {
+        RawContextEntries.Clear();
+
+        if (_chatService == null)
+        {
+            RawContextEntries.Add(new RawContextEntry
+            {
+                Header = "error",
+                Text = GetString("Chat.Raw.ServiceUnavailable", "Chat service is unavailable.")
+            });
+            return;
+        }
+
+        try
+        {
+            foreach (var entry in _chatService.BuildRawContext(_currentContext))
+            {
+                RawContextEntries.Add(entry);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "构建 raw 上下文失败");
+            RawContextEntries.Add(new RawContextEntry { Header = "error", Text = "构建 raw 上下文失败: " + ex.Message });
         }
     }
 
@@ -604,6 +657,19 @@ public partial class ChatTabViewModel : ViewModelBase
             AppleUniformTypeIdentifiers = ["public.png", "public.jpeg", "org.webmproject.webp", "com.compuserve.gif"]
         };
 
+        // 纯文本 / 代码文件无需解析，始终可作为附件直接读入内容。
+        var textPatterns = (_attachmentStoreService.SupportedTextExtensions ?? Array.Empty<string>())
+            .Select(ext => "*" + ext)
+            .ToArray();
+        FilePickerFileType? textFilter = textPatterns.Length > 0
+            ? new FilePickerFileType(GetString("Chat.Attach.TextFiles", "Text & code files"))
+            {
+                Patterns = textPatterns,
+                MimeTypes = ["text/*"],
+                AppleUniformTypeIdentifiers = ["public.text", "public.source-code"]
+            }
+            : null;
+
         var filters = new List<FilePickerFileType>();
         var documentParsingEnabled = _documentParserService?.IsEnabled == true;
         if (documentParsingEnabled)
@@ -627,21 +693,28 @@ public partial class ChatTabViewModel : ViewModelBase
 
             filters.Add(new FilePickerFileType(GetString("Chat.Attach.SupportedFiles", "Supported files"))
             {
-                Patterns = [.. imageFilter.Patterns!, .. documentFilter.Patterns!]
+                Patterns = [.. imageFilter.Patterns!, .. documentFilter.Patterns!, .. textPatterns]
             });
             filters.Add(imageFilter);
             filters.Add(documentFilter);
         }
         else
         {
+            filters.Add(new FilePickerFileType(GetString("Chat.Attach.SupportedFiles", "Supported files"))
+            {
+                Patterns = [.. imageFilter.Patterns!, .. textPatterns]
+            });
             filters.Add(imageFilter);
+        }
+
+        if (textFilter != null)
+        {
+            filters.Add(textFilter);
         }
 
         var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = documentParsingEnabled
-                ? GetString("Chat.Attach.SelectFiles", "Select files")
-                : GetString("Chat.Attach.SelectImages", "Select images"),
+            Title = GetString("Chat.Attach.SelectFiles", "Select files"),
             AllowMultiple = true,
             FileTypeFilter = filters
         });
@@ -660,6 +733,7 @@ public partial class ChatTabViewModel : ViewModelBase
             _attachmentStoreService?.DeleteStoredAttachment(attachment);
             AttachmentStatusMessage = string.Empty;
             OnPropertyChanged(nameof(HasParsingAttachments));
+            OnPropertyChanged(nameof(CanToggleRawContext));
             SendMessageCommand.NotifyCanExecuteChanged();
         }
     }
@@ -683,6 +757,7 @@ public partial class ChatTabViewModel : ViewModelBase
         attachment.ParseState = DocumentParseState.Parsing;
         attachment.ParseError = string.Empty;
         OnPropertyChanged(nameof(HasParsingAttachments));
+        OnPropertyChanged(nameof(CanToggleRawContext));
         SendMessageCommand.NotifyCanExecuteChanged();
 
         _ = Task.Run(async () =>
@@ -701,6 +776,24 @@ public partial class ChatTabViewModel : ViewModelBase
                 result = DocumentParseResult.Fail(ex.Message);
             }
 
+            // 解析成功后，先在后台把 Markdown 落盘为 sidecar（供延迟读取），避免阻塞 UI 线程。
+            string sidecarPath = string.Empty;
+            if (result.Success && _attachmentStoreService != null)
+            {
+                try
+                {
+                    sidecarPath = await _attachmentStoreService.WriteParsedSidecarAsync(attachment, result.Markdown, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "写入解析 sidecar 失败: {File}", attachment.FileName);
+                }
+            }
+
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (cts.IsCancellationRequested) return;
@@ -708,7 +801,11 @@ public partial class ChatTabViewModel : ViewModelBase
                 if (result.Success)
                 {
                     attachment.ExtractedText = result.Markdown;
+                    attachment.EstimatedTokens = Models.ConversationContext.EstimateTokens(result.Markdown);
+                    attachment.RetrievalPath = string.IsNullOrWhiteSpace(sidecarPath) ? attachment.StoredPath : sidecarPath;
                     attachment.ParseState = DocumentParseState.Parsed;
+                    // 根据 token 预算决定内联还是延迟载入（延迟会清空内存中的全文）。
+                    ApplyRetrievalMode(attachment);
                 }
                 else
                 {
@@ -722,9 +819,51 @@ public partial class ChatTabViewModel : ViewModelBase
 
                 _documentParseCts.Remove(attachment.Id);
                 OnPropertyChanged(nameof(HasParsingAttachments));
+                OnPropertyChanged(nameof(CanToggleRawContext));
                 SendMessageCommand.NotifyCanExecuteChanged();
             });
         });
+    }
+
+    /// <summary>
+    /// 单个附件可内联进上下文的 token 预算：约为上下文上限的 1/4，并设绝对上下限。
+    /// 超过该预算的文本/文档转为“延迟载入”，仅注入指针由模型按需读取。
+    /// </summary>
+    private int InlineTokenBudget => Math.Clamp((_tokenService?.MaxTokens ?? 4000) / 4, 800, 8000);
+
+    /// <summary>
+    /// 依据 token 预算决定附件的取用方式；延迟载入会清空内存中的全文，仅保留指针。
+    /// </summary>
+    private void ApplyRetrievalMode(ChatAttachment attachment)
+    {
+        // 延迟载入依赖模型用文件系统工具按需读取；若工具调用被关闭，则无论多大都只能内联，
+        // 否则模型将既看不到全文、也无法读取指针。
+        var functionCallingEnabled = _configService?.Load().EnableFunctionCalling == true;
+
+        if (!functionCallingEnabled || attachment.EstimatedTokens <= InlineTokenBudget)
+        {
+            attachment.RetrievalMode = AttachmentRetrievalMode.Inline;
+            // 内联但内存中可能已无全文（如从延迟态切回），需要时从指针补回。
+            if (string.IsNullOrEmpty(attachment.ExtractedText) && !string.IsNullOrWhiteSpace(attachment.RetrievalPath))
+            {
+                try
+                {
+                    if (System.IO.File.Exists(attachment.RetrievalPath))
+                    {
+                        attachment.ExtractedText = System.IO.File.ReadAllText(attachment.RetrievalPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "内联读取附件内容失败: {Path}", attachment.RetrievalPath);
+                }
+            }
+        }
+        else
+        {
+            attachment.RetrievalMode = AttachmentRetrievalMode.Deferred;
+            attachment.ExtractedText = string.Empty;
+        }
     }
 
     private void CancelDocumentParsing(ChatAttachment attachment)
@@ -761,6 +900,11 @@ public partial class ChatTabViewModel : ViewModelBase
                 if (attachment.IsDocument)
                 {
                     StartDocumentParsing(attachment);
+                }
+                else if (attachment.Kind == AttachmentKind.Code)
+                {
+                    // 文本/代码在导入时已读入内容并估算 token，这里直接决定内联或延迟。
+                    ApplyRetrievalMode(attachment);
                 }
             }
 
@@ -1617,6 +1761,7 @@ public partial class ChatTabViewModel : ViewModelBase
         PendingAttachments.Clear();
         AttachmentStatusMessage = string.Empty;
         OnPropertyChanged(nameof(HasParsingAttachments));
+        OnPropertyChanged(nameof(CanToggleRawContext));
         SendMessageCommand.NotifyCanExecuteChanged();
     }
 

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Athena.UI.Services.Interfaces;
 using System;
 using System.Globalization;
@@ -34,6 +35,30 @@ public class IntToColumnConverter : IValueConverter
 public class RoleToBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+/// <summary>调试 RAW 视图：按角色类别为标题着色。</summary>
+public class RawRoleToBrushConverter : IValueConverter
+{
+    private static readonly IBrush System = new ImmutableSolidColorBrush(Color.Parse("#E6A23C"));
+    private static readonly IBrush User = new ImmutableSolidColorBrush(Color.Parse("#4C8BF5"));
+    private static readonly IBrush Assistant = new ImmutableSolidColorBrush(Color.Parse("#67C23A"));
+    private static readonly IBrush Tool = new ImmutableSolidColorBrush(Color.Parse("#B57EDC"));
+    private static readonly IBrush Error = new ImmutableSolidColorBrush(Color.Parse("#F56C6C"));
+    private static readonly IBrush Default = new ImmutableSolidColorBrush(Color.Parse("#909399"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value?.ToString() switch
+        {
+            "system" => System,
+            "user" => User,
+            "assistant" => Assistant,
+            "tool" => Tool,
+            "error" => Error,
+            _ => Default
+        };
+
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 

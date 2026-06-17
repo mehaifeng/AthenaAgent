@@ -3,6 +3,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -121,37 +122,41 @@ public async Task<FunctionResult> WriteSystemFileAsync(string path, string conte
     catch (Exception ex) { return FunctionResult.FailureResult($"写入失败: {ex.Message}"); }
 }
 
-    public async Task<FunctionResult> ModifySystemFileAsync(string path, string diffContent, bool fuzzyMatch = true)
+    public async Task<FunctionResult> ModifySystemFileAsync(string path, string diffContent, bool fuzzyMatch = true, bool replaceAll = false)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(diffContent))
                 return FunctionResult.FailureResult("错误: 必须提供 path 和 diffContent 参数。");
 
-            var result = await _fileSystemService.ModifyFileWithDiffAsync(path, diffContent, fuzzyMatch);
-            if (result.Success) 
+            var result = await _fileSystemService.ModifyFileWithDiffAsync(path, diffContent, fuzzyMatch, replaceAll);
+            if (result.Success)
             {
                 await TryUpdateKnowledgeBaseVectorsAsync(path);
-                return FunctionResult.SuccessResult(result.Message, new { path, appliedBlocks = result.AppliedBlocks });
+                return FunctionResult.SuccessResult(result.Message,
+                    new { path, appliedBlocks = result.AppliedBlocks, matchTier = result.MatchTier.ToString() });
             }
 
-            var errorMessage = result.Message;
+            var sb = new StringBuilder(result.Message);
+            if (result.FailedBlockIndex is int blockIndex) sb.Append($"\n失败块: #{blockIndex}");
+            if (!string.IsNullOrEmpty(result.NearestHint)) sb.Append('\n').Append(result.NearestHint);
             if (result.MultipleMatches != null && result.MultipleMatches.Any())
-                errorMessage += "\n冲突上下文:\n" + string.Join("\n", result.MultipleMatches.Select(m => $"- {m}"));
+                sb.Append("\n冲突上下文（请补充上下文使 SEARCH 唯一，或设置 replaceAll=true）:\n")
+                  .Append(string.Join("\n", result.MultipleMatches.Select(m => $"- {m}")));
 
-            return FunctionResult.FailureResult(errorMessage);
+            return FunctionResult.FailureResult(sb.ToString());
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
         catch (Exception ex) { return FunctionResult.FailureResult($"修改失败: {ex.Message}"); }
     }
 
-    public async Task<FunctionResult> DeleteSystemFileAsync(string path)
+    public async Task<FunctionResult> DeleteSystemFileAsync(string path, bool recursive = false)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
-            var success = await _fileSystemService.DeleteFileAsync(path);
+            var success = await _fileSystemService.DeleteFileAsync(path, recursive);
             if (success)
             {
                 await TryUpdateKnowledgeBaseVectorsAsync(path);
