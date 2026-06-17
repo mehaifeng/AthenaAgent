@@ -229,7 +229,8 @@ public partial class HistoryTabViewModel : ViewModelBase
             Id = displayId,
             Summary = existingItem?.Summary ?? GetString("History.PendingSummary", "Summarizing conversation..."),
             ContextSummary = existingItem?.ContextSummary,
-            MessageCount = snapshot.Messages.Count,
+            MessageCount = snapshot.Messages.Count(m =>
+                m.Role == "user" || (m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson))),
             CreatedAt = existingItem?.CreatedAt ?? snapshot.Messages.FirstOrDefault()?.Timestamp ?? snapshot.CapturedAt,
             UpdatedAt = snapshot.CapturedAt,
             IsArchivePlaceholder = true,
