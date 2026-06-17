@@ -124,6 +124,20 @@ public class ConversationHistoryService : IConversationHistoryService
         }
     }
 
+    /// <summary>
+    /// 判断某条消息是否计入“消息数”：仅 user 与真正的 assistant 回复，
+    /// 排除 system / tool 消息，以及仅携带工具调用的中间 assistant 消息。
+    /// </summary>
+    private static bool IsCountableMessage(Models.ChatMessage m)
+    {
+        if (m.Role == "user")
+        {
+            return true;
+        }
+
+        return m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson);
+    }
+
     public async Task<List<Models.ConversationHistoryItem>> LoadAllAsync()
     {
         var items = new List<Models.ConversationHistoryItem>();
@@ -142,6 +156,11 @@ public class ConversationHistoryService : IConversationHistoryService
                     var item = JsonSerializer.Deserialize<Models.ConversationHistoryItem>(json, JsonOptions);
                     if (item != null)
                     {
+                        // 仅统计 user / assistant 消息（排除工具调用中间消息；旧记录可能包含 system/tool 计数，这里重新校正）
+                        if (item.Messages is { Count: > 0 })
+                        {
+                            item.MessageCount = item.Messages.Count(IsCountableMessage);
+                        }
                         items.Add(item);
                     }
                 }
@@ -242,7 +261,7 @@ public class ConversationHistoryService : IConversationHistoryService
             Id = historyId,
             Summary = summary,
             ContextSummary = snapshot.ContextSummary,
-            MessageCount = messageList.Count,
+            MessageCount = messageList.Count(IsCountableMessage),
             Messages = messageList,
             CreatedAt = createdAt,
             UpdatedAt = snapshot.CapturedAt
