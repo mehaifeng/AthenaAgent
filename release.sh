@@ -146,7 +146,14 @@ archive_package() {
   require_command tar
   (
     cd "$package_dir"
-    tar -czf "$archive_path" .
+    # Exclude the bare "./" root entry. Some .NET runtimes ship a
+    # System.Formats.Tar bug where TarEntry.FilePathEscapesDirectory does
+    # `Substring(destDir.Length)` on the root entry and throws
+    # ArgumentOutOfRangeException ("startIndex cannot be larger than length"),
+    # which breaks the in-app updater on extraction. Listing top-level entries
+    # with `find -mindepth 1 -maxdepth 1` keeps the full tree (tar recurses into
+    # the listed directories) but never writes the "./" record.
+    find . -mindepth 1 -maxdepth 1 -print0 | tar -czf "$archive_path" --null -T -
   )
 }
 
