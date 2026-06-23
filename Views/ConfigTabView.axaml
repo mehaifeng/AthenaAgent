@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:u="https://irihi.tech/ursa"
              xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d" 
@@ -20,8 +21,8 @@
 
         <!-- HEADER -->
         <Border Grid.Row="0"
+                CornerRadius="0,0,5,5"
                 Background="{DynamicResource App.SectionBg}"
-                BorderThickness="0,0,0,1"
                 Padding="12,8">
             <TextBlock Text="{loc:Loc Config.Header}"
                        FontWeight="SemiBold"
@@ -100,17 +101,14 @@
                                                      MinimumPrefixLength="0"
                                                      Watermark="e.g. gpt-4"
                                                      HorizontalAlignment="Stretch"/>
-                                    <Button Grid.Column="1"
-                                            Command="{Binding LoadModelsCommand}"
-                                            CommandParameter="Primary"
-                                            IsEnabled="{Binding !IsLoadingPrimaryModels}"
-                                            ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
-                                            MinWidth="64">
-                                        <Panel>
-                                            <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingPrimaryModels}"/>
-                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingPrimaryModels}" Classes="SlowSpin" Width="16" Height="16"/>
-                                        </Panel>
-                                    </Button>
+                                    <u:IconButton Grid.Column="1"
+                                                  Command="{Binding LoadModelsCommand}"
+                                                  CommandParameter="Primary"
+                                                  IsEnabled="{Binding !IsLoadingPrimaryModels}"
+                                                  IsLoading="{Binding IsLoadingPrimaryModels}"
+                                                  ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                  MinWidth="64"
+                                                  Content="{loc:Loc Config.LoadModels}"/>
                                 </Grid>
                                 <TextBlock Text="{Binding PrimaryModelsStatus}"
                                            IsVisible="{Binding PrimaryModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
@@ -141,16 +139,14 @@
                             <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding Config.MaxTokens}" Minimum="100" Maximum="1000000" Increment="1000" Margin="0,0,0,12" HorizontalAlignment="Stretch"/>
 
                             <Grid Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,0">
-                                <Button Grid.Column="0"
-                                        Command="{Binding TestConnectionCommand}"
-                                        IsEnabled="{Binding CanTestConnection}"
-                                        Theme="{StaticResource AccentButtonTheme}"
-                                        Padding="16,4">
-                                    <Panel>
-                                        <TextBlock Text="{loc:Loc Config.BtnRunDiagnostics}" IsVisible="{Binding !IsTestingConnection}"/>
-                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingConnection}" Classes="SlowSpin" Width="16" Height="16"/>
-                                    </Panel>
-                                </Button>
+                                <u:IconButton Grid.Column="0"
+                                              Command="{Binding TestConnectionCommand}"
+                                              IsEnabled="{Binding CanTestConnection}"
+                                              IsLoading="{Binding IsTestingConnection}"
+                                              Theme="{DynamicResource SolidIconButton}"
+                                              Classes="Primary"
+                                              Padding="16,4"
+                                              Content="{loc:Loc Config.BtnRunDiagnostics}"/>
                                 <TextBlock Grid.Column="1"
                                         Text="{Binding ConnectionStatus}"
                                         TextWrapping="Wrap"
@@ -198,17 +194,14 @@
                                                                  IsTextCompletionEnabled="False"
                                                                  MinimumPrefixLength="0"
                                                                  HorizontalAlignment="Stretch"/>
-                                                <Button Grid.Column="1"
-                                                        Command="{Binding LoadModelsCommand}"
-                                                        CommandParameter="Secondary"
-                                                        IsEnabled="{Binding !IsLoadingSecondaryModels}"
-                                                        ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
-                                                        MinWidth="64">
-                                                    <Panel>
-                                                        <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingSecondaryModels}"/>
-                                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingSecondaryModels}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                    </Panel>
-                                                </Button>
+                                                <u:IconButton Grid.Column="1"
+                                                              Command="{Binding LoadModelsCommand}"
+                                                              CommandParameter="Secondary"
+                                                              IsEnabled="{Binding !IsLoadingSecondaryModels}"
+                                                              IsLoading="{Binding IsLoadingSecondaryModels}"
+                                                              ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                              MinWidth="64"
+                                                              Content="{loc:Loc Config.LoadModels}"/>
                                             </Grid>
                                             <TextBlock Text="{Binding SecondaryModelsStatus}"
                                                        IsVisible="{Binding SecondaryModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
@@ -234,16 +227,14 @@
 
                                         <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                            <Button Grid.Column="0"
-                                                    Command="{Binding TestSecondaryCommand}"
-                                                    IsEnabled="{Binding CanTestSecondary}"
-                                                    Theme="{StaticResource AccentButtonTheme}"
-                                                    Padding="16,4">
-                                                <Panel>
-                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingSecondary}"/>
-                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingSecondary}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                </Panel>
-                                            </Button>
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestSecondaryCommand}"
+                                                          IsEnabled="{Binding CanTestSecondary}"
+                                                          IsLoading="{Binding IsTestingSecondary}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.Test}"/>
                                             <TextBlock Grid.Column="1"
                                                     Text="{Binding SecondaryTestStatus}"
                                                     TextWrapping="Wrap"
@@ -280,17 +271,14 @@
                                                                  IsTextCompletionEnabled="False"
                                                                  MinimumPrefixLength="0"
                                                                  HorizontalAlignment="Stretch"/>
-                                                <Button Grid.Column="1"
-                                                        Command="{Binding LoadModelsCommand}"
-                                                        CommandParameter="Embedding"
-                                                        IsEnabled="{Binding !IsLoadingEmbeddingModels}"
-                                                        ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
-                                                        MinWidth="64">
-                                                    <Panel>
-                                                        <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingEmbeddingModels}"/>
-                                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingEmbeddingModels}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                    </Panel>
-                                                </Button>
+                                                <u:IconButton Grid.Column="1"
+                                                              Command="{Binding LoadModelsCommand}"
+                                                              CommandParameter="Embedding"
+                                                              IsEnabled="{Binding !IsLoadingEmbeddingModels}"
+                                                              IsLoading="{Binding IsLoadingEmbeddingModels}"
+                                                              ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                              MinWidth="64"
+                                                              Content="{loc:Loc Config.LoadModels}"/>
                                             </Grid>
                                             <TextBlock Text="{Binding EmbeddingModelsStatus}"
                                                        IsVisible="{Binding EmbeddingModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
@@ -299,16 +287,14 @@
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                            <Button Grid.Column="0"
-                                                    Command="{Binding TestEmbeddingCommand}"
-                                                    IsEnabled="{Binding CanTestEmbedding}"
-                                                    Theme="{StaticResource AccentButtonTheme}"
-                                                    Padding="16,4">
-                                                <Panel>
-                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingEmbedding}"/>
-                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingEmbedding}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                </Panel>
-                                            </Button>
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestEmbeddingCommand}"
+                                                          IsEnabled="{Binding CanTestEmbedding}"
+                                                          IsLoading="{Binding IsTestingEmbedding}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.Test}"/>
                                             <TextBlock Grid.Column="1"
                                                     Text="{Binding EmbeddingTestStatus}"
                                                     TextWrapping="Wrap"
@@ -349,16 +335,14 @@
 
                                         <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.TestAudioOutput}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                            <Button Grid.Column="0"
-                                                    Command="{Binding TestAudioOutputCommand}"
-                                                    IsEnabled="{Binding CanTestAudioOutput}"
-                                                    Theme="{StaticResource AccentButtonTheme}"
-                                                    Padding="16,4">
-                                                <Panel>
-                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingAudioOutput}"/>
-                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingAudioOutput}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                </Panel>
-                                            </Button>
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestAudioOutputCommand}"
+                                                          IsEnabled="{Binding CanTestAudioOutput}"
+                                                          IsLoading="{Binding IsTestingAudioOutput}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.Test}"/>
                                             <TextBlock Grid.Column="1"
                                                        Text="{Binding AudioOutputTestStatus}"
                                                        TextWrapping="Wrap"
@@ -454,16 +438,14 @@
 
                                         <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                            <Button Grid.Column="0"
-                                                    Command="{Binding TestWebSearchCommand}"
-                                                    IsEnabled="{Binding CanTestWebSearch}"
-                                                    Theme="{StaticResource AccentButtonTheme}"
-                                                    Padding="16,4">
-                                                <Panel>
-                                                    <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingWebSearch}"/>
-                                                    <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingWebSearch}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                </Panel>
-                                            </Button>
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestWebSearchCommand}"
+                                                          IsEnabled="{Binding CanTestWebSearch}"
+                                                          IsLoading="{Binding IsTestingWebSearch}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.Test}"/>
                                             <TextBlock Grid.Column="1"
                                                     Text="{Binding WebSearchTestStatus}"
                                                     TextWrapping="Wrap"
@@ -507,23 +489,18 @@
                                             <TextBlock Grid.Column="0" Text="{loc:Loc Config.BrowserRuntimeStatus}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <StackPanel Grid.Column="1" Spacing="8">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <Button Command="{Binding TestBrowserRuntimeCommand}"
-                                                            IsEnabled="{Binding CanTestBrowserRuntime}"
-                                                            Theme="{StaticResource AccentButtonTheme}"
-                                                            Padding="16,4">
-                                                        <Panel>
-                                                            <TextBlock Text="{loc:Loc Config.BrowserTestRuntime}" IsVisible="{Binding !IsTestingBrowserRuntime}"/>
-                                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingBrowserRuntime}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                        </Panel>
-                                                    </Button>
-                                                    <Button Command="{Binding InstallBrowserRuntimeCommand}"
-                                                            IsEnabled="{Binding CanInstallBrowserRuntime}"
-                                                            Padding="16,4">
-                                                        <Panel>
-                                                            <TextBlock Text="{loc:Loc Config.BrowserInstallRuntime}" IsVisible="{Binding !IsInstallingBrowserRuntime}"/>
-                                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsInstallingBrowserRuntime}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                        </Panel>
-                                                    </Button>
+                                                    <u:IconButton Command="{Binding TestBrowserRuntimeCommand}"
+                                                                  IsEnabled="{Binding CanTestBrowserRuntime}"
+                                                                  IsLoading="{Binding IsTestingBrowserRuntime}"
+                                                                  Theme="{DynamicResource SolidIconButton}"
+                                                                  Classes="Primary"
+                                                                  Padding="16,4"
+                                                                  Content="{loc:Loc Config.BrowserTestRuntime}"/>
+                                                    <u:IconButton Command="{Binding InstallBrowserRuntimeCommand}"
+                                                                  IsEnabled="{Binding CanInstallBrowserRuntime}"
+                                                                  IsLoading="{Binding IsInstallingBrowserRuntime}"
+                                                                  Padding="16,4"
+                                                                  Content="{loc:Loc Config.BrowserInstallRuntime}"/>
                                                 </StackPanel>
                                                 <TextBlock Text="{Binding BrowserRuntimeStatus}"
                                                            TextWrapping="Wrap"
@@ -596,17 +573,14 @@
                                                                      MinimumPrefixLength="0"
                                                                      Watermark="e.g. gpt-4o-mini"
                                                                      HorizontalAlignment="Stretch"/>
-                                                    <Button Grid.Column="1"
-                                                            Command="{Binding LoadModelsCommand}"
-                                                            CommandParameter="BrowserVision"
-                                                            IsEnabled="{Binding !IsLoadingBrowserVisionModels}"
-                                                            ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
-                                                            MinWidth="64">
-                                                        <Panel>
-                                                            <TextBlock Text="{loc:Loc Config.LoadModels}" IsVisible="{Binding !IsLoadingBrowserVisionModels}"/>
-                                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsLoadingBrowserVisionModels}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                        </Panel>
-                                                    </Button>
+                                                    <u:IconButton Grid.Column="1"
+                                                                  Command="{Binding LoadModelsCommand}"
+                                                                  CommandParameter="BrowserVision"
+                                                                  IsEnabled="{Binding !IsLoadingBrowserVisionModels}"
+                                                                  IsLoading="{Binding IsLoadingBrowserVisionModels}"
+                                                                  ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                                  MinWidth="64"
+                                                                  Content="{loc:Loc Config.LoadModels}"/>
                                                 </Grid>
                                                 <TextBlock Text="{Binding BrowserVisionModelsStatus}"
                                                            IsVisible="{Binding BrowserVisionModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
@@ -635,16 +609,14 @@
 
                                             <TextBlock Grid.Row="8" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <Grid Grid.Row="8" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
-                                                <Button Grid.Column="0"
-                                                        Command="{Binding TestBrowserVisionCommand}"
-                                                        IsEnabled="{Binding CanTestBrowserVision}"
-                                                        Theme="{StaticResource AccentButtonTheme}"
-                                                        Padding="16,4">
-                                                    <Panel>
-                                                        <TextBlock Text="{loc:Loc Config.Test}" IsVisible="{Binding !IsTestingBrowserVision}"/>
-                                                        <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsTestingBrowserVision}" Classes="SlowSpin" Width="16" Height="16"/>
-                                                    </Panel>
-                                                </Button>
+                                                <u:IconButton Grid.Column="0"
+                                                              Command="{Binding TestBrowserVisionCommand}"
+                                                              IsEnabled="{Binding CanTestBrowserVision}"
+                                                              IsLoading="{Binding IsTestingBrowserVision}"
+                                                              Theme="{DynamicResource SolidIconButton}"
+                                                              Classes="Primary"
+                                                              Padding="16,4"
+                                                              Content="{loc:Loc Config.Test}"/>
                                                 <TextBlock Grid.Column="1"
                                                            Text="{Binding BrowserVisionTestStatus}"
                                                            TextWrapping="Wrap"
@@ -672,12 +644,10 @@
                         <TextBlock Text="{loc:Loc Config.SectionDocumentParser}"
                                    FontWeight="Bold"
                                    FontSize="15"/>
-
                         <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
                                    TextWrapping="Wrap"
                                    FontSize="12"
                                    Opacity="0.7"/>
-
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.DocumentParserEnabled}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
@@ -696,10 +666,20 @@
                                          PasswordChar="*"
                                          IsEnabled="{Binding CanEditParserToken}"
                                          HorizontalAlignment="Stretch"/>
-                                <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
-                                           TextWrapping="Wrap"
-                                           FontSize="11"
-                                           Opacity="0.6"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
+                                               TextWrapping="Wrap"
+                                               FontSize="11"
+                                               Opacity="0.6"/>
+                                    <HyperlinkButton 
+                                        Margin="5,0,0,0"
+                                        Content="{loc:Loc Config.DocumentParserGetToken}"
+                                        NavigateUri="https://mineru.net/apiManage/token"
+                                        FontSize="11"
+                                        Padding="0"
+                                        MinHeight="0"
+                                        VerticalAlignment="Center"/>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -761,12 +741,9 @@
                                     </ScrollViewer>
                                 </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Command="{Binding CompressContextCommand}">
-                                        <Panel>
-                                            <TextBlock Text="{loc:Loc Config.BtnExecCompression}" IsVisible="{Binding !IsCompressing}"/>
-                                            <PathIcon Data="{StaticResource SemiIconLoading}" IsVisible="{Binding IsCompressing}" Classes="SlowSpin" Width="16" Height="16"/>
-                                        </Panel>
-                                    </Button>
+                                    <u:IconButton Command="{Binding CompressContextCommand}"
+                                                  IsLoading="{Binding IsCompressing}"
+                                                  Content="{loc:Loc Config.BtnExecCompression}"/>
                                     <Button Command="{Binding UndoCompressionCommand}" 
                                             Content="{loc:Loc Config.BtnUndoCompression}">
                                     </Button>

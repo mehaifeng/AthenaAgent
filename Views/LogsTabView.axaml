@@ -16,8 +16,8 @@
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
+                CornerRadius="0,0,5,5"
                 Background="{DynamicResource App.SectionBg}"
-                BorderThickness="0,0,0,1"
                 Padding="12,8">
             <TextBlock Text="{loc:Loc Logs.Header}"
                        FontWeight="SemiBold"
@@ -67,11 +67,13 @@
                     </Button>
                     <Button Command="{Binding RefreshLogsCommand}" 
                             Padding="12,4"
+                            Theme="{StaticResource AccentButtonTheme}"
                             ToolTip.Tip="{loc:Loc Logs.BtnRefresh}">
                         <PathIcon Data="{StaticResource SemiIconRefresh}" Width="16" Height="16"/>
                     </Button>
                     <Button Command="{Binding ExportLogsCommand}" 
                             Padding="12,4"
+                            Theme="{StaticResource AccentButtonTheme}"
                             ToolTip.Tip="{loc:Loc Logs.BtnExport}">
                         <PathIcon Data="{StaticResource SemiIconDownload}" Width="16" Height="16"/>
                     </Button>

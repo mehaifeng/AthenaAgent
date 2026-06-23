@@ -92,11 +92,10 @@
 
         <!-- HEADER BAR -->
         <Border Grid.Row="0"
+                CornerRadius="0,0,5,5"
                 Background="{DynamicResource App.SectionBg}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="0,0,0,1"
-                Padding="12,8"
-                >
+                Padding="12,8">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0"
                            Text="{loc:Loc History.Header}"
