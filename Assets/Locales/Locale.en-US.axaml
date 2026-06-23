@@ -31,12 +31,14 @@
     <system:String x:Key="Chat.BtnAbort">Cancel</system:String>
     <system:String x:Key="Chat.BtnRegen">Regenerate</system:String>
     <system:String x:Key="Chat.BtnCopy">Copy</system:String>
-    <system:String x:Key="Chat.BtnPurge">Delete</system:String>
     <system:String x:Key="Chat.InputPlaceholder">Type a message...</system:String>
     <system:String x:Key="Chat.MaxContextReached">Context limit reached</system:String>
     <system:String x:Key="Chat.BtnExecute">Send</system:String>
     <system:String x:Key="Chat.BtnStop">Stop response</system:String>
     <system:String x:Key="Chat.Attach.Add">Attach files</system:String>
+    <system:String x:Key="Chat.Screenshot.Add">Take screenshot</system:String>
+    <system:String x:Key="Chat.Screenshot.Unsupported">Screenshot is not supported on this platform.</system:String>
+    <system:String x:Key="Chat.Screenshot.Failed">Failed to capture screenshot.</system:String>
     <system:String x:Key="Chat.Attach.Remove">Remove attachment</system:String>
     <system:String x:Key="Chat.Attach.SelectImages">Select images</system:String>
     <system:String x:Key="Chat.Attach.ImageFiles">Image files</system:String>

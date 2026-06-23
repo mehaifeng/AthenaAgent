@@ -92,6 +92,7 @@
             <Setter Property="HorizontalAlignment" Value="Right"/>
             <Setter Property="VerticalAlignment" Value="Top"/>
         </Style>
+
     </UserControl.Styles>
 
     <Grid RowDefinitions="40,*,Auto">
@@ -407,14 +408,6 @@
                                             ToolTip.Tip="{loc:Loc Chat.BtnRegen}">
                                         <PathIcon Data="{StaticResource SemiIconSync}" Width="14" Height="14"/>
                                     </Button>
-
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DeleteMessageCommand}" 
-                                            CommandParameter="{Binding}" 
-                                            IsVisible="{Binding !IsCompressed}" 
-                                            FontSize="11"
-                                            ToolTip.Tip="{loc:Loc Chat.BtnPurge}">
-                                        <PathIcon Data="{StaticResource SemiIconDelete}" Width="14" Height="14"/>
-                                    </Button>
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
@@ -454,14 +447,15 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- 输入区域 -->
-        <Border Grid.Row="2" 
-                BorderBrush="{DynamicResource App.SectionBg}"
-                BorderThickness="0,1,0,0" 
-                Padding="12" >
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+        <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->
+        <Border Grid.Row="2" Padding="12">
+            <Border CornerRadius="12"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    Background="{DynamicResource App.SectionBg}"
+                    Padding="8">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <ItemsControl Grid.Row="0"
-                              Grid.ColumnSpan="3"
                               ItemsSource="{Binding PendingAttachments}"
                               IsVisible="{Binding HasPendingAttachments}"
                               Margin="0,0,0,8">
@@ -535,7 +529,6 @@
                 </ItemsControl>
 
                 <TextBlock Grid.Row="1"
-                           Grid.ColumnSpan="3"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource Chat.TimestampFg}"
                            FontSize="12"
@@ -544,7 +537,6 @@
                            IsVisible="{Binding HasBackgroundArchiveNeutralStatus}"/>
 
                 <TextBlock Grid.Row="1"
-                           Grid.ColumnSpan="3"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
                            FontSize="12"
@@ -553,63 +545,86 @@
                            IsVisible="{Binding HasBackgroundArchiveErrorStatus}"/>
 
                 <TextBlock Grid.Row="2"
-                           Grid.ColumnSpan="3"
                            Text="{Binding AttachmentStatusMessage}"
                            IsVisible="{Binding HasAttachmentStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
                            FontSize="12"
                            Margin="0,0,0,8"/>
 
-                <Button Grid.Row="3"
-                        Grid.Column="0"
-                        Command="{Binding AttachFileCommand}" 
-                        VerticalAlignment="Center" 
-                        Margin="0,0,8,0"
-                        IsEnabled="{Binding !IsSending}"
-                        ToolTip.Tip="{loc:Loc Chat.Attach.Add}">
-                    <PathIcon Data="{StaticResource SemiIconPlus}" Width="14" Height="14"/>
-                </Button>
-
+                <!-- 文本输入：无边框，融入外层卡片 -->
                 <TextBox x:Name="MessageInputTextBox"
                          Grid.Row="3"
-                         Grid.Column="1"
                          Text="{Binding InputText}"
                          PlaceholderText="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
-                         VerticalContentAlignment="Center"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="4,2"
                          MaxHeight="150"
                          IsEnabled="{Binding !IsSending}">
+                    <!-- 覆盖 Semi 主题驱动悬停/聚焦高亮的画刷，使输入框完全融入外层卡片 -->
+                    <TextBox.Resources>
+                        <SolidColorBrush x:Key="TextBoxDefaultBackground" Color="Transparent"/>
+                        <SolidColorBrush x:Key="TextBoxDefaultBorderBrush" Color="Transparent"/>
+                        <SolidColorBrush x:Key="TextBoxPointeroverBackground" Color="Transparent"/>
+                        <SolidColorBrush x:Key="TextBoxPointeroverBorderBrush" Color="Transparent"/>
+                        <SolidColorBrush x:Key="TextBoxFocusBorderBrush" Color="Transparent"/>
+                        <SolidColorBrush x:Key="TextBoxPressedBackground" Color="Transparent"/>
+                        <Thickness x:Key="TextBoxBorderThickness">0</Thickness>
+                    </TextBox.Resources>
                     <TextBox.KeyBindings>
                         <KeyBinding Command="{Binding SendMessageCommand}" Gesture="Enter"/>
                     </TextBox.KeyBindings>
                 </TextBox>
 
-                <Button Grid.Row="3"
-                        Grid.Column="2"
-                        Command="{Binding SendMessageCommand}"
-                        Margin="12,0,0,0"
-                        Theme="{StaticResource AccentButtonTheme}"
-                        Padding="20,8"
-                        IsVisible="{Binding !IsSending}"
-                        ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
-                    <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
-                </Button>
+                <!-- 底部功能工具栏：左侧功能按钮，右侧发送/停止 -->
+                <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                Spacing="2"
+                                VerticalAlignment="Center">
+                        <Button Command="{Binding AttachFileCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6"
+                                IsEnabled="{Binding !IsSending}"
+                                ToolTip.Tip="{loc:Loc Chat.Attach.Add}">
+                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="18" Height="18"/>
+                        </Button>
+                        <Button Command="{Binding CaptureScreenshotCommand}"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6"
+                                IsEnabled="{Binding !IsSending}"
+                                ToolTip.Tip="{loc:Loc Chat.Screenshot.Add}">
+                            <PathIcon Data="{StaticResource SemiIconCamera}" Width="18" Height="18"/>
+                        </Button>
+                    </StackPanel>
 
-                <Button Grid.Row="3"
-                        Grid.Column="2"
-                        Command="{Binding StopResponseCommand}"
-                        Margin="12,0,0,0"
-                        Theme="{StaticResource AccentButtonTheme}"
-                        Padding="20,8"
-                        IsVisible="{Binding IsSending}"
-                        ToolTip.Tip="{loc:Loc Chat.BtnStop}">
-                    <PathIcon Data="{StaticResource SemiIconStop}"
-                              Width="16"
-                              Height="16"
-                              Foreground="{DynamicResource SemiRed6}"/>
-                </Button>
+                    <Button Grid.Column="1"
+                            Command="{Binding SendMessageCommand}"
+                            Theme="{StaticResource AccentButtonTheme}"
+                            Padding="20,6"
+                            IsVisible="{Binding !IsSending}"
+                            ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
+                        <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
+                    </Button>
+
+                    <Button Grid.Column="1"
+                            Command="{Binding StopResponseCommand}"
+                            Theme="{StaticResource AccentButtonTheme}"
+                            Padding="20,6"
+                            IsVisible="{Binding IsSending}"
+                            ToolTip.Tip="{loc:Loc Chat.BtnStop}">
+                        <PathIcon Data="{StaticResource SemiIconStop}"
+                                  Width="16"
+                                  Height="16"
+                                  Foreground="{DynamicResource SemiRed6}"/>
+                    </Button>
+                </Grid>
             </Grid>
+            </Border>
         </Border>
     </Grid>
 </UserControl>

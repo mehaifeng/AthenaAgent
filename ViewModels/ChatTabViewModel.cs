@@ -54,6 +54,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IConversationArchiveService? _archiveService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly IDocumentParserService? _documentParserService;
+    private readonly IScreenCaptureService? _screenCaptureService;
     // Tracks in-flight document parsing tasks so send can be gated and parsing
     // can be cancelled when the conversation is reset.
     private readonly Dictionary<string, CancellationTokenSource> _documentParseCts = new();
@@ -69,7 +70,6 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isSending;
@@ -85,7 +85,6 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteMessageCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isCompressing;
 
@@ -175,7 +174,8 @@ public partial class ChatTabViewModel : ViewModelBase
         ISystemAudioService? systemAudioService = null,
         IConversationArchiveService? archiveService = null,
         IImageGenerationSessionService? imageGenerationSessionService = null,
-        IDocumentParserService? documentParserService = null)
+        IDocumentParserService? documentParserService = null,
+        IScreenCaptureService? screenCaptureService = null)
     {
         _chatService = chatService;
         _configService = configService;
@@ -191,6 +191,7 @@ public partial class ChatTabViewModel : ViewModelBase
         _archiveService = archiveService;
         _imageGenerationSessionService = imageGenerationSessionService;
         _documentParserService = documentParserService;
+        _screenCaptureService = screenCaptureService;
 
         // Initialize from config
         if (_configService != null)
@@ -541,54 +542,6 @@ public partial class ChatTabViewModel : ViewModelBase
         await GetAiResponseAsync(lastUserMsg.Content, addToContext: false);
     }
 
-    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
-    private async Task DeleteMessage(ChatMessage? message)
-    {
-        if (message == null) return;
-
-        int msgIndex = Messages.IndexOf(message);
-
-        // 删除 tool 消息时，向上级联删除对应的 assistant tool_calls 消息
-        if (message.Role == "tool")
-        {
-            // 向上找到对应的 assistant 消息
-            for (int i = msgIndex - 1; i >= 0; i--)
-            {
-                if (Messages[i].Role == "assistant" && !string.IsNullOrEmpty(Messages[i].ToolCallsJson))
-                {
-                    // 删除这条 assistant 及其后所有 tool 消息
-                    while (Messages.Count > i)
-                    {
-                        DeleteMessageAttachments(Messages[i]);
-                        Messages.RemoveAt(i);
-                    }
-                    UpdateConversationContext();
-                    await ReconcileImageGenerationSessionAsync();
-                    UpdateContextTokensDisplay();
-                    UpdateBubbleButtonVisibility();
-                    return;
-                }
-            }
-        }
-
-        // 级联删除：如果删除的是带工具调用的助手消息，也要删除其后的工具结果
-        if (message.Role == "assistant" && !string.IsNullOrEmpty(message.ToolCallsJson))
-        {
-            while (msgIndex + 1 < Messages.Count && Messages[msgIndex + 1].Role == "tool")
-            {
-                DeleteMessageAttachments(Messages[msgIndex + 1]);
-                Messages.RemoveAt(msgIndex + 1);
-            }
-        }
-
-        DeleteMessageAttachments(message);
-        Messages.Remove(message);
-        UpdateConversationContext();
-        await ReconcileImageGenerationSessionAsync();
-        UpdateContextTokensDisplay();
-        UpdateBubbleButtonVisibility();
-    }
-
     [RelayCommand]
     private void CopyMessage(ChatMessage? message)
     {
@@ -921,6 +874,101 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
+    private bool _isCapturingScreenshot;
+
+    /// <summary>
+    /// 调用系统原生截图工具（框选/裁剪/标注），完成后从剪贴板取回图片并作为待发送附件。
+    /// </summary>
+    [RelayCommand]
+    private async Task CaptureScreenshotAsync()
+    {
+        if (_isCapturingScreenshot) return;
+        if (IsSending || IsCompressing) return;
+
+        if (_screenCaptureService == null || !_screenCaptureService.IsSupported)
+        {
+            AttachmentStatusMessage = GetString("Chat.Screenshot.Unsupported", "Screenshot is not supported on this platform.");
+            return;
+        }
+
+        if (_attachmentStoreService != null && PendingAttachments.Count >= _attachmentStoreService.MaxPendingAttachments)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.MaxCount", "You can attach up to {0} files."),
+                _attachmentStoreService.MaxPendingAttachments);
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(GetMainWindow())?.Clipboard;
+        if (clipboard == null)
+        {
+            AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
+            return;
+        }
+
+        _isCapturingScreenshot = true;
+        var mainWindow = GetMainWindow();
+        var previousState = mainWindow?.WindowState ?? WindowState.Normal;
+        try
+        {
+            AttachmentStatusMessage = string.Empty;
+
+            // 以"清空剪贴板 → 截图 → 读取新位图"判定结果，避免误取旧剪贴板内容。
+            try { await clipboard.ClearAsync(); } catch { /* 某些平台清空可能失败，忽略 */ }
+
+            // 隐藏自身窗口，避免遮挡截图目标。
+            if (mainWindow != null)
+            {
+                mainWindow.WindowState = WindowState.Minimized;
+                await Task.Delay(250); // 等待最小化动画完成
+            }
+
+            var launch = await _screenCaptureService.LaunchInteractiveAsync();
+
+            // 还原窗口。
+            if (mainWindow != null)
+            {
+                mainWindow.WindowState = previousState;
+                mainWindow.Activate();
+            }
+
+            if (launch == ScreenCaptureLaunchResult.Failed || launch == ScreenCaptureLaunchResult.Unsupported)
+            {
+                AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
+                return;
+            }
+
+            // 阻塞型工具（mac/linux）完成即可读取，仅做少量重试以容忍剪贴板写入延迟；
+            // 异步型工具（windows）需较长轮询直到用户完成或超时。
+            var maxAttempts = launch == ScreenCaptureLaunchResult.LaunchedAsync ? 200 : 8;
+            Bitmap? bitmap = null;
+            for (var i = 0; i < maxAttempts; i++)
+            {
+                bitmap = await clipboard.TryGetBitmapAsync();
+                if (bitmap != null) break;
+                await Task.Delay(300);
+            }
+
+            if (bitmap == null)
+            {
+                // 用户取消截图或超时，静默返回（不视为错误）。
+                return;
+            }
+
+            await AddClipboardBitmapAsync(bitmap);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "截图失败");
+            if (mainWindow != null) mainWindow.WindowState = previousState;
+            AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
+        }
+        finally
+        {
+            _isCapturingScreenshot = false;
+        }
+    }
+
     public async Task AddClipboardBitmapAsync(Bitmap bitmap)
     {
         if (_attachmentStoreService == null) return;
@@ -1122,14 +1170,17 @@ public partial class ChatTabViewModel : ViewModelBase
 
                     if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ToolCallsJson))
                     {
-                        // 真实的工具调用回合保存在隐藏消息里；主气泡保留已经流式显示给用户的正文，
-                        // 仅追加工具执行状态，避免正文在流结束后突然消失。
+                        // 真实的工具调用回合保存在隐藏消息里，并插入到活动气泡之前，
+                        // 保证最终回复气泡始终在 Messages 末尾、排在 tool_call/tool 之后。
                         msg.IsHidden = true;
-                        Messages.Add(msg);
+                        InsertBeforeActiveBubble(assistantMsg, msg);
+
+                        // 该轮在 tool_call 之前流式出来的前导正文已随隐藏消息进入上下文，
+                        // 清空活动气泡的文本（保留工具产出的图片段/附件），避免正文重复计数。
+                        ResetActiveBubbleText(assistantMsg);
 
                         // Update the main bubble's status
                         assistantMsg.IsLoading = false;
-                        assistantMsg.ReasoningContent = null;
                         try
                         {
                             var toolCalls = System.Text.Json.Nodes.JsonNode.Parse(msg.ToolCallsJson)?.AsArray();
@@ -1207,7 +1258,7 @@ public partial class ChatTabViewModel : ViewModelBase
                     }
                     else if (msg.Role == "tool")
                     {
-                        Messages.Add(msg);
+                        InsertBeforeActiveBubble(assistantMsg, msg);
 
                         // 工具执行完毕，等待大模型下一步指示
                         var defaultToolName = _localizationService?.GetString("Tool.DefaultName") ?? "Tool";
@@ -2066,5 +2117,36 @@ public partial class ChatTabViewModel : ViewModelBase
             Text = contentDelta
         });
         message.NotifySegmentsChanged();
+    }
+
+    // 中间消息（tool_call / tool）插入到活动气泡之前，保证最终回复气泡始终在 Messages 末尾。
+    private void InsertBeforeActiveBubble(ChatMessage active, ChatMessage msg)
+    {
+        int idx = Messages.IndexOf(active);
+        if (idx < 0)
+        {
+            // 兜底：活动气泡已被清理（理论上不应发生于流式期间）。
+            Messages.Add(msg);
+        }
+        else
+        {
+            Messages.Insert(idx, msg);
+        }
+    }
+
+    // 工具轮封口时仅清空活动气泡的文本与推理内容，保留工具产出的图片段/附件，
+    // 让下一段（最终）正文从干净状态开始，并避免前导正文重复进入上下文。
+    private static void ResetActiveBubbleText(ChatMessage bubble)
+    {
+        bubble.Content = string.Empty;
+        bubble.ReasoningContent = null;
+        for (int i = bubble.Segments.Count - 1; i >= 0; i--)
+        {
+            if (bubble.Segments[i].IsMarkdown)
+            {
+                bubble.Segments.RemoveAt(i);
+            }
+        }
+        bubble.NotifySegmentsChanged();
     }
 }

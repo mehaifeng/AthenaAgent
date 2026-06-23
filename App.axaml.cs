@@ -366,6 +366,12 @@ public partial class App : Application
             var logger = Log.ForContext<SystemAudioService>();
             return new SystemAudioService(cliService, logger);
         });
+        services.AddSingleton<IScreenCaptureService>(sp =>
+        {
+            var cliService = sp.GetRequiredService<ICliService>();
+            var logger = Log.ForContext<ScreenCaptureService>();
+            return new ScreenCaptureService(cliService, logger);
+        });
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
@@ -681,6 +687,7 @@ public partial class App : Application
             var browserService = sp.GetService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetService<IBrowserVisionService>();
             var modelCatalogService = sp.GetService<IModelCatalogService>();
+            var screenCaptureService = sp.GetService<IScreenCaptureService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -706,7 +713,8 @@ public partial class App : Application
                 browserService,
                 browserVisionService,
                 documentParserService,
-                modelCatalogService);
+                modelCatalogService,
+                screenCaptureService);
         });
 
         Log.Debug("依赖注入服务配置完成");

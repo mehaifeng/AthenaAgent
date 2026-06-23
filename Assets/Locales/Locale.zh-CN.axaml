@@ -31,12 +31,14 @@
     <system:String x:Key="Chat.BtnAbort">取消</system:String>
     <system:String x:Key="Chat.BtnRegen">重新生成</system:String>
     <system:String x:Key="Chat.BtnCopy">复制</system:String>
-    <system:String x:Key="Chat.BtnPurge">删除</system:String>
     <system:String x:Key="Chat.InputPlaceholder">输入消息...</system:String>
     <system:String x:Key="Chat.MaxContextReached">已达到上下文限制</system:String>
     <system:String x:Key="Chat.BtnExecute">发送</system:String>
     <system:String x:Key="Chat.BtnStop">停止回复</system:String>
     <system:String x:Key="Chat.Attach.Add">添加附件</system:String>
+    <system:String x:Key="Chat.Screenshot.Add">截图</system:String>
+    <system:String x:Key="Chat.Screenshot.Unsupported">当前平台不支持截图。</system:String>
+    <system:String x:Key="Chat.Screenshot.Failed">截图失败。</system:String>
     <system:String x:Key="Chat.Attach.Remove">移除附件</system:String>
     <system:String x:Key="Chat.Attach.SelectImages">选择图片</system:String>
     <system:String x:Key="Chat.Attach.ImageFiles">图片文件</system:String>
