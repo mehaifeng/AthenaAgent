@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:u="https://irihi.tech/ursa"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
@@ -100,7 +101,7 @@
         <!-- 聊天区域头部 -->
         <Border Grid.Row="0"
                 Background="{DynamicResource App.SectionBg}"
-                BorderThickness="0,0,0,1"
+                CornerRadius="0,0,5,5"
                 VerticalAlignment="Center"
                 Padding="12,8">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
@@ -114,13 +115,14 @@
                                FontSize="14"/>
 
                     <!-- 调试：切换原始上下文(raw)视图，仅在对话流完成时可用 -->
-                    <ToggleButton IsChecked="{Binding IsRawContextView}"
-                                  IsEnabled="{Binding CanToggleRawContext}"
-                                  VerticalAlignment="Center"
-                                  Padding="6,2"
-                                  FontSize="11"
-                                  Content="RAW"
-                                  ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
+                    <u:IconToggleButton 
+                      IsChecked="{Binding IsRawContextView}"
+                      IsEnabled="{Binding CanToggleRawContext}"
+                      Icon="{StaticResource SemiIconBrackets}"
+                      VerticalAlignment="Center"
+                      Padding="6,2"
+                      FontSize="11"
+                      ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
                 </StackPanel>
 
                 <TextBlock Grid.Column="1"
@@ -142,16 +144,13 @@
                     </Panel>
                 </Button>
                 
-                <Button Grid.Column="3" 
-                        VerticalAlignment="Center"
-                        Command="{Binding NewConversationCommand}" 
-                        Margin="0,0,8,0" 
-                        ToolTip.Tip="{loc:Loc Chat.BtnReset}">
-                    <Panel>
-                        <PathIcon Data="{StaticResource SemiIconPlusCircle}" Width="16" Height="16" IsVisible="{Binding !IsResetting}"/>
-                        <PathIcon Data="{StaticResource SemiIconLoading}" Width="16" Height="16" IsVisible="{Binding IsResetting}" Classes="SlowSpin"/>
-                    </Panel>
-                </Button>
+                <u:IconButton Grid.Column="3"
+                              VerticalAlignment="Center"
+                              Command="{Binding NewConversationCommand}"
+                              IsLoading="{Binding IsResetting}"
+                              Margin="0,0,8,0"
+                              Icon="{StaticResource SemiIconPlusCircle}"
+                              ToolTip.Tip="{loc:Loc Chat.BtnReset}"/>
             </Grid>
         </Border>
 
@@ -419,37 +418,40 @@
         <!-- 调试：原始上下文(raw)视图，与消息列表叠放在同一行，按开关切换。
              按消息拆分为独立块 + 虚拟化列表：选择只作用于单块、滚动只渲染可见块，避免大文本卡顿。 -->
         <ScrollViewer Grid.Row="1"
-                      IsVisible="{Binding IsRawContextView}"
-                      Margin="0,0,0,15"
-                      Background="{DynamicResource App.SectionBg}">
-            <!-- 不使用虚拟化：条目高度差异极大（折叠/展开），虚拟化的滚动范围估算会导致滚动条跳跃；
-                 默认折叠后折叠态渲染开销很低，普通 StackPanel 即可保证线性、稳定的滚动。 -->
-            <ItemsControl ItemsSource="{Binding RawContextEntries}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:RawContextEntry">
-                        <Expander Margin="0,0,0,8"
-                                  HorizontalAlignment="Stretch"
-                                  IsExpanded="{Binding IsExpanded}">
-                            <Expander.Header>
-                                <TextBlock Text="{Binding Header}"
-                                           FontWeight="Bold"
-                                           FontSize="12"
-                                           FontFamily="Cascadia Code,Consolas,Menlo,monospace"
-                                           Foreground="{Binding Role, Converter={StaticResource RawRoleToBrushConverter}}"/>
-                            </Expander.Header>
-                            <SelectableTextBlock Text="{Binding Text}"
-                                                 FontFamily="Cascadia Code,Consolas,Menlo,monospace"
-                                                 FontSize="12"
-                                                 TextWrapping="Wrap"/>
-                        </Expander>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                      Margin="0,5,0,5"
+                      IsVisible="{Binding IsRawContextView}">
+            <Border 
+                CornerRadius="12"
+                Background="{DynamicResource App.SectionBg}">
+                <!-- 不使用虚拟化：条目高度差异极大（折叠/展开），虚拟化的滚动范围估算会导致滚动条跳跃；
+                     默认折叠后折叠态渲染开销很低，普通 StackPanel 即可保证线性、稳定的滚动。 -->
+                <ItemsControl ItemsSource="{Binding RawContextEntries}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:RawContextEntry">
+                            <Expander Margin="0,0,0,8"
+                                      HorizontalAlignment="Stretch"
+                                      IsExpanded="{Binding IsExpanded}">
+                                <Expander.Header>
+                                    <TextBlock Text="{Binding Header}"
+                                               FontWeight="Bold"
+                                               FontSize="12"
+                                               FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                                               Foreground="{Binding Role, Converter={StaticResource RawRoleToBrushConverter}}"/>
+                                </Expander.Header>
+                                <SelectableTextBlock Text="{Binding Text}"
+                                                     FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                                                     FontSize="12"
+                                                     TextWrapping="Wrap"/>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
         </ScrollViewer>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->
-        <Border Grid.Row="2" Padding="12">
-            <Border CornerRadius="12"
+        <Border Grid.Row="2">
+            <Border CornerRadius="5"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     Background="{DynamicResource App.SectionBg}"
@@ -585,21 +587,25 @@
                                 Spacing="2"
                                 VerticalAlignment="Center">
                         <Button Command="{Binding AttachFileCommand}"
-                                Background="Transparent"
                                 BorderThickness="0"
                                 Padding="6"
                                 IsEnabled="{Binding !IsSending}"
                                 ToolTip.Tip="{loc:Loc Chat.Attach.Add}">
                             <PathIcon Data="{StaticResource SemiIconPlus}" Width="18" Height="18"/>
                         </Button>
-                        <Button Command="{Binding CaptureScreenshotCommand}"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="6"
-                                IsEnabled="{Binding !IsSending}"
-                                ToolTip.Tip="{loc:Loc Chat.Screenshot.Add}">
-                            <PathIcon Data="{StaticResource SemiIconCamera}" Width="18" Height="18"/>
-                        </Button>
+                        <u:IconSplitButton Icon="{StaticResource SemiIconScissors}"
+                                           IsEnabled="{Binding !IsSending}"
+                                           Command="{Binding CaptureScreenshotCommand}"
+                                           CommandParameter="keep"
+                                           ToolTip.Tip="{loc:Loc Chat.Screenshot.Add}">
+                            <u:IconSplitButton.Flyout>
+                                <MenuFlyout Placement="Top">
+                                    <MenuItem Header="{loc:Loc Chat.Screenshot.HideWindow}"
+                                              Command="{Binding CaptureScreenshotCommand}"
+                                              CommandParameter="hide"/>
+                                </MenuFlyout>
+                            </u:IconSplitButton.Flyout>
+                        </u:IconSplitButton>
                     </StackPanel>
 
                     <Button Grid.Column="1"

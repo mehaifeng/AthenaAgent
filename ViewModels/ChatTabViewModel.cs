@@ -879,8 +879,11 @@ public partial class ChatTabViewModel : ViewModelBase
     /// <summary>
     /// 调用系统原生截图工具（框选/裁剪/标注），完成后从剪贴板取回图片并作为待发送附件。
     /// </summary>
+    /// <param name="mode">
+    /// "keep" = 截图时保留本窗口（可截 AthenaAgent 自身）；其余值（含 null）= 截图时隐藏本窗口（截其它内容）。
+    /// </param>
     [RelayCommand]
-    private async Task CaptureScreenshotAsync()
+    private async Task CaptureScreenshotAsync(string? mode)
     {
         if (_isCapturingScreenshot) return;
         if (IsSending || IsCompressing) return;
@@ -906,9 +909,22 @@ public partial class ChatTabViewModel : ViewModelBase
             return;
         }
 
+        // 默认隐藏窗口；mode == "keep" 时保留窗口，从而可以截到 AthenaAgent 自身。
+        var hideWindow = !string.Equals(mode, "keep", StringComparison.OrdinalIgnoreCase);
+
         _isCapturingScreenshot = true;
         var mainWindow = GetMainWindow();
         var previousState = mainWindow?.WindowState ?? WindowState.Normal;
+        var minimized = false;
+
+        void RestoreWindow()
+        {
+            if (!minimized || mainWindow == null) return;
+            mainWindow.WindowState = previousState;
+            mainWindow.Activate();
+            minimized = false;
+        }
+
         try
         {
             AttachmentStatusMessage = string.Empty;
@@ -916,30 +932,31 @@ public partial class ChatTabViewModel : ViewModelBase
             // 以"清空剪贴板 → 截图 → 读取新位图"判定结果，避免误取旧剪贴板内容。
             try { await clipboard.ClearAsync(); } catch { /* 某些平台清空可能失败，忽略 */ }
 
-            // 隐藏自身窗口，避免遮挡截图目标。
-            if (mainWindow != null)
+            // 隐藏模式：最小化窗口以免遮挡截图目标；保留模式：原样显示，让截图浮层覆盖在窗口之上。
+            if (hideWindow && mainWindow != null)
             {
                 mainWindow.WindowState = WindowState.Minimized;
                 await Task.Delay(250); // 等待最小化动画完成
+                minimized = true;
             }
 
             var launch = await _screenCaptureService.LaunchInteractiveAsync();
 
-            // 还原窗口。
-            if (mainWindow != null)
-            {
-                mainWindow.WindowState = previousState;
-                mainWindow.Activate();
-            }
-
             if (launch == ScreenCaptureLaunchResult.Failed || launch == ScreenCaptureLaunchResult.Unsupported)
             {
+                RestoreWindow();
                 AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
                 return;
             }
 
-            // 阻塞型工具（mac/linux）完成即可读取，仅做少量重试以容忍剪贴板写入延迟；
-            // 异步型工具（windows）需较长轮询直到用户完成或超时。
+            // 阻塞型工具（mac/linux）返回时截图已完成，窗口在选区期间一直处于隐藏状态，此时可立即还原；
+            // 异步型工具（windows）启动后立即返回，截图浮层尚在交互中，需保持隐藏直到取回图片后再还原。
+            if (launch == ScreenCaptureLaunchResult.CompletedBlocking)
+            {
+                RestoreWindow();
+            }
+
+            // 阻塞型仅做少量重试以容忍剪贴板写入延迟；异步型需较长轮询直到用户完成或超时。
             var maxAttempts = launch == ScreenCaptureLaunchResult.LaunchedAsync ? 200 : 8;
             Bitmap? bitmap = null;
             for (var i = 0; i < maxAttempts; i++)
@@ -948,6 +965,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 if (bitmap != null) break;
                 await Task.Delay(300);
             }
+
+            RestoreWindow();
 
             if (bitmap == null)
             {
@@ -960,11 +979,12 @@ public partial class ChatTabViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.Warning(ex, "截图失败");
-            if (mainWindow != null) mainWindow.WindowState = previousState;
+            RestoreWindow();
             AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
         }
         finally
         {
+            RestoreWindow();
             _isCapturingScreenshot = false;
         }
     }

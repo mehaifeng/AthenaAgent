@@ -37,6 +37,8 @@
     <system:String x:Key="Chat.BtnStop">停止回复</system:String>
     <system:String x:Key="Chat.Attach.Add">添加附件</system:String>
     <system:String x:Key="Chat.Screenshot.Add">截图</system:String>
+    <system:String x:Key="Chat.Screenshot.HideWindow">截图（隐藏本窗口）</system:String>
+    <system:String x:Key="Chat.Screenshot.KeepWindow">截图（保留本窗口）</system:String>
     <system:String x:Key="Chat.Screenshot.Unsupported">当前平台不支持截图。</system:String>
     <system:String x:Key="Chat.Screenshot.Failed">截图失败。</system:String>
     <system:String x:Key="Chat.Attach.Remove">移除附件</system:String>
@@ -81,10 +83,11 @@
     <system:String x:Key="Config.SectionImageGeneration">图像生成</system:String>
     <system:String x:Key="Config.SectionDocumentParser">文档解析</system:String>
     <system:String x:Key="Config.DocumentParserDescription">发送前通过 MinerU 将 PDF、Word、PowerPoint、Excel 等附件解析为 AI 可读的 Markdown。</system:String>
+    <system:String x:Key="Config.DocumentParserGetToken">获取 API Token</system:String>
     <system:String x:Key="Config.DocumentParserEnabled">启用文档解析</system:String>
     <system:String x:Key="Config.DocumentParserMode">解析方式</system:String>
     <system:String x:Key="Config.DocumentParserToken">API Token</system:String>
-    <system:String x:Key="Config.DocumentParserTokenHint">仅「精度解析」方式需要 Token；「极速解析」方式无需 Token（按 IP 限流）。</system:String>
+    <system:String x:Key="Config.DocumentParserTokenHint">仅「精度解析」方式需要 Token；「极速解析」方式无需 Token（按 IP 限流）</system:String>
     <system:String x:Key="Config.SectionMemory">记忆管理</system:String>
     <system:String x:Key="Config.BgTasks">后台任务</system:String>
     <system:String x:Key="Config.VectorKb">向量知识库</system:String>

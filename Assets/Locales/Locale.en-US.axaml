@@ -37,6 +37,8 @@
     <system:String x:Key="Chat.BtnStop">Stop response</system:String>
     <system:String x:Key="Chat.Attach.Add">Attach files</system:String>
     <system:String x:Key="Chat.Screenshot.Add">Take screenshot</system:String>
+    <system:String x:Key="Chat.Screenshot.HideWindow">Capture (hide this window)</system:String>
+    <system:String x:Key="Chat.Screenshot.KeepWindow">Capture (keep this window)</system:String>
     <system:String x:Key="Chat.Screenshot.Unsupported">Screenshot is not supported on this platform.</system:String>
     <system:String x:Key="Chat.Screenshot.Failed">Failed to capture screenshot.</system:String>
     <system:String x:Key="Chat.Attach.Remove">Remove attachment</system:String>
@@ -81,10 +83,11 @@
     <system:String x:Key="Config.SectionImageGeneration">Image Generation</system:String>
     <system:String x:Key="Config.SectionDocumentParser">Document Parsing</system:String>
     <system:String x:Key="Config.DocumentParserDescription">Parse PDF, Word, PowerPoint, and Excel attachments into AI-readable Markdown via MinerU before sending.</system:String>
+    <system:String x:Key="Config.DocumentParserGetToken">Get API Token</system:String>
     <system:String x:Key="Config.DocumentParserEnabled">Enable Document Parsing</system:String>
     <system:String x:Key="Config.DocumentParserMode">Parsing Method</system:String>
     <system:String x:Key="Config.DocumentParserToken">API Token</system:String>
-    <system:String x:Key="Config.DocumentParserTokenHint">Required for the Precision method only. The Agent Lightweight method needs no token (IP rate-limited).</system:String>
+    <system:String x:Key="Config.DocumentParserTokenHint">Required for the Precision method only. The Agent Lightweight method needs no token (IP rate-limited) </system:String>
     <system:String x:Key="Config.SectionMemory">Memory Management</system:String>
     <system:String x:Key="Config.BgTasks">Background Tasks</system:String>
     <system:String x:Key="Config.VectorKb">Vector Knowledge Base</system:String>
