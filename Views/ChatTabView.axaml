@@ -211,6 +211,12 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="models:ChatMessageSegment">
                                                     <StackPanel Margin="0,0,0,6">
+                                                        <StackPanel.IsVisible>
+                                                            <MultiBinding Converter="{StaticResource ToolCardVisibilityConverter}">
+                                                                <Binding Path="IsToolCall"/>
+                                                                <Binding Path="$parent[UserControl].((vm:ChatTabViewModel)DataContext).ShowToolCallDetails"/>
+                                                            </MultiBinding>
+                                                        </StackPanel.IsVisible>
                                                         <lmd:MarkdownRenderer
                                                             loc:MarkdownHelper.Text="{Binding Text}"
                                                             IsVisible="{Binding IsMarkdown}"
@@ -229,6 +235,104 @@
                                                                        MaxWidth="560"/>
                                                             </Border>
                                                         </Button>
+
+                                                        <!-- 工具调用卡片：可折叠，显示状态/摘要，展开后看参数与结果 -->
+                                                        <Border IsVisible="{Binding IsToolCall}"
+                                                                Classes="tool-call-card"
+                                                                Background="{DynamicResource App.SectionBg}"
+                                                                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="6"
+                                                                Padding="1"
+                                                                HorizontalAlignment="Stretch">
+                                                            <StackPanel>
+                                                                <!-- 标题行：点击展开/折叠 -->
+                                                                <Button Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleToolCallExpandedCommand}"
+                                                                        CommandParameter="{Binding}"
+                                                                        Background="Transparent"
+                                                                        BorderThickness="0"
+                                                                        Padding="6,3"
+                                                                        HorizontalAlignment="Stretch"
+                                                                        HorizontalContentAlignment="Stretch">
+                                                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" >
+                                                                        <!-- 状态图标 -->
+                                                                        <PathIcon Grid.Column="0"
+                                                                                  Data="{StaticResource SemiIconLoading}"
+                                                                                  Classes="SlowSpin"
+                                                                                  IsVisible="{Binding IsToolRunning}"
+                                                                                  Width="11" Height="11"
+                                                                                  Opacity="0.7"
+                                                                                  VerticalAlignment="Center"/>
+                                                                        <PathIcon Grid.Column="0"
+                                                                                  Data="{StaticResource SemiIconTickCircle}"
+                                                                                  IsVisible="{Binding IsToolSuccess}"
+                                                                                  Width="11" Height="11"
+                                                                                  Foreground="{DynamicResource SemiGreen6}"
+                                                                                  VerticalAlignment="Center"/>
+                                                                        <PathIcon Grid.Column="0"
+                                                                                  Data="{StaticResource SemiIconAlertCircle}"
+                                                                                  IsVisible="{Binding IsToolFailed}"
+                                                                                  Width="11" Height="11"
+                                                                                  Foreground="{DynamicResource SemiRed6}"
+                                                                                  VerticalAlignment="Center"/>
+
+                                                                        <PathIcon Grid.Column="1"
+                                                                                  Data="{Binding ToolIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                                                                  Margin="6,0,4,0"
+                                                                                  Width="11" Height="11"
+                                                                                  Opacity="0.8"
+                                                                                  VerticalAlignment="Center"/>
+
+                                                                        <TextBlock Grid.Column="2"
+                                                                                   Text="{Binding ToolSummary}"
+                                                                                   FontSize="11"
+                                                                                   TextTrimming="CharacterEllipsis"
+                                                                                   VerticalAlignment="Center"/>
+
+                                                                        <PathIcon Grid.Column="3"
+                                                                                  Data="{StaticResource SemiIconChevronDown}"
+                                                                                  Width="10" Height="10"
+                                                                                  Opacity="0.5"
+                                                                                  IsVisible="{Binding IsExpanded}"
+                                                                                  VerticalAlignment="Center"/>
+                                                                        <PathIcon Grid.Column="3"
+                                                                                  Data="{StaticResource SemiIconChevronRight}"
+                                                                                  Width="10" Height="10"
+                                                                                  Opacity="0.5"
+                                                                                  IsVisible="{Binding !IsExpanded}"
+                                                                                  VerticalAlignment="Center"/>
+                                                                    </Grid>
+                                                                </Button>
+
+                                                                <!-- 详情：参数与结果 -->
+                                                                <StackPanel IsVisible="{Binding IsExpanded}"
+                                                                            Margin="8,0,8,6"
+                                                                            Spacing="4">
+                                                                    <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
+                                                                               IsVisible="{Binding HasToolArguments}"
+                                                                               FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                                                    <Border IsVisible="{Binding HasToolArguments}"
+                                                                            Background="{DynamicResource App.SelectedBackground}"
+                                                                            CornerRadius="4" Padding="6">
+                                                                        <SelectableTextBlock Text="{Binding ToolArguments}"
+                                                                                             FontFamily="{StaticResource MonospaceFontFamily}"
+                                                                                             FontSize="11"
+                                                                                             TextWrapping="Wrap"/>
+                                                                    </Border>
+
+                                                                    <TextBlock Text="{loc:Loc Tool.ResultLabel}"
+                                                                               IsVisible="{Binding HasToolResult}"
+                                                                               FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                                                    <Border IsVisible="{Binding HasToolResult}"
+                                                                            Background="{DynamicResource App.SelectedBackground}"
+                                                                            CornerRadius="4" Padding="6">
+                                                                        <SelectableTextBlock Text="{Binding ToolResult}"
+                                                                                             FontSize="11"
+                                                                                             TextWrapping="Wrap"/>
+                                                                    </Border>
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                        </Border>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
