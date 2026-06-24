@@ -58,7 +58,14 @@ public static class ConversationPersistenceHelper
         {
             Kind = segment.Kind,
             Text = segment.Text,
-            AttachmentId = segment.AttachmentId
+            AttachmentId = segment.AttachmentId,
+            ToolCallId = segment.ToolCallId,
+            ToolName = segment.ToolName,
+            ToolSummary = segment.ToolSummary,
+            ToolArguments = segment.ToolArguments,
+            ToolResult = segment.ToolResult,
+            ToolStatus = segment.ToolStatus,
+            IsExpanded = segment.IsExpanded
         };
     }
 
