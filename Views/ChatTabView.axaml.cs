@@ -186,10 +186,11 @@ public partial class ChatTabView : UserControl
 
     private void ScrollToBottom()
     {
-        if (_chatScrollViewer != null)
+        var scrollViewer = _chatScrollViewer;
+        if (scrollViewer != null)
         {
-            Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
-            Dispatcher.UIThread.Post(() => _chatScrollViewer.ScrollToEnd(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(() => scrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(() => scrollViewer.ScrollToEnd(), DispatcherPriority.Background);
         }
     }
 
