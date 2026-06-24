@@ -195,9 +195,16 @@
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
+                                        <!-- 用户消息：纯文本，自适应宽度 -->
+                                        <SelectableTextBlock Text="{Binding DisplayText}"
+                                                   IsVisible="{Binding ShowUserPlainText}"
+                                                   TextWrapping="Wrap"
+                                                   HorizontalAlignment="Left" />
+
+                                        <!-- 助手消息：Markdown 渲染 -->
                                         <lmd:MarkdownRenderer
                                                    loc:MarkdownHelper.Text="{Binding DisplayText}"
-                                                   IsVisible="{Binding ShouldShowLegacyMarkdown}"
+                                                   IsVisible="{Binding ShowAssistantMarkdown}"
                                                    HorizontalAlignment="Stretch" />
 
                                         <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding UsesSegmentLayout}">

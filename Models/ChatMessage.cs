@@ -24,6 +24,8 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
+    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private string _role = string.Empty;
 
     /// <summary>
@@ -34,6 +36,8 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
+    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private string _content = string.Empty;
 
     /// <summary>
@@ -42,6 +46,8 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
+    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private string _editContent = string.Empty;
 
     /// <summary>
@@ -72,6 +78,8 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
+    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private bool _isEditing;
 
     /// <summary>
@@ -147,6 +155,16 @@ public partial class ChatMessage : ObservableObject
     public bool HasImageSegments => Segments.Any(segment => segment.IsGeneratedImage);
 
     public bool ShouldShowLegacyMarkdown => !UsesSegmentLayout && IsContentVisible;
+
+    /// <summary>
+    /// 用户消息以纯文本（自适应宽度）渲染，避免 Markdown 渲染器占满整行
+    /// </summary>
+    public bool ShowUserPlainText => ShouldShowLegacyMarkdown && IsUser;
+
+    /// <summary>
+    /// 助手消息仍使用 Markdown 渲染器（需要表格/代码块等占满宽度）
+    /// </summary>
+    public bool ShowAssistantMarkdown => ShouldShowLegacyMarkdown && !IsUser;
 
     public IEnumerable<ChatAttachment> AttachmentPanelItems =>
         UsesSegmentLayout
@@ -237,6 +255,8 @@ public partial class ChatMessage : ObservableObject
         OnPropertyChanged(nameof(UsesSegmentLayout));
         OnPropertyChanged(nameof(HasImageSegments));
         OnPropertyChanged(nameof(ShouldShowLegacyMarkdown));
+        OnPropertyChanged(nameof(ShowUserPlainText));
+        OnPropertyChanged(nameof(ShowAssistantMarkdown));
         OnPropertyChanged(nameof(AttachmentPanelItems));
         OnPropertyChanged(nameof(ShouldShowAttachmentPanel));
         OnPropertyChanged(nameof(IsBubbleVisible));
