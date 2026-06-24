@@ -122,7 +122,9 @@ public class OpenAIChatService : IChatService
             userMessage?.Length ?? 0,
             attachments?.Count ?? 0);
 
-        var messages = BuildMessages(context);
+        // BuildMessages 会重建整个消息列表并对图片附件做 base64 编码，属于 CPU/内存密集的同步工作。
+        // 放到后台线程执行，避免阻塞 UI 线程（context 是本次请求的独立克隆，无并发访问问题）。
+        var messages = await Task.Run(() => BuildMessages(context), cancellationToken);
         Log.Information("构建消息列表完成，消息数: {Count}", messages.Count);
 
         var contentBuilder = new StringBuilder();

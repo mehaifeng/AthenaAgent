@@ -272,6 +272,11 @@ public partial class ChatTabViewModel : ViewModelBase
         });
 
         UpdateConversationContext();
+
+        // 先让出 UI 线程跑一次渲染，确保用户气泡立即出现，再去做后续较重的请求准备
+        // （BuildMessages / token 估算 / 读取配置等），避免发送后约 1s 才看到气泡。
+        await Task.Yield();
+
         await GetAiResponseAsync(userContent, addToContext: false);
     }
 
