@@ -86,8 +86,8 @@ public partial class MainWindow : Window
         {
             // 根据主题选择对应的图片
             var assetPath = theme == "Light"
-                ? "avares://Athena.UI/Assets/Light.PNG"
-                : "avares://Athena.UI/Assets/Dark.PNG";
+                ? "avares://Athena.UI/Assets/Light.webp"
+                : "avares://Athena.UI/Assets/Dark.webp";
 
             var uri = new Uri(assetPath);
             using var stream = AssetLoader.Open(uri);

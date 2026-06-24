@@ -40,8 +40,8 @@
             <ResourceDictionary.ThemeDictionaries>
                 <!-- 语义化颜色定义：深色模式 -->
                 <ResourceDictionary x:Key="Dark">
-                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/DarkLogo.PNG</media:Bitmap>
-                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Dark.PNG</media:Bitmap>
+                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/DarkLogo.webp</media:Bitmap>
+                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Dark.webp</media:Bitmap>
                     <SolidColorBrush x:Key="App.BackgroundOverlay" Color="#CC111111" />
                     <SolidColorBrush x:Key="App.EmphasisForeground" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#F2F2F2" />
@@ -158,8 +158,8 @@
                 </ResourceDictionary>
                 <!-- 语义化颜色 definition：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
-                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/LightLogo.PNG</media:Bitmap>
-                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Light.PNG</media:Bitmap>
+                    <media:Bitmap x:Key="About.LogoImage">avares://Athena.UI/Assets/LightLogo.webp</media:Bitmap>
+                    <media:Bitmap x:Key="App.BackgroundImage">avares://Athena.UI/Assets/Light.webp</media:Bitmap>
                     <SolidColorBrush x:Key="App.BackgroundOverlay" Color="#CCF6F6F6" />
                     <SolidColorBrush x:Key="App.EmphasisForeground" Color="#111111" />
                     <SolidColorBrush x:Key="App.EmphasisPointeroverForeground" Color="#000000" />
@@ -288,9 +288,10 @@
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
 
             <!-- 字体设置 -->
-            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, serif</FontFamily>
+            <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
+            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI, sans-serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-            <FontFamily x:Key="ContentControlThemeFontFamily">Microsoft YaHei, avares://Athena.UI/Assets/NotoSerifSCRegular.otf#Noto Serif SC, Segoe UI, Microsoft YaHei, serif</FontFamily>
+            <FontFamily x:Key="ContentControlThemeFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI, sans-serif</FontFamily>
 
             <!-- 字号设置 -->
             <x:Double x:Key="TitleFontSize">18</x:Double>
