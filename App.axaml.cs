@@ -232,12 +232,21 @@ public partial class App : Application
             // 启动动画：等待窗口完全加载后播放
             if (desktop.MainWindow is Views.MainWindow mainWindow)
             {
+                // Opened 会在每次从托盘重新 Show() 时再次触发。启动闪屏只应在
+                // 首次启动播放一次：否则它会用启动时捕获的旧 initialTheme 调用
+                // ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
+                // 绕过 App.SetTheme 不触发 ThemeChanged，导致按钮图标/配置选中项失同步。
+                var initialSplashShown = false;
                 desktop.MainWindow.Opened += async (s, e) =>
                 {
                     mainWindow.ScrollChatToBottomIfVisible();
-                    await Task.Delay(100); // 等待UI完全渲染
-                    await mainWindow.ShowThemeSplashAsync(initialTheme);
-                    mainWindow.ScrollChatToBottomIfVisible();
+                    if (!initialSplashShown)
+                    {
+                        initialSplashShown = true;
+                        await Task.Delay(100); // 等待UI完全渲染
+                        await mainWindow.ShowThemeSplashAsync(initialTheme);
+                        mainWindow.ScrollChatToBottomIfVisible();
+                    }
                 };
             }
 
