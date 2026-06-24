@@ -949,8 +949,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            // 阻塞型工具（mac/linux）返回时截图已完成，窗口在选区期间一直处于隐藏状态，此时可立即还原；
-            // 异步型工具（windows）启动后立即返回，截图浮层尚在交互中，需保持隐藏直到取回图片后再还原。
+            // 阻塞型（mac/linux，以及 Windows 监听覆盖层进程退出后）返回时截图交互已结束，可立即还原窗口；
+            // 异步型（Windows 未捕获到覆盖层进程的回退路径）启动后立即返回，需保持隐藏直到取回图片后再还原。
             if (launch == ScreenCaptureLaunchResult.CompletedBlocking)
             {
                 RestoreWindow();

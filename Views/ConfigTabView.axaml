@@ -99,7 +99,7 @@
                                                      FilterMode="Contains"
                                                      IsTextCompletionEnabled="False"
                                                      MinimumPrefixLength="0"
-                                                     Watermark="e.g. gpt-4"
+                                                     PlaceholderText="e.g. gpt-4"
                                                      HorizontalAlignment="Stretch"/>
                                     <u:IconButton Grid.Column="1"
                                                   Command="{Binding LoadModelsCommand}"
@@ -571,7 +571,7 @@
                                                                      FilterMode="Contains"
                                                                      IsTextCompletionEnabled="False"
                                                                      MinimumPrefixLength="0"
-                                                                     Watermark="e.g. gpt-4o-mini"
+                                                                     PlaceholderText="e.g. gpt-4o-mini"
                                                                      HorizontalAlignment="Stretch"/>
                                                     <u:IconButton Grid.Column="1"
                                                                   Command="{Binding LoadModelsCommand}"
