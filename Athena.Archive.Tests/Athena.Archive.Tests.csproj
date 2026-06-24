@@ -24,6 +24,7 @@
     <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
     <Compile Include="../Models/ChatMessage.cs" Link="Source/Models/ChatMessage.cs" />
     <Compile Include="../Models/ChatMessageSegment.cs" Link="Source/Models/ChatMessageSegment.cs" />
+    <Compile Include="../Models/ToolCallDisplay.cs" Link="Source/Models/ToolCallDisplay.cs" />
     <Compile Include="../Models/ConversationArchiveSnapshot.cs" Link="Source/Models/ConversationArchiveSnapshot.cs" />
     <Compile Include="../Models/ConversationArchiveResultEventArgs.cs" Link="Source/Models/ConversationArchiveResultEventArgs.cs" />
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
