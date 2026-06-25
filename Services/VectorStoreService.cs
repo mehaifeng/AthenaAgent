@@ -21,6 +21,8 @@ public class DocumentVector
     public string FilePath { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
     public string ChunkText { get; set; } = string.Empty;
+    /// <summary>分块所属的标题路径面包屑（如「文档标题 &gt; 二级标题」），用于嵌入时的上下文增强。</summary>
+    public string HeadingPath { get; set; } = string.Empty;
     public float[]? Embedding { get; set; }
     public string FileHash { get; set; } = string.Empty;
 }
@@ -47,9 +49,9 @@ public interface IVectorStoreService
     Task InitializeAsync();
 
     /// <summary>
-    /// 全文本关键字检索
+    /// 全文本关键字检索（BM25），返回结果按相关性升序（rank 越小越相关，已取反为正向分）。
     /// </summary>
-    Task<List<(string FilePath, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10);
+    Task<List<(string FilePath, int ChunkIndex, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10);
 
     /// <summary>
     /// 加载所有向量到内存
@@ -64,7 +66,17 @@ public interface IVectorStoreService
     /// <summary>
     /// 保存向量（批量）
     /// </summary>
-    Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, float[] Embedding)> vectors);
+    Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)> vectors);
+
+    /// <summary>
+    /// 读取向量库的嵌入模型指纹（模型标识 + 维度）。无记录返回 null。
+    /// </summary>
+    Task<(string Model, int Dimension)?> GetEmbeddingFingerprintAsync();
+
+    /// <summary>
+    /// 写入向量库的嵌入模型指纹。
+    /// </summary>
+    Task SetEmbeddingFingerprintAsync(string model, int dimension);
 
     /// <summary>
     /// 删除文件的向量
@@ -91,6 +103,11 @@ public class VectorStoreService : IVectorStoreService
     private readonly ILogger _logger;
     private readonly IPlatformPathService? _pathService;
     private readonly SemaphoreSlim _lock = new(1, 1);
+
+    /// <summary>
+    /// 存储层 schema 版本。结构变更时递增；启动检测到旧版本会丢弃并重建（向量为派生数据，可从 .md 安全重建）。
+    /// </summary>
+    private const int SchemaVersion = 2;
 
     public VectorStoreService(ILogger logger, IPlatformPathService? pathService = null)
     {
@@ -130,7 +147,32 @@ public class VectorStoreService : IVectorStoreService
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync();
 
+            // Schema 迁移：版本不一致则丢弃旧结构重建（向量是派生数据，可从 .md 重新索引）
+            var userVersion = 0;
+            using (var pragmaRead = new SqliteCommand("PRAGMA user_version", connection))
+            {
+                userVersion = Convert.ToInt32(await pragmaRead.ExecuteScalarAsync());
+            }
+
+            if (userVersion != SchemaVersion)
+            {
+                _logger.Information("向量库 schema 版本 {Old} -> {New}，丢弃旧结构并重建", userVersion, SchemaVersion);
+                using var dropCmd = new SqliteCommand(
+                    @"DROP TABLE IF EXISTS document_vectors;
+                      DROP TABLE IF EXISTS file_status;
+                      DROP TABLE IF EXISTS fts_index;
+                      DROP TABLE IF EXISTS embed_meta;", connection);
+                await dropCmd.ExecuteNonQueryAsync();
+            }
+
+            // trigram 分词器对中文/代码做子串匹配，弥补默认 unicode61 不切中文词的缺陷
             var createTableSql = @"
+                CREATE TABLE IF NOT EXISTS embed_meta (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    model TEXT NOT NULL,
+                    dimension INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS file_status (
                     file_path TEXT PRIMARY KEY,
                     file_hash TEXT NOT NULL,
@@ -143,24 +185,32 @@ public class VectorStoreService : IVectorStoreService
                     file_path TEXT NOT NULL,
                     chunk_index INTEGER NOT NULL,
                     chunk_text TEXT NOT NULL,
+                    heading_path TEXT NOT NULL DEFAULT '',
                     embedding BLOB NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(file_path, chunk_index)
                 );
 
-                -- FTS5 Virtual Table for full-text search
                 CREATE VIRTUAL TABLE IF NOT EXISTS fts_index USING fts5(
                     file_path,
                     chunk_index UNINDEXED,
-                    content
+                    content,
+                    tokenize = 'trigram'
                 );
 
                 CREATE INDEX IF NOT EXISTS IX_document_vectors_file_path ON document_vectors(file_path);
                 CREATE INDEX IF NOT EXISTS IX_file_status_file_hash ON file_status(file_hash);
             ";
 
-            using var command = new SqliteCommand(createTableSql, connection);
-            await command.ExecuteNonQueryAsync();
+            using (var command = new SqliteCommand(createTableSql, connection))
+            {
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using (var setVersion = new SqliteCommand($"PRAGMA user_version = {SchemaVersion}", connection))
+            {
+                await setVersion.ExecuteNonQueryAsync();
+            }
 
             _logger.Information("向量存储及全文本索引数据库初始化完成: {Path}", _dbPath);
         }
@@ -181,7 +231,7 @@ public class VectorStoreService : IVectorStoreService
             await connection.OpenAsync();
 
             var sql = @"
-                SELECT id, file_path, chunk_index, chunk_text, embedding
+                SELECT id, file_path, chunk_index, chunk_text, embedding, heading_path
                 FROM document_vectors
                 ORDER BY file_path, chunk_index
             ";
@@ -200,7 +250,8 @@ public class VectorStoreService : IVectorStoreService
                     FilePath = reader.GetString(1),
                     ChunkIndex = reader.GetInt32(2),
                     ChunkText = reader.GetString(3),
-                    Embedding = embedding
+                    Embedding = embedding,
+                    HeadingPath = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
                 });
             }
 
@@ -221,15 +272,12 @@ public class VectorStoreService : IVectorStoreService
     /// <summary>
     /// 全文本关键字检索
     /// </summary>
-    public async Task<List<(string FilePath, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10)
+    public async Task<List<(string FilePath, int ChunkIndex, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10)
     {
-        var results = new List<(string FilePath, string Content, double Score)>();
+        var results = new List<(string FilePath, int ChunkIndex, string Content, double Score)>();
 
-        if (string.IsNullOrWhiteSpace(query)) return results;
-
-        // 清理并转义 FTS 查询字符串，防止注入或语法错误 (如 "." 或 "-" 引起的问题)
-        // 简单处理：将查询内容放入双引号中进行短语匹配，并移除可能导致错误的双引号本身
-        var sanitizedQuery = "\"" + query.Replace("\"", " ").Trim() + "\"";
+        var matchExpr = BuildFtsMatchExpression(query);
+        if (matchExpr == null) return results;
 
         await _lock.WaitAsync();
         try
@@ -237,16 +285,16 @@ public class VectorStoreService : IVectorStoreService
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync();
 
-            // 使用 FTS5 的 rank 进行评分（越小越相关，这里取负值转为正向分）
+            // 使用 FTS5 的 rank 进行评分（BM25，越小越相关，这里取负值转为正向分）
             var sql = @"
-                SELECT file_path, content, rank 
-                FROM fts_index 
-                WHERE content MATCH @query 
-                ORDER BY rank 
+                SELECT file_path, chunk_index, content, rank
+                FROM fts_index
+                WHERE content MATCH @query
+                ORDER BY rank
                 LIMIT @limit";
 
             using var command = new SqliteCommand(sql, connection);
-            command.Parameters.AddWithValue("@query", sanitizedQuery);
+            command.Parameters.AddWithValue("@query", matchExpr);
             command.Parameters.AddWithValue("@limit", maxResults);
 
             using var reader = await command.ExecuteReaderAsync();
@@ -254,8 +302,9 @@ public class VectorStoreService : IVectorStoreService
             {
                 results.Add((
                     reader.GetString(0),
-                    reader.GetString(1),
-                    -reader.GetDouble(2) // 转换为正数
+                    reader.GetInt32(1),
+                    reader.GetString(2),
+                    -reader.GetDouble(3) // 转换为正数
                 ));
             }
         }
@@ -269,6 +318,31 @@ public class VectorStoreService : IVectorStoreService
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 构造 FTS5 MATCH 表达式：按空白切词，各词加引号后用 OR 连接，实现“命中任一关键词”。
+    /// trigram 分词下每个查询词需 ≥3 字符才能命中，过短词被过滤；全部过滤后回退整串。
+    /// 返回 null 表示无可用查询。
+    /// </summary>
+    private static string? BuildFtsMatchExpression(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return null;
+
+        static string Quote(string term) => "\"" + term.Replace("\"", " ").Trim() + "\"";
+
+        var terms = query
+            .Split(new[] { ' ', '\t', '\r', '\n', '，', '、', ',', ';', '；' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length >= 3)
+            .Distinct()
+            .ToList();
+
+        if (terms.Count > 0)
+            return string.Join(" OR ", terms.Select(Quote));
+
+        // 无满足长度的词（如纯短词查询）：用整串做子串匹配
+        var whole = query.Trim();
+        return whole.Length >= 3 ? Quote(whole) : null;
     }
 
     public async Task<Dictionary<string, FileStatus>> GetFileStatusesAsync()
@@ -306,7 +380,7 @@ public class VectorStoreService : IVectorStoreService
         return statuses;
     }
 
-    public async Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, float[] Embedding)> vectors)
+    public async Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)> vectors)
     {
         if (vectors.Count == 0) return;
 
@@ -337,16 +411,17 @@ public class VectorStoreService : IVectorStoreService
                 }
 
                 // 插入新向量和 FTS 索引
-                foreach (var (index, chunkText, embedding) in vectors)
+                foreach (var (index, chunkText, headingPath, embedding) in vectors)
                 {
                     using var insertCommand = new SqliteCommand(
-                        @"INSERT INTO document_vectors (file_path, chunk_index, chunk_text, embedding)
-                          VALUES (@filePath, @chunkIndex, @chunkText, @embedding)",
+                        @"INSERT INTO document_vectors (file_path, chunk_index, chunk_text, heading_path, embedding)
+                          VALUES (@filePath, @chunkIndex, @chunkText, @headingPath, @embedding)",
                         connection, transaction);
 
                     insertCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
                     insertCommand.Parameters.Add(new SqliteParameter("@chunkIndex", index));
                     insertCommand.Parameters.Add(new SqliteParameter("@chunkText", chunkText));
+                    insertCommand.Parameters.Add(new SqliteParameter("@headingPath", headingPath ?? string.Empty));
                     insertCommand.Parameters.Add(new SqliteParameter("@embedding", FloatsToBytes(embedding)));
 
                     await insertCommand.ExecuteNonQueryAsync();
@@ -484,6 +559,53 @@ public class VectorStoreService : IVectorStoreService
             }
 
             return (fileCount, vectorCount);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<(string Model, int Dimension)?> GetEmbeddingFingerprintAsync()
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            await connection.OpenAsync();
+
+            using var command = new SqliteCommand("SELECT model, dimension FROM embed_meta WHERE id = 1", connection);
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return (reader.GetString(0), reader.GetInt32(1));
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "读取嵌入模型指纹失败");
+            return null;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task SetEmbeddingFingerprintAsync(string model, int dimension)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            await connection.OpenAsync();
+
+            using var command = new SqliteCommand(
+                @"INSERT OR REPLACE INTO embed_meta (id, model, dimension) VALUES (1, @model, @dim)", connection);
+            command.Parameters.AddWithValue("@model", model);
+            command.Parameters.AddWithValue("@dim", dimension);
+            await command.ExecuteNonQueryAsync();
         }
         finally
         {
