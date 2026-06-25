@@ -1,0 +1,132 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:controls="using:Athena.UI.Controls"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Controls.ToolCallStackView"
+             x:DataType="models:ChatMessageSegment">
+    <StackPanel>
+        <!-- 工具卡片列表：自定义折叠面板按 IsGroupCollapsed 限高 + 底部朦胧渐隐 -->
+        <ItemsControl x:Name="PART_Items" ItemsSource="{Binding ToolCalls}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <controls:ToolCallStackPanel IsCollapsed="{Binding IsGroupCollapsed}"
+                                                 PeekCount="3"
+                                                 ItemSpacing="6"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:ToolCallEntry">
+                    <Border Background="{DynamicResource App.SectionBg}"
+                            BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="1"
+                            HorizontalAlignment="Stretch">
+                        <StackPanel>
+                            <!-- 单卡标题行：点击展开/折叠详情 -->
+                            <Button Click="OnEntryHeaderClick"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="6,3"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch">
+                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                    <PathIcon Grid.Column="0"
+                                              Data="{StaticResource SemiIconLoading}"
+                                              Classes="SlowSpin"
+                                              IsVisible="{Binding IsRunning}"
+                                              Width="11" Height="11"
+                                              Opacity="0.7"
+                                              VerticalAlignment="Center"/>
+                                    <PathIcon Grid.Column="0"
+                                              Data="{StaticResource SemiIconTickCircle}"
+                                              IsVisible="{Binding IsSuccess}"
+                                              Width="11" Height="11"
+                                              Foreground="{DynamicResource SemiGreen6}"
+                                              VerticalAlignment="Center"/>
+                                    <PathIcon Grid.Column="0"
+                                              Data="{StaticResource SemiIconAlertCircle}"
+                                              IsVisible="{Binding IsFailed}"
+                                              Width="11" Height="11"
+                                              Foreground="{DynamicResource SemiRed6}"
+                                              VerticalAlignment="Center"/>
+
+                                    <PathIcon Grid.Column="1"
+                                              Data="{Binding IconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                              Margin="6,0,4,0"
+                                              Width="11" Height="11"
+                                              Opacity="0.8"
+                                              VerticalAlignment="Center"/>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Summary}"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"/>
+
+                                    <PathIcon Grid.Column="3"
+                                              Data="{StaticResource SemiIconChevronDown}"
+                                              Width="10" Height="10"
+                                              Opacity="0.5"
+                                              IsVisible="{Binding IsExpanded}"
+                                              VerticalAlignment="Center"/>
+                                    <PathIcon Grid.Column="3"
+                                              Data="{StaticResource SemiIconChevronRight}"
+                                              Width="10" Height="10"
+                                              Opacity="0.5"
+                                              IsVisible="{Binding !IsExpanded}"
+                                              VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
+
+                            <!-- 详情：参数与结果 -->
+                            <StackPanel IsVisible="{Binding IsExpanded}"
+                                        Margin="8,0,8,6"
+                                        Spacing="4">
+                                <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
+                                           IsVisible="{Binding HasArguments}"
+                                           FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                <Border IsVisible="{Binding HasArguments}"
+                                        Background="{DynamicResource App.SelectedBackground}"
+                                        CornerRadius="4" Padding="6">
+                                    <SelectableTextBlock Text="{Binding Arguments}"
+                                                         FontFamily="{StaticResource MonospaceFontFamily}"
+                                                         FontSize="11"
+                                                         TextWrapping="Wrap"/>
+                                </Border>
+
+                                <TextBlock Text="{loc:Loc Tool.ResultLabel}"
+                                           IsVisible="{Binding HasResult}"
+                                           FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                <Border IsVisible="{Binding HasResult}"
+                                        Background="{DynamicResource App.SelectedBackground}"
+                                        CornerRadius="4" Padding="6">
+                                    <SelectableTextBlock Text="{Binding Result}"
+                                                         FontSize="11"
+                                                         TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- 折叠触发条：仅当工具数 > 3 时出现 -->
+        <Button x:Name="PART_Toggle"
+                IsVisible="{Binding NeedsCollapse}"
+                Click="OnToggleGroupClick"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="6,2"
+                Margin="0,4,0,4"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon x:Name="PART_ToggleIcon" Width="13" Height="13" Opacity="0.7" VerticalAlignment="Center"/>
+                <TextBlock x:Name="PART_ToggleText" FontSize="12" Opacity="0.7" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
+    </StackPanel>
+</UserControl>

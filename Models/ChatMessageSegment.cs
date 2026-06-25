@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -7,11 +9,11 @@ public enum ChatMessageSegmentKind
 {
     Markdown = 0,
     GeneratedImage = 1,
-    ToolCall = 2
+    ToolCallGroup = 2
 }
 
 /// <summary>
-/// 工具调用卡片的执行状态
+/// 工具调用项的执行状态
 /// </summary>
 public enum ToolCallStatus
 {
@@ -22,6 +24,11 @@ public enum ToolCallStatus
 
 public partial class ChatMessageSegment : ObservableObject
 {
+    public ChatMessageSegment()
+    {
+        ToolCalls.CollectionChanged += OnToolCallsChanged;
+    }
+
     [ObservableProperty]
     private ChatMessageSegmentKind _kind;
 
@@ -35,55 +42,33 @@ public partial class ChatMessageSegment : ObservableObject
     [property: JsonIgnore]
     private ChatAttachment? _attachment;
 
-    // ===== 工具调用卡片相关字段 =====
+    // ===== 工具调用组相关 =====
 
     /// <summary>
-    /// 工具调用 ID，用于把工具结果回填到对应的卡片
+    /// 该组包含的工具调用项（按发生顺序）
     /// </summary>
-    [ObservableProperty]
-    private string? _toolCallId;
+    public ObservableCollection<ToolCallEntry> ToolCalls { get; set; } = new();
 
     /// <summary>
-    /// 工具函数名（如 web_search）
+    /// 整组是否展开（自定义折叠容器的展开态）
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ToolIconKey))]
-    private string _toolName = string.Empty;
+    [NotifyPropertyChangedFor(nameof(IsGroupCollapsed))]
+    private bool _isGroupExpanded;
 
     /// <summary>
-    /// 人类可读的一行摘要（如「搜索『Avalonia 12』」）
+    /// 用户是否手动切换过整组折叠态（为真时不再自动收起；不参与持久化）
     /// </summary>
     [ObservableProperty]
-    private string _toolSummary = string.Empty;
+    [property: JsonIgnore]
+    private bool _userToggledGroup;
 
-    /// <summary>
-    /// 整形后的调用参数（JSON）
-    /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasToolArguments))]
-    private string _toolArguments = string.Empty;
-
-    /// <summary>
-    /// 工具结果预览（成功时取 message/data，失败时取错误信息）
-    /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasToolResult))]
-    private string _toolResult = string.Empty;
-
-    /// <summary>
-    /// 执行状态
-    /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsToolRunning))]
-    [NotifyPropertyChangedFor(nameof(IsToolSuccess))]
-    [NotifyPropertyChangedFor(nameof(IsToolFailed))]
-    private ToolCallStatus _toolStatus = ToolCallStatus.Running;
-
-    /// <summary>
-    /// 卡片是否展开（显示参数与结果）
-    /// </summary>
-    [ObservableProperty]
-    private bool _isExpanded;
+    private void OnToolCallsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(ToolCallCount));
+        OnPropertyChanged(nameof(NeedsCollapse));
+        OnPropertyChanged(nameof(IsGroupCollapsed));
+    }
 
     [JsonIgnore]
     public bool IsMarkdown => Kind == ChatMessageSegmentKind.Markdown;
@@ -92,26 +77,32 @@ public partial class ChatMessageSegment : ObservableObject
     public bool IsGeneratedImage => Kind == ChatMessageSegmentKind.GeneratedImage;
 
     [JsonIgnore]
-    public bool IsToolCall => Kind == ChatMessageSegmentKind.ToolCall;
+    public bool IsToolCallGroup => Kind == ChatMessageSegmentKind.ToolCallGroup;
 
     [JsonIgnore]
-    public bool IsToolRunning => ToolStatus == ToolCallStatus.Running;
-
-    [JsonIgnore]
-    public bool IsToolSuccess => ToolStatus == ToolCallStatus.Success;
-
-    [JsonIgnore]
-    public bool IsToolFailed => ToolStatus == ToolCallStatus.Failed;
-
-    [JsonIgnore]
-    public bool HasToolArguments => !string.IsNullOrWhiteSpace(ToolArguments);
-
-    [JsonIgnore]
-    public bool HasToolResult => !string.IsNullOrWhiteSpace(ToolResult);
+    public int ToolCallCount => ToolCalls.Count;
 
     /// <summary>
-    /// 工具类别图标的 Semi 资源 key，按函数名归类
+    /// 工具数超过 3 个时才需要折叠（露 3 个 + 第 4 个 peek）
     /// </summary>
     [JsonIgnore]
-    public string ToolIconKey => ToolCallDisplay.IconKey(ToolName);
+    public bool NeedsCollapse => ToolCalls.Count > 3;
+
+    /// <summary>
+    /// 当前是否处于收起态（需折叠且未展开）
+    /// </summary>
+    [JsonIgnore]
+    public bool IsGroupCollapsed => NeedsCollapse && !IsGroupExpanded;
+
+    /// <summary>
+    /// 反序列化/克隆后重新挂接集合变更监听并刷新派生属性
+    /// </summary>
+    public void RehookToolCalls()
+    {
+        ToolCalls.CollectionChanged -= OnToolCallsChanged;
+        ToolCalls.CollectionChanged += OnToolCallsChanged;
+        OnPropertyChanged(nameof(ToolCallCount));
+        OnPropertyChanged(nameof(NeedsCollapse));
+        OnPropertyChanged(nameof(IsGroupCollapsed));
+    }
 }
