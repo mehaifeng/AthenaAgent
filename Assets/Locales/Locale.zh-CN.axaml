@@ -127,7 +127,6 @@
     <system:String x:Key="Config.WarnHigh">高负载 (>80%)</system:String>
     <system:String x:Key="Config.CompressionPreview">压缩预览</system:String>
     <system:String x:Key="Config.InheritPrimary">继承主配置</system:String>
-    <system:String x:Key="Config.ShowToolCallDetails">显示工具调用详情</system:String>
     <system:String x:Key="Config.SkipRegenerateConfirm">跳过重新生成确认</system:String>
     <system:String x:Key="Config.SkipEditMessageConfirm">跳过编辑确认</system:String>
     <system:String x:Key="Config.TestConnectNoRespond">连接成功但未收到有效响应（可能是安全过滤或模型拒绝回答）</system:String>
@@ -376,6 +375,8 @@
     <system:String x:Key="Tool.CallComplete">{0} 调用完毕，持续思考中...</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">参数</system:String>
     <system:String x:Key="Tool.ResultLabel">结果</system:String>
+    <system:String x:Key="Tool.GroupExpand">展开全部 {0} 个工具调用</system:String>
+    <system:String x:Key="Tool.GroupCollapse">收起</system:String>
 
     <!-- Additional Recurrence Options -->
     <system:String x:Key="Recurrence.Every3Days">每 3 天</system:String>
