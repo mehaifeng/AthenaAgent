@@ -16,12 +16,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _language = "zh-CN";
 
-    /// <summary>
-    /// 是否在对话中显示工具调用详情卡片（实时与历史对话均生效）
-    /// </summary>
-    [ObservableProperty]
-    private bool _showToolCallDetails = true;
-
     // AI 配置
     [ObservableProperty]
     private string _provider = "OpenAI";

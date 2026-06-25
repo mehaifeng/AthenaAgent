@@ -60,6 +60,9 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly Dictionary<string, CancellationTokenSource> _documentParseCts = new();
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
+    // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
+    private bool _forceNewAssistantTextSegment;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private string _inputText = string.Empty;
@@ -108,12 +111,6 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _themeIcon = "Moon"; // "Moon"=当前Dark点一下切Light, "Sun"=当前Light点一下切Dark
-
-    /// <summary>
-    /// 是否在对话气泡中显示工具调用详情卡片（绑定全局配置，实时与历史对话均生效）
-    /// </summary>
-    [ObservableProperty]
-    private bool _showToolCallDetails = true;
 
     // 调试：原始上下文（发送给主模型的 raw 消息）视图开关与内容。
     [ObservableProperty]
@@ -206,16 +203,6 @@ public partial class ChatTabViewModel : ViewModelBase
             if (_tokenService != null) _tokenService.MaxTokens = config.MaxContextTokens;
             CurrentTheme = config.Theme;
             ThemeIcon = config.Theme == "Dark" ? "Moon" : "Sun";
-            ShowToolCallDetails = config.ShowToolCallDetails;
-
-            // 监听配置变更（如在设置页切换“显示工具调用详情”），实时同步到对话视图
-            _configService.ConfigChanged += (s, newConfig) =>
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    ShowToolCallDetails = newConfig.ShowToolCallDetails;
-                });
-            };
         }
 
         // 监听全局主题变更（来自 ConfigTabView 或其他入口），同步按钮状态
@@ -1188,6 +1175,7 @@ public partial class ChatTabViewModel : ViewModelBase
         var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
+        _forceNewAssistantTextSegment = false;
         var assistantMsg = new ChatMessage
         {
             Role = "assistant",
@@ -1216,14 +1204,13 @@ public partial class ChatTabViewModel : ViewModelBase
                         msg.IsHidden = true;
                         InsertBeforeActiveBubble(assistantMsg, msg);
 
-                        // 该轮在 tool_call 之前流式出来的前导正文已随隐藏消息进入上下文，
-                        // 清空活动气泡的文本（保留工具产出的图片段/附件），避免正文重复计数。
-                        ResetActiveBubbleText(assistantMsg);
+                        // 把本轮的阶段性正文固化为可见段并清空 Content（去重），保留所有可见段
+                        CommitActiveBubbleRound(assistantMsg);
 
                         // 为本轮的每个工具调用追加一张「执行中」卡片
                         assistantMsg.IsLoading = false;
                         assistantMsg.ToolExecutionSummary = string.Empty;
-                        AddToolCallSegments(assistantMsg, msg.ToolCallsJson);
+                        AddToolCallEntries(assistantMsg, msg.ToolCallsJson);
                     }
                     else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
                     {
@@ -1292,7 +1279,7 @@ public partial class ChatTabViewModel : ViewModelBase
                         InsertBeforeActiveBubble(assistantMsg, msg);
 
                         // 把工具结果回填到对应卡片（按 ToolCallId 匹配），并标记成功/失败
-                        CompleteToolCallSegment(assistantMsg, msg.ToolCallId, msg.ToolName, msg.Content);
+                        CompleteToolCallEntry(assistantMsg, msg.ToolCallId, msg.ToolName, msg.Content);
 
                         // 工具执行完毕，等待大模型下一步指示——保留思考动画
                         assistantMsg.ToolExecutionSummary = string.Empty;
@@ -1383,6 +1370,9 @@ public partial class ChatTabViewModel : ViewModelBase
             {
                 assistantMsg.IsLoading = false;
                 assistantMsg.ToolExecutionSummary = string.Empty;
+
+                // 输出结束（成功/停止/报错均经此）：自动收起工具调用组（露 3 个 + peek），尊重用户手动操作
+                CollapseToolGroups(assistantMsg);
 
                 // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
                 if (string.IsNullOrWhiteSpace(assistantMsg.Content)
@@ -1821,7 +1811,16 @@ public partial class ChatTabViewModel : ViewModelBase
                     {
                         segment.Kind,
                         segment.Text,
-                        segment.AttachmentId
+                        segment.AttachmentId,
+                        ToolCalls = segment.ToolCalls.Select(t => new
+                        {
+                            t.ToolCallId,
+                            t.Name,
+                            t.Summary,
+                            t.Arguments,
+                            t.Result,
+                            t.Status
+                        }).ToList()
                     }).ToList()
                 })
                 .ToList()
@@ -2129,10 +2128,23 @@ public partial class ChatTabViewModel : ViewModelBase
         message.NotifySegmentsChanged();
     }
 
-    private static void AppendAssistantMarkdownSegment(ChatMessage message, string contentDelta)
+    private void AppendAssistantMarkdownSegment(ChatMessage message, string contentDelta)
     {
         if (message.Segments.Count == 0)
         {
+            return;
+        }
+
+        // 工具轮刚封口：本段正文另起一个 Markdown 段，避免与上一轮文本拼接成一段
+        if (_forceNewAssistantTextSegment)
+        {
+            _forceNewAssistantTextSegment = false;
+            message.Segments.Add(new ChatMessageSegment
+            {
+                Kind = ChatMessageSegmentKind.Markdown,
+                Text = contentDelta
+            });
+            message.NotifySegmentsChanged();
             return;
         }
 
@@ -2152,7 +2164,7 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     // 为本轮工具调用追加「执行中」卡片（每个工具一张）。
-    private static void AddToolCallSegments(ChatMessage message, string? toolCallsJson)
+    private static void AddToolCallEntries(ChatMessage message, string? toolCallsJson)
     {
         if (string.IsNullOrWhiteSpace(toolCallsJson))
         {
@@ -2167,6 +2179,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
+            var group = GetOrCreateToolCallGroup(message);
+
             foreach (var node in toolCalls)
             {
                 if (node == null)
@@ -2178,15 +2192,20 @@ public partial class ChatTabViewModel : ViewModelBase
                 var id = node["Id"]?.ToString();
                 var arguments = node["Arguments"]?.ToString();
 
-                message.Segments.Add(new ChatMessageSegment
+                group.ToolCalls.Add(new ToolCallEntry
                 {
-                    Kind = ChatMessageSegmentKind.ToolCall,
                     ToolCallId = id,
-                    ToolName = name,
-                    ToolSummary = ToolCallDisplay.Summarize(name, arguments),
-                    ToolArguments = ToolCallDisplay.PrettyArguments(arguments),
-                    ToolStatus = ToolCallStatus.Running
+                    Name = name,
+                    Summary = ToolCallDisplay.Summarize(name, arguments),
+                    Arguments = ToolCallDisplay.PrettyArguments(arguments),
+                    Status = ToolCallStatus.Running
                 });
+            }
+
+            // 流式期间展开整组，方便观察实时进度（除非用户已手动收起）
+            if (!group.UserToggledGroup)
+            {
+                group.IsGroupExpanded = true;
             }
 
             message.NotifySegmentsChanged();
@@ -2197,32 +2216,64 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    // 工具结果回填到对应卡片：按 ToolCallId 匹配，标记成功/失败并填入结果预览。
-    private static void CompleteToolCallSegment(ChatMessage message, string? toolCallId, string toolName, string? resultJson)
+    // 一条消息内所有工具调用汇总进同一个组，并固定置顶（segment 索引 0），
+    // 让全部工具调用集中在气泡顶部、阶段性回复文本依次排在其下方。
+    private static ChatMessageSegment GetOrCreateToolCallGroup(ChatMessage message)
     {
-        var segment = message.Segments.FirstOrDefault(s =>
-            s.IsToolCall && !string.IsNullOrEmpty(s.ToolCallId) && s.ToolCallId == toolCallId);
+        var group = message.Segments.FirstOrDefault(s => s.IsToolCallGroup);
+        if (group == null)
+        {
+            group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+            message.Segments.Insert(0, group);
+        }
 
-        // 兜底：没有 Id 匹配时，取第一张仍在执行中的同名卡片
-        segment ??= message.Segments.FirstOrDefault(s =>
-            s.IsToolCall && s.IsToolRunning && (string.IsNullOrEmpty(toolName) || s.ToolName == toolName));
+        return group;
+    }
 
-        if (segment == null)
+    // 工具结果回填到对应项：按 ToolCallId 匹配，标记成功/失败并填入结果预览。
+    private static void CompleteToolCallEntry(ChatMessage message, string? toolCallId, string toolName, string? resultJson)
+    {
+        ToolCallEntry? entry = null;
+        foreach (var seg in message.Segments)
+        {
+            if (!seg.IsToolCallGroup)
+            {
+                continue;
+            }
+
+            entry = seg.ToolCalls.FirstOrDefault(t =>
+                !string.IsNullOrEmpty(t.ToolCallId) && t.ToolCallId == toolCallId);
+            if (entry != null)
+            {
+                break;
+            }
+        }
+
+        // 兜底：没有 Id 匹配时，取第一项仍在执行中的同名调用
+        entry ??= message.Segments
+            .Where(s => s.IsToolCallGroup)
+            .SelectMany(s => s.ToolCalls)
+            .FirstOrDefault(t => t.IsRunning && (string.IsNullOrEmpty(toolName) || t.Name == toolName));
+
+        if (entry == null)
         {
             return;
         }
 
         var (success, preview) = ToolCallDisplay.ParseResult(resultJson);
-        segment.ToolStatus = success ? ToolCallStatus.Success : ToolCallStatus.Failed;
-        segment.ToolResult = preview;
+        entry.Status = success ? ToolCallStatus.Success : ToolCallStatus.Failed;
+        entry.Result = preview;
     }
 
-    [RelayCommand]
-    private static void ToggleToolCallExpanded(ChatMessageSegment? segment)
+    // 工具轮全部完成、开始/结束输出最终正文时收起工具组（尊重用户已手动展开/收起的意愿）。
+    private static void CollapseToolGroups(ChatMessage message)
     {
-        if (segment != null && segment.IsToolCall)
+        foreach (var seg in message.Segments)
         {
-            segment.IsExpanded = !segment.IsExpanded;
+            if (seg.IsToolCallGroup && !seg.UserToggledGroup)
+            {
+                seg.IsGroupExpanded = false;
+            }
         }
     }
 
@@ -2241,19 +2292,31 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    // 工具轮封口时仅清空活动气泡的文本与推理内容，保留工具产出的图片段/附件，
-    // 让下一段（最终）正文从干净状态开始，并避免前导正文重复进入上下文。
-    private static void ResetActiveBubbleText(ChatMessage bubble)
+    // 工具轮封口：把本轮流式出的「阶段性正文」固化为可见 Markdown 段（避免随后续轮被覆盖），
+    // 然后清空活动气泡的 Content/Reasoning。
+    // 清空的原因仅是上下文去重——该正文已随隐藏的 tool_call 消息进入上下文（见 UpdateConversationContext），
+    // 保留 Content 会让其重复计入；但可见的 Markdown 段必须保留，否则阶段性回复会从界面消失。
+    private void CommitActiveBubbleRound(ChatMessage bubble)
     {
+        if (!string.IsNullOrWhiteSpace(bubble.Content))
+        {
+            var last = bubble.Segments.LastOrDefault();
+            if (last == null || !last.IsMarkdown)
+            {
+                // 首轮（流式时 Segments 还为空，AppendAssistantMarkdownSegment 会跳过建段）：补建一段承载前导正文
+                bubble.Segments.Add(new ChatMessageSegment
+                {
+                    Kind = ChatMessageSegmentKind.Markdown,
+                    Text = bubble.Content
+                });
+            }
+            // 末尾已是 Markdown 段时，流式正文已逐字写入其中，无需重复添加
+        }
+
         bubble.Content = string.Empty;
         bubble.ReasoningContent = null;
-        for (int i = bubble.Segments.Count - 1; i >= 0; i--)
-        {
-            if (bubble.Segments[i].IsMarkdown)
-            {
-                bubble.Segments.RemoveAt(i);
-            }
-        }
+        // 下一段正文另起一段（工具组置顶后，相邻轮文本之间不再有工具段天然分隔）
+        _forceNewAssistantTextSegment = true;
         bubble.NotifySegmentsChanged();
     }
 }

@@ -103,20 +103,6 @@ public class ThemeTagToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// 工具卡片所在 segment 容器的可见性：仅当「是工具卡片」且「全局关闭了工具调用详情」时隐藏，
-/// 其余（普通正文/图片段）始终可见。values[0]=IsToolCall, values[1]=ShowToolCallDetails。
-/// </summary>
-public class ToolCardVisibilityConverter : IMultiValueConverter
-{
-    public object Convert(System.Collections.Generic.IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
-    {
-        bool isToolCall = values.Count > 0 && values[0] is bool a && a;
-        bool showDetails = values.Count > 1 && values[1] is bool b && b;
-        return !isToolCall || showDetails;
-    }
-}
-
-/// <summary>
 /// 把 Semi 图标资源 key（字符串）解析为 PathIcon 可用的 Geometry。
 /// 用于按工具名动态选择图标（无法用 {StaticResource {Binding}} 实现）。
 /// </summary>
