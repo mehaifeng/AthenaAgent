@@ -15,6 +15,11 @@ public interface IEmbeddingService
     bool IsConfigured { get; }
 
     /// <summary>
+    /// 当前生效的嵌入模型标识（用于向量库模型指纹校验）。未配置时为 null。
+    /// </summary>
+    string? ModelId { get; }
+
+    /// <summary>
     /// 生成文本的向量表示
     /// </summary>
     /// <param name="text">输入文本</param>
