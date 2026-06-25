@@ -287,7 +287,6 @@
             <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
-            <conv:ToolCardVisibilityConverter x:Key="ToolCardVisibilityConverter"/>
 
             <!-- 字体设置 -->
             <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->

@@ -54,19 +54,30 @@ public static class ConversationPersistenceHelper
 
     public static ChatMessageSegment CloneSegment(ChatMessageSegment segment)
     {
-        return new ChatMessageSegment
+        var clone = new ChatMessageSegment
         {
             Kind = segment.Kind,
             Text = segment.Text,
             AttachmentId = segment.AttachmentId,
-            ToolCallId = segment.ToolCallId,
-            ToolName = segment.ToolName,
-            ToolSummary = segment.ToolSummary,
-            ToolArguments = segment.ToolArguments,
-            ToolResult = segment.ToolResult,
-            ToolStatus = segment.ToolStatus,
-            IsExpanded = segment.IsExpanded
+            IsGroupExpanded = segment.IsGroupExpanded
         };
+
+        foreach (var entry in segment.ToolCalls)
+        {
+            clone.ToolCalls.Add(new ToolCallEntry
+            {
+                ToolCallId = entry.ToolCallId,
+                Name = entry.Name,
+                Summary = entry.Summary,
+                Arguments = entry.Arguments,
+                Result = entry.Result,
+                Status = entry.Status,
+                IsExpanded = entry.IsExpanded
+            });
+        }
+
+        clone.RehookToolCalls();
+        return clone;
     }
 
     public static ChatAttachment CloneAttachment(ChatAttachment attachment)
@@ -106,6 +117,17 @@ public static class ConversationPersistenceHelper
         {
             attachment.IsPlaying = false;
             attachment.Position = TimeSpan.Zero;
+        }
+
+        // 还原后恢复工具组的集合监听与派生属性，并默认收起（用户未手动展开）
+        foreach (var segment in msg.Segments)
+        {
+            if (segment.IsToolCallGroup)
+            {
+                segment.RehookToolCalls();
+                segment.UserToggledGroup = false;
+                segment.IsGroupExpanded = false;
+            }
         }
 
         msg.ResolveSegmentAttachments();

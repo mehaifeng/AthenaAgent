@@ -94,7 +94,6 @@
     <system:String x:Key="Config.AudioOutput">Audio Output</system:String>
     <system:String x:Key="Config.ImageGeneration">Image Generation</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">Background Tasks and Auxiliary Core</system:String>
-    <system:String x:Key="Config.ShowToolCallDetails">Show tool call details</system:String>
     <system:String x:Key="Config.SkipRegenerateConfirm">Skp regenrate confirm</system:String>
     <system:String x:Key="Config.SkipEditMessageConfirm">skip edit confirm</system:String>
 
@@ -376,6 +375,8 @@
     <system:String x:Key="Tool.CallComplete">{0} completed, continuing...</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">Arguments</system:String>
     <system:String x:Key="Tool.ResultLabel">Result</system:String>
+    <system:String x:Key="Tool.GroupExpand">Show all {0} tool calls</system:String>
+    <system:String x:Key="Tool.GroupCollapse">Collapse</system:String>
 
     <!-- Additional Recurrence Options -->
     <system:String x:Key="Recurrence.Every3Days">Every 3 days</system:String>
