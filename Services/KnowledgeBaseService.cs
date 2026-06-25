@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Security;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -72,9 +73,30 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     private static readonly string[] DangerousPathPatterns = { "..", "~", "\0", "::" };
 
     /// <summary>
-    /// 文本分块大小（字符）
+    /// 文本分块目标大小（字符）。块内语义更完整，降低字面相近但语义无关的误召回。
     /// </summary>
-    private const int ChunkSize = 300;
+    private const int ChunkSize = 800;
+
+    /// <summary>
+    /// 相邻分块的重叠字符数，避免跨块边界切断语义。
+    /// </summary>
+    private const int ChunkOverlap = 120;
+
+    /// <summary>
+    /// 余弦相似度门控阈值：低于此值视为不相关，直接丢弃。这是“拒绝无关内容”的唯一开关。
+    /// 经验值针对 text-embedding-3-small；可随模型校准（日志会打印命中的最高相似度）。
+    /// </summary>
+    private const double MinSimilarity = 0.30;
+
+    /// <summary>
+    /// RRF（Reciprocal Rank Fusion）平滑常数，标准取 60。基于排名融合，规避两路分数量纲不一致。
+    /// </summary>
+    private const int RrfK = 60;
+
+    /// <summary>
+    /// 每路检索（稠密/稀疏）的候选数量，为融合提供足够召回池。
+    /// </summary>
+    private const int CandidatePerSource = 40;
 
     #endregion
 
@@ -427,121 +449,96 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
     }
 
+    /// <summary>
+    /// 混合检索：稠密（余弦）+ 稀疏（FTS/BM25）双路召回，RRF 融合排序，再用余弦门控过滤无关内容。
+    /// 排序与“判定相关”职责分离：RRF 负责排序（无量纲），余弦负责门控（可解释）。
+    /// </summary>
     public async Task<List<KnowledgeSearchResult>> SearchAsync(string query, int maxResults = 5)
     {
-        var results = new List<KnowledgeSearchResult>();
-
-        // 1. 获取 FTS 结果 (关键字匹配)
-        var ftsResults = await _vectorStoreService.SearchFtsAsync(query, maxResults);
-        foreach (var fts in ftsResults)
-        {
-            results.Add(new KnowledgeSearchResult
-            {
-                FilePath = fts.FilePath,
-                Snippet = fts.Content,
-                RelevanceScore = 0.5 + Math.Min(0.4, fts.Score * 0.01) // 给 FTS 结果一个基础权重，但不超过 0.9
-            });
-        }
-
-        // 2. 获取向量结果 (语义匹配)
-        if (_embeddingService != null && _embeddingService.IsConfigured)
-        {
-            var vectorResults = await SearchWithEmbeddingAsync(query, maxResults);
-            
-            // 合并结果
-            foreach (var vr in vectorResults)
-            {
-                var existing = results.FirstOrDefault(r => r.FilePath == vr.FilePath && r.Snippet == vr.Snippet);
-                if (existing != null)
-                {
-                    // 如果两个都有，权重叠加
-                    existing.RelevanceScore = Math.Max(existing.RelevanceScore, vr.RelevanceScore) + 0.1;
-                }
-                else
-                {
-                    results.Add(vr);
-                }
-            }
-        }
-
-        // 3. 重排并去重
-        return results
-            .OrderByDescending(r => r.RelevanceScore)
-            .GroupBy(r => new { r.FilePath, r.Snippet })
-            .Select(g => g.First())
-            .Take(maxResults)
-            .ToList();
-    }
-
-    /// <summary>
-    /// 使用向量语义检索
-    /// </summary>
-    private async Task<List<KnowledgeSearchResult>> SearchWithEmbeddingAsync(string query, int maxResults)
-    {
-        var results = new List<KnowledgeSearchResult>();
+        if (string.IsNullOrWhiteSpace(query)) return new List<KnowledgeSearchResult>();
 
         try
         {
-            // 确保向量缓存已初始化
-            if (!_vectorCacheInitialized)
+            var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
+
+            // 查询向量：稠密召回 + 余弦门控共用
+            float[]? queryEmbedding = null;
+            if (embeddingsOn)
             {
-                await LoadOrRefreshVectorsAsync();
+                if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
+                queryEmbedding = await _embeddingService!.GenerateEmbeddingAsync(query);
             }
 
-            // 如果缓存仍为空，返回空结果
-            if (_vectorCache.Count == 0)
+            // 1) 稠密召回（余弦）。同时记录全量相似度，供门控复用（含稀疏-only 候选）
+            var simByKey = new Dictionary<(string, int), double>();
+            var denseDocs = new List<DocumentVector>();
+            if (queryEmbedding != null && _vectorCache.Count > 0)
             {
-                _logger.Debug("向量缓存为空，无搜索结果");
-                return results;
+                var scored = _vectorCache
+                    .Where(d => d.Embedding != null)
+                    .Select(d => (Doc: d, Sim: (double)_embeddingService!.CosineSimilarity(queryEmbedding, d.Embedding!)))
+                    .ToList();
+                foreach (var s in scored) simByKey[(s.Doc.FilePath, s.Doc.ChunkIndex)] = s.Sim;
+                denseDocs = scored.OrderByDescending(x => x.Sim).Take(CandidatePerSource).Select(x => x.Doc).ToList();
             }
 
-            // 生成查询向量
-            var queryEmbedding = await _embeddingService!.GenerateEmbeddingAsync(query);
-            if (queryEmbedding == null)
+            // 2) 稀疏召回（FTS / BM25）
+            var sparseHits = await _vectorStoreService.SearchFtsAsync(query, CandidatePerSource);
+
+            // 3) RRF 融合：score(d) = Σ 1/(k + rank)，按排名合并两路，规避分数量纲不一致
+            var rrf = new Dictionary<(string, int), double>();
+            var snippet = new Dictionary<(string, int), (string FilePath, string Text)>();
+
+            for (int i = 0; i < denseDocs.Count; i++)
             {
-                _logger.Warning("生成查询向量失败");
-                return results;
+                var key = (denseDocs[i].FilePath, denseDocs[i].ChunkIndex);
+                rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
+                snippet[key] = (denseDocs[i].FilePath, denseDocs[i].ChunkText);
+            }
+            for (int i = 0; i < sparseHits.Count; i++)
+            {
+                var key = (sparseHits[i].FilePath, sparseHits[i].ChunkIndex);
+                rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
+                if (!snippet.ContainsKey(key)) snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content);
             }
 
-            // 计算所有文档的相似度
-            var scoredDocs = _vectorCache
-                .Where(doc => doc.Embedding != null)
-                .Select(doc => new
-                {
-                    Document = doc,
-                    Similarity = _embeddingService.CosineSimilarity(queryEmbedding, doc.Embedding!)
-                })
-                .OrderByDescending(x => x.Similarity)
-                .Take(maxResults * 2) 
+            if (rrf.Count == 0) return new List<KnowledgeSearchResult>();
+
+            // 4) 余弦门控 + 按 RRF 排序 + TopK。仅在有查询向量时门控（否则退化为纯词面检索）
+            var candidates = rrf.Keys
+                .Select(key => (
+                    Rrf: rrf[key],
+                    Sim: simByKey.TryGetValue(key, out var s) ? s : double.NaN,
+                    Info: snippet[key]))
                 .ToList();
 
-            _logger.Debug("向量计算完成，Top1 相似度: {Sim}", scoredDocs.FirstOrDefault()?.Similarity ?? 0);
+            IEnumerable<(double Rrf, double Sim, (string FilePath, string Text) Info)> survivors = candidates;
+            if (queryEmbedding != null)
+            {
+                survivors = candidates.Where(x => !double.IsNaN(x.Sim) && x.Sim >= MinSimilarity);
+                var topSim = candidates.Where(x => !double.IsNaN(x.Sim)).Select(x => x.Sim).DefaultIfEmpty(0).Max();
+                _logger.Debug("检索 '{Query}': 候选 {Cand}，门控阈值 {Tau}，最高相似度 {Sim:F3}",
+                    query, candidates.Count, MinSimilarity, topSim);
+            }
 
-            // 按文件去重，保留最高分
-            var uniqueResults = scoredDocs
-                .GroupBy(x => x.Document.FilePath)
-                .Select(g => g.OrderByDescending(x => x.Similarity).First())
+            var top = survivors
+                .OrderByDescending(x => x.Rrf)
                 .Take(maxResults)
                 .ToList();
 
-            foreach (var item in uniqueResults)
+            return top.Select(x => new KnowledgeSearchResult
             {
-                results.Add(new KnowledgeSearchResult
-                {
-                    FilePath = item.Document.FilePath,
-                    Snippet = item.Document.ChunkText,
-                    RelevanceScore = item.Similarity
-                });
-            }
-
-            _logger.Debug("向量搜索 '{Query}' 找到 {Count} 个结果", query, results.Count);
+                FilePath = x.Info.FilePath,
+                Snippet = x.Info.Text,
+                // 展示可解释的余弦相似度；纯词面模式下退回 RRF 分
+                RelevanceScore = queryEmbedding != null ? Math.Round(x.Sim, 4) : Math.Round(x.Rrf, 4)
+            }).ToList();
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "向量搜索失败");
+            _logger.Error(ex, "混合检索失败");
+            return new List<KnowledgeSearchResult>();
         }
-
-        return results;
     }
 
     /// <summary>
@@ -565,25 +562,28 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         _logger.Information("从数据库加载 {VectorCount} 个向量，{FileCount} 个文件状态",
             existingVectors.Count, fileStatuses.Count);
 
-        // 维度一致性检查：检查数据库中是否存在不一致的维度，或者与当前模型不符
-        if (existingVectors.Count > 0 && _embeddingService != null && _embeddingService.IsConfigured)
+        // 模型指纹校验：模型标识或维度变化即全量重建，根治“同维度换模型”导致的新旧向量空间不一致。
+        if (_embeddingService != null && _embeddingService.IsConfigured)
         {
-            var testEmbedding = await _embeddingService.GenerateEmbeddingAsync("test");
-            if (testEmbedding != null)
+            var probe = await _embeddingService.GenerateEmbeddingAsync("test");
+            var currentModel = _embeddingService.ModelId ?? string.Empty;
+            var currentDim = probe?.Length ?? 0;
+            var stored = await _vectorStoreService.GetEmbeddingFingerprintAsync();
+
+            bool mismatch = currentDim > 0 &&
+                (stored == null || stored.Value.Model != currentModel || stored.Value.Dimension != currentDim);
+
+            if (mismatch && existingVectors.Count > 0)
             {
-                var currentModelDim = testEmbedding.Length;
-                
-                // 检查是否所有向量都匹配当前维度
-                bool allMatch = existingVectors.All(v => v.Embedding != null && v.Embedding.Length == currentModelDim);
-                
-                if (!allMatch)
-                {
-                    _logger.Warning("检测到数据库中存在旧模型生成的向量（维度不匹配），正在清除旧索引并强制全量重新索引以保证检索准确性...");
-                    await _vectorStoreService.ClearAllAsync();
-                    existingVectors.Clear();
-                    fileStatuses.Clear();
-                }
+                _logger.Warning("嵌入模型指纹变化（{OldModel}/{OldDim} -> {NewModel}/{NewDim}），清空并全量重建索引",
+                    stored?.Model ?? "(无)", stored?.Dimension ?? 0, currentModel, currentDim);
+                await _vectorStoreService.ClearAllAsync();
+                existingVectors.Clear();
+                fileStatuses.Clear();
             }
+
+            if (currentDim > 0)
+                await _vectorStoreService.SetEmbeddingFingerprintAsync(currentModel, currentDim);
         }
 
             // 获取当前文件列表
@@ -644,31 +644,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                         var content = await File.ReadAllTextAsync(fullPath);
                         var hash = VectorStoreService.ComputeFileHash(content);
 
-                        var chunks = SplitIntoChunks(content, ChunkSize);
-                        if (chunks.Count == 0) continue;
-
-                        var embeddings = await _embeddingService!.GenerateEmbeddingsAsync(chunks);
-
-                        var vectors = new List<(int Index, string ChunkText, float[] Embedding)>();
-                        for (int i = 0; i < chunks.Count && i < embeddings.Count; i++)
-                        {
-                            if (embeddings[i] != null)
-                            {
-                                vectors.Add((i, chunks[i], embeddings[i]!));
-                                _vectorCache.Add(new DocumentVector
-                                {
-                                    FilePath = filePath,
-                                    ChunkIndex = i,
-                                    ChunkText = chunks[i],
-                                    Embedding = embeddings[i]!,
-                                    FileHash = hash
-                                });
-                            }
-                        }
-
-                        // 保存到数据库
-                        await _vectorStoreService.SaveVectorsAsync(filePath, hash, vectors);
-                        _logger.Debug("处理文件 {FilePath}: {Count} 个向量", filePath, vectors.Count);
+                        var count = await IndexFileAsync(filePath, content, hash);
+                        _logger.Debug("处理文件 {FilePath}: {Count} 个向量", filePath, count);
                     }
                     catch (Exception ex)
                     {
@@ -732,34 +709,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                 return; // 文件未变更
             }
 
-            // 移除旧向量
+            // 移除旧向量后重建
             _vectorCache.RemoveAll(v => v.FilePath == relativePath);
 
-            // 生成新向量
-            var chunks = SplitIntoChunks(content, ChunkSize);
-            if (chunks.Count == 0) return;
-
-            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunks);
-
-            var vectors = new List<(int Index, string ChunkText, float[] Embedding)>();
-            for (int i = 0; i < chunks.Count && i < embeddings.Count; i++)
-            {
-                if (embeddings[i] != null)
-                {
-                    vectors.Add((i, chunks[i], embeddings[i]!));
-                    _vectorCache.Add(new DocumentVector
-                    {
-                        FilePath = relativePath,
-                        ChunkIndex = i,
-                        ChunkText = chunks[i],
-                        Embedding = embeddings[i]!,
-                        FileHash = hash
-                    });
-                }
-            }
-
-            await _vectorStoreService.SaveVectorsAsync(relativePath, hash, vectors);
-            _logger.Debug("增量更新文件向量: {FilePath}, {Count} 个向量", relativePath, vectors.Count);
+            var count = await IndexFileAsync(relativePath, content, hash);
+            _logger.Debug("增量更新文件向量: {FilePath}, {Count} 个向量", relativePath, count);
         }
         catch (Exception ex)
         {
@@ -768,85 +722,135 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>
-    /// 语义化 Markdown 文本分块
-    /// 优先按标题 (H1-H3) 切分，其次按段落切分，尽量保持代码块和列表的完整性
+    /// 一个分块：标题路径（面包屑）+ 用于展示/存储的原文。
+    /// 嵌入文本 = 标题路径 + 原文（见 <see cref="BuildEmbedText"/>），让短块也带上上下文。
     /// </summary>
-    private List<string> SplitIntoChunks(string text, int maxChunkSize)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return new List<string>();
+    private readonly record struct Chunk(string HeadingPath, string DisplayText);
 
-        var chunks = new List<string>();
+    /// <summary>匹配 HTML 注释（含 &lt;!-- Tags: ... --&gt;），索引前剥离以免污染向量。</summary>
+    private static readonly Regex HtmlCommentRegex = new(@"<!--.*?-->", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    /// <summary>索引前清洗：去除 HTML 注释等噪声。</summary>
+    private static string CleanForIndex(string markdown) => HtmlCommentRegex.Replace(markdown, string.Empty);
+
+    /// <summary>构造嵌入文本：标题路径前缀 + 原文，给短块补充上下文以提升相关性。</summary>
+    private static string BuildEmbedText(in Chunk c) =>
+        string.IsNullOrEmpty(c.HeadingPath) ? c.DisplayText : c.HeadingPath + "\n" + c.DisplayText;
+
+    /// <summary>
+    /// 对单个文件做：清洗 → 分块 → 批量嵌入 → 写库 → 更新内存缓存。返回成功写入的向量数。
+    /// 供首次全量与增量更新共用。
+    /// </summary>
+    private async Task<int> IndexFileAsync(string relativePath, string content, string hash)
+    {
+        var chunks = SplitIntoChunks(CleanForIndex(content));
+        if (chunks.Count == 0) return 0;
+
+        var embeddings = await _embeddingService!.GenerateEmbeddingsAsync(chunks.Select(c => BuildEmbedText(c)));
+
+        var vectors = new List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)>();
+        for (int i = 0; i < chunks.Count && i < embeddings.Count; i++)
+        {
+            if (embeddings[i] == null) continue;
+
+            vectors.Add((i, chunks[i].DisplayText, chunks[i].HeadingPath, embeddings[i]!));
+            _vectorCache.Add(new DocumentVector
+            {
+                FilePath = relativePath,
+                ChunkIndex = i,
+                ChunkText = chunks[i].DisplayText,
+                HeadingPath = chunks[i].HeadingPath,
+                Embedding = embeddings[i]!,
+                FileHash = hash
+            });
+        }
+
+        await _vectorStoreService.SaveVectorsAsync(relativePath, hash, vectors);
+        return vectors.Count;
+    }
+
+    /// <summary>
+    /// 结构感知的 Markdown 分块：按标题（H1–H3）分节并记录标题路径；节内按目标大小打包，
+    /// 相邻块保留重叠以免切断语义；代码块保持完整。
+    /// </summary>
+    private List<Chunk> SplitIntoChunks(string text)
+    {
+        var chunks = new List<Chunk>();
+        if (string.IsNullOrWhiteSpace(text)) return chunks;
+
         var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-        
-        var currentChunk = new StringBuilder();
-        bool inCodeBlock = false;
-        
+        var headings = new string?[3]; // H1 / H2 / H3
+        var buffer = new StringBuilder();
+        bool inCode = false;
+
+        string CurrentPath() => string.Join(" > ", headings.Where(h => !string.IsNullOrEmpty(h)));
+
+        void Flush()
+        {
+            var body = buffer.ToString().Trim();
+            if (body.Length > 0) chunks.Add(new Chunk(CurrentPath(), body));
+            buffer.Clear();
+        }
+
+        // 在同一标题节内切块后，携带上一块的尾部作为重叠，保持语义连续
+        void CarryOverlap()
+        {
+            if (chunks.Count == 0) return;
+            var last = chunks[^1].DisplayText;
+            var tail = last.Length > ChunkOverlap ? last[^ChunkOverlap..] : last;
+            buffer.Append(tail).Append('\n');
+        }
+
         foreach (var line in lines)
         {
-            var trimmedLine = line.Trim();
-            
-            // 处理代码块状态
-            if (trimmedLine.StartsWith("```"))
+            var trimmed = line.TrimStart();
+
+            if (trimmed.StartsWith("```")) inCode = !inCode;
+
+            int hLevel = 0;
+            if (!inCode)
             {
-                inCodeBlock = !inCodeBlock;
+                if (trimmed.StartsWith("# ")) hLevel = 1;
+                else if (trimmed.StartsWith("## ")) hLevel = 2;
+                else if (trimmed.StartsWith("### ")) hLevel = 3;
             }
 
-            // 检查是否是语义切分点（仅在非代码块内）
-            bool isHeader = !inCodeBlock && (trimmedLine.StartsWith("# ") || trimmedLine.StartsWith("## ") || trimmedLine.StartsWith("### "));
-            bool isParagraphBoundary = !inCodeBlock && string.IsNullOrWhiteSpace(trimmedLine);
-
-            // 决定是否在此处切断
-            bool shouldSplit = false;
-            
-            if (isHeader && currentChunk.Length > 0)
+            if (hLevel > 0)
             {
-                // 遇到新标题且已有内容，切断
-                shouldSplit = true;
-            }
-            else if (isParagraphBoundary && currentChunk.Length > (maxChunkSize * 0.7))
-            {
-                // 遇到段落结尾且当前分块已达到建议大小的 70%，切断以防过大
-                shouldSplit = true;
-            }
-            else if (currentChunk.Length + line.Length > maxChunkSize && !inCodeBlock)
-            {
-                // 强制切断：当前内容加上此行将超过最大限制（且不在代码块内）
-                shouldSplit = true;
+                // 标题是天然边界：先收尾当前节，再更新标题栈（重叠不跨节）
+                Flush();
+                headings[hLevel - 1] = trimmed.TrimStart('#').Trim();
+                for (int l = hLevel; l < headings.Length; l++) headings[l] = null;
+                buffer.Append(line).Append('\n'); // 标题行并入下一块正文，便于展示
+                continue;
             }
 
-            if (shouldSplit && currentChunk.Length > 0)
+            bool paragraphBoundary = !inCode && string.IsNullOrWhiteSpace(trimmed);
+
+            if (!inCode && buffer.Length > 0 && buffer.Length + line.Length > ChunkSize)
             {
-                var content = currentChunk.ToString().Trim();
-                if (!string.IsNullOrEmpty(content))
-                {
-                    chunks.Add(content);
-                }
-                currentChunk.Clear();
+                Flush();
+                CarryOverlap();
+            }
+            else if (paragraphBoundary && buffer.Length > ChunkSize * 0.7)
+            {
+                Flush();
+                CarryOverlap();
+                continue;
             }
 
-            currentChunk.AppendLine(line);
+            buffer.Append(line).Append('\n');
 
-            // 如果单行或单个代码块就已经超过了 maxChunkSize，也必须强制切分（兜底）
-            if (currentChunk.Length > maxChunkSize * 1.5 && !inCodeBlock)
+            // 兜底：单段/代码块过长时强制切分
+            if (!inCode && buffer.Length > ChunkSize * 1.5)
             {
-                var content = currentChunk.ToString().Trim();
-                chunks.Add(content);
-                currentChunk.Clear();
+                Flush();
+                CarryOverlap();
             }
         }
 
-        // 添加最后一个分块
-        if (currentChunk.Length > 0)
-        {
-            var content = currentChunk.ToString().Trim();
-            if (!string.IsNullOrEmpty(content))
-            {
-                chunks.Add(content);
-            }
-        }
-
-        // 最终过滤
-        return chunks.Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+        Flush();
+        return chunks;
     }
 
     public Task<List<string>> ListFilesAsync()

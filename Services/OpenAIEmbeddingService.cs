@@ -25,6 +25,10 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     public bool IsConfigured => _embeddingClient != null;
 
+    public string? ModelId => _embeddingClient != null && !string.IsNullOrWhiteSpace(_config.EmbeddingModel)
+        ? _config.EmbeddingModel
+        : null;
+
     public OpenAIEmbeddingService(AppConfig config, ILogger logger)
     {
         _config = config;
@@ -109,7 +113,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             
             if (result?.Value != null && result.Value.Count > 0)
             {
-                var embedding = result.Value[0].ToFloats().ToArray();
+                var embedding = NormalizeL2(result.Value[0].ToFloats().ToArray());
                 _logger.Debug("生成 Embedding 成功，维度: {Dimension}", embedding.Length);
                 return embedding;
             }
@@ -140,7 +144,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
             foreach (var embedding in response.Value)
             {
-                results.Add(embedding.ToFloats().ToArray());
+                results.Add(NormalizeL2(embedding.ToFloats().ToArray()));
             }
 
             _logger.Debug("批量生成 Embedding 成功，数量: {Count}", results.Count);
@@ -151,6 +155,20 @@ public class OpenAIEmbeddingService : IEmbeddingService
             _logger.Error(ex, "批量生成 Embedding 失败");
             return new List<float[]?>();
         }
+    }
+
+    /// <summary>
+    /// L2 归一化为单位向量。归一化后余弦相似度等价于点积，便于快速检索。
+    /// 零向量原样返回。
+    /// </summary>
+    private static float[] NormalizeL2(float[] v)
+    {
+        var norm = MathF.Sqrt(TensorPrimitives.Dot(v.AsSpan(), v.AsSpan()));
+        if (norm <= 1e-8f) return v;
+
+        var inv = 1f / norm;
+        for (int i = 0; i < v.Length; i++) v[i] *= inv;
+        return v;
     }
 
     public float CosineSimilarity(float[] a, float[] b)
