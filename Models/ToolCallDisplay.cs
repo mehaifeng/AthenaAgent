@@ -81,7 +81,7 @@ public static class ToolCallDisplay
         var label = FriendlyName(functionName);
         return string.IsNullOrWhiteSpace(key)
             ? label
-            : $"{label} · {Truncate(key, SummaryMaxLength)}";
+            : $"{label} · {Truncate(CollapseWhitespace(key), SummaryMaxLength)}";
     }
 
     /// <summary>
@@ -217,6 +217,20 @@ public static class ToolCallDisplay
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 把任意空白（换行、制表、连续空格）压成单个空格，确保摘要恒为单行，
+    /// 避免收起状态下的工具卡片标题被多行文本（如多行记忆正文/命令）撑高。
+    /// </summary>
+    private static string CollapseWhitespace(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(value, @"\s+", " ").Trim();
     }
 
     private static string Truncate(string value, int max)

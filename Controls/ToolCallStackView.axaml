@@ -62,6 +62,8 @@
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding Summary}"
                                                FontSize="11"
+                                               MaxLines="1"
+                                               TextWrapping="NoWrap"
                                                TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center"/>
 
