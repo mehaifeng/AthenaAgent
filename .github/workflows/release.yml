@@ -176,16 +176,19 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Add Simplified Chinese language file
+      - name: Ensure Simplified Chinese language file
         shell: pwsh
         run: |
-          # ChineseSimplified.isl is an unofficial translation not shipped with
-          # Inno Setup; fetch it from the upstream jrsoftware repo so the
-          # installer can offer a 简体中文 option alongside English.
+          # Prefer the ChineseSimplified.isl that ships with the installed Inno
+          # Setup (guaranteed to match the compiler version). Only fall back to
+          # downloading from upstream if this Inno Setup build does not bundle it.
           $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
-          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
-          Invoke-WebRequest -Uri $url -OutFile "$langDir\ChineseSimplified.isl"
-          if (-not (Test-Path "$langDir\ChineseSimplified.isl")) { throw "Failed to download ChineseSimplified.isl" }
+          $dest = "$langDir\ChineseSimplified.isl"
+          if (-not (Test-Path $dest)) {
+            $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl"
+            Invoke-WebRequest -Uri $url -OutFile $dest
+          }
+          if (-not (Test-Path $dest)) { throw "ChineseSimplified.isl is unavailable" }
 
       - name: Build installer
         shell: pwsh
