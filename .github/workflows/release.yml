@@ -193,13 +193,17 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
+          # Inno Setup resolves relative paths against the .iss file's folder,
+          # not the working directory — pass absolute paths so SourceDir and the
+          # SetupIconFile under RepoRoot\Assets resolve correctly.
+          $root = (Get-Location).Path
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             "/DMyAppVersion=$env:VERSION" `
-            "/DSourceDir=publish\win-x64" `
-            "/DRepoRoot=." `
-            "/OOutput" `
-            "Scripts\windows-installer.iss"
-          Get-ChildItem Output
+            "/DSourceDir=$root\publish\win-x64" `
+            "/DRepoRoot=$root" `
+            "/O$root\Output" `
+            "$root\Scripts\windows-installer.iss"
+          Get-ChildItem "$root\Output"
 
       - name: Upload installer to release
         shell: pwsh
