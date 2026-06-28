@@ -124,3 +124,87 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --clobber \
             Athena-*.dmg
+
+  windows-installer:
+    name: Build Windows Installer
+    needs: release
+    runs-on: windows-latest
+    if: ${{ needs.release.result == 'success' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release options
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish win-x64
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.options.outputs.tag }}"
+          $version = $tag -replace '^v', ''
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $out = "publish/win-x64"
+          # App + updater go into the same folder the installer bundles.
+          dotnet publish Athena.UI.csproj -c Release -r win-x64 --self-contained true `
+            -p:Version=$version -p:InformationalVersion=$version `
+            -p:FileVersion=$version -p:AssemblyVersion=$version `
+            -p:PublishSingleFile=false -p:UseAppHost=true -o $out
+          dotnet publish Athena.Updater/Athena.Updater.csproj -c Release -r win-x64 --self-contained true `
+            -p:Version=$version -p:InformationalVersion=$version `
+            -p:FileVersion=$version -p:AssemblyVersion=$version `
+            -p:PublishSingleFile=false -p:UseAppHost=true -o "$out/updater"
+          if (-not (Test-Path "$out/Athena.UI.exe")) { throw "Athena.UI.exe missing in publish output" }
+          if (-not (Test-Path "$out/updater/Athena.Updater.exe")) { throw "Athena.Updater.exe missing in publish output" }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Add Simplified Chinese language file
+        shell: pwsh
+        run: |
+          # ChineseSimplified.isl is an unofficial translation not shipped with
+          # Inno Setup; fetch it from the upstream jrsoftware repo so the
+          # installer can offer a 简体中文 option alongside English.
+          $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+          Invoke-WebRequest -Uri $url -OutFile "$langDir\ChineseSimplified.isl"
+          if (-not (Test-Path "$langDir\ChineseSimplified.isl")) { throw "Failed to download ChineseSimplified.isl" }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$env:VERSION" `
+            "/DSourceDir=publish\win-x64" `
+            "/DRepoRoot=." `
+            "/OOutput" `
+            "Scripts\windows-installer.iss"
+          Get-ChildItem Output
+
+      - name: Upload installer to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.options.outputs.tag }}"
+          gh release upload "$tag" `
+            --repo "${env:GITHUB_REPOSITORY}" `
+            --clobber `
+            "Output\Athena-$env:VERSION-win-x64-setup.exe"
