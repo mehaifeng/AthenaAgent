@@ -458,11 +458,11 @@ public class ConversationHistoryService : IConversationHistoryService
         };
     }
 
-    public async Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<Models.ChatMessage> messages, int keepRecentRounds = 3)
+    public async Task<CompressionResult> CompressContextAsync(List<Models.ChatMessage> messages, string? existingSummary, int keepRecentRounds = 3)
     {
         // 1. 获取当前所有未压缩的活跃消息
         var activeMessages = messages.Where(m => !m.IsCompressed).ToList();
-        
+
         // 2. 统计当前活跃消息包含的轮次（以 user 消息作为每一轮的开始）
         var userMessageIndices = activeMessages
             .Select((m, i) => new { Role = m.Role?.ToLower(), Index = i })
@@ -474,7 +474,7 @@ public class ConversationHistoryService : IConversationHistoryService
         if (userMessageIndices.Count <= keepRecentRounds)
         {
             Log.Debug("活跃轮次不足 ({Current} <= {Keep})，跳过压缩", userMessageIndices.Count, keepRecentRounds);
-            return (null, 0);
+            return CompressionResult.None;
         }
 
         // 3. 确定切分点：我们要保留最后 keepRecentRounds 个轮次
@@ -485,54 +485,127 @@ public class ConversationHistoryService : IConversationHistoryService
         if (splitIndex <= 0)
         {
             Log.Debug("切分点位于首条消息，无法执行压缩");
-            return (null, 0);
+            return CompressionResult.None;
         }
 
         // 现在 activeMessages[0...splitIndex-1] 是要被压缩的旧消息块（包含完整的历史轮次）
         var olderMessages = activeMessages.Take(splitIndex).ToList();
 
-        // 如果次级模型不可用，直接跳过压缩
-        if (_secondaryChatClient == null)
+        // 4. 优先用次级模型生成"旧摘要 ⊕ 旧消息"的滚动合并摘要
+        string? summary = null;
+        bool usedFallback = false;
+
+        if (_secondaryChatClient != null)
         {
-            Log.Warning("次级模型不可用，跳过上下文压缩");
-            return (null, 0);
-        }
-
-        try
-        {
-            // 构建摘要请求：排除 tool 消息，仅保留 user 和 assistant 的纯文本
-            var summaryPrompt = _promptService.GetPrompt(PromptType.ContextCompressionStrategy) + "\n\n" +
-                string.Join("\n", olderMessages
-                    .Where(m => m.Role == "user" || (m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson)))
-                    .Select(m => $"[{m.Role}]: {FormatMessageForSummary(m)}"));
-
-            var openAiMessages = new List<OpenAI.Chat.ChatMessage>
+            try
             {
-                new SystemChatMessage(_promptService.GetPrompt(PromptType.ContextCompression)),
-                new UserChatMessage(summaryPrompt)
-            };
+                var summaryPrompt = new System.Text.StringBuilder();
+                // 关键：把已有摘要作为既定事实喂回，避免多次压缩丢失更早历史
+                if (!string.IsNullOrWhiteSpace(existingSummary))
+                {
+                    summaryPrompt.AppendLine("[Previous running summary]:");
+                    summaryPrompt.AppendLine(StripSummaryPrefix(existingSummary));
+                    summaryPrompt.AppendLine();
+                }
+                summaryPrompt.AppendLine(_promptService.GetPrompt(PromptType.ContextCompressionStrategy));
+                summaryPrompt.AppendLine();
+                foreach (var m in olderMessages
+                    .Where(m => m.Role == "user" || (m.Role == "assistant" && string.IsNullOrEmpty(m.ToolCallsJson))))
+                {
+                    summaryPrompt.AppendLine($"[{m.Role}]: {FormatMessageForSummary(m)}");
+                }
 
-            var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
-            var summary = completion.Value.Content[0].Text?.Trim();
+                var openAiMessages = new List<OpenAI.Chat.ChatMessage>
+                {
+                    new SystemChatMessage(_promptService.GetPrompt(PromptType.ContextCompression)),
+                    new UserChatMessage(summaryPrompt.ToString())
+                };
 
-            // 5. 标记旧消息块为已压缩（包含其中的 tool 消息，整块移除）
-            foreach (var msg in olderMessages)
-            {
-                msg.IsCompressed = true;
+                var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
+                summary = completion.Value.Content[0].Text?.Trim();
             }
-
-            Log.Information("上下文压缩完成，从 {Old} 条消息（约 {Rounds} 轮）压缩为摘要。活跃部分从索引 {Index} 开始", 
-                olderMessages.Count, userMessageIndices.Count - keepRecentRounds, splitIndex);
-            
-            var summaryPrefix = GetString("History.SummaryPrefix", "[Summary]: {0}");
-            var formattedSummary = !string.IsNullOrEmpty(summary) ? string.Format(summaryPrefix, summary) : null;
-            return (formattedSummary, olderMessages.Count);
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AI 压缩失败，转本地兜底裁剪");
+            }
         }
-        catch (Exception ex)
+        else
         {
-            Log.Error(ex, "压缩上下文失败");
-            return (null, 0);
+            Log.Warning("次级模型不可用，转本地兜底裁剪");
         }
+
+        // 5. 兜底：AI 不可用 / 失败时用本地抽取式摘要，确保 token 一定下降而非无界增长
+        if (string.IsNullOrEmpty(summary))
+        {
+            summary = BuildExtractiveFallback(existingSummary, olderMessages);
+            usedFallback = true;
+        }
+
+        // 6. 标记旧消息块为已压缩（AI 与兜底路径都执行，保证上下文一定收缩）
+        foreach (var msg in olderMessages)
+        {
+            msg.IsCompressed = true;
+        }
+
+        Log.Information("上下文压缩完成({Mode})，从 {Old} 条消息（约 {Rounds} 轮）压缩为摘要。活跃部分从索引 {Index} 开始",
+            usedFallback ? "本地兜底" : "AI", olderMessages.Count, userMessageIndices.Count - keepRecentRounds, splitIndex);
+
+        var summaryPrefix = GetString("History.SummaryPrefix", "[Summary]: {0}");
+        var formattedSummary = !string.IsNullOrEmpty(summary) ? string.Format(summaryPrefix, summary) : null;
+        return new CompressionResult
+        {
+            Summary = formattedSummary,
+            CompressedCount = olderMessages.Count,
+            CompressedMessages = olderMessages,
+            UsedFallback = usedFallback
+        };
+    }
+
+    /// <summary>
+    /// 去掉摘要文本上的 <c>[Summary]:</c> 前缀，避免把已有摘要喂回压缩时产生嵌套前缀。
+    /// </summary>
+    private string StripSummaryPrefix(string summary)
+    {
+        var fmt = GetString("History.SummaryPrefix", "[Summary]: {0}");
+        int ph = fmt.IndexOf("{0}", StringComparison.Ordinal);
+        if (ph > 0)
+        {
+            var prefix = fmt.Substring(0, ph);
+            if (summary.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return summary.Substring(prefix.Length).TrimStart();
+            }
+        }
+        return summary;
+    }
+
+    /// <summary>
+    /// 本地抽取式兜底摘要：合并已有摘要 + 旧消息中各 user 提问的截断片段，整体限长。
+    /// 用于次级模型不可用或调用失败时，至少保留主线脉络而不让上下文无界膨胀。
+    /// </summary>
+    private string BuildExtractiveFallback(string? existingSummary, List<Models.ChatMessage> olderMessages, int maxChars = 1500)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(existingSummary))
+        {
+            sb.AppendLine(StripSummaryPrefix(existingSummary));
+        }
+
+        foreach (var m in olderMessages.Where(m => m.Role?.ToLower() == "user"))
+        {
+            var text = FormatMessageForSummary(m);
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            text = text.Replace('\n', ' ').Trim();
+            if (text.Length > 200) text = text.Substring(0, 200) + "…";
+            sb.Append("• ").AppendLine(text);
+            if (sb.Length >= maxChars) break;
+        }
+
+        var result = sb.ToString().Trim();
+        if (result.Length > maxChars) result = result.Substring(0, maxChars) + "…";
+        return string.IsNullOrEmpty(result)
+            ? GetString("History.NewConversation", "New conversation")
+            : result;
     }
 
     public async Task<(bool Success, string Message)> TestSecondaryConnectionAsync()

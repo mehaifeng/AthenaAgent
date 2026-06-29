@@ -29,6 +29,7 @@
     <Compile Include="../Models/ConversationArchiveSnapshot.cs" Link="Source/Models/ConversationArchiveSnapshot.cs" />
     <Compile Include="../Models/ConversationArchiveResultEventArgs.cs" Link="Source/Models/ConversationArchiveResultEventArgs.cs" />
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
+    <Compile Include="../Models/CompressionResult.cs" Link="Source/Models/CompressionResult.cs" />
     <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
     <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
     <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />

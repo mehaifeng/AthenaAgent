@@ -20,6 +20,10 @@ public class BrowserVisionService : IBrowserVisionService
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
 
+    // 1×1 透明 PNG，仅用于连接测试时探测模型是否接受图像输入。
+    private static readonly byte[] OnePixelPngBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+
     public BrowserVisionService(IConfigService configService, ILogger logger)
     {
         _configService = configService;
@@ -35,7 +39,7 @@ public class BrowserVisionService : IBrowserVisionService
         CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = ResolveEffectiveConfig(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return DoneOutput("Browser model API key is not configured.", success: false);
@@ -94,7 +98,7 @@ public class BrowserVisionService : IBrowserVisionService
         CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = ResolveEffectiveConfig(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return Finish("Browser vision API key is not configured.", isFailure: true);
@@ -155,7 +159,7 @@ public class BrowserVisionService : IBrowserVisionService
     public async Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = ResolveEffectiveConfig(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return (false, "Browser vision API key is not configured.");
@@ -184,44 +188,35 @@ public class BrowserVisionService : IBrowserVisionService
 
             var client = new OpenAIClient(new ApiKeyCredential(effectiveConfig.ApiKey), clientOptions);
             var chatClient = client.GetChatClient(effectiveConfig.Model);
+
+            // SoM 模式真正依赖图像输入：附带一张 1×1 测试图，以验证该模型确实支持视觉，
+            // 而不仅仅是文本可达。DomOnly 模式只需文本推理，发纯文本即可。
+            var needsVision = config.BrowserObservationMode != BrowserObservationMode.DomOnly;
+            UserChatMessage userMessage = needsVision
+                ? new UserChatMessage(
+                    ChatMessageContentPart.CreateTextPart("Reply with OK only."),
+                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(OnePixelPngBytes), "image/png", ChatImageDetailLevel.Low))
+                : new UserChatMessage("test");
+
             var response = await chatClient.CompleteChatAsync(
                 new OpenAI.Chat.ChatMessage[]
                 {
                     new SystemChatMessage("Reply with OK only."),
-                    new UserChatMessage("test")
+                    userMessage
                 },
                 new ChatCompletionOptions { MaxOutputTokenCount = 10, Temperature = 0 },
                 cancellationToken);
 
             var text = response.Value.Content.FirstOrDefault()?.Text;
+            var capability = needsVision ? "vision (image input verified)" : "text-only";
             return string.IsNullOrWhiteSpace(text)
-                ? (false, "Browser vision model returned an empty response.")
-                : (true, $"Browser vision model connection succeeded. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
+                ? (false, "Browser agent model returned an empty response.")
+                : (true, $"Browser agent model connection succeeded [{capability}]. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
         }
         catch (Exception ex)
         {
             return (false, $"Browser vision model connection failed: {ex.Message}");
         }
-    }
-
-    private static EffectiveBrowserVisionConfig ResolveEffectiveConfig(AppConfig config)
-    {
-        var apiKeyFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionApiKey);
-        var baseUrlFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionBaseUrl);
-        var providerFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionProvider)
-            && !string.Equals(config.BrowserVisionProvider, "Inherit", StringComparison.OrdinalIgnoreCase);
-
-        return new EffectiveBrowserVisionConfig
-        {
-            Provider = providerFromBrowser ? config.BrowserVisionProvider : config.Provider,
-            BaseUrl = baseUrlFromBrowser ? config.BrowserVisionBaseUrl : config.BaseUrl,
-            ApiKey = apiKeyFromBrowser ? config.BrowserVisionApiKey : config.ApiKey,
-            Model = config.BrowserVisionModel,
-            MaxTokens = config.BrowserVisionMaxTokens,
-            Temperature = config.BrowserVisionTemperature,
-            BaseUrlSource = baseUrlFromBrowser ? "BrowserVision" : "MainAI",
-            ApiKeySource = apiKeyFromBrowser ? "BrowserVision" : "MainAI"
-        };
     }
 
     private static List<OpenAI.Chat.ChatMessage> BuildMessages(BrowserTaskRequest task, SomObservation observation, IReadOnlyList<BrowserActionResult> actionHistory)
@@ -774,17 +769,5 @@ public class BrowserVisionService : IBrowserVisionService
 
         [JsonPropertyName("confidence")]
         public double? Confidence { get; set; }
-    }
-
-    private sealed class EffectiveBrowserVisionConfig
-    {
-        public string Provider { get; init; } = string.Empty;
-        public string BaseUrl { get; init; } = string.Empty;
-        public string ApiKey { get; init; } = string.Empty;
-        public string Model { get; init; } = string.Empty;
-        public int MaxTokens { get; init; }
-        public double Temperature { get; init; }
-        public string BaseUrlSource { get; init; } = string.Empty;
-        public string ApiKeySource { get; init; } = string.Empty;
     }
 }

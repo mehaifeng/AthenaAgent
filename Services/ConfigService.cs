@@ -54,6 +54,8 @@ public class ConfigService : IConfigService
             var json = await File.ReadAllTextAsync(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
+            resolved = ApplyLegacyBrowserModelSource(resolved, json);
+            resolved = ApplyLegacyBrowserAgentFields(resolved, json);
             StoreCache(resolved, writeTimeUtc);
             return resolved;
         }
@@ -84,6 +86,8 @@ public class ConfigService : IConfigService
             var json = File.ReadAllText(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
+            resolved = ApplyLegacyBrowserModelSource(resolved, json);
+            resolved = ApplyLegacyBrowserAgentFields(resolved, json);
             StoreCache(resolved, writeTimeUtc);
             return resolved;
         }
@@ -182,6 +186,121 @@ public class ConfigService : IConfigService
         }
 
         return config;
+    }
+
+    /// <summary>
+    /// 迁移浏览器智能体模型来源：本功能引入前的配置一律是"自定义视觉模型"语义
+    /// （Model 永远取 browserVisionModel），因此凡是带有旧浏览器模型字段、却没有
+    /// browserModelSource 键的配置，统一迁移为 Custom 以原样保留其行为；全新配置
+    /// 则采用默认的 InheritMain（跟随主模型）。
+    /// </summary>
+    private static AppConfig ApplyLegacyBrowserModelSource(AppConfig config, string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            // 已显式写入来源（新版本保存过）则不再迁移。
+            if (root.TryGetProperty("browserModelSource", out _))
+            {
+                return config;
+            }
+
+            // 存在旧的浏览器模型字段，说明是历史配置：保持其"使用独立模型"的既有行为。
+            var hasLegacyModelFields =
+                root.TryGetProperty("browserVisionModel", out _)
+                || root.TryGetProperty("browserVisionApiKey", out _)
+                || root.TryGetProperty("browserVisionBaseUrl", out _);
+
+            if (hasLegacyModelFields)
+            {
+                config.BrowserModelSource = BrowserModelSource.Custom;
+            }
+        }
+        catch
+        {
+            // Ignore migration failures; default config values remain valid.
+        }
+
+        return config;
+    }
+
+    /// <summary>
+    /// 字段改名迁移：历史配置使用 browserVision* 键，重命名为 browserAgent* 后，
+    /// 反序列化不会再填充这些值。此处在新键缺失时，把旧键的值搬到新字段，避免老用户
+    /// 丢失浏览器模型配置。
+    /// </summary>
+    private static AppConfig ApplyLegacyBrowserAgentFields(AppConfig config, string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            // 已是新格式（写过 browserAgentModel）则无需搬运。
+            if (root.TryGetProperty("browserAgentModel", out _))
+            {
+                return config;
+            }
+
+            if (TryGetString(root, "browserVisionProvider", out var provider))
+                config.BrowserAgentProvider = provider;
+            if (TryGetString(root, "browserVisionBaseUrl", out var baseUrl))
+                config.BrowserAgentBaseUrl = baseUrl;
+            if (TryGetString(root, "browserVisionApiKey", out var apiKey))
+                config.BrowserAgentApiKey = apiKey;
+            if (TryGetString(root, "browserVisionModel", out var model))
+                config.BrowserAgentModel = model;
+            if (TryGetInt(root, "browserVisionMaxTokens", out var maxTokens))
+                config.BrowserAgentMaxTokens = maxTokens;
+            if (TryGetDouble(root, "browserVisionTemperature", out var temperature))
+                config.BrowserAgentTemperature = temperature;
+        }
+        catch
+        {
+            // Ignore migration failures; default config values remain valid.
+        }
+
+        return config;
+    }
+
+    private static bool TryGetString(JsonElement root, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (root.TryGetProperty(propertyName, out var element) && element.ValueKind == JsonValueKind.String)
+        {
+            value = element.GetString() ?? string.Empty;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetInt(JsonElement root, string propertyName, out int value)
+    {
+        value = 0;
+        if (root.TryGetProperty(propertyName, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt32(out value))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetDouble(JsonElement root, string propertyName, out double value)
+    {
+        value = 0;
+        if (root.TryGetProperty(propertyName, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetDouble(out value))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryGetBool(JsonElement root, string propertyName, out bool value)

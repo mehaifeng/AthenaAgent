@@ -210,7 +210,7 @@ public static class PromptTemplates
     /// <summary>
     /// 上下文压缩
     /// </summary>
-    public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler. IMPORTANT: Do NOT compress, omit, or alter any information about Athena's identity, persona, or operational rules — these must remain intact and unmodified.";
+    public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler. You may be given a `[Previous running summary]` — treat it as established fact and MERGE it with the newer messages into a single updated summary; never drop facts that appear only in the previous summary. IMPORTANT: Do NOT compress, omit, or alter any information about Athena's identity, persona, or operational rules — these must remain intact and unmodified.";
 
     /// <summary>
     /// 上下文压缩策略 (用户引导)

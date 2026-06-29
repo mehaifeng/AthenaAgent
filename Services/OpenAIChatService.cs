@@ -175,22 +175,23 @@ public class OpenAIChatService : IChatService
                         IsCompressed = false 
                     }).ToList();
 
-                    var (summary, compressedCount) = await _historyService.CompressContextAsync(tempMessages, _config.KeepRecentRounds);
+                    // 把当前摘要一并传入，做"旧摘要 ⊕ 旧消息"的滚动合并，避免多次压缩丢史
+                    var result = await _historyService.CompressContextAsync(tempMessages, context.Summary, _config.KeepRecentRounds);
 
-                    if (summary != null && compressedCount > 0)
+                    if (result.Summary != null && result.CompressedCount > 0)
                     {
-                        context.SetSummary(summary);
-                        _tokenService.CompressionPreview = summary;
+                        context.SetSummary(result.Summary);
 
                         // [修复]：真正从 context 中移除已压缩的消息
-                        context.RemoveMessages(compressedCount);
+                        context.RemoveMessages(result.CompressedCount);
 
-                        // [同步]：通知 UI 标记对应的消息为已压缩
-                        onContextCompressed?.Invoke(summary, compressedCount);
+                        // [同步]：通知 UI 标记消息为已压缩、更新会话级摘要真源并入撤销栈
+                        onContextCompressed?.Invoke(result.Summary, result.CompressedCount);
 
                         // 重新构建消息列表（包含新的 summary 且去掉了已移除的消息）
                         messages = BuildMessages(context);
-                        Log.Information("中间压缩完成，已移除 {Count} 条消息并重置消息列表", compressedCount);
+                        Log.Information("中间压缩完成({Mode})，已移除 {Count} 条消息并重置消息列表",
+                            result.UsedFallback ? "本地兜底" : "AI", result.CompressedCount);
                     }
                 }
             }

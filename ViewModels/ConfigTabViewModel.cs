@@ -67,7 +67,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     public bool CanTestWebSearch => !IsTestingWebSearch;
     public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
     public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
-    public bool CanTestBrowserVision => !IsTestingBrowserVision;
+    public bool CanTestBrowserAgent => !IsTestingBrowserAgent;
     public bool CanTestAudioOutput => !IsTestingAudioOutput;
     public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
     public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
@@ -113,6 +113,23 @@ public partial class ConfigTabViewModel : ViewModelBase
     };
 
     public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
+
+    /// <summary>浏览器智能体模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
+    public bool UseMainModelForBrowser
+    {
+        get => Config.BrowserModelSource == BrowserModelSource.InheritMain;
+        set
+        {
+            var newSource = value ? BrowserModelSource.InheritMain : BrowserModelSource.Custom;
+            if (Config.BrowserModelSource != newSource)
+            {
+                Config.BrowserModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
+            }
+        }
+    }
+
+    /// <summary>是否使用自定义浏览器模型（决定下方独立配置字段是否显示）。</summary>
+    public bool IsBrowserModelCustom => Config.BrowserModelSource == BrowserModelSource.Custom;
 
     public ObservableCollection<string> Languages { get; }
 
@@ -218,6 +235,10 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (value != null)
         {
             SetupConfigListener(value);
+            // Config 被整体替换后，刷新依赖其值的计算属性（外部工具改配置等场景）
+            OnPropertyChanged(nameof(IsBrowserVisionEnabled));
+            OnPropertyChanged(nameof(UseMainModelForBrowser));
+            OnPropertyChanged(nameof(IsBrowserModelCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
@@ -237,6 +258,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                 else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
                 {
                     OnPropertyChanged(nameof(IsBrowserVisionEnabled));
+                }
+                else if (e.PropertyName == nameof(AppConfig.BrowserModelSource))
+                {
+                    OnPropertyChanged(nameof(UseMainModelForBrowser));
+                    OnPropertyChanged(nameof(IsBrowserModelCustom));
                 }
                 else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
                          || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))
@@ -318,11 +344,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                     config.EmbeddingBaseUrl = url;
                 }
             }
-            else if (e.PropertyName == nameof(AppConfig.BrowserVisionProvider))
+            else if (e.PropertyName == nameof(AppConfig.BrowserAgentProvider))
             {
-                if (ProviderUrls.TryGetValue(config.BrowserVisionProvider, out var url))
+                if (ProviderUrls.TryGetValue(config.BrowserAgentProvider, out var url))
                 {
-                    config.BrowserVisionBaseUrl = url;
+                    config.BrowserAgentBaseUrl = url;
                 }
             }
             else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
@@ -408,8 +434,8 @@ public partial class ConfigTabViewModel : ViewModelBase
         Config.BrowserScreenshotScale = Math.Clamp(Config.BrowserScreenshotScale, 0.25, 2.0);
         Config.BrowserImageQuality = Math.Clamp(Config.BrowserImageQuality, 30, 100);
         Config.BrowserSomMaxElements = Math.Clamp(Config.BrowserSomMaxElements, 10, 200);
-        Config.BrowserVisionMaxTokens = Math.Clamp(Config.BrowserVisionMaxTokens, 100, 8000);
-        Config.BrowserVisionTemperature = Math.Clamp(Config.BrowserVisionTemperature, 0, 2);
+        Config.BrowserAgentMaxTokens = Math.Clamp(Config.BrowserAgentMaxTokens, 100, 8000);
+        Config.BrowserAgentTemperature = Math.Clamp(Config.BrowserAgentTemperature, 0, 2);
     }
 
     private void NormalizeAudioConfig()
@@ -493,11 +519,11 @@ public partial class ConfigTabViewModel : ViewModelBase
     private bool _isInstallingBrowserRuntime;
 
     [ObservableProperty]
-    private string _browserVisionTestStatus = string.Empty;
+    private string _browserAgentTestStatus = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserVisionCommand))]
-    private bool _isTestingBrowserVision;
+    [NotifyCanExecuteChangedFor(nameof(TestBrowserAgentCommand))]
+    private bool _isTestingBrowserAgent;
 
     [RelayCommand(CanExecute = nameof(CanTestWebSearch))]
     private async Task TestWebSearchAsync()
@@ -550,15 +576,15 @@ public partial class ConfigTabViewModel : ViewModelBase
         finally { IsInstallingBrowserRuntime = false; }
     }
 
-    [RelayCommand(CanExecute = nameof(CanTestBrowserVision))]
-    private async Task TestBrowserVisionAsync()
+    [RelayCommand(CanExecute = nameof(CanTestBrowserAgent))]
+    private async Task TestBrowserAgentAsync()
     {
-        if (_browserVisionService == null) { BrowserVisionTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (!Config.BrowserEnabled) { BrowserVisionTestStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
-        if (string.IsNullOrWhiteSpace(Config.BrowserVisionApiKey) && string.IsNullOrWhiteSpace(Config.ApiKey)) { BrowserVisionTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
+        if (_browserVisionService == null) { BrowserAgentTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (!Config.BrowserEnabled) { BrowserAgentTestStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
+        if (string.IsNullOrWhiteSpace(Config.BrowserAgentApiKey) && string.IsNullOrWhiteSpace(Config.ApiKey)) { BrowserAgentTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
 
-        IsTestingBrowserVision = true;
-        BrowserVisionTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
+        IsTestingBrowserAgent = true;
+        BrowserAgentTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
         {
             NormalizeBrowserConfig();
@@ -568,9 +594,9 @@ public partial class ConfigTabViewModel : ViewModelBase
             }
 
             var (success, message) = await _browserVisionService.TestConnectionAsync();
-            BrowserVisionTestStatus = message;
+            BrowserAgentTestStatus = message;
         }
-        finally { IsTestingBrowserVision = false; }
+        finally { IsTestingBrowserAgent = false; }
     }
 
     [RelayCommand(CanExecute = nameof(CanTestSecondary))]
@@ -748,18 +774,20 @@ public partial class ConfigTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task UndoCompressionAsync()
     {
-        var result = await MessageBox.ShowAsync(
-            message: _localizationService?.GetString("Dialog.ConfirmClearSummary") ?? "Clear the compression summary? This will remove the archived context digest. Compressed messages will remain archived.",
-            title: _localizationService?.GetString("Dialog.Title.Warning") ?? "Warning",
-            button: MessageBoxButton.OKCancel,
-            icon: MessageBoxIcon.Warning);
+        if (ChatTabViewModel == null) return;
 
-        if (result == MessageBoxResult.OK)
+        // 撤销上一次压缩：恢复被归档的消息与压缩前的摘要（非破坏性，可重新压缩）
+        if (ChatTabViewModel.InternalUndoCompression())
         {
-            if (TokenService != null) TokenService.CompressionPreview = string.Empty;
-            if (ChatTabViewModel != null) ChatTabViewModel.InternalUndoCompression();
-            _logger.Information("压缩摘要已清空");
+            _logger.Information("已撤销上一次上下文压缩");
+            return;
         }
+
+        await MessageBox.ShowAsync(
+            message: _localizationService?.GetString("Dialog.NothingToUndoCompression") ?? "There is no recent compression to undo in the current conversation.",
+            title: _localizationService?.GetString("Dialog.Title.Info") ?? "Info",
+            button: MessageBoxButton.OK,
+            icon: MessageBoxIcon.Information);
     }
 
     private void OnAudioPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
@@ -792,7 +820,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     public ObservableCollection<string> PrimaryModelOptions { get; } = new();
     public ObservableCollection<string> SecondaryModelOptions { get; } = new();
     public ObservableCollection<string> EmbeddingModelOptions { get; } = new();
-    public ObservableCollection<string> BrowserVisionModelOptions { get; } = new();
+    public ObservableCollection<string> BrowserAgentModelOptions { get; } = new();
 
     [ObservableProperty]
     private bool _isLoadingPrimaryModels;
@@ -801,7 +829,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isLoadingEmbeddingModels;
     [ObservableProperty]
-    private bool _isLoadingBrowserVisionModels;
+    private bool _isLoadingBrowserAgentModels;
 
     [ObservableProperty]
     private string _primaryModelsStatus = string.Empty;
@@ -810,7 +838,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _embeddingModelsStatus = string.Empty;
     [ObservableProperty]
-    private string _browserVisionModelsStatus = string.Empty;
+    private string _browserAgentModelsStatus = string.Empty;
 
     [RelayCommand]
     private Task LoadModelsAsync(string? target) => LoadModelsCoreAsync(target);
@@ -851,13 +879,13 @@ public partial class ConfigTabViewModel : ViewModelBase
                 setLoading = v => IsLoadingEmbeddingModels = v;
                 setStatus = v => EmbeddingModelsStatus = v;
                 break;
-            case "BrowserVision":
-                options = BrowserVisionModelOptions;
-                baseUrl = FirstNonBlank(Config.BrowserVisionBaseUrl, Config.BaseUrl);
-                apiKey = FirstNonBlank(Config.BrowserVisionApiKey, Config.ApiKey);
-                alreadyLoading = IsLoadingBrowserVisionModels;
-                setLoading = v => IsLoadingBrowserVisionModels = v;
-                setStatus = v => BrowserVisionModelsStatus = v;
+            case "BrowserAgent":
+                options = BrowserAgentModelOptions;
+                baseUrl = FirstNonBlank(Config.BrowserAgentBaseUrl, Config.BaseUrl);
+                apiKey = FirstNonBlank(Config.BrowserAgentApiKey, Config.ApiKey);
+                alreadyLoading = IsLoadingBrowserAgentModels;
+                setLoading = v => IsLoadingBrowserAgentModels = v;
+                setStatus = v => BrowserAgentModelsStatus = v;
                 break;
             default:
                 return;

@@ -134,7 +134,7 @@
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">Run Test</system:String>
     <system:String x:Key="Config.BtnExecCompression">Compress Now</system:String>
-    <system:String x:Key="Config.BtnUndoCompression">Clear Summary</system:String>
+    <system:String x:Key="Config.BtnUndoCompression">Undo Compression</system:String>
 
     <!-- Tasks Tab -->
     <system:String x:Key="Tasks.Header">Task Scheduler</system:String>
@@ -319,6 +319,8 @@
 
     <!-- Dialogs -->
     <system:String x:Key="Dialog.Title.Warning">Warning</system:String>
+    <system:String x:Key="Dialog.Title.Info">Info</system:String>
+    <system:String x:Key="Dialog.NothingToUndoCompression">There is no recent compression to undo in the current conversation.</system:String>
     <system:String x:Key="Dialog.ConfirmResetConfig">Are you sure you want to reset all settings to default? This cannot be undone.</system:String>
     <system:String x:Key="Dialog.ConfirmClearSummary">Clear the compression summary? This will remove the archived context digest. Compressed messages will remain archived.</system:String>
     <system:String x:Key="Dialog.ConfirmPurgeTasks">Are you sure you want to delete all scheduled tasks?</system:String>
@@ -353,7 +355,11 @@
     <system:String x:Key="Config.BrowserSomIncludeText">Include Element Text:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">Screenshot Scale:</system:String>
     <system:String x:Key="Config.BrowserImageQuality">Image Quality:</system:String>
-    <system:String x:Key="Config.BrowserVisionModel">Vision Model</system:String>
+    <system:String x:Key="Config.BrowserAgentModel">Browser Agent Model</system:String>
+    <system:String x:Key="Config.BrowserModelSource">Model Source:</system:String>
+    <system:String x:Key="Config.BrowserModelSourceInherit">Follow main model</system:String>
+    <system:String x:Key="Config.BrowserModelSourceCustom">Custom model</system:String>
+    <system:String x:Key="Config.BrowserVisionCapabilityHint">Vision+SoM mode needs a model that accepts image input. If "Follow main model", make sure the main model supports vision; otherwise pick a vision-capable model below. Click "Test" to verify (it sends a probe image).</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>

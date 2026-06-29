@@ -39,6 +39,17 @@ public enum BrowserObservationMode
     VisionWithSom
 }
 
+/// <summary>
+/// 浏览器智能体模型的来源。
+/// InheritMain：直接复用主 AI 的 Provider/BaseUrl/ApiKey/Model（主模型支持视觉时即可胜任 SoM 模式，无需额外配置）。
+/// Custom：使用下方独立填写的浏览器智能体模型（用于主模型不支持视觉，或想用更廉价的模型跑浏览器循环）。
+/// </summary>
+public enum BrowserModelSource
+{
+    InheritMain,
+    Custom
+}
+
 public enum BrowserRiskType
 {
     None,
