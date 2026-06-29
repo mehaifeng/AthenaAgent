@@ -134,7 +134,7 @@
     <!-- Config Buttons -->
     <system:String x:Key="Config.BtnRunDiagnostics">运行测试</system:String>
     <system:String x:Key="Config.BtnExecCompression">执行压缩</system:String>
-    <system:String x:Key="Config.BtnUndoCompression">清空摘要</system:String>
+    <system:String x:Key="Config.BtnUndoCompression">撤销压缩</system:String>
 
     <!-- Tasks Tab -->
     <system:String x:Key="Tasks.Header">任务计划</system:String>
@@ -319,6 +319,8 @@
 
     <!-- Dialogs -->
     <system:String x:Key="Dialog.Title.Warning">警告</system:String>
+    <system:String x:Key="Dialog.Title.Info">提示</system:String>
+    <system:String x:Key="Dialog.NothingToUndoCompression">当前对话没有可撤销的压缩。</system:String>
     <system:String x:Key="Dialog.ConfirmResetConfig">确定要将所有设置恢复为默认值吗？此操作不可撤销。</system:String>
     <system:String x:Key="Dialog.ConfirmClearSummary">确定要清空压缩摘要吗？已归档的消息仍将保持归档状态，仅摘要内容会被清除。</system:String>
     <system:String x:Key="Dialog.ConfirmPurgeTasks">确定要删除所有计划任务吗？</system:String>
@@ -353,7 +355,11 @@
     <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">截图缩放:</system:String>
     <system:String x:Key="Config.BrowserImageQuality">图像质量:</system:String>
-    <system:String x:Key="Config.BrowserVisionModel">视觉模型</system:String>
+    <system:String x:Key="Config.BrowserAgentModel">浏览器智能体模型</system:String>
+    <system:String x:Key="Config.BrowserModelSource">模型来源:</system:String>
+    <system:String x:Key="Config.BrowserModelSourceInherit">跟随主模型</system:String>
+    <system:String x:Key="Config.BrowserModelSourceCustom">自定义模型</system:String>
+    <system:String x:Key="Config.BrowserVisionCapabilityHint">当前为视觉标注(SoM)模式，浏览器智能体需要能接收图像输入的模型：若"跟随主模型"，请确认主模型支持视觉；否则请在下方选择具备视觉能力的模型。可点击下方"测试"验证（会发送一张测试图）。</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>

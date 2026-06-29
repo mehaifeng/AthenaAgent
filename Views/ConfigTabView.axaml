@@ -536,38 +536,58 @@
                                             <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.BrowserDownloadEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
                                         </Grid>
 
+                                        <!-- 视觉标注设置：仅 SoM 模式生效（截图与元素地图渲染参数） -->
                                         <TextBlock Text="{loc:Loc Config.BrowserElementMap}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto" IsEnabled="{Binding IsBrowserVisionEnabled}">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserSomMaxElements}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.BrowserSomMaxElements}" Minimum="10" Maximum="200" Increment="10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserSomIncludeText}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.BrowserSomIncludeText}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.BrowserScreenshotScale}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.BrowserScreenshotScale}" Minimum="0.25" Maximum="2" Increment="0.25" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.BrowserImageQuality}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Config.BrowserImageQuality}" Minimum="30" Maximum="100" Increment="5" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
                                         </Grid>
 
-                                        <TextBlock Text="{loc:Loc Config.BrowserVisionModel}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" IsEnabled="{Binding IsBrowserVisionEnabled}">
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserScreenshotScale}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.BrowserScreenshotScale}" Minimum="0.25" Maximum="2" Increment="0.25" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <!-- 浏览器智能体模型：每步决策都会调用，与感知模式无关，故不按模式禁用 -->
+                                        <TextBlock Text="{loc:Loc Config.BrowserAgentModel}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                          IsChecked="{Binding UseMainModelForBrowser}"
+                                                          OnContent="{loc:Loc Config.BrowserModelSourceInherit}"
+                                                          OffContent="{loc:Loc Config.BrowserModelSourceCustom}"
+                                                          HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                        </Grid>
 
-                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserImageQuality}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.BrowserImageQuality}" Minimum="30" Maximum="100" Increment="5" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <!-- 视觉能力提示：仅 SoM 模式可见 -->
+                                        <Border IsVisible="{Binding IsBrowserVisionEnabled}"
+                                                Background="{DynamicResource App.SectionBg}"
+                                                CornerRadius="6" Padding="12,8" Margin="0,0,0,4">
+                                            <TextBlock Text="{loc:Loc Config.BrowserVisionCapabilityHint}"
+                                                       TextWrapping="Wrap" FontSize="12" Opacity="0.8"/>
+                                        </Border>
 
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.BrowserVisionProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <!-- 自定义模型字段：仅"自定义"来源时显示 -->
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsBrowserModelCustom}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.BrowserAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
-                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.BrowserVisionBaseUrl}" PlaceholderText="Leave empty to inherit main AI BaseUrl" Margin="0,0,0,8"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BrowserAgentBaseUrl}" PlaceholderText="Leave empty to inherit main AI BaseUrl" Margin="0,0,0,8"/>
 
-                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.BrowserVisionApiKey}" PasswordChar="*" PlaceholderText="Leave empty to inherit main AI API Key" Margin="0,0,0,8"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.BrowserAgentApiKey}" PasswordChar="*" PlaceholderText="Leave empty to inherit main AI API Key" Margin="0,0,0,8"/>
 
-                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                                     <AutoCompleteBox Grid.Column="0"
-                                                                     Text="{Binding Config.BrowserVisionModel, Mode=TwoWay}"
-                                                                     ItemsSource="{Binding BrowserVisionModelOptions}"
+                                                                     Text="{Binding Config.BrowserAgentModel, Mode=TwoWay}"
+                                                                     ItemsSource="{Binding BrowserAgentModelOptions}"
                                                                      FilterMode="Contains"
                                                                      IsTextCompletionEnabled="False"
                                                                      MinimumPrefixLength="0"
@@ -575,25 +595,25 @@
                                                                      HorizontalAlignment="Stretch"/>
                                                     <u:IconButton Grid.Column="1"
                                                                   Command="{Binding LoadModelsCommand}"
-                                                                  CommandParameter="BrowserVision"
-                                                                  IsEnabled="{Binding !IsLoadingBrowserVisionModels}"
-                                                                  IsLoading="{Binding IsLoadingBrowserVisionModels}"
+                                                                  CommandParameter="BrowserAgent"
+                                                                  IsEnabled="{Binding !IsLoadingBrowserAgentModels}"
+                                                                  IsLoading="{Binding IsLoadingBrowserAgentModels}"
                                                                   ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
                                                                   MinWidth="64"
                                                                   Content="{loc:Loc Config.LoadModels}"/>
                                                 </Grid>
-                                                <TextBlock Text="{Binding BrowserVisionModelsStatus}"
-                                                           IsVisible="{Binding BrowserVisionModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                <TextBlock Text="{Binding BrowserAgentModelsStatus}"
+                                                           IsVisible="{Binding BrowserAgentModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
                                                            TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding Config.BrowserVisionMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.BrowserAgentMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
-                                            <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
                                                 <Slider Grid.Column="0"
-                                                        Value="{Binding Config.BrowserVisionTemperature}"
+                                                        Value="{Binding Config.BrowserAgentTemperature}"
                                                         Minimum="0"
                                                         Maximum="2"
                                                         TickPlacement="Outside"
@@ -601,24 +621,27 @@
                                                         TickFrequency="0.1"
                                                         VerticalAlignment="Center"/>
                                                 <TextBlock Grid.Column="1"
-                                                           Text="{Binding Config.BrowserVisionTemperature, StringFormat={}{0:F1}}"
+                                                           Text="{Binding Config.BrowserAgentTemperature, StringFormat={}{0:F1}}"
                                                            VerticalAlignment="Center"
                                                            FontWeight="SemiBold"
                                                            Margin="12,0,0,0"/>
                                             </Grid>
+                                        </Grid>
 
-                                            <TextBlock Grid.Row="8" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <Grid Grid.Row="8" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                        <!-- 测试连接：两种来源都可用；SoM 模式会附带测试图验证视觉能力 -->
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.TestConnection}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
                                                 <u:IconButton Grid.Column="0"
-                                                              Command="{Binding TestBrowserVisionCommand}"
-                                                              IsEnabled="{Binding CanTestBrowserVision}"
-                                                              IsLoading="{Binding IsTestingBrowserVision}"
+                                                              Command="{Binding TestBrowserAgentCommand}"
+                                                              IsEnabled="{Binding CanTestBrowserAgent}"
+                                                              IsLoading="{Binding IsTestingBrowserAgent}"
                                                               Theme="{DynamicResource SolidIconButton}"
                                                               Classes="Primary"
                                                               Padding="16,4"
                                                               Content="{loc:Loc Config.Test}"/>
                                                 <TextBlock Grid.Column="1"
-                                                           Text="{Binding BrowserVisionTestStatus}"
+                                                           Text="{Binding BrowserAgentTestStatus}"
                                                            TextWrapping="Wrap"
                                                            Margin="12,0,0,0"
                                                            VerticalAlignment="Center"

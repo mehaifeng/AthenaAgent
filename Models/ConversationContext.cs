@@ -132,10 +132,38 @@ public class ConversationContext
     // 延迟载入的附件只在上下文里放一张“清单卡”（路径+元信息+预览），固定开销近似值。
     public const int DeferredManifestTokenCost = 500;
 
+    // 文本 token 估算：CJK 字符约 1 token/字，拉丁/数字/标点约 1 token / 4 字符。
+    // 旧实现统一 length/2 对中文低估 ~2-3 倍、对英文高估 ~2 倍，这里按脚本分别计。
     public static int EstimateTokens(string? content)
     {
         if (string.IsNullOrEmpty(content)) return 0;
-        return content.Length / 2 + 10;
+        int cjk = 0, other = 0;
+        foreach (var ch in content)
+        {
+            if (IsCjk(ch)) cjk++;
+            else other++;
+        }
+        return (int)Math.Ceiling(cjk * 1.0 + other / 4.0) + 10;
+    }
+
+    private static bool IsCjk(char ch) =>
+        (ch >= 0x4E00 && ch <= 0x9FFF) ||   // CJK 统一汉字
+        (ch >= 0x3400 && ch <= 0x4DBF) ||   // CJK 扩展 A
+        (ch >= 0x3000 && ch <= 0x30FF) ||   // CJK 标点 / 假名
+        (ch >= 0xFF00 && ch <= 0xFFEF) ||   // 全角字符
+        (ch >= 0xAC00 && ch <= 0xD7A3);     // 韩文音节
+
+    // 图片 token 估算：复刻 OpenAI vision 分块（fit 2048²→短边缩 768→512² 分块）。
+    // 尺寸未知时退回保守扁平值，避免对不支持分块的 provider 误判。
+    public static int EstimateImageTokens(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return 1000;
+        double s1 = Math.Min(1.0, 2048.0 / Math.Max(width, height));
+        double w = width * s1, h = height * s1;
+        double s2 = Math.Min(1.0, 768.0 / Math.Min(w, h));
+        w *= s2; h *= s2;
+        int tiles = (int)Math.Ceiling(w / 512.0) * (int)Math.Ceiling(h / 512.0);
+        return 85 + 170 * tiles;
     }
 
     public int EstimatedTokenCount
@@ -156,7 +184,9 @@ public class ConversationContext
                 {
                     total += EstimateTokens(msg.ReasoningContent); // 计入思维链回放所需的 reasoning_content
                 }
-                total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Image) * 1000;
+                total += msg.Attachments
+                    .Where(a => a.Kind == AttachmentKind.Image)
+                    .Sum(a => EstimateImageTokens(a.Width, a.Height));
                 total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Audio) * 300;
                 // 文档/文本/代码附件会被注入发往 AI 的消息：内联时计全文，延迟时仅计清单卡开销。
                 foreach (var doc in msg.Attachments.Where(a => a.Kind == AttachmentKind.Document || a.Kind == AttachmentKind.Code))

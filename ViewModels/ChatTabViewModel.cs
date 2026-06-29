@@ -74,6 +74,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isSending;
 
@@ -88,6 +89,7 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
     [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isCompressing;
 
@@ -158,6 +160,14 @@ public partial class ChatTabViewModel : ViewModelBase
     // 记录加载历史时的初始签名，用于判断是否发生了修改
     private string? _initialConversationSignature;
     private string _conversationId = Guid.NewGuid().ToString("N");
+
+    // 当前会话的上下文压缩摘要（唯一真源；TokenService.CompressionPreview 仅作设置页展示镜像）。
+    private string? _activeContextSummary;
+
+    // 会话内压缩撤销栈：每次压缩入栈一个检查点，撤销时弹出还原。切换/重置会话时清空。
+    private readonly Stack<CompressionCheckpoint> _compressionHistory = new();
+
+    private sealed record CompressionCheckpoint(string? PreviousSummary, IReadOnlyList<ChatMessage> Batch);
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
@@ -1103,7 +1113,7 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             ConversationId = _conversationId,
             HistoryId = _currentHistoryId,
-            ContextSummary = _tokenService?.CompressionPreview,
+            ContextSummary = _activeContextSummary,
             Messages = messages,
             ImageSession = imageSessionSnapshot,
             CapturedAt = DateTime.Now,
@@ -1126,10 +1136,9 @@ public partial class ChatTabViewModel : ViewModelBase
         _currentHistoryId = null;
         _initialConversationSignature = null;
 
-        if (_tokenService != null)
-        {
-            _tokenService.CompressionPreview = string.Empty;
-        }
+        _compressionHistory.Clear();
+        SetActiveContextSummary(null);
+        UndoCompressionCommand.NotifyCanExecuteChanged();
 
         _historyService?.DeleteDraft();
         UpdateConversationContext();
@@ -1292,19 +1301,28 @@ public partial class ChatTabViewModel : ViewModelBase
                         return;
                     }
 
-                    // 同步 UI 消息状态：标记前 count 条当前未压缩的消息为已压缩
-                    int marked = 0;
+                    // 捕获压缩前摘要，供撤销还原
+                    var previousSummary = _activeContextSummary;
+
+                    // 同步 UI 消息状态：标记前 count 条当前未压缩的消息为已压缩，并收集引用入撤销栈
+                    var batch = new List<ChatMessage>(count);
                     foreach (var m in Messages)
                     {
                         if (!m.IsCompressed)
                         {
                             m.IsCompressed = true;
-                            marked++;
-                            if (marked >= count) break;
+                            batch.Add(m);
+                            if (batch.Count >= count) break;
                         }
                     }
-                    if (_tokenService != null) _tokenService.CompressionPreview = summary;
+                    if (batch.Count > 0)
+                    {
+                        _compressionHistory.Push(new CompressionCheckpoint(previousSummary, batch));
+                    }
+                    SetActiveContextSummary(summary);
                     UpdateContextTokensDisplay();
+                    UpdateBubbleButtonVisibility();
+                    UndoCompressionCommand.NotifyCanExecuteChanged();
                     _logger.Information("检测到中间压缩，UI 已同步标记 {Count} 条消息", count);
                 },
                 addToContext: addToContext))
@@ -1398,20 +1416,25 @@ public partial class ChatTabViewModel : ViewModelBase
         return outcome;
     }
 
+    /// <summary>
+    /// 设置当前会话的压缩摘要（唯一真源），并同步到 TokenService 的展示镜像。
+    /// </summary>
+    private void SetActiveContextSummary(string? summary)
+    {
+        _activeContextSummary = string.IsNullOrEmpty(summary) ? null : summary;
+        if (_tokenService != null)
+        {
+            _tokenService.CompressionPreview = _activeContextSummary ?? string.Empty;
+        }
+    }
+
     private void UpdateConversationContext()
     {
         _currentContext.Clear();
         _currentContext.ConversationId = _conversationId;
 
-        // 赋予当前的压缩摘要（如果有）
-        if (_tokenService != null && !string.IsNullOrEmpty(_tokenService.CompressionPreview))
-        {
-            _currentContext.SetSummary(_tokenService.CompressionPreview);
-        }
-        else
-        {
-            _currentContext.SetSummary(null);
-        }
+        // 赋予当前的压缩摘要（如果有）——读会话级真源，而非 UI 单例
+        _currentContext.SetSummary(string.IsNullOrEmpty(_activeContextSummary) ? null : _activeContextSummary);
 
         foreach (var msg in Messages)
         {
@@ -1528,21 +1551,23 @@ public partial class ChatTabViewModel : ViewModelBase
         IsCompressing = true;
         try
         {
+            var previousSummary = _activeContextSummary;
             var messagesList = Messages.ToList();
-            var (summary, _) = await _historyService.CompressContextAsync(messagesList, config.KeepRecentRounds);
-            if (summary != null)
+            var result = await _historyService.CompressContextAsync(messagesList, previousSummary, config.KeepRecentRounds);
+            if (result.Summary != null && result.CompressedCount > 0)
             {
-                // 更新 TokenService 中的预览，让用户在设置页能看到
-                if (_tokenService != null)
-                {
-                    _tokenService.CompressionPreview = summary;
-                }
+                // 入压缩撤销栈：捕获压缩前摘要与被压缩消息引用
+                _compressionHistory.Push(new CompressionCheckpoint(previousSummary, result.CompressedMessages));
+
+                SetActiveContextSummary(result.Summary);
 
                 // 更新对话上下文并重新计算 Token
                 UpdateConversationContext();
                 UpdateContextTokensDisplay();
+                UpdateBubbleButtonVisibility();
+                UndoCompressionCommand.NotifyCanExecuteChanged();
 
-                _logger.Information("UI 上下文压缩显示已更新（按轮次压缩）");
+                _logger.Information("UI 上下文压缩显示已更新（按轮次压缩，{Mode}）", result.UsedFallback ? "本地兜底" : "AI");
             }
         }
         finally
@@ -1569,9 +1594,33 @@ public partial class ChatTabViewModel : ViewModelBase
         }
     }
 
-    public void InternalUndoCompression()
+    [RelayCommand(CanExecute = nameof(CanUndoCompression))]
+    private void UndoCompression() => InternalUndoCompression();
+
+    private bool CanUndoCompression() => !IsSending && !IsCompressing && _compressionHistory.Count > 0;
+
+    /// <summary>
+    /// 撤销上一次上下文压缩：把该批被归档的消息重新激活，并恢复压缩前的摘要。
+    /// 仅支持会话内（内存）撤销；切换/重置会话后栈清空。
+    /// </summary>
+    public bool InternalUndoCompression()
     {
-        // To be implemented in history service
+        if (_compressionHistory.Count == 0 || IsSending || IsCompressing) return false;
+
+        var checkpoint = _compressionHistory.Pop();
+        foreach (var msg in checkpoint.Batch)
+        {
+            msg.IsCompressed = false; // 恢复可见，并重新进入发送上下文
+        }
+        SetActiveContextSummary(checkpoint.PreviousSummary);
+
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+        UndoCompressionCommand.NotifyCanExecuteChanged();
+
+        _logger.Information("已撤销上一次上下文压缩，恢复 {Count} 条消息", checkpoint.Batch.Count);
+        return true;
     }
 
     public async Task LoadHistoryConversationAsync(ConversationHistoryItem item)
@@ -1603,10 +1652,9 @@ public partial class ChatTabViewModel : ViewModelBase
                 : history.ConversationId;
             _currentContext.ConversationId = _conversationId;
             _currentHistoryId = history.Id;
-            if (_tokenService != null)
-            {
-                _tokenService.CompressionPreview = history.ContextSummary ?? string.Empty;
-            }
+            _compressionHistory.Clear();
+            SetActiveContextSummary(history.ContextSummary);
+            UndoCompressionCommand.NotifyCanExecuteChanged();
 
             if (history.Messages != null)
             {
@@ -1695,7 +1743,7 @@ public partial class ChatTabViewModel : ViewModelBase
             ConversationId = _conversationId,
             CurrentHistoryId = _currentHistoryId,
             InitialConversationSignature = _initialConversationSignature,
-            ContextSummary = _tokenService?.CompressionPreview,
+            ContextSummary = _activeContextSummary,
             Messages = Messages
                 .Where(ConversationPersistenceHelper.ShouldPersistMessage)
                 .Select(ConversationPersistenceHelper.CloneMessage)
@@ -1736,10 +1784,9 @@ public partial class ChatTabViewModel : ViewModelBase
         _currentHistoryId = snapshot.CurrentHistoryId;
         _initialConversationSignature = snapshot.InitialConversationSignature;
 
-        if (_tokenService != null)
-        {
-            _tokenService.CompressionPreview = snapshot.ContextSummary ?? string.Empty;
-        }
+        _compressionHistory.Clear();
+        SetActiveContextSummary(snapshot.ContextSummary);
+        UndoCompressionCommand.NotifyCanExecuteChanged();
 
         if (snapshot.Messages != null)
         {
@@ -1762,7 +1809,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private bool HasConversationStateToPersist()
     {
         return Messages.Any(ConversationPersistenceHelper.ShouldPersistMessage)
-            || !string.IsNullOrWhiteSpace(_tokenService?.CompressionPreview);
+            || !string.IsNullOrWhiteSpace(_activeContextSummary);
     }
 
     private bool IsConversationModified()
@@ -1784,7 +1831,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         var signatureModel = new
         {
-            ContextSummary = _tokenService?.CompressionPreview ?? string.Empty,
+            ContextSummary = _activeContextSummary ?? string.Empty,
             Messages = Messages
                 .Where(ConversationPersistenceHelper.ShouldPersistMessage)
                 .Select(msg => new

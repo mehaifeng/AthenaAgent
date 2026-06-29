@@ -66,12 +66,13 @@ public interface IConversationHistoryService
     void UpdateSecondaryConfig(AppConfig config);
 
     /// <summary>
-    /// 压缩对话上下文，将旧消息生成摘要
+    /// 压缩对话上下文，将旧消息（连同已有摘要）滚动合并为一份新摘要
     /// </summary>
     /// <param name="messages">当前消息列表</param>
+    /// <param name="existingSummary">当前会话已有的摘要（带前缀），会被合并进新摘要以避免历史丢失；无则传 null</param>
     /// <param name="keepRecentRounds">保留最近的对话轮次（1轮 = 1个 User 消息及其后的所有 Assistant/Tool 消息）</param>
-    /// <returns>压缩后的摘要文本和被压缩的消息条数（如果无需压缩，CompressedCount 为 0）</returns>
-    Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<ChatMessage> messages, int keepRecentRounds = 3);
+    /// <returns>压缩结果；若无需压缩返回 <see cref="CompressionResult.None"/></returns>
+    Task<CompressionResult> CompressContextAsync(List<ChatMessage> messages, string? existingSummary, int keepRecentRounds = 3);
 
     /// <summary>
     /// 测试次级模型连接

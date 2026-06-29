@@ -30,7 +30,7 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
     {
         var fallbackPlan = CreateFallbackPlan(request);
         var config = _configService.Load();
-        var effectiveConfig = ResolveEffectiveConfig(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey) || string.IsNullOrWhiteSpace(effectiveConfig.Model))
         {
             return fallbackPlan;
@@ -249,26 +249,6 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
         };
     }
 
-    private static EffectiveBrowserVisionConfig ResolveEffectiveConfig(AppConfig config)
-    {
-        var apiKeyFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionApiKey);
-        var baseUrlFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionBaseUrl);
-        var providerFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserVisionProvider)
-            && !string.Equals(config.BrowserVisionProvider, "Inherit", StringComparison.OrdinalIgnoreCase);
-
-        return new EffectiveBrowserVisionConfig
-        {
-            Provider = providerFromBrowser ? config.BrowserVisionProvider : config.Provider,
-            BaseUrl = baseUrlFromBrowser ? config.BrowserVisionBaseUrl : config.BaseUrl,
-            ApiKey = apiKeyFromBrowser ? config.BrowserVisionApiKey : config.ApiKey,
-            Model = config.BrowserVisionModel,
-            MaxTokens = config.BrowserVisionMaxTokens,
-            Temperature = config.BrowserVisionTemperature,
-            BaseUrlSource = baseUrlFromBrowser ? "BrowserVision" : "MainAI",
-            ApiKeySource = apiKeyFromBrowser ? "BrowserVision" : "MainAI"
-        };
-    }
-
     private static bool ContainsAny(string value, params string[] terms) =>
         terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
 
@@ -373,17 +353,5 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
 
         [JsonPropertyName("optional")]
         public bool? Optional { get; set; }
-    }
-
-    private sealed class EffectiveBrowserVisionConfig
-    {
-        public string Provider { get; init; } = string.Empty;
-        public string BaseUrl { get; init; } = string.Empty;
-        public string ApiKey { get; init; } = string.Empty;
-        public string Model { get; init; } = string.Empty;
-        public int MaxTokens { get; init; }
-        public double Temperature { get; init; }
-        public string BaseUrlSource { get; init; } = string.Empty;
-        public string ApiKeySource { get; init; } = string.Empty;
     }
 }

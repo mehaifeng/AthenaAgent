@@ -1159,9 +1159,9 @@ sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHist
     {
     }
 
-    public Task<(string? Summary, int CompressedCount)> CompressContextAsync(List<ChatMessage> messages, int keepRecentRounds = 3)
+    public Task<CompressionResult> CompressContextAsync(List<ChatMessage> messages, string? existingSummary, int keepRecentRounds = 3)
     {
-        return Task.FromResult<(string?, int)>((null, 0));
+        return Task.FromResult(CompressionResult.None);
     }
 
     public Task<(bool Success, string Message)> TestSecondaryConnectionAsync()

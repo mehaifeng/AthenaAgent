@@ -185,23 +185,28 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _browserSomIncludeText = true;
 
+    // 浏览器智能体模型来源：默认跟随主模型，避免主模型已支持视觉时还要重复配置。
+    // 旧配置在 ConfigService 加载时会被迁移为 Custom 以保持原有行为。
     [ObservableProperty]
-    private string _browserVisionProvider = "OpenAI";
+    private BrowserModelSource _browserModelSource = BrowserModelSource.InheritMain;
 
     [ObservableProperty]
-    private string _browserVisionBaseUrl = string.Empty;
+    private string _browserAgentProvider = "OpenAI";
 
     [ObservableProperty]
-    private string _browserVisionApiKey = string.Empty;
+    private string _browserAgentBaseUrl = string.Empty;
 
     [ObservableProperty]
-    private string _browserVisionModel = "gpt-4o-mini";
+    private string _browserAgentApiKey = string.Empty;
 
     [ObservableProperty]
-    private int _browserVisionMaxTokens = 1000;
+    private string _browserAgentModel = "gpt-4o-mini";
 
     [ObservableProperty]
-    private double _browserVisionTemperature = 0.2;
+    private int _browserAgentMaxTokens = 1000;
+
+    [ObservableProperty]
+    private double _browserAgentTemperature = 0.2;
 
     // 文档解析配置（MinerU）
     [ObservableProperty]
