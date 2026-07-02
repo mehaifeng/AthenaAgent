@@ -42,7 +42,10 @@ public class SomAnnotator : ISomAnnotator
 
             using var surface = SKSurface.Create(new SKImageInfo(bitmap.Width, bitmap.Height, bitmap.ColorType, bitmap.AlphaType));
             var canvas = surface.Canvas;
-            canvas.DrawBitmap(bitmap, 0, 0);
+            using (var baseImage = SKImage.FromBitmap(bitmap))
+            {
+                canvas.DrawImage(baseImage, 0, 0, new SKSamplingOptions(SKFilterMode.Linear));
+            }
 
             var scaleX = request.ViewportWidth > 0 ? bitmap.Width / (float)request.ViewportWidth : 1f;
             var scaleY = request.ViewportHeight > 0 ? bitmap.Height / (float)request.ViewportHeight : 1f;

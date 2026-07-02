@@ -58,6 +58,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
     #endregion
 
+    #region Sub-Agents
+
+    /// <summary>子代理编排器（下传给 ChatTabViewModel，供 Sub-Agents 弹出小镇绑定）。</summary>
+    public ISubAgentOrchestrator? Orchestrator { get; private set; }
+
+    #endregion
+
     /// <summary>
     /// 默认构造函数（用于设计时）
     /// </summary>
@@ -99,12 +106,14 @@ public partial class MainWindowViewModel : ViewModelBase
         IBrowserVisionService? browserVisionService = null,
         IDocumentParserService? documentParserService = null,
         IModelCatalogService? modelCatalogService = null,
-        IScreenCaptureService? screenCaptureService = null)
+        IScreenCaptureService? screenCaptureService = null,
+        ISubAgentOrchestrator? subAgentOrchestrator = null)
     {
         _localizationService = localizationService;
+        Orchestrator = subAgentOrchestrator;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);

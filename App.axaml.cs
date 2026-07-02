@@ -11,6 +11,7 @@ using Athena.UI.Views;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Functions;
+using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
 using Athena.UI.Models;
@@ -602,6 +603,21 @@ public partial class App : Application
             return new BrowserTaskFunctions(browserAgentService, logger);
         });
 
+        // 子代理编排器（单例）。惰性解析 IFunctionRegistry（经 IServiceProvider）以断开构造环。
+        services.AddSingleton<ISubAgentOrchestrator>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var logger = Log.ForContext<SubAgentOrchestrator>();
+            return new SubAgentOrchestrator(configService, sp, logger);
+        });
+
+        services.AddSingleton<SubAgentFunctions>(sp =>
+        {
+            var orchestrator = sp.GetRequiredService<ISubAgentOrchestrator>();
+            var logger = Log.ForContext<SubAgentFunctions>();
+            return new SubAgentFunctions(orchestrator, logger);
+        });
+
         // Function Registry（单例）
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
@@ -613,10 +629,11 @@ public partial class App : Application
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
             var imageGenerationFunctions = sp.GetRequiredService<ImageGenerationFunctions>();
             var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
+            var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
             var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）
@@ -697,6 +714,7 @@ public partial class App : Application
             var browserVisionService = sp.GetService<IBrowserVisionService>();
             var modelCatalogService = sp.GetService<IModelCatalogService>();
             var screenCaptureService = sp.GetService<IScreenCaptureService>();
+            var subAgentOrchestrator = sp.GetService<ISubAgentOrchestrator>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -723,7 +741,8 @@ public partial class App : Application
                 browserVisionService,
                 documentParserService,
                 modelCatalogService,
-                screenCaptureService);
+                screenCaptureService,
+                subAgentOrchestrator);
         });
 
         Log.Debug("依赖注入服务配置完成");

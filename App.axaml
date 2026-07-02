@@ -287,6 +287,9 @@
             <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
+            <conv:SubAgentStateToBrushConverter x:Key="SubAgentStateToBrushConverter"/>
+            <conv:CountToBoolConverter x:Key="CountToBoolConverter"/>
+            <conv:StringToTransformConverter x:Key="StringToTransformConverter"/>
 
             <!-- 字体设置 -->
             <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
