@@ -1042,6 +1042,8 @@ sealed class TestHarness : IDisposable
     }
 }
 
+// Test stubs implement service interfaces whose events are never raised in tests.
+#pragma warning disable CS0067
 sealed class TestPromptService : IPromptService
 {
     public event EventHandler<PromptType>? PromptUpdated;
@@ -1297,3 +1299,4 @@ sealed class TempFile : IDisposable
         }
     }
 }
+#pragma warning restore CS0067

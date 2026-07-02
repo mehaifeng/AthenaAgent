@@ -31,6 +31,24 @@
                 </Animation>
             </Style.Animations>
         </Style>
+
+        <!-- 整批结束的谢幕：淡出并缩小，播完由编排器移除。 -->
+        <Style Selector="Border.owl.vanishing">
+            <Style.Animations>
+                <Animation Duration="0:0:0.45" IterationCount="1" FillMode="Forward" Easing="CubicEaseIn">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0"/>
+                        <Setter Property="ScaleTransform.ScaleX" Value="0.25"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="0.25"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,Auto,Auto,Auto" Margin="14">
@@ -114,11 +132,15 @@
                                     <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.7" Easing="CubicEaseInOut"/>
                                 </Transitions>
                             </Panel.Transitions>
-                            <!-- 内层：呼吸缩放（运行中）。圆形头像 + 状态色描边环。 -->
-                            <Border Classes="owl" Width="62" Height="62"
+                            <!-- 内层：呼吸缩放（运行中）/ 谢幕淡出。圆形头像 + 状态色描边环。
+                                 owl.webp 图案四周有大片透明边距：光圈缩到 48 并把图放大到 82 居中裁切，
+                                 让状态环恰好贴着猫头鹰图案外缘一圈。 -->
+                            <Border Classes="owl" Width="48" Height="48"
                                     Classes.running="{Binding IsRunning}"
+                                    Classes.vanishing="{Binding IsVanishing}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                     RenderTransformOrigin="50%,50%"
-                                    CornerRadius="31" ClipToBounds="True"
+                                    CornerRadius="24" ClipToBounds="True"
                                     BorderThickness="2.5"
                                     BorderBrush="{Binding State, Converter={StaticResource SubAgentStateToBrushConverter}}"
                                     Background="#1A000000">
@@ -128,7 +150,9 @@
                                         <TextBlock Text="{Binding CurrentAction}" Opacity="0.8"/>
                                     </StackPanel>
                                 </ToolTip.Tip>
-                                <Image Source="/Assets/owl.webp" Stretch="UniformToFill"/>
+                                <Image Source="/Assets/owl.webp" Width="82" Height="82"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Stretch="Uniform"/>
                             </Border>
                         </Panel>
                     </DataTemplate>

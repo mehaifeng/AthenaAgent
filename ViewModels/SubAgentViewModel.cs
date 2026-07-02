@@ -50,6 +50,10 @@ public partial class SubAgentViewModel : ObservableObject
     [ObservableProperty]
     private string _errorMessage = string.Empty;
 
+    /// <summary>整批结束后的谢幕标记：置真触发小镇里的淡出缩小动画，随后由编排器移除。</summary>
+    [ObservableProperty]
+    private bool _isVanishing;
+
     /// <summary>过程日志（M4 的"查看过程"展示用）。</summary>
     public ObservableCollection<SubAgentLogEntry> Log { get; } = new();
 
@@ -115,20 +119,36 @@ public partial class SubAgentViewModel : ObservableObject
         OnPropertyChanged(nameof(OwlTransform));
     }
 
+    // ===== 随机游走节拍 =====
+    // 每只猫头鹰有自己的下次挪窝时间（1.2~3.5s 随机），互不同步；终态（完成/出错/取消）后静止。
+    private DateTime _nextWanderAt = DateTime.MinValue;
+
+    private bool ShouldWanderNow(DateTime now)
+        => State is SubAgentState.Pending or SubAgentState.Running && now >= _nextWanderAt;
+
+    private void ScheduleNextWander(DateTime now)
+        => _nextWanderAt = now + TimeSpan.FromMilliseconds(1200 + _rng.NextDouble() * 2300);
+
     /// <summary>
     /// 为一组猫头鹰在各自所处场所内随机选取新的漂移目标，并保证同场所内两两间距 ≥ 半个身位
-    /// （重叠不超过 50%）。由小镇视图按固定节拍调用，配合过渡产生"随机游荡"。
+    /// （重叠不超过 50%）。由小镇视图高频节拍调用；每只猫头鹰只在自己的随机时刻到点才挪动，
+    /// 终态的猫头鹰不再移动，但其当前位置仍参与避让。
     /// </summary>
     public static void RepositionWander(IReadOnlyList<SubAgentViewModel> owls)
     {
         const double threshold = OwlSize * 0.5; // 23px：重叠上限 50%
+        var now = DateTime.UtcNow;
         foreach (var group in owls.GroupBy(o => o.Zone))
         {
             var center = ZoneCenters[group.Key];
             var ext = ZoneExtents[group.Key];
-            var placed = new List<(double X, double Y)>();
+            // 本轮不动的（未到点/已终态）先占位，让要挪的躲开它们。
+            var placed = group.Where(o => !o.ShouldWanderNow(now))
+                              .Select(o => (X: o.CanvasX, Y: o.CanvasY))
+                              .ToList();
             foreach (var owl in group)
             {
+                if (!owl.ShouldWanderNow(now)) continue;
                 double wx = 0, wy = 0, px = 0, py = 0;
                 for (var attempt = 0; attempt < 12; attempt++)
                 {
@@ -147,6 +167,7 @@ public partial class SubAgentViewModel : ObservableObject
                     if (ok) break;
                 }
                 owl.SetWander(wx, wy);
+                owl.ScheduleNextWander(now);
                 placed.Add((px, py));
             }
         }

@@ -225,6 +225,39 @@ public partial class ChatTabViewModel : ViewModelBase
         SubAgentCount = agents?.Count ?? 0;
         HasSubAgents = SubAgentCount > 0;
         HasRunningSubAgents = agents?.Any(a => a.State is SubAgentState.Pending or SubAgentState.Running) == true;
+
+        // 整批谢幕：最后一只结束（完成/出错/取消/超时）后延时 2s，
+        // 先播淡出动画再统一移出小镇；期间若有新批次派入则取消。
+        if (HasSubAgents && !HasRunningSubAgents)
+        {
+            _subAgentClearTimer ??= CreateSubAgentClearTimer();
+            if (!_subAgentClearTimer.IsEnabled) _subAgentClearTimer.Start();
+        }
+        else
+        {
+            _subAgentClearTimer?.Stop();
+        }
+    }
+
+    private DispatcherTimer? _subAgentClearTimer;
+
+    private DispatcherTimer CreateSubAgentClearTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var agents = Orchestrator?.ActiveAgents;
+            if (agents == null || agents.Count == 0 || HasRunningSubAgents) return;
+
+            foreach (var agent in agents)
+            {
+                agent.IsVanishing = true;
+            }
+            // 等淡出动画（0.45s）播完再真正移除。
+            DispatcherTimer.RunOnce(() => Orchestrator?.ClearCompleted(), TimeSpan.FromMilliseconds(500));
+        };
+        return timer;
     }
 
     [RelayCommand]

@@ -15,7 +15,9 @@ public partial class OwlVillageView : UserControl
     {
         InitializeComponent();
 
-        _wanderTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        // 高频轮询、低频挪动：每只猫头鹰有自己的下次挪窝时刻（见 SubAgentViewModel.RepositionWander），
+        // 这里只负责节拍触发，到点的才动，形成互不同步的随机游走。
+        _wanderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         _wanderTimer.Tick += (_, _) => Wander();
 
         AttachedToVisualTree += (_, _) =>

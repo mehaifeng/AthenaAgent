@@ -255,7 +255,7 @@ public partial class ChatTabView : UserControl
                 (start.X + end.Value.X) / 2 + side,
                 Math.Max(10, Math.Min(start.Y, end.Value.Y) - lift));
 
-            var durationMs = 1050.0 + variant * 90;
+            var durationMs = 1600.0 + variant * 120;
             var sw = Stopwatch.StartNew();
             while (true)
             {

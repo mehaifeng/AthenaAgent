@@ -185,15 +185,13 @@
                                 Classes.active="{Binding HasRunningSubAgents}"/>
                         <Button x:Name="SubAgentsButton"
                                 VerticalAlignment="Center"
-                                Padding="8,2"
+                                Padding="8,0"
                                 FontSize="11"
                                 Command="{Binding ToggleSubAgentPopupCommand}"
                                 ToolTip.Tip="{loc:Loc Chat.SubAgents.Toggle}">
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <Image Source="/Assets/owl.webp"
-                                       Width="15" Height="15"
                                        VerticalAlignment="Center"/>
-                                <TextBlock Text="Sub-Agents" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                         <Border Classes="subagents-badge"
