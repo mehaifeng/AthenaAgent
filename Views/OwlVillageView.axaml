@@ -1,0 +1,163 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.OwlVillageView"
+             x:DataType="vm:ChatTabViewModel"
+             Width="520">
+
+    <UserControl.Styles>
+        <!-- 运行中的猫头鹰轻微"呼吸"；归巢/出错后静止。 -->
+        <Style Selector="Border.owl">
+            <Setter Property="RenderTransform">
+                <ScaleTransform/>
+            </Setter>
+        </Style>
+        <Style Selector="Border.owl.running">
+            <Style.Animations>
+                <Animation Duration="0:0:2.6" IterationCount="Infinite" Easing="SineEaseInOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="50%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.08"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.08"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto" Margin="14">
+        <!-- 标题栏 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+            <TextBlock Grid.Column="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="{loc:Loc SubAgent.ClearCompleted}" FontSize="12" Padding="8,4"
+                    Command="{Binding ClearCompletedSubAgentsCommand}"/>
+        </Grid>
+
+        <!-- 小镇画布：场所背景 + 猫头鹰图层 -->
+        <Grid Grid.Row="1" Width="486" Height="405" HorizontalAlignment="Center" Margin="0,0,0,12">
+            <Canvas Width="486" Height="405">
+                <!-- 2×3 网格。上排：Archeion(文件) | Ourania(电脑) -->
+                <Border Canvas.Left="12" Canvas.Top="12" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/FileArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Files}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+                <Border Canvas.Left="249" Canvas.Top="12" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/ComputerArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Web}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+                <!-- 中排：Hesychia(冥想，家) | Mnemosyne(书房) -->
+                <Border Canvas.Left="12" Canvas.Top="143" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/MeditationArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Meditation}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+                <Border Canvas.Left="249" Canvas.Top="143" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/StudyArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Library}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+                <!-- 下排：Hephaistos(工坊) | Nostos(归巢) -->
+                <Border Canvas.Left="12" Canvas.Top="274" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/WorkshopArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Workshop}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+                <Border Canvas.Left="249" Canvas.Top="274" Width="225" Height="119" CornerRadius="8" ClipToBounds="True">
+                    <Border.Background>
+                        <ImageBrush Source="/Assets/NestingArea.webp" Stretch="UniformToFill"/>
+                    </Border.Background>
+                    <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Perch}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                    </Border>
+                </Border>
+            </Canvas>
+
+            <!-- 猫头鹰图层 -->
+            <ItemsControl ItemsSource="{Binding Orchestrator.ActiveAgents}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Canvas Width="486" Height="405"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SubAgentViewModel">
+                        <!-- 外层：定位（Zone / 漂移变化 → 变换变化 → 过渡产生滑翔与游荡）。 -->
+                        <Panel Width="62" Height="62"
+                               RenderTransform="{Binding OwlTransform, Converter={StaticResource StringToTransformConverter}}">
+                            <Panel.Transitions>
+                                <Transitions>
+                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.7" Easing="CubicEaseInOut"/>
+                                </Transitions>
+                            </Panel.Transitions>
+                            <!-- 内层：呼吸缩放（运行中）。圆形头像 + 状态色描边环。 -->
+                            <Border Classes="owl" Width="62" Height="62"
+                                    Classes.running="{Binding IsRunning}"
+                                    RenderTransformOrigin="50%,50%"
+                                    CornerRadius="31" ClipToBounds="True"
+                                    BorderThickness="2.5"
+                                    BorderBrush="{Binding State, Converter={StaticResource SubAgentStateToBrushConverter}}"
+                                    Background="#1A000000">
+                                <ToolTip.Tip>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding CurrentAction}" Opacity="0.8"/>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                                <Image Source="/Assets/owl.webp" Stretch="UniformToFill"/>
+                            </Border>
+                        </Panel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Text="{loc:Loc SubAgent.ListHeader}" FontSize="12" Opacity="0.6" Margin="0,0,0,6"/>
+
+        <!-- 详情列表 -->
+        <ScrollViewer Grid.Row="3" MaxHeight="260" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Orchestrator.ActiveAgents}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SubAgentViewModel">
+                        <Border Padding="10,7" Margin="0,0,0,6" CornerRadius="8" Background="#14808080">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Ellipse Grid.Column="0" Width="11" Height="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                                         Fill="{Binding State, Converter={StaticResource SubAgentStateToBrushConverter}}"/>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13"/>
+                                    <TextBlock Text="{Binding CurrentAction}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <Button Grid.Column="2" Content="{loc:Loc SubAgent.Cancel}" FontSize="11" Padding="8,3" VerticalAlignment="Center"
+                                        Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

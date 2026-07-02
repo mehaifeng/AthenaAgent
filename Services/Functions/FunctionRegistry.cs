@@ -32,6 +32,7 @@ public class FunctionRegistry : IFunctionRegistry
         WebSearchFunctions webSearchFunctions,
         ImageGenerationFunctions imageGenerationFunctions,
         BrowserTaskFunctions browserTaskFunctions,
+        SubAgentFunctions subAgentFunctions,
         IConfigService? configService,
         ILogger logger)
     {
@@ -165,6 +166,38 @@ public class FunctionRegistry : IFunctionRegistry
                     maxSteps = new { type = "integer", description = "Optional maximum number of internal browser steps. Defaults to the browser setting; complex multi-control tasks may automatically use a larger internal limit.", @default = 40 }
                 },
                 required = new[] { "instruction" }
+            });
+
+        // --- Sub-Agents (parallel delegation) ---
+        RegisterFunction("dispatch_subagents", subAgentFunctions.DispatchSubagentsAsync,
+            "Delegates one or more INDEPENDENT subtasks to isolated sub-agents that run IN PARALLEL, each with its own private context and tools. " +
+            "Use this when the user's request decomposes into several self-contained pieces that can progress at the same time (e.g., research multiple topics, process multiple files, gather several data points). " +
+            "Each sub-agent only returns a concise final summary to you — its intermediate tool calls stay out of this conversation, which keeps your context clean. " +
+            "Do NOT use this for a single small step you can do yourself, for strictly sequential work where one step depends on the previous, or when you need to keep tight control. " +
+            "Each task's 'instruction' MUST be complete and self-contained, because the sub-agent cannot see this conversation. Sub-agents cannot themselves dispatch further sub-agents.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    tasks = new
+                    {
+                        type = "array",
+                        description = "The batch of independent subtasks to run in parallel. Prefer 2–5 focused tasks.",
+                        items = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                title = new { type = "string", description = "Short label shown in the UI (e.g., '竞品价格调研')." },
+                                agent_type = new { type = "string", @enum = new[] { "general", "researcher", "file_worker" }, description = "researcher: web/browser/memory reading. file_worker: local file operations. general: broad toolset.", @default = "general" },
+                                instruction = new { type = "string", description = "Complete, self-contained instruction. Include all needed context, constraints, and the expected deliverable — the sub-agent cannot see this conversation." }
+                            },
+                            required = new[] { "title", "instruction" }
+                        }
+                    }
+                },
+                required = new[] { "tasks" }
             });
 
         // --- Self-Configuration ---
@@ -465,6 +498,13 @@ public class FunctionRegistry : IFunctionRegistry
 
             if (string.Equals(chatTool.FunctionName, "generate_image", StringComparison.OrdinalIgnoreCase)
                 && config?.ImageGenerationEnabled != true)
+            {
+                continue;
+            }
+
+            // 子代理派发仅在开启时对模型可见，避免默认状态下污染工具列表。
+            if (string.Equals(chatTool.FunctionName, "dispatch_subagents", StringComparison.OrdinalIgnoreCase)
+                && config?.EnableSubAgents != true)
             {
                 continue;
             }

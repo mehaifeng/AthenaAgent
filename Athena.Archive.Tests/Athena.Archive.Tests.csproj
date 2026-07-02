@@ -63,4 +63,8 @@
     <Compile Include="../Services/Interfaces/IRecurrenceService.cs" Link="Source/Services/Interfaces/IRecurrenceService.cs" />
     <Compile Include="../Services/Interfaces/ITaskScheduler.cs" Link="Source/Services/Interfaces/ITaskScheduler.cs" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Athena.UI.csproj" />
+  </ItemGroup>
 </Project>
