@@ -3,6 +3,7 @@
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:models="using:Athena.UI.Models"
              xmlns:controls="using:Athena.UI.Controls"
+             xmlns:views="using:Athena.UI.Views"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
@@ -87,6 +88,52 @@
             <Setter Property="MaxWidth" Value="560"/>
         </Style>
 
+        <!-- Sub-Agents 按钮：运行中涟漪光环（琥珀色，与小镇"运行中"猫头鹰同色系）。
+             平时透明不占视觉；active 时从按钮轮廓向外扩散并淡出，无限循环。 -->
+        <Style Selector="Border.subagents-glow">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#BA7517"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Setter Property="RenderTransform">
+                <ScaleTransform/>
+            </Setter>
+        </Style>
+        <Style Selector="Border.subagents-glow.active">
+            <Style.Animations>
+                <Animation Duration="0:0:2.4" IterationCount="Infinite" Easing="SineEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0.4"/>
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="0"/>
+                        <Setter Property="ScaleTransform.ScaleX" Value="1.10"/>
+                        <Setter Property="ScaleTransform.ScaleY" Value="1.4"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+
+        <!-- Sub-Agents 右下角代理数角标：运行中琥珀色，闲时灰色。 -->
+        <Style Selector="Border.subagents-badge">
+            <Setter Property="MinWidth" Value="15"/>
+            <Setter Property="Height" Value="15"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="3,0"/>
+            <Setter Property="Background" Value="#9E9A90"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="VerticalAlignment" Value="Bottom"/>
+            <Setter Property="Margin" Value="0,0,-5,-5"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+        </Style>
+        <Style Selector="Border.subagents-badge.running">
+            <Setter Property="Background" Value="#BA7517"/>
+        </Style>
+
         <Style Selector="Button.attachment-remove-button">
             <Setter Property="Width" Value="20"/>
             <Setter Property="Height" Value="20"/>
@@ -116,7 +163,7 @@
                                FontSize="14"/>
 
                     <!-- 调试：切换原始上下文(raw)视图，仅在对话流完成时可用 -->
-                    <u:IconToggleButton 
+                    <u:IconToggleButton
                       IsChecked="{Binding IsRawContextView}"
                       IsEnabled="{Binding CanToggleRawContext}"
                       Icon="{StaticResource SemiIconBrackets}"
@@ -124,6 +171,41 @@
                       Padding="6,2"
                       FontSize="11"
                       ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
+
+                    <!-- 子代理入口：始终可用，居中弹出"猫头鹰小镇"。
+                         整体包在 Panel 里：底层涟漪光环（运行时循环）+ 按钮 + 右下角数量角标；
+                         Panel 挂 ScaleTransform，猫头鹰飞抵时由 code-behind 做弹跳脉冲。 -->
+                    <Panel x:Name="SubAgentsEntry"
+                           VerticalAlignment="Center"
+                           RenderTransformOrigin="50%,50%">
+                        <Panel.RenderTransform>
+                            <ScaleTransform/>
+                        </Panel.RenderTransform>
+                        <Border Classes="subagents-glow"
+                                Classes.active="{Binding HasRunningSubAgents}"/>
+                        <Button x:Name="SubAgentsButton"
+                                VerticalAlignment="Center"
+                                Padding="8,2"
+                                FontSize="11"
+                                Command="{Binding ToggleSubAgentPopupCommand}"
+                                ToolTip.Tip="{loc:Loc Chat.SubAgents.Toggle}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Image Source="/Assets/owl.webp"
+                                       Width="15" Height="15"
+                                       VerticalAlignment="Center"/>
+                                <TextBlock Text="Sub-Agents" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Border Classes="subagents-badge"
+                                Classes.running="{Binding HasRunningSubAgents}"
+                                IsVisible="{Binding HasSubAgents}">
+                            <TextBlock Text="{Binding SubAgentCount}"
+                                       FontSize="9" FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                    </Panel>
                 </StackPanel>
 
                 <TextBlock Grid.Column="1"
@@ -158,7 +240,7 @@
         <!-- 聊天消息列表 -->
         <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12"
                       IsVisible="{Binding !IsRawContextView}">
-            <ItemsControl ItemsSource="{Binding Messages}">
+            <ItemsControl x:Name="MessagesItemsControl" ItemsSource="{Binding Messages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
                         <Grid Margin="0,0,0,40" IsVisible="{Binding IsBubbleVisible}">
@@ -644,5 +726,25 @@
             </Grid>
             </Border>
         </Border>
+
+        <!-- 猫头鹰"飞行层"：dispatch_subagents 时从助手气泡飞向 Sub-Agents 按钮的过场动画。
+             覆盖全部行、不拦截交互；owl 图元由 code-behind 动态增删。 -->
+        <Canvas x:Name="OwlFlightOverlay"
+                Grid.Row="0" Grid.RowSpan="3"
+                ZIndex="90"
+                IsHitTestVisible="False"
+                ClipToBounds="True"/>
+
+        <!-- 子代理"小镇"居中弹窗（覆盖主对话） -->
+        <Grid Grid.Row="0" Grid.RowSpan="3" ZIndex="100" IsVisible="{Binding IsSubAgentPopupOpen}">
+            <!-- 遮罩：Border（无悬停态，不随光标变色）+ 点击关闭；同时挡住下层 hover -->
+            <Border Background="#66000000" PointerPressed="OnSubAgentScrimPressed"/>
+            <!-- 居中面板（内部几何已放大，字号不变） -->
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="{DynamicResource App.SectionBg}"
+                    CornerRadius="14" BorderBrush="#33808080" BorderThickness="1">
+                <views:OwlVillageView/>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

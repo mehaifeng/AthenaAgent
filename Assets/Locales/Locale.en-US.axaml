@@ -20,6 +20,17 @@
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">Conversation</system:String>
     <system:String x:Key="Chat.Raw.Toggle">Show raw context sent to the model (debug). Available when idle.</system:String>
+    <system:String x:Key="Chat.SubAgents.Toggle">Open the sub-agent owl village.</system:String>
+    <system:String x:Key="SubAgent.Village.Title">Glaukopolis</system:String>
+    <system:String x:Key="SubAgent.ClearCompleted">Clear completed</system:String>
+    <system:String x:Key="SubAgent.ListHeader">In progress / done</system:String>
+    <system:String x:Key="SubAgent.Cancel">Cancel</system:String>
+    <system:String x:Key="SubAgent.Zone.Files">Archeion</system:String>
+    <system:String x:Key="SubAgent.Zone.Web">Ourania</system:String>
+    <system:String x:Key="SubAgent.Zone.Meditation">Hesychia</system:String>
+    <system:String x:Key="SubAgent.Zone.Library">Mnemosyne</system:String>
+    <system:String x:Key="SubAgent.Zone.Workshop">Hephaistos</system:String>
+    <system:String x:Key="SubAgent.Zone.Perch">Nostos</system:String>
     <system:String x:Key="Chat.Raw.ServiceUnavailable">Chat service is unavailable.</system:String>
     <system:String x:Key="Chat.Buffer">Tokens: {0}</system:String>
     <system:String x:Key="Chat.BtnTheme">Theme</system:String>
@@ -360,6 +371,17 @@
     <system:String x:Key="Config.BrowserModelSourceInherit">Follow main model</system:String>
     <system:String x:Key="Config.BrowserModelSourceCustom">Custom model</system:String>
     <system:String x:Key="Config.BrowserVisionCapabilityHint">Vision+SoM mode needs a model that accepts image input. If "Follow main model", make sure the main model supports vision; otherwise pick a vision-capable model below. Click "Test" to verify (it sends a probe image).</system:String>
+
+    <!-- Sub-Agents -->
+    <system:String x:Key="Config.SubAgents">Sub-Agents</system:String>
+    <system:String x:Key="Config.SubAgentsDescription">When enabled, the main model can delegate independent subtasks to sub-agents that run in parallel, each with its own isolated context. Only their final summaries return to the main conversation.</system:String>
+    <system:String x:Key="Config.SubAgentsEnabled">Enable Sub-Agents:</system:String>
+    <system:String x:Key="Config.SubAgentMaxParallel">Max Parallel:</system:String>
+    <system:String x:Key="Config.SubAgentMaxIterations">Max Steps / Agent:</system:String>
+    <system:String x:Key="Config.SubAgentTimeout">Timeout (sec):</system:String>
+    <system:String x:Key="Config.SubAgentModelSource">Model Source:</system:String>
+    <system:String x:Key="Config.SubAgentModelSourceInherit">Follow main model</system:String>
+    <system:String x:Key="Config.SubAgentModelSourceCustom">Custom model</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>

@@ -131,6 +131,23 @@ public partial class ConfigTabViewModel : ViewModelBase
     /// <summary>是否使用自定义浏览器模型（决定下方独立配置字段是否显示）。</summary>
     public bool IsBrowserModelCustom => Config.BrowserModelSource == BrowserModelSource.Custom;
 
+    /// <summary>子代理模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
+    public bool UseMainModelForSubAgent
+    {
+        get => Config.SubAgentModelSource == SubAgentModelSource.InheritMain;
+        set
+        {
+            var newSource = value ? SubAgentModelSource.InheritMain : SubAgentModelSource.Custom;
+            if (Config.SubAgentModelSource != newSource)
+            {
+                Config.SubAgentModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
+            }
+        }
+    }
+
+    /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
+    public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
+
     public ObservableCollection<string> Languages { get; }
 
     public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "Zhipu", "Baidu" };
@@ -239,6 +256,8 @@ public partial class ConfigTabViewModel : ViewModelBase
             OnPropertyChanged(nameof(IsBrowserVisionEnabled));
             OnPropertyChanged(nameof(UseMainModelForBrowser));
             OnPropertyChanged(nameof(IsBrowserModelCustom));
+            OnPropertyChanged(nameof(UseMainModelForSubAgent));
+            OnPropertyChanged(nameof(IsSubAgentModelCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
@@ -263,6 +282,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(UseMainModelForBrowser));
                     OnPropertyChanged(nameof(IsBrowserModelCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.SubAgentModelSource))
+                {
+                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
+                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
                 }
                 else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
                          || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))

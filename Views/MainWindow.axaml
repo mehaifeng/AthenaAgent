@@ -22,6 +22,7 @@
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
+
     <Grid RowDefinitions="*,Auto">
         <!-- 背景图片 -->
         <Image Source="{DynamicResource App.BackgroundImage}"
