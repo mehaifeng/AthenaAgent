@@ -138,7 +138,7 @@
                                             FontWeight="SemiBold"
                                             Classes.pending-archive-title="{Binding IsArchivePlaceholder}"/>
                                         <Separator Height="1"
-                                                   Margin="0,4,30,4"
+                                                   Margin="0,4,0,4"
                                                    Classes.pending-archive-separator="{Binding IsArchivePlaceholder}"/>
                                         <StackPanel
                                             Orientation="Horizontal" Spacing="24">
