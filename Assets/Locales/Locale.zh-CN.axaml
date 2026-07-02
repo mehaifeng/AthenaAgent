@@ -20,6 +20,17 @@
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">当前对话</system:String>
     <system:String x:Key="Chat.Raw.Toggle">查看发送给模型的原始上下文(调试)。仅在对话空闲时可用。</system:String>
+    <system:String x:Key="Chat.SubAgents.Toggle">打开子代理"猫头鹰之城"。</system:String>
+    <system:String x:Key="SubAgent.Village.Title">猫头鹰之城</system:String>
+    <system:String x:Key="SubAgent.ClearCompleted">清空已完成</system:String>
+    <system:String x:Key="SubAgent.ListHeader">进行中 / 已完成</system:String>
+    <system:String x:Key="SubAgent.Cancel">取消</system:String>
+    <system:String x:Key="SubAgent.Zone.Files">档案宫</system:String>
+    <system:String x:Key="SubAgent.Zone.Web">观星台</system:String>
+    <system:String x:Key="SubAgent.Zone.Meditation">静谧林</system:String>
+    <system:String x:Key="SubAgent.Zone.Library">记忆书斋</system:String>
+    <system:String x:Key="SubAgent.Zone.Workshop">火神工坊</system:String>
+    <system:String x:Key="SubAgent.Zone.Perch">归乡巢</system:String>
     <system:String x:Key="Chat.Raw.ServiceUnavailable">对话服务不可用。</system:String>
     <system:String x:Key="Chat.Buffer">Token: {0}</system:String>
     <system:String x:Key="Chat.BtnTheme">主题</system:String>
@@ -360,6 +371,17 @@
     <system:String x:Key="Config.BrowserModelSourceInherit">跟随主模型</system:String>
     <system:String x:Key="Config.BrowserModelSourceCustom">自定义模型</system:String>
     <system:String x:Key="Config.BrowserVisionCapabilityHint">当前为视觉标注(SoM)模式，浏览器智能体需要能接收图像输入的模型：若"跟随主模型"，请确认主模型支持视觉；否则请在下方选择具备视觉能力的模型。可点击下方"测试"验证（会发送一张测试图）。</system:String>
+
+    <!-- 子代理 -->
+    <system:String x:Key="Config.SubAgents">子代理</system:String>
+    <system:String x:Key="Config.SubAgentsDescription">启用后，主模型可以把相互独立的子任务分派给并行运行的子代理，每个子代理拥有独立的隔离上下文，只有最终摘要会回传主对话。</system:String>
+    <system:String x:Key="Config.SubAgentsEnabled">启用子代理:</system:String>
+    <system:String x:Key="Config.SubAgentMaxParallel">最大并行数:</system:String>
+    <system:String x:Key="Config.SubAgentMaxIterations">单代理最大步数:</system:String>
+    <system:String x:Key="Config.SubAgentTimeout">超时(秒):</system:String>
+    <system:String x:Key="Config.SubAgentModelSource">模型来源:</system:String>
+    <system:String x:Key="Config.SubAgentModelSourceInherit">跟随主模型</system:String>
+    <system:String x:Key="Config.SubAgentModelSourceCustom">自定义模型</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">服务未初始化</system:String>

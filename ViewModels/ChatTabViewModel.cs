@@ -171,6 +171,104 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
+    /// <summary>子代理编排器（供 RAW 旁的 Sub-Agents 弹出小镇绑定）。</summary>
+    public ISubAgentOrchestrator? Orchestrator { get; }
+
+    /// <summary>子代理"小镇"居中弹窗是否展开。</summary>
+    [ObservableProperty]
+    private bool _isSubAgentPopupOpen;
+
+    /// <summary>小镇当前猫头鹰总数（Sub-Agents 按钮右下角角标）。</summary>
+    [ObservableProperty]
+    private int _subAgentCount;
+
+    /// <summary>是否有猫头鹰在镇上（角标可见性）。</summary>
+    [ObservableProperty]
+    private bool _hasSubAgents;
+
+    /// <summary>是否至少一只猫头鹰在干活（Pending/Running），驱动按钮的持续涟漪特效。</summary>
+    [ObservableProperty]
+    private bool _hasRunningSubAgents;
+
+    // 已挂 State 监听的猫头鹰集合；集合变更时全量对账（Reset 拿不到旧项，无法逐项退订）。
+    private readonly HashSet<SubAgentViewModel> _trackedSubAgents = new();
+
+    private void OnActiveSubAgentsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        var agents = Orchestrator?.ActiveAgents;
+        if (agents == null) return;
+
+        foreach (var stale in _trackedSubAgents.Where(a => !agents.Contains(a)).ToList())
+        {
+            stale.PropertyChanged -= OnSubAgentStatePropertyChanged;
+            _trackedSubAgents.Remove(stale);
+        }
+        foreach (var agent in agents)
+        {
+            if (_trackedSubAgents.Add(agent))
+            {
+                agent.PropertyChanged += OnSubAgentStatePropertyChanged;
+            }
+        }
+
+        RefreshSubAgentIndicators();
+    }
+
+    private void OnSubAgentStatePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SubAgentViewModel.State)) RefreshSubAgentIndicators();
+    }
+
+    private void RefreshSubAgentIndicators()
+    {
+        var agents = Orchestrator?.ActiveAgents;
+        SubAgentCount = agents?.Count ?? 0;
+        HasSubAgents = SubAgentCount > 0;
+        HasRunningSubAgents = agents?.Any(a => a.State is SubAgentState.Pending or SubAgentState.Running) == true;
+
+        // 整批谢幕：最后一只结束（完成/出错/取消/超时）后延时 2s，
+        // 先播淡出动画再统一移出小镇；期间若有新批次派入则取消。
+        if (HasSubAgents && !HasRunningSubAgents)
+        {
+            _subAgentClearTimer ??= CreateSubAgentClearTimer();
+            if (!_subAgentClearTimer.IsEnabled) _subAgentClearTimer.Start();
+        }
+        else
+        {
+            _subAgentClearTimer?.Stop();
+        }
+    }
+
+    private DispatcherTimer? _subAgentClearTimer;
+
+    private DispatcherTimer CreateSubAgentClearTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var agents = Orchestrator?.ActiveAgents;
+            if (agents == null || agents.Count == 0 || HasRunningSubAgents) return;
+
+            foreach (var agent in agents)
+            {
+                agent.IsVanishing = true;
+            }
+            // 等淡出动画（0.45s）播完再真正移除。
+            DispatcherTimer.RunOnce(() => Orchestrator?.ClearCompleted(), TimeSpan.FromMilliseconds(500));
+        };
+        return timer;
+    }
+
+    [RelayCommand]
+    private void ToggleSubAgentPopup() => IsSubAgentPopupOpen = !IsSubAgentPopupOpen;
+
+    [RelayCommand]
+    private void CloseSubAgentPopup() => IsSubAgentPopupOpen = false;
+
+    [RelayCommand]
+    private void ClearCompletedSubAgents() => Orchestrator?.ClearCompleted();
+
     public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
@@ -188,8 +286,15 @@ public partial class ChatTabViewModel : ViewModelBase
         IConversationArchiveService? archiveService = null,
         IImageGenerationSessionService? imageGenerationSessionService = null,
         IDocumentParserService? documentParserService = null,
-        IScreenCaptureService? screenCaptureService = null)
+        IScreenCaptureService? screenCaptureService = null,
+        ISubAgentOrchestrator? subAgentOrchestrator = null)
     {
+        Orchestrator = subAgentOrchestrator;
+        if (Orchestrator != null)
+        {
+            Orchestrator.ActiveAgents.CollectionChanged += OnActiveSubAgentsChanged;
+            OnActiveSubAgentsChanged(null, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
         _chatService = chatService;
         _configService = configService;
         _historyService = historyService;

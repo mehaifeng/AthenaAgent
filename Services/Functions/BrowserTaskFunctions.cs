@@ -1,5 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.SubAgents;
 using Serilog;
 using System;
 using System.Linq;
@@ -27,13 +28,16 @@ public class BrowserTaskFunctions
                 return FunctionResult.FailureResult("Browser task instruction cannot be empty.");
             }
 
+            // 读取主对话循环经 AsyncLocal 透传的取消令牌，使用户点"停止"能中断浏览器智能体的多步循环。
+            var cancellationToken = ToolExecutionContext.CurrentCancellationToken;
+
             var result = await _browserAgentService.RunTaskAsync(new BrowserTaskRequest
             {
                 Instruction = instruction,
                 StartUrl = startUrl,
                 MaxSteps = maxSteps,
                 CloseSessionOnCompletion = true
-            });
+            }, cancellationToken);
 
             _logger.Information("Browser task finished. Success={Success}, Actions={Actions}, Url={Url}",
                 result.Success, result.ActionsTakenCount, result.FinalUrl);
@@ -86,6 +90,11 @@ public class BrowserTaskFunctions
                 Message = result.Error ?? result.Summary,
                 Data = compactData
             };
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Information("Browser task cancelled by user stop request.");
+            return FunctionResult.FailureResult("Browser task was cancelled.");
         }
         catch (Exception ex)
         {

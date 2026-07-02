@@ -208,6 +208,43 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private double _browserAgentTemperature = 0.2;
 
+    // 子代理配置（dispatch_subagents：主模型并行派生隔离上下文的子代理）
+    [ObservableProperty]
+    private bool _enableSubAgents = false;
+
+    // 子代理模型来源：默认跟随主模型；Custom 时使用下方独立字段（留空逐字段回退主 AI）。
+    [ObservableProperty]
+    private SubAgentModelSource _subAgentModelSource = SubAgentModelSource.InheritMain;
+
+    [ObservableProperty]
+    private string _subAgentProvider = "OpenAI";
+
+    [ObservableProperty]
+    private string _subAgentBaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _subAgentApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _subAgentModel = "gpt-4o-mini";
+
+    [ObservableProperty]
+    private int _subAgentMaxTokens = 4000;
+
+    [ObservableProperty]
+    private double _subAgentTemperature = 0.3;
+
+    // 同时并行运行的子代理上限（超出排队）。
+    [ObservableProperty]
+    private int _subAgentMaxParallel = 4;
+
+    // 单个子代理的工具循环最大轮数（兜底）。
+    [ObservableProperty]
+    private int _subAgentMaxIterations = 20;
+
+    [ObservableProperty]
+    private int _subAgentTimeoutSeconds = 180;
+
     // 文档解析配置（MinerU）
     [ObservableProperty]
     private bool _documentParserEnabled = false;

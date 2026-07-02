@@ -1,5 +1,6 @@
 ﻿using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.SubAgents;
 using OpenAI;
 using OpenAI.Chat;
 using Serilog;
@@ -396,6 +397,8 @@ public class OpenAIChatService : IChatService
                 cancellationToken.ThrowIfCancellationRequested();
                 Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
                 using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
+                // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
+                using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
                 cancellationToken.ThrowIfCancellationRequested();
                 

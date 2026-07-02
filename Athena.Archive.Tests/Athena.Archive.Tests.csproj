@@ -21,6 +21,7 @@
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
+    <Compile Include="../Models/SubAgentModels.cs" Link="Source/Models/SubAgentModels.cs" />
     <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
     <Compile Include="../Models/ChatMessage.cs" Link="Source/Models/ChatMessage.cs" />
     <Compile Include="../Models/ChatMessageSegment.cs" Link="Source/Models/ChatMessageSegment.cs" />
