@@ -33,6 +33,7 @@ public class FunctionRegistry : IFunctionRegistry
         ImageGenerationFunctions imageGenerationFunctions,
         BrowserTaskFunctions browserTaskFunctions,
         SubAgentFunctions subAgentFunctions,
+        DocumentParserFunctions documentParserFunctions,
         IConfigService? configService,
         ILogger logger)
     {
@@ -198,6 +199,21 @@ public class FunctionRegistry : IFunctionRegistry
                     }
                 },
                 required = new[] { "tasks" }
+            });
+
+        // --- Document Parsing (MinerU) ---
+        RegisterFunction("parse_office_document", documentParserFunctions.ParseOfficeDocumentAsync,
+            "Parses a local Office or PDF document (.doc, .docx, .ppt, .pptx, .xls, .xlsx, .pdf) into AI-readable Markdown text via the MinerU service, and returns the extracted content. " +
+            "Use this when the user references a local Office/PDF file whose contents you need to read or summarize — plain-text and code files should be read with read_system_file instead, not this tool. " +
+            "The parsing runs remotely (upload -> poll -> download) and may take a while for large files. NOTE: This tool requires Document Parsing to be enabled in settings.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", description = "Absolute or relative path to the local Office/PDF document to parse." }
+                },
+                required = new[] { "path" }
             });
 
         // --- Self-Configuration ---
@@ -505,6 +521,13 @@ public class FunctionRegistry : IFunctionRegistry
             // 子代理派发仅在开启时对模型可见，避免默认状态下污染工具列表。
             if (string.Equals(chatTool.FunctionName, "dispatch_subagents", StringComparison.OrdinalIgnoreCase)
                 && config?.EnableSubAgents != true)
+            {
+                continue;
+            }
+
+            // Office/PDF 文档解析仅在开启文档解析时对模型可见。
+            if (string.Equals(chatTool.FunctionName, "parse_office_document", StringComparison.OrdinalIgnoreCase)
+                && config?.DocumentParserEnabled != true)
             {
                 continue;
             }

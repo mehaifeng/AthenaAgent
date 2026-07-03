@@ -101,9 +101,9 @@ public class ScreenCaptureService : IScreenCaptureService
             return ScreenCaptureLaunchResult.Failed;
         }
 
-        // 轮询等待新出现的覆盖层进程（覆盖层异步拉起，给约 3 秒）。
+        // 轮询等待新出现的覆盖层进程（覆盖层异步拉起，Win11 Snipping Tool 冷启动较慢，给约 5 秒）。
         Process? overlay = null;
-        for (var i = 0; i < 30 && overlay == null; i++)
+        for (var i = 0; i < 50 && overlay == null; i++)
         {
             ct.ThrowIfCancellationRequested();
             overlay = FindNewOverlayProcess(beforePids);
@@ -187,6 +187,14 @@ public class ScreenCaptureService : IScreenCaptureService
         {
             _logger.Debug("截图命令不可用: {Command} ({Error})", command, result.StandardError);
             return ScreenCaptureLaunchResult.Failed;
+        }
+
+        // 交互式截图工具在用户取消（Esc）时返回非零退出码（macOS screencapture、
+        // flameshot、gnome-screenshot 均如此），据此让调用方立即结束而非空轮询剪贴板。
+        if (result.ExitCode != 0)
+        {
+            _logger.Debug("截图被用户取消: {Command} (ExitCode={ExitCode})", command, result.ExitCode);
+            return ScreenCaptureLaunchResult.Cancelled;
         }
 
         return ScreenCaptureLaunchResult.CompletedBlocking;

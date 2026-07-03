@@ -31,7 +31,7 @@
 
         <!-- SCROLLABLE CONTENT -->
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="16">
-            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
+            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
 
                 <!-- SECTION 1: APPEARANCE -->
                 <Border 
@@ -660,13 +660,13 @@
                                                FontSize="12"
                                                Opacity="0.7"/>
 
-                                    <Grid ColumnDefinitions="140,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                    <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
                                         <TextBlock Grid.Column="0" Text="{loc:Loc Config.SubAgentsEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSubAgents}" HorizontalAlignment="Left"/>
                                     </Grid>
 
                                     <StackPanel Spacing="16" IsEnabled="{Binding Config.EnableSubAgents}">
-                                        <Grid ColumnDefinitions="140,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentMaxParallel}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.SubAgentMaxParallel}" Minimum="1" Maximum="12" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
@@ -678,7 +678,7 @@
                                         </Grid>
 
                                         <TextBlock Text="{loc:Loc Config.SubAgentModelSource}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
-                                        <Grid ColumnDefinitions="140,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <ToggleSwitch Grid.Row="0" Grid.Column="1"
                                                           IsChecked="{Binding UseMainModelForSubAgent}"
@@ -687,7 +687,7 @@
                                                           HorizontalAlignment="Left"/>
                                         </Grid>
 
-                                        <Grid ColumnDefinitions="140,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsSubAgentModelCustom}">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsSubAgentModelCustom}">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SubAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
@@ -709,65 +709,56 @@
                                     </StackPanel>
                                 </StackPanel>
                             </TabItem>
-                        </TabControl>
-                    </StackPanel>
-                </Border>
 
-                <!-- SECTION 5: DOCUMENT PARSING (MinerU) -->
-                <Border
-                    Grid.Row="3"
-                    Background="{DynamicResource App.SectionBg}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16">
-                    <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.SectionDocumentParser}"
-                                   FontWeight="Bold"
-                                   FontSize="15"/>
-                        <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
-                                   TextWrapping="Wrap"
-                                   FontSize="12"
-                                   Opacity="0.7"/>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.DocumentParserEnabled}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DocumentParserMode}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ComboBox Grid.Row="1" Grid.Column="1"
-                                      ItemsSource="{Binding DocumentParserModes}"
-                                      SelectedItem="{Binding Config.DocumentParserMode}"
-                                      IsEnabled="{Binding Config.DocumentParserEnabled}"
-                                      HorizontalAlignment="Stretch"
-                                      Margin="0,0,0,12"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DocumentParserToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4" Margin="0,0,0,4">
-                                <TextBox Text="{Binding Config.DocumentParserToken}"
-                                         PasswordChar="*"
-                                         IsEnabled="{Binding CanEditParserToken}"
-                                         HorizontalAlignment="Stretch"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
+                            <TabItem Header="{loc:Loc Config.SectionDocumentParser}">
+                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
                                                TextWrapping="Wrap"
-                                               FontSize="11"
-                                               Opacity="0.6"/>
-                                    <HyperlinkButton 
-                                        Margin="5,0,0,0"
-                                        Content="{loc:Loc Config.DocumentParserGetToken}"
-                                        NavigateUri="https://mineru.net/apiManage/token"
-                                        FontSize="11"
-                                        Padding="0"
-                                        MinHeight="0"
-                                        VerticalAlignment="Center"/>
+                                               FontSize="12"
+                                               Opacity="0.7"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.DocumentParserEnabled}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DocumentParserMode}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                                  ItemsSource="{Binding DocumentParserModes}"
+                                                  SelectedItem="{Binding Config.DocumentParserMode}"
+                                                  IsEnabled="{Binding Config.DocumentParserEnabled}"
+                                                  HorizontalAlignment="Stretch"
+                                                  Margin="0,0,0,12"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DocumentParserToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4" Margin="0,0,0,4">
+                                            <TextBox Text="{Binding Config.DocumentParserToken}"
+                                                     PasswordChar="*"
+                                                     IsEnabled="{Binding CanEditParserToken}"
+                                                     HorizontalAlignment="Stretch"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
+                                                           TextWrapping="Wrap"
+                                                           FontSize="11"
+                                                           Opacity="0.6"/>
+                                                <HyperlinkButton
+                                                    Margin="5,0,0,0"
+                                                    Content="{loc:Loc Config.DocumentParserGetToken}"
+                                                    NavigateUri="https://mineru.net/apiManage/token"
+                                                    FontSize="11"
+                                                    Padding="0"
+                                                    MinHeight="0"
+                                                    VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
                                 </StackPanel>
-                            </StackPanel>
-                        </Grid>
+                            </TabItem>
+                        </TabControl>
                     </StackPanel>
                 </Border>
 
                 <!-- SECTION 3: MEMORY MANAGEMENT -->
                 <Border
-                    Grid.Row="4"
+                    Grid.Row="3"
                     Background="{DynamicResource App.SectionBg}"
                     BorderThickness="1"
                     CornerRadius="8"

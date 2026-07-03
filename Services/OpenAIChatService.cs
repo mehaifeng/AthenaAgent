@@ -533,7 +533,13 @@ public class OpenAIChatService : IChatService
         Log.Debug("Function Calling disabled; ToolChoice=None");
     }
 
-    private const string TimestampFormat = "[yyMMddHHmmss-ddd] ";
+    // 用户消息发送时间前缀：以自解释的元数据行呈现，让模型无需额外说明即可理解其含义，
+    // 并与真正的用户正文用换行清晰分隔，避免被当成正文的一部分。
+    // 形如：[消息元数据] 发送时间：2026-07-04 15:30:45 星期六
+    private const string TimestampFormat = "yyyy-MM-dd HH:mm:ss dddd";
+
+    private static string BuildTimestampPrefix(DateTime timestamp)
+        => $"[消息元数据] 发送时间：{timestamp.ToString(TimestampFormat)}\n";
 
     private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
     {
@@ -577,7 +583,7 @@ public class OpenAIChatService : IChatService
             {
                 case "user":
                     var timestamp = msg.Timestamp != default
-                        ? msg.Timestamp.ToString(TimestampFormat)
+                        ? BuildTimestampPrefix(msg.Timestamp)
                         : string.Empty;
                     // 文档附件解析出的 Markdown 作为文本注入到用户消息中，供 AI 阅读。
                     var userText = timestamp + msg.Content + BuildDocumentTextBlocks(msg);

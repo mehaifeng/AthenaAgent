@@ -618,6 +618,13 @@ public partial class App : Application
             return new SubAgentFunctions(orchestrator, logger);
         });
 
+        services.AddSingleton<DocumentParserFunctions>(sp =>
+        {
+            var documentParserService = sp.GetRequiredService<IDocumentParserService>();
+            var logger = Log.ForContext<DocumentParserFunctions>();
+            return new DocumentParserFunctions(documentParserService, logger);
+        });
+
         // Function Registry（单例）
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
@@ -630,10 +637,11 @@ public partial class App : Application
             var imageGenerationFunctions = sp.GetRequiredService<ImageGenerationFunctions>();
             var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
             var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
+            var documentParserFunctions = sp.GetRequiredService<DocumentParserFunctions>();
             var configService = sp.GetService<IConfigService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger);
         });
 
         // Prompt 服务（单例）

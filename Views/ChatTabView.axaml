@@ -185,7 +185,7 @@
                                 Classes.active="{Binding HasRunningSubAgents}"/>
                         <Button x:Name="SubAgentsButton"
                                 VerticalAlignment="Center"
-                                Padding="8,0"
+                                Padding="2,2"
                                 FontSize="11"
                                 Command="{Binding ToggleSubAgentPopupCommand}"
                                 ToolTip.Tip="{loc:Loc Chat.SubAgents.Toggle}">

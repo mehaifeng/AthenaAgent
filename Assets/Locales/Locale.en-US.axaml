@@ -19,10 +19,9 @@
 
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">Conversation</system:String>
-    <system:String x:Key="Chat.Raw.Toggle">Show raw context sent to the model (debug). Available when idle.</system:String>
-    <system:String x:Key="Chat.SubAgents.Toggle">Open the sub-agent owl village.</system:String>
+    <system:String x:Key="Chat.Raw.Toggle">Raw context</system:String>
+    <system:String x:Key="Chat.SubAgents.Toggle">Sub-agent panel</system:String>
     <system:String x:Key="SubAgent.Village.Title">Glaukopolis</system:String>
-    <system:String x:Key="SubAgent.ClearCompleted">Clear completed</system:String>
     <system:String x:Key="SubAgent.ListHeader">In progress / done</system:String>
     <system:String x:Key="SubAgent.Cancel">Cancel</system:String>
     <system:String x:Key="SubAgent.Zone.Files">Archeion</system:String>
