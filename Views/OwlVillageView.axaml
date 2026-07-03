@@ -53,11 +53,8 @@
 
     <Grid RowDefinitions="Auto,Auto,Auto,Auto" Margin="14">
         <!-- 标题栏 -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
-            <TextBlock Grid.Column="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" Content="{loc:Loc SubAgent.ClearCompleted}" FontSize="12" Padding="8,4"
-                    Command="{Binding ClearCompletedSubAgentsCommand}"/>
-        </Grid>
+        <TextBlock Grid.Row="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="16" FontWeight="SemiBold"
+                   VerticalAlignment="Center" Margin="0,0,0,12"/>
 
         <!-- 小镇画布：场所背景 + 猫头鹰图层 -->
         <Grid Grid.Row="1" Width="486" Height="405" HorizontalAlignment="Center" Margin="0,0,0,12">

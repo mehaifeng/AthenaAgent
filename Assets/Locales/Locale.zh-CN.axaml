@@ -19,10 +19,9 @@
 
     <!-- Chat Tab -->
     <system:String x:Key="Chat.Header">当前对话</system:String>
-    <system:String x:Key="Chat.Raw.Toggle">查看发送给模型的原始上下文(调试)。仅在对话空闲时可用。</system:String>
-    <system:String x:Key="Chat.SubAgents.Toggle">打开子代理"猫头鹰之城"。</system:String>
-    <system:String x:Key="SubAgent.Village.Title">猫头鹰之城</system:String>
-    <system:String x:Key="SubAgent.ClearCompleted">清空已完成</system:String>
+    <system:String x:Key="Chat.Raw.Toggle">原始上下文</system:String>
+    <system:String x:Key="Chat.SubAgents.Toggle">子代理面板</system:String>
+    <system:String x:Key="SubAgent.Village.Title">雅典之枭</system:String>
     <system:String x:Key="SubAgent.ListHeader">进行中 / 已完成</system:String>
     <system:String x:Key="SubAgent.Cancel">取消</system:String>
     <system:String x:Key="SubAgent.Zone.Files">档案宫</system:String>

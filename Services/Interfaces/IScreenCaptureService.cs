@@ -31,6 +31,9 @@ public enum ScreenCaptureLaunchResult
     /// <summary>工具已阻塞运行至用户完成（macOS / Linux）；可立即读取剪贴板。</summary>
     CompletedBlocking,
 
+    /// <summary>用户在截图工具中取消（退出码非零）；剪贴板大概率无结果，调用方应立即结束。</summary>
+    Cancelled,
+
     /// <summary>工具已异步启动，完成时机未知（Windows）；需轮询剪贴板等待结果。</summary>
     LaunchedAsync
 }

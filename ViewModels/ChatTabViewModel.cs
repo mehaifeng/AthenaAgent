@@ -266,9 +266,6 @@ public partial class ChatTabViewModel : ViewModelBase
     [RelayCommand]
     private void CloseSubAgentPopup() => IsSubAgentPopupOpen = false;
 
-    [RelayCommand]
-    private void ClearCompletedSubAgents() => Orchestrator?.ClearCompleted();
-
     public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
@@ -999,6 +996,9 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private bool _isCapturingScreenshot;
 
+    // Windows 异步回退路径的后台剪贴板轮询；新一次截图启动时取消旧轮询。
+    private CancellationTokenSource? _screenshotBackgroundPollCts;
+
     /// <summary>
     /// 调用系统原生截图工具（框选/裁剪/标注），完成后从剪贴板取回图片并作为待发送附件。
     /// </summary>
@@ -1035,10 +1035,15 @@ public partial class ChatTabViewModel : ViewModelBase
         // 默认隐藏窗口；mode == "keep" 时保留窗口，从而可以截到 AthenaAgent 自身。
         var hideWindow = !string.Equals(mode, "keep", StringComparison.OrdinalIgnoreCase);
 
+        // 若上一次异步回退路径的后台轮询仍在运行，先取消，避免其抢走本次结果或误还原窗口。
+        _screenshotBackgroundPollCts?.Cancel();
+        _screenshotBackgroundPollCts = null;
+
         _isCapturingScreenshot = true;
         var mainWindow = GetMainWindow();
         var previousState = mainWindow?.WindowState ?? WindowState.Normal;
         var minimized = false;
+        var handedOffToBackground = false;
 
         void RestoreWindow()
         {
@@ -1067,48 +1072,110 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (launch == ScreenCaptureLaunchResult.Failed || launch == ScreenCaptureLaunchResult.Unsupported)
             {
-                RestoreWindow();
                 AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
                 return;
             }
 
-            // 阻塞型（mac/linux，以及 Windows 监听覆盖层进程退出后）返回时截图交互已结束，可立即还原窗口；
-            // 异步型（Windows 未捕获到覆盖层进程的回退路径）启动后立即返回，需保持隐藏直到取回图片后再还原。
-            if (launch == ScreenCaptureLaunchResult.CompletedBlocking)
+            if (launch == ScreenCaptureLaunchResult.Cancelled)
             {
+                // 用户在截图工具中取消：立即结束、即时恢复按钮。个别工具的退出码语义
+                // 不完全可靠（可能先复制再非零退出），补一次快速读取兜底。
                 RestoreWindow();
-            }
-
-            // 阻塞型仅做少量重试以容忍剪贴板写入延迟；异步型需较长轮询直到用户完成或超时。
-            var maxAttempts = launch == ScreenCaptureLaunchResult.LaunchedAsync ? 200 : 8;
-            Bitmap? bitmap = null;
-            for (var i = 0; i < maxAttempts; i++)
-            {
-                bitmap = await clipboard.TryGetBitmapAsync();
-                if (bitmap != null) break;
-                await Task.Delay(300);
-            }
-
-            RestoreWindow();
-
-            if (bitmap == null)
-            {
-                // 用户取消截图或超时，静默返回（不视为错误）。
+                var quick = await clipboard.TryGetBitmapAsync();
+                if (quick != null)
+                {
+                    await AddClipboardBitmapAsync(quick);
+                }
                 return;
             }
 
-            await AddClipboardBitmapAsync(bitmap);
+            if (launch == ScreenCaptureLaunchResult.CompletedBlocking)
+            {
+                // 截图交互已结束（mac/linux，以及 Windows 监听到覆盖层进程退出）：
+                // 立即还原窗口，用短促快轮询容忍剪贴板写入延迟；成功时通常首次即命中，
+                // 取消时最多 ~1.5 秒即恢复按钮。
+                RestoreWindow();
+                Bitmap? bitmap = null;
+                for (var i = 0; i < 10 && bitmap == null; i++)
+                {
+                    bitmap = await clipboard.TryGetBitmapAsync();
+                    if (bitmap == null)
+                    {
+                        await Task.Delay(150);
+                    }
+                }
+
+                if (bitmap != null)
+                {
+                    await AddClipboardBitmapAsync(bitmap);
+                }
+                return;
+            }
+
+            // 异步型（Windows 未捕获到覆盖层进程的回退路径）：完成时机未知，把长轮询
+            // 移入后台任务并立即归还命令，让按钮即时恢复可用；窗口保持隐藏，直到后台
+            // 取回图片（或超时/被新一次截图接管）再还原。
+            var cts = new CancellationTokenSource();
+            _screenshotBackgroundPollCts = cts;
+            handedOffToBackground = true;
+            _ = PollScreenshotClipboardInBackgroundAsync(clipboard, RestoreWindow, cts);
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "截图失败");
-            RestoreWindow();
             AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
         }
         finally
         {
-            RestoreWindow();
+            if (!handedOffToBackground)
+            {
+                RestoreWindow();
+            }
             _isCapturingScreenshot = false;
+        }
+    }
+
+    /// <summary>
+    /// Windows 异步回退路径的后台剪贴板长轮询：不占用截图命令（按钮已恢复可用），
+    /// 取到图片或超时后再还原窗口；若被新一次截图取消，则窗口交由新流程管理。
+    /// </summary>
+    private async Task PollScreenshotClipboardInBackgroundAsync(
+        IClipboard clipboard, Action restoreWindow, CancellationTokenSource cts)
+    {
+        try
+        {
+            Bitmap? bitmap = null;
+            for (var i = 0; i < 200 && bitmap == null; i++)
+            {
+                if (cts.IsCancellationRequested) return;
+                bitmap = await clipboard.TryGetBitmapAsync();
+                if (bitmap == null)
+                {
+                    await Task.Delay(300, cts.Token);
+                }
+            }
+
+            restoreWindow();
+            if (bitmap != null)
+            {
+                await AddClipboardBitmapAsync(bitmap);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 被新一次截图接管，静默退出。
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "后台轮询截图剪贴板失败");
+        }
+        finally
+        {
+            if (ReferenceEquals(_screenshotBackgroundPollCts, cts))
+            {
+                _screenshotBackgroundPollCts = null;
+            }
+            cts.Dispose();
         }
     }
 
