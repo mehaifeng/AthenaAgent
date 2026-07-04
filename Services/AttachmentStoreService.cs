@@ -335,6 +335,49 @@ public class AttachmentStoreService : IAttachmentStoreService
         return sidecarPath;
     }
 
+    public async Task<ChatAttachment> CloneStoredAttachmentAsync(ChatAttachment source, CancellationToken cancellationToken = default)
+    {
+        // 保留原 Id：消息 Segment 与图像会话按 AttachmentId 关联；仅物理文件换新路径。
+        var clone = ConversationPersistenceHelper.CloneAttachment(source);
+
+        if (!string.IsNullOrWhiteSpace(source.StoredPath) && File.Exists(source.StoredPath))
+        {
+            var extension = Path.GetExtension(source.StoredPath);
+            var dayDirectory = Path.Combine(_pathService.GetAttachmentDirectory(), DateTime.Now.ToString("yyyyMMdd"));
+            Directory.CreateDirectory(dayDirectory);
+            var newStoredPath = Path.Combine(dayDirectory, $"{Guid.NewGuid():N}{extension}");
+
+            await CopyFileAsync(source.StoredPath, newStoredPath, cancellationToken);
+            clone.StoredPath = newStoredPath;
+
+            // 解析 sidecar（RetrievalPath 指向独立文件时）随附件一并复制
+            if (!string.IsNullOrWhiteSpace(source.RetrievalPath)
+                && !string.Equals(source.RetrievalPath, source.StoredPath, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(source.RetrievalPath))
+            {
+                var sidecarPath = Path.Combine(
+                    dayDirectory,
+                    $"{Path.GetFileNameWithoutExtension(newStoredPath)}.parsed.md");
+                await CopyFileAsync(source.RetrievalPath, sidecarPath, cancellationToken);
+                clone.RetrievalPath = sidecarPath;
+            }
+            else if (!string.IsNullOrWhiteSpace(source.RetrievalPath)
+                && string.Equals(source.RetrievalPath, source.StoredPath, StringComparison.OrdinalIgnoreCase))
+            {
+                clone.RetrievalPath = newStoredPath;
+            }
+        }
+
+        return clone;
+    }
+
+    private static async Task CopyFileAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    {
+        await using var sourceStream = File.OpenRead(sourcePath);
+        await using var destinationStream = File.Create(destinationPath);
+        await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+    }
+
     public void DeleteStoredAttachment(ChatAttachment attachment)
     {
         DeleteFileQuietly(attachment.StoredPath);

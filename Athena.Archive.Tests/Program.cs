@@ -20,6 +20,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config inherits primary settings when audio values are empty", TestAudioConfigInheritanceAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
+    ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
+    ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
+    ("summary context obeys 10-message and 1000-char budget", TestSummaryContextBudgetAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
     ("image session snapshot reloads persisted lineage", TestImageSessionSnapshotAsync),
     ("continue_match resolves earlier lineage and persists revived active lineage", TestContinueMatchPersistenceAsync),
@@ -200,6 +203,109 @@ static async Task TestUpsertAsync()
     AssertEqual("changed content", loaded?.Messages.First().Content, "messages should be replaced");
 }
 
+static async Task TestForkMetadataUpsertAsync()
+{
+    using var harness = new TestHarness();
+    var service = harness.CreateHistoryService();
+    var capturedAt = new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Local);
+    var forkPointMessage = new ChatMessage { Role = "user", Content = "branch here", Timestamp = capturedAt };
+
+    var branchSnapshot = new ConversationArchiveSnapshot
+    {
+        HistoryId = Guid.NewGuid().ToString("N"),
+        CapturedAt = capturedAt,
+        ForceGenerateSummary = false,
+        ForkedFromConversationId = "parent-conv",
+        ForkedFromHistoryId = "parent-history",
+        ForkedAtMessageId = forkPointMessage.Id,
+        Messages = [forkPointMessage]
+    };
+
+    var saved = await service.UpsertFromSnapshotAsync(branchSnapshot);
+    var loaded = await service.LoadByIdAsync(saved.Id);
+
+    AssertEqual("parent-conv", loaded?.ForkedFromConversationId, "fork source conversation id should round-trip");
+    AssertEqual("parent-history", loaded?.ForkedFromHistoryId, "fork source history id should round-trip");
+    AssertEqual(forkPointMessage.Id, loaded?.ForkedAtMessageId, "fork anchor message id should round-trip");
+    AssertTrue(loaded?.IsForked == true, "branch item should report IsForked");
+
+    // 后续再归档同一分支（快照不带 fork 字段时）不应丢失既有标记
+    var followUp = new ConversationArchiveSnapshot
+    {
+        HistoryId = saved.Id,
+        CapturedAt = capturedAt.AddMinutes(3),
+        ForceGenerateSummary = false,
+        Messages = [forkPointMessage, new ChatMessage { Role = "assistant", Content = "reply", Timestamp = capturedAt.AddMinutes(2) }]
+    };
+    await service.UpsertFromSnapshotAsync(followUp);
+    var reloaded = await service.LoadByIdAsync(saved.Id);
+    AssertEqual("parent-conv", reloaded?.ForkedFromConversationId, "fork metadata should survive follow-up upserts");
+
+    // 旧版历史 JSON（无 fork 字段）反序列化兼容
+    var legacyJson = "{\"conversationId\":\"c1\",\"id\":\"h1\",\"summary\":\"s\",\"messages\":[]}";
+    var legacy = System.Text.Json.JsonSerializer.Deserialize<ConversationHistoryItem>(
+        legacyJson,
+        new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+    AssertTrue(legacy != null && !legacy.IsForked, "legacy items without fork fields should load as non-forked");
+}
+
+static Task TestCloneMessagePreservesIdAsync()
+{
+    var original = new ChatMessage { Role = "user", Content = "anchor me" };
+    var clone = ConversationPersistenceHelper.CloneMessage(original);
+    AssertEqual(original.Id, clone.Id, "cloned message must keep the stable id");
+
+    var attachment = new ChatAttachment { Id = "att-1", FileName = "a.png", StoredPath = "/tmp/a.png" };
+    var attachmentClone = ConversationPersistenceHelper.CloneAttachment(attachment);
+    AssertEqual("att-1", attachmentClone.Id, "cloned attachment keeps id so segments and image sessions stay linked");
+    return Task.CompletedTask;
+}
+
+static Task TestSummaryContextBudgetAsync()
+{
+    // 15 条混合消息：工具消息应被剔除，仅保留最近 10 条纯文本
+    var messages = new List<ChatMessage>();
+    for (int i = 0; i < 15; i++)
+    {
+        messages.Add(new ChatMessage { Role = "user", Content = $"question {i} " + new string('u', 200) });
+        messages.Add(new ChatMessage { Role = "assistant", Content = $"answer {i} " + new string('a', 200) });
+        messages.Add(new ChatMessage { Role = "assistant", Content = "", ToolCallsJson = "[{}]" });
+        messages.Add(new ChatMessage { Role = "tool", Content = "tool result noise" });
+    }
+
+    var entries = ConversationHistoryService.BuildSummaryContext(messages);
+
+    AssertEqual(10, entries.Count, "context should keep at most 10 non-tool messages");
+    AssertTrue(entries.Sum(e => e.Content.Length) <= 1000, "total context must be within the 1000-char budget");
+    AssertTrue(entries.All(e => e.Content.Length >= 100 || e.Content.Length > 0), "entries stay non-empty");
+    AssertTrue(entries[^1].Content.StartsWith("answer 14"), "latest message should be kept last");
+
+    // 收敛极限：10 条超长消息 → 每条被截到 100 字符
+    var longMessages = Enumerable.Range(0, 10)
+        .Select(i => new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = new string((char)('a' + i), 500) })
+        .ToList();
+    var clamped = ConversationHistoryService.BuildSummaryContext(longMessages);
+    AssertEqual(1000, clamped.Sum(e => e.Content.Length), "worst case converges to 10 x 100 chars");
+    AssertTrue(clamped.All(e => e.Content.Length == 100), "each over-long entry is clamped to 100 chars");
+
+    // 不足 10 条按实际条数；小于预算不截断
+    var few = new List<ChatMessage>
+    {
+        new() { Role = "user", Content = "short question" },
+        new() { Role = "assistant", Content = "short answer" }
+    };
+    var fewEntries = ConversationHistoryService.BuildSummaryContext(few);
+    AssertEqual(2, fewEntries.Count, "fewer than 10 messages are all kept");
+    AssertEqual("short question", fewEntries[0].Content, "under-budget content is untouched");
+
+    // 硬截断不拆散代理对
+    var emoji = string.Concat(Enumerable.Repeat("😀", 15)); // 30 chars (15 对代理对)
+    var truncated = ConversationHistoryService.TruncateAtChar(emoji, 21);
+    AssertEqual(20, truncated.Length, "cut point should back off before a high surrogate");
+
+    return Task.CompletedTask;
+}
+
 static async Task TestFallbackSummaryAsync()
 {
     using var harness = new TestHarness();
@@ -222,7 +328,8 @@ static async Task TestFallbackSummaryAsync()
     };
 
     var item = await service.UpsertFromSnapshotAsync(snapshot);
-    AssertEqual("This is a deliberately long fi...", item.Summary, "summary should fall back to first user message");
+    AssertEqual("This is a deliberat…", item.Summary, "summary should fall back to first user message clamped to the 20-char title limit");
+    AssertTrue(item.Summary.Length <= ConversationHistoryService.SummaryTitleMaxChars, "fallback title must respect the 20-char cap");
     AssertTrue(File.Exists(Path.Combine(harness.PathService.GetHistoryDirectory(), $"{item.Id}.json")), "history file should still be written");
 }
 
@@ -1251,6 +1358,9 @@ sealed class TestAttachmentStoreService : IAttachmentStoreService
     public void DeleteStoredAttachment(ChatAttachment attachment)
     {
     }
+
+    public Task<ChatAttachment> CloneStoredAttachmentAsync(ChatAttachment source, CancellationToken cancellationToken = default)
+        => Task.FromResult(ConversationPersistenceHelper.CloneAttachment(source));
 }
 
 sealed class TestConversationSessionAccessor(string conversationId) : IConversationSessionAccessor

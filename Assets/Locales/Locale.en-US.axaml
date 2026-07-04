@@ -36,10 +36,14 @@
     <system:String x:Key="Chat.BtnReset">New Chat</system:String>
     <system:String x:Key="Chat.BtnStats">Stats</system:String>
     <system:String x:Key="Chat.ReceivingData">Thinking...</system:String>
-    <system:String x:Key="Chat.BtnEdit">Edit</system:String>
-    <system:String x:Key="Chat.BtnConfirm">Confirm</system:String>
     <system:String x:Key="Chat.BtnAbort">Cancel</system:String>
-    <system:String x:Key="Chat.BtnRegen">Regenerate</system:String>
+    <system:String x:Key="Chat.BtnRewind">Rewind to here</system:String>
+    <system:String x:Key="Chat.BtnFork">Fork from here</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Title">Rewind confirmation</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Message">Rewinding deletes this message and everything after it without saving. The message content will be restored to the input box. Continue?</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Yes">Yes</system:String>
+    <system:String x:Key="Chat.RewindConfirm.No">No</system:String>
+    <system:String x:Key="Chat.Attach.RestoreOverflow">Attachment limit reached; {0} attachment(s) could not be restored.</system:String>
     <system:String x:Key="Chat.BtnCopy">Copy</system:String>
     <system:String x:Key="Chat.InputPlaceholder">Type a message...</system:String>
     <system:String x:Key="Chat.MaxContextReached">Context limit reached</system:String>
@@ -104,8 +108,7 @@
     <system:String x:Key="Config.AudioOutput">Audio Output</system:String>
     <system:String x:Key="Config.ImageGeneration">Image Generation</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">Background Tasks and Auxiliary Core</system:String>
-    <system:String x:Key="Config.SkipRegenerateConfirm">Skp regenrate confirm</system:String>
-    <system:String x:Key="Config.SkipEditMessageConfirm">skip edit confirm</system:String>
+    <system:String x:Key="Config.SkipRewindConfirm">Skip rewind confirm</system:String>
 
 
     <!-- Config Labels -->
@@ -162,6 +165,17 @@
     <system:String x:Key="History.RecordsFound">Records Found:</system:String>
     <system:String x:Key="History.Ready">Ready</system:String>
     <system:String x:Key="History.Msgs">Messages:</system:String>
+    <system:String x:Key="History.ForkedBadge">Fork</system:String>
+    <system:String x:Key="History.SearchPlaceholder">Search history (title or content)</system:String>
+    <system:String x:Key="History.TimeAll">All time</system:String>
+    <system:String x:Key="History.TimeToday">Today</system:String>
+    <system:String x:Key="History.Time7Days">Last 7 days</system:String>
+    <system:String x:Key="History.Time30Days">Last 30 days</system:String>
+    <system:String x:Key="History.TimeCustom">Custom range</system:String>
+    <system:String x:Key="History.TimeStartDate">Start date</system:String>
+    <system:String x:Key="History.TimeEndDate">End date</system:String>
+    <system:String x:Key="History.TimeClear">Clear time filter</system:String>
+    <system:String x:Key="History.NoMatches">No matching sessions</system:String>
     <system:String x:Key="History.Time">Time:</system:String>
     <system:String x:Key="History.BtnRestore">Restore</system:String>
     <system:String x:Key="History.BtnDel">Delete</system:String>
@@ -191,11 +205,7 @@
 
     <!-- Logs Tab -->
     <system:String x:Key="Logs.Header">System Logs</system:String>
-    <system:String x:Key="Logs.QueryParams">Search Filters</system:String>
-    <system:String x:Key="Logs.TStart">Start Time:</system:String>
-    <system:String x:Key="Logs.TEnd">End Time:</system:String>
     <system:String x:Key="Logs.Lvl">Level:</system:String>
-    <system:String x:Key="Logs.Keyword">Keyword:</system:String>
     <system:String x:Key="Logs.OptionalFilter">Optional filter</system:String>
     <system:String x:Key="Logs.BtnQuery">Search</system:String>
     <system:String x:Key="Logs.BtnRefresh">Refresh</system:String>

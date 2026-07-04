@@ -134,6 +134,19 @@
             <Setter Property="Background" Value="#BA7517"/>
         </Style>
 
+        <!-- 气泡操作按钮：默认隐藏，光标进入该消息气泡区域时淡入 -->
+        <Style Selector="StackPanel.bubble-actions">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Grid.message-row:pointerover StackPanel.bubble-actions">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
         <Style Selector="Button.attachment-remove-button">
             <Setter Property="Width" Value="20"/>
             <Setter Property="Height" Value="20"/>
@@ -241,7 +254,7 @@
             <ItemsControl x:Name="MessagesItemsControl" ItemsSource="{Binding Messages}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
-                        <Grid Margin="0,0,0,40" IsVisible="{Binding IsBubbleVisible}">
+                        <Grid Classes="message-row" Margin="0,0,0,40" IsVisible="{Binding IsBubbleVisible}" Background="Transparent">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="20*"/>
@@ -276,16 +289,10 @@
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
-                                        <!-- 用户消息：纯文本，自适应宽度 -->
-                                        <SelectableTextBlock Text="{Binding DisplayText}"
-                                                   IsVisible="{Binding ShowUserPlainText}"
-                                                   TextWrapping="Wrap"
-                                                   HorizontalAlignment="Left" />
-
-                                        <!-- 助手消息：Markdown 渲染 -->
+                                        <!-- user / assistant 消息统一 Markdown 渲染 -->
                                         <lmd:MarkdownRenderer
                                                    loc:MarkdownHelper.Text="{Binding DisplayText}"
-                                                   IsVisible="{Binding ShowAssistantMarkdown}"
+                                                   IsVisible="{Binding ShouldShowLegacyMarkdown}"
                                                    HorizontalAlignment="Stretch" />
 
                                         <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding UsesSegmentLayout}">
@@ -442,11 +449,6 @@
                                                        FontSize="12"/>
                                         </Border>
 
-                                        <TextBox Text="{Binding EditContent}"
-                                                 IsVisible="{Binding IsEditing}"
-                                                 AcceptsReturn="True" TextWrapping="Wrap"
-                                                 Background="Transparent" BorderThickness="0"/>
-
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
                                             <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="14" Height="14" Opacity="0.6"/>
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
@@ -459,45 +461,31 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- 操作按钮 -->
-                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding !IsLoading}">
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}" 
-                                            CommandParameter="{Binding}" 
+                                <!-- 操作按钮：默认隐藏，悬停气泡区域时显示；user 靠右、assistant 靠左 -->
+                                <StackPanel Classes="bubble-actions" Orientation="Horizontal" Spacing="8"
+                                            HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
+                                            IsVisible="{Binding !IsLoading}">
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}"
+                                            CommandParameter="{Binding}"
                                             FontSize="11"
                                             ToolTip.Tip="{loc:Loc Chat.BtnCopy}">
                                         <PathIcon Data="{StaticResource SemiIconCopy}" Width="14" Height="14"/>
                                     </Button>
 
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).StartInlineEditCommand}" 
-                                            CommandParameter="{Binding}" 
-                                            IsVisible="{Binding CanShowEdit}" 
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RewindToMessageCommand}"
+                                            CommandParameter="{Binding}"
+                                            IsVisible="{Binding CanShowRewind}"
                                             FontSize="11"
-                                            ToolTip.Tip="{loc:Loc Chat.BtnEdit}">
-                                        <PathIcon Data="{StaticResource SemiIconEdit}" Width="14" Height="14"/>
+                                            ToolTip.Tip="{loc:Loc Chat.BtnRewind}">
+                                        <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
                                     </Button>
-                                    
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ConfirmInlineEditCommand}" 
-                                            CommandParameter="{Binding}" 
-                                            IsVisible="{Binding IsEditing}" 
+
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ForkFromMessageCommand}"
+                                            CommandParameter="{Binding}"
+                                            IsVisible="{Binding CanShowRewind}"
                                             FontSize="11"
-                                            ToolTip.Tip="{loc:Loc Chat.BtnConfirm}">
-                                        <PathIcon Data="{StaticResource SemiIconTick}" Width="14" Height="14"/>
-                                    </Button>
-                                    
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CancelInlineEditCommand}" 
-                                            CommandParameter="{Binding}" 
-                                            IsVisible="{Binding IsEditing}" 
-                                            FontSize="11"
-                                            ToolTip.Tip="{loc:Loc Chat.BtnAbort}">
-                                        <PathIcon Data="{StaticResource SemiIconClose}" Width="14" Height="14"/>
-                                    </Button>
-                                    
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RegenerateResponseCommand}" 
-                                            CommandParameter="{Binding}" 
-                                            IsVisible="{Binding CanShowRegenerate}" 
-                                            FontSize="11"
-                                            ToolTip.Tip="{loc:Loc Chat.BtnRegen}">
-                                        <PathIcon Data="{StaticResource SemiIconSync}" Width="14" Height="14"/>
+                                            ToolTip.Tip="{loc:Loc Chat.BtnFork}">
+                                        <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="14" Height="14"/>
                                     </Button>
                                 </StackPanel>
                             </StackPanel>

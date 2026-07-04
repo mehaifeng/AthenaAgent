@@ -30,7 +30,7 @@
         </Border>
 
         <!-- SCROLLABLE CONTENT -->
-        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="16">
+        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
             <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
 
                 <!-- SECTION 1: APPEARANCE -->
@@ -52,11 +52,9 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DispLanguage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Languages}" SelectedIndex="{Binding SelectedLanguageIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.SkipRegenerateConfirm}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SkipRegenerateConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.SkipRewindConfirm}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SkipRewindConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.SkipEditMessageConfirm}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding Config.SkipEditConfirm}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
                         </Grid>
                     </StackPanel>
                 </Border>

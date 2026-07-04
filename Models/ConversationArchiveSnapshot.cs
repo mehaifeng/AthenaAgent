@@ -14,6 +14,12 @@ public class ConversationArchiveSnapshot
 
     public string? ContextSummary { get; init; }
 
+    public string? ForkedFromConversationId { get; init; }
+
+    public string? ForkedFromHistoryId { get; init; }
+
+    public string? ForkedAtMessageId { get; init; }
+
     public List<ChatMessage> Messages { get; init; } = new();
 
     public ImageGenerationSessionSnapshot? ImageSession { get; init; }

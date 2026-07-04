@@ -69,10 +69,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RewindToMessageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForkFromMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
@@ -85,10 +83,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ConfirmInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CancelInlineEditCommand))]
-    [NotifyCanExecuteChangedFor(nameof(RegenerateResponseCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RewindToMessageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForkFromMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     private bool _isCompressing;
@@ -163,6 +159,11 @@ public partial class ChatTabViewModel : ViewModelBase
 
     // 当前会话的上下文压缩摘要（唯一真源；TokenService.CompressionPreview 仅作设置页展示镜像）。
     private string? _activeContextSummary;
+
+    // fork 元数据：当前会话若是从其他会话 fork 出的分支，归档时随快照持久化
+    private string? _forkedFromConversationId;
+    private string? _forkedFromHistoryId;
+    private string? _forkedAtMessageId;
 
     // 会话内压缩撤销栈：每次压缩入栈一个检查点，撤销时弹出还原。切换/重置会话时清空。
     private readonly Stack<CompressionCheckpoint> _compressionHistory = new();
@@ -494,172 +495,234 @@ public partial class ChatTabViewModel : ViewModelBase
         SwitchToTasksTabRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// 回滚到该条用户消息之前：删除该消息及其后所有内容，消息文本与附件回填输入区。
+    /// 不保存被丢弃的对话，属破坏性操作，默认需确认。
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanModifyMessages))]
-    private void StartInlineEdit(ChatMessage? message)
+    private async Task RewindToMessageAsync(ChatMessage? message)
     {
-        if (message == null) return;
-        message.EditContent = message.Content;
-        message.IsEditing = true;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
-    private async Task ConfirmInlineEdit(ChatMessage? message)
-    {
-        if (message == null || !message.IsEditing) return;
-        var newContent = message.EditContent.Trim();
-
-        // 检查该消息后面是否有后续消息
-        int msgIndex = Messages.IndexOf(message);
-        bool hasSubsequentMessages = msgIndex >= 0 && msgIndex < Messages.Count - 1;
-
-        if (hasSubsequentMessages)
-        {
-            // 检查用户偏好设置
-            var config = _configService?.Load();
-            if (config?.SkipEditConfirm == true)
-            {
-                // 用户选择了跳过确认，直接清理后续消息
-                while (Messages.Count > msgIndex + 1)
-                {
-                    DeleteMessageAttachments(Messages[msgIndex + 1]);
-                    Messages.RemoveAt(msgIndex + 1);
-                }
-            }
-            else
-            {
-                // 弹窗确认
-                var vm = new ConfirmDialogViewModel
-                {
-                    Title = "编辑确认",
-                    Message = "编辑此消息将删除后续所有消息并重新生成回答，是否继续？",
-                    ConfirmText = "是",
-                    CancelText = "否"
-                };
-
-                var dialog = new Views.ConfirmDialog(vm);
-                var owner = GetMainWindow();
-                if (owner == null) return;
-                await dialog.ShowDialog(owner);
-
-                if (vm.Result != true) return;
-
-                // 如果用户勾选了"不再询问"，保存偏好
-                if (vm.ShouldNotAskAgain && _configService != null)
-                {
-                    var cfg = await _configService.LoadAsync();
-                    cfg.SkipEditConfirm = true;
-                    await _configService.SaveAsync(cfg);
-                }
-
-                // 清理后续消息（与 Regenerate 相同的逻辑）
-                while (Messages.Count > msgIndex + 1)
-                {
-                    DeleteMessageAttachments(Messages[msgIndex + 1]);
-                    Messages.RemoveAt(msgIndex + 1);
-                }
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(newContent))
-        {
-            message.Content = newContent;
-            message.IsEditing = false;
-
-            if (hasSubsequentMessages)
-            {
-                // 编辑后重新生成
-                UpdateConversationContext();
-                await ReconcileImageGenerationSessionAsync();
-                await GetAiResponseAsync(message.Content, addToContext: false);
-            }
-            else
-            {
-                UpdateConversationContext();
-                await ReconcileImageGenerationSessionAsync();
-            }
-            UpdateContextTokensDisplay();
-            UpdateBubbleButtonVisibility();
-        }
-        else message.IsEditing = false;
-        await Task.CompletedTask;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanModifyMessages))] private void CancelInlineEdit(ChatMessage? message) { if (message != null) message.IsEditing = false; }
-
-    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
-    private async Task RegenerateResponseAsync(ChatMessage? message)
-    {
-        if (message == null || _chatService == null) return;
+        if (message == null || message.Role != "user") return;
 
         int msgIndex = Messages.IndexOf(message);
         if (msgIndex < 0) return;
 
-        // 检查是否是最新消息
-        bool isNotLatest = msgIndex < Messages.Count - 1;
-
-        if (isNotLatest)
+        var config = _configService?.Load();
+        if (config?.SkipRewindConfirm != true)
         {
-            // 检查用户偏好设置
-            var config = _configService?.Load();
-            if (config?.SkipRegenerateConfirm == true)
+            var vm = new ConfirmDialogViewModel
             {
-                // 用户选择了跳过确认，直接清理后续消息
-                // （清理逻辑在后面统一处理）
-            }
-            else
+                Title = GetString("Chat.RewindConfirm.Title", "回滚确认"),
+                Message = GetString("Chat.RewindConfirm.Message", "回滚将删除这条消息及其后的所有对话内容且不保存，消息内容将回填到输入框，是否继续？"),
+                ConfirmText = GetString("Chat.RewindConfirm.Yes", "是"),
+                CancelText = GetString("Chat.RewindConfirm.No", "否")
+            };
+
+            var dialog = new Views.ConfirmDialog(vm);
+            var owner = GetMainWindow();
+            if (owner == null) return;
+            await dialog.ShowDialog(owner);
+
+            if (vm.Result != true) return;
+
+            if (vm.ShouldNotAskAgain && _configService != null)
             {
-                // 弹窗确认
-                var vm = new ConfirmDialogViewModel
-                {
-                    Title = "重新生成确认",
-                    Message = "重新生成将删除该消息之后的所有内容，是否继续？",
-                    ConfirmText = "是",
-                    CancelText = "否"
-                };
-
-                var dialog = new Views.ConfirmDialog(vm);
-                var owner = GetMainWindow();
-                if (owner == null) return;
-                await dialog.ShowDialog(owner);
-
-                if (vm.Result != true) return;
-
-                // 如果用户勾选了"不再询问"，保存偏好
-                if (vm.ShouldNotAskAgain && _configService != null)
-                {
-                    var cfg = await _configService.LoadAsync();
-                    cfg.SkipRegenerateConfirm = true;
-                    await _configService.SaveAsync(cfg);
-                }
+                var cfg = await _configService.LoadAsync();
+                cfg.SkipRewindConfirm = true;
+                await _configService.SaveAsync(cfg);
             }
         }
 
-        // 核心重塑逻辑：向上寻找距离该助手回复最近的用户提问
-        int lastUserIndex = -1;
-        for (int i = msgIndex - 1; i >= 0; i--)
+        // 目标消息自身的附件回收到输入区（不删物理文件）；超出挂载上限的部分只能放弃并清理
+        RestoreAttachmentsToPending(message.Attachments.ToList());
+        message.Attachments.Clear();
+
+        while (Messages.Count > msgIndex)
         {
-            if (Messages[i].Role == "user")
-            {
-                lastUserIndex = i;
-                break;
-            }
+            DeleteMessageAttachments(Messages[msgIndex]);
+            Messages.RemoveAt(msgIndex);
         }
 
-        if (lastUserIndex == -1) return;
-
-        // 彻底清空提问之后的所有上下文，包括工具结果等干扰项
-        while (Messages.Count > lastUserIndex + 1)
-        {
-            DeleteMessageAttachments(Messages[lastUserIndex + 1]);
-            Messages.RemoveAt(lastUserIndex + 1);
-        }
+        InputText = message.Content;
 
         UpdateConversationContext();
         await ReconcileImageGenerationSessionAsync();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+        _logger.Information("会话已回滚到消息 {MessageId} 之前", message.Id);
+    }
 
-        // 基于该干净的节点重新生成
-        var lastUserMsg = Messages[lastUserIndex];
-        await GetAiResponseAsync(lastUserMsg.Content, addToContext: false);
+    /// <summary>
+    /// 从该条用户消息处 fork 分支：原会话完整保存为历史，当前会话换新身份，
+    /// 保留 fork 点之前的上下文（附件物理克隆以与父历史解耦），fork 点消息回填输入区。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
+    private async Task ForkFromMessageAsync(ChatMessage? message)
+    {
+        if (message == null || message.Role != "user") return;
+
+        int msgIndex = Messages.IndexOf(message);
+        if (msgIndex < 0) return;
+
+        FinalizePendingAssistantMessages();
+        msgIndex = Messages.IndexOf(message);
+        if (msgIndex < 0) return;
+
+        // 1. 父会话完整入历史（后台归档队列）
+        var stageResult = await TryStageCurrentConversationForTransitionAsync();
+        if (stageResult == TransitionStageResult.Failed)
+        {
+            return;
+        }
+
+        var parentConversationId = _conversationId;
+        var parentHistoryId = _currentHistoryId;
+
+        // 2. 分支换新身份，防止后续归档 upsert 覆盖父历史
+        _conversationId = Guid.NewGuid().ToString("N");
+        _currentContext.ConversationId = _conversationId;
+        _currentHistoryId = null;
+        _initialConversationSignature = null;
+        _forkedFromConversationId = parentConversationId;
+        _forkedFromHistoryId = parentHistoryId;
+        _forkedAtMessageId = message.Id;
+
+        // 3. fork 点消息附件克隆后回收到输入区（父历史仍引用原文件，分支必须持有独立副本）
+        var pendingClones = await CloneAttachmentsForForkAsync(message.Attachments.ToList());
+        RestoreAttachmentsToPending(pendingClones, deleteOverflowFiles: true);
+
+        // 4. 截断：fork 点消息及其后全部移除（fork 点消息的原附件归父历史所有，不删文件）
+        message.Attachments.Clear();
+        Messages.RemoveAt(msgIndex);
+        while (Messages.Count > msgIndex)
+        {
+            // 后续消息的附件同样归父历史所有，此处仅从分支移除，不删物理文件
+            Messages.RemoveAt(msgIndex);
+        }
+
+        // 5. 保留的消息附件全部替换为物理克隆，与父历史彻底解耦
+        var clonedById = new Dictionary<string, ChatAttachment>(StringComparer.Ordinal);
+        if (_attachmentStoreService != null)
+        {
+            foreach (var kept in Messages)
+            {
+                for (int i = 0; i < kept.Attachments.Count; i++)
+                {
+                    var clone = await _attachmentStoreService.CloneStoredAttachmentAsync(kept.Attachments[i]);
+                    clone.PreviewImage = kept.Attachments[i].PreviewImage;
+                    clonedById[clone.Id] = clone;
+                    kept.Attachments[i] = clone;
+                }
+
+                kept.ResolveSegmentAttachments();
+            }
+        }
+
+        // 6. 图像会话复制到新会话身份，续作链路指向克隆后的文件
+        await CopyImageSessionForForkAsync(parentConversationId, clonedById);
+
+        InputText = message.Content;
+
+        UpdateConversationContext();
+        await ReconcileImageGenerationSessionAsync();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+        _logger.Information(
+            "已从会话 {ParentId} 的消息 {MessageId} 处 fork 出分支 {BranchId}",
+            parentConversationId, message.Id, _conversationId);
+    }
+
+    /// <summary>
+    /// 把一批附件挂回输入区待发送列表；超出上限的部分按需清理物理文件并提示。
+    /// </summary>
+    private void RestoreAttachmentsToPending(IReadOnlyList<ChatAttachment> attachments, bool deleteOverflowFiles = false)
+    {
+        if (attachments.Count == 0) return;
+
+        var capacity = (_attachmentStoreService?.MaxPendingAttachments ?? int.MaxValue) - PendingAttachments.Count;
+        var restored = 0;
+
+        foreach (var attachment in attachments)
+        {
+            if (restored < capacity)
+            {
+                attachment.IsPlaying = false;
+                PendingAttachments.Add(attachment);
+                restored++;
+            }
+            else if (deleteOverflowFiles)
+            {
+                _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            }
+        }
+
+        if (restored < attachments.Count)
+        {
+            AttachmentStatusMessage = string.Format(
+                GetString("Chat.Attach.RestoreOverflow", "附件挂载已达上限，{0} 个附件未能恢复。"),
+                attachments.Count - restored);
+        }
+    }
+
+    private async Task<List<ChatAttachment>> CloneAttachmentsForForkAsync(IReadOnlyList<ChatAttachment> attachments)
+    {
+        var clones = new List<ChatAttachment>(attachments.Count);
+        if (_attachmentStoreService == null)
+        {
+            return clones;
+        }
+
+        foreach (var attachment in attachments)
+        {
+            var clone = await _attachmentStoreService.CloneStoredAttachmentAsync(attachment);
+            clone.PreviewImage = attachment.PreviewImage;
+            clones.Add(clone);
+        }
+
+        return clones;
+    }
+
+    /// <summary>
+    /// fork 时把父会话的图像生成会话复制到分支的新 conversationId 下，
+    /// 并把续作链路的文件指针改到分支自己的附件克隆上。
+    /// </summary>
+    private async Task CopyImageSessionForForkAsync(
+        string parentConversationId,
+        IReadOnlyDictionary<string, ChatAttachment> clonedById)
+    {
+        if (_imageGenerationSessionService == null) return;
+
+        var parentSnapshot = await _imageGenerationSessionService.CreateSnapshotAsync(parentConversationId);
+        if (parentSnapshot == null) return;
+
+        var branchSnapshot = new ImageGenerationSessionSnapshot
+        {
+            ConversationId = _conversationId,
+            HistoryId = null,
+            ActiveLineageId = parentSnapshot.ActiveLineageId,
+            CreatedAt = parentSnapshot.CreatedAt,
+            UpdatedAt = DateTime.Now,
+            Turns = parentSnapshot.Turns.Select(turn => new ImageGenerationTurnRecord
+            {
+                Id = turn.Id,
+                LineageId = turn.LineageId,
+                ParentTurnId = turn.ParentTurnId,
+                Prompt = turn.Prompt,
+                RevisedPrompt = turn.RevisedPrompt,
+                AttachmentId = turn.AttachmentId,
+                FileName = turn.FileName,
+                StoredPath = clonedById.TryGetValue(turn.AttachmentId, out var clone)
+                    ? clone.StoredPath ?? turn.StoredPath
+                    : turn.StoredPath,
+                MimeType = turn.MimeType,
+                ContinuityMode = turn.ContinuityMode,
+                ContinuityStatus = turn.ContinuityStatus,
+                Warning = turn.Warning,
+                CreatedAt = turn.CreatedAt
+            }).ToList()
+        };
+
+        await _imageGenerationSessionService.PersistSnapshotAsync(branchSnapshot);
     }
 
     [RelayCommand]
@@ -1286,6 +1349,9 @@ public partial class ChatTabViewModel : ViewModelBase
             ConversationId = _conversationId,
             HistoryId = _currentHistoryId,
             ContextSummary = _activeContextSummary,
+            ForkedFromConversationId = _forkedFromConversationId,
+            ForkedFromHistoryId = _forkedFromHistoryId,
+            ForkedAtMessageId = _forkedAtMessageId,
             Messages = messages,
             ImageSession = imageSessionSnapshot,
             CapturedAt = DateTime.Now,
@@ -1307,6 +1373,9 @@ public partial class ChatTabViewModel : ViewModelBase
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = null;
         _initialConversationSignature = null;
+        _forkedFromConversationId = null;
+        _forkedFromHistoryId = null;
+        _forkedAtMessageId = null;
 
         _compressionHistory.Clear();
         SetActiveContextSummary(null);
@@ -1687,8 +1756,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         foreach (var msg in Messages)
         {
-            msg.CanEdit = false;
-            msg.CanRegenerate = false;
+            msg.CanRewind = false;
         }
 
         // 发送中或压缩中，所有操作按钮不可用
@@ -1696,11 +1764,10 @@ public partial class ChatTabViewModel : ViewModelBase
 
         foreach (var msg in Messages)
         {
-            // 已归档的消息不可编辑或重新生成
-            if (!msg.IsCompressed)
+            // 已归档的消息不可回滚/fork
+            if (!msg.IsCompressed && msg.Role == "user")
             {
-                if (msg.Role == "assistant") msg.CanRegenerate = true;
-                if (msg.Role == "user") msg.CanEdit = true;
+                msg.CanRewind = true;
             }
         }
     }
@@ -1824,6 +1891,9 @@ public partial class ChatTabViewModel : ViewModelBase
                 : history.ConversationId;
             _currentContext.ConversationId = _conversationId;
             _currentHistoryId = history.Id;
+            _forkedFromConversationId = history.ForkedFromConversationId;
+            _forkedFromHistoryId = history.ForkedFromHistoryId;
+            _forkedAtMessageId = history.ForkedAtMessageId;
             _compressionHistory.Clear();
             SetActiveContextSummary(history.ContextSummary);
             UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -1916,6 +1986,9 @@ public partial class ChatTabViewModel : ViewModelBase
             CurrentHistoryId = _currentHistoryId,
             InitialConversationSignature = _initialConversationSignature,
             ContextSummary = _activeContextSummary,
+            ForkedFromConversationId = _forkedFromConversationId,
+            ForkedFromHistoryId = _forkedFromHistoryId,
+            ForkedAtMessageId = _forkedAtMessageId,
             Messages = Messages
                 .Where(ConversationPersistenceHelper.ShouldPersistMessage)
                 .Select(ConversationPersistenceHelper.CloneMessage)
@@ -1955,6 +2028,9 @@ public partial class ChatTabViewModel : ViewModelBase
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = snapshot.CurrentHistoryId;
         _initialConversationSignature = snapshot.InitialConversationSignature;
+        _forkedFromConversationId = snapshot.ForkedFromConversationId;
+        _forkedFromHistoryId = snapshot.ForkedFromHistoryId;
+        _forkedAtMessageId = snapshot.ForkedAtMessageId;
 
         _compressionHistory.Clear();
         SetActiveContextSummary(snapshot.ContextSummary);

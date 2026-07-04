@@ -29,13 +29,12 @@ public static class ConversationPersistenceHelper
     {
         return new ChatMessage
         {
+            Id = msg.Id,
             Role = msg.Role,
             Content = msg.Content,
-            EditContent = string.Empty,
             Timestamp = msg.Timestamp,
             IsHeartbeat = msg.IsHeartbeat,
             IsLoading = false,
-            IsEditing = false,
             ToolCallId = msg.ToolCallId,
             ToolCallsJson = msg.ToolCallsJson,
             ReasoningContent = msg.ReasoningContent,
@@ -44,8 +43,7 @@ public static class ConversationPersistenceHelper
             Attachments = new ObservableCollection<ChatAttachment>(msg.Attachments.Select(CloneAttachment)),
             Segments = new ObservableCollection<ChatMessageSegment>(msg.Segments.Select(CloneSegment)),
             IsCompressed = msg.IsCompressed,
-            CanEdit = false,
-            CanRegenerate = false,
+            CanRewind = false,
             IsHidden = msg.IsHidden,
             ToolExecutionSummary = string.Empty,
             ToolName = msg.ToolName
@@ -108,10 +106,7 @@ public static class ConversationPersistenceHelper
     public static void PrepareRestoredMessage(ChatMessage msg)
     {
         msg.IsLoading = false;
-        msg.IsEditing = false;
-        msg.EditContent = string.Empty;
-        msg.CanEdit = false;
-        msg.CanRegenerate = false;
+        msg.CanRewind = false;
         msg.ToolExecutionSummary = string.Empty;
         foreach (var attachment in msg.Attachments)
         {

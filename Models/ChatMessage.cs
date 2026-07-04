@@ -11,6 +11,11 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class ChatMessage : ObservableObject
 {
+    /// <summary>
+    /// 消息稳定标识（持久化），用于 fork 锚点等跨会话引用
+    /// </summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
     public ObservableCollection<ChatAttachment> Attachments { get; set; } = new();
 
     public ObservableCollection<ChatMessageSegment> Segments { get; set; } = new();
@@ -24,8 +29,6 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
-    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
-    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private string _role = string.Empty;
 
     /// <summary>
@@ -36,19 +39,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
-    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
-    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
     private string _content = string.Empty;
-
-    /// <summary>
-    /// 编辑中的临时内容
-    /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
-    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
-    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
-    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
-    private string _editContent = string.Empty;
 
     /// <summary>
     /// 时间戳
@@ -69,18 +60,6 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     private bool _isLoading;
-
-    /// <summary>
-    /// 是否正在编辑中
-    /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanShowEdit))]
-    [NotifyPropertyChangedFor(nameof(IsContentVisible))]
-    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
-    [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
-    [NotifyPropertyChangedFor(nameof(ShowUserPlainText))]
-    [NotifyPropertyChangedFor(nameof(ShowAssistantMarkdown))]
-    private bool _isEditing;
 
     /// <summary>
     /// 工具调用 ID (仅用于 tool 角色消息)
@@ -113,38 +92,25 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
-    [NotifyPropertyChangedFor(nameof(CanShowEdit))]
-    [NotifyPropertyChangedFor(nameof(CanShowRegenerate))]
+    [NotifyPropertyChangedFor(nameof(CanShowRewind))]
     private bool _isCompressed;
 
     /// <summary>
-    /// 是否可以编辑该消息
+    /// 是否允许回滚/fork（仅 user 消息，发送/压缩期间由 VM 统一关闭）
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanShowEdit))]
-    private bool _canEdit;
+    [NotifyPropertyChangedFor(nameof(CanShowRewind))]
+    private bool _canRewind;
 
     /// <summary>
-    /// 是否可以重新生成回复（仅针对助手消息）
+    /// 是否显示回滚/fork 按钮（允许操作且未压缩）
     /// </summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanShowRegenerate))]
-    private bool _canRegenerate;
+    public bool CanShowRewind => CanRewind && !IsCompressed;
 
     /// <summary>
-    /// 是否可以显示编辑按钮（非编辑状态且允许编辑且未压缩）
+    /// 是否真正有可见内容需要展示
     /// </summary>
-    public bool CanShowEdit => CanEdit && !IsEditing && !IsCompressed;
-
-    /// <summary>
-    /// 是否可以显示重新生成按钮（允许重新生成且未压缩）
-    /// </summary>
-    public bool CanShowRegenerate => CanRegenerate && !IsCompressed;
-
-    /// <summary>
-    /// 是否真正有可见内容需要展示（非编辑状态且内容不为空）
-    /// </summary>
-    public bool IsContentVisible => !IsEditing && !string.IsNullOrWhiteSpace(Content);
+    public bool IsContentVisible => !string.IsNullOrWhiteSpace(Content);
 
     public bool HasAttachments => Attachments.Count > 0;
 
@@ -154,17 +120,10 @@ public partial class ChatMessage : ObservableObject
 
     public bool HasImageSegments => Segments.Any(segment => segment.IsGeneratedImage);
 
+    /// <summary>
+    /// 无 Segment 布局时，user / assistant 消息统一使用 Markdown 渲染
+    /// </summary>
     public bool ShouldShowLegacyMarkdown => !UsesSegmentLayout && IsContentVisible;
-
-    /// <summary>
-    /// 用户消息以纯文本（自适应宽度）渲染，避免 Markdown 渲染器占满整行
-    /// </summary>
-    public bool ShowUserPlainText => ShouldShowLegacyMarkdown && IsUser;
-
-    /// <summary>
-    /// 助手消息仍使用 Markdown 渲染器（需要表格/代码块等占满宽度）
-    /// </summary>
-    public bool ShowAssistantMarkdown => ShouldShowLegacyMarkdown && !IsUser;
 
     public IEnumerable<ChatAttachment> AttachmentPanelItems =>
         UsesSegmentLayout
@@ -184,7 +143,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading || IsEditing);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading);
 
     /// <summary>
     /// 工具执行摘要提示
@@ -255,8 +214,6 @@ public partial class ChatMessage : ObservableObject
         OnPropertyChanged(nameof(UsesSegmentLayout));
         OnPropertyChanged(nameof(HasImageSegments));
         OnPropertyChanged(nameof(ShouldShowLegacyMarkdown));
-        OnPropertyChanged(nameof(ShowUserPlainText));
-        OnPropertyChanged(nameof(ShowAssistantMarkdown));
         OnPropertyChanged(nameof(AttachmentPanelItems));
         OnPropertyChanged(nameof(ShouldShowAttachmentPanel));
         OnPropertyChanged(nameof(IsBubbleVisible));

@@ -58,6 +58,9 @@ public class ConversationArchiveService : IConversationArchiveService
             ConversationId = snapshot.ConversationId,
             HistoryId = snapshot.HistoryId,
             ContextSummary = snapshot.ContextSummary,
+            ForkedFromConversationId = snapshot.ForkedFromConversationId,
+            ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
+            ForkedAtMessageId = snapshot.ForkedAtMessageId,
             Messages = ConversationPersistenceHelper.CloneMessages(snapshot.Messages),
             ImageSession = snapshot.ImageSession == null
                 ? null

@@ -36,10 +36,14 @@
     <system:String x:Key="Chat.BtnReset">新对话</system:String>
     <system:String x:Key="Chat.BtnStats">统计</system:String>
     <system:String x:Key="Chat.ReceivingData">思考中...</system:String>
-    <system:String x:Key="Chat.BtnEdit">编辑</system:String>
-    <system:String x:Key="Chat.BtnConfirm">确认</system:String>
     <system:String x:Key="Chat.BtnAbort">取消</system:String>
-    <system:String x:Key="Chat.BtnRegen">重新生成</system:String>
+    <system:String x:Key="Chat.BtnRewind">回滚至此</system:String>
+    <system:String x:Key="Chat.BtnFork">从此分支</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Title">回滚确认</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Message">回滚将删除这条消息及其后的所有对话内容且不保存，消息内容将回填到输入框，是否继续？</system:String>
+    <system:String x:Key="Chat.RewindConfirm.Yes">是</system:String>
+    <system:String x:Key="Chat.RewindConfirm.No">否</system:String>
+    <system:String x:Key="Chat.Attach.RestoreOverflow">附件挂载已达上限，{0} 个附件未能恢复。</system:String>
     <system:String x:Key="Chat.BtnCopy">复制</system:String>
     <system:String x:Key="Chat.InputPlaceholder">输入消息...</system:String>
     <system:String x:Key="Chat.MaxContextReached">已达到上下文限制</system:String>
@@ -137,8 +141,7 @@
     <system:String x:Key="Config.WarnHigh">高负载 (>80%)</system:String>
     <system:String x:Key="Config.CompressionPreview">压缩预览</system:String>
     <system:String x:Key="Config.InheritPrimary">继承主配置</system:String>
-    <system:String x:Key="Config.SkipRegenerateConfirm">跳过重新生成确认</system:String>
-    <system:String x:Key="Config.SkipEditMessageConfirm">跳过编辑确认</system:String>
+    <system:String x:Key="Config.SkipRewindConfirm">跳过回滚确认</system:String>
     <system:String x:Key="Config.TestConnectNoRespond">连接成功但未收到有效响应（可能是安全过滤或模型拒绝回答）</system:String>
 
     <!-- Config Buttons -->
@@ -162,6 +165,17 @@
     <system:String x:Key="History.RecordsFound">找到记录:</system:String>
     <system:String x:Key="History.Ready">就绪</system:String>
     <system:String x:Key="History.Msgs">消息数:</system:String>
+    <system:String x:Key="History.ForkedBadge">分支</system:String>
+    <system:String x:Key="History.SearchPlaceholder">搜索历史会话（标题或内容）</system:String>
+    <system:String x:Key="History.TimeAll">全部时间</system:String>
+    <system:String x:Key="History.TimeToday">今天</system:String>
+    <system:String x:Key="History.Time7Days">近7天</system:String>
+    <system:String x:Key="History.Time30Days">近30天</system:String>
+    <system:String x:Key="History.TimeCustom">自定义范围</system:String>
+    <system:String x:Key="History.TimeStartDate">开始日期</system:String>
+    <system:String x:Key="History.TimeEndDate">结束日期</system:String>
+    <system:String x:Key="History.TimeClear">清除时间筛选</system:String>
+    <system:String x:Key="History.NoMatches">没有匹配的会话</system:String>
     <system:String x:Key="History.Time">时间:</system:String>
     <system:String x:Key="History.BtnRestore">恢复</system:String>
     <system:String x:Key="History.BtnDel">删除</system:String>
@@ -191,11 +205,7 @@
 
     <!-- Logs Tab -->
     <system:String x:Key="Logs.Header">系统日志</system:String>
-    <system:String x:Key="Logs.QueryParams">查询参数</system:String>
-    <system:String x:Key="Logs.TStart">开始时间:</system:String>
-    <system:String x:Key="Logs.TEnd">结束时间:</system:String>
     <system:String x:Key="Logs.Lvl">级别:</system:String>
-    <system:String x:Key="Logs.Keyword">关键字:</system:String>
     <system:String x:Key="Logs.OptionalFilter">可选筛选</system:String>
     <system:String x:Key="Logs.BtnQuery">搜索</system:String>
     <system:String x:Key="Logs.BtnRefresh">刷新</system:String>

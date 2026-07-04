@@ -261,6 +261,9 @@ public class ConversationHistoryService : IConversationHistoryService
             Id = historyId,
             Summary = summary,
             ContextSummary = snapshot.ContextSummary,
+            ForkedFromConversationId = snapshot.ForkedFromConversationId ?? existingItem?.ForkedFromConversationId,
+            ForkedFromHistoryId = snapshot.ForkedFromHistoryId ?? existingItem?.ForkedFromHistoryId,
+            ForkedAtMessageId = snapshot.ForkedAtMessageId ?? existingItem?.ForkedAtMessageId,
             MessageCount = messageList.Count(IsCountableMessage),
             Messages = messageList,
             CreatedAt = createdAt,
@@ -303,45 +306,39 @@ public class ConversationHistoryService : IConversationHistoryService
         {
             try
             {
-                // 截取最后 50 轮对话（约 100 条消息）作为上下文
-                var contextMessages = messages.Skip(Math.Max(0, messages.Count - 100)).ToList();
-                
-                var openAiMessages = new List<OpenAI.Chat.ChatMessage>();
-                
-                // 添加系统提示词
-                openAiMessages.Add(new SystemChatMessage(_promptService.GetPrompt(PromptType.SummaryGeneration)));
-
-                // 将历史消息转换为 OpenAI 消息格式，过滤掉工具相关的隐形消息以节省总结时的 token
-                foreach (var msg in contextMessages)
+                // 上下文预算：最近 10 条非工具消息、总量 ≤1000 字符（超预算时对最长消息硬截断）
+                var contextEntries = BuildSummaryContext(messages);
+                if (contextEntries.Count > 0)
                 {
-                    // 仅保留纯文本对话进行总结，忽略 tool 角色和带工具调用的 assistant 消息
-                    if (msg.Role?.ToLower() == "user")
+                    var openAiMessages = new List<OpenAI.Chat.ChatMessage>
                     {
-                        var summaryContent = FormatMessageForSummary(msg);
-                        if (!string.IsNullOrWhiteSpace(summaryContent))
+                        new SystemChatMessage(_promptService.GetPrompt(PromptType.SummaryGeneration))
+                    };
+
+                    foreach (var entry in contextEntries)
+                    {
+                        if (entry.Role == "user")
                         {
-                            openAiMessages.Add(new UserChatMessage(summaryContent));
+                            openAiMessages.Add(new UserChatMessage(entry.Content));
+                        }
+                        else
+                        {
+                            openAiMessages.Add(CreateAssistantHistoryMessage(entry.Content, null));
                         }
                     }
-                    else if ((msg.Role?.ToLower() == "assistant" || msg.Role?.ToLower() == "ai") 
-                             && string.IsNullOrEmpty(msg.ToolCallsJson) 
-                             && !string.IsNullOrWhiteSpace(msg.Content))
+
+                    // 添加总结引导词
+                    openAiMessages.Add(new UserChatMessage(_promptService.GetPrompt(PromptType.SummaryInstruction)));
+
+                    var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
+                    var summary = completion?.Value?.Content?.FirstOrDefault()?.Text?.Trim();
+
+                    if (!string.IsNullOrEmpty(summary))
                     {
-                        openAiMessages.Add(CreateAssistantHistoryMessage(msg.Content, msg.ReasoningContent));
+                        // 清理可能出现的首尾标点或引号，并强制标题 ≤20 字
+                        summary = summary.Trim('\"', '\'', ' ', '。', '.');
+                        return TruncateAtChar(summary, SummaryTitleMaxChars);
                     }
-                }
-
-                // 添加总结引导词
-                openAiMessages.Add(new UserChatMessage(_promptService.GetPrompt(PromptType.SummaryInstruction)));
-
-                var completion = await _secondaryChatClient.CompleteChatAsync(openAiMessages);
-                var summary = completion?.Value?.Content?.FirstOrDefault()?.Text?.Trim();
-
-                if (!string.IsNullOrEmpty(summary))
-                {
-                    // 清理可能出现的首尾标点或引号
-                    summary = summary.Trim('\"', '\'', ' ', '。', '.');
-                    return summary;
                 }
             }
             catch (Exception ex)
@@ -350,7 +347,7 @@ public class ConversationHistoryService : IConversationHistoryService
             }
         }
 
-        // 默认方式：取第一条用户消息的前 30 个字符
+        // 默认方式：取第一条用户消息，硬截断到标题上限
         var firstUserMessage = messages
             .Where(m => m.Role?.ToLower() == "user")
             .Select(FormatMessageForSummary)
@@ -359,12 +356,92 @@ public class ConversationHistoryService : IConversationHistoryService
         {
             return GetString("History.NewConversation", "New conversation");
         }
-        
-        if (firstUserMessage.Length <= 30)
+
+        if (firstUserMessage.Length <= SummaryTitleMaxChars)
         {
             return firstUserMessage;
         }
-        return firstUserMessage.Substring(0, 30) + "...";
+        return TruncateAtChar(firstUserMessage, SummaryTitleMaxChars - 1) + "…";
+    }
+
+    // ===== 摘要上下文预算（标题生成用） =====
+    internal const int SummaryContextMaxChars = 1000;
+    internal const int SummaryContextMaxMessages = 10;
+    internal const int SummaryContextMinMessageChars = 100;
+    internal const int SummaryTitleMaxChars = 20;
+
+    internal sealed record SummaryContextEntry(string Role, string Content);
+
+    /// <summary>
+    /// 取最近 10 条非工具消息（不足按实际条数），总字符预算 1000：
+    /// 超预算时反复对当前最长的一条做硬截断（保留开头），单条下限 100 字符；
+    /// 收敛极限为 10 条 × 100 字符。
+    /// </summary>
+    internal static List<SummaryContextEntry> BuildSummaryContext(List<Models.ChatMessage> messages)
+    {
+        var entries = new List<SummaryContextEntry>();
+        for (int i = messages.Count - 1; i >= 0 && entries.Count < SummaryContextMaxMessages; i--)
+        {
+            var msg = messages[i];
+            var role = msg.Role?.ToLowerInvariant();
+            if (role == "user")
+            {
+                var content = FormatMessageForSummary(msg);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    entries.Add(new SummaryContextEntry("user", content.Trim()));
+                }
+            }
+            else if ((role == "assistant" || role == "ai")
+                && string.IsNullOrEmpty(msg.ToolCallsJson)
+                && !string.IsNullOrWhiteSpace(msg.Content))
+            {
+                entries.Add(new SummaryContextEntry("assistant", msg.Content.Trim()));
+            }
+        }
+
+        entries.Reverse();
+
+        while (entries.Sum(e => e.Content.Length) > SummaryContextMaxChars)
+        {
+            int longestIndex = 0;
+            for (int i = 1; i < entries.Count; i++)
+            {
+                if (entries[i].Content.Length > entries[longestIndex].Content.Length)
+                {
+                    longestIndex = i;
+                }
+            }
+
+            var longest = entries[longestIndex];
+            if (longest.Content.Length <= SummaryContextMinMessageChars)
+            {
+                break;
+            }
+
+            var overshoot = entries.Sum(e => e.Content.Length) - SummaryContextMaxChars;
+            var targetLength = Math.Max(SummaryContextMinMessageChars, longest.Content.Length - overshoot);
+            entries[longestIndex] = longest with { Content = TruncateAtChar(longest.Content, targetLength) };
+        }
+
+        return entries;
+    }
+
+    /// <summary>按字符数硬截断，避免拆散代理对（emoji 等）。</summary>
+    internal static string TruncateAtChar(string text, int maxChars)
+    {
+        if (text.Length <= maxChars)
+        {
+            return text;
+        }
+
+        var cut = maxChars;
+        if (cut > 0 && char.IsHighSurrogate(text[cut - 1]))
+        {
+            cut--;
+        }
+
+        return text[..cut];
     }
 
     public async Task<Models.ConversationHistoryItem?> LoadByIdAsync(string id)

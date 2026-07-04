@@ -57,4 +57,10 @@ public interface IAttachmentStoreService
     Task LoadPreviewsAsync(IEnumerable<ChatAttachment> attachments, CancellationToken cancellationToken = default);
 
     void DeleteStoredAttachment(ChatAttachment attachment);
+
+    /// <summary>
+    /// 物理克隆附件：复制存储文件（及解析 sidecar），返回带新 Id/新路径的独立附件。
+    /// 用于会话 fork，避免两个会话共享同一附件文件后互相误删。
+    /// </summary>
+    Task<ChatAttachment> CloneStoredAttachmentAsync(ChatAttachment source, CancellationToken cancellationToken = default);
 }
