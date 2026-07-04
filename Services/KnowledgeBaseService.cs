@@ -487,24 +487,24 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             // 3) RRF 融合：score(d) = Σ 1/(k + rank)，按排名合并两路，规避分数量纲不一致
             var rrf = new Dictionary<(string, int), double>();
-            var snippet = new Dictionary<(string, int), (string FilePath, string Text)>();
+            var snippet = new Dictionary<(string, int), (string FilePath, string Text, string Heading)>();
 
             for (int i = 0; i < denseDocs.Count; i++)
             {
                 var key = (denseDocs[i].FilePath, denseDocs[i].ChunkIndex);
                 rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
-                snippet[key] = (denseDocs[i].FilePath, denseDocs[i].ChunkText);
+                snippet[key] = (denseDocs[i].FilePath, denseDocs[i].ChunkText, denseDocs[i].HeadingPath);
             }
             for (int i = 0; i < sparseHits.Count; i++)
             {
                 var key = (sparseHits[i].FilePath, sparseHits[i].ChunkIndex);
                 rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
-                if (!snippet.ContainsKey(key)) snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content);
+                if (!snippet.ContainsKey(key)) snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content, string.Empty);
             }
 
             if (rrf.Count == 0) return new List<KnowledgeSearchResult>();
 
-            // 4) 余弦门控 + 按 RRF 排序 + TopK。仅在有查询向量时门控（否则退化为纯词面检索）
+            // 4) 余弦门控 + 按 RRF 排序。仅在有查询向量时门控（否则退化为纯词面检索）
             var candidates = rrf.Keys
                 .Select(key => (
                     Rrf: rrf[key],
@@ -512,7 +512,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                     Info: snippet[key]))
                 .ToList();
 
-            IEnumerable<(double Rrf, double Sim, (string FilePath, string Text) Info)> survivors = candidates;
+            IEnumerable<(double Rrf, double Sim, (string FilePath, string Text, string Heading) Info)> survivors = candidates;
             if (queryEmbedding != null)
             {
                 survivors = candidates.Where(x => !double.IsNaN(x.Sim) && x.Sim >= MinSimilarity);
@@ -521,23 +521,168 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                     query, candidates.Count, MinSimilarity, topSim);
             }
 
-            var top = survivors
-                .OrderByDescending(x => x.Rrf)
-                .Take(maxResults)
-                .ToList();
-
-            return top.Select(x => new KnowledgeSearchResult
+            // 5) 文件级聚合：同一文件的多个命中分块合并为一条（保留最佳分块），并记录命中数。
+            //    避免同文件多分块挤占 TopK，让模型感知“该主题已归属某文件”，从而倾向修改而非新建。
+            var ranked = survivors.OrderByDescending(x => x.Rrf).ToList();
+            var byFile = new Dictionary<string, (double Rrf, double Sim, string Text, string Heading, int Count)>();
+            var fileOrder = new List<string>();
+            foreach (var x in ranked)
             {
-                FilePath = x.Info.FilePath,
-                Snippet = x.Info.Text,
-                // 展示可解释的余弦相似度；纯词面模式下退回 RRF 分
-                RelevanceScore = queryEmbedding != null ? Math.Round(x.Sim, 4) : Math.Round(x.Rrf, 4)
-            }).ToList();
+                var fp = x.Info.FilePath;
+                if (byFile.TryGetValue(fp, out var agg))
+                {
+                    // 首次出现即最佳分块（已按 Rrf 降序），后续仅累加命中数
+                    byFile[fp] = (agg.Rrf, agg.Sim, agg.Text, agg.Heading, agg.Count + 1);
+                }
+                else
+                {
+                    byFile[fp] = (x.Rrf, x.Sim, x.Info.Text, x.Info.Heading, 1);
+                    fileOrder.Add(fp);
+                }
+            }
+
+            return fileOrder
+                .Take(maxResults)
+                .Select(fp =>
+                {
+                    var a = byFile[fp];
+                    return new KnowledgeSearchResult
+                    {
+                        FilePath = fp,
+                        Snippet = a.Text,
+                        HeadingPath = a.Heading,
+                        MatchCount = a.Count,
+                        // 展示可解释的余弦相似度；纯词面模式下退回 RRF 分
+                        RelevanceScore = queryEmbedding != null ? Math.Round(a.Sim, 4) : Math.Round(a.Rrf, 4)
+                    };
+                })
+                .ToList();
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "混合检索失败");
             return new List<KnowledgeSearchResult>();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<SimilarKnowledgeFile>> FindSimilarFilesAsync(string content, double minSimilarity, int maxResults = 3)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return new List<SimilarKnowledgeFile>();
+        if (_embeddingService == null || !_embeddingService.IsConfigured) return new List<SimilarKnowledgeFile>();
+
+        try
+        {
+            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
+            if (_vectorCache.Count == 0) return new List<SimilarKnowledgeFile>();
+
+            // 内容可能很长；截断到与分块尺度相当的长度即可代表主题，避免超出嵌入上限。
+            var probeText = content.Length > ChunkSize * 4 ? content[..(ChunkSize * 4)] : content;
+            var contentEmbedding = await _embeddingService.GenerateEmbeddingAsync(probeText);
+            if (contentEmbedding == null) return new List<SimilarKnowledgeFile>();
+
+            // 每个文件取其所有分块与目标内容的最大相似度作为该文件的相似度。
+            var perFile = new Dictionary<string, (double Sim, string Text)>();
+            foreach (var doc in _vectorCache)
+            {
+                if (doc.Embedding == null) continue;
+                var sim = (double)_embeddingService.CosineSimilarity(contentEmbedding, doc.Embedding);
+                if (!perFile.TryGetValue(doc.FilePath, out var cur) || sim > cur.Sim)
+                {
+                    perFile[doc.FilePath] = (sim, doc.ChunkText);
+                }
+            }
+
+            return perFile
+                .Where(kv => kv.Value.Sim >= minSimilarity)
+                .OrderByDescending(kv => kv.Value.Sim)
+                .Take(maxResults)
+                .Select(kv => new SimilarKnowledgeFile
+                {
+                    FilePath = kv.Key,
+                    Similarity = Math.Round(kv.Value.Sim, 4),
+                    Snippet = kv.Value.Text.Length > 200 ? kv.Value.Text[..200] + "…" : kv.Value.Text
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "查重检索失败");
+            return new List<SimilarKnowledgeFile>();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<DuplicateFileCluster>> DetectDuplicateClustersAsync(double minSimilarity)
+    {
+        if (_embeddingService == null || !_embeddingService.IsConfigured) return new List<DuplicateFileCluster>();
+
+        try
+        {
+            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
+            if (_vectorCache.Count == 0) return new List<DuplicateFileCluster>();
+
+            // 每个文件求分块向量质心（归一化留给 CosineSimilarity 处理）。
+            var centroids = new Dictionary<string, float[]>();
+            foreach (var group in _vectorCache.Where(d => d.Embedding != null).GroupBy(d => d.FilePath))
+            {
+                var docs = group.ToList();
+                var dim = docs[0].Embedding!.Length;
+                var acc = new float[dim];
+                foreach (var d in docs)
+                {
+                    var emb = d.Embedding!;
+                    for (int i = 0; i < dim && i < emb.Length; i++) acc[i] += emb[i];
+                }
+                for (int i = 0; i < dim; i++) acc[i] /= docs.Count;
+                centroids[group.Key] = acc;
+            }
+
+            var files = centroids.Keys.ToList();
+            if (files.Count < 2) return new List<DuplicateFileCluster>();
+
+            // 并查集：把两两相似度 >= 阈值的文件并入同一组。
+            var parent = files.ToDictionary(f => f, f => f);
+            string Find(string x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+            void Union(string a, string b) { var ra = Find(a); var rb = Find(b); if (ra != rb) parent[ra] = rb; }
+
+            var pairMin = new Dictionary<string, double>(); // 组根 -> 组内最低相似度
+            for (int i = 0; i < files.Count; i++)
+            {
+                for (int j = i + 1; j < files.Count; j++)
+                {
+                    var sim = (double)_embeddingService.CosineSimilarity(centroids[files[i]], centroids[files[j]]);
+                    if (sim >= minSimilarity)
+                    {
+                        Union(files[i], files[j]);
+                    }
+                }
+            }
+
+            // 收集每组成员，并计算组内两两最低相似度（作为“重复强度”下界）。
+            var groups = files.GroupBy(Find).Where(g => g.Count() >= 2).ToList();
+            var clusters = new List<DuplicateFileCluster>();
+            foreach (var g in groups)
+            {
+                var members = g.ToList();
+                double minSim = double.MaxValue;
+                for (int i = 0; i < members.Count; i++)
+                    for (int j = i + 1; j < members.Count; j++)
+                        minSim = Math.Min(minSim, (double)_embeddingService.CosineSimilarity(centroids[members[i]], centroids[members[j]]));
+
+                clusters.Add(new DuplicateFileCluster
+                {
+                    FilePaths = members.OrderBy(m => m).ToList(),
+                    MinSimilarity = Math.Round(minSim, 4)
+                });
+            }
+
+            return clusters.OrderByDescending(c => c.MinSimilarity).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "重复文件聚类失败");
+            return new List<DuplicateFileCluster>();
         }
     }
 

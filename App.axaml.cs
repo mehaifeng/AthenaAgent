@@ -225,6 +225,9 @@ public partial class App : Application
             // 从 DI 容器获取 ViewModel
             var mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
 
+            // 启动知识库定期整理后台服务（单例惰性创建，须显式解析以启动计时器）
+            Services.GetRequiredService<IKnowledgeBaseMaintenanceService>().Start();
+
             desktop.MainWindow = new MainWindow
             {
                 DataContext = mainViewModel,
@@ -644,6 +647,27 @@ public partial class App : Application
             return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger);
         });
 
+        // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）
+        services.AddSingleton<KnowledgeBaseMaintenanceRunner>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
+            var logger = Log.ForContext<KnowledgeBaseMaintenanceRunner>();
+            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger);
+        });
+
+        // 知识库定期整理服务（单例，后台计时器）
+        services.AddSingleton<IKnowledgeBaseMaintenanceService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var knowledgeBase = sp.GetRequiredService<IKnowledgeBaseService>();
+            var embeddingService = sp.GetRequiredService<IEmbeddingService>();
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
+            var runner = sp.GetRequiredService<KnowledgeBaseMaintenanceRunner>();
+            var logger = Log.ForContext<KnowledgeBaseMaintenanceService>();
+            return new KnowledgeBaseMaintenanceService(configService, knowledgeBase, embeddingService, pathService, runner, logger);
+        });
+
         // Prompt 服务（单例）
         services.AddSingleton<IPromptService, PromptService>();
 
@@ -723,6 +747,7 @@ public partial class App : Application
             var modelCatalogService = sp.GetService<IModelCatalogService>();
             var screenCaptureService = sp.GetService<IScreenCaptureService>();
             var subAgentOrchestrator = sp.GetService<ISubAgentOrchestrator>();
+            var knowledgeMaintenanceService = sp.GetService<IKnowledgeBaseMaintenanceService>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -750,7 +775,8 @@ public partial class App : Application
                 documentParserService,
                 modelCatalogService,
                 screenCaptureService,
-                subAgentOrchestrator);
+                subAgentOrchestrator,
+                knowledgeMaintenanceService);
         });
 
         Log.Debug("依赖注入服务配置完成");

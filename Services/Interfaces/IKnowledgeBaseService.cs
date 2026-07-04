@@ -65,6 +65,22 @@ public interface IKnowledgeBaseService
     Task<List<KnowledgeSearchResult>> SearchAsync(string query, int maxResults = 5);
 
     /// <summary>
+    /// 查找与给定内容语义相近的已有知识文件（写入前查重，避免重复建同类文件）。
+    /// </summary>
+    /// <param name="content">待写入的内容</param>
+    /// <param name="minSimilarity">相似度下限（低于此值不算重复）</param>
+    /// <param name="maxResults">最多返回的文件数</param>
+    /// <returns>按相似度降序排列的相近文件；Embedding 未配置时返回空列表</returns>
+    Task<List<SimilarKnowledgeFile>> FindSimilarFilesAsync(string content, double minSimilarity, int maxResults = 3);
+
+    /// <summary>
+    /// 基于已有向量离线聚类，找出疑似重复的文件组（供知识库定期整理）。
+    /// </summary>
+    /// <param name="minSimilarity">判定两个文件质心相似的下限</param>
+    /// <returns>每组至少包含 2 个文件；Embedding 未配置或无重复时返回空列表</returns>
+    Task<List<DuplicateFileCluster>> DetectDuplicateClustersAsync(double minSimilarity);
+
+    /// <summary>
     /// 列出所有知识文件
     /// </summary>
     /// <returns>文件路径列表</returns>

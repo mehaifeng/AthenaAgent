@@ -161,12 +161,14 @@ public static class PromptTemplates
 
         ## Search-First Memory
 
-        Memory writes are append-only additions to a finite knowledge base. Before every write, search.
+        The knowledge base is a single source of truth: one topic lives in one file, kept current — not a pile of parallel notes. Before every write, search.
 
         Required sequence:
         1. `recall_from_memory` with a specific semantic query
-        2. If an existing record covers the fact, use `modify_system_file`
-        3. If nothing covers it, use `create_new_memory`
+        2. If any returned file already covers the topic (especially with matchCount > 1), that file owns it — use `modify_system_file` to update or extend it. The relative path from recall works directly as the modify target; read it first if you need its current content.
+        3. Only if nothing covers it, use `create_new_memory` with a stable, descriptive path.
+
+        Do not create a second file for a subject that already has one. `create_new_memory` enforces this: it runs a semantic duplicate check and will reject a near-duplicate, naming the file to modify instead — expect that and switch to `modify_system_file` rather than forcing a parallel file.
 
         Also call `recall_from_memory` when the user asks something that may rely on past context. Only say you do not know after searching.
 

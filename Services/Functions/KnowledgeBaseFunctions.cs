@@ -16,6 +16,12 @@ public class KnowledgeBaseFunctions
     private readonly IKnowledgeBaseService _knowledgeBase;
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// 语义查重门槛：新内容与某已有文件的最大分块相似度 ≥ 此值即视为“同类记录已存在”，
+    /// 拦截新建并引导改用 modify。针对 text-embedding-3-small 的经验值，可随模型校准（日志会打印命中相似度）。
+    /// </summary>
+    private const double DuplicateGuardThreshold = 0.72;
+
     public KnowledgeBaseFunctions(IKnowledgeBaseService knowledgeBase, ILogger logger)
     {
         _knowledgeBase = knowledgeBase;
@@ -23,14 +29,17 @@ public class KnowledgeBaseFunctions
     }
 
     /// <summary>
-    /// 创建知识文件（仅用于创建新记录，如需修改请使用通用系统文件修改工具）
+    /// 创建知识文件。带路径查重 + 语义查重双重护栏：命中已有同类记录时拒绝新建、引导改用修改，
+    /// 从根本上避免同类信息散落到多个不同文件。
     /// </summary>
     /// <param name="filePath">相对路径，如 'user_preferences/coding_style.md'</param>
     /// <param name="content">Markdown 格式的文件内容</param>
+    /// <param name="allowDuplicate">确认这是独立新主题、需绕过语义查重时置 true</param>
     /// <returns>操作结果</returns>
     public async Task<FunctionResult> CreateKnowledgeFile(
         string filePath,
-        string content)
+        string content,
+        bool allowDuplicate = false)
     {
         try
         {
@@ -40,10 +49,30 @@ public class KnowledgeBaseFunctions
                 filePath += ".md";
             }
 
-            // 检查文件是否已存在
+            // 路径查重：同名文件已存在
             if (await _knowledgeBase.FileExistsAsync(filePath))
             {
-                return FunctionResult.FailureResult($"记录已存在: {filePath}。如果需要修改，请使用 modify_system_file 工具。");
+                return FunctionResult.FailureResult(
+                    $"记录已存在: {filePath}。如需补充/更新，请用 modify_system_file 修改该文件（可直接使用此相对路径）。");
+            }
+
+            // 语义查重护栏：内容与已有文件高度相似时，拒绝新建、引导合并进最相关文件。
+            if (!allowDuplicate)
+            {
+                var similar = await _knowledgeBase.FindSimilarFilesAsync(content, DuplicateGuardThreshold, 3);
+                if (similar.Count > 0)
+                {
+                    var listText = string.Join("; ", similar.Select(s => $"{s.FilePath} (相似度 {s.Similarity:F2})"));
+                    _logger.Information("Function: create_new_memory 命中疑似重复并拦截。最相近: {File} ({Sim:F2})",
+                        similar[0].FilePath, similar[0].Similarity);
+
+                    return FunctionResult.FailureResult(
+                        $"知识库中已有高度相似的记录，未新建文件以避免同类信息碎片化。相近文件: {listText}。" +
+                        $"请优先用 modify_system_file 把新信息合并进最相关的那个文件" +
+                        $"（先用 read_system_file 读取其当前内容，路径可直接用上面的相对路径）。" +
+                        $"仅当你确认这是一条真正独立的新主题时，才用更具体的 filePath 并将 allowDuplicate 设为 true 重新调用。",
+                        new { blocked = true, reason = "semantic_duplicate", similarFiles = similar });
+                }
             }
 
             await _knowledgeBase.CreateFileAsync(filePath, content);
@@ -69,7 +98,7 @@ public class KnowledgeBaseFunctions
     /// <returns>搜索结果</returns>
     public async Task<FunctionResult> SearchKnowledgeBase(
         string query,
-        int maxResults = 3)
+        int maxResults = 5)
     {
         try
         {
@@ -83,6 +112,8 @@ public class KnowledgeBaseFunctions
             var formattedResults = results.Select(r => new
             {
                 filePath = r.FilePath,
+                headingPath = r.HeadingPath,
+                matchCount = r.MatchCount,
                 snippet = r.Snippet,
                 relevance = Math.Round(r.RelevanceScore, 2)
             }).ToList();
