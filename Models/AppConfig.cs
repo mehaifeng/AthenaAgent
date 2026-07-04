@@ -257,8 +257,5 @@ public partial class AppConfig : ObservableObject
 
     // 用户偏好设置
     [ObservableProperty]
-    private bool _skipRegenerateConfirm;
-
-    [ObservableProperty]
-    private bool _skipEditConfirm;
+    private bool _skipRewindConfirm;
 }

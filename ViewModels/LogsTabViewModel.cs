@@ -27,11 +27,29 @@ public partial class LogsTabViewModel : ViewModelBase
 
     public ObservableCollection<LogEntryViewModel> LogEntries { get; } = new();
 
+    /// <summary>
+    /// 时间筛选档位：0=全部时间，1=今天，2=近7天，3=近30天，4=自定义范围（与历史页一致）
+    /// </summary>
     [ObservableProperty]
-    private DateTime? _logStartTime;
+    private int _timeFilterIndex = 2;
 
+    /// <summary>自定义范围起点（按整天，含当天）</summary>
     [ObservableProperty]
-    private DateTime? _logEndTime;
+    private DateTime? _customStartDate;
+
+    /// <summary>自定义范围终点（按整天，含当天）</summary>
+    [ObservableProperty]
+    private DateTime? _customEndDate;
+
+    /// <summary>当前是否为"自定义范围"档（控制日期选择行的展开）</summary>
+    public bool IsCustomRange => TimeFilterIndex == 4;
+
+    /// <summary>自定义起止倒置时视为无效：不过滤，仅用于 UI 警示</summary>
+    public bool IsCustomRangeInvalid =>
+        IsCustomRange
+        && CustomStartDate.HasValue
+        && CustomEndDate.HasValue
+        && CustomStartDate.Value.Date > CustomEndDate.Value.Date;
 
     [ObservableProperty]
     private int _currentPage = 1;
@@ -65,8 +83,6 @@ public partial class LogsTabViewModel : ViewModelBase
     public LogsTabViewModel(ILogService? logService)
     {
         _logService = logService;
-        LogEndTime = DateTime.Today.AddDays(1);
-        LogStartTime = DateTime.Today.AddDays(-7);
         App.ThemeChanged += OnThemeChanged;
         RefreshLogsAsync().ConfigureAwait(false);
     }
@@ -183,21 +199,75 @@ public partial class LogsTabViewModel : ViewModelBase
         _ = LoadLogsAsync();
     }
 
+    partial void OnTimeFilterIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsCustomRange));
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        CurrentPage = 1;
+        _ = LoadLogsAsync();
+    }
+
+    partial void OnCustomStartDateChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        CurrentPage = 1;
+        _ = LoadLogsAsync();
+    }
+
+    partial void OnCustomEndDateChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        CurrentPage = 1;
+        _ = LoadLogsAsync();
+    }
+
+    /// <summary>清空自定义日期并回到"全部时间"</summary>
+    [RelayCommand]
+    private void ClearCustomRange()
+    {
+        CustomStartDate = null;
+        CustomEndDate = null;
+        TimeFilterIndex = 0;
+    }
+
+    /// <summary>
+    /// 当前时间档对应的 [起, 止) 窗口；快捷档为滚动窗口（从所在日 00:00 起），
+    /// 自定义档起止倒置时视为无效，不做时间过滤。
+    /// </summary>
+    private (DateTime? Start, DateTime? End) GetActiveTimeWindow()
+    {
+        var today = DateTime.Today;
+        return TimeFilterIndex switch
+        {
+            1 => (today, null),
+            2 => (today.AddDays(-7), null),
+            3 => (today.AddDays(-30), null),
+            4 when !IsCustomRangeInvalid => (
+                CustomStartDate?.Date,
+                CustomEndDate?.Date.AddDays(1)),
+            _ => (null, null)
+        };
+    }
+
     partial void OnSelectedLogPageSizeChanged(int value)
     {
         CurrentPage = 1;
         _ = LoadLogsAsync();
     }
 
-    private LogQueryParams BuildQuery(int? page = null, int? pageSize = null) => new()
+    private LogQueryParams BuildQuery(int? page = null, int? pageSize = null)
     {
-        StartTime = LogStartTime,
-        EndTime = LogEndTime,
-        Level = SelectedLogLevel,
-        SearchKeyword = string.IsNullOrWhiteSpace(SearchLogText) ? null : SearchLogText.Trim(),
-        Page = page ?? CurrentPage,
-        PageSize = pageSize ?? SelectedLogPageSize
-    };
+        var (start, end) = GetActiveTimeWindow();
+        return new LogQueryParams
+        {
+            StartTime = start,
+            EndTime = end,
+            Level = SelectedLogLevel,
+            SearchKeyword = string.IsNullOrWhiteSpace(SearchLogText) ? null : SearchLogText.Trim(),
+            Page = page ?? CurrentPage,
+            PageSize = pageSize ?? SelectedLogPageSize
+        };
+    }
 
     private async Task LoadLogsAsync()
     {

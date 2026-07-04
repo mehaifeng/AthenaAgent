@@ -200,12 +200,12 @@ public static class PromptTemplates
     /// <summary>
     /// 对话摘要生成
     /// </summary>
-    public const string SummaryGeneration = "Provide a one-sentence, punchy summary of the core topic of this conversation.";
+    public const string SummaryGeneration = "You generate a very short title for the core topic of a conversation.";
 
     /// <summary>
     /// 对话摘要指令
     /// </summary>
-    public const string SummaryInstruction = "Please provide a very concise summary of the conversation above in a single sentence (no more than 20 words). The summary should be in the same language as the conversation.";
+    public const string SummaryInstruction = "Summarize the conversation above as a short title of AT MOST 20 characters (count every character, including spaces). Use the same language as the conversation. Output the title only — no quotes, no trailing punctuation, no explanations.";
 
     /// <summary>
     /// 上下文压缩

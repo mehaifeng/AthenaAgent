@@ -42,6 +42,80 @@ public partial class HistoryTabViewModel : ViewModelBase
     private bool _isLoading;
 
     /// <summary>
+    /// 检索关键字：匹配会话标题与消息正文（输入即过滤）
+    /// </summary>
+    [ObservableProperty]
+    private string _searchText = string.Empty;
+
+    /// <summary>
+    /// 时间筛选档位：0=全部时间，1=今天，2=近7天，3=近30天，4=自定义范围
+    /// </summary>
+    [ObservableProperty]
+    private int _filterIndex;
+
+    /// <summary>
+    /// 自定义范围起点（按整天，含当天）
+    /// </summary>
+    [ObservableProperty]
+    private DateTime? _customStartDate;
+
+    /// <summary>
+    /// 自定义范围终点（按整天，含当天）
+    /// </summary>
+    [ObservableProperty]
+    private DateTime? _customEndDate;
+
+    /// <summary>
+    /// 是否有生效中的检索/筛选条件（用于空态文案区分"无记录"与"无匹配"）
+    /// </summary>
+    public bool HasActiveFilter => !string.IsNullOrWhiteSpace(SearchText) || FilterIndex != 0;
+
+    /// <summary>当前是否为"自定义范围"档（控制日期选择行的展开）</summary>
+    public bool IsCustomRange => FilterIndex == 4;
+
+    /// <summary>自定义起止倒置时视为无效：不过滤，仅用于 UI 警示</summary>
+    public bool IsCustomRangeInvalid =>
+        IsCustomRange
+        && CustomStartDate.HasValue
+        && CustomEndDate.HasValue
+        && CustomStartDate.Value.Date > CustomEndDate.Value.Date;
+
+    partial void OnSearchTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasActiveFilter));
+        RebuildHistoryItems(SelectedItem?.Id);
+    }
+
+    partial void OnFilterIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasActiveFilter));
+        OnPropertyChanged(nameof(IsCustomRange));
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        RebuildHistoryItems(SelectedItem?.Id);
+    }
+
+    partial void OnCustomStartDateChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        RebuildHistoryItems(SelectedItem?.Id);
+    }
+
+    partial void OnCustomEndDateChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(IsCustomRangeInvalid));
+        RebuildHistoryItems(SelectedItem?.Id);
+    }
+
+    /// <summary>清空自定义日期并回到"全部时间"</summary>
+    [RelayCommand]
+    private void ClearCustomRange()
+    {
+        CustomStartDate = null;
+        CustomEndDate = null;
+        FilterIndex = 0;
+    }
+
+    /// <summary>
     /// 是否有选中的条目
     /// </summary>
     public bool HasSelectedItem => SelectedItem != null;
@@ -199,6 +273,7 @@ public partial class HistoryTabViewModel : ViewModelBase
 
         var mergedItems = pendingDisplayItems
             .Concat(_persistedHistoryItems.Where(item => !pendingPersistedIds.Contains(item.Id)))
+            .Where(MatchesActiveFilter)
             .OrderByDescending(item => item.UpdatedAt)
             .ToList();
 
@@ -213,6 +288,53 @@ public partial class HistoryTabViewModel : ViewModelBase
             : HistoryItems.FirstOrDefault(item => string.Equals(item.Id, selectedId, StringComparison.Ordinal));
 
         OnPropertyChanged(nameof(HasSelectedItem));
+    }
+
+    private bool MatchesActiveFilter(ConversationHistoryItem item)
+    {
+        // 归档中的占位条目不参与筛选剔除（转瞬即逝，隐藏反而让人误以为丢了会话）
+        if (item.IsArchivePlaceholder)
+        {
+            return true;
+        }
+
+        var (windowStart, windowEnd) = GetActiveTimeWindow();
+        if (windowStart.HasValue && item.UpdatedAt < windowStart.Value) return false;
+        if (windowEnd.HasValue && item.UpdatedAt >= windowEnd.Value) return false;
+
+        var keyword = SearchText?.Trim();
+        if (string.IsNullOrEmpty(keyword))
+        {
+            return true;
+        }
+
+        if (item.Summary?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        return item.Messages?.Any(msg =>
+            (msg.Role == "user" || msg.Role == "assistant")
+            && msg.Content?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true) == true;
+    }
+
+    /// <summary>
+    /// 当前时间档对应的 [起, 止) 窗口，按 UpdatedAt 匹配；快捷档为滚动窗口（从所在日 00:00 起）。
+    /// 自定义档起止倒置时视为无效，不做时间过滤。
+    /// </summary>
+    private (DateTime? Start, DateTime? End) GetActiveTimeWindow()
+    {
+        var today = DateTime.Today;
+        return FilterIndex switch
+        {
+            1 => (today, null),
+            2 => (today.AddDays(-7), null),
+            3 => (today.AddDays(-30), null),
+            4 when !IsCustomRangeInvalid => (
+                CustomStartDate?.Date,
+                CustomEndDate?.Date.AddDays(1)),
+            _ => (null, null)
+        };
     }
 
     private ConversationHistoryItem CreatePendingArchiveItem(ConversationArchiveSnapshot snapshot, string stagedFilePath)

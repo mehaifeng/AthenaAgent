@@ -47,6 +47,24 @@ public class ConversationHistoryItem
     public List<ChatMessage> Messages { get; set; } = new();
 
     /// <summary>
+    /// fork 来源会话 ID（仅分支会话携带；null 表示普通会话）
+    /// </summary>
+    public string? ForkedFromConversationId { get; set; }
+
+    /// <summary>
+    /// fork 来源历史条目 ID（父会话 fork 时尚未归档过则为 null）
+    /// </summary>
+    public string? ForkedFromHistoryId { get; set; }
+
+    /// <summary>
+    /// fork 锚点：父会话中被 fork 的那条 user 消息的 Id
+    /// </summary>
+    public string? ForkedAtMessageId { get; set; }
+
+    [JsonIgnore]
+    public bool IsForked => !string.IsNullOrWhiteSpace(ForkedFromConversationId);
+
+    /// <summary>
     /// 显示用的时间文本
     /// </summary>
     public string DisplayTime => UpdatedAt.ToString("yyyy-MM-dd HH:mm");

@@ -26,6 +26,15 @@ public class ConversationDraftSnapshot
     public string? ContextSummary { get; set; }
 
     /// <summary>
+    /// fork 元数据：当前会话若是分支，重启后仍需携带
+    /// </summary>
+    public string? ForkedFromConversationId { get; set; }
+
+    public string? ForkedFromHistoryId { get; set; }
+
+    public string? ForkedAtMessageId { get; set; }
+
+    /// <summary>
     /// 当前消息列表
     /// </summary>
     public List<ChatMessage> Messages { get; set; } = new();
