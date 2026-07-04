@@ -27,6 +27,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
     private readonly IModelCatalogService? _modelCatalogService;
+    private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
     // Cancels in-flight system playback so Stop can kill the external process.
     private CancellationTokenSource? _audioTestCts;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
@@ -77,6 +78,15 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _embeddingTestStatus = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunKnowledgeMaintenanceCommand))]
+    private bool _isRunningMaintenance;
+
+    [ObservableProperty]
+    private string _maintenanceStatus = string.Empty;
+
+    public bool CanRunMaintenance => !IsRunningMaintenance;
 
     [ObservableProperty]
     private string _audioOutputTestStatus = string.Empty;
@@ -148,6 +158,17 @@ public partial class ConfigTabViewModel : ViewModelBase
     /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
     public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
 
+    /// <summary>知识库整理 Agent 的模型来源候选。</summary>
+    public ObservableCollection<KnowledgeMaintenanceModelSource> KnowledgeMaintenanceModelSources { get; } = new()
+    {
+        KnowledgeMaintenanceModelSource.InheritSecondary,
+        KnowledgeMaintenanceModelSource.InheritMain,
+        KnowledgeMaintenanceModelSource.Custom
+    };
+
+    /// <summary>是否使用整理专属自定义模型（决定下方独立配置字段是否显示）。</summary>
+    public bool IsMaintenanceModelCustom => Config.KnowledgeMaintenanceModelSource == KnowledgeMaintenanceModelSource.Custom;
+
     public ObservableCollection<string> Languages { get; }
 
     public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "Zhipu", "Baidu" };
@@ -197,9 +218,9 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null, IModelCatalogService? modelCatalogService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null)
     {
         _configService = configService;
         _chatService = chatService;
@@ -212,6 +233,13 @@ public partial class ConfigTabViewModel : ViewModelBase
         _audioPlaybackService = audioPlaybackService;
         _systemAudioService = systemAudioService;
         _modelCatalogService = modelCatalogService;
+        _maintenanceService = maintenanceService;
+
+        if (_maintenanceService != null)
+        {
+            _maintenanceService.StateChanged += OnMaintenanceStateChanged;
+            UpdateMaintenanceStatus();
+        }
 
         if (_localizationService != null)
         {
@@ -258,6 +286,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             OnPropertyChanged(nameof(IsBrowserModelCustom));
             OnPropertyChanged(nameof(UseMainModelForSubAgent));
             OnPropertyChanged(nameof(IsSubAgentModelCustom));
+            OnPropertyChanged(nameof(IsMaintenanceModelCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
@@ -287,6 +316,10 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(UseMainModelForSubAgent));
                     OnPropertyChanged(nameof(IsSubAgentModelCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.KnowledgeMaintenanceModelSource))
+                {
+                    OnPropertyChanged(nameof(IsMaintenanceModelCustom));
                 }
                 else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
                          || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))
@@ -656,6 +689,60 @@ public partial class ConfigTabViewModel : ViewModelBase
             EmbeddingTestStatus = message;
         }
         finally { IsTestingEmbedding = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunMaintenance))]
+    private async Task RunKnowledgeMaintenanceAsync()
+    {
+        if (_maintenanceService == null)
+        {
+            MaintenanceStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            return;
+        }
+
+        IsRunningMaintenance = true;
+        MaintenanceStatus = GetString("Config.KbMaintenanceRunning", "正在整理知识库…");
+        try
+        {
+            await _maintenanceService.RunNowAsync();
+            UpdateMaintenanceStatus();
+        }
+        catch (Exception ex)
+        {
+            MaintenanceStatus = ex.Message;
+        }
+        finally { IsRunningMaintenance = false; }
+    }
+
+    private void OnMaintenanceStateChanged(object? sender, EventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            IsRunningMaintenance = _maintenanceService?.IsRunning ?? false;
+            UpdateMaintenanceStatus();
+        });
+    }
+
+    private void UpdateMaintenanceStatus()
+    {
+        var state = _maintenanceService?.State;
+        if (state == null || state.LastRunUtc == null)
+        {
+            MaintenanceStatus = GetString("Config.KbMaintenanceNeverRun", "尚未整理");
+            return;
+        }
+
+        // 只展示精简结论，不暴露整理 Agent 的原始摘要（原文仍在状态文件与日志里）。
+        var time = state.LastRunUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        var conclusion = state.LastOutcome switch
+        {
+            "Succeeded" => string.Format(GetString("Config.KbMaintenanceDoneMerged", "已处理 {0} 组疑似重复"), state.LastMergedGroups),
+            "NoDuplicates" => GetString("Config.KbMaintenanceNoDup", "未发现重复文件"),
+            "Failed" => GetString("Config.KbMaintenanceFailed", "整理失败（详见日志）"),
+            "Skipped" => GetString("Config.KbMaintenanceSkipped", "已跳过（Embedding 未配置）"),
+            _ => state.LastOutcome ?? string.Empty
+        };
+        MaintenanceStatus = $"{time} · {conclusion}";
     }
 
     [RelayCommand(CanExecute = nameof(CanTestAudioOutput))]

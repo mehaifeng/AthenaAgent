@@ -6,6 +6,7 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:u="https://irihi.tech/ursa"
              xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
+             xmlns:appconv="using:Athena.UI.Converters"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
@@ -16,6 +17,10 @@
     <Design.DataContext>
         <vm:ConfigTabViewModel/>
     </Design.DataContext>
+
+    <UserControl.Resources>
+        <appconv:MaintenanceModelSourceToDisplayConverter x:Key="MaintenanceModelSourceToDisplay"/>
+    </UserControl.Resources>
 
     <Grid RowDefinitions="40,*">
 
@@ -303,6 +308,63 @@
                                                     Opacity="0.8"/>
                                         </Grid>
                                     </Grid>
+
+                                    <!-- 知识库定期整理（后台合并去重） -->
+                                    <TextBlock Text="{loc:Loc Config.KbMaintenanceSection}" FontWeight="SemiBold" Opacity="0.8" Margin="0,12,0,0"/>
+                                    <TextBlock Text="{loc:Loc Config.KbMaintenanceDescription}" TextWrapping="Wrap" FontSize="12" Opacity="0.7"/>
+
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.KbMaintenanceEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.KnowledgeMaintenanceEnabled}" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.KbMaintenanceInterval}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.KnowledgeMaintenanceIntervalDays}" Minimum="1" Maximum="365" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsEnabled="{Binding Config.KnowledgeMaintenanceEnabled}"/>
+                                    </Grid>
+
+                                    <StackPanel Spacing="12" IsEnabled="{Binding Config.KnowledgeMaintenanceEnabled}">
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                                            <TextBlock Grid.Column="0" Text="{loc:Loc Config.KbMaintenanceModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Column="1" ItemsSource="{Binding KnowledgeMaintenanceModelSources}" SelectedItem="{Binding Config.KnowledgeMaintenanceModelSource}" HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate x:CompileBindings="False">
+                                                        <TextBlock Text="{Binding Converter={StaticResource MaintenanceModelSourceToDisplay}}"/>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </Grid>
+
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto" IsVisible="{Binding IsMaintenanceModelCustom}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.KnowledgeMaintenanceProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.KnowledgeMaintenanceBaseUrl}" PlaceholderText="{loc:Loc Config.InheritSecondaryOrPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.KnowledgeMaintenanceApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritSecondaryOrPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.KnowledgeMaintenanceModel}" PlaceholderText="{loc:Loc Config.InheritSecondaryOrPrimary}" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding RunKnowledgeMaintenanceCommand}"
+                                                          IsEnabled="{Binding CanRunMaintenance}"
+                                                          IsLoading="{Binding IsRunningMaintenance}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.KbMaintenanceRunNow}"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding MaintenanceStatus}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="12"
+                                                       Opacity="0.8"/>
+                                        </Grid>
+                                    </StackPanel>
                                 </StackPanel>
                             </TabItem>
 
@@ -575,10 +637,10 @@
                                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.BrowserAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BrowserAgentBaseUrl}" PlaceholderText="Leave empty to inherit main AI BaseUrl" Margin="0,0,0,8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BrowserAgentBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.BrowserAgentApiKey}" PasswordChar="*" PlaceholderText="Leave empty to inherit main AI API Key" Margin="0,0,0,8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.BrowserAgentApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">

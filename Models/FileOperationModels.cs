@@ -3,13 +3,40 @@ using System.Collections.Generic;
 namespace Athena.UI.Models;
 
 /// <summary>
-/// 知识库搜索结果（语义检索）
+/// 知识库搜索结果（语义检索，已按文件聚合）
 /// </summary>
 public class KnowledgeSearchResult
 {
     public string FilePath { get; set; } = string.Empty;
     public string Snippet { get; set; } = string.Empty;
     public double RelevanceScore { get; set; }
+
+    /// <summary>命中分块所属的标题路径面包屑（如「文档标题 &gt; 二级标题」），便于模型精确定位后修改。</summary>
+    public string HeadingPath { get; set; } = string.Empty;
+
+    /// <summary>该文件内命中的分块数量（&gt;1 表示同一文件多处相关，强烈提示该主题已归属此文件）。</summary>
+    public int MatchCount { get; set; } = 1;
+}
+
+/// <summary>
+/// 知识库中与给定内容语义相近的文件（写入查重 / 去重聚类使用）。
+/// </summary>
+public class SimilarKnowledgeFile
+{
+    public string FilePath { get; set; } = string.Empty;
+    public double Similarity { get; set; }
+    public string Snippet { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 一组疑似重复的知识文件（离线向量聚类的产物，供整理 Agent 逐组合并）。
+/// </summary>
+public class DuplicateFileCluster
+{
+    public List<string> FilePaths { get; set; } = new();
+
+    /// <summary>组内文件质心之间的最低相似度（越高越像重复）。</summary>
+    public double MinSimilarity { get; set; }
 }
 
 /// <summary>

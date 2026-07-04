@@ -109,6 +109,29 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _embeddingModel = "text-embedding-3-small";
 
+    // 知识库定期整理（后台合并去重）
+    [ObservableProperty]
+    private bool _knowledgeMaintenanceEnabled = true;
+
+    [ObservableProperty]
+    private int _knowledgeMaintenanceIntervalDays = 7;
+
+    // 整理 Agent 模型来源：默认跟随次级（后台任务）模型；Custom 时用下方独立字段（留空逐字段回退次级→主）。
+    [ObservableProperty]
+    private KnowledgeMaintenanceModelSource _knowledgeMaintenanceModelSource = KnowledgeMaintenanceModelSource.InheritSecondary;
+
+    [ObservableProperty]
+    private string _knowledgeMaintenanceProvider = "OpenAI";
+
+    [ObservableProperty]
+    private string _knowledgeMaintenanceBaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _knowledgeMaintenanceApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _knowledgeMaintenanceModel = string.Empty;
+
     // 记忆配置
     [ObservableProperty]
     private int _maxContextTokens = 128000;

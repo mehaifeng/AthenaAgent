@@ -107,14 +107,15 @@ public partial class MainWindowViewModel : ViewModelBase
         IDocumentParserService? documentParserService = null,
         IModelCatalogService? modelCatalogService = null,
         IScreenCaptureService? screenCaptureService = null,
-        ISubAgentOrchestrator? subAgentOrchestrator = null)
+        ISubAgentOrchestrator? subAgentOrchestrator = null,
+        IKnowledgeBaseMaintenanceService? knowledgeMaintenanceService = null)
     {
         _localizationService = localizationService;
         Orchestrator = subAgentOrchestrator;
 
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService, knowledgeMaintenanceService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
