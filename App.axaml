@@ -141,7 +141,7 @@
                     <SolidColorBrush x:Key="History.PendingMetaForeground" Color="#E0B96A" />
                     <SolidColorBrush x:Key="History.PendingStatusForeground" Color="#FFD27A" />
                     <SolidColorBrush x:Key="History.PendingSeparatorBrush" Color="#66B8892F" />
-                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#1C2438" />
+                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
@@ -259,7 +259,7 @@
                     <SolidColorBrush x:Key="History.PendingMetaForeground" Color="#9B6A22" />
                     <SolidColorBrush x:Key="History.PendingStatusForeground" Color="#8C5A12" />
                     <SolidColorBrush x:Key="History.PendingSeparatorBrush" Color="#66D7B372" />
-                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#E8F2FF" />
+                    <SolidColorBrush x:Key="Chat.UserBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#D29E00" />
