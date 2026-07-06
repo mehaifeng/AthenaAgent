@@ -547,7 +547,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         UpdateConversationContext();
         await ReconcileImageGenerationSessionAsync();
-        UpdateContextTokensDisplay();
+        // 回滚裁掉了后续消息：强制以估算刷新，下一轮真实 usage 会重锚。
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
         _logger.Information("会话已回滚到消息 {MessageId} 之前", message.Id);
     }
@@ -625,7 +626,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         UpdateConversationContext();
         await ReconcileImageGenerationSessionAsync();
-        UpdateContextTokensDisplay();
+        // fork 出的分支是裁剪后的上下文：强制以估算刷新，下一轮真实 usage 会重锚。
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
         _logger.Information(
             "已从会话 {ParentId} 的消息 {MessageId} 处 fork 出分支 {BranchId}",
@@ -1382,6 +1384,8 @@ public partial class ChatTabViewModel : ViewModelBase
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
         _historyService?.DeleteDraft();
+        // 新会话：清空真实用量锚点，避免沿用上一会话的过时数值。
+        _tokenService?.ResetUsage();
         UpdateConversationContext();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
@@ -1563,10 +1567,17 @@ public partial class ChatTabViewModel : ViewModelBase
                         _compressionHistory.Push(new CompressionCheckpoint(previousSummary, batch));
                     }
                     SetActiveContextSummary(summary);
-                    UpdateContextTokensDisplay();
+                    // 上下文被压缩变小：强制以估算刷新显示，下一轮真实 usage 会自动重锚。
+                    UpdateContextTokensDisplay(forceEstimateBaseline: true);
                     UpdateBubbleButtonVisibility();
                     UndoCompressionCommand.NotifyCanExecuteChanged();
                     _logger.Information("检测到中间压缩，UI 已同步标记 {Count} 条消息", count);
+                },
+                onUsageReported: usage => {
+                    if (!IsCurrentConversationEpoch(epoch)) return;
+                    // 供应商回报的真实用量：作为上下文占用的权威锚点，覆盖此前一切估算。
+                    _tokenService?.ApplyUsage(usage);
+                    OnPropertyChanged(nameof(ContextTokensInfo));
                 },
                 addToContext: addToContext))
             {
@@ -1733,13 +1744,22 @@ public partial class ChatTabViewModel : ViewModelBase
         await _imageGenerationSessionService.ReconcileAsync(_conversationId, survivingAttachmentIds);
     }
 
-    public void UpdateContextTokensDisplay()
+    /// <summary>
+    /// 刷新上下文 token 显示的「估算兜底」。
+    /// 真实 usage 锚点存在时（<see cref="ITokenService.IsRealUsage"/>），估算不覆盖真实值；
+    /// 仅在冷启动/供应商不回 usage 时提供显示。
+    /// </summary>
+    /// <param name="forceEstimateBaseline">
+    /// true 时强制以估算作为基准（用于压缩/回滚/fork——上下文已改却未发 API，需立即反映新大小），
+    /// 下一次真实响应会自动重新锚定。
+    /// </param>
+    public void UpdateContextTokensDisplay(bool forceEstimateBaseline = false)
     {
         if (_tokenService == null || _promptService == null || _functionRegistry == null) return;
         var config = _configService?.Load();
         var functionCallingEnabled = config?.EnableFunctionCalling == true && _functionRegistry.HasFunctions;
 
-        // 赋予上下文准确的初始估算
+        // persona + 工具声明是估算兜底的固定开销来源（真实请求的 system 消息在 ChatService 内另行构建）。
         var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona);
         if (functionCallingEnabled)
         {
@@ -1751,9 +1771,16 @@ public partial class ChatTabViewModel : ViewModelBase
             ? _functionRegistry.GetToolDeclarationTokenCount()
             : 0;
 
-        int tokens = _currentContext.EstimatedTokenCount;
+        int estimated = _currentContext.EstimatedTokenCount;
 
-        _tokenService.CurrentTokens = tokens;
+        if (forceEstimateBaseline)
+        {
+            _tokenService.ApplyEstimatedBaseline(estimated);
+        }
+        else
+        {
+            _tokenService.RefreshEstimate(estimated);
+        }
 
         OnPropertyChanged(nameof(ContextTokensInfo));
     }
@@ -1806,9 +1833,9 @@ public partial class ChatTabViewModel : ViewModelBase
 
                 SetActiveContextSummary(result.Summary);
 
-                // 更新对话上下文并重新计算 Token
+                // 更新对话上下文并重新计算 Token（上下文变小，强制以估算刷新，下轮真实 usage 重锚）
                 UpdateConversationContext();
-                UpdateContextTokensDisplay();
+                UpdateContextTokensDisplay(forceEstimateBaseline: true);
                 UpdateBubbleButtonVisibility();
                 UndoCompressionCommand.NotifyCanExecuteChanged();
 
@@ -1860,7 +1887,8 @@ public partial class ChatTabViewModel : ViewModelBase
         SetActiveContextSummary(checkpoint.PreviousSummary);
 
         UpdateConversationContext();
-        UpdateContextTokensDisplay();
+        // 撤销压缩使上下文重新变大：强制以估算刷新，下一轮真实 usage 会重锚。
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
@@ -1921,6 +1949,8 @@ public partial class ChatTabViewModel : ViewModelBase
             await ReconcileImageGenerationSessionAsync();
 
             _initialConversationSignature = CreateConversationSignature();
+            // 载入的是另一段会话：清空旧锚点，改由估算显示，其首次发送会重锚到真实 usage。
+            _tokenService?.ResetUsage();
             UpdateConversationContext();
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
@@ -2054,6 +2084,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         _ = ReconcileImageGenerationSessionAsync();
 
+        // 恢复的是另一段会话快照：清空旧锚点，改由估算显示，其首次发送会重锚。
+        _tokenService?.ResetUsage();
         UpdateConversationContext();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();

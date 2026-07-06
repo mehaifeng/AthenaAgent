@@ -28,7 +28,6 @@ public class OpenAIChatService : IChatService
     private readonly IFunctionRegistry _functionRegistry;
     private readonly IPromptService _promptService;
     private readonly IConversationHistoryService? _historyService;
-    private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IConversationSessionAccessor? _conversationSessionAccessor;
@@ -42,7 +41,6 @@ public class OpenAIChatService : IChatService
         IPromptService promptService,
         IFunctionRegistry functionRegistry,
         IConversationHistoryService? historyService = null,
-        ITokenService? tokenService = null,
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
@@ -52,7 +50,6 @@ public class OpenAIChatService : IChatService
         _promptService = promptService;
         _functionRegistry = functionRegistry;
         _historyService = historyService;
-        _tokenService = tokenService;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
         _conversationSessionAccessor = conversationSessionAccessor;
@@ -104,6 +101,7 @@ public class OpenAIChatService : IChatService
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
         bool addToContext = true)
     {
         if (_chatClient == null)
@@ -133,7 +131,7 @@ public class OpenAIChatService : IChatService
         // 注意：工具审批的交互作用域在 ProcessStreamAsync 的工具调用点进入，而非此处——
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed))
+        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported))
         {
             yield return text;
         }
@@ -147,21 +145,25 @@ public class OpenAIChatService : IChatService
         ConversationContext context,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         Action<Models.ChatMessage>? onMessageAdded = null,
-        Action<string, int>? onContextCompressed = null)
+        Action<string, int>? onContextCompressed = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null)
     {
         var iteration = 0;
         const int maxIterations = 50;
         var disabledToolCallRetries = 0;
+        // 上一轮 API 回报的真实输入 token；首轮尚无真实值时退回整段上下文估算。
+        int? lastRealInputTokens = null;
 
         while (iteration < maxIterations)
         {
             cancellationToken.ThrowIfCancellationRequested();
             iteration++;
 
-            // [核心改进]：在每一轮迭代开始前检查 Token，确保工具调用链中也能自动压缩
-            if (_tokenService != null && _historyService != null && _config.AutoCompress)
+            // [核心改进]：在每一轮迭代开始前检查 Token，确保工具调用链中也能自动压缩。
+            // 优先用上一轮真实 InputTokenCount（供应商权威值），首轮无真实值时才退回估算。
+            if (_historyService != null && _config.AutoCompress)
             {
-                var currentTokens = context.EstimatedTokenCount;
+                var currentTokens = lastRealInputTokens ?? context.EstimatedTokenCount;
                 if (currentTokens > _config.CompressionThreshold)
                 {
                     Log.Information("检测到工具调用循环中 Token 超过阈值 ({Tokens} > {Threshold})，触发中间压缩", 
@@ -230,9 +232,16 @@ public class OpenAIChatService : IChatService
             ChatFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
             var assistantReasoning = new StringBuilder();
+            ChatTokenUsage? usage = null;
 
             await foreach (var update in stream.WithCancellation(cancellationToken))
             {
+                // 供应商回报的真实 token 用量随最后一个 chunk 到达（SDK 已自动开启 include_usage）。
+                if (update.Usage != null)
+                {
+                    usage = update.Usage;
+                }
+
                 AppendReasoningContent(update, assistantReasoning);
 
                 foreach (var contentPart in update.ContentUpdate)
@@ -292,6 +301,26 @@ public class OpenAIChatService : IChatService
             }
 
             Log.Debug("流式响应第 {Iteration} 轮, {Tools} tool calls", iteration, toolCallBuilders.Count);
+            if (usage != null)
+            {
+                var cached = usage.InputTokenDetails?.CachedTokenCount ?? 0;
+                var reasoning = usage.OutputTokenDetails?.ReasoningTokenCount ?? 0;
+                Log.Information(
+                    "用量 {Model}: 输入 {Input} (缓存 {Cached}), 输出 {Output} (推理 {Reasoning}), 合计 {Total} tokens (第 {Iteration} 轮)",
+                    _config.Model,
+                    usage.InputTokenCount, cached,
+                    usage.OutputTokenCount, reasoning,
+                    usage.TotalTokenCount, iteration);
+
+                // 供应商权威值：既作下一轮压缩判断的真实基准，也回报给 UI 统计。
+                lastRealInputTokens = usage.InputTokenCount;
+                onUsageReported?.Invoke(new TokenUsageSnapshot(
+                    usage.InputTokenCount, cached, usage.OutputTokenCount, usage.TotalTokenCount));
+            }
+            else
+            {
+                Log.Warning("用量: 第 {Iteration} 轮未收到 usage（供应商可能未在流式响应中回报）", iteration);
+            }
             var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
             var hasToolCalls = finishReason == ChatFinishReason.ToolCalls || toolCallBuilders.Count > 0;
 
