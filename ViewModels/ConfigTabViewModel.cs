@@ -124,6 +124,34 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
+    /// <summary>工具审批模式候选。</summary>
+    public ObservableCollection<ToolApprovalMode> ToolApprovalModes { get; } = new()
+    {
+        ToolApprovalMode.Off,
+        ToolApprovalMode.Balanced,
+        ToolApprovalMode.Strict
+    };
+
+    /// <summary>撤销某个「永久放行」的工具。集合变更不触发 AppConfig.PropertyChanged，故显式保存。</summary>
+    [RelayCommand]
+    private async Task RevokeAutoAllowedToolAsync(string? tool)
+    {
+        if (!string.IsNullOrEmpty(tool) && Config.AutoAllowedTools.Remove(tool) && _configService != null)
+        {
+            await _configService.SaveAsync(Config);
+        }
+    }
+
+    /// <summary>撤销某个终端命令白名单项。</summary>
+    [RelayCommand]
+    private async Task RevokeTerminalAllowlistAsync(string? command)
+    {
+        if (!string.IsNullOrEmpty(command) && Config.TerminalAllowlist.Remove(command) && _configService != null)
+        {
+            await _configService.SaveAsync(Config);
+        }
+    }
+
     /// <summary>浏览器智能体模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
     public bool UseMainModelForBrowser
     {
@@ -158,6 +186,51 @@ public partial class ConfigTabViewModel : ViewModelBase
     /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
     public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
 
+    /// <summary>次级模型凭据来源开关：true=跟随主模型凭据，false=自定义。绑定到 ToggleSwitch。</summary>
+    public bool UseMainCredentialForSecondary
+    {
+        get => Config.SecondaryCredentialSource == ModelCredentialSource.InheritMain;
+        set => SetCredentialSource(v => Config.SecondaryCredentialSource = v, Config.SecondaryCredentialSource, value);
+    }
+
+    public bool IsSecondaryCredentialCustom => Config.SecondaryCredentialSource == ModelCredentialSource.Custom;
+
+    /// <summary>Embedding 凭据来源开关。</summary>
+    public bool UseMainCredentialForEmbedding
+    {
+        get => Config.EmbeddingCredentialSource == ModelCredentialSource.InheritMain;
+        set => SetCredentialSource(v => Config.EmbeddingCredentialSource = v, Config.EmbeddingCredentialSource, value);
+    }
+
+    public bool IsEmbeddingCredentialCustom => Config.EmbeddingCredentialSource == ModelCredentialSource.Custom;
+
+    /// <summary>图像生成凭据来源开关。</summary>
+    public bool UseMainCredentialForImageGeneration
+    {
+        get => Config.ImageGenerationCredentialSource == ModelCredentialSource.InheritMain;
+        set => SetCredentialSource(v => Config.ImageGenerationCredentialSource = v, Config.ImageGenerationCredentialSource, value);
+    }
+
+    public bool IsImageGenerationCredentialCustom => Config.ImageGenerationCredentialSource == ModelCredentialSource.Custom;
+
+    /// <summary>音频凭据来源开关（InheritMain 仅继承 ApiKey，BaseUrl 按 provider 默认端点解析）。</summary>
+    public bool UseMainCredentialForChatAudio
+    {
+        get => Config.ChatAudioCredentialSource == ModelCredentialSource.InheritMain;
+        set => SetCredentialSource(v => Config.ChatAudioCredentialSource = v, Config.ChatAudioCredentialSource, value);
+    }
+
+    public bool IsChatAudioCredentialCustom => Config.ChatAudioCredentialSource == ModelCredentialSource.Custom;
+
+    private static void SetCredentialSource(Action<ModelCredentialSource> setter, ModelCredentialSource current, bool inherit)
+    {
+        var newSource = inherit ? ModelCredentialSource.InheritMain : ModelCredentialSource.Custom;
+        if (current != newSource)
+        {
+            setter(newSource); // 触发 Config.PropertyChanged → 自动保存 + 下方通知
+        }
+    }
+
     /// <summary>知识库整理 Agent 的模型来源候选。</summary>
     public ObservableCollection<KnowledgeMaintenanceModelSource> KnowledgeMaintenanceModelSources { get; } = new()
     {
@@ -171,13 +244,14 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> Languages { get; }
 
-    public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "Zhipu", "Baidu" };
+    public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "WebSearchAPI", "Zhipu", "Baidu" };
 
     public bool IsBaiduProvider => Config.WebSearchProvider == "Baidu";
 
     private static readonly Dictionary<string, string> WebSearchUrls = new()
     {
         { "Tavily", "https://api.tavily.com" },
+        { "WebSearchAPI", "https://api.websearchapi.ai" },
         { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
         { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
     };
@@ -287,6 +361,14 @@ public partial class ConfigTabViewModel : ViewModelBase
             OnPropertyChanged(nameof(UseMainModelForSubAgent));
             OnPropertyChanged(nameof(IsSubAgentModelCustom));
             OnPropertyChanged(nameof(IsMaintenanceModelCustom));
+            OnPropertyChanged(nameof(UseMainCredentialForSecondary));
+            OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
+            OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
+            OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+            OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
+            OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
+            OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
+            OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
@@ -320,6 +402,26 @@ public partial class ConfigTabViewModel : ViewModelBase
                 else if (e.PropertyName == nameof(AppConfig.KnowledgeMaintenanceModelSource))
                 {
                     OnPropertyChanged(nameof(IsMaintenanceModelCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.SecondaryCredentialSource))
+                {
+                    OnPropertyChanged(nameof(UseMainCredentialForSecondary));
+                    OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.EmbeddingCredentialSource))
+                {
+                    OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
+                    OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.ImageGenerationCredentialSource))
+                {
+                    OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
+                    OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.ChatAudioCredentialSource))
+                {
+                    OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
+                    OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
                 }
                 else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
                          || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))

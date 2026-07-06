@@ -20,7 +20,6 @@ public class FileSystemService : IFileSystemService
     private readonly IPlatformPathService _pathService;
     private readonly ILogger _logger;
 
-    private const int MaxFileSize = 10 * 1024 * 1024; // 10MB limit for safe operations
     private const int ChunkSizeBytes = 50 * 1024; // 50KB per chunk for reading large files
 
     public FileSystemService(IConfigService configService, IPlatformPathService pathService, ILogger logger)
@@ -61,22 +60,34 @@ public class FileSystemService : IFileSystemService
     {
         if (string.IsNullOrWhiteSpace(absolutePath)) throw new ArgumentException("文件路径不能为空");
         var policy = _configService.Load().FileSystemPolicy;
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+
+        // 不跟随符号链接时，把路径解析到真实目标，阻止「沙箱内软链指向 /etc、~/.ssh」这类越界逃逸。
+        // 字面路径与真实路径都要过黑名单：软链本身所在位置、以及它指向的目标，任一命中即拒绝。
+        var pathsToCheck = new List<string> { fullPath };
+        if (!policy.Global.FollowSymlinks)
+        {
+            var realPath = ResolveRealPath(fullPath);
+            if (!realPath.Equals(fullPath, comparison))
+                pathsToCheck.Add(realPath);
+        }
 
         if (isWriteOperation)
         {
             var configPath = Path.GetFullPath(_pathService.GetConfigFilePath());
-            if (fullPath.Equals(configPath, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+            if (pathsToCheck.Any(p => p.Equals(configPath, comparison)))
                 throw new UnauthorizedAccessException("系统自我保护机制：禁止通过文件系统工具修改应用配置文件！");
         }
 
         var platform = OperatingSystem.IsWindows() ? policy.Platforms.Windows : (OperatingSystem.IsMacOS() ? policy.Platforms.MacOS : policy.Platforms.Linux);
         var accessRules = isWriteOperation ? platform.WriteAccess : platform.ReadAccess;
 
-        if (!isDirectoryOperation && policy.Global.BlockedExtensions.Any(ext => fullPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+        if (!isDirectoryOperation && pathsToCheck.Any(p => policy.Global.BlockedExtensions.Any(ext => p.EndsWith(ext, StringComparison.OrdinalIgnoreCase))))
             throw new UnauthorizedAccessException($"由于安全策略，禁止访问此类扩展名的文件。");
 
-        if (accessRules.BlockedDirectories.Any(dir => fullPath.StartsWith(Path.GetFullPath(ExpandPath(dir)), OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)))
+        var blockedDirs = accessRules.BlockedDirectories.Select(dir => Path.GetFullPath(ExpandPath(dir))).ToList();
+        if (pathsToCheck.Any(p => blockedDirs.Any(dir => p.StartsWith(dir, comparison))))
             throw new UnauthorizedAccessException($"由于安全策略，系统关键目录受到保护，访问被拒绝。");
 
         // 附件库为“受信读取区”：解析后的大文档/大文本是有意落盘供模型按需分块读取的，
@@ -87,6 +98,72 @@ public class FileSystemService : IFileSystemService
         long targetLimit = isWriteOperation ? policy.Global.MaxWriteSizeBytes : policy.Global.MaxReadSizeBytes;
         if (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && !trustedRead && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit))
             throw new InvalidOperationException($"操作超出大小限制 ({targetLimit} bytes)。");
+    }
+
+    /// <summary>
+    /// 把路径解析到真实目标：沿最近的已存在祖先解析全部符号链接组件，再拼回尚不存在的尾部
+    /// （写/建新文件时叶子可能还不存在）。覆盖两类逃逸：叶子本身是软链，或路径中某级目录是软链。
+    /// 解析失败时回退原路径（校验方仍会用字面路径兜底）。
+    /// </summary>
+    private static string ResolveRealPath(string fullPath)
+    {
+        try
+        {
+            var tail = new List<string>();
+            var current = fullPath;
+
+            while (!File.Exists(current) && !Directory.Exists(current))
+            {
+                var parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(parent) || parent.Equals(current, StringComparison.Ordinal))
+                    return fullPath; // 到根仍不存在，无从解析
+                tail.Add(Path.GetFileName(current));
+                current = parent;
+            }
+
+            var real = CanonicalizeExisting(current);
+
+            tail.Reverse();
+            foreach (var seg in tail)
+                real = Path.Combine(real, seg);
+
+            return Path.GetFullPath(real);
+        }
+        catch
+        {
+            return fullPath;
+        }
+    }
+
+    /// <summary>
+    /// 逐级解析一个已存在路径的所有符号链接组件（含中间目录软链），返回规范化后的真实路径。
+    /// </summary>
+    private static string CanonicalizeExisting(string existingPath)
+    {
+        var root = Path.GetPathRoot(existingPath) ?? string.Empty;
+        var segments = existingPath.Substring(root.Length)
+            .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+        var accumulated = string.IsNullOrEmpty(root) ? Path.DirectorySeparatorChar.ToString() : root;
+        foreach (var seg in segments)
+        {
+            accumulated = Path.Combine(accumulated, seg);
+
+            FileSystemInfo? info = Directory.Exists(accumulated)
+                ? new DirectoryInfo(accumulated)
+                : File.Exists(accumulated) ? new FileInfo(accumulated) : null;
+            if (info == null) break;
+
+            var target = info.ResolveLinkTarget(returnFinalTarget: true);
+            if (target != null)
+            {
+                // 软链目标可能是相对路径：相对链接所在目录解析为绝对路径。
+                accumulated = Path.IsPathRooted(target.FullName)
+                    ? target.FullName
+                    : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(accumulated) ?? accumulated, target.FullName));
+            }
+        }
+        return Path.GetFullPath(accumulated);
     }
 
     private bool IsWithinAttachmentRoot(string fullPath)

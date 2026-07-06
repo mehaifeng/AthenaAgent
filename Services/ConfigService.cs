@@ -56,6 +56,7 @@ public class ConfigService : IConfigService
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
             resolved = ApplyLegacyBrowserModelSource(resolved, json);
             resolved = ApplyLegacyBrowserAgentFields(resolved, json);
+            resolved = ApplyCredentialSourceMigration(resolved, json);
             StoreCache(resolved, writeTimeUtc);
             return resolved;
         }
@@ -88,6 +89,7 @@ public class ConfigService : IConfigService
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
             resolved = ApplyLegacyBrowserModelSource(resolved, json);
             resolved = ApplyLegacyBrowserAgentFields(resolved, json);
+            resolved = ApplyCredentialSourceMigration(resolved, json);
             StoreCache(resolved, writeTimeUtc);
             return resolved;
         }
@@ -264,6 +266,69 @@ public class ConfigService : IConfigService
 
         return config;
     }
+
+    /// <summary>
+    /// 统一凭据继承树迁移：本功能引入前，各角色（次级/Embedding/图像/音频）靠"留空回退主配置"
+    /// 的隐式语义工作。凡是没有写过对应 *CredentialSource 键的历史配置：角色的 ApiKey 或 BaseUrl
+    /// 已填 → 迁移为 Custom（Custom 仍保留逐字段回退，行为不变）；全空 → InheritMain。
+    /// 次级模型的遗留 provider="Inherit" 字符串强制归为 InheritMain 并归一化 provider。
+    /// </summary>
+    private static AppConfig ApplyCredentialSourceMigration(AppConfig config, string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("secondaryCredentialSource", out _))
+            {
+                if (string.Equals(config.SecondaryProvider, "Inherit", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.SecondaryCredentialSource = ModelCredentialSource.InheritMain;
+                    config.SecondaryProvider = "OpenAI";
+                }
+                else
+                {
+                    config.SecondaryCredentialSource = HasCustomCredential(config.SecondaryApiKey, config.SecondaryBaseUrl)
+                        ? ModelCredentialSource.Custom
+                        : ModelCredentialSource.InheritMain;
+                }
+            }
+
+            if (!root.TryGetProperty("embeddingCredentialSource", out _))
+            {
+                config.EmbeddingCredentialSource = HasCustomCredential(config.EmbeddingApiKey, config.EmbeddingBaseUrl)
+                    ? ModelCredentialSource.Custom
+                    : ModelCredentialSource.InheritMain;
+            }
+
+            if (!root.TryGetProperty("imageGenerationCredentialSource", out _))
+            {
+                config.ImageGenerationCredentialSource = HasCustomCredential(config.ImageGenerationApiKey, config.ImageGenerationBaseUrl)
+                    ? ModelCredentialSource.Custom
+                    : ModelCredentialSource.InheritMain;
+            }
+
+            if (!root.TryGetProperty("chatAudioCredentialSource", out _))
+            {
+                // 音频的默认 BaseUrl 非空（provider 默认端点），只看 ApiKey 与"改过 BaseUrl"两个信号。
+                var audioBaseUrlCustomized = !string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl)
+                    && !string.Equals(config.ChatAudioBaseUrl, AudioConfigResolver.GetDefaultBaseUrl(config.ChatAudioProvider), StringComparison.OrdinalIgnoreCase);
+                config.ChatAudioCredentialSource = !string.IsNullOrWhiteSpace(config.ChatAudioApiKey) || audioBaseUrlCustomized
+                    ? ModelCredentialSource.Custom
+                    : ModelCredentialSource.InheritMain;
+            }
+        }
+        catch
+        {
+            // Ignore migration failures; default config values remain valid.
+        }
+
+        return config;
+    }
+
+    private static bool HasCustomCredential(string apiKey, string baseUrl) =>
+        !string.IsNullOrWhiteSpace(apiKey) || !string.IsNullOrWhiteSpace(baseUrl);
 
     private static bool TryGetString(JsonElement root, string propertyName, out string value)
     {

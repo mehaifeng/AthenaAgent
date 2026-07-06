@@ -130,6 +130,8 @@ public class OpenAIChatService : IChatService
 
         var contentBuilder = new StringBuilder();
         using var conversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
+        // 注意：工具审批的交互作用域在 ProcessStreamAsync 的工具调用点进入，而非此处——
+        // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed))
         {
@@ -399,6 +401,10 @@ public class OpenAIChatService : IChatService
                 using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
                 // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
                 using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
+                // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
+                // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
+                // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
+                using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
                 var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
                 cancellationToken.ThrowIfCancellationRequested();
                 

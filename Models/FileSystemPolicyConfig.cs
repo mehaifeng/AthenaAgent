@@ -24,17 +24,10 @@ public partial class FileSystemGlobalConfig : ObservableObject
     [ObservableProperty]
     private long _maxWriteSizeBytes = 5242880; // 5MB
 
-    [ObservableProperty]
-    private bool _allowDelete = false;
-
-    [ObservableProperty]
-    private bool _allowDirectoryCreation = true;
-
+    // 是否跟随符号链接。false（默认）时，文件工具会把路径解析到真实目标后再跑目录/扩展名黑名单，
+    // 阻止「沙箱内软链指向 /etc、~/.ssh」这类越界逃逸。true 时按字面路径校验（不解析软链）。
     [ObservableProperty]
     private bool _followSymlinks = false;
-
-    [ObservableProperty]
-    private bool _allowHiddenFiles = false;
 }
 
 public partial class PlatformAccessRule : ObservableObject

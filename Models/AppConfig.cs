@@ -47,6 +47,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _chatAudioEnabled;
 
+    // 音频凭据来源：InheritMain 仅继承主 AI 的 Provider/ApiKey（BaseUrl 仍按 provider 默认音频端点解析）。
+    [ObservableProperty]
+    private ModelCredentialSource _chatAudioCredentialSource = ModelCredentialSource.InheritMain;
+
     [ObservableProperty]
     private string _chatAudioProvider = "OpenAI";
 
@@ -68,6 +72,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _imageGenerationEnabled = true;
 
+    // 图像生成凭据来源：默认继承主 AI（旧配置在 ConfigService 加载时按已填字段迁移为 Custom）。
+    [ObservableProperty]
+    private ModelCredentialSource _imageGenerationCredentialSource = ModelCredentialSource.InheritMain;
+
     [ObservableProperty]
     private string _imageGenerationModel = "gpt-image-1";
 
@@ -78,6 +86,10 @@ public partial class AppConfig : ObservableObject
     private string _imageGenerationApiKey = string.Empty;
 
     // 次级模型配置（用于摘要生成等后台任务）
+    // 凭据来源：默认继承主 AI；旧配置的 provider="Inherit" 会在加载时迁移为 InheritMain。
+    [ObservableProperty]
+    private ModelCredentialSource _secondaryCredentialSource = ModelCredentialSource.InheritMain;
+
     [ObservableProperty]
     private string _secondaryProvider = "OpenAI";
 
@@ -97,6 +109,9 @@ public partial class AppConfig : ObservableObject
     private int _secondaryMaxTokens = 500;
 
     // Embedding 模型配置（用于向量检索）
+    [ObservableProperty]
+    private ModelCredentialSource _embeddingCredentialSource = ModelCredentialSource.InheritMain;
+
     [ObservableProperty]
     private string _embeddingProvider = "OpenAI";
 
@@ -278,7 +293,28 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _documentParserToken = string.Empty;
 
+    // 工具审批（Tool-Use Approval）
+    // 均衡模式：只读放行，写/删/终端等敏感与破坏性操作执行前弹窗确认。默认开箱即安全。
+    [ObservableProperty]
+    private ToolApprovalMode _toolApprovalMode = ToolApprovalMode.Balanced;
+
+    // 用户勾选「永久允许」后记录的工具函数名（跳过后续审批）。
+    [ObservableProperty]
+    private ObservableCollection<string> _autoAllowedTools = new();
+
+    // 用户信任、可自动放行的终端命令名（如 git、node）。
+    [ObservableProperty]
+    private ObservableCollection<string> _terminalAllowlist = new();
+
+    // 子代理等无人值守路径是否沿用永久放行清单（true）。破坏性操作无论如何都拒绝。
+    [ObservableProperty]
+    private bool _subAgentsInheritApproval = false;
+
     // 用户偏好设置
     [ObservableProperty]
     private bool _skipRewindConfirm;
+
+    // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
+    [ObservableProperty]
+    private bool _onboardingCompleted;
 }

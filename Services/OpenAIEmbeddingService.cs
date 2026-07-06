@@ -47,18 +47,15 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     private void InitializeClient()
     {
-        // 使用 Embedding 专用配置，如果为空则回退到主配置
-        var provider = string.IsNullOrWhiteSpace(_config.EmbeddingProvider) || _config.EmbeddingProvider == "Inherit"
-            ? _config.Provider
-            : _config.EmbeddingProvider;
-
-        var apiKey = string.IsNullOrWhiteSpace(_config.EmbeddingApiKey)
-            ? _config.ApiKey
-            : _config.EmbeddingApiKey;
-
-        var baseUrl = string.IsNullOrWhiteSpace(_config.EmbeddingBaseUrl)
-            ? _config.BaseUrl
-            : _config.EmbeddingBaseUrl;
+        // 统一继承树：凭据解析集中在 ModelCredentialResolver（Custom 模式下留空字段仍逐字段回退主配置）。
+        var effective = ModelCredentialResolver.Resolve(
+            _config.EmbeddingCredentialSource, _config,
+            _config.EmbeddingProvider == "Inherit" ? string.Empty : _config.EmbeddingProvider,
+            _config.EmbeddingBaseUrl, _config.EmbeddingApiKey,
+            _config.EmbeddingModel);
+        var provider = effective.Provider;
+        var apiKey = effective.ApiKey;
+        var baseUrl = effective.BaseUrl;
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {

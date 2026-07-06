@@ -395,6 +395,9 @@
     <system:String x:Key="Config.BrowserModelSource">Model Source:</system:String>
     <system:String x:Key="Config.BrowserModelSourceInherit">Follow main model</system:String>
     <system:String x:Key="Config.BrowserModelSourceCustom">Custom model</system:String>
+    <system:String x:Key="Config.CredentialSource">Credential Source:</system:String>
+    <system:String x:Key="Config.CredentialSourceInherit">Follow main model</system:String>
+    <system:String x:Key="Config.CredentialSourceCustom">Custom credentials</system:String>
     <system:String x:Key="Config.BrowserVisionCapabilityHint">Vision+SoM mode needs a model that accepts image input. If "Follow main model", make sure the main model supports vision; otherwise pick a vision-capable model below. Click "Test" to verify (it sends a probe image).</system:String>
 
     <!-- Sub-Agents -->
@@ -443,5 +446,68 @@
     <system:String x:Key="History.ConnectionSuccessNoResponse">Connection successful but no valid response</system:String>
     <system:String x:Key="History.ConnectionSuccess">Connection successful</system:String>
     <system:String x:Key="History.ConnectionFailed">Connection failed: {0}</system:String>
+
+    <!-- Tool Approval Dialog -->
+    <system:String x:Key="Dialog.ToolApproval.Title">Tool Execution Approval</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Heading">Athena wants to run a tool</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Details">Arguments</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Deny">Deny</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowOnce">Allow once</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowSession">This session</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowAlways">Always</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.ReadOnly">Read-only</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">Sensitive</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">Destructive</system:String>
+
+    <!-- Tool Approval Settings -->
+    <system:String x:Key="Config.ToolApproval.Header">Tools &amp; Security</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode">Tool approval mode</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Off">Off (auto-allow everything)</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Balanced">Balanced (confirm writes/deletes/terminal, recommended)</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Strict">Strict (confirm every tool)</system:String>
+    <system:String x:Key="Config.ToolApproval.ModeHint">In Balanced mode, read-only tools run automatically; writes, deletions and terminal commands prompt for confirmation before executing.</system:String>
+    <system:String x:Key="Config.ToolApproval.SubAgentsInherit">Sub-agents inherit approval</system:String>
+    <system:String x:Key="Config.ToolApproval.AutoAllowed">Permanently allowed tools</system:String>
+    <system:String x:Key="Config.ToolApproval.TerminalAllowlist">Terminal command allowlist</system:String>
+    <system:String x:Key="Config.ToolApproval.Revoke">Revoke</system:String>
+    <system:String x:Key="Config.ToolApproval.Empty">(none)</system:String>
+
+    <!-- First-launch onboarding -->
+    <system:String x:Key="Onboarding.Title">Welcome to Athena</system:String>
+    <system:String x:Key="Onboarding.Motto">the owl wakes at dusk</system:String>
+    <system:String x:Key="Onboarding.Skip">Skip</system:String>
+    <system:String x:Key="Onboarding.Next">Continue</system:String>
+    <system:String x:Key="Onboarding.Back">Back</system:String>
+    <system:String x:Key="Onboarding.Finish">Enter</system:String>
+    <system:String x:Key="Onboarding.Step1Oracle">&gt; oracle.connect(primary_credential)</system:String>
+    <system:String x:Key="Onboarding.Provider">Provider</system:String>
+    <system:String x:Key="Onboarding.Model">Primary model</system:String>
+    <system:String x:Key="Onboarding.TestConnection">Test connection</system:String>
+    <system:String x:Key="Onboarding.Testing">&gt; consulting the oracle...</system:String>
+    <system:String x:Key="Onboarding.TestSuccess">&gt; oracle connected ✓</system:String>
+    <system:String x:Key="Onboarding.TestFailed">connection failed</system:String>
+    <system:String x:Key="Onboarding.EnterApiKeyFirst">&gt; enter an API key first</system:String>
+    <system:String x:Key="Onboarding.RolesHint">One key lights every role — these model roles inherit this credential by default; override any of them later in Settings</system:String>
+    <system:String x:Key="Onboarding.Role.Primary">Primary</system:String>
+    <system:String x:Key="Onboarding.Role.Background">Background</system:String>
+    <system:String x:Key="Onboarding.Role.Image">Image</system:String>
+    <system:String x:Key="Onboarding.Role.Audio">Audio</system:String>
+    <system:String x:Key="Onboarding.Role.SubAgents">Sub-agents</system:String>
+    <system:String x:Key="Onboarding.Role.Browser">Browser</system:String>
+    <system:String x:Key="Onboarding.Step2Oracle">&gt; awaken(companions)</system:String>
+    <system:String x:Key="Onboarding.Step2Title">Awaken the Owl Village</system:String>
+    <system:String x:Key="Onboarding.Toggle.SubAgents">Parallel sub-agents</system:String>
+    <system:String x:Key="Onboarding.Toggle.SubAgentsHint">Dispatch a parliament of owls to research and work on files in parallel</system:String>
+    <system:String x:Key="Onboarding.Toggle.Browser">Browser automation</system:String>
+    <system:String x:Key="Onboarding.Toggle.BrowserHint">A vision-guided web agent that completes multi-step tasks on its own</system:String>
+    <system:String x:Key="Onboarding.Toggle.WebSearch">Web search</system:String>
+    <system:String x:Key="Onboarding.Toggle.WebSearchHint">Real-time web retrieval (Tavily etc. — a separate service with its own key)</system:String>
+    <system:String x:Key="Onboarding.Toggle.ImageGen">Image generation</system:String>
+    <system:String x:Key="Onboarding.Toggle.ImageGenHint">Generate and iterate on images right inside the conversation</system:String>
+    <system:String x:Key="Onboarding.Step3Oracle">&gt; the owl is listening</system:String>
+    <system:String x:Key="Onboarding.Step3Welcome">Wisdom begins with a conversation. Pick an opening line, or just enter.</system:String>
+    <system:String x:Key="Onboarding.Starter1">Introduce yourself and what you can help me with</system:String>
+    <system:String x:Key="Onboarding.Starter2">Help me plan today's tasks and set a reminder</system:String>
+    <system:String x:Key="Onboarding.Starter3">Remember: I prefer concise, direct answers</system:String>
 
 </ResourceDictionary>

@@ -20,6 +20,7 @@
 
     <UserControl.Resources>
         <appconv:MaintenanceModelSourceToDisplayConverter x:Key="MaintenanceModelSourceToDisplay"/>
+        <appconv:ToolApprovalModeToDisplayConverter x:Key="ToolApprovalModeToDisplay"/>
     </UserControl.Resources>
 
     <Grid RowDefinitions="40,*">
@@ -36,7 +37,7 @@
 
         <!-- SCROLLABLE CONTENT -->
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
-            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
+            <Grid Grid.RowDefinitions="Auto,Auto,Auto,Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
 
                 <!-- SECTION 1: APPEARANCE -->
                 <Border 
@@ -177,15 +178,24 @@
                             <TabItem Header="{loc:Loc Config.BgTasks}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionSecondaryAI}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <!-- 凭据来源开关：默认跟随主模型（Provider/BaseUrl/ApiKey 复用主 AI），自定义时才展开凭据字段 -->
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForSecondary}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                    </Grid>
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SecondaryProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
 
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SecondaryBaseUrl}" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SecondaryApiKey}" PasswordChar="*" Margin="0,0,0,8" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsSecondaryCredentialCustom}"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
@@ -254,15 +264,23 @@
                             <TabItem Header="{loc:Loc Config.VectorKb}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionEmbedding}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForEmbedding}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                    </Grid>
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
 
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8" IsVisible="{Binding IsEmbeddingCredentialCustom}"/>
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
@@ -371,6 +389,16 @@
                             <TabItem Header="{loc:Loc Config.AudioOutput}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionChatAudio}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <!-- 凭据来源：跟随主模型时仅继承 ApiKey（BaseUrl 按下方 Provider 的默认音频端点解析） -->
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForChatAudio}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"
+                                                      IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                    </Grid>
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ChatAudioEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ChatAudioEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
@@ -381,11 +409,11 @@
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AudioProviders}" SelectedItem="{Binding Config.ChatAudioProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
 
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ChatAudioBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ChatAudioBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
 
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
 
                                         <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.ChatAudioModel}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
@@ -453,18 +481,26 @@
                             <TabItem Header="{loc:Loc Config.ImageGeneration}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionImageGeneration}" FontWeight="SemiBold" Opacity="0.8"/>
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
 
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationModel}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.ImageGenerationModel}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="1" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForImageGeneration}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"
+                                                      IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationBaseUrl}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ImageGenerationBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationModel}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ImageGenerationModel}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
 
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationApiKey}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageGenerationApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationBaseUrl}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageGenerationBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationApiKey}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ImageGenerationApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
                                     </Grid>
                                 </StackPanel>
                             </TabItem>
@@ -822,7 +858,6 @@
                     Background="{DynamicResource App.SectionBg}"
                     BorderThickness="1"
                     CornerRadius="8"
-                    Margin="0,0,0,60"
                     Padding="16">
                     <StackPanel Spacing="16">
                         <TextBlock Text="{loc:Loc Config.SectionMemory}"
@@ -881,6 +916,80 @@
                                 </StackPanel>
                             </StackPanel>
                         </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- SECTION 5: TOOLS & SECURITY -->
+                <Border
+                    Grid.Row="4"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,0,60"
+                    Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.Header}"
+                                   FontWeight="Bold"
+                                   FontSize="15"/>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ToolApproval.Mode}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1"
+                                      ItemsSource="{Binding ToolApprovalModes}"
+                                      SelectedItem="{Binding Config.ToolApprovalMode}"
+                                      HorizontalAlignment="Stretch" Margin="0,0,0,8">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource ToolApprovalModeToDisplay}}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="1"
+                                       Text="{loc:Loc Config.ToolApproval.ModeHint}"
+                                       TextWrapping="Wrap" FontSize="12" Opacity="0.6" Margin="0,0,0,8"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ToolApproval.SubAgentsInherit}" VerticalAlignment="Center" Opacity="0.8" TextWrapping="Wrap"/>
+                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SubAgentsInheritApproval}" HorizontalAlignment="Left"/>
+                        </Grid>
+
+                        <!-- 已永久放行的工具 -->
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{loc:Loc Config.ToolApproval.AutoAllowed}" Opacity="0.8"/>
+                            <ItemsControl ItemsSource="{Binding Config.AutoAllowedTools}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                            <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="13"/>
+                                            <Button Grid.Column="1"
+                                                    Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:ConfigTabViewModel)DataContext).RevokeAutoAllowedToolCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    FontSize="12" Padding="8,2"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <!-- 终端命令白名单 -->
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{loc:Loc Config.ToolApproval.TerminalAllowlist}" Opacity="0.8"/>
+                            <ItemsControl ItemsSource="{Binding Config.TerminalAllowlist}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                            <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="13"/>
+                                            <Button Grid.Column="1"
+                                                    Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:ConfigTabViewModel)DataContext).RevokeTerminalAllowlistCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    FontSize="12" Padding="8,2"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </Grid>

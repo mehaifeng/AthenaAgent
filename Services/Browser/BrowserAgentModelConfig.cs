@@ -43,17 +43,23 @@ internal static class BrowserAgentModelResolver
             };
         }
 
-        // 自定义：使用浏览器专属字段，逐字段在留空时回退到主 AI（保持向后兼容）。
+        // 自定义：凭据委托统一继承树解析器（逐字段留空回退主 AI，保持向后兼容）；
+        // 遗留 provider="Inherit" 字符串在此归一化为空以触发回退。
         var apiKeyFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentApiKey);
         var baseUrlFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentBaseUrl);
-        var providerFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentProvider)
-            && !string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase);
+        var providerRaw = string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : config.BrowserAgentProvider;
+        var effective = ModelCredentialResolver.Resolve(
+            ModelCredentialSource.Custom, config,
+            providerRaw, config.BrowserAgentBaseUrl, config.BrowserAgentApiKey,
+            config.BrowserAgentModel, config.BrowserAgentModel);
 
         return new EffectiveBrowserAgentConfig
         {
-            Provider = providerFromBrowser ? config.BrowserAgentProvider : config.Provider,
-            BaseUrl = baseUrlFromBrowser ? config.BrowserAgentBaseUrl : config.BaseUrl,
-            ApiKey = apiKeyFromBrowser ? config.BrowserAgentApiKey : config.ApiKey,
+            Provider = effective.Provider,
+            BaseUrl = effective.BaseUrl,
+            ApiKey = effective.ApiKey,
             Model = config.BrowserAgentModel,
             MaxTokens = config.BrowserAgentMaxTokens,
             Temperature = config.BrowserAgentTemperature,

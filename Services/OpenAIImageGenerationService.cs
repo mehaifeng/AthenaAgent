@@ -145,14 +145,18 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
     }
 
-    private static string GetEffectiveApiKey(AppConfig config) =>
-        string.IsNullOrWhiteSpace(config.ImageGenerationApiKey) ? config.ApiKey : config.ImageGenerationApiKey;
+    // 统一继承树：凭据解析集中在 ModelCredentialResolver（图像无独立 provider 字段，传空即回退主配置）。
+    private static EffectiveModelConfig GetEffective(AppConfig config) =>
+        ModelCredentialResolver.Resolve(
+            config.ImageGenerationCredentialSource, config,
+            string.Empty, config.ImageGenerationBaseUrl, config.ImageGenerationApiKey,
+            config.ImageGenerationModel, "gpt-image-1");
 
-    private static string GetEffectiveBaseUrl(AppConfig config) =>
-        string.IsNullOrWhiteSpace(config.ImageGenerationBaseUrl) ? config.BaseUrl : config.ImageGenerationBaseUrl;
+    private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
 
-    private static string GetEffectiveModel(AppConfig config) =>
-        string.IsNullOrWhiteSpace(config.ImageGenerationModel) ? "gpt-image-1" : config.ImageGenerationModel;
+    private static string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
+
+    private static string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
 
     private async Task<GeneratedImage> GenerateImageWithReferencesAsync(
         ImageClient client,
