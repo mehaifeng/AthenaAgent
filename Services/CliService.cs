@@ -16,8 +16,14 @@ public class CliService : ICliService
 
     public async Task<CliResult> ExecuteAsync(string command, IEnumerable<string> arguments, string? workingDirectory = null, IDictionary<string, string>? environmentVariables = null, bool waitForExit = true, CancellationToken ct = default)
     {
-        _logger.Information("Executing command: {Command} with args: {Arguments} in {Dir} (WaitForExit: {Wait})", 
-            command, string.Join(" ", arguments), workingDirectory ?? "default", waitForExit);
+        // 参数可能很长（如 TTS 的整段朗读文本），日志里截断，避免刷屏。
+        var argsText = string.Join(" ", arguments);
+        const int maxArgsLogLength = 120;
+        var argsForLog = argsText.Length > maxArgsLogLength
+            ? argsText.Substring(0, maxArgsLogLength) + $"…(+{argsText.Length - maxArgsLogLength} chars)"
+            : argsText;
+        _logger.Information("执行命令: {Command} {Arguments} (dir={Dir}, wait={Wait})",
+            command, argsForLog, workingDirectory ?? "default", waitForExit);
 
         try
         {

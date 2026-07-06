@@ -801,7 +801,6 @@ public partial class App : Application
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var promptService = sp.GetRequiredService<IPromptService>();
             var historyService = sp.GetService<IConversationHistoryService>();
-            var tokenService = sp.GetService<ITokenService>();
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
@@ -809,7 +808,7 @@ public partial class App : Application
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, tokenService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService);
         });
 
         // 对话历史服务（单例）

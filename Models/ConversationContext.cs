@@ -166,6 +166,9 @@ public class ConversationContext
         return 85 + 170 * tiles;
     }
 
+    // 整段上下文的字符启发式估算。自「真实 usage 锚点」上线后，这里降级为兜底：
+    // 仅在冷启动（尚无任何 API 响应）、供应商不回 usage、或压缩/回滚改了上下文却未发 API 时使用。
+    // 正常路径下上下文占用以 TokenService 的真实锚点（供应商回报的 InputTokenCount）为准。
     public int EstimatedTokenCount
     {
         get
@@ -199,8 +202,6 @@ public class ConversationContext
             return total;
         }
     }
-
-    public bool NeedsCompression(int threshold) => EstimatedTokenCount > threshold;
 
     private static ChatAttachment CloneAttachment(ChatAttachment attachment)
     {

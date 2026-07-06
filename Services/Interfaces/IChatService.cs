@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -18,6 +19,8 @@ public interface IChatService
     /// <param name="context">对话上下文</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <param name="onMessageAdded">当产生中间消息（如工具结果）时的回调</param>
+    /// <param name="onContextCompressed">中途自动压缩时的回调（摘要, 被压缩条数）</param>
+    /// <param name="onUsageReported">每轮 API 响应回报真实 token 用量时的回调</param>
     /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -26,6 +29,7 @@ public interface IChatService
         CancellationToken cancellationToken = default,
         Action<ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
         bool addToContext = true);
 
     /// <summary>
