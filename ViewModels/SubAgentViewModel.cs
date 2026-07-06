@@ -64,30 +64,30 @@ public partial class SubAgentViewModel : ObservableObject
     private void Cancel() => Cts?.Cancel();
 
     // ===== 小镇画布定位 =====
-    // 画布设计尺寸 360×300；各场所锚点中心见下。猫头鹰宽 ~46，故左上角 = 中心 - 23 + 抖动。
-    public const double OwlSize = 62;
+    // 与 OwlVillageView 中的画布/猫头鹰尺寸保持同步：左上角 = 场所中心 - 半个身位 + 漂移。
+    public const double OwlSize = 80;
 
     private static readonly Dictionary<SubAgentZone, (double X, double Y)> ZoneCenters = new()
     {
-        // 2×3 网格（画布 486×405，格 225×119）：上排 文件|电脑，中排 冥想|书房，下排 工坊|归巢。
-        [SubAgentZone.Files] = (124.5, 71.5),
-        [SubAgentZone.Web] = (361.5, 71.5),
-        [SubAgentZone.Meditation] = (124.5, 202.5),
-        [SubAgentZone.Library] = (361.5, 202.5),
-        [SubAgentZone.Workshop] = (124.5, 333.5),
-        [SubAgentZone.Perch] = (361.5, 333.5),
+        // 2×3 网格（画布 636×522，格 300×158）：上排 文件|电脑，中排 冥想|书房，下排 工坊|归巢。
+        [SubAgentZone.Files] = (162, 91),
+        [SubAgentZone.Web] = (486, 91),
+        [SubAgentZone.Meditation] = (162, 261),
+        [SubAgentZone.Library] = (486, 261),
+        [SubAgentZone.Workshop] = (162, 431),
+        [SubAgentZone.Perch] = (486, 431),
     };
 
     // 各场所内猫头鹰可漂移的半幅（左上角相对场所中心，保证不越出场所边框）。
     private static readonly Dictionary<SubAgentZone, (double X, double Y)> ZoneExtents = new()
     {
-        // 所有格同尺寸（225×119），漂移半幅一致。
-        [SubAgentZone.Files] = (73, 22),
-        [SubAgentZone.Web] = (73, 22),
-        [SubAgentZone.Meditation] = (73, 22),
-        [SubAgentZone.Library] = (73, 22),
-        [SubAgentZone.Workshop] = (73, 22),
-        [SubAgentZone.Perch] = (73, 22),
+        // 所有格同尺寸（300×158），漂移半幅一致。
+        [SubAgentZone.Files] = (101, 32),
+        [SubAgentZone.Web] = (101, 32),
+        [SubAgentZone.Meditation] = (101, 32),
+        [SubAgentZone.Library] = (101, 32),
+        [SubAgentZone.Workshop] = (101, 32),
+        [SubAgentZone.Perch] = (101, 32),
     };
 
     private static readonly Random _rng = new();
