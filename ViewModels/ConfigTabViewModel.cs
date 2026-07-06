@@ -266,6 +266,9 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> AudioProviders { get; } = new(AudioProviderUrls.Keys);
 
+    // 系统 TTS 已安装的语音（Windows SAPI / macOS say / Linux espeak-ng），供 provider=System 时的输入下拉建议。
+    public ObservableCollection<string> AudioVoices { get; } = new();
+
     public ObservableCollection<DocumentParserMode> DocumentParserModes { get; } = new()
     {
         DocumentParserMode.AgentLightweight,
@@ -336,6 +339,27 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (_audioPlaybackService != null)
         {
             _audioPlaybackService.PlaybackStateChanged += OnAudioPlaybackStateChanged;
+        }
+
+        _ = LoadSystemVoicesAsync();
+    }
+
+    private async Task LoadSystemVoicesAsync()
+    {
+        if (_systemAudioService is not { IsSupported: true }) return;
+        try
+        {
+            var voices = await _systemAudioService.GetInstalledVoicesAsync();
+            if (voices.Count == 0) return;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AudioVoices.Clear();
+                foreach (var v in voices) AudioVoices.Add(v);
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to load system voices for config UI");
         }
     }
 

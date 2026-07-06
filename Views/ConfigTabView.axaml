@@ -419,7 +419,14 @@
                                         <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.ChatAudioModel}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
 
                                         <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
-                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Config.ChatAudioVoice}" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                        <AutoCompleteBox Grid.Row="6" Grid.Column="1"
+                                                         ItemsSource="{Binding AudioVoices}"
+                                                         Text="{Binding Config.ChatAudioVoice, Mode=TwoWay}"
+                                                         FilterMode="ContainsOrdinal"
+                                                         MinimumPrefixLength="0"
+                                                         MinimumPopulateDelay="0"
+                                                         Margin="0,0,0,8"
+                                                         IsEnabled="{Binding Config.ChatAudioEnabled}"/>
 
                                         <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.TestAudioOutput}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
