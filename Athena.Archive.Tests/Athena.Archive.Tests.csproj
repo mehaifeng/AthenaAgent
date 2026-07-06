@@ -20,6 +20,13 @@
     <Compile Include="../Models/DocumentParserMode.cs" Link="Source/Models/DocumentParserMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/ModelCredentialSource.cs" Link="Source/Models/ModelCredentialSource.cs" />
+    <Compile Include="../Services/ModelCredentialResolver.cs" Link="Source/Services/ModelCredentialResolver.cs" />
+    <Compile Include="../Models/ToolApproval.cs" Link="Source/Models/ToolApproval.cs" />
+    <Compile Include="../Services/ToolRiskClassifier.cs" Link="Source/Services/ToolRiskClassifier.cs" />
+    <Compile Include="../Services/ToolApprovalContext.cs" Link="Source/Services/ToolApprovalContext.cs" />
+    <Compile Include="../Services/ToolApprovalService.cs" Link="Source/Services/ToolApprovalService.cs" />
+    <Compile Include="../Services/Interfaces/IToolApprovalService.cs" Link="Source/Services/Interfaces/IToolApprovalService.cs" />
     <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
     <Compile Include="../Models/SubAgentModels.cs" Link="Source/Models/SubAgentModels.cs" />
     <Compile Include="../Models/KnowledgeMaintenanceModels.cs" Link="Source/Models/KnowledgeMaintenanceModels.cs" />
@@ -38,6 +45,8 @@
     <Compile Include="../Models/FileSystemPolicyConfig.cs" Link="Source/Models/FileSystemPolicyConfig.cs" />
     <Compile Include="../Models/FileOperationModels.cs" Link="Source/Models/FileOperationModels.cs" />
     <Compile Include="../Services/DiffApplier.cs" Link="Source/Services/DiffApplier.cs" />
+    <Compile Include="../Services/FileSystemService.cs" Link="Source/Services/FileSystemService.cs" />
+    <Compile Include="../Services/Interfaces/IFileSystemService.cs" Link="Source/Services/Interfaces/IFileSystemService.cs" />
     <Compile Include="../Models/ImageGenerationSessionRecord.cs" Link="Source/Models/ImageGenerationSessionRecord.cs" />
     <Compile Include="../Models/RecurrenceRule.cs" Link="Source/Models/RecurrenceRule.cs" />
     <Compile Include="../Models/ScheduledTask.cs" Link="Source/Models/ScheduledTask.cs" />

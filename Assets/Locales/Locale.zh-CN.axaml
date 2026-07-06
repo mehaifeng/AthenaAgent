@@ -395,6 +395,9 @@
     <system:String x:Key="Config.BrowserModelSource">模型来源:</system:String>
     <system:String x:Key="Config.BrowserModelSourceInherit">跟随主模型</system:String>
     <system:String x:Key="Config.BrowserModelSourceCustom">自定义模型</system:String>
+    <system:String x:Key="Config.CredentialSource">凭据来源:</system:String>
+    <system:String x:Key="Config.CredentialSourceInherit">跟随主模型</system:String>
+    <system:String x:Key="Config.CredentialSourceCustom">自定义凭据</system:String>
     <system:String x:Key="Config.BrowserVisionCapabilityHint">当前为视觉标注(SoM)模式，浏览器智能体需要能接收图像输入的模型：若"跟随主模型"，请确认主模型支持视觉；否则请在下方选择具备视觉能力的模型。可点击下方"测试"验证（会发送一张测试图）。</system:String>
 
     <!-- 子代理 -->
@@ -443,5 +446,68 @@
     <system:String x:Key="History.ConnectionSuccessNoResponse">连接成功但未收到有效响应</system:String>
     <system:String x:Key="History.ConnectionSuccess">连接成功</system:String>
     <system:String x:Key="History.ConnectionFailed">连接失败: {0}</system:String>
+
+    <!-- Tool Approval Dialog -->
+    <system:String x:Key="Dialog.ToolApproval.Title">工具执行审批</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Heading">Athena 请求执行工具</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Details">参数详情</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Deny">拒绝</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowOnce">仅本次</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowSession">本会话</system:String>
+    <system:String x:Key="Dialog.ToolApproval.AllowAlways">永久允许</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.ReadOnly">只读</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">敏感</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">破坏性</system:String>
+
+    <!-- Tool Approval Settings -->
+    <system:String x:Key="Config.ToolApproval.Header">工具与安全</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode">工具审批模式</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Off">关闭（全部自动放行）</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Balanced">均衡（写/删/终端需确认，推荐）</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Strict">严格（所有工具都确认）</system:String>
+    <system:String x:Key="Config.ToolApproval.ModeHint">均衡模式下，只读工具自动放行，写入、删除、终端命令等操作会在执行前弹窗确认。</system:String>
+    <system:String x:Key="Config.ToolApproval.SubAgentsInherit">子代理继承审批</system:String>
+    <system:String x:Key="Config.ToolApproval.AutoAllowed">已永久放行的工具</system:String>
+    <system:String x:Key="Config.ToolApproval.TerminalAllowlist">终端命令白名单</system:String>
+    <system:String x:Key="Config.ToolApproval.Revoke">撤销</system:String>
+    <system:String x:Key="Config.ToolApproval.Empty">（暂无）</system:String>
+
+    <!-- 首次启动引导 -->
+    <system:String x:Key="Onboarding.Title">欢迎来到雅典娜</system:String>
+    <system:String x:Key="Onboarding.Motto">the owl wakes at dusk</system:String>
+    <system:String x:Key="Onboarding.Skip">跳过</system:String>
+    <system:String x:Key="Onboarding.Next">继续</system:String>
+    <system:String x:Key="Onboarding.Back">上一步</system:String>
+    <system:String x:Key="Onboarding.Finish">进入</system:String>
+    <system:String x:Key="Onboarding.Step1Oracle">&gt; oracle.connect(primary_credential)</system:String>
+    <system:String x:Key="Onboarding.Provider">服务商</system:String>
+    <system:String x:Key="Onboarding.Model">主模型</system:String>
+    <system:String x:Key="Onboarding.TestConnection">测试连接</system:String>
+    <system:String x:Key="Onboarding.Testing">&gt; 正在请示神谕……</system:String>
+    <system:String x:Key="Onboarding.TestSuccess">&gt; oracle connected ✓</system:String>
+    <system:String x:Key="Onboarding.TestFailed">连接失败</system:String>
+    <system:String x:Key="Onboarding.EnterApiKeyFirst">&gt; 请先填写 API Key</system:String>
+    <system:String x:Key="Onboarding.RolesHint">一把钥匙点亮全部角色 —— 以下模型角色默认继承此凭据，之后可在设置中逐项覆盖</system:String>
+    <system:String x:Key="Onboarding.Role.Primary">主模型</system:String>
+    <system:String x:Key="Onboarding.Role.Background">后台任务</system:String>
+    <system:String x:Key="Onboarding.Role.Image">图像生成</system:String>
+    <system:String x:Key="Onboarding.Role.Audio">语音输出</system:String>
+    <system:String x:Key="Onboarding.Role.SubAgents">子代理</system:String>
+    <system:String x:Key="Onboarding.Role.Browser">浏览器</system:String>
+    <system:String x:Key="Onboarding.Step2Oracle">&gt; awaken(companions)</system:String>
+    <system:String x:Key="Onboarding.Step2Title">唤醒猫头鹰之城的能力</system:String>
+    <system:String x:Key="Onboarding.Toggle.SubAgents">并行子代理</system:String>
+    <system:String x:Key="Onboarding.Toggle.SubAgentsHint">一次派出多只猫头鹰并行研究、处理文件</system:String>
+    <system:String x:Key="Onboarding.Toggle.Browser">浏览器自动化</system:String>
+    <system:String x:Key="Onboarding.Toggle.BrowserHint">视觉引导的网页操作代理，可自主完成多步网页任务</system:String>
+    <system:String x:Key="Onboarding.Toggle.WebSearch">联网搜索</system:String>
+    <system:String x:Key="Onboarding.Toggle.WebSearchHint">实时检索网络信息（Tavily 等独立服务，需单独的 Key）</system:String>
+    <system:String x:Key="Onboarding.Toggle.ImageGen">图像生成</system:String>
+    <system:String x:Key="Onboarding.Toggle.ImageGenHint">在对话中直接生成、迭代图像</system:String>
+    <system:String x:Key="Onboarding.Step3Oracle">&gt; the owl is listening</system:String>
+    <system:String x:Key="Onboarding.Step3Welcome">智慧始于对话。选择一句起手语，或直接进入。</system:String>
+    <system:String x:Key="Onboarding.Starter1">介绍一下你自己，以及你能帮我做什么</system:String>
+    <system:String x:Key="Onboarding.Starter2">帮我整理一下今天要做的事，并设一个提醒</system:String>
+    <system:String x:Key="Onboarding.Starter3">记住：我更喜欢简洁直接的回答</system:String>
 
 </ResourceDictionary>

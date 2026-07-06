@@ -1,0 +1,78 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="360"
+        x:Class="Athena.UI.Views.ToolApprovalDialog"
+        x:DataType="vm:ToolApprovalDialogViewModel"
+        Title="{loc:Loc Dialog.ToolApproval.Title}"
+        Width="480" SizeToContent="Height" MaxHeight="560"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="20" MinHeight="200">
+
+        <!-- 标题行：图标 + 工具名 + 风险徽章 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Text="🛡" FontSize="20" VerticalAlignment="Center"/>
+            <TextBlock Text="{loc:Loc Dialog.ToolApproval.Heading}"
+                       FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Border CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                    Background="{DynamicResource SemiGrey1}">
+                <TextBlock Text="{Binding RiskLabel}" FontSize="12"
+                           Foreground="{DynamicResource SemiColorText1}"/>
+            </Border>
+        </StackPanel>
+
+        <!-- 摘要 / 命令行 -->
+        <Border Grid.Row="1" Margin="0,14,0,0" CornerRadius="6" Padding="12,10"
+                Background="{DynamicResource SemiGrey0}">
+            <StackPanel Spacing="6">
+                <!-- 非终端工具：一行摘要 -->
+                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="13"
+                           IsVisible="{Binding !IsTerminal}"/>
+                <!-- 终端工具：完整命令行（等宽） -->
+                <SelectableTextBlock Text="{Binding CommandLine}" TextWrapping="Wrap"
+                           FontFamily="Consolas, Menlo, monospace" FontSize="13"
+                           IsVisible="{Binding IsTerminal}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 参数详情（可折叠，非终端） -->
+        <ScrollViewer Grid.Row="2" Margin="0,10,0,0" MaxHeight="180"
+                      IsVisible="{Binding HasArguments}">
+            <Expander Header="{loc:Loc Dialog.ToolApproval.Details}" IsExpanded="False">
+                <SelectableTextBlock Text="{Binding PrettyArguments}" TextWrapping="Wrap"
+                           FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
+            </Expander>
+        </ScrollViewer>
+
+        <!-- 高危原因提示 -->
+        <Border Grid.Row="3" Margin="0,10,0,0" CornerRadius="6" Padding="10,8"
+                Background="{DynamicResource SemiRed0}"
+                BorderBrush="{DynamicResource SemiRed6}" BorderThickness="1"
+                IsVisible="{Binding HasRiskReason}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="⚠" Foreground="{DynamicResource SemiRed6}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding RiskReason}" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{DynamicResource SemiRed6}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 决策按钮 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Spacing="8" Margin="0,18,0,0">
+            <Button Command="{Binding DenyCommand}" MinWidth="72"
+                    Content="{loc:Loc Dialog.ToolApproval.Deny}"/>
+            <Button Command="{Binding AllowAlwaysCommand}" MinWidth="72"
+                    Content="{loc:Loc Dialog.ToolApproval.AllowAlways}"/>
+            <Button Command="{Binding AllowForSessionCommand}" MinWidth="72"
+                    Content="{loc:Loc Dialog.ToolApproval.AllowSession}"/>
+            <Button Command="{Binding AllowOnceCommand}"
+                    Theme="{StaticResource AccentButtonTheme}" MinWidth="72"
+                    Content="{loc:Loc Dialog.ToolApproval.AllowOnce}"/>
+        </StackPanel>
+    </Grid>
+</Window>

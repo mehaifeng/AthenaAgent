@@ -84,17 +84,14 @@ public class ConversationHistoryService : IConversationHistoryService
             return;
         }
 
-        var provider = string.IsNullOrWhiteSpace(_secondaryConfig.SecondaryProvider) || _secondaryConfig.SecondaryProvider == "Inherit"
-            ? _secondaryConfig.Provider
-            : _secondaryConfig.SecondaryProvider;
-
-        var apiKey = string.IsNullOrWhiteSpace(_secondaryConfig.SecondaryApiKey)
-            ? _secondaryConfig.ApiKey
-            : _secondaryConfig.SecondaryApiKey;
-
-        var baseUrl = string.IsNullOrWhiteSpace(_secondaryConfig.SecondaryBaseUrl)
-            ? _secondaryConfig.BaseUrl
-            : _secondaryConfig.SecondaryBaseUrl;
+        // 统一继承树：凭据解析集中在 ModelCredentialResolver（遗留 provider="Inherit" 已在 ConfigService 加载时迁移）。
+        var effective = ModelCredentialResolver.Resolve(
+            _secondaryConfig.SecondaryCredentialSource, _secondaryConfig,
+            _secondaryConfig.SecondaryProvider, _secondaryConfig.SecondaryBaseUrl, _secondaryConfig.SecondaryApiKey,
+            _secondaryConfig.SecondaryModel);
+        var provider = effective.Provider;
+        var apiKey = effective.ApiKey;
+        var baseUrl = effective.BaseUrl;
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {

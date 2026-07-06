@@ -104,6 +104,10 @@ public sealed class KnowledgeBaseMaintenanceRunner
             options.Tools.Add(tool);
         }
 
+        // 知识库定期整理是第一方、沙箱化、用户已显式开启的后台例程：审批闸门自动放行，
+        // 否则会把例程自身的 KB 写入/清理全部拒掉。绝不弹窗。
+        using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterTrusted();
+
         try
         {
             for (var iteration = 0; iteration < MaxIterations; iteration++)

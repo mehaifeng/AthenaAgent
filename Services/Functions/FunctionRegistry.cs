@@ -20,6 +20,7 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
     private readonly IConfigService? _configService;
+    private readonly IToolApprovalService? _approvalService;
 
     public bool HasFunctions => _tools.Count > 0;
 
@@ -35,9 +36,11 @@ public class FunctionRegistry : IFunctionRegistry
         SubAgentFunctions subAgentFunctions,
         DocumentParserFunctions documentParserFunctions,
         IConfigService? configService,
-        ILogger logger)
+        ILogger logger,
+        IToolApprovalService? approvalService = null)
     {
         _configService = configService;
+        _approvalService = approvalService;
         _logger = logger.ForContext<FunctionRegistry>();
 
         // --- CLI Control ---
@@ -477,6 +480,21 @@ public class FunctionRegistry : IFunctionRegistry
         if (!_executors.TryGetValue(functionName, out var executor))
         {
             return FunctionResult.FailureResult($"Function not found: {functionName}");
+        }
+
+        // —— 审批闸门（唯一 chokepoint）——
+        // 主对话 / 并发子代理 / 知识库维护三条路径都经此执行，无法绕过。
+        // 被拒时返回失败 FunctionResult，天然会被各调用方转成 tool 结果消息，满足工具协议。
+        if (_approvalService != null)
+        {
+            var approvalCt = Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken;
+            var decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+            if (!decision.Approved)
+            {
+                _logger.Warning("Function {FunctionName} blocked by approval gate: {Reason}", functionName, decision.Reason);
+                return FunctionResult.FailureResult(
+                    $"用户拒绝了工具调用 '{functionName}'（原因：{decision.Reason}）。请勿重试该调用；改用其他方式，或向用户说明为何需要此操作并征得同意。");
+            }
         }
 
         try

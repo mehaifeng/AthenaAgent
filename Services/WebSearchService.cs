@@ -15,7 +15,7 @@ namespace Athena.UI.Services;
 
 /// <summary>
 /// 网络搜索服务实现
-/// 支持 Tavily、智谱 AI、百度三个供应商
+/// 支持 Tavily、WebSearchAPI、智谱 AI、百度四个供应商
 /// </summary>
 public class WebSearchService : IWebSearchService
 {
@@ -77,6 +77,7 @@ public class WebSearchService : IWebSearchService
             return config.WebSearchProvider.ToLower() switch
             {
                 "tavily" => await SearchTavilyAsync(query, maxResults, config),
+                "websearchapi" => await SearchWebSearchApiAsync(query, maxResults, config),
                 "zhipu" or "智谱" => await SearchZhipuAsync(query, maxResults, config),
                 "baidu" or "百度" => await SearchBaiduAsync(query, maxResults, config),
                 _ => throw new NotSupportedException($"不支持的 Web Search 供应商: {config.WebSearchProvider}")
@@ -153,6 +154,90 @@ public class WebSearchService : IWebSearchService
 
         [JsonPropertyName("content")]
         public string? Content { get; set; }
+
+        [JsonPropertyName("score")]
+        public double? Score { get; set; }
+    }
+
+    #endregion
+
+    #region WebSearchAPI
+
+    /// <summary>
+    /// WebSearchAPI 搜索
+    /// 文档: https://websearchapi.ai
+    /// </summary>
+    private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(string query, int maxResults, AppConfig config)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+            ? "https://api.websearchapi.ai"
+            : config.WebSearchBaseUrl.TrimEnd('/');
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/ai-search")
+        {
+            Content = JsonContent.Create(new
+            {
+                query,
+                maxResults,
+                includeContent = true,
+                contentLength = "medium",
+                includeAnswer = false,
+                safeSearch = true
+            })
+        };
+        request.Headers.Add("Authorization", $"Bearer {config.WebSearchApiKey}");
+
+        var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        var parsed = JsonSerializer.Deserialize<WebSearchApiResponse>(json);
+
+        var results = new List<WebSearchResult>();
+        if (parsed?.Organic != null)
+        {
+            foreach (var item in parsed.Organic)
+            {
+                results.Add(new WebSearchResult
+                {
+                    Title = item.Title ?? string.Empty,
+                    Url = item.Url ?? string.Empty,
+                    Snippet = !string.IsNullOrWhiteSpace(item.Content) ? item.Content! : (item.Description ?? string.Empty),
+                    Score = item.Score,
+                    Source = "WebSearchAPI"
+                });
+            }
+        }
+
+        _logger.Information("WebSearchAPI 搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
+        return results;
+    }
+
+    private class WebSearchApiResponse
+    {
+        [JsonPropertyName("answer")]
+        public string? Answer { get; set; }
+
+        [JsonPropertyName("organic")]
+        public List<WebSearchApiItem>? Organic { get; set; }
+    }
+
+    private class WebSearchApiItem
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("url")]
+        public string? Url { get; set; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+
+        [JsonPropertyName("position")]
+        public int? Position { get; set; }
 
         [JsonPropertyName("score")]
         public double? Score { get; set; }

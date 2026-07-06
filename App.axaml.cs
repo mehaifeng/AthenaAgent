@@ -35,6 +35,11 @@ public partial class App : Application
     public bool IsQuitting { get; private set; }
 
     /// <summary>
+    /// 引导页选择的起手 prompt：主窗口就绪后写入聊天输入框（一次性）。
+    /// </summary>
+    public static string? PendingStarterPrompt { get; set; }
+
+    /// <summary>
     /// 平台路径服务
     /// </summary>
     private static IPlatformPathService? _platformPathService;
@@ -222,49 +227,92 @@ public partial class App : Application
             var initialTheme = config.Theme;
             SetTheme(initialTheme);
 
-            // 从 DI 容器获取 ViewModel
-            var mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
-
-            // 启动知识库定期整理后台服务（单例惰性创建，须显式解析以启动计时器）
-            Services.GetRequiredService<IKnowledgeBaseMaintenanceService>().Start();
-
-            desktop.MainWindow = new MainWindow
-            {
-                DataContext = mainViewModel,
-            };
-
-            // 启动动画：等待窗口完全加载后播放
-            if (desktop.MainWindow is Views.MainWindow mainWindow)
-            {
-                // Opened 会在每次从托盘重新 Show() 时再次触发。启动闪屏只应在
-                // 首次启动播放一次：否则它会用启动时捕获的旧 initialTheme 调用
-                // ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
-                // 绕过 App.SetTheme 不触发 ThemeChanged，导致按钮图标/配置选中项失同步。
-                var initialSplashShown = false;
-                desktop.MainWindow.Opened += async (s, e) =>
-                {
-                    mainWindow.ScrollChatToBottomIfVisible();
-                    if (!initialSplashShown)
-                    {
-                        initialSplashShown = true;
-                        await Task.Delay(100); // 等待UI完全渲染
-                        await mainWindow.ShowThemeSplashAsync(initialTheme);
-                        mainWindow.ScrollChatToBottomIfVisible();
-                    }
-                };
-            }
-
             // 更新托盘菜单文本（NativeMenu 不支持 XAML 绑定）
             UpdateTrayMenuText();
 
             // macOS: 处理 Dock 右键退出
             desktop.ShutdownRequested += OnShutdownRequested;
 
-            Log.Information("主窗口创建完成");
+            if (!config.OnboardingCompleted)
+            {
+                // 首次启动：先弹引导向导，关窗（完成或跳过）后再创建主窗口。
+                // 引导窗口存活期间主窗口尚不存在，须临时切到显式退出模式，
+                // 否则引导窗关闭即触发 OnLastWindowClose 退出整个应用。
+                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var onboarding = new OnboardingWindow(new OnboardingViewModel(
+                    configService,
+                    Services.GetService<ILocalizationService>(),
+                    Services.GetService<IChatService>()));
+                desktop.MainWindow = onboarding;
+                onboarding.Closed += (_, _) =>
+                {
+                    // 关窗即跳过的安全网：无论走哪条路径都标记完成，避免每次启动都弹。
+                    var cfg = configService.Load();
+                    if (!cfg.OnboardingCompleted)
+                    {
+                        cfg.OnboardingCompleted = true;
+                        _ = configService.SaveAsync(cfg);
+                    }
+                    ShowMainWindow(desktop, initialTheme);
+                    desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+                };
+                onboarding.Show();
+                Log.Information("首次启动引导窗口已显示");
+            }
+            else
+            {
+                ShowMainWindow(desktop, initialTheme);
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
         Log.Information("框架初始化完成");
+    }
+
+    /// <summary>
+    /// 创建并显示主窗口（正常启动与引导结束两条路径共用）。
+    /// </summary>
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme)
+    {
+        // 从 DI 容器获取 ViewModel
+        var mainViewModel = Services!.GetRequiredService<MainWindowViewModel>();
+
+        // 启动知识库定期整理后台服务（单例惰性创建，须显式解析以启动计时器）
+        Services!.GetRequiredService<IKnowledgeBaseMaintenanceService>().Start();
+
+        var mainWindow = new MainWindow
+        {
+            DataContext = mainViewModel,
+        };
+        desktop.MainWindow = mainWindow;
+
+        // 引导页选择的起手 prompt：预填聊天输入框（一次性）。
+        if (!string.IsNullOrEmpty(PendingStarterPrompt))
+        {
+            mainViewModel.ChatTabViewModel.InputText = PendingStarterPrompt;
+            PendingStarterPrompt = null;
+        }
+
+        // 启动动画：等待窗口完全加载后播放。
+        // Opened 会在每次从托盘重新 Show() 时再次触发。启动闪屏只应在
+        // 首次启动播放一次：否则它会用启动时捕获的旧 initialTheme 调用
+        // ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
+        // 绕过 App.SetTheme 不触发 ThemeChanged，导致按钮图标/配置选中项失同步。
+        var initialSplashShown = false;
+        mainWindow.Opened += async (s, e) =>
+        {
+            mainWindow.ScrollChatToBottomIfVisible();
+            if (!initialSplashShown)
+            {
+                initialSplashShown = true;
+                await Task.Delay(100); // 等待UI完全渲染
+                await mainWindow.ShowThemeSplashAsync(initialTheme);
+                mainWindow.ScrollChatToBottomIfVisible();
+            }
+        };
+
+        mainWindow.Show();
+        Log.Information("主窗口创建完成");
     }
 
     private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
@@ -629,6 +677,22 @@ public partial class App : Application
         });
 
         // Function Registry（单例）
+        // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
+        services.AddSingleton<IToolApprovalPrompter>(sp =>
+        {
+            var localizationService = sp.GetService<ILocalizationService>();
+            return new Athena.UI.ViewModels.ToolApprovalPrompter(localizationService, Log.ForContext<Athena.UI.ViewModels.ToolApprovalPrompter>());
+        });
+
+        // 工具审批服务（策略大脑 + 审计）。被 FunctionRegistry 这个唯一 chokepoint 调用。
+        services.AddSingleton<IToolApprovalService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            var prompter = sp.GetService<IToolApprovalPrompter>();
+            var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
+            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor);
+        });
+
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
             var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
@@ -642,9 +706,10 @@ public partial class App : Application
             var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
             var documentParserFunctions = sp.GetRequiredService<DocumentParserFunctions>();
             var configService = sp.GetService<IConfigService>();
+            var approvalService = sp.GetService<IToolApprovalService>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）

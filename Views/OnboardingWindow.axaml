@@ -1,0 +1,321 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
+        xmlns:conv="using:Athena.UI.Converters"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="720" d:DesignHeight="560"
+        x:Class="Athena.UI.Views.OnboardingWindow"
+        x:DataType="vm:OnboardingViewModel"
+        Title="{loc:Loc Onboarding.Title}"
+        Width="720" Height="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SemiColorBackground0}"
+        CanResize="False">
+
+    <Window.Styles>
+        <!-- 黑白灰蚀刻风按钮。对比度规则（明暗主题通用）：
+             背景取 SemiColorText*（随主题反转的"前景族"）时，文字必取 SemiColorBackground0（"背景族"），反之亦然——
+             两族天然反色，任意主题下都不会撞色。
+             关键实现点：Semi 主题会在 hover/pressed 改写模板内 ContentPresenter 的背景，且模板文字
+             走继承色，因此每个交互态都必须"背景(/template/ ContentPresenter) + 文字(后代 TextBlock)"
+             成对显式覆盖，缺一态就会在该态出现黑底黑字/白底白字。 -->
+
+        <!-- oracle：主行动按钮，静态=前景色反转实底 -->
+        <Style Selector="Button.oracle">
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="18,6"/>
+        </Style>
+        <Style Selector="Button.oracle /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText0}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.oracle:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="Button.oracle:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText1}"/>
+        </Style>
+        <Style Selector="Button.oracle TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+        <Style Selector="Button.oracle:pointerover TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+        <Style Selector="Button.oracle:pressed TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+
+        <!-- plain：次级按钮，透明底细边框，文字全程用正常前景色 -->
+        <Style Selector="Button.plain">
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="18,6"/>
+        </Style>
+        <Style Selector="Button.plain /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.plain:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey0}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="Button.plain:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="Button.plain TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+        <Style Selector="Button.plain:pointerover TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+        <Style Selector="Button.plain:pressed TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+
+        <!-- lang：语言分段切换。未选中=透明底+正常文字；选中=前景色反转实底 -->
+        <Style Selector="ToggleButton.lang">
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="ToggleButton.lang /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText1}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:pointerover TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:pressed TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorText1}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked:pointerover TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+        <Style Selector="ToggleButton.lang:checked:pressed TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorBackground0}"/>
+        </Style>
+        <Style Selector="TextBlock.mono">
+            <Setter Property="FontFamily" Value="Consolas, Menlo, monospace"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Opacity" Value="0.7"/>
+        </Style>
+        <Style Selector="Border.chip">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="2"/>
+            <Setter Property="Padding" Value="14,10"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="30,24">
+
+        <!-- 头部：猫头鹰 logo + 标题 + 语言切换 -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14">
+                <Border Width="50" Height="50" CornerRadius="26"
+                        BorderBrush="{DynamicResource SemiColorText0}" BorderThickness="1"
+                        ClipToBounds="True">
+                    <Image Source="avares://Athena.UI/Assets/AthenaAgent.png" Stretch="UniformToFill"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="ΑΘΗΝΑ · Athena" FontSize="19" FontWeight="SemiBold" LetterSpacing="1"/>
+                    <TextBlock Classes="mono" Text="{loc:Loc Onboarding.Motto}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- 呈现层设置：主题切换 + 语言切换 -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Spacing="10">
+                <!-- 主题切换：Moon=当前 Dark，Sun=当前 Light。参考 ChatTabView 的两 PathIcon 互斥可见方案。 -->
+                <Button Command="{Binding ToggleThemeCommand}"
+                        Tag="{Binding ThemeIcon}"
+                        ToolTip.Tip="{loc:Loc Chat.BtnTheme}"
+                        Padding="8,4">
+                    <Panel>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}"
+                                  IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
+                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}"
+                                  IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
+                    </Panel>
+                </Button>
+
+                <StackPanel Orientation="Horizontal" Spacing="0">
+                    <Border BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1,1,0,1" CornerRadius="2,0,0,2">
+                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding IsChineseSelected}"><TextBlock Text="中文"/></ToggleButton>
+                    </Border>
+                    <Border BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1" CornerRadius="0,2,2,0">
+                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding !IsChineseSelected}"><TextBlock Text="EN"/></ToggleButton>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+        
+        <!-- Step 1：主凭据 -->
+        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep1}" Margin="0,20,0,0">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Onboarding.Provider}" VerticalAlignment="Center" Opacity="0.8"/>
+                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}"
+                          SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                          SelectionChanged="OnProviderSelectionChanged"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Opacity="0.8"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BaseUrl}"
+                         FontFamily="Consolas, Menlo, monospace" FontSize="12" Margin="0,0,0,8"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Opacity="0.8"/>
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*"
+                         FontFamily="Consolas, Menlo, monospace" FontSize="12" Margin="0,0,0,8"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Onboarding.Model}" VerticalAlignment="Center" Opacity="0.8"/>
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Margin="0,0,0,8"/>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Classes="plain" Command="{Binding TestConnectionCommand}">
+                    <TextBlock Text="{loc:Loc Onboarding.TestConnection}"/></Button>
+                <TextBlock Classes="mono" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
+            </StackPanel>
+
+            <!-- 一把钥匙点亮全部角色（统一凭据继承树） -->
+            <Border Classes="card" Margin="0,4,0,0">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc Onboarding.RolesHint}" FontSize="12" Opacity="0.65"/>
+                    <WrapPanel>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="Embedding"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Image}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Audio}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.SubAgents}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Browser}"/></Border>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- Step 2：能力开关 -->
+        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
+            <Border Classes="card">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.SubAgents}" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.SubAgentsHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSubAgents}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <Border Classes="card">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.Browser}" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.BrowserHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.BrowserEnabled}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <Border Classes="card">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{loc:Loc Onboarding.Toggle.WebSearch}" FontWeight="SemiBold" FontSize="13"/>
+                            <TextBlock Text="{loc:Loc Onboarding.Toggle.WebSearchHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.WebSearchEnabled}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel Spacing="6" IsVisible="{Binding Config.WebSearchEnabled}">
+                        <ComboBox ItemsSource="{Binding WebSearchProviders}"
+                                  SelectedItem="{Binding Config.WebSearchProvider}"
+                                  HorizontalAlignment="Stretch"
+                                  SelectionChanged="OnWebSearchProviderSelectionChanged"/>
+                        <TextBox Text="{Binding Config.WebSearchApiKey}" PasswordChar="*"
+                                 PlaceholderText="API Key" FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
+                        <TextBox Text="{Binding Config.WebSearchAppId}"
+                                 PlaceholderText="Baidu App ID"
+                                 FontFamily="Consolas, Menlo, monospace" FontSize="12"
+                                 IsVisible="{Binding IsBaiduWebSearch}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Classes="card">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.ImageGen}" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="{loc:Loc Onboarding.Toggle.ImageGenHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <!-- Step 3：神谕开场 -->
+        <StackPanel Grid.Row="1" Spacing="14" IsVisible="{Binding IsStep3}" VerticalAlignment="Center">
+            <TextBlock Classes="mono" Text="{loc:Loc Onboarding.Step3Oracle}" HorizontalAlignment="Center"/>
+            <TextBlock Text="{loc:Loc Onboarding.Step3Welcome}" FontSize="16" TextWrapping="Wrap"
+                       HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="520"/>
+            <StackPanel Spacing="8" Margin="0,10,0,0" HorizontalAlignment="Center" MinWidth="420">
+                <Button Classes="plain" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding PickStarterCommand}" CommandParameter="Onboarding.Starter1">
+                    <TextBlock Text="{loc:Loc Onboarding.Starter1}" TextWrapping="Wrap" TextAlignment="Center"/></Button>
+                <Button Classes="plain" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding PickStarterCommand}" CommandParameter="Onboarding.Starter2">
+                    <TextBlock Text="{loc:Loc Onboarding.Starter2}" TextWrapping="Wrap" TextAlignment="Center"/></Button>
+                <Button Classes="plain" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Command="{Binding PickStarterCommand}" CommandParameter="Onboarding.Starter3">
+                    <TextBlock Text="{loc:Loc Onboarding.Starter3}" TextWrapping="Wrap" TextAlignment="Center"/></Button>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- 底部：步骤指示（方块）+ 导航 -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,18,0,0">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Border Width="8" Height="8" BorderBrush="{DynamicResource SemiColorText1}" BorderThickness="1"
+                        Background="{DynamicResource SemiColorText1}"/>
+                <Border Width="8" Height="8" BorderBrush="{DynamicResource SemiColorText1}" BorderThickness="1">
+                    <Border.Background>
+                        <SolidColorBrush Color="Transparent"/>
+                    </Border.Background>
+                    <Border Background="{DynamicResource SemiColorText1}" IsVisible="{Binding !IsStep1}"/>
+                </Border>
+                <Border Width="8" Height="8" BorderBrush="{DynamicResource SemiColorText1}" BorderThickness="1">
+                    <Border Background="{DynamicResource SemiColorText1}" IsVisible="{Binding IsStep3}"/>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button Classes="plain" Command="{Binding FinishCommand}"><TextBlock Text="{loc:Loc Onboarding.Skip}"/></Button>
+                <Button Classes="plain" Command="{Binding BackCommand}" IsVisible="{Binding CanGoBack}"><TextBlock Text="{loc:Loc Onboarding.Back}"/></Button>
+                <Button Classes="oracle" Command="{Binding NextCommand}" IsVisible="{Binding IsNotLastStep}"><TextBlock Text="{loc:Loc Onboarding.Next}" Foreground="{DynamicResource SemiColorBackground0}"/></Button>
+                <Button Classes="oracle" Command="{Binding FinishCommand}" IsVisible="{Binding IsStep3}"><TextBlock Text="{loc:Loc Onboarding.Finish}" Foreground="{DynamicResource SemiColorBackground0}"/></Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

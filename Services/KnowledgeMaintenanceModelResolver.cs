@@ -18,6 +18,12 @@ internal static class KnowledgeMaintenanceModelResolver
 {
     public static EffectiveMaintenanceModel Resolve(AppConfig config)
     {
+        // 先算出次级模型的有效凭据（次级自身也可能继承主 AI）——统一继承树的中间层。
+        var secondary = ModelCredentialResolver.Resolve(
+            config.SecondaryCredentialSource, config,
+            config.SecondaryProvider, config.SecondaryBaseUrl, config.SecondaryApiKey,
+            config.SecondaryModel);
+
         switch (config.KnowledgeMaintenanceModelSource)
         {
             case KnowledgeMaintenanceModelSource.InheritMain:
@@ -31,29 +37,20 @@ internal static class KnowledgeMaintenanceModelResolver
             case KnowledgeMaintenanceModelSource.Custom:
                 return new EffectiveMaintenanceModel
                 {
-                    BaseUrl = FirstNonEmpty(config.KnowledgeMaintenanceBaseUrl, config.SecondaryBaseUrl, config.BaseUrl),
-                    ApiKey = FirstNonEmpty(config.KnowledgeMaintenanceApiKey, config.SecondaryApiKey, config.ApiKey),
-                    Model = FirstNonEmpty(config.KnowledgeMaintenanceModel, config.SecondaryModel, config.Model)
+                    BaseUrl = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceBaseUrl, secondary.BaseUrl),
+                    ApiKey = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceApiKey, secondary.ApiKey),
+                    Model = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceModel, secondary.Model)
                 };
 
             case KnowledgeMaintenanceModelSource.InheritSecondary:
             default:
-                // 次级模型即"后台任务模型"：留空字段回退主 AI（与 ConversationHistoryService 的次级客户端一致）。
+                // 次级模型即"后台任务模型"：其有效凭据已含回退主 AI 的语义。
                 return new EffectiveMaintenanceModel
                 {
-                    BaseUrl = FirstNonEmpty(config.SecondaryBaseUrl, config.BaseUrl),
-                    ApiKey = FirstNonEmpty(config.SecondaryApiKey, config.ApiKey),
-                    Model = FirstNonEmpty(config.SecondaryModel, config.Model)
+                    BaseUrl = secondary.BaseUrl,
+                    ApiKey = secondary.ApiKey,
+                    Model = secondary.Model
                 };
         }
-    }
-
-    private static string FirstNonEmpty(params string[] values)
-    {
-        foreach (var v in values)
-        {
-            if (!string.IsNullOrWhiteSpace(v)) return v;
-        }
-        return string.Empty;
     }
 }
