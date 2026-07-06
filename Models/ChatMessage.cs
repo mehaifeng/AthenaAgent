@@ -62,6 +62,14 @@ public partial class ChatMessage : ObservableObject
     private bool _isLoading;
 
     /// <summary>
+    /// 该气泡是否处于"回复进行中"。贯穿整个流式回复生命周期，与 IsLoading/内容解耦，
+    /// 保证空气泡在 loading→内容 的切换缝隙里也不会塌缩消失。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    private bool _isStreaming;
+
+    /// <summary>
     /// 工具调用 ID (仅用于 tool 角色消息)
     /// </summary>
     [ObservableProperty]
@@ -143,7 +151,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading || IsStreaming);
 
     /// <summary>
     /// 工具执行摘要提示

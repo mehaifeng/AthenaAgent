@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Ursa.Controls;
@@ -632,16 +633,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             Config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(Config.ChatAudioProvider);
         }
-
-        if (string.IsNullOrWhiteSpace(Config.ChatAudioModel))
-        {
-            Config.ChatAudioModel = "gpt-4o-mini-tts";
-        }
-
-        if (string.IsNullOrWhiteSpace(Config.ChatAudioVoice))
-        {
-            Config.ChatAudioVoice = "alloy";
-        }
     }
 
     private async Task LoadConfigAsync()
@@ -1156,13 +1147,17 @@ public partial class ConfigTabViewModel : ViewModelBase
                 return;
             }
 
+            var filtered = target == "Embedding"
+                ? result.Models.Where(m => m?.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) >= 0).ToList()
+                : result.Models.ToList();
+
             options.Clear();
-            foreach (var model in result.Models)
+            foreach (var model in filtered)
             {
                 options.Add(model);
             }
 
-            if (result.Models.Count == 0)
+            if (filtered.Count == 0)
             {
                 setStatus(GetString("Status.NoModelsReturned", "Endpoint returned no models"));
             }
@@ -1170,7 +1165,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             {
                 setStatus(string.Format(
                     GetString("Status.ModelsLoaded", "Loaded {0} models"),
-                    result.Models.Count));
+                    filtered.Count));
             }
         }
         catch (OperationCanceledException)

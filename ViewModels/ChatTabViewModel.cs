@@ -1431,7 +1431,8 @@ public partial class ChatTabViewModel : ViewModelBase
             Role = "assistant",
             Content = string.Empty,
             Timestamp = DateTime.Now,
-            IsLoading = true
+            IsLoading = true,
+            IsStreaming = true
         };
         Messages.Add(assistantMsg);
 
@@ -1457,10 +1458,11 @@ public partial class ChatTabViewModel : ViewModelBase
                         // 把本轮的阶段性正文固化为可见段并清空 Content（去重），保留所有可见段
                         CommitActiveBubbleRound(assistantMsg);
 
-                        // 为本轮的每个工具调用追加一张「执行中」卡片
-                        assistantMsg.IsLoading = false;
+                        // 为本轮的每个工具调用追加一张「执行中」卡片。
+                        // 先补卡片、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
                         assistantMsg.ToolExecutionSummary = string.Empty;
                         AddToolCallEntries(assistantMsg, msg.ToolCallsJson);
+                        assistantMsg.IsLoading = false;
                     }
                     else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
                     {
@@ -1575,10 +1577,11 @@ public partial class ChatTabViewModel : ViewModelBase
 
                 if (!string.IsNullOrEmpty(contentDelta))
                 {
-                    assistantMsg.IsLoading = false; // 收到文字后停止 loading 动画
+                    // 先写入正文、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
                     assistantMsg.ToolExecutionSummary = string.Empty; // 开始输出正式回复，隐藏工具调用状态
                     assistantMsg.Content += contentDelta;
                     AppendAssistantMarkdownSegment(assistantMsg, contentDelta);
+                    assistantMsg.IsLoading = false; // 收到文字后停止 loading 动画
                 }
             }
 
@@ -1627,7 +1630,9 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (IsCurrentConversationEpoch(epoch))
             {
+                // 回复生命周期结束：先落内容态，最后统一撤下 loading/streaming 生命线，气泡去留由下方清理判定。
                 assistantMsg.IsLoading = false;
+                assistantMsg.IsStreaming = false;
                 assistantMsg.ToolExecutionSummary = string.Empty;
 
                 // 输出结束（成功/停止/报错均经此）：自动收起工具调用组（露 3 个 + peek），尊重用户手动操作
@@ -1636,7 +1641,8 @@ public partial class ChatTabViewModel : ViewModelBase
                 // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
                 if (string.IsNullOrWhiteSpace(assistantMsg.Content)
                     && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
-                    && string.IsNullOrEmpty(assistantMsg.ReasoningContent))
+                    && string.IsNullOrEmpty(assistantMsg.ReasoningContent)
+                    && !assistantMsg.HasSegments)
                 {
                     if (assistantMsg.Attachments.Count == 0 && string.IsNullOrWhiteSpace(assistantMsg.AudioErrorMessage))
                     {
