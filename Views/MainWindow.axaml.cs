@@ -128,11 +128,15 @@ public partial class MainWindow : Window
             }
 
             // 渐入完成后切换主题（覆盖层已完全遮住界面下方，切换无感知）。
-            // 走 App.SetTheme 统一广播 ThemeChanged，避免绕过导致按钮图标/下拉失同步。
-            // 主题已一致时（交接路径常态）不重复广播。
-            if (isTargetDark != isCurrentDark)
+            // 注意：此处直接落地 RequestedThemeVariant，绝不能回调 App.SetTheme——
+            // App.SetTheme(desktop 分支) 正是通过本方法应用主题的，若再回调会形成
+            // “SetTheme ↔ ShowThemeSplashAsync” 的 async void 无限递归（主题反复切换、画面闪烁）。
+            // ThemeChanged 广播由 App.SetTheme 在 await 本方法之后统一发出，此处无需重复广播。
+            if (isTargetDark != isCurrentDark && Application.Current != null)
             {
-                App.SetTheme(isTargetDark ? "Dark" : "Light");
+                Application.Current.RequestedThemeVariant = isTargetDark
+                    ? Avalonia.Styling.ThemeVariant.Dark
+                    : Avalonia.Styling.ThemeVariant.Light;
             }
 
             // 保持显示（覆盖层与下方新主题界面一致；交接路径在引导窗侧已满幕定格过，
