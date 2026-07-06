@@ -137,6 +137,7 @@
         </Style>
     </Window.Styles>
 
+    <Panel>
     <Grid RowDefinitions="Auto,*,Auto" Margin="30,24">
 
         <!-- 头部：猫头鹰 logo + 标题 + 语言切换 -->
@@ -145,7 +146,7 @@
                 <Border Width="50" Height="50" CornerRadius="26"
                         BorderBrush="{DynamicResource SemiColorText0}" BorderThickness="1"
                         ClipToBounds="True">
-                    <Image Source="avares://Athena.UI/Assets/AthenaAgent.png" Stretch="UniformToFill"/>
+                    <Image Source="avares://Athena.UI/Assets/AthenaAgent.png" Width="54" Height="54" Stretch="Fill"/>
                 </Border>
                 <StackPanel VerticalAlignment="Center" Spacing="2">
                     <TextBlock Text="ΑΘΗΝΑ · Athena" FontSize="19" FontWeight="SemiBold" LetterSpacing="1"/>
@@ -318,4 +319,13 @@
             </StackPanel>
         </Grid>
     </Grid>
+
+    <!-- 引导→主窗口交接遮罩：与 MainWindow.ThemeSplashImage 同一张雅典娜版画，
+         完成引导时先在本窗渐入满幕，随后主窗口以同图覆盖状态接棒，实现跨窗延续。 -->
+    <Image x:Name="HandoffVeilImage"
+           Stretch="UniformToFill"
+           Opacity="0"
+           IsHitTestVisible="False"
+           ZIndex="100"/>
+    </Panel>
 </Window>

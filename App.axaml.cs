@@ -244,16 +244,54 @@ public partial class App : Application
                     Services.GetService<ILocalizationService>(),
                     Services.GetService<IChatService>()));
                 desktop.MainWindow = onboarding;
-                onboarding.Closed += (_, _) =>
+
+                // 标记引导完成并返回最新主题（幂等的公共尾巴）。
+                // 重新读一次配置：引导页里若切换过主题，initialTheme 已经过期，
+                // 直接传下去会让 ShowThemeSplashAsync 把 Avalonia 变体反向回滚，
+                // 导致主题按钮/下拉与实际配色失同步。
+                var handoffDone = false;
+                string MarkOnboardingCompleted()
                 {
-                    // 关窗即跳过的安全网：无论走哪条路径都标记完成，避免每次启动都弹。
                     var cfg = configService.Load();
                     if (!cfg.OnboardingCompleted)
                     {
                         cfg.OnboardingCompleted = true;
                         _ = configService.SaveAsync(cfg);
                     }
-                    ShowMainWindow(desktop, initialTheme);
+                    return cfg.Theme;
+                }
+
+                // 正常完成路径（版画揭幕）：
+                // 1. 先创建主窗口但不显示——拿到目标尺寸并预置满幕版画；
+                // 2. 引导窗中心锚定平缓拉伸到主窗口尺寸，同时版画渐入、满幕定格；
+                // 3. 主窗口在引导窗原位以满幕版画开场，之后才关引导窗（屏幕上始终有窗口）；
+                // 4. 揭幕（版画渐出）由主窗口 Opened 里的强制闪屏完成。
+                onboarding.HandoffRequested = async () =>
+                {
+                    if (handoffDone) return;
+                    handoffDone = true;
+                    var theme = MarkOnboardingCompleted();
+
+                    var mainWindow = CreateMainWindow(desktop, theme, onboardingHandoff: true);
+                    await onboarding.PlayHandoffExitAsync(mainWindow.Width, mainWindow.Height);
+
+                    mainWindow.WindowStartupLocation = WindowStartupLocation.Manual;
+                    mainWindow.Position = onboarding.Position;
+                    mainWindow.Show();
+                    // 部分平台在 Show 后会按启动策略重定位，再钉一次确保与引导窗原位重合
+                    mainWindow.Position = onboarding.Position;
+                    Log.Information("主窗口创建完成（引导交接）");
+
+                    onboarding.Close();
+                    desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+                };
+
+                // 关窗即跳过的安全网：标题栏直接关窗等路径也要拉起主窗口并标记完成。
+                onboarding.Closed += (_, _) =>
+                {
+                    if (handoffDone) return;
+                    handoffDone = true;
+                    ShowMainWindow(desktop, MarkOnboardingCompleted(), onboardingHandoff: true);
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
                 };
                 onboarding.Show();
@@ -270,9 +308,19 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 创建并显示主窗口（正常启动与引导结束两条路径共用）。
+    /// 创建并显示主窗口（正常启动与引导跳过安全网共用）。
     /// </summary>
-    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme)
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme, bool onboardingHandoff = false)
+    {
+        var mainWindow = CreateMainWindow(desktop, initialTheme, onboardingHandoff);
+        mainWindow.Show();
+        Log.Information("主窗口创建完成");
+    }
+
+    /// <summary>
+    /// 创建主窗口但不显示（引导交接路径需要先拿到目标尺寸、摆好位置再 Show）。
+    /// </summary>
+    private MainWindow CreateMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme, bool onboardingHandoff = false)
     {
         // 从 DI 容器获取 ViewModel
         var mainViewModel = Services!.GetRequiredService<MainWindowViewModel>();
@@ -306,13 +354,20 @@ public partial class App : Application
             {
                 initialSplashShown = true;
                 await Task.Delay(100); // 等待UI完全渲染
-                await mainWindow.ShowThemeSplashAsync(initialTheme);
+                // 引导交接路径强制播放：即使主题与当前一致也要完成"停留→揭幕"，
+                // 否则覆盖层会永远留在屏幕上/或完全不播导致生硬切换。
+                await mainWindow.ShowThemeSplashAsync(initialTheme, force: onboardingHandoff);
                 mainWindow.ScrollChatToBottomIfVisible();
             }
         };
 
-        mainWindow.Show();
-        Log.Information("主窗口创建完成");
+        // 引导交接：Show() 之前预置满幕版画，首帧即被与引导窗同一张图覆盖
+        if (onboardingHandoff)
+        {
+            mainWindow.PrepareSplashCover(initialTheme);
+        }
+
+        return mainWindow;
     }
 
     private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)

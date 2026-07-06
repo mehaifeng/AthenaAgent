@@ -69,51 +69,78 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 引导交接：在窗口 Show() 之前把版画遮罩预置为完全覆盖状态，
+    /// 使主窗口首帧就被与引导窗同一张雅典娜版画盖住，跨窗切换无感知。
+    /// </summary>
+    /// <param name="theme">"Dark" 或 "Light"</param>
+    public void PrepareSplashCover(string theme)
+    {
+        if (_themeSplashImage == null) return;
+        try
+        {
+            _themeSplashImage.Source = LoadSplashBitmap(theme);
+            _themeSplashImage.ZIndex = 100;
+            _themeSplashImage.IsHitTestVisible = true;
+            _themeSplashImage.Opacity = 1;
+        }
+        catch (Exception)
+        {
+            // 加载失败则放弃覆盖，退化为普通打开
+            _themeSplashImage.Opacity = 0;
+        }
+    }
+
+    /// <summary>
     /// 显示主题过渡动画
     /// </summary>
     /// <param name="theme">"Dark" 或 "Light"</param>
-    public async Task ShowThemeSplashAsync(string theme)
+    /// <param name="force">
+    /// true = 强制播放（引导交接路径）：即使目标主题与当前一致也不跳过；
+    /// 若 PrepareSplashCover 已预置满幕遮罩，则跳过渐入，直接停留后揭幕。
+    /// </param>
+    public async Task ShowThemeSplashAsync(string theme, bool force = false)
     {
         if (_themeSplashImage == null) return;
 
-        // 如果主题与当前 Avalonia 主题相同，跳过动画（避免 ConfigTabView auto-save 重复触发）
+        // 如果主题与当前 Avalonia 主题相同，跳过动画（避免 ConfigTabView auto-save 重复触发）。
+        // 引导交接（force）除外——该路径的意义正是同主题下的揭幕动画。
         var isTargetDark = theme?.ToLower() != "light";
         var currentVariant = Application.Current?.RequestedThemeVariant;
         var isCurrentDark = currentVariant == Avalonia.Styling.ThemeVariant.Dark;
-        if (isTargetDark == isCurrentDark) return;
+        if (!force && isTargetDark == isCurrentDark) return;
 
         try
         {
-            // 根据主题选择对应的图片
-            var assetPath = theme == "Light"
-                ? "avares://Athena.UI/Assets/Light.webp"
-                : "avares://Athena.UI/Assets/Dark.webp";
+            var coveredAlready = force && _themeSplashImage.Source != null && _themeSplashImage.Opacity >= 1;
 
-            var uri = new Uri(assetPath);
-            using var stream = AssetLoader.Open(uri);
-            var bitmap = new Bitmap(stream);
-
-            _themeSplashImage.Source = bitmap;
-            _themeSplashImage.ZIndex = 100;
-            _themeSplashImage.IsHitTestVisible = false;
-            _themeSplashImage.Opacity = 0;
-            //初始化时，不使用渐入动画
-            if (IsLoaded)
+            if (!coveredAlready)
             {
-                // 渐入动画 300ms（此时界面还是旧主题，覆盖层渐入）
-                await FadeInAsync(_themeSplashImage, 300);
-            }
-            // 渐入完成后切换主题（覆盖层已完全遮住界面下方，切换无感知）
-            if (Application.Current != null)
-            {
-                var isDark = theme?.ToLower() != "light";
-                Application.Current.RequestedThemeVariant = isDark ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                _themeSplashImage.Source = LoadSplashBitmap(theme);
+                _themeSplashImage.ZIndex = 100;
+                _themeSplashImage.IsHitTestVisible = false;
+                _themeSplashImage.Opacity = 0;
+                //初始化时，不使用渐入动画
+                if (IsLoaded)
+                {
+                    // 渐入动画 300ms（此时界面还是旧主题，覆盖层渐入）
+                    await FadeInAsync(_themeSplashImage, 300);
+                }
             }
 
-            // 保持显示 800ms（覆盖层已切换为新主题图片，与下方新主题界面一致）
-            await Task.Delay(800);
+            // 渐入完成后切换主题（覆盖层已完全遮住界面下方，切换无感知）。
+            // 走 App.SetTheme 统一广播 ThemeChanged，避免绕过导致按钮图标/下拉失同步。
+            // 主题已一致时（交接路径常态）不重复广播。
+            if (isTargetDark != isCurrentDark)
+            {
+                App.SetTheme(isTargetDark ? "Dark" : "Light");
+            }
+
+            // 保持显示（覆盖层与下方新主题界面一致；交接路径在引导窗侧已满幕定格过，
+            // 这里只留一小段让换窗尘埃落定即揭幕）
+            await Task.Delay(coveredAlready ? 250 : 800);
 
             // 渐出动画 400ms（揭示已切换完毕的新主题界面）
+            _themeSplashImage.IsHitTestVisible = false;
             await FadeOutAsync(_themeSplashImage, 400);
         }
         catch (Exception)
@@ -124,6 +151,15 @@ public partial class MainWindow : Window
                 _themeSplashImage.Opacity = 0;
             }
         }
+    }
+
+    private static Bitmap LoadSplashBitmap(string? theme)
+    {
+        var assetPath = theme == "Light"
+            ? "avares://Athena.UI/Assets/Light.webp"
+            : "avares://Athena.UI/Assets/Dark.webp";
+        using var stream = AssetLoader.Open(new Uri(assetPath));
+        return new Bitmap(stream);
     }
 
     private async Task FadeInAsync(Image image, int durationMs)
