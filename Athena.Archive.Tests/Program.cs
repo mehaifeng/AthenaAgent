@@ -56,7 +56,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: trusted maintenance path auto-allows", TestApprovalTrustedAllowAsync),
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
-    ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync)
+    ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
+    ("endpoint resolver: Custom mode matches legacy inheritance tree across all roles", TestCustomEndpointResolverMatrixAsync)
 };
 
 var failures = new List<string>();
@@ -151,6 +152,154 @@ static Task TestAudioConfigInheritanceAsync()
     AssertEqual("gpt-4o-mini-tts", resolved.Model, "audio model should use dedicated default");
     AssertEqual("alloy", resolved.Voice, "audio voice should use explicit audio voice");
     AssertFalse(resolved.AutoPlay, "auto play should default to false");
+    return Task.CompletedTask;
+}
+
+// 订阅计划 Phase 1 的纯重构护栏：CustomModelEndpointResolver 必须与重构前的
+// 逐角色继承树逐字节等价。任一路径漂移 = 订阅隔离的地基失守。
+static Task TestCustomEndpointResolverMatrixAsync()
+{
+    var resolver = new CustomModelEndpointResolver();
+
+    EffectiveModelConfig R(AppConfig c, ModelRole role) => resolver.Resolve(role, c);
+
+    AppConfig Base() => new AppConfig
+    {
+        Provider = "OpenAI",
+        BaseUrl = "https://main/v1",
+        ApiKey = "main-key",
+        Model = "gpt-main"
+    };
+
+    // Primary：直接等于主配置。
+    {
+        var e = R(Base(), ModelRole.Primary);
+        AssertEqual("OpenAI", e.Provider, "primary provider");
+        AssertEqual("https://main/v1", e.BaseUrl, "primary base url");
+        AssertEqual("main-key", e.ApiKey, "primary api key");
+        AssertEqual("gpt-main", e.Model, "primary model");
+    }
+
+    // Secondary InheritMain：凭据继承主 AI，模型取次级字段。
+    {
+        var c = Base();
+        c.SecondaryCredentialSource = ModelCredentialSource.InheritMain;
+        c.SecondaryModel = "gpt-sec";
+        var e = R(c, ModelRole.Secondary);
+        AssertEqual("main-key", e.ApiKey, "secondary inherits primary key");
+        AssertEqual("https://main/v1", e.BaseUrl, "secondary inherits primary base url");
+        AssertEqual("gpt-sec", e.Model, "secondary keeps its own model");
+    }
+
+    // Secondary Custom：留空字段逐字段回退主 AI，填写字段生效。
+    {
+        var c = Base();
+        c.SecondaryCredentialSource = ModelCredentialSource.Custom;
+        c.SecondaryBaseUrl = "https://sec/v1";
+        c.SecondaryApiKey = "";
+        c.SecondaryModel = "gpt-sec";
+        var e = R(c, ModelRole.Secondary);
+        AssertEqual("https://sec/v1", e.BaseUrl, "secondary custom base url wins");
+        AssertEqual("main-key", e.ApiKey, "secondary custom empty key falls back to primary");
+        AssertEqual("gpt-sec", e.Model, "secondary custom model");
+    }
+
+    // Embedding Custom：provider="Inherit" 归一化为空后回退主 AI。
+    {
+        var c = Base();
+        c.EmbeddingCredentialSource = ModelCredentialSource.Custom;
+        c.EmbeddingProvider = "Inherit";
+        c.EmbeddingBaseUrl = "";
+        c.EmbeddingApiKey = "";
+        c.EmbeddingModel = "emb";
+        var e = R(c, ModelRole.Embedding);
+        AssertEqual("OpenAI", e.Provider, "embedding Inherit provider normalizes and falls back");
+        AssertEqual("main-key", e.ApiKey, "embedding empty key falls back to primary");
+        AssertEqual("emb", e.Model, "embedding model");
+    }
+
+    // Image：无独立 provider，空模型回退到 gpt-image-1 默认值。
+    {
+        var c = Base();
+        c.ImageGenerationCredentialSource = ModelCredentialSource.InheritMain;
+        c.ImageGenerationModel = "";
+        var e = R(c, ModelRole.Image);
+        AssertEqual("main-key", e.ApiKey, "image inherits primary key");
+        AssertEqual("gpt-image-1", e.Model, "image empty model uses dedicated default");
+    }
+
+    // SubAgent InheritMain：全量跟随主 AI（模型取主模型）。
+    {
+        var c = Base();
+        c.SubAgentModelSource = SubAgentModelSource.InheritMain;
+        var e = R(c, ModelRole.SubAgent);
+        AssertEqual("main-key", e.ApiKey, "subagent inherit key");
+        AssertEqual("gpt-main", e.Model, "subagent inherit model = primary");
+    }
+
+    // SubAgent Custom：专属字段生效，留空字段回退主 AI。
+    {
+        var c = Base();
+        c.SubAgentModelSource = SubAgentModelSource.Custom;
+        c.SubAgentBaseUrl = "https://sub/v1";
+        c.SubAgentApiKey = "sub-key";
+        c.SubAgentProvider = "";
+        c.SubAgentModel = "sub-model";
+        var e = R(c, ModelRole.SubAgent);
+        AssertEqual("https://sub/v1", e.BaseUrl, "subagent custom base url");
+        AssertEqual("sub-key", e.ApiKey, "subagent custom key");
+        AssertEqual("sub-model", e.Model, "subagent custom model");
+    }
+
+    // Browser Custom：Model 恒取 BrowserAgentModel，即使为空也不回退主模型（保持既有精确语义）。
+    {
+        var c = Base();
+        c.BrowserModelSource = BrowserModelSource.Custom;
+        c.BrowserAgentProvider = "Inherit";
+        c.BrowserAgentBaseUrl = "https://br/v1";
+        c.BrowserAgentApiKey = "br-key";
+        c.BrowserAgentModel = "";
+        var e = R(c, ModelRole.BrowserAgent);
+        AssertEqual("https://br/v1", e.BaseUrl, "browser custom base url");
+        AssertEqual("br-key", e.ApiKey, "browser custom key");
+        AssertEqual("", e.Model, "browser empty model stays empty (no primary fallback)");
+    }
+
+    // Maintenance InheritSecondary：等于次级有效凭据（次级本身可 Custom）。
+    {
+        var c = Base();
+        c.SecondaryCredentialSource = ModelCredentialSource.Custom;
+        c.SecondaryApiKey = "sec-key";
+        c.SecondaryModel = "sec";
+        c.KnowledgeMaintenanceModelSource = KnowledgeMaintenanceModelSource.InheritSecondary;
+        var e = R(c, ModelRole.Maintenance);
+        AssertEqual("sec-key", e.ApiKey, "maintenance inherits secondary key");
+        AssertEqual("sec", e.Model, "maintenance inherits secondary model");
+    }
+
+    // Maintenance Custom：整理专属字段优先，留空回退到次级有效值。
+    {
+        var c = Base();
+        c.SecondaryCredentialSource = ModelCredentialSource.Custom;
+        c.SecondaryApiKey = "sec-key";
+        c.SecondaryModel = "sec";
+        c.KnowledgeMaintenanceModelSource = KnowledgeMaintenanceModelSource.Custom;
+        c.KnowledgeMaintenanceApiKey = "km-key";
+        c.KnowledgeMaintenanceModel = "km";
+        var e = R(c, ModelRole.Maintenance);
+        AssertEqual("km-key", e.ApiKey, "maintenance custom key wins");
+        AssertEqual("km", e.Model, "maintenance custom model wins");
+    }
+
+    // Audio：专用端点 + 继承主 Key + 专用 TTS 默认模型（与既有 AudioConfigResolver 一致）。
+    {
+        var c = Base();
+        var e = R(c, ModelRole.Audio);
+        AssertEqual("https://api.openai.com/v1/audio/speech", e.BaseUrl, "audio uses dedicated endpoint");
+        AssertEqual("main-key", e.ApiKey, "audio inherits primary key");
+        AssertEqual("gpt-4o-mini-tts", e.Model, "audio uses dedicated default model");
+    }
+
     return Task.CompletedTask;
 }
 

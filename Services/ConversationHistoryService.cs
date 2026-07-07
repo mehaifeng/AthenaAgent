@@ -32,6 +32,7 @@ public class ConversationHistoryService : IConversationHistoryService
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private AppConfig? _secondaryConfig;
     private OpenAIClient? _secondaryClient;
     private ChatClient? _secondaryChatClient;
@@ -40,10 +41,12 @@ public class ConversationHistoryService : IConversationHistoryService
         IPromptService promptService,
         IPlatformPathService? platformPathService = null,
         ILocalizationService? localizationService = null,
-        IImageGenerationSessionService? imageGenerationSessionService = null)
+        IImageGenerationSessionService? imageGenerationSessionService = null,
+        IModelEndpointResolver? endpointResolver = null)
     {
         _promptService = promptService;
         _localizationService = localizationService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _imageGenerationSessionService = imageGenerationSessionService;
 
         if (platformPathService != null)
@@ -84,11 +87,8 @@ public class ConversationHistoryService : IConversationHistoryService
             return;
         }
 
-        // 统一继承树：凭据解析集中在 ModelCredentialResolver（遗留 provider="Inherit" 已在 ConfigService 加载时迁移）。
-        var effective = ModelCredentialResolver.Resolve(
-            _secondaryConfig.SecondaryCredentialSource, _secondaryConfig,
-            _secondaryConfig.SecondaryProvider, _secondaryConfig.SecondaryBaseUrl, _secondaryConfig.SecondaryApiKey,
-            _secondaryConfig.SecondaryModel);
+        // 统一凭据出口：Custom 模式保持既有继承树语义（遗留 provider="Inherit" 已在 ConfigService 加载时迁移），订阅模式改走网关。
+        var effective = _endpointResolver.Resolve(ModelRole.Secondary, _secondaryConfig);
         var provider = effective.Provider;
         var apiKey = effective.ApiKey;
         var baseUrl = effective.BaseUrl;

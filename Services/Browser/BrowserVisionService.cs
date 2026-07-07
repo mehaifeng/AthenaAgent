@@ -18,6 +18,7 @@ namespace Athena.UI.Services.Browser;
 public class BrowserVisionService : IBrowserVisionService
 {
     private readonly IConfigService _configService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private readonly ILogger _logger;
     private readonly ILocalizationService? _localizationService;
 
@@ -25,9 +26,10 @@ public class BrowserVisionService : IBrowserVisionService
     private static readonly byte[] OnePixelPngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
 
-    public BrowserVisionService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null)
+    public BrowserVisionService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null, IModelEndpointResolver? endpointResolver = null)
     {
         _configService = configService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _logger = logger.ForContext<BrowserVisionService>();
         _localizationService = localizationService;
     }
@@ -44,7 +46,7 @@ public class BrowserVisionService : IBrowserVisionService
         CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config, _endpointResolver);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return DoneOutput("Browser model API key is not configured.", success: false);
@@ -103,7 +105,7 @@ public class BrowserVisionService : IBrowserVisionService
         CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config, _endpointResolver);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return Finish("Browser vision API key is not configured.", isFailure: true);
@@ -164,7 +166,7 @@ public class BrowserVisionService : IBrowserVisionService
     public async Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
-        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config, _endpointResolver);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
             return (false, GetLocalized("Vision.ApiKeyMissing", "Browser vision API key is not configured."));

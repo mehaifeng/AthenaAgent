@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
 
 namespace Athena.UI.Services;
 
@@ -11,46 +12,19 @@ internal sealed class EffectiveMaintenanceModel
 }
 
 /// <summary>
-/// 解析整理 Agent 模型：默认跟随次级（后台）模型；次级字段留空时逐字段回退主 AI；
-/// Custom 时用整理专属字段（同样逐字段回退）。与 SubAgentModelResolver 同构。
+/// 解析整理 Agent 模型：凭据/端点/模型委托统一凭据出口 <see cref="IModelEndpointResolver"/>（订阅计划 Phase 1）。
+/// 逐来源开关（跟随次级 / 跟随主 / 自定义）的语义在 <see cref="CustomModelEndpointResolver"/> 内实现，行为不变。
 /// </summary>
 internal static class KnowledgeMaintenanceModelResolver
 {
-    public static EffectiveMaintenanceModel Resolve(AppConfig config)
+    public static EffectiveMaintenanceModel Resolve(AppConfig config, IModelEndpointResolver endpointResolver)
     {
-        // 先算出次级模型的有效凭据（次级自身也可能继承主 AI）——统一继承树的中间层。
-        var secondary = ModelCredentialResolver.Resolve(
-            config.SecondaryCredentialSource, config,
-            config.SecondaryProvider, config.SecondaryBaseUrl, config.SecondaryApiKey,
-            config.SecondaryModel);
-
-        switch (config.KnowledgeMaintenanceModelSource)
+        var cred = endpointResolver.Resolve(ModelRole.Maintenance, config);
+        return new EffectiveMaintenanceModel
         {
-            case KnowledgeMaintenanceModelSource.InheritMain:
-                return new EffectiveMaintenanceModel
-                {
-                    BaseUrl = config.BaseUrl,
-                    ApiKey = config.ApiKey,
-                    Model = config.Model
-                };
-
-            case KnowledgeMaintenanceModelSource.Custom:
-                return new EffectiveMaintenanceModel
-                {
-                    BaseUrl = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceBaseUrl, secondary.BaseUrl),
-                    ApiKey = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceApiKey, secondary.ApiKey),
-                    Model = ModelCredentialResolver.FirstNonEmpty(config.KnowledgeMaintenanceModel, secondary.Model)
-                };
-
-            case KnowledgeMaintenanceModelSource.InheritSecondary:
-            default:
-                // 次级模型即"后台任务模型"：其有效凭据已含回退主 AI 的语义。
-                return new EffectiveMaintenanceModel
-                {
-                    BaseUrl = secondary.BaseUrl,
-                    ApiKey = secondary.ApiKey,
-                    Model = secondary.Model
-                };
-        }
+            BaseUrl = cred.BaseUrl,
+            ApiKey = cred.ApiKey,
+            Model = cred.Model
+        };
     }
 }

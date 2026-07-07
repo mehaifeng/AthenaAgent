@@ -23,15 +23,18 @@ public class OpenAIImageGenerationService : IImageGenerationService
 
     private readonly IConfigService _configService;
     private readonly IAttachmentStoreService _attachmentStoreService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private readonly ILogger _logger;
 
     public OpenAIImageGenerationService(
         IConfigService configService,
         IAttachmentStoreService attachmentStoreService,
-        ILogger logger)
+        ILogger logger,
+        IModelEndpointResolver? endpointResolver = null)
     {
         _configService = configService;
         _attachmentStoreService = attachmentStoreService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _logger = logger.ForContext<OpenAIImageGenerationService>();
     }
 
@@ -145,18 +148,15 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
     }
 
-    // 统一继承树：凭据解析集中在 ModelCredentialResolver（图像无独立 provider 字段，传空即回退主配置）。
-    private static EffectiveModelConfig GetEffective(AppConfig config) =>
-        ModelCredentialResolver.Resolve(
-            config.ImageGenerationCredentialSource, config,
-            string.Empty, config.ImageGenerationBaseUrl, config.ImageGenerationApiKey,
-            config.ImageGenerationModel, "gpt-image-1");
+    // 统一凭据出口：Custom 模式保持既有继承树语义（图像无独立 provider 字段，传空即回退主配置），订阅模式改走网关。
+    private EffectiveModelConfig GetEffective(AppConfig config) =>
+        _endpointResolver.Resolve(ModelRole.Image, config);
 
-    private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
+    private string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
 
-    private static string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
+    private string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
 
-    private static string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
+    private string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
 
     private async Task<GeneratedImage> GenerateImageWithReferencesAsync(
         ImageClient client,

@@ -21,12 +21,14 @@ public sealed class SubAgentRunner
 {
     private readonly IConfigService _configService;
     private readonly IFunctionRegistry _functionRegistry;
+    private readonly IModelEndpointResolver _endpointResolver;
     private readonly ILogger _logger;
 
-    public SubAgentRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger)
+    public SubAgentRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger, IModelEndpointResolver? endpointResolver = null)
     {
         _configService = configService;
         _functionRegistry = functionRegistry;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _logger = logger.ForContext<SubAgentRunner>();
     }
 
@@ -39,7 +41,7 @@ public sealed class SubAgentRunner
     {
         var preset = SubAgentTypes.Resolve(task.AgentType);
         var config = _configService.Load();
-        var effective = SubAgentModelResolver.Resolve(config);
+        var effective = SubAgentModelResolver.Resolve(config, _endpointResolver);
 
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {

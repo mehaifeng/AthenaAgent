@@ -495,6 +495,14 @@ public partial class App : Application
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
 
+        // 隐藏功能开关（订阅计划 Phase 0，默认全部关闭）
+        services.AddSingleton<IFeatureFlagService>(sp =>
+            new FeatureFlagService(sp.GetRequiredService<IPlatformPathService>()));
+
+        // 统一凭据出口（订阅计划 Phase 1）。当前只注册 Custom 实现（BYOK，行为不变）；
+        // Phase 3 会替换为按 ModelAccessMode 分发的组合根。所有模型角色的凭据解析都经此单点。
+        services.AddSingleton<IModelEndpointResolver, CustomModelEndpointResolver>();
+
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
 
@@ -526,8 +534,9 @@ public partial class App : Application
             var config = configService.Load();
             var logger = Log.ForContext<OpenAIEmbeddingService>();
             var localizationService = sp.GetService<ILocalizationService>();
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
             Log.Information("Embedding 服务初始化，模型: {Model}", config.EmbeddingModel);
-            return new OpenAIEmbeddingService(config, logger, localizationService);
+            return new OpenAIEmbeddingService(config, logger, localizationService, endpointResolver);
         });
 
         // 知识库服务（单例）
@@ -636,7 +645,8 @@ public partial class App : Application
             var configService = sp.GetRequiredService<IConfigService>();
             var attachmentStoreService = sp.GetRequiredService<IAttachmentStoreService>();
             var logger = Log.ForContext<OpenAIImageGenerationService>();
-            return new OpenAIImageGenerationService(configService, attachmentStoreService, logger);
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
+            return new OpenAIImageGenerationService(configService, attachmentStoreService, logger, endpointResolver);
         });
 
         services.AddSingleton<IAudioPlaybackService>(sp =>
@@ -672,14 +682,16 @@ public partial class App : Application
             var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<BrowserVisionService>();
             var localizationService = sp.GetService<ILocalizationService>();
-            return new BrowserVisionService(configService, logger, localizationService);
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
+            return new BrowserVisionService(configService, logger, localizationService, endpointResolver);
         });
 
         services.AddSingleton<IBrowserTaskPlanner>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<BrowserTaskPlanner>();
-            return new BrowserTaskPlanner(configService, logger);
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
+            return new BrowserTaskPlanner(configService, logger, endpointResolver);
         });
 
         services.AddSingleton<IBrowserAgentService>(sp =>
@@ -780,7 +792,8 @@ public partial class App : Application
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var logger = Log.ForContext<KnowledgeBaseMaintenanceRunner>();
             var localizationService = sp.GetService<ILocalizationService>();
-            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger, localizationService);
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
+            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger, localizationService, endpointResolver);
         });
 
         // 知识库定期整理服务（单例，后台计时器）
@@ -812,10 +825,11 @@ public partial class App : Application
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
                 config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService);
+            return new OpenAIChatService(config, promptService, functionRegistry, historyService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, endpointResolver);
         });
 
         // 对话历史服务（单例）
@@ -826,8 +840,9 @@ public partial class App : Application
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var localizationService = sp.GetService<ILocalizationService>();
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
+            var endpointResolver = sp.GetRequiredService<IModelEndpointResolver>();
             var config = configService?.Load();
-            var service = new ConversationHistoryService(promptService, platformPathService, localizationService, imageGenerationSessionService);
+            var service = new ConversationHistoryService(promptService, platformPathService, localizationService, imageGenerationSessionService, endpointResolver);
             if (config != null)
             {
                 service.UpdateSecondaryConfig(config);

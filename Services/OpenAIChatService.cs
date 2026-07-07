@@ -32,6 +32,7 @@ public class OpenAIChatService : IChatService
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IConversationSessionAccessor? _conversationSessionAccessor;
     private readonly ISystemAudioService? _systemAudioService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
@@ -44,7 +45,8 @@ public class OpenAIChatService : IChatService
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
-        ISystemAudioService? systemAudioService = null)
+        ISystemAudioService? systemAudioService = null,
+        IModelEndpointResolver? endpointResolver = null)
     {
         _config = config;
         _promptService = promptService;
@@ -54,7 +56,17 @@ public class OpenAIChatService : IChatService
         _attachmentStoreService = attachmentStoreService;
         _conversationSessionAccessor = conversationSessionAccessor;
         _systemAudioService = systemAudioService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         InitializeClient();
+    }
+
+    // 统一凭据出口的音频组装：凭据/端点/模型走 seam（订阅模式改走网关），
+    // Voice / AutoPlay 不是凭据，仍按本地配置读取。
+    private ResolvedAudioConfig ResolveAudioConfig()
+    {
+        var cred = _endpointResolver.Resolve(ModelRole.Audio, _config);
+        var voice = string.IsNullOrWhiteSpace(_config.ChatAudioVoice) ? "alloy" : _config.ChatAudioVoice;
+        return new ResolvedAudioConfig(cred.Provider, cred.BaseUrl, cred.ApiKey, cred.Model, voice, _config.ChatAudioAutoPlay);
     }
 
     public void UpdateConfig(AppConfig config)
@@ -65,7 +77,9 @@ public class OpenAIChatService : IChatService
 
     private void InitializeClient()
     {
-        if (string.IsNullOrWhiteSpace(_config.ApiKey))
+        // 统一凭据出口：Custom 模式等价于直接读取主配置（Provider/BaseUrl/ApiKey/Model），订阅模式改走网关。
+        var effective = _endpointResolver.Resolve(ModelRole.Primary, _config);
+        if (string.IsNullOrWhiteSpace(effective.ApiKey))
         {
             _client = null;
             _chatClient = null;
@@ -76,15 +90,15 @@ public class OpenAIChatService : IChatService
         try
         {
             var options = new OpenAIClientOptions();
-            if (!string.IsNullOrWhiteSpace(_config.BaseUrl))
+            if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
             {
-                options.Endpoint = new Uri(_config.BaseUrl);
-                Log.Information("使用自定义 Base URL: {BaseUrl}", _config.BaseUrl);
+                options.Endpoint = new Uri(effective.BaseUrl);
+                Log.Information("使用自定义 Base URL: {BaseUrl}", effective.BaseUrl);
             }
 
-            _client = new OpenAIClient(new ApiKeyCredential(_config.ApiKey), options);
-            _chatClient = _client.GetChatClient(_config.Model);
-            Log.Information("OpenAI 客户端初始化成功，模型: {Model}", _config.Model);
+            _client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
+            _chatClient = _client.GetChatClient(effective.Model);
+            Log.Information("OpenAI 客户端初始化成功，模型: {Model}", effective.Model);
         }
         catch (Exception ex)
         {
@@ -1054,7 +1068,7 @@ public class OpenAIChatService : IChatService
             };
         }
 
-        var audioConfig = AudioConfigResolver.Resolve(_config);
+        var audioConfig = ResolveAudioConfig();
         if (!string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase)
             && (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl)))
         {
@@ -1099,7 +1113,7 @@ public class OpenAIChatService : IChatService
 
     private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSpeechAttachmentAsync(string text, CancellationToken cancellationToken)
     {
-        var audioConfig = AudioConfigResolver.Resolve(_config);
+        var audioConfig = ResolveAudioConfig();
         if (string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase))
         {
             return await GenerateSystemSpeechAttachmentAsync(text, audioConfig, cancellationToken);
@@ -1217,7 +1231,7 @@ public class OpenAIChatService : IChatService
                 fileName,
                 mimeType,
                 cancellationToken: cancellationToken);
-            attachment.AudioProvider = AudioConfigResolver.Resolve(_config).Provider;
+            attachment.AudioProvider = ResolveAudioConfig().Provider;
             return (attachment, string.Empty);
         }
         catch (Exception ex)

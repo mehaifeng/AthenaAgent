@@ -20,6 +20,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
 {
     private readonly IConfigService _configService;
     private readonly IFunctionRegistry _functionRegistry;
+    private readonly IModelEndpointResolver _endpointResolver;
     private readonly ILogger _logger;
     private readonly ILocalizationService? _localizationService;
 
@@ -52,10 +53,11 @@ public sealed class KnowledgeBaseMaintenanceRunner
         "- Work autonomously; do not ask questions.\n" +
         "- When finished, reply with a concise plain-text summary: which files were merged into which, and which were deleted.";
 
-    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger, ILocalizationService? localizationService = null)
+    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger, ILocalizationService? localizationService = null, IModelEndpointResolver? endpointResolver = null)
     {
         _configService = configService;
         _functionRegistry = functionRegistry;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _logger = logger.ForContext<KnowledgeBaseMaintenanceRunner>();
         _localizationService = localizationService;
     }
@@ -67,7 +69,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
     public async Task<(bool Success, string Summary)> RunAsync(string instruction, CancellationToken cancellationToken)
     {
         var config = _configService.Load();
-        var effective = KnowledgeMaintenanceModelResolver.Resolve(config);
+        var effective = KnowledgeMaintenanceModelResolver.Resolve(config, _endpointResolver);
 
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {

@@ -22,6 +22,8 @@
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/ModelCredentialSource.cs" Link="Source/Models/ModelCredentialSource.cs" />
     <Compile Include="../Services/ModelCredentialResolver.cs" Link="Source/Services/ModelCredentialResolver.cs" />
+    <Compile Include="../Services/Interfaces/IModelEndpointResolver.cs" Link="Source/Services/Interfaces/IModelEndpointResolver.cs" />
+    <Compile Include="../Services/CustomModelEndpointResolver.cs" Link="Source/Services/CustomModelEndpointResolver.cs" />
     <Compile Include="../Models/ToolApproval.cs" Link="Source/Models/ToolApproval.cs" />
     <Compile Include="../Services/ToolRiskClassifier.cs" Link="Source/Services/ToolRiskClassifier.cs" />
     <Compile Include="../Services/ToolApprovalContext.cs" Link="Source/Services/ToolApprovalContext.cs" />

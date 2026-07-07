@@ -20,6 +20,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 {
     private readonly ILogger _logger;
     private readonly ILocalizationService? _localizationService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private AppConfig _config;
     private OpenAIClient? _client;
     private EmbeddingClient? _embeddingClient;
@@ -30,11 +31,12 @@ public class OpenAIEmbeddingService : IEmbeddingService
         ? _config.EmbeddingModel
         : null;
 
-    public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null)
+    public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null, IModelEndpointResolver? endpointResolver = null)
     {
         _config = config;
         _logger = logger.ForContext<OpenAIEmbeddingService>();
         _localizationService = localizationService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         InitializeClient();
     }
 
@@ -52,12 +54,8 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     private void InitializeClient()
     {
-        // 统一继承树：凭据解析集中在 ModelCredentialResolver（Custom 模式下留空字段仍逐字段回退主配置）。
-        var effective = ModelCredentialResolver.Resolve(
-            _config.EmbeddingCredentialSource, _config,
-            _config.EmbeddingProvider == "Inherit" ? string.Empty : _config.EmbeddingProvider,
-            _config.EmbeddingBaseUrl, _config.EmbeddingApiKey,
-            _config.EmbeddingModel);
+        // 统一凭据出口：Custom 模式保持既有继承树语义（留空字段逐字段回退主配置），订阅模式改走网关。
+        var effective = _endpointResolver.Resolve(ModelRole.Embedding, _config);
         var provider = effective.Provider;
         var apiKey = effective.ApiKey;
         var baseUrl = effective.BaseUrl;

@@ -53,6 +53,7 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator
 
         // 惰性解析 IFunctionRegistry，断开 Registry → SubAgentFunctions → Orchestrator → Registry 的构造环。
         var functionRegistry = _serviceProvider.GetRequiredService<IFunctionRegistry>();
+        var endpointResolver = _serviceProvider.GetRequiredService<IModelEndpointResolver>();
 
         var config = _configService.Load();
         var maxParallel = Math.Max(1, config.SubAgentMaxParallel);
@@ -85,7 +86,7 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator
             await concurrencyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var runner = new SubAgentRunner(_configService, functionRegistry, _logger);
+                var runner = new SubAgentRunner(_configService, functionRegistry, _logger, endpointResolver);
                 return await runner.RunAsync(run.Task, run.Vm, GateFor, Post, run.Vm.Cts!.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)

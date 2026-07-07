@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
 using System;
 
 namespace Athena.UI.Services.Browser;
@@ -21,50 +22,30 @@ internal sealed class EffectiveBrowserAgentConfig
 /// <summary>
 /// 解析浏览器智能体模型的有效配置。供任务规划器与执行循环共用，避免逻辑分叉
 /// （历史上两处各有一份副本，导致"跟随主模型"只在其中一处生效）。
+/// 凭据/端点/模型委托统一凭据出口 <see cref="IModelEndpointResolver"/>（订阅计划 Phase 1）；
+/// 采样参数（输出 token 预算、温度）与诊断用来源标签仍在本地按配置计算。
 /// </summary>
 internal static class BrowserAgentModelResolver
 {
-    public static EffectiveBrowserAgentConfig Resolve(AppConfig config)
+    public static EffectiveBrowserAgentConfig Resolve(AppConfig config, IModelEndpointResolver endpointResolver)
     {
-        // 跟随主模型：Provider/BaseUrl/ApiKey/Model 全部复用主 AI；仅保留浏览器循环
-        // 专属的采样参数（输出 token 预算、温度），它们是智能体调参而非模型身份。
-        if (config.BrowserModelSource == BrowserModelSource.InheritMain)
-        {
-            return new EffectiveBrowserAgentConfig
-            {
-                Provider = config.Provider,
-                BaseUrl = config.BaseUrl,
-                ApiKey = config.ApiKey,
-                Model = config.Model,
-                MaxTokens = config.BrowserAgentMaxTokens,
-                Temperature = config.BrowserAgentTemperature,
-                BaseUrlSource = "MainAI(Inherit)",
-                ApiKeySource = "MainAI(Inherit)"
-            };
-        }
+        var cred = endpointResolver.Resolve(ModelRole.BrowserAgent, config);
 
-        // 自定义：凭据委托统一继承树解析器（逐字段留空回退主 AI，保持向后兼容）；
-        // 遗留 provider="Inherit" 字符串在此归一化为空以触发回退。
-        var apiKeyFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentApiKey);
-        var baseUrlFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentBaseUrl);
-        var providerRaw = string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : config.BrowserAgentProvider;
-        var effective = ModelCredentialResolver.Resolve(
-            ModelCredentialSource.Custom, config,
-            providerRaw, config.BrowserAgentBaseUrl, config.BrowserAgentApiKey,
-            config.BrowserAgentModel, config.BrowserAgentModel);
+        // 诊断用来源标签：Custom 模式下沿用既有语义（是否填了浏览器专属字段）。
+        var inherit = config.BrowserModelSource == BrowserModelSource.InheritMain;
+        var baseUrlFromBrowser = !inherit && !string.IsNullOrWhiteSpace(config.BrowserAgentBaseUrl);
+        var apiKeyFromBrowser = !inherit && !string.IsNullOrWhiteSpace(config.BrowserAgentApiKey);
 
         return new EffectiveBrowserAgentConfig
         {
-            Provider = effective.Provider,
-            BaseUrl = effective.BaseUrl,
-            ApiKey = effective.ApiKey,
-            Model = config.BrowserAgentModel,
+            Provider = cred.Provider,
+            BaseUrl = cred.BaseUrl,
+            ApiKey = cred.ApiKey,
+            Model = cred.Model,
             MaxTokens = config.BrowserAgentMaxTokens,
             Temperature = config.BrowserAgentTemperature,
-            BaseUrlSource = baseUrlFromBrowser ? "BrowserAgent" : "MainAI",
-            ApiKeySource = apiKeyFromBrowser ? "BrowserAgent" : "MainAI"
+            BaseUrlSource = inherit ? "MainAI(Inherit)" : (baseUrlFromBrowser ? "BrowserAgent" : "MainAI"),
+            ApiKeySource = inherit ? "MainAI(Inherit)" : (apiKeyFromBrowser ? "BrowserAgent" : "MainAI")
         };
     }
 }

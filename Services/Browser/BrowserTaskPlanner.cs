@@ -18,11 +18,13 @@ namespace Athena.UI.Services.Browser;
 public class BrowserTaskPlanner : IBrowserTaskPlanner
 {
     private readonly IConfigService _configService;
+    private readonly IModelEndpointResolver _endpointResolver;
     private readonly ILogger _logger;
 
-    public BrowserTaskPlanner(IConfigService configService, ILogger logger)
+    public BrowserTaskPlanner(IConfigService configService, ILogger logger, IModelEndpointResolver? endpointResolver = null)
     {
         _configService = configService;
+        _endpointResolver = endpointResolver ?? CustomModelEndpointResolver.Instance;
         _logger = logger.ForContext<BrowserTaskPlanner>();
     }
 
@@ -30,7 +32,7 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
     {
         var fallbackPlan = CreateFallbackPlan(request);
         var config = _configService.Load();
-        var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
+        var effectiveConfig = BrowserAgentModelResolver.Resolve(config, _endpointResolver);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey) || string.IsNullOrWhiteSpace(effectiveConfig.Model))
         {
             return fallbackPlan;

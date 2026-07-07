@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
 using System;
 
 namespace Athena.UI.Services.SubAgents;
@@ -14,27 +15,19 @@ internal sealed class EffectiveSubAgentConfig
 }
 
 /// <summary>
-/// 解析子代理模型配置：默认跟随主模型；Custom 时使用子代理专属字段，逐字段在留空时回退主 AI。
-/// 与 BrowserAgentModelResolver 同构，避免逻辑分叉。
+/// 解析子代理模型配置：凭据/端点/模型委托统一凭据出口 <see cref="IModelEndpointResolver"/>
+/// （订阅计划 Phase 1，使订阅模式下走网关而非 BYOK）；采样参数（token 预算、温度）保留子代理专属。
 /// </summary>
 internal static class SubAgentModelResolver
 {
-    public static EffectiveSubAgentConfig Resolve(AppConfig config)
+    public static EffectiveSubAgentConfig Resolve(AppConfig config, IModelEndpointResolver endpointResolver)
     {
-        // 凭据部分委托统一继承树解析器；采样参数（token 预算、温度）保留子代理专属。
-        var source = config.SubAgentModelSource == SubAgentModelSource.InheritMain
-            ? ModelCredentialSource.InheritMain
-            : ModelCredentialSource.Custom;
-        var effective = ModelCredentialResolver.Resolve(
-            source, config,
-            config.SubAgentProvider, config.SubAgentBaseUrl, config.SubAgentApiKey,
-            config.SubAgentModelSource == SubAgentModelSource.InheritMain ? config.Model : config.SubAgentModel);
-
+        var cred = endpointResolver.Resolve(ModelRole.SubAgent, config);
         return new EffectiveSubAgentConfig
         {
-            BaseUrl = effective.BaseUrl,
-            ApiKey = effective.ApiKey,
-            Model = effective.Model,
+            BaseUrl = cred.BaseUrl,
+            ApiKey = cred.ApiKey,
+            Model = cred.Model,
             MaxTokens = config.SubAgentMaxTokens,
             Temperature = config.SubAgentTemperature
         };
