@@ -9,39 +9,63 @@ namespace Athena.UI.Services;
 public class LibVlcAudioPlaybackService : IAudioPlaybackService
 {
     private readonly ILogger _logger;
+    private readonly object _initLock = new();
     private LibVLC? _libVlc;
     private MediaPlayer? _player;
     private Media? _media;
     private string? _attachmentId;
+    private bool _initAttempted;
 
     public event EventHandler<AudioPlaybackStateChangedEventArgs>? PlaybackStateChanged;
 
-    public bool IsAvailable { get; private set; }
+    // 首次播放前保持乐观值：UI 侧的"是否可用"判定不预先劝退
+    public bool IsAvailable { get; private set; } = true;
 
     public LibVlcAudioPlaybackService(ILogger logger)
     {
+        // LibVLC 首次实例化会做插件目录扫描/缓存重建（Windows 上叠加杀软扫描可数秒），
+        // 因此推迟到首次播放时 EnsureInitialized 里执行，构造函数保持轻量
         _logger = logger.ForContext<LibVlcAudioPlaybackService>();
+    }
 
-        try
+    /// <summary>
+    /// 线程安全的一次性初始化。返回 true 表示 _player 可用。
+    /// </summary>
+    private bool EnsureInitialized()
+    {
+        if (_initAttempted) return IsAvailable && _player != null;
+
+        lock (_initLock)
         {
-            Core.Initialize();
-            _libVlc = new LibVLC();
-            _player = new MediaPlayer(_libVlc);
-            _player.TimeChanged += OnTimeChanged;
-            _player.EndReached += OnEndReached;
-            _player.LengthChanged += OnLengthChanged;
-            IsAvailable = true;
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Audio playback unavailable");
-            IsAvailable = false;
+            if (_initAttempted) return IsAvailable && _player != null;
+
+            try
+            {
+                Core.Initialize();
+                _libVlc = new LibVLC();
+                _player = new MediaPlayer(_libVlc);
+                _player.TimeChanged += OnTimeChanged;
+                _player.EndReached += OnEndReached;
+                _player.LengthChanged += OnLengthChanged;
+                IsAvailable = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Audio playback unavailable");
+                IsAvailable = false;
+            }
+            finally
+            {
+                _initAttempted = true;
+            }
+
+            return IsAvailable && _player != null;
         }
     }
 
     public bool Play(ChatAttachment attachment)
     {
-        if (!IsAvailable || _player == null || _libVlc == null || string.IsNullOrWhiteSpace(attachment.StoredPath))
+        if (string.IsNullOrWhiteSpace(attachment.StoredPath) || !EnsureInitialized() || _player == null || _libVlc == null)
         {
             return false;
         }

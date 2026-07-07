@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using LiveMarkdown.Avalonia;
 
@@ -13,11 +14,28 @@ public class MarkdownHelper
         TextProperty.Changed.AddClassHandler<MarkdownRenderer>((renderer, e) =>
         {
             var text = e.NewValue as string ?? string.Empty;
+            var old = e.OldValue as string ?? string.Empty;
+
             if (renderer.MarkdownBuilder == null)
             {
                 renderer.MarkdownBuilder = new ObservableStringBuilder();
+                renderer.MarkdownBuilder.Append(text);
+                return;
             }
-            // Workaround: ObservableStringBuilder might only have Append/Clear or we just recreate it
+
+            // 流式输出下新值几乎总是"旧值 + 增量"，只 Append 差量让下游走增量解析
+            if (text.Length > old.Length && text.StartsWith(old, StringComparison.Ordinal))
+            {
+                renderer.MarkdownBuilder.Append(text.Substring(old.Length));
+                return;
+            }
+
+            if (string.Equals(text, old, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // 非追加式变更（重置、fork、回滚）走全量重建
             renderer.MarkdownBuilder.Clear();
             renderer.MarkdownBuilder.Append(text);
         });
