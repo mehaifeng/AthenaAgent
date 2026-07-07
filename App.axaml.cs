@@ -525,8 +525,9 @@ public partial class App : Application
             var configService = sp.GetRequiredService<IConfigService>();
             var config = configService.Load();
             var logger = Log.ForContext<OpenAIEmbeddingService>();
+            var localizationService = sp.GetService<ILocalizationService>();
             Log.Information("Embedding 服务初始化，模型: {Model}", config.EmbeddingModel);
-            return new OpenAIEmbeddingService(config, logger);
+            return new OpenAIEmbeddingService(config, logger, localizationService);
         });
 
         // 知识库服务（单例）
@@ -597,7 +598,8 @@ public partial class App : Application
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<WebSearchService>();
-            return new WebSearchService(configService, logger);
+            var localizationService = sp.GetService<ILocalizationService>();
+            return new WebSearchService(configService, logger, localizationService);
         });
 
         services.AddSingleton<IUpdateService>(sp =>
@@ -669,7 +671,8 @@ public partial class App : Application
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<BrowserVisionService>();
-            return new BrowserVisionService(configService, logger);
+            var localizationService = sp.GetService<ILocalizationService>();
+            return new BrowserVisionService(configService, logger, localizationService);
         });
 
         services.AddSingleton<IBrowserTaskPlanner>(sp =>
@@ -776,7 +779,8 @@ public partial class App : Application
             var configService = sp.GetRequiredService<IConfigService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var logger = Log.ForContext<KnowledgeBaseMaintenanceRunner>();
-            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger);
+            var localizationService = sp.GetService<ILocalizationService>();
+            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger, localizationService);
         });
 
         // 知识库定期整理服务（单例，后台计时器）
