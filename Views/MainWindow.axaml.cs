@@ -1,9 +1,13 @@
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using System;
+using System.Collections.Concurrent;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Views;
@@ -157,40 +161,53 @@ public partial class MainWindow : Window
         }
     }
 
+    // 版画位图进程内缓存：每主题只解码一次
+    private static readonly ConcurrentDictionary<string, Bitmap> _splashBitmapCache = new();
+
+    // 覆盖层按窗口尺寸展示，1600 宽在 2K 屏上已足够清晰；降分辨率同时压低解码耗时与常驻内存
+    private const int SplashDecodeWidth = 1600;
+
     private static Bitmap LoadSplashBitmap(string? theme)
     {
-        var assetPath = theme == "Light"
-            ? "avares://Athena.UI/Assets/Light.webp"
-            : "avares://Athena.UI/Assets/Dark.webp";
-        using var stream = AssetLoader.Open(new Uri(assetPath));
-        return new Bitmap(stream);
-    }
-
-    private async Task FadeInAsync(Image image, int durationMs)
-    {
-        var steps = 20;
-        var stepDuration = durationMs / steps;
-        var targetOpacity = 1.0;
-
-        for (int i = 1; i <= steps; i++)
+        var key = theme == "Light" ? "Light" : "Dark";
+        return _splashBitmapCache.GetOrAdd(key, static k =>
         {
-            image.Opacity = targetOpacity * (i / (double)steps);
-            await Task.Delay(stepDuration);
-        }
-        image.Opacity = targetOpacity;
+            var assetPath = $"avares://Athena.UI/Assets/{k}.webp";
+            using var stream = AssetLoader.Open(new Uri(assetPath));
+            return Bitmap.DecodeToWidth(stream, SplashDecodeWidth);
+        });
     }
 
-    private async Task FadeOutAsync(Image image, int durationMs)
+    /// <summary>
+    /// 合成器时钟驱动的透明度动画，交由渲染管线插值，帧率平滑不受 UI 线程抖动影响。
+    /// </summary>
+    private static async Task AnimateOpacityAsync(Visual target, double from, double to, int durationMs)
     {
-        var steps = 20;
-        var stepDuration = durationMs / steps;
-        var startOpacity = image.Opacity;
-
-        for (int i = 1; i <= steps; i++)
+        var animation = new Animation
         {
-            image.Opacity = startOpacity * (1 - i / (double)steps);
-            await Task.Delay(stepDuration);
-        }
-        image.Opacity = 0;
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            Easing = new LinearEasing(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0d),
+                    Setters = { new Setter(Visual.OpacityProperty, from) }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1d),
+                    Setters = { new Setter(Visual.OpacityProperty, to) }
+                }
+            }
+        };
+
+        await animation.RunAsync(target);
+        target.Opacity = to; // 动画结束固化终值
     }
+
+    private Task FadeInAsync(Image image, int durationMs) => AnimateOpacityAsync(image, 0, 1, durationMs);
+
+    private Task FadeOutAsync(Image image, int durationMs) => AnimateOpacityAsync(image, image.Opacity, 0, durationMs);
 }
