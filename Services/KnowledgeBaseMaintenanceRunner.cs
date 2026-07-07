@@ -21,6 +21,10 @@ public sealed class KnowledgeBaseMaintenanceRunner
     private readonly IConfigService _configService;
     private readonly IFunctionRegistry _functionRegistry;
     private readonly ILogger _logger;
+    private readonly ILocalizationService? _localizationService;
+
+    private string GetLocalized(string key, string defaultValue)
+        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     private const int MaxIterations = 30;
     private const int MaxOutputTokens = 4000;
@@ -48,11 +52,12 @@ public sealed class KnowledgeBaseMaintenanceRunner
         "- Work autonomously; do not ask questions.\n" +
         "- When finished, reply with a concise plain-text summary: which files were merged into which, and which were deleted.";
 
-    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger)
+    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger, ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _functionRegistry = functionRegistry;
         _logger = logger.ForContext<KnowledgeBaseMaintenanceRunner>();
+        _localizationService = localizationService;
     }
 
     /// <summary>
@@ -66,7 +71,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
 
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {
-            return (false, "整理模型未配置（缺少 API Key 或模型）。");
+            return (false, GetLocalized("KbMaint.ModelNotConfigured", "Maintenance model is not configured (missing API Key or model)."));
         }
 
         ChatClient chatClient;
@@ -83,7 +88,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
         }
         catch (Exception ex)
         {
-            return (false, $"初始化整理模型客户端失败: {ex.Message}");
+            return (false, string.Format(GetLocalized("KbMaint.ClientInitFailed", "Failed to initialize the maintenance model client: {0}"), ex.Message));
         }
 
         var tools = _functionRegistry.GetToolDefinitions(AllowedTools).OfType<ChatTool>().ToList();
@@ -127,14 +132,14 @@ public sealed class KnowledgeBaseMaintenanceRunner
                 catch (Exception ex)
                 {
                     _logger.Error(ex, "整理 Agent 模型调用失败");
-                    return (false, $"模型调用失败: {ex.Message}");
+                    return (false, string.Format(GetLocalized("KbMaint.ModelCallFailed", "Model call failed: {0}"), ex.Message));
                 }
 
                 var toolCalls = value.ToolCalls;
                 if (toolCalls == null || toolCalls.Count == 0)
                 {
                     var finalText = value.Content.Count > 0 ? value.Content[0].Text : string.Empty;
-                    return (true, string.IsNullOrWhiteSpace(finalText) ? "(整理完成，无摘要)" : finalText.Trim());
+                    return (true, string.IsNullOrWhiteSpace(finalText) ? GetLocalized("KbMaint.CompletedNoSummary", "(Maintenance completed, no summary)") : finalText.Trim());
                 }
 
                 messages.Add(new AssistantChatMessage(value));
@@ -159,16 +164,16 @@ public sealed class KnowledgeBaseMaintenanceRunner
                 }
             }
 
-            return (false, "达到最大步数仍未完成整理。");
+            return (false, GetLocalized("KbMaint.MaxStepsReached", "Maximum steps reached before maintenance completed."));
         }
         catch (OperationCanceledException)
         {
-            return (false, "整理已取消。");
+            return (false, GetLocalized("KbMaint.Canceled", "Maintenance was canceled."));
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "整理 Agent 运行异常");
-            return (false, $"整理异常: {ex.Message}");
+            return (false, string.Format(GetLocalized("KbMaint.Exception", "Maintenance exception: {0}"), ex.Message));
         }
     }
 }
