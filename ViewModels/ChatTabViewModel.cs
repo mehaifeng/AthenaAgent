@@ -63,6 +63,9 @@ public partial class ChatTabViewModel : ViewModelBase
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
 
+    // 批量恢复消息期间抑制 CollectionChanged 的逐条重算，灌完统一算一次
+    private bool _isBulkLoadingMessages;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private string _inputText = string.Empty;
@@ -330,6 +333,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
         Messages.CollectionChanged += (s, e) =>
         {
+            // 批量恢复期间跳过：由调用方在灌完后手动调用一次
+            if (_isBulkLoadingMessages) return;
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
         };
@@ -1934,16 +1939,22 @@ public partial class ChatTabViewModel : ViewModelBase
 
             if (history.Messages != null)
             {
-                foreach (var msg in history.Messages)
+                // 消息先全部上屏，预览图后台解码陆续回填（PreviewImage 是 ObservableProperty，绑定自动刷新）
+                _isBulkLoadingMessages = true;
+                try
                 {
-                    ConversationPersistenceHelper.PrepareRestoredMessage(msg);
-                    if (_attachmentStoreService != null)
+                    foreach (var msg in history.Messages)
                     {
-                        await _attachmentStoreService.LoadPreviewsAsync(msg.Attachments);
+                        ConversationPersistenceHelper.PrepareRestoredMessage(msg);
+                        Messages.Add(msg);
                     }
-
-                    Messages.Add(msg);
                 }
+                finally
+                {
+                    _isBulkLoadingMessages = false;
+                }
+
+                LoadPreviewsInBackground(history.Messages);
             }
 
             await ReconcileImageGenerationSessionAsync();
@@ -1960,6 +1971,34 @@ public partial class ChatTabViewModel : ViewModelBase
             IsResetting = false;
             _conversationTransitionLock.Release();
         }
+    }
+
+    /// <summary>
+    /// 后台逐张解码附件预览图（PreviewImage 绑定 UI，赋值在 UI 线程完成），
+    /// 全部完成后再刷一次 token 显示——此时才拿到真实图像尺寸。
+    /// </summary>
+    private void LoadPreviewsInBackground(IEnumerable<ChatMessage> messages)
+    {
+        if (_attachmentStoreService == null) return;
+
+        var snapshot = messages
+            .Where(m => m.Attachments.Count > 0)
+            .SelectMany(m => m.Attachments)
+            .ToList();
+        if (snapshot.Count == 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _attachmentStoreService.LoadPreviewsAsync(snapshot);
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => UpdateContextTokensDisplay());
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "后台回填附件预览失败");
+            }
+        });
     }
 
     private async Task<TransitionStageResult> TryStageCurrentConversationForTransitionAsync()
@@ -2074,12 +2113,21 @@ public partial class ChatTabViewModel : ViewModelBase
 
         if (snapshot.Messages != null)
         {
-            foreach (var msg in snapshot.Messages)
+            _isBulkLoadingMessages = true;
+            try
             {
-                ConversationPersistenceHelper.PrepareRestoredMessage(msg);
-                _ = _attachmentStoreService?.LoadPreviewsAsync(msg.Attachments);
-                Messages.Add(msg);
+                foreach (var msg in snapshot.Messages)
+                {
+                    ConversationPersistenceHelper.PrepareRestoredMessage(msg);
+                    Messages.Add(msg);
+                }
             }
+            finally
+            {
+                _isBulkLoadingMessages = false;
+            }
+
+            LoadPreviewsInBackground(snapshot.Messages);
         }
 
         _ = ReconcileImageGenerationSessionAsync();

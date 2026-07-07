@@ -233,6 +233,9 @@ public partial class App : Application
             // macOS: 处理 Dock 右键退出
             desktop.ShutdownRequested += OnShutdownRequested;
 
+            // 关闭日志管线：等待 SQLiteSink 后台线程冲刷余量
+            desktop.Exit += (_, _) => Log.CloseAndFlush();
+
             if (!config.OnboardingCompleted)
             {
                 // 首次启动：先弹引导向导，关窗（完成或跳过）后再创建主窗口。

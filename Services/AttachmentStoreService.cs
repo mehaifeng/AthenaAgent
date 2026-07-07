@@ -281,30 +281,76 @@ public class AttachmentStoreService : IAttachmentStoreService
         return attachment;
     }
 
-    public Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default)
+    // 聊天气泡内嵌图最大逻辑宽度 560；2x 缩放下 1024 物理像素足够清晰
+    private const int PreviewDecodeWidth = 1024;
+
+    public async Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!attachment.IsImage || string.IsNullOrWhiteSpace(attachment.StoredPath) || !File.Exists(attachment.StoredPath))
         {
             attachment.PreviewImage = null;
-            return Task.CompletedTask;
+            return;
         }
 
         try
         {
-            using var stream = File.OpenRead(attachment.StoredPath);
-            var bitmap = new Bitmap(stream);
-            attachment.PreviewImage = bitmap;
-            attachment.Width = attachment.Width == 0 ? (int)Math.Round(bitmap.Size.Width) : attachment.Width;
-            attachment.Height = attachment.Height == 0 ? (int)Math.Round(bitmap.Size.Height) : attachment.Height;
+            var storedPath = attachment.StoredPath;
+
+            // 解码在线程池；顺带用 SKCodec 只读元数据拿真实尺寸（避免因预览降分辨率而误报图像 token）
+            var (bitmap, realWidth, realHeight) = await Task.Run(() =>
+            {
+                int rw = 0, rh = 0;
+                using (var codec = SkiaSharp.SKCodec.Create(storedPath))
+                {
+                    if (codec != null)
+                    {
+                        rw = codec.Info.Width;
+                        rh = codec.Info.Height;
+                    }
+                }
+
+                using var stream = File.OpenRead(storedPath);
+                Bitmap bmp;
+                if (rw > PreviewDecodeWidth)
+                {
+                    bmp = Bitmap.DecodeToWidth(stream, PreviewDecodeWidth);
+                }
+                else
+                {
+                    bmp = new Bitmap(stream);
+                    if (rw == 0)
+                    {
+                        rw = (int)Math.Round(bmp.Size.Width);
+                        rh = (int)Math.Round(bmp.Size.Height);
+                    }
+                }
+
+                return (bmp, rw, rh);
+            }, cancellationToken);
+
+            void Apply()
+            {
+                attachment.PreviewImage = bitmap;
+                attachment.Width = attachment.Width == 0 ? realWidth : attachment.Width;
+                attachment.Height = attachment.Height == 0 ? realHeight : attachment.Height;
+            }
+
+            // PreviewImage 触发 UI 绑定刷新，属性写入必须回到 UI 线程
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Apply();
+            }
+            else
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(Apply);
+            }
         }
         catch (Exception ex)
         {
             attachment.PreviewImage = null;
             _logger.Warning(ex, "Failed to load attachment preview: {Path}", attachment.StoredPath);
         }
-
-        return Task.CompletedTask;
     }
 
     public async Task LoadPreviewsAsync(IEnumerable<ChatAttachment> attachments, CancellationToken cancellationToken = default)
