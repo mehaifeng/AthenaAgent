@@ -997,11 +997,14 @@ public class OpenAIChatService : IChatService
         }
     }
 
+    private string GetLocalized(string key, string defaultValue)
+        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
+
     public async Task<(bool Success, string? Message)> TestConnectionAsync()
     {
         if (_chatClient == null)
         {
-            return (false, "请先配置 API Key");
+            return (false, GetLocalized("Service.ApiKeyMissing", "Please configure the API Key first"));
         }
 
         try
@@ -1031,12 +1034,12 @@ public class OpenAIChatService : IChatService
             var content = response.Value.Content[0].Text;
 
             Log.Information("API 连接测试成功");
-            return (true, "连接成功");
+            return (true, _localizationService?.GetString("History.ConnectionSuccess"));
         }
         catch (Exception ex)
         {
             Log.Error(ex, "API 连接测试失败");
-            return (false, $"连接失败: {ex.Message}");
+            return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
         }
     }
 
@@ -1104,7 +1107,7 @@ public class OpenAIChatService : IChatService
 
         if (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl))
         {
-            return (null, "Audio output is not fully configured.");
+            return (null, GetLocalized("Audio.NotConfigured", "Audio output is not fully configured."));
         }
 
         try
@@ -1132,13 +1135,13 @@ public class OpenAIChatService : IChatService
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                return (null, $"Audio output request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {errorBody}".Trim());
+                return (null, string.Format(GetLocalized("Audio.RequestFailed", "Audio output request failed: {0}"), $"{(int)response.StatusCode} {response.ReasonPhrase}. {errorBody}".Trim()));
             }
 
             var audioBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             if (audioBytes.Length == 0)
             {
-                return (null, "Audio output request returned an empty body.");
+                return (null, GetLocalized("Audio.EmptyBody", "Audio output request returned an empty body."));
             }
 
             return await CreateAssistantAudioAttachmentAsync(audioBytes, cancellationToken);
@@ -1146,7 +1149,7 @@ public class OpenAIChatService : IChatService
         catch (Exception ex)
         {
             Log.Error(ex, "独立音频输出生成失败");
-            return (null, $"Audio output generation failed: {ex.Message}");
+            return (null, string.Format(GetLocalized("Audio.GenerationFailed", "Audio output generation failed: {0}"), ex.Message));
         }
     }
 
@@ -1157,7 +1160,7 @@ public class OpenAIChatService : IChatService
     {
         if (_systemAudioService == null || !_systemAudioService.IsSupported)
         {
-            return (null, "System audio output is unavailable on this device.");
+            return (null, GetLocalized("Audio.SystemUnavailable", "System audio output is unavailable on this device."));
         }
 
         var input = text.Length > 4096 ? text[..4096] : text;
@@ -1169,18 +1172,18 @@ public class OpenAIChatService : IChatService
             var result = await _systemAudioService.SynthesizeToFileAsync(input, audioConfig.Voice, tempFile, cancellationToken);
             if (!result.Success)
             {
-                return (null, $"System audio output failed: {result.Message}".Trim());
+                return (null, string.Format(GetLocalized("Audio.SystemFailed", "System audio output failed: {0}"), result.Message ?? string.Empty).Trim());
             }
 
             if (!File.Exists(tempFile))
             {
-                return (null, "System audio output did not produce an audio file.");
+                return (null, GetLocalized("Audio.SystemNoFile", "System audio output did not produce an audio file."));
             }
 
             var bytes = await File.ReadAllBytesAsync(tempFile, cancellationToken);
             if (bytes.Length == 0)
             {
-                return (null, "System audio output produced an empty audio file.");
+                return (null, GetLocalized("Audio.SystemEmptyFile", "System audio output produced an empty audio file."));
             }
 
             return await CreateAssistantAudioAttachmentAsync(bytes, Path.GetFileName(tempFile), mimeType, cancellationToken);
@@ -1188,7 +1191,7 @@ public class OpenAIChatService : IChatService
         catch (Exception ex)
         {
             Log.Error(ex, "系统音频输出生成失败");
-            return (null, $"System audio output generation failed: {ex.Message}");
+            return (null, string.Format(GetLocalized("Audio.SystemGenerationFailed", "System audio output generation failed: {0}"), ex.Message));
         }
         finally
         {
@@ -1204,7 +1207,7 @@ public class OpenAIChatService : IChatService
     {
         if (_attachmentStoreService == null || audioBytes.Length == 0)
         {
-            return (null, "Audio attachment storage is unavailable.");
+            return (null, GetLocalized("Audio.StorageUnavailable", "Audio attachment storage is unavailable."));
         }
 
         try
@@ -1220,7 +1223,7 @@ public class OpenAIChatService : IChatService
         catch (Exception ex)
         {
             Log.Warning(ex, "保存 assistant 音频附件失败");
-            return (null, $"Failed to save audio output: {ex.Message}");
+            return (null, string.Format(GetLocalized("Audio.SaveFailed", "Failed to save audio output: {0}"), ex.Message));
         }
     }
 

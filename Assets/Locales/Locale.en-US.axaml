@@ -510,4 +510,45 @@
     <system:String x:Key="Onboarding.Starter2">Help me plan today's tasks and set a reminder</system:String>
     <system:String x:Key="Onboarding.Starter3">Remember: I prefer concise, direct answers</system:String>
 
+    <!-- Common service return messages -->
+    <system:String x:Key="Service.ApiKeyMissing">Please configure the API Key first</system:String>
+    <system:String x:Key="Service.ConnectionFailed">Connection failed: {0}</system:String>
+
+    <!-- Web Search -->
+    <system:String x:Key="WebSearch.NotEnabled">Web Search is not enabled</system:String>
+    <system:String x:Key="WebSearch.ApiKeyMissing">Web Search API Key is not configured</system:String>
+    <system:String x:Key="WebSearch.TestSuccess">Connection succeeded — {0} result(s)</system:String>
+
+    <!-- Embedding -->
+    <system:String x:Key="Embedding.NotConfigured">Please configure the API Key and embedding model first</system:String>
+    <system:String x:Key="Embedding.TestSuccess">Connection succeeded</system:String>
+    <system:String x:Key="Embedding.EmbedFailed">Failed to generate embedding vector</system:String>
+
+    <!-- Audio Output -->
+    <system:String x:Key="Audio.NotConfigured">Audio output is not fully configured.</system:String>
+    <system:String x:Key="Audio.RequestFailed">Audio output request failed: {0}</system:String>
+    <system:String x:Key="Audio.EmptyBody">Audio output request returned an empty body.</system:String>
+    <system:String x:Key="Audio.GenerationFailed">Audio output generation failed: {0}</system:String>
+    <system:String x:Key="Audio.SystemUnavailable">System audio output is unavailable on this device.</system:String>
+    <system:String x:Key="Audio.SystemFailed">System audio output failed: {0}</system:String>
+    <system:String x:Key="Audio.SystemNoFile">System audio output did not produce an audio file.</system:String>
+    <system:String x:Key="Audio.SystemEmptyFile">System audio output produced an empty audio file.</system:String>
+    <system:String x:Key="Audio.SystemGenerationFailed">System audio output generation failed: {0}</system:String>
+    <system:String x:Key="Audio.StorageUnavailable">Audio attachment storage is unavailable.</system:String>
+    <system:String x:Key="Audio.SaveFailed">Failed to save audio output: {0}</system:String>
+
+    <!-- Browser Vision -->
+    <system:String x:Key="Vision.ApiKeyMissing">Browser vision API key is not configured.</system:String>
+    <system:String x:Key="Vision.ModelMissing">Browser vision model is not configured.</system:String>
+    <system:String x:Key="Vision.ConnectionFailed">Browser vision model connection failed: {0}</system:String>
+
+    <!-- Knowledge Base Maintenance -->
+    <system:String x:Key="KbMaint.ModelNotConfigured">Maintenance model is not configured (missing API Key or model).</system:String>
+    <system:String x:Key="KbMaint.ClientInitFailed">Failed to initialize the maintenance model client: {0}</system:String>
+    <system:String x:Key="KbMaint.ModelCallFailed">Model call failed: {0}</system:String>
+    <system:String x:Key="KbMaint.CompletedNoSummary">(Maintenance completed, no summary)</system:String>
+    <system:String x:Key="KbMaint.MaxStepsReached">Maximum steps reached before maintenance completed.</system:String>
+    <system:String x:Key="KbMaint.Canceled">Maintenance was canceled.</system:String>
+    <system:String x:Key="KbMaint.Exception">Maintenance exception: {0}</system:String>
+
 </ResourceDictionary>
