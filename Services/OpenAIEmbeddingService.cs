@@ -19,6 +19,7 @@ namespace Athena.UI.Services;
 public class OpenAIEmbeddingService : IEmbeddingService
 {
     private readonly ILogger _logger;
+    private readonly ILocalizationService? _localizationService;
     private AppConfig _config;
     private OpenAIClient? _client;
     private EmbeddingClient? _embeddingClient;
@@ -29,12 +30,16 @@ public class OpenAIEmbeddingService : IEmbeddingService
         ? _config.EmbeddingModel
         : null;
 
-    public OpenAIEmbeddingService(AppConfig config, ILogger logger)
+    public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null)
     {
         _config = config;
         _logger = logger.ForContext<OpenAIEmbeddingService>();
+        _localizationService = localizationService;
         InitializeClient();
     }
+
+    private string GetLocalized(string key, string defaultValue)
+        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     /// <summary>
     /// 更新配置并重新初始化客户端
@@ -204,7 +209,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         if (_embeddingClient == null)
         {
-            return (false, "请先配置 API Key 和模型");
+            return (false, GetLocalized("Embedding.NotConfigured", "Please configure the API Key and embedding model first"));
         }
 
         try
@@ -212,13 +217,13 @@ public class OpenAIEmbeddingService : IEmbeddingService
             var result = await GenerateEmbeddingAsync("test");
             if (result != null && result.Length > 0)
             {
-                return (true, "连接成功");
+                return (true, GetLocalized("Embedding.TestSuccess", "Connection succeeded"));
             }
-            return (false, "生成向量失败");
+            return (false, GetLocalized("Embedding.EmbedFailed", "Failed to generate embedding vector"));
         }
         catch (Exception ex)
         {
-            return (false, $"连接失败: {ex.Message}");
+            return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
         }
     }
 }

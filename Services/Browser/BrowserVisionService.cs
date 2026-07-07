@@ -19,16 +19,21 @@ public class BrowserVisionService : IBrowserVisionService
 {
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
+    private readonly ILocalizationService? _localizationService;
 
     // 1×1 透明 PNG，仅用于连接测试时探测模型是否接受图像输入。
     private static readonly byte[] OnePixelPngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
 
-    public BrowserVisionService(IConfigService configService, ILogger logger)
+    public BrowserVisionService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _logger = logger.ForContext<BrowserVisionService>();
+        _localizationService = localizationService;
     }
+
+    private string GetLocalized(string key, string defaultValue)
+        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     public async Task<BrowserAgentOutput> DecideNextActionsAsync(
         BrowserTaskRequest task,
@@ -162,12 +167,12 @@ public class BrowserVisionService : IBrowserVisionService
         var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey))
         {
-            return (false, "Browser vision API key is not configured.");
+            return (false, GetLocalized("Vision.ApiKeyMissing", "Browser vision API key is not configured."));
         }
 
         if (string.IsNullOrWhiteSpace(effectiveConfig.Model))
         {
-            return (false, "Browser vision model is not configured.");
+            return (false, GetLocalized("Vision.ModelMissing", "Browser vision model is not configured."));
         }
 
         try
@@ -215,7 +220,7 @@ public class BrowserVisionService : IBrowserVisionService
         }
         catch (Exception ex)
         {
-            return (false, $"Browser vision model connection failed: {ex.Message}");
+            return (false, string.Format(GetLocalized("Vision.ConnectionFailed", "Browser vision model connection failed: {0}"), ex.Message));
         }
     }
 

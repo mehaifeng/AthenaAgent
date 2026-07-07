@@ -22,6 +22,10 @@ public class WebSearchService : IWebSearchService
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
+    private readonly ILocalizationService? _localizationService;
+
+    private string GetLocalized(string key, string defaultValue)
+        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     public bool IsConfigured
     {
@@ -32,10 +36,11 @@ public class WebSearchService : IWebSearchService
         }
     }
 
-    public WebSearchService(IConfigService configService, ILogger logger)
+    public WebSearchService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _logger = logger.ForContext<WebSearchService>();
+        _localizationService = localizationService;
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30)
@@ -415,22 +420,22 @@ public class WebSearchService : IWebSearchService
 
         if (!config.WebSearchEnabled)
         {
-            return (false, "Web Search 未启用");
+            return (false, GetLocalized("WebSearch.NotEnabled", "Web Search is not enabled"));
         }
 
         if (string.IsNullOrWhiteSpace(config.WebSearchApiKey))
         {
-            return (false, "API Key 未配置");
+            return (false, GetLocalized("WebSearch.ApiKeyMissing", "Web Search API Key is not configured"));
         }
 
         try
         {
             var results = await SearchAsync("test", 1);
-            return (true, $"连接成功，返回 {results.Count} 条结果");
+            return (true, string.Format(GetLocalized("WebSearch.TestSuccess", "Connection succeeded — {0} result(s)"), results.Count));
         }
         catch (Exception ex)
         {
-            return (false, $"连接失败: {ex.Message}");
+            return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
         }
     }
 }

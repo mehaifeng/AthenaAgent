@@ -510,4 +510,45 @@
     <system:String x:Key="Onboarding.Starter2">帮我整理一下今天要做的事，并设一个提醒</system:String>
     <system:String x:Key="Onboarding.Starter3">记住：我更喜欢简洁直接的回答</system:String>
 
+    <!-- 服务通用返回消息 -->
+    <system:String x:Key="Service.ApiKeyMissing">请先备妥神殿钥匙</system:String>
+    <system:String x:Key="Service.ConnectionFailed">门未通: {0}</system:String>
+
+    <!-- Web Search -->
+    <system:String x:Key="WebSearch.NotEnabled">寰宇探寻未启</system:String>
+    <system:String x:Key="WebSearch.ApiKeyMissing">寰宇探寻之钥未备</system:String>
+    <system:String x:Key="WebSearch.TestSuccess">门已通，得 {0} 卷回音</system:String>
+
+    <!-- Embedding -->
+    <system:String x:Key="Embedding.NotConfigured">请先备妥神殿钥匙与神谕</system:String>
+    <system:String x:Key="Embedding.TestSuccess">门已通</system:String>
+    <system:String x:Key="Embedding.EmbedFailed">铸文成向失利</system:String>
+
+    <!-- Audio Output -->
+    <system:String x:Key="Audio.NotConfigured">神谕之声未全然备妥。</system:String>
+    <system:String x:Key="Audio.RequestFailed">发声请示失利: {0}</system:String>
+    <system:String x:Key="Audio.EmptyBody">发声请示归来空无。</system:String>
+    <system:String x:Key="Audio.GenerationFailed">发声铸造失利: {0}</system:String>
+    <system:String x:Key="Audio.SystemUnavailable">此器不能自行发声。</system:String>
+    <system:String x:Key="Audio.SystemFailed">系统发声失利: {0}</system:String>
+    <system:String x:Key="Audio.SystemNoFile">系统发声未留下声卷。</system:String>
+    <system:String x:Key="Audio.SystemEmptyFile">系统发声所留声卷空无。</system:String>
+    <system:String x:Key="Audio.SystemGenerationFailed">系统发声铸造失利: {0}</system:String>
+    <system:String x:Key="Audio.StorageUnavailable">声卷附箱不可用。</system:String>
+    <system:String x:Key="Audio.SaveFailed">存留声卷失利: {0}</system:String>
+
+    <!-- Browser Vision -->
+    <system:String x:Key="Vision.ApiKeyMissing">观界之镜钥未备。</system:String>
+    <system:String x:Key="Vision.ModelMissing">观界之镜神谕未配。</system:String>
+    <system:String x:Key="Vision.ConnectionFailed">观界之镜神谕之门未通: {0}</system:String>
+
+    <!-- Knowledge Base Maintenance -->
+    <system:String x:Key="KbMaint.ModelNotConfigured">整卷之谕未配（缺少钥匙或神谕）。</system:String>
+    <system:String x:Key="KbMaint.ClientInitFailed">整卷之谕客户初启失利: {0}</system:String>
+    <system:String x:Key="KbMaint.ModelCallFailed">神谕召唤失利: {0}</system:String>
+    <system:String x:Key="KbMaint.CompletedNoSummary">（整卷已毕，无摘）</system:String>
+    <system:String x:Key="KbMaint.MaxStepsReached">已抵最步之限，整卷未尽。</system:String>
+    <system:String x:Key="KbMaint.Canceled">整卷已罢。</system:String>
+    <system:String x:Key="KbMaint.Exception">整卷有异: {0}</system:String>
+
 </ResourceDictionary>
