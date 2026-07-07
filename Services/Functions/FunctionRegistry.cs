@@ -510,17 +510,33 @@ public class FunctionRegistry : IFunctionRegistry
         }
     }
 
+    // 工具集在进程内固定，估算结果只取决于 FilterTools 的三个配置开关；按开关组合缓存序列化结果
+    private int _cachedToolDeclarationTokens = -1;
+    private (bool ImageGen, bool SubAgents, bool DocParser) _toolTokenCacheKey;
+
     public int GetToolDeclarationTokenCount()
     {
+        var config = _configService?.Load();
+        var key = (
+            config?.ImageGenerationEnabled == true,
+            config?.EnableSubAgents == true,
+            config?.DocumentParserEnabled == true);
+
+        if (_cachedToolDeclarationTokens >= 0 && key == _toolTokenCacheKey)
+        {
+            return _cachedToolDeclarationTokens;
+        }
+
         int totalTokens = 0;
         foreach (var tool in FilterTools(_tools).OfType<ChatTool>())
         {
-            // Simple estimation: serialize the tool definition and estimate based on length.
-            // A more precise calculation would involve tokenizing the JSON representation.
+            // 序列化 JSON Schema 后按启发式规则估 token，用于上下文占用兜底估算
             string serializedTool = JsonSerializer.Serialize(tool, new JsonSerializerOptions { WriteIndented = false });
             totalTokens += Models.ConversationContext.EstimateTokens(serializedTool);
         }
 
+        _toolTokenCacheKey = key;
+        _cachedToolDeclarationTokens = totalTokens;
         _logger.Debug("Calculated total tool declaration tokens: {Tokens}", totalTokens);
         return totalTokens;
     }

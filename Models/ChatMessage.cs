@@ -177,9 +177,9 @@ public partial class ChatMessage : ObservableObject
     public bool CanCopy => true;
 
     /// <summary>
-    /// 显示文本（纯内容，不带前缀）
+    /// 显示文本；Segment 布局启用时 legacy renderer 不可见，返回空避免其做无效 Markdown 解析。
     /// </summary>
-    public string DisplayText => Content;
+    public string DisplayText => UsesSegmentLayout ? string.Empty : Content;
 
     /// <summary>
     /// 时间戳显示格式
@@ -220,6 +220,7 @@ public partial class ChatMessage : ObservableObject
     {
         OnPropertyChanged(nameof(HasSegments));
         OnPropertyChanged(nameof(UsesSegmentLayout));
+        OnPropertyChanged(nameof(DisplayText)); // DisplayText 随布局切换取值
         OnPropertyChanged(nameof(HasImageSegments));
         OnPropertyChanged(nameof(ShouldShowLegacyMarkdown));
         OnPropertyChanged(nameof(AttachmentPanelItems));
