@@ -310,6 +310,14 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _subAgentsInheritApproval = false;
 
+    // MCP 扩展（Model Context Protocol）—— 外部工具服务器接入
+    // EnableMcp 关闭时，FunctionRegistry 隐藏三个 meta-tool，配置项亦不参与生命周期。
+    [ObservableProperty]
+    private bool _enableMcp = false;
+
+    [ObservableProperty]
+    private ObservableCollection<McpServerConfig> _mcpServers = new();
+
     // 用户偏好设置
     [ObservableProperty]
     private bool _skipRewindConfirm;

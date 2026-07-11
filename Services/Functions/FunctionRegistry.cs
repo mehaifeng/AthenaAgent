@@ -1,5 +1,6 @@
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.Mcp;
 using OpenAI.Chat;
 using Serilog;
 using System;
@@ -37,7 +38,9 @@ public class FunctionRegistry : IFunctionRegistry
         DocumentParserFunctions documentParserFunctions,
         IConfigService? configService,
         ILogger logger,
-        IToolApprovalService? approvalService = null)
+        IToolApprovalService? approvalService = null,
+        McpDiscoveryFunctions? mcpDiscoveryFunctions = null,
+        McpManagementFunctions? mcpManagementFunctions = null)
     {
         _configService = configService;
         _approvalService = approvalService;
@@ -49,7 +52,8 @@ public class FunctionRegistry : IFunctionRegistry
             "CRITICAL: The 'command' field MUST be a single executable name (e.g., 'powershell', 'git', 'npm'). " +
             "ALL parameters, flags, and URLs MUST be passed as separate strings in the 'arguments' array. " +
             "For example, to open a URL on Windows: command='powershell', arguments=['start', 'https://example.com']. " +
-            "DO NOT use this for file system tasks like 'ls' or 'mkdir'—use dedicated file tools instead.",
+            "DO NOT use this for file system tasks like 'ls' or 'mkdir'—use dedicated file tools instead. " +
+            "AVOID commands that require interactive input (password prompts, y/N confirmations, sudo) — they will hang until the timeout is reached since this tool cannot supply terminal input.",
             new
             {
                 type = "object",
@@ -58,7 +62,8 @@ public class FunctionRegistry : IFunctionRegistry
                     command = new { type = "string", description = "The executable name ONLY (e.g., 'powershell', 'dotnet'). NO spaces or arguments allowed here." },
                     arguments = new { type = "array", items = new { type = "string" }, description = "List of arguments. Each flag or parameter should be a separate string (e.g., ['-c', 'dir'] or ['start', 'url'])." },
                     workingDirectory = new { type = "string", description = "The directory where the command should be executed." },
-                    waitForExit = new { type = "boolean", description = "If true (default), waits for completion. Set to false for GUI apps or background tasks.", @default = true }
+                    waitForExit = new { type = "boolean", description = "If true (default), waits for completion. Set to false for GUI apps or background tasks.", @default = true },
+                    timeoutSeconds = new { type = "integer", description = "Only applies when waitForExit=true. Max seconds to wait before the process is force-killed as timed out (default 300). Raise this for known long-running commands (e.g. package installs, builds), up to a hard cap of 1800 seconds. It will never wait forever." }
                 },
                 required = new[] { "command" }
             });
@@ -387,6 +392,101 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "sourcePath", "destinationPath" }
             });
 
+        // --- MCP 扩展 meta-tools ---
+        // 只暴露 3 个入口降低初始 token；具体工具的 schema 与调用按需拉取。
+        // 未启用（AppConfig.EnableMcp=false）时被 FilterTools 隐藏，不参与工具列表。
+        if (mcpDiscoveryFunctions is not null)
+        {
+            RegisterFunction("mcp_list_tools", mcpDiscoveryFunctions.ListToolsAsync,
+                "Lists tools discovered from configured MCP (Model Context Protocol) servers. Returns names and one-line summaries only — no schemas — to conserve context. Filter by `server` or `keyword`. Follow up with `mcp_get_tool_schema` to fetch a specific tool's JSON schema before calling `mcp_call_tool`.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        server = new { type = "string", description = "Optional MCP server name to restrict the listing to." },
+                        keyword = new { type = "string", description = "Optional keyword matched against tool name / description / server." },
+                        limit = new { type = "integer", description = "Max entries to return (1–200, default 50).", @default = 50 }
+                    }
+                });
+
+            RegisterFunction("mcp_get_tool_schema", mcpDiscoveryFunctions.GetToolSchemaAsync,
+                "Fetches the full JSON input schema and long description of a specific MCP tool. Call this AFTER `mcp_list_tools` and BEFORE `mcp_call_tool` so you construct valid arguments.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "Fully qualified tool name returned by mcp_list_tools (e.g. mcp__filesystem__read_file)." }
+                    },
+                    required = new[] { "name" }
+                });
+
+            RegisterFunction("mcp_call_tool", mcpDiscoveryFunctions.CallToolAsync,
+                "Invokes a discovered MCP tool. Always call `mcp_get_tool_schema` first to learn the argument shape. Subject to the same approval gate as any other tool.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "Fully qualified MCP tool name." },
+                        // 同时允许对象与字符串：弱模型对无 properties 的 object 常填空串，
+                        // 允许其改用 JSON 字符串（服务端会解析），大幅提升传参成功率。
+                        arguments = new
+                        {
+                            type = new[] { "object", "string" },
+                            description = "The tool's arguments as a JSON OBJECT matching its input schema, e.g. {\"ip\":\"114.247.50.2\"}. If you cannot emit a nested object, pass the SAME JSON encoded as a string. Pass {} for no-arg tools. NEVER pass an empty value."
+                        }
+                    },
+                    required = new[] { "name", "arguments" }
+                });
+        }
+
+        // --- MCP 服务器管理（敏感操作，走审批弹窗）---
+        if (mcpManagementFunctions is not null)
+        {
+            RegisterFunction("mcp_add_server", mcpManagementFunctions.AddServerAsync,
+                "Adds (or updates) an MCP server so its tools become available. Use when the user asks to connect/install an MCP server by natural language. For a LOCAL server pass `command` (e.g. npx, uvx, docker) + `args`; for a REMOTE server pass `url` (Streamable HTTP / SSE) + optional `headers` (e.g. Authorization). This is a sensitive action and requires the user's explicit approval; the app auto-connects the server in the background afterward.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "Unique server name (existing server with the same name is replaced)." },
+                        command = new { type = "string", description = "LOCAL (stdio) launcher executable, e.g. 'npx', 'uvx', 'docker'. Provide either command or url." },
+                        args = new { type = new[] { "array", "string" }, description = "Launch arguments for a stdio server, each as a separate string (e.g. ['-y','@modelcontextprotocol/server-filesystem','/path']). May also be the same JSON array encoded as a string." },
+                        env = new { type = new[] { "object", "string" }, description = "Environment variables for a stdio server as a flat JSON object, e.g. {\"API_KEY\":\"xxx\"}. If you cannot emit a nested object, pass the SAME JSON encoded as a string. NEVER pass an empty value if the server needs a key." },
+                        url = new { type = "string", description = "REMOTE (http) server endpoint URL. Provide either command or url." },
+                        headers = new { type = new[] { "object", "string" }, description = "HTTP headers for a remote server as a flat JSON object, e.g. {\"Authorization\":\"Bearer xxx\"}. May also be passed as a JSON string." }
+                    },
+                    required = new[] { "name" }
+                });
+
+            RegisterFunction("mcp_import_json", mcpManagementFunctions.ImportJsonAsync,
+                "Adds one or more MCP servers from a JSON config blob in Claude Desktop format, e.g. {\"mcpServers\":{\"name\":{\"command\":\"uvx\",\"args\":[...],\"env\":{\"API_KEY\":\"...\"}}}}. PREFER this when the user pastes such a JSON snippet — pass the entire JSON verbatim as the `json` string, including any API keys. This avoids constructing nested objects. Sensitive action; requires user approval.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        json = new { type = "string", description = "The full MCP config JSON, verbatim, as a string. Include env/headers values (e.g. API keys) exactly as given." }
+                    },
+                    required = new[] { "json" }
+                });
+
+            RegisterFunction("mcp_remove_server", mcpManagementFunctions.RemoveServerAsync,
+                "Removes a configured MCP server by name and shuts down its process. Sensitive action; requires user approval.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "Name of the MCP server to remove." }
+                    },
+                    required = new[] { "name" }
+                });
+        }
+
         _logger.Information("FunctionRegistry initialized with {Count} functions", _tools.Count);
     }
 
@@ -510,9 +610,9 @@ public class FunctionRegistry : IFunctionRegistry
         }
     }
 
-    // 工具集在进程内固定，估算结果只取决于 FilterTools 的三个配置开关；按开关组合缓存序列化结果
+    // 工具集在进程内固定，估算结果只取决于 FilterTools 的配置开关；按开关组合缓存序列化结果
     private int _cachedToolDeclarationTokens = -1;
-    private (bool ImageGen, bool SubAgents, bool DocParser) _toolTokenCacheKey;
+    private (bool ImageGen, bool SubAgents, bool DocParser, bool Mcp) _toolTokenCacheKey;
 
     public int GetToolDeclarationTokenCount()
     {
@@ -520,7 +620,8 @@ public class FunctionRegistry : IFunctionRegistry
         var key = (
             config?.ImageGenerationEnabled == true,
             config?.EnableSubAgents == true,
-            config?.DocumentParserEnabled == true);
+            config?.DocumentParserEnabled == true,
+            config?.EnableMcp == true);
 
         if (_cachedToolDeclarationTokens >= 0 && key == _toolTokenCacheKey)
         {
@@ -568,6 +669,18 @@ public class FunctionRegistry : IFunctionRegistry
             // Office/PDF 文档解析仅在开启文档解析时对模型可见。
             if (string.Equals(chatTool.FunctionName, "parse_office_document", StringComparison.OrdinalIgnoreCase)
                 && config?.DocumentParserEnabled != true)
+            {
+                continue;
+            }
+
+            // MCP 相关工具（发现 meta-tool + 管理工具）仅在开启 MCP 扩展时对模型可见。
+            if ((string.Equals(chatTool.FunctionName, "mcp_list_tools", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(chatTool.FunctionName, "mcp_get_tool_schema", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(chatTool.FunctionName, "mcp_call_tool", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(chatTool.FunctionName, "mcp_add_server", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(chatTool.FunctionName, "mcp_remove_server", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(chatTool.FunctionName, "mcp_import_json", StringComparison.OrdinalIgnoreCase))
+                && config?.EnableMcp != true)
             {
                 continue;
             }

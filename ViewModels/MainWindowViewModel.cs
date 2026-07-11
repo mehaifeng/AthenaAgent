@@ -23,6 +23,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private ConfigTabViewModel _configTabViewModel;
 
     [ObservableProperty]
+    private ExtensionsTabViewModel _extensionsTabViewModel;
+
+    [ObservableProperty]
     private TasksTabViewModel _tasksTabViewModel;
 
     [ObservableProperty]
@@ -46,11 +49,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedTabIndexChanged(int value)
     {
-        if (value == 3) // HISTORY
+        if (value == 4) // HISTORY
         {
             _ = HistoryTabViewModel?.LoadHistoryAsync();
         }
-        else if (value == 5) // LOGS
+        else if (value == 6) // LOGS
         {
             _ = LogsTabViewModel.RefreshLogsAsync();
         }
@@ -72,6 +75,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _chatTabViewModel = new ChatTabViewModel();
         _configTabViewModel = new ConfigTabViewModel();
+        _extensionsTabViewModel = new ExtensionsTabViewModel();
+        _extensionsTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel();
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
@@ -115,8 +120,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService, knowledgeMaintenanceService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, modelCatalogService, knowledgeMaintenanceService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
+        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService);
+        _extensionsTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
         _logsTabViewModel = new LogsTabViewModel(logService);
@@ -130,7 +137,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         // Wire up events
-        _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 2;
+        _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 3;
 
         if (taskScheduler != null)
         {

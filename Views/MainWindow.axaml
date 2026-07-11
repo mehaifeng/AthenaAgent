@@ -61,6 +61,11 @@
                 <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
             </TabItem>
 
+            <!-- 扩展（扩展能力 / MCP / 工具与安全） -->
+            <TabItem Header="{loc:Loc Tab.Extensions}">
+                <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
+            </TabItem>
+
             <!-- 任务 -->
             <TabItem Header="{loc:Loc Tab.Scheduler}">
                 <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>

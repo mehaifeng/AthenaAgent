@@ -1,4 +1,5 @@
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.SubAgents;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -27,7 +28,7 @@ public class CliFunctions
     /// <summary>
     /// 执行控制台命令并捕获输出
     /// </summary>
-    public async Task<FunctionResult> ExecuteTerminalCommandAsync(string command, List<string>? arguments = null, string? workingDirectory = null, bool waitForExit = true)
+    public async Task<FunctionResult> ExecuteTerminalCommandAsync(string command, List<string>? arguments = null, string? workingDirectory = null, bool waitForExit = true, int? timeoutSeconds = null)
     {
         try
         {
@@ -40,8 +41,11 @@ public class CliFunctions
                 return FunctionResult.FailureResult($"为了安全性与一致性，请使用现有的文件系统操作工具（如 list_system_directory, create_directory, delete_system_file 等）来完成此类任务，而不是直接调用终端命令 '{command}'。");
             }
 
+            // 读取主对话循环经 AsyncLocal 透传的取消令牌，使用户点"停止"能中断终端命令的等待。
+            var cancellationToken = ToolExecutionContext.CurrentCancellationToken;
+
             var args = arguments ?? new List<string>();
-            var result = await _cliService.ExecuteAsync(command, args, workingDirectory, null, waitForExit);
+            var result = await _cliService.ExecuteAsync(command, args, workingDirectory, null, waitForExit, timeoutSeconds, cancellationToken);
 
             if (result.IsSuccess)
             {
@@ -56,10 +60,13 @@ public class CliFunctions
             }
             else
             {
+                var msg = result.ExitCode == -2
+                    ? "命令执行超时被终止"
+                    : $"命令执行失败 (ExitCode: {result.ExitCode})";
                 return new FunctionResult
                 {
                     Success = false,
-                    Message = $"命令执行失败 (ExitCode: {result.ExitCode})",
+                    Message = msg,
                     Data = new
                     {
                         stdout = result.StandardOutput,
@@ -67,6 +74,11 @@ public class CliFunctions
                     }
                 };
             }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Information("终端命令执行被用户停止请求取消。");
+            return FunctionResult.FailureResult("终端命令执行已被用户取消。");
         }
         catch (Exception ex)
         {

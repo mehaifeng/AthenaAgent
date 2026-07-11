@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 
@@ -19,8 +20,9 @@ public interface IWebSearchService
     /// </summary>
     /// <param name="query">搜索关键词</param>
     /// <param name="maxResults">最大返回结果数</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>搜索结果列表</returns>
-    Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5);
+    Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 测试连接

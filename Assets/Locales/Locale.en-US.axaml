@@ -9,6 +9,7 @@
     <system:String x:Key="Tray.Quit">Leave the Temple</system:String>
     <system:String x:Key="Tab.ChatLink">Oracle</system:String>
     <system:String x:Key="Tab.SysConfig">Sanctum</system:String>
+    <system:String x:Key="Tab.Extensions">Forge</system:String>
     <system:String x:Key="Tab.Scheduler">Astrolabe</system:String>
     <system:String x:Key="Tab.Archives">Scrolls</system:String>
     <system:String x:Key="Tab.Files">Mnemosyne</system:String>
@@ -89,6 +90,8 @@
 
     <!-- Config Tab -->
     <system:String x:Key="Config.Header">Temple Sanctum</system:String>
+    <system:String x:Key="Ext.Header">The Forge · Extended Capabilities</system:String>
+    <system:String x:Key="Ext.SectionCapabilities">Extended Capabilities</system:String>
     <system:String x:Key="Config.SectionAppearance">Veil &amp; Form</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">Primary Oracle</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">Lesser Oracle</system:String>
@@ -104,6 +107,29 @@
     <system:String x:Key="Config.DocumentParserTokenHint">A token is needed for the Deep manner only; the Swift manner asks none (throttled by origin).</system:String>
     <system:String x:Key="Config.SectionMemory">Keeping of Memory</system:String>
     <system:String x:Key="Config.BgTasks">Unseen Labors</system:String>
+    <system:String x:Key="Config.Mcp">MCP Server</system:String>
+    <system:String x:Key="Config.Mcp.SectionServers">MCP servers</system:String>
+    <system:String x:Key="Config.Mcp.Enable">Enable MCP:</system:String>
+    <system:String x:Key="Config.Mcp.DiscoveryHint">The main model initially sees only three meta-tools (mcp_list_tools / mcp_get_tool_schema / mcp_call_tool). Full schemas are fetched on demand, so external tools do not inflate the initial context.</system:String>
+    <system:String x:Key="Config.Mcp.AddServer">Add server</system:String>
+    <system:String x:Key="Config.Mcp.Remove">Remove</system:String>
+    <system:String x:Key="Config.Mcp.Enabled">Enabled</system:String>
+    <system:String x:Key="Config.Mcp.Disabled">Disabled</system:String>
+    <system:String x:Key="Config.Mcp.Name">Name:</system:String>
+    <system:String x:Key="Config.Mcp.Command">Command:</system:String>
+    <system:String x:Key="Config.Mcp.WorkingDir">Working dir:</system:String>
+    <system:String x:Key="Config.Mcp.Args">Arguments</system:String>
+    <system:String x:Key="Config.Mcp.Env">Environment</system:String>
+    <system:String x:Key="Config.Mcp.ImportTitle">Import from JSON</system:String>
+    <system:String x:Key="Config.Mcp.ImportPlaceholder">Paste Claude Desktop format: {"mcpServers":{"name":{"command":"npx","args":["-y","@scope/pkg"]}}}</system:String>
+    <system:String x:Key="Config.Mcp.Import">Import</system:String>
+    <system:String x:Key="Config.Mcp.Reconnect">Reconnect</system:String>
+    <system:String x:Key="Config.Mcp.Status.Connecting">Connecting…</system:String>
+    <system:String x:Key="Config.Mcp.Status.Connected">Discovered {0} tool(s)</system:String>
+    <system:String x:Key="Config.Mcp.TransportStdio">Local (stdio)</system:String>
+    <system:String x:Key="Config.Mcp.TransportHttp">Remote (HTTP)</system:String>
+    <system:String x:Key="Config.Mcp.Url">Endpoint:</system:String>
+    <system:String x:Key="Config.Mcp.Headers">Headers</system:String>
     <system:String x:Key="Config.VectorKb">Mnemosyne (vectors)</system:String>
     <system:String x:Key="Config.KbMaintenanceSection">Tending of Mnemosyne</system:String>
     <system:String x:Key="Config.KbMaintenanceDescription">In the background, at the set cadence, duplicate and kindred scrolls in Mnemosyne are merged so one subject no longer scatters across many. All is backed up first; every unique truth is preserved into one canonical scroll before the redundant ones are let go.</system:String>

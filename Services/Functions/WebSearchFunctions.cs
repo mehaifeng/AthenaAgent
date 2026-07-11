@@ -1,5 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.SubAgents;
 using Serilog;
 using System;
 using System.Linq;
@@ -41,7 +42,9 @@ public class WebSearchFunctions
                 return FunctionResult.FailureResult("Web Search 服务未配置或未启用，请在设置中配置后再使用");
             }
 
-            var results = await _webSearchService.SearchAsync(query, maxResults);
+            // 读取主对话循环经 AsyncLocal 透传的取消令牌，使用户点"停止"能中断网络搜索请求。
+            var cancellationToken = ToolExecutionContext.CurrentCancellationToken;
+            var results = await _webSearchService.SearchAsync(query, maxResults, cancellationToken);
 
             if (results.Count == 0)
             {
@@ -62,6 +65,11 @@ public class WebSearchFunctions
             return FunctionResult.SuccessResult(
                 $"网络搜索找到 {results.Count} 条相关结果",
                 formattedResults);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Information("Web Search 执行被用户停止请求取消。");
+            return FunctionResult.FailureResult("网络搜索已被用户取消。");
         }
         catch (Exception ex)
         {

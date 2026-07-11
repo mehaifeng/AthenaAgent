@@ -90,6 +90,9 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="8.0.0-nblumhardt-02322" />
 
+    <!-- MCP (Model Context Protocol) 客户端 -->
+    <PackageReference Include="ModelContextProtocol" Version="0.4.0-preview.2" />
+
     <!-- SQLite -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.5.26302.115" />
 

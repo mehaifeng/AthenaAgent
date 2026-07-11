@@ -18,7 +18,9 @@ public static class ToolRiskClassifier
     {
         "read_system_file", "get_file_info", "search_in_file", "list_system_directory",
         "get_document_outline", "recall_from_memory", "view_self_configuration",
-        "web_search", "list_tasks"
+        "web_search", "list_tasks",
+        // MCP 元工具：仅返回快照/schema，无副作用。真正的调用 mcp_call_tool 仍走 fail-safe Sensitive。
+        "mcp_list_tools", "mcp_get_tool_schema"
     };
 
     // 破坏性且不可逆：始终高危对待（终端命令单独走命令级评估）。
@@ -33,7 +35,9 @@ public static class ToolRiskClassifier
         "write_system_file", "modify_system_file", "move_system_file", "copy_system_file",
         "create_directory", "create_new_memory", "modify_self_configuration",
         "run_browser_task", "generate_image", "create_task", "cancel_task",
-        "parse_office_document", "dispatch_subagents"
+        "parse_office_document", "dispatch_subagents",
+        // MCP：调用外部工具、增删外部服务器均需人工确认（新增=授权拉起外部子进程）。
+        "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json"
     };
 
     /// <summary>

@@ -73,5 +73,17 @@
     <Compile Include="../Services/Interfaces/IPromptService.cs" Link="Source/Services/Interfaces/IPromptService.cs" />
     <Compile Include="../Services/Interfaces/IRecurrenceService.cs" Link="Source/Services/Interfaces/IRecurrenceService.cs" />
     <Compile Include="../Services/Interfaces/ITaskScheduler.cs" Link="Source/Services/Interfaces/ITaskScheduler.cs" />
+    <!-- MCP 扩展相关 -->
+    <Compile Include="../Models/McpServerConfig.cs" Link="Source/Models/McpServerConfig.cs" />
+    <Compile Include="../Models/Mcp/McpToolDescriptor.cs" Link="Source/Models/Mcp/McpToolDescriptor.cs" />
+    <Compile Include="../Models/Mcp/McpArgListJsonConverter.cs" Link="Source/Models/Mcp/McpArgListJsonConverter.cs" />
+    <Compile Include="../Services/Mcp/IMcpToolHost.cs" Link="Source/Services/Mcp/IMcpToolHost.cs" />
+    <Compile Include="../Services/Mcp/McpToolNameEncoder.cs" Link="Source/Services/Mcp/McpToolNameEncoder.cs" />
+    <Compile Include="../Services/Mcp/McpToolRegistry.cs" Link="Source/Services/Mcp/McpToolRegistry.cs" />
+    <Compile Include="../Services/Mcp/McpDiscoveryFunctions.cs" Link="Source/Services/Mcp/McpDiscoveryFunctions.cs" />
+    <Compile Include="../Services/Mcp/McpConfigImporter.cs" Link="Source/Services/Mcp/McpConfigImporter.cs" />
+    <Compile Include="../Services/Mcp/McpConfigDiff.cs" Link="Source/Services/Mcp/McpConfigDiff.cs" />
+    <Compile Include="../Services/Mcp/McpManagementFunctions.cs" Link="Source/Services/Mcp/McpManagementFunctions.cs" />
+    <Compile Include="../Services/Mcp/McpLifecycleService.cs" Link="Source/Services/Mcp/McpLifecycleService.cs" />
   </ItemGroup>
 </Project>

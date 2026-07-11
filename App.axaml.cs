@@ -233,6 +233,23 @@ public partial class App : Application
             // macOS: 处理 Dock 右键退出
             desktop.ShutdownRequested += OnShutdownRequested;
 
+            // MCP 生命周期：启动时连接已启用服务器并订阅配置变更（后台，不阻塞 UI 首屏）。
+            var mcpLifecycle = Services.GetService<Athena.UI.Services.Mcp.McpLifecycleService>();
+            if (mcpLifecycle != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await mcpLifecycle.StartAsync(); }
+                    catch (Exception ex) { Log.Error(ex, "MCP 生命周期启动失败"); }
+                });
+                // 退出时释放全部 MCP 子进程（在日志关闭之前）。
+                desktop.Exit += (_, _) =>
+                {
+                    try { mcpLifecycle.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+                    catch (Exception ex) { Log.Warning(ex, "释放 MCP 子进程时出错"); }
+                };
+            }
+
             // 关闭日志管线：等待 SQLiteSink 后台线程冲刷余量
             desktop.Exit += (_, _) => Log.CloseAndFlush();
 
@@ -754,6 +771,34 @@ public partial class App : Application
             return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor);
         });
 
+        // --- MCP 扩展（Model Context Protocol）---
+        // Registry 是工具索引；ClientManager 兼任 IMcpToolHost（拉起 stdio 子进程 + 提供只读快照）；
+        // DiscoveryFunctions 是暴露给主模型的三枚 meta-tool 的实现。
+        services.AddSingleton<Athena.UI.Services.Mcp.McpToolRegistry>();
+        services.AddSingleton<Athena.UI.Services.Mcp.McpClientManager>(sp =>
+            new Athena.UI.Services.Mcp.McpClientManager(
+                sp.GetRequiredService<Athena.UI.Services.Mcp.McpToolRegistry>(),
+                Log.ForContext<Athena.UI.Services.Mcp.McpClientManager>()));
+        services.AddSingleton<Athena.UI.Services.Mcp.IMcpToolHost>(sp =>
+            sp.GetRequiredService<Athena.UI.Services.Mcp.McpClientManager>());
+        services.AddSingleton<Athena.UI.Services.Mcp.IMcpServerController>(sp =>
+            sp.GetRequiredService<Athena.UI.Services.Mcp.McpClientManager>());
+        services.AddSingleton<Athena.UI.Services.Mcp.McpDiscoveryFunctions>(sp =>
+            new Athena.UI.Services.Mcp.McpDiscoveryFunctions(
+                sp.GetRequiredService<Athena.UI.Services.Mcp.IMcpToolHost>(),
+                Log.ForContext<Athena.UI.Services.Mcp.McpDiscoveryFunctions>()));
+        // 服务器管理工具：经审批弹窗新增/移除 MCP 服务器；保存配置即触发热重启。
+        services.AddSingleton<Athena.UI.Services.Mcp.McpManagementFunctions>(sp =>
+            new Athena.UI.Services.Mcp.McpManagementFunctions(
+                sp.GetRequiredService<IConfigService>(),
+                Log.ForContext<Athena.UI.Services.Mcp.McpManagementFunctions>()));
+        // 生命周期服务：启动时按配置连接、配置变更热重启、退出时释放子进程。
+        services.AddSingleton<Athena.UI.Services.Mcp.McpLifecycleService>(sp =>
+            new Athena.UI.Services.Mcp.McpLifecycleService(
+                sp.GetRequiredService<Athena.UI.Services.Mcp.IMcpServerController>(),
+                sp.GetRequiredService<IConfigService>(),
+                Log.ForContext<Athena.UI.Services.Mcp.McpLifecycleService>()));
+
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
             var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
@@ -768,9 +813,11 @@ public partial class App : Application
             var documentParserFunctions = sp.GetRequiredService<DocumentParserFunctions>();
             var configService = sp.GetService<IConfigService>();
             var approvalService = sp.GetService<IToolApprovalService>();
+            var mcpDiscoveryFunctions = sp.GetService<Athena.UI.Services.Mcp.McpDiscoveryFunctions>();
+            var mcpManagementFunctions = sp.GetService<Athena.UI.Services.Mcp.McpManagementFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）

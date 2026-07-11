@@ -1,0 +1,679 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:loc="using:Athena.UI.Markup"
+             xmlns:u="https://irihi.tech/ursa"
+             xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
+             xmlns:appconv="using:Athena.UI.Converters"
+             mc:Ignorable="d" 
+             d:DesignWidth="720" 
+             d:DesignHeight="2000"
+             x:Class="Athena.UI.Views.ExtensionsTabView"
+             x:DataType="vm:ExtensionsTabViewModel">
+
+    <Design.DataContext>
+        <vm:ExtensionsTabViewModel/>
+    </Design.DataContext>
+
+    <UserControl.Resources>
+        <appconv:McpStatusToBrushConverter x:Key="McpStatusToBrushConverter"/>
+        <appconv:McpTransportIsHttpConverter x:Key="McpTransportIsHttp"/>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="40,*">
+
+        <!-- HEADER -->
+        <Border Grid.Row="0"
+                CornerRadius="0,0,5,5"
+                Background="{DynamicResource App.SectionBg}"
+                Padding="12,8">
+            <TextBlock Text="{loc:Loc Ext.Header}"
+                       FontWeight="SemiBold"
+                       FontSize="14"/>
+        </Border>
+
+        <!-- SCROLLABLE CONTENT -->
+        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
+            <Grid Grid.RowDefinitions="Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
+
+                <!-- SECTION 1: AUXILIARY CORES -->
+                <Border 
+                    Grid.Row="0"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Ext.SectionCapabilities}" FontWeight="Bold" FontSize="15" />
+                        
+                        <TabControl Background="Transparent" Padding="0,12,0,0">
+
+                            <TabItem Header="{loc:Loc Config.AudioOutput}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SectionChatAudio}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <!-- 凭据来源：跟随主模型时仅继承 ApiKey（BaseUrl 按下方 Provider 的默认音频端点解析） -->
+
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForChatAudio}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"
+                                                      IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                        
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ChatAudioEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.ChatAudioEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ChatAudioAutoPlay}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.ChatAudioAutoPlay}" HorizontalAlignment="Left" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding AudioProviders}" SelectedItem="{Binding Config.ChatAudioProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ChatAudioBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+
+                                        <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+                                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Config.ChatAudioApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ChatAudioEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsChatAudioCredentialCustom}"/>
+
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Config.ChatAudioModel}" Margin="0,0,0,8" IsEnabled="{Binding CanEditRemoteAudioFields}"/>
+
+                                        <TextBlock Grid.Row="7" Grid.Column="0" Text="{loc:Loc Config.ChatAudioVoice}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <AutoCompleteBox Grid.Row="7" Grid.Column="1"
+                                                         ItemsSource="{Binding AudioVoices}"
+                                                         Text="{Binding Config.ChatAudioVoice, Mode=TwoWay}"
+                                                         FilterMode="ContainsOrdinal"
+                                                         MinimumPrefixLength="0"
+                                                         MinimumPopulateDelay="0"
+                                                         Margin="0,0,0,8"
+                                                         IsEnabled="{Binding Config.ChatAudioEnabled}"/>
+                                        
+                                        <Grid Grid.Row="8" ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,8">
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestAudioOutputCommand}"
+                                                          IsEnabled="{Binding CanTestAudioOutput}"
+                                                          IsLoading="{Binding IsTestingAudioOutput}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.BtnRunDiagnostics}"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding AudioOutputTestStatus}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="12,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="12"
+                                                       Opacity="0.8"/>
+                                        </Grid>
+
+                                        <Border Grid.Row="9"
+                                                Grid.ColumnSpan="2"
+                                                IsVisible="{Binding AudioTestAttachment}"
+                                                Background="{DynamicResource App.SectionBg}"
+                                                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="0,8">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <Panel Grid.Column="0" VerticalAlignment="Center">
+                                                    <Button Width="32" Height="32" Padding="0"
+                                                            IsVisible="{Binding !AudioTestAttachment.IsPlaying}"
+                                                            Command="{Binding ToggleAudioTestPlaybackCommand}"
+                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
+                                                        <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
+                                                    </Button>
+                                                    <Button Width="32" Height="32" Padding="0"
+                                                            IsVisible="{Binding AudioTestAttachment.IsPlaying}"
+                                                            Command="{Binding ToggleAudioTestPlaybackCommand}"
+                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
+                                                        <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
+                                                    </Button>
+                                                </Panel>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding AudioTestAttachment.DisplayName}"
+                                                           Margin="8,0,8,0"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding AudioTestAttachment.DisplaySize}"
+                                                           FontSize="10"
+                                                           Opacity="0.65"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.ImageGeneration}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SectionImageGeneration}" FontWeight="SemiBold" Opacity="0.8"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.CredentialSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="1" Grid.Column="1"
+                                                      IsChecked="{Binding UseMainCredentialForImageGeneration}"
+                                                      OnContent="{loc:Loc Config.CredentialSourceInherit}"
+                                                      OffContent="{loc:Loc Config.CredentialSourceCustom}"
+                                                      HorizontalAlignment="Left" Margin="0,0,0,8"
+                                                      IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationModel}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ImageGenerationModel}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationBaseUrl}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageGenerationBaseUrl}" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationApiKey}" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ImageGenerationApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.WebSearch}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <!-- 启用开关 -->
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                                        <TextBlock Grid.Column="0" Text="{loc:Loc Config.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.WebSearchEnabled}" HorizontalAlignment="Left"/>
+                                    </Grid>
+
+                                    <!-- 供应商选择 -->
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                                          IsEnabled="{Binding Config.WebSearchEnabled}">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                                  ItemsSource="{Binding WebSearchProviders}"
+                                                  SelectedItem="{Binding Config.WebSearchProvider}"
+                                                  HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                                                  SelectionChanged="WebSearchProvider_SelectionChanged"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.WebSearchBaseUrl}" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.WebSearchApiKey}" PasswordChar="*" Margin="0,0,0,8"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="App ID" VerticalAlignment="Center" Opacity="0.8" IsVisible="{Binding IsBaiduProvider}"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.WebSearchAppId}" Margin="0,0,0,8" IsVisible="{Binding IsBaiduProvider}"/>
+                                        
+                                        <Grid Grid.Row="4" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" Margin="0,8,0,0">
+                                            <u:IconButton Grid.Column="0"
+                                                          Command="{Binding TestWebSearchCommand}"
+                                                          IsEnabled="{Binding CanTestWebSearch}"
+                                                          IsLoading="{Binding IsTestingWebSearch}"
+                                                          Theme="{DynamicResource SolidIconButton}"
+                                                          Classes="Primary"
+                                                          Padding="16,4"
+                                                          Content="{loc:Loc Config.BtnRunDiagnostics}"/>
+                                            <TextBlock Grid.Column="1"
+                                                    Text="{Binding WebSearchTestStatus}"
+                                                    TextWrapping="Wrap"
+                                                    Margin="12,0,0,0"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="12"
+                                                    Opacity="0.8"/>
+                                        </Grid>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.Browser}">
+                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.BrowserDescription}"
+                                               TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Opacity="0.7"/>
+
+                                    <Grid ColumnDefinitions="90,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.BrowserEnabled}" HorizontalAlignment="Left"/>
+                                    </Grid>
+
+                                    <StackPanel Spacing="16" IsEnabled="{Binding Config.BrowserEnabled}">
+                                        <Grid ColumnDefinitions="90,*" ColumnSpacing="20" RowDefinitions="Auto,Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserObservationMode}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1"
+                                                      ItemsSource="{Binding BrowserObservationModes}"
+                                                      SelectedItem="{Binding Config.BrowserObservationMode}"
+                                                      HorizontalAlignment="Stretch"
+                                                      Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserHeadless}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.BrowserHeadless}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <TextBlock Text="{loc:Loc Config.BrowserDiagnostics}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid>
+                                            <StackPanel Grid.ColumnSpan="2" Spacing="8">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <u:IconButton Command="{Binding TestBrowserRuntimeCommand}"
+                                                                  IsEnabled="{Binding CanTestBrowserRuntime}"
+                                                                  IsLoading="{Binding IsTestingBrowserRuntime}"
+                                                                  Theme="{DynamicResource SolidIconButton}"
+                                                                  Classes="Primary"
+                                                                  Padding="16,4"
+                                                                  Content="{loc:Loc Config.BrowserTestRuntime}"/>
+                                                    <u:IconButton Command="{Binding InstallBrowserRuntimeCommand}"
+                                                                  IsEnabled="{Binding CanInstallBrowserRuntime}"
+                                                                  IsLoading="{Binding IsInstallingBrowserRuntime}"
+                                                                  Padding="16,4"
+                                                                  Content="{loc:Loc Config.BrowserInstallRuntime}"/>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding BrowserRuntimeStatus}"
+                                                           TextWrapping="Wrap"
+                                                           FontSize="12"
+                                                           Opacity="0.8"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <TextBlock Text="{loc:Loc Config.BrowserRuntime}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserViewportWidth}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.BrowserViewportWidth}" Minimum="320" Maximum="3840" Increment="80" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserViewportHeight}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.BrowserViewportHeight}" Minimum="240" Maximum="2160" Increment="60" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.BrowserOperationTimeout}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.BrowserOperationTimeoutSeconds}" Minimum="5" Maximum="300" Increment="5" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.BrowserMaxSteps}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Config.BrowserMaxSteps}" Minimum="1" Maximum="50" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <TextBlock Text="{loc:Loc Config.BrowserSessionPolicy}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserSessionTtl}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.BrowserSessionTtlMinutes}" Minimum="1" Maximum="120" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserPersistSession}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.BrowserPersistSession}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.BrowserDownloadEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.BrowserDownloadEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <!-- 视觉标注设置：仅 SoM 模式生效（截图与元素地图渲染参数） -->
+                                        <TextBlock Text="{loc:Loc Config.BrowserElementMap}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto" IsEnabled="{Binding IsBrowserVisionEnabled}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserSomMaxElements}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.BrowserSomMaxElements}" Minimum="10" Maximum="200" Increment="10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.BrowserSomIncludeText}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding Config.BrowserSomIncludeText}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.BrowserScreenshotScale}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.BrowserScreenshotScale}" Minimum="0.25" Maximum="2" Increment="0.25" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.BrowserImageQuality}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Config.BrowserImageQuality}" Minimum="30" Maximum="100" Increment="5" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <!-- 浏览器智能体模型：每步决策都会调用，与感知模式无关，故不按模式禁用 -->
+                                        <TextBlock Text="{loc:Loc Config.BrowserAgentModel}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.BrowserModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                          IsChecked="{Binding UseMainModelForBrowser}"
+                                                          OnContent="{loc:Loc Config.BrowserModelSourceInherit}"
+                                                          OffContent="{loc:Loc Config.BrowserModelSourceCustom}"
+                                                          HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <!-- 视觉能力提示：仅 SoM 模式可见 -->
+                                        <Border IsVisible="{Binding IsBrowserVisionEnabled}"
+                                                Background="{DynamicResource App.SectionBg}"
+                                                CornerRadius="6" Padding="12,8" Margin="0,0,0,4">
+                                            <TextBlock Text="{loc:Loc Config.BrowserVisionCapabilityHint}"
+                                                       TextWrapping="Wrap" FontSize="12" Opacity="0.8"/>
+                                        </Border>
+
+                                        <!-- 自定义模型字段：仅"自定义"来源时显示 -->
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsBrowserModelCustom}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.BrowserAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BrowserAgentBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.BrowserAgentApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                    <AutoCompleteBox Grid.Column="0"
+                                                                     Text="{Binding Config.BrowserAgentModel, Mode=TwoWay}"
+                                                                     ItemsSource="{Binding BrowserAgentModelOptions}"
+                                                                     FilterMode="Contains"
+                                                                     IsTextCompletionEnabled="False"
+                                                                     MinimumPrefixLength="0"
+                                                                     PlaceholderText="e.g. gpt-4o-mini"
+                                                                     HorizontalAlignment="Stretch"/>
+                                                    <u:IconButton Grid.Column="1"
+                                                                  Command="{Binding LoadModelsCommand}"
+                                                                  CommandParameter="BrowserAgent"
+                                                                  IsEnabled="{Binding !IsLoadingBrowserAgentModels}"
+                                                                  IsLoading="{Binding IsLoadingBrowserAgentModels}"
+                                                                  ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"
+                                                                  MinWidth="64"
+                                                                  Content="{loc:Loc Config.LoadModels}"/>
+                                                </Grid>
+                                                <TextBlock Text="{Binding BrowserAgentModelsStatus}"
+                                                           IsVisible="{Binding BrowserAgentModelsStatus, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"
+                                                           TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.BrowserAgentMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                                <Slider Grid.Column="0"
+                                                        Value="{Binding Config.BrowserAgentTemperature}"
+                                                        Minimum="0"
+                                                        Maximum="2"
+                                                        TickPlacement="Outside"
+                                                        IsSnapToTickEnabled="True"
+                                                        TickFrequency="0.1"
+                                                        VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding Config.BrowserAgentTemperature, StringFormat={}{0:F1}}"
+                                                           VerticalAlignment="Center"
+                                                           FontWeight="SemiBold"
+                                                           Margin="12,0,0,0"/>
+                                            </Grid>
+                                        </Grid>
+                                        <!-- 测试连接：两种来源都可用；SoM 模式会附带测试图验证视觉能力 -->
+                                        <Grid ColumnSpacing="20" RowDefinitions="Auto">
+                                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                                                <u:IconButton Grid.Column="0"
+                                                              Command="{Binding TestBrowserAgentCommand}"
+                                                              IsEnabled="{Binding CanTestBrowserAgent}"
+                                                              IsLoading="{Binding IsTestingBrowserAgent}"
+                                                              Theme="{DynamicResource SolidIconButton}"
+                                                              Classes="Primary"
+                                                              Padding="16,4"
+                                                              Content="{loc:Loc Config.BtnRunDiagnostics}"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding BrowserAgentTestStatus}"
+                                                           TextWrapping="Wrap"
+                                                           Margin="12,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="12"
+                                                           Opacity="0.8"/>
+                                            </Grid>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.SubAgents}">
+                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SubAgentsDescription}"
+                                               TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Opacity="0.7"/>
+
+                                    <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Column="0" Text="{loc:Loc Config.SubAgentsEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSubAgents}" HorizontalAlignment="Left"/>
+                                    </Grid>
+
+                                    <StackPanel Spacing="16" IsEnabled="{Binding Config.EnableSubAgents}">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentMaxParallel}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.SubAgentMaxParallel}" Minimum="1" Maximum="12" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.SubAgentMaxIterations}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.SubAgentMaxIterations}" Minimum="1" Maximum="60" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.SubAgentTimeout}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.SubAgentTimeoutSeconds}" Minimum="10" Maximum="1200" Increment="10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <TextBlock Text="{loc:Loc Config.SubAgentModelSource}" FontWeight="SemiBold" FontSize="14" Opacity="0.85"/>
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                          IsChecked="{Binding UseMainModelForSubAgent}"
+                                                          OnContent="{loc:Loc Config.SubAgentModelSourceInherit}"
+                                                          OffContent="{loc:Loc Config.SubAgentModelSourceCustom}"
+                                                          HorizontalAlignment="Left"/>
+                                        </Grid>
+
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsSubAgentModelCustom}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SubAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SubAgentBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SubAgentApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SubAgentModel}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.SubAgentMaxTokens}" Minimum="256" Maximum="32000" Increment="256" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SubAgentTemperature}" Minimum="0" Maximum="2" Increment="0.1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </TabItem>
+
+                            <TabItem Header="{loc:Loc Config.SectionDocumentParser}">
+                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
+                                               TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Opacity="0.7"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.DocumentParserEnabled}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.DocumentParserMode}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                                  ItemsSource="{Binding DocumentParserModes}"
+                                                  SelectedItem="{Binding Config.DocumentParserMode}"
+                                                  IsEnabled="{Binding Config.DocumentParserEnabled}"
+                                                  HorizontalAlignment="Stretch"
+                                                  Margin="0,0,0,12"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.DocumentParserToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4" Margin="0,0,0,4">
+                                            <TextBox Text="{Binding Config.DocumentParserToken}"
+                                                     PasswordChar="*"
+                                                     IsEnabled="{Binding CanEditParserToken}"
+                                                     HorizontalAlignment="Stretch"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
+                                                           TextWrapping="Wrap"
+                                                           FontSize="11"
+                                                           Opacity="0.6"/>
+                                                <HyperlinkButton
+                                                    Margin="5,0,0,0"
+                                                    Content="{loc:Loc Config.DocumentParserGetToken}"
+                                                    NavigateUri="https://mineru.net/apiManage/token"
+                                                    FontSize="11"
+                                                    Padding="0"
+                                                    MinHeight="0"
+                                                    VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </TabItem>
+                        </TabControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- SECTION 2: MCP SERVERS -->
+                <Border
+                    Grid.Row="1"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Margin="0,0,0,60"
+                    Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.Mcp}" FontWeight="Bold" FontSize="15"/>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                            <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableMcp}" HorizontalAlignment="Left"/>
+                        </Grid>
+                        <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+
+                        <Button Content="{loc:Loc Config.Mcp.AddServer}"
+                                Command="{Binding AddMcpServerCommand}"
+                                HorizontalAlignment="Left"
+                                IsEnabled="{Binding Config.EnableMcp}"/>
+
+                        <ItemsControl ItemsSource="{Binding Config.McpServers}" IsEnabled="{Binding Config.EnableMcp}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                                        <StackPanel Spacing="6">
+                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                                <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="{loc:Loc Config.Mcp.Enabled}" OffContent="{loc:Loc Config.Mcp.Disabled}" HorizontalAlignment="Left"/>
+                                                <!-- 连接状态灯 + 提示 -->
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                    <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                                                             Fill="{Binding Status, Converter={StaticResource McpStatusToBrushConverter}}"/>
+                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="2"
+                                                        Content="{loc:Loc Config.Mcp.Reconnect}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:ExtensionsTabViewModel)DataContext).ReconnectMcpCommand}"/>
+                                                <Button Grid.Column="3"
+                                                        Content="{loc:Loc Config.Mcp.Remove}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpServerCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                            <!-- 名称 + 传输类型 -->
+                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                                <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Name}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                <TextBox Grid.Column="1" Text="{Binding Name}"/>
+                                                <ToggleSwitch Grid.Column="2"
+                                                              IsChecked="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}"
+                                                              OnContent="{loc:Loc Config.Mcp.TransportHttp}"
+                                                              OffContent="{loc:Loc Config.Mcp.TransportStdio}"/>
+                                            </Grid>
+
+                                            <!-- Stdio 段 -->
+                                            <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}, ConverterParameter=Stdio}">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" RowDefinitions="Auto,Auto">
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.Mcp.Command}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Text="{Binding Command}" PlaceholderText="npx / uv / python …"/>
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.Mcp.WorkingDir}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkingDirectory}" PlaceholderText="(optional)"/>
+                                                </Grid>
+
+                                                <!-- 启动参数列表 -->
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Args}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <Button Grid.Column="1" Content="+"
+                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpArgCommand}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Arguments}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
+                                                                <TextBox Grid.Column="0" Text="{Binding Value}"/>
+                                                                <Button Grid.Column="1" Content="✕"
+                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpArgCommand}"
+                                                                        CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <!-- 环境变量列表 -->
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Env}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <Button Grid.Column="1" Content="+"
+                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpEnvCommand}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Environment}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
+                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="KEY"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="value"/>
+                                                                <Button Grid.Column="2" Content="✕"
+                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpEnvCommand}"
+                                                                        CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+
+                                            <!-- Http 段 -->
+                                            <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="https://example.com/mcp"/>
+                                                </Grid>
+
+                                                <!-- 请求头列表 -->
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Headers}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <Button Grid.Column="1" Content="+"
+                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpHeaderCommand}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Headers}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
+                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="Authorization"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="Bearer …"/>
+                                                                <Button Grid.Column="2" Content="✕"
+                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpHeaderCommand}"
+                                                                        CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Claude Desktop JSON 导入 -->
+                        <TextBlock Text="{loc:Loc Config.Mcp.ImportTitle}" FontWeight="SemiBold" Opacity="0.8"/>
+                        <TextBox Text="{Binding McpImportJson}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="80"
+                                 IsEnabled="{Binding Config.EnableMcp}"
+                                 PlaceholderText="{loc:Loc Config.Mcp.ImportPlaceholder}"/>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Button Grid.Column="0" Content="{loc:Loc Config.Mcp.Import}"
+                                    Command="{Binding ImportMcpJsonCommand}"
+                                    IsEnabled="{Binding Config.EnableMcp}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

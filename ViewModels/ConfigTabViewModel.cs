@@ -22,15 +22,8 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IEmbeddingService? _embeddingService;
     private readonly IConversationHistoryService? _historyService;
     private readonly ILocalizationService? _localizationService;
-    private readonly IWebSearchService? _webSearchService;
-    private readonly IHeadlessBrowserService? _browserService;
-    private readonly IBrowserVisionService? _browserVisionService;
-    private readonly IAudioPlaybackService? _audioPlaybackService;
-    private readonly ISystemAudioService? _systemAudioService;
     private readonly IModelCatalogService? _modelCatalogService;
     private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
-    // Cancels in-flight system playback so Stop can kill the external process.
-    private CancellationTokenSource? _audioTestCts;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     [ObservableProperty]
@@ -66,13 +59,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     public bool CanTestConnection => !IsTestingConnection;
     public bool CanTestSecondary => !IsTestingSecondary;
     public bool CanTestEmbedding => !IsTestingEmbedding;
-    public bool CanTestWebSearch => !IsTestingWebSearch;
-    public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
-    public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
-    public bool CanTestBrowserAgent => !IsTestingBrowserAgent;
-    public bool CanTestAudioOutput => !IsTestingAudioOutput;
-    public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
-    public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
 
     [ObservableProperty]
     private string _secondaryTestStatus = string.Empty;
@@ -88,16 +74,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     private string _maintenanceStatus = string.Empty;
 
     public bool CanRunMaintenance => !IsRunningMaintenance;
-
-    [ObservableProperty]
-    private string _audioOutputTestStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestAudioOutputCommand))]
-    private bool _isTestingAudioOutput;
-
-    [ObservableProperty]
-    private ChatAttachment? _audioTestAttachment;
 
     private CancellationTokenSource? _autoSaveCts;
     private bool _isInternalSaving;
@@ -115,15 +91,14 @@ public partial class ConfigTabViewModel : ViewModelBase
         { "Custom", "" }
     };
 
+    /// <summary>API 供应商名称目录（供扩展页 ViewModel 共用同一份候选）。</summary>
+    internal static IReadOnlyCollection<string> ProviderNames => ProviderUrls.Keys;
+
+    /// <summary>音频供应商名称目录（供扩展页 ViewModel 共用同一份候选）。</summary>
+    internal static IReadOnlyCollection<string> AudioProviderNames => AudioProviderUrls.Keys;
+
     public ObservableCollection<string> Providers { get; } = new(ProviderUrls.Keys);
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
-    public ObservableCollection<BrowserObservationMode> BrowserObservationModes { get; } = new()
-    {
-        BrowserObservationMode.VisionWithSom,
-        BrowserObservationMode.DomOnly
-    };
-
-    public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
     /// <summary>工具审批模式候选。</summary>
     public ObservableCollection<ToolApprovalMode> ToolApprovalModes { get; } = new()
@@ -153,40 +128,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    /// <summary>浏览器智能体模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainModelForBrowser
-    {
-        get => Config.BrowserModelSource == BrowserModelSource.InheritMain;
-        set
-        {
-            var newSource = value ? BrowserModelSource.InheritMain : BrowserModelSource.Custom;
-            if (Config.BrowserModelSource != newSource)
-            {
-                Config.BrowserModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
-            }
-        }
-    }
-
-    /// <summary>是否使用自定义浏览器模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsBrowserModelCustom => Config.BrowserModelSource == BrowserModelSource.Custom;
-
-    /// <summary>子代理模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainModelForSubAgent
-    {
-        get => Config.SubAgentModelSource == SubAgentModelSource.InheritMain;
-        set
-        {
-            var newSource = value ? SubAgentModelSource.InheritMain : SubAgentModelSource.Custom;
-            if (Config.SubAgentModelSource != newSource)
-            {
-                Config.SubAgentModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
-            }
-        }
-    }
-
-    /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
-
     /// <summary>次级模型凭据来源开关：true=跟随主模型凭据，false=自定义。绑定到 ToggleSwitch。</summary>
     public bool UseMainCredentialForSecondary
     {
@@ -204,24 +145,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     }
 
     public bool IsEmbeddingCredentialCustom => Config.EmbeddingCredentialSource == ModelCredentialSource.Custom;
-
-    /// <summary>图像生成凭据来源开关。</summary>
-    public bool UseMainCredentialForImageGeneration
-    {
-        get => Config.ImageGenerationCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.ImageGenerationCredentialSource = v, Config.ImageGenerationCredentialSource, value);
-    }
-
-    public bool IsImageGenerationCredentialCustom => Config.ImageGenerationCredentialSource == ModelCredentialSource.Custom;
-
-    /// <summary>音频凭据来源开关（InheritMain 仅继承 ApiKey，BaseUrl 按 provider 默认端点解析）。</summary>
-    public bool UseMainCredentialForChatAudio
-    {
-        get => Config.ChatAudioCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.ChatAudioCredentialSource = v, Config.ChatAudioCredentialSource, value);
-    }
-
-    public bool IsChatAudioCredentialCustom => Config.ChatAudioCredentialSource == ModelCredentialSource.Custom;
 
     private static void SetCredentialSource(Action<ModelCredentialSource> setter, ModelCredentialSource current, bool inherit)
     {
@@ -245,18 +168,6 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> Languages { get; }
 
-    public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "WebSearchAPI", "Zhipu", "Baidu" };
-
-    public bool IsBaiduProvider => Config.WebSearchProvider == "Baidu";
-
-    private static readonly Dictionary<string, string> WebSearchUrls = new()
-    {
-        { "Tavily", "https://api.tavily.com" },
-        { "WebSearchAPI", "https://api.websearchapi.ai" },
-        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
-        { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
-    };
-
     private static readonly Dictionary<string, string> AudioProviderUrls = new()
     {
         { "OpenAI", "https://api.openai.com/v1/audio/speech" },
@@ -264,20 +175,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         { "System", string.Empty },
         { "Custom", string.Empty }
     };
-
-    public ObservableCollection<string> AudioProviders { get; } = new(AudioProviderUrls.Keys);
-
-    // 系统 TTS 已安装的语音（Windows SAPI / macOS say / Linux espeak-ng），供 provider=System 时的输入下拉建议。
-    public ObservableCollection<string> AudioVoices { get; } = new();
-
-    public ObservableCollection<DocumentParserMode> DocumentParserModes { get; } = new()
-    {
-        DocumentParserMode.AgentLightweight,
-        DocumentParserMode.Precision
-    };
-
-    // 仅精度解析方式需要 Token；极速解析无需登录。
-    public bool CanEditParserToken => Config.DocumentParserEnabled && Config.DocumentParserMode == DocumentParserMode.Precision;
 
     [ObservableProperty]
     private int _selectedLanguageIndex;
@@ -296,20 +193,15 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IWebSearchService? webSearchService, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null, IAudioPlaybackService? audioPlaybackService = null, ISystemAudioService? systemAudioService = null, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null)
     {
         _configService = configService;
         _chatService = chatService;
         _embeddingService = embeddingService;
         _historyService = historyService;
         _localizationService = localizationService;
-        _webSearchService = webSearchService;
-        _browserService = browserService;
-        _browserVisionService = browserVisionService;
-        _audioPlaybackService = audioPlaybackService;
-        _systemAudioService = systemAudioService;
         _modelCatalogService = modelCatalogService;
         _maintenanceService = maintenanceService;
 
@@ -336,32 +228,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             _configService.ConfigChanged += OnExternalConfigChanged;
         }
-
-        if (_audioPlaybackService != null)
-        {
-            _audioPlaybackService.PlaybackStateChanged += OnAudioPlaybackStateChanged;
-        }
-
-        _ = LoadSystemVoicesAsync();
-    }
-
-    private async Task LoadSystemVoicesAsync()
-    {
-        if (_systemAudioService is not { IsSupported: true }) return;
-        try
-        {
-            var voices = await _systemAudioService.GetInstalledVoicesAsync();
-            if (voices.Count == 0) return;
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                AudioVoices.Clear();
-                foreach (var v in voices) AudioVoices.Add(v);
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Failed to load system voices for config UI");
-        }
     }
 
     public void Initialize(ChatTabViewModel chatTabViewModel, ITokenService? tokenService)
@@ -380,51 +246,15 @@ public partial class ConfigTabViewModel : ViewModelBase
         {
             SetupConfigListener(value);
             // Config 被整体替换后，刷新依赖其值的计算属性（外部工具改配置等场景）
-            OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-            OnPropertyChanged(nameof(UseMainModelForBrowser));
-            OnPropertyChanged(nameof(IsBrowserModelCustom));
-            OnPropertyChanged(nameof(UseMainModelForSubAgent));
-            OnPropertyChanged(nameof(IsSubAgentModelCustom));
             OnPropertyChanged(nameof(IsMaintenanceModelCustom));
             OnPropertyChanged(nameof(UseMainCredentialForSecondary));
             OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
             OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
             OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
-            OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
-            OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
-            OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
-            OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(AppConfig.WebSearchProvider))
-                {
-                    OnPropertyChanged(nameof(IsBaiduProvider));
-                }
-                else if (e.PropertyName == nameof(AppConfig.ChatAudioProvider))
-                {
-                    OnPropertyChanged(nameof(IsRemoteAudioProvider));
-                    OnPropertyChanged(nameof(CanEditRemoteAudioFields));
-                }
-                else if (e.PropertyName == nameof(AppConfig.ChatAudioEnabled))
-                {
-                    OnPropertyChanged(nameof(CanEditRemoteAudioFields));
-                }
-                else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
-                {
-                    OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-                }
-                else if (e.PropertyName == nameof(AppConfig.BrowserModelSource))
-                {
-                    OnPropertyChanged(nameof(UseMainModelForBrowser));
-                    OnPropertyChanged(nameof(IsBrowserModelCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.SubAgentModelSource))
-                {
-                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
-                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.KnowledgeMaintenanceModelSource))
+                if (e.PropertyName == nameof(AppConfig.KnowledgeMaintenanceModelSource))
                 {
                     OnPropertyChanged(nameof(IsMaintenanceModelCustom));
                 }
@@ -437,21 +267,6 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
                     OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.ImageGenerationCredentialSource))
-                {
-                    OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
-                    OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.ChatAudioCredentialSource))
-                {
-                    OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
-                    OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.DocumentParserMode)
-                         || e.PropertyName == nameof(AppConfig.DocumentParserEnabled))
-                {
-                    OnPropertyChanged(nameof(CanEditParserToken));
                 }
             };
         }
@@ -535,14 +350,65 @@ public partial class ConfigTabViewModel : ViewModelBase
                     config.BrowserAgentBaseUrl = url;
                 }
             }
-            else if (e.PropertyName == nameof(AppConfig.BrowserObservationMode))
-            {
-                OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-            }
-            
+
             // Trigger auto-save on any property change
             RequestAutoSave();
         };
+
+        // MCP 服务器是嵌套对象/集合，其内部编辑不会冒泡为 AppConfig.PropertyChanged，
+        // 必须深度订阅，否则用户填的命令/参数/环境变量（如 API Key）不会落盘。
+        HookMcpDeep(config);
+    }
+
+    /// <summary>深度订阅 McpServers 集合及其每个条目的变更 → 触发自动保存。</summary>
+    private void HookMcpDeep(AppConfig config)
+    {
+        foreach (var server in config.McpServers)
+            HookMcpServer(server);
+
+        config.McpServers.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems != null)
+                foreach (McpServerConfig s in e.NewItems) HookMcpServer(s);
+            RequestAutoSave();
+        };
+    }
+
+    private void HookMcpServer(McpServerConfig server)
+    {
+        server.PropertyChanged += (_, e) =>
+        {
+            // 运行期状态字段由连接过程回填，不应触发保存（否则连接→状态变→保存→重连 死循环）。
+            if (e.PropertyName is nameof(McpServerConfig.Status)
+                or nameof(McpServerConfig.StatusDetail)
+                or nameof(McpServerConfig.DiscoveredToolCount))
+                return;
+            RequestAutoSave();
+        };
+
+        server.Arguments.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems != null)
+                foreach (McpArgEntry a in e.NewItems) a.PropertyChanged += (_, _) => RequestAutoSave();
+            RequestAutoSave();
+        };
+        foreach (var a in server.Arguments) a.PropertyChanged += (_, _) => RequestAutoSave();
+
+        server.Environment.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems != null)
+                foreach (McpEnvEntry en in e.NewItems) en.PropertyChanged += (_, _) => RequestAutoSave();
+            RequestAutoSave();
+        };
+        foreach (var en in server.Environment) en.PropertyChanged += (_, _) => RequestAutoSave();
+
+        server.Headers.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems != null)
+                foreach (McpEnvEntry h in e.NewItems) h.PropertyChanged += (_, _) => RequestAutoSave();
+            RequestAutoSave();
+        };
+        foreach (var h in server.Headers) h.PropertyChanged += (_, _) => RequestAutoSave();
     }
 
     private void RequestAutoSave()
@@ -579,7 +445,7 @@ public partial class ConfigTabViewModel : ViewModelBase
                     _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
                 }
 
-                NormalizeBrowserConfig();
+                NormalizeBrowserConfig(Config);
                 NormalizeAudioConfig();
                 await _configService.SaveAsync(Config);
 
@@ -608,18 +474,19 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    private void NormalizeBrowserConfig()
+    /// <summary>钳制浏览器相关配置到合法区间（自动保存与扩展页的浏览器诊断共用）。</summary>
+    internal static void NormalizeBrowserConfig(AppConfig config)
     {
-        Config.BrowserViewportWidth = Math.Clamp(Config.BrowserViewportWidth, 320, 3840);
-        Config.BrowserViewportHeight = Math.Clamp(Config.BrowserViewportHeight, 240, 2160);
-        Config.BrowserMaxSteps = Math.Clamp(Config.BrowserMaxSteps, 1, 50);
-        Config.BrowserOperationTimeoutSeconds = Math.Clamp(Config.BrowserOperationTimeoutSeconds, 5, 300);
-        Config.BrowserSessionTtlMinutes = Math.Clamp(Config.BrowserSessionTtlMinutes, 1, 120);
-        Config.BrowserScreenshotScale = Math.Clamp(Config.BrowserScreenshotScale, 0.25, 2.0);
-        Config.BrowserImageQuality = Math.Clamp(Config.BrowserImageQuality, 30, 100);
-        Config.BrowserSomMaxElements = Math.Clamp(Config.BrowserSomMaxElements, 10, 200);
-        Config.BrowserAgentMaxTokens = Math.Clamp(Config.BrowserAgentMaxTokens, 100, 8000);
-        Config.BrowserAgentTemperature = Math.Clamp(Config.BrowserAgentTemperature, 0, 2);
+        config.BrowserViewportWidth = Math.Clamp(config.BrowserViewportWidth, 320, 3840);
+        config.BrowserViewportHeight = Math.Clamp(config.BrowserViewportHeight, 240, 2160);
+        config.BrowserMaxSteps = Math.Clamp(config.BrowserMaxSteps, 1, 50);
+        config.BrowserOperationTimeoutSeconds = Math.Clamp(config.BrowserOperationTimeoutSeconds, 5, 300);
+        config.BrowserSessionTtlMinutes = Math.Clamp(config.BrowserSessionTtlMinutes, 1, 120);
+        config.BrowserScreenshotScale = Math.Clamp(config.BrowserScreenshotScale, 0.25, 2.0);
+        config.BrowserImageQuality = Math.Clamp(config.BrowserImageQuality, 30, 100);
+        config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
+        config.BrowserAgentMaxTokens = Math.Clamp(config.BrowserAgentMaxTokens, 100, 8000);
+        config.BrowserAgentTemperature = Math.Clamp(config.BrowserAgentTemperature, 0, 2);
     }
 
     private void NormalizeAudioConfig()
@@ -670,107 +537,6 @@ public partial class ConfigTabViewModel : ViewModelBase
             ConnectionStatus = message?.TrimEnd().Replace("\n", _localizationService?.GetString("Config.TestConnectNoRespond"))?? string.Empty;
         }
         finally { IsTestingConnection = false; }
-    }
-
-    [ObservableProperty]
-    private string _webSearchTestStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestWebSearchCommand))]
-    private bool _isTestingWebSearch;
-
-    [ObservableProperty]
-    private string _browserRuntimeStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
-    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
-    private bool _isTestingBrowserRuntime;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
-    private bool _isInstallingBrowserRuntime;
-
-    [ObservableProperty]
-    private string _browserAgentTestStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserAgentCommand))]
-    private bool _isTestingBrowserAgent;
-
-    [RelayCommand(CanExecute = nameof(CanTestWebSearch))]
-    private async Task TestWebSearchAsync()
-    {
-        if (_webSearchService == null) { WebSearchTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (!Config.WebSearchEnabled) { WebSearchTestStatus = _localizationService?.GetString("Status.EnableWebSearchFirst") ?? "Please enable Web Search first"; return; }
-        if (string.IsNullOrWhiteSpace(Config.WebSearchApiKey)) { WebSearchTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
-
-        IsTestingWebSearch = true;
-        WebSearchTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
-        try
-        {
-            // 刷新配置
-            if (_webSearchService is WebSearchService ws) ws.RefreshConfig();
-            var (success, message) = await _webSearchService.TestConnectionAsync();
-            WebSearchTestStatus = message;
-        }
-        finally { IsTestingWebSearch = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanTestBrowserRuntime))]
-    private async Task TestBrowserRuntimeAsync()
-    {
-        if (_browserService == null) { BrowserRuntimeStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
-
-        IsTestingBrowserRuntime = true;
-        BrowserRuntimeStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
-        try
-        {
-            var status = await _browserService.GetRuntimeStatusAsync();
-            BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
-        }
-        finally { IsTestingBrowserRuntime = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanInstallBrowserRuntime))]
-    private async Task InstallBrowserRuntimeAsync()
-    {
-        if (_browserService == null) { BrowserRuntimeStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
-
-        IsInstallingBrowserRuntime = true;
-        BrowserRuntimeStatus = _localizationService?.GetString("Status.InstallingBrowserRuntime") ?? "Installing browser runtime...";
-        try
-        {
-            var result = await _browserService.InstallRuntimeAsync();
-            BrowserRuntimeStatus = result.Message;
-        }
-        finally { IsInstallingBrowserRuntime = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanTestBrowserAgent))]
-    private async Task TestBrowserAgentAsync()
-    {
-        if (_browserVisionService == null) { BrowserAgentTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (!Config.BrowserEnabled) { BrowserAgentTestStatus = _localizationService?.GetString("Status.EnableBrowserFirst") ?? "Please enable Browser first"; return; }
-        if (string.IsNullOrWhiteSpace(Config.BrowserAgentApiKey) && string.IsNullOrWhiteSpace(Config.ApiKey)) { BrowserAgentTestStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
-
-        IsTestingBrowserAgent = true;
-        BrowserAgentTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
-        try
-        {
-            NormalizeBrowserConfig();
-            if (_configService != null)
-            {
-                await _configService.SaveAsync(Config);
-            }
-
-            var (success, message) = await _browserVisionService.TestConnectionAsync();
-            BrowserAgentTestStatus = message;
-        }
-        finally { IsTestingBrowserAgent = false; }
     }
 
     [RelayCommand(CanExecute = nameof(CanTestSecondary))]
@@ -862,127 +628,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         MaintenanceStatus = $"{time} · {conclusion}";
     }
 
-    [RelayCommand(CanExecute = nameof(CanTestAudioOutput))]
-    private async Task TestAudioOutputAsync()
-    {
-        if (_chatService == null)
-        {
-            AudioOutputTestStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
-            return;
-        }
-
-        if (!Config.ChatAudioEnabled)
-        {
-            AudioOutputTestStatus = GetString("Status.EnableAudioOutputFirst", "Please enable chat audio output first");
-            return;
-        }
-
-        IsTestingAudioOutput = true;
-        AudioOutputTestStatus = GetString("Status.TestingConnection", "Testing...");
-        AudioTestAttachment = null;
-        try
-        {
-            var result = await _chatService.TestAudioOutputAsync();
-            AudioOutputTestStatus = result.Message;
-            if (result.Attachment != null)
-            {
-                AudioTestAttachment = result.Attachment;
-            }
-        }
-        finally
-        {
-            IsTestingAudioOutput = false;
-        }
-    }
-
-    [RelayCommand]
-    private void ToggleAudioTestPlayback()
-    {
-        if (AudioTestAttachment == null)
-        {
-            return;
-        }
-
-        if (AudioTestAttachment.IsPlaying)
-        {
-            StopAudioTestPlayback();
-            return;
-        }
-
-        StopAudioTestPlayback();
-
-        if (AudioTestAttachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
-        {
-            // Fire-and-forget so the command returns immediately and the Stop
-            // button's CanExecute stays true during playback.
-            _ = RunSystemAudioTestPlaybackAsync(AudioTestAttachment);
-            return;
-        }
-
-        if (_audioPlaybackService == null || !_audioPlaybackService.Play(AudioTestAttachment))
-        {
-            AudioOutputTestStatus = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
-        }
-    }
-
-    private async Task RunSystemAudioTestPlaybackAsync(ChatAttachment attachment)
-    {
-        var cts = new CancellationTokenSource();
-        _audioTestCts = cts;
-        attachment.IsPlaying = true;
-        try
-        {
-            var result = await _systemAudioService!.PlayFileAsync(attachment.StoredPath, cts.Token);
-            if (!result.Success && !cts.IsCancellationRequested)
-            {
-                AudioOutputTestStatus = string.Format(
-                    GetString("Chat.Audio.PlaybackFailedDetail", "Failed to play system audio: {0}"),
-                    result.Message);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // User pressed Stop — expected.
-        }
-        finally
-        {
-            if (_audioTestCts == cts)
-            {
-                _audioTestCts.Dispose();
-                _audioTestCts = null;
-                attachment.IsPlaying = false;
-            }
-        }
-    }
-
-    private void StopAudioTestPlayback()
-    {
-        if (_audioTestCts != null)
-        {
-            _audioTestCts.Cancel();
-            _audioTestCts.Dispose();
-            _audioTestCts = null;
-        }
-
-        _audioPlaybackService?.Stop();
-        if (AudioTestAttachment != null)
-        {
-            AudioTestAttachment.IsPlaying = false;
-        }
-    }
-
-    /// <summary>
-    /// 更新 Web Search Base URL（供应商切换时调用）
-    /// </summary>
-    public void UpdateWebSearchBaseUrl(string? provider)
-    {
-        if (string.IsNullOrEmpty(provider)) return;
-        if (WebSearchUrls.TryGetValue(provider, out var url))
-        {
-            Config.WebSearchBaseUrl = url;
-        }
-    }
-
     [RelayCommand]
     private async Task CompressContextAsync()
     {
@@ -1018,25 +663,6 @@ public partial class ConfigTabViewModel : ViewModelBase
             icon: MessageBoxIcon.Information);
     }
 
-    private void OnAudioPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
-    {
-        if (AudioTestAttachment == null || AudioTestAttachment.Id != e.AttachmentId)
-        {
-            return;
-        }
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            AudioTestAttachment.IsPlaying = e.IsPlaying;
-            if (e.Duration > TimeSpan.Zero)
-            {
-                AudioTestAttachment.Duration = e.Duration;
-            }
-
-            AudioTestAttachment.Position = e.Position;
-        });
-    }
-
     private string GetString(string key, string defaultValue)
     {
         return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
@@ -1048,7 +674,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     public ObservableCollection<string> PrimaryModelOptions { get; } = new();
     public ObservableCollection<string> SecondaryModelOptions { get; } = new();
     public ObservableCollection<string> EmbeddingModelOptions { get; } = new();
-    public ObservableCollection<string> BrowserAgentModelOptions { get; } = new();
 
     [ObservableProperty]
     private bool _isLoadingPrimaryModels;
@@ -1056,8 +681,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     private bool _isLoadingSecondaryModels;
     [ObservableProperty]
     private bool _isLoadingEmbeddingModels;
-    [ObservableProperty]
-    private bool _isLoadingBrowserAgentModels;
 
     [ObservableProperty]
     private string _primaryModelsStatus = string.Empty;
@@ -1065,15 +688,13 @@ public partial class ConfigTabViewModel : ViewModelBase
     private string _secondaryModelsStatus = string.Empty;
     [ObservableProperty]
     private string _embeddingModelsStatus = string.Empty;
-    [ObservableProperty]
-    private string _browserAgentModelsStatus = string.Empty;
 
     [RelayCommand]
     private Task LoadModelsAsync(string? target) => LoadModelsCoreAsync(target);
 
     private async Task LoadModelsCoreAsync(string? target)
     {
-        // 解析目标字段：各自的 BaseUrl/Key，次要/嵌入/视觉为空时回退到主配置。
+        // 解析目标字段：各自的 BaseUrl/Key，次要/嵌入为空时回退到主配置。
         ObservableCollection<string> options;
         string? baseUrl;
         string? apiKey;
@@ -1106,14 +727,6 @@ public partial class ConfigTabViewModel : ViewModelBase
                 alreadyLoading = IsLoadingEmbeddingModels;
                 setLoading = v => IsLoadingEmbeddingModels = v;
                 setStatus = v => EmbeddingModelsStatus = v;
-                break;
-            case "BrowserAgent":
-                options = BrowserAgentModelOptions;
-                baseUrl = FirstNonBlank(Config.BrowserAgentBaseUrl, Config.BaseUrl);
-                apiKey = FirstNonBlank(Config.BrowserAgentApiKey, Config.ApiKey);
-                alreadyLoading = IsLoadingBrowserAgentModels;
-                setLoading = v => IsLoadingBrowserAgentModels = v;
-                setStatus = v => BrowserAgentModelsStatus = v;
                 break;
             default:
                 return;

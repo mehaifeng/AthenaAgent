@@ -9,6 +9,7 @@
     <system:String x:Key="Tray.Quit">离殿</system:String>
     <system:String x:Key="Tab.ChatLink">神谕</system:String>
     <system:String x:Key="Tab.SysConfig">枢机</system:String>
+    <system:String x:Key="Tab.Extensions">神工坊</system:String>
     <system:String x:Key="Tab.Scheduler">星盘</system:String>
     <system:String x:Key="Tab.Archives">卷宗</system:String>
     <system:String x:Key="Tab.Files">记忆宫</system:String>
@@ -89,6 +90,8 @@
 
     <!-- Config Tab -->
     <system:String x:Key="Config.Header">神殿枢机</system:String>
+    <system:String x:Key="Ext.Header">神工坊 · 扩展能力</system:String>
+    <system:String x:Key="Ext.SectionCapabilities">扩展能力</system:String>
     <system:String x:Key="Config.SectionAppearance">帷幕与形貌</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">主神谕</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">副神谕</system:String>
@@ -104,6 +107,29 @@
     <system:String x:Key="Config.DocumentParserTokenHint">仅「精研解卷」需信物；「疾风解卷」无需信物（按来路限流）</system:String>
     <system:String x:Key="Config.SectionMemory">记忆之司</system:String>
     <system:String x:Key="Config.BgTasks">幕后差役</system:String>
+    <system:String x:Key="Config.Mcp">MCP Server</system:String>
+    <system:String x:Key="Config.Mcp.SectionServers">MCP 服务器</system:String>
+    <system:String x:Key="Config.Mcp.Enable">启用 MCP 扩展：</system:String>
+    <system:String x:Key="Config.Mcp.DiscoveryHint">主模型初始仅可见三枚元工具（mcp_list_tools / mcp_get_tool_schema / mcp_call_tool），按需检索外邦所献之能，免使 schema 抢占初始额度。</system:String>
+    <system:String x:Key="Config.Mcp.AddServer">增设服务器</system:String>
+    <system:String x:Key="Config.Mcp.Remove">移除</system:String>
+    <system:String x:Key="Config.Mcp.Enabled">启用</system:String>
+    <system:String x:Key="Config.Mcp.Disabled">停用</system:String>
+    <system:String x:Key="Config.Mcp.Name">名称：</system:String>
+    <system:String x:Key="Config.Mcp.Command">启动命令：</system:String>
+    <system:String x:Key="Config.Mcp.WorkingDir">工作目录：</system:String>
+    <system:String x:Key="Config.Mcp.Args">启动参数</system:String>
+    <system:String x:Key="Config.Mcp.Env">环境变量</system:String>
+    <system:String x:Key="Config.Mcp.ImportTitle">从 JSON 导入</system:String>
+    <system:String x:Key="Config.Mcp.ImportPlaceholder">粘贴 Claude Desktop 格式：{"mcpServers":{"名称":{"command":"npx","args":["-y","@scope/pkg"]}}}</system:String>
+    <system:String x:Key="Config.Mcp.Import">导入</system:String>
+    <system:String x:Key="Config.Mcp.Reconnect">重连</system:String>
+    <system:String x:Key="Config.Mcp.Status.Connecting">连接中…</system:String>
+    <system:String x:Key="Config.Mcp.Status.Connected">已发现 {0} 个工具</system:String>
+    <system:String x:Key="Config.Mcp.TransportStdio">本地(stdio)</system:String>
+    <system:String x:Key="Config.Mcp.TransportHttp">远程(HTTP)</system:String>
+    <system:String x:Key="Config.Mcp.Url">服务地址：</system:String>
+    <system:String x:Key="Config.Mcp.Headers">请求头</system:String>
     <system:String x:Key="Config.VectorKb">记忆宫（向量）</system:String>
     <system:String x:Key="Config.KbMaintenanceSection">记忆宫定期修葺</system:String>
     <system:String x:Key="Config.KbMaintenanceDescription">幕后按设定之期自动归并记忆宫中重复／同类之卷，免使一题散落多处。修葺前先行备份，归并时保全全部独有之识，再除冗卷。</system:String>
@@ -117,7 +143,7 @@
     <system:String x:Key="Config.KbMaintenanceNoDup">未见重复之卷</system:String>
     <system:String x:Key="Config.KbMaintenanceFailed">修葺未成（详见史册）</system:String>
     <system:String x:Key="Config.KbMaintenanceSkipped">已略过（记忆织者未备）</system:String>
-    <system:String x:Key="Config.KbMaintenanceRunNow">即刻修葺</system:String>
+    <system:String x:Key="Config.KbMaintenanceRunNow">修葺</system:String>
     <system:String x:Key="Config.KbMaintenanceRunning">正修葺记忆宫…</system:String>
     <system:String x:Key="Config.KbMaintenanceNeverRun">尚未修葺</system:String>
     <system:String x:Key="Config.InheritSecondaryOrPrimary">留白则承幕后／主之配</system:String>
@@ -365,7 +391,7 @@
     <!-- Web Search -->
     <system:String x:Key="Config.WebSearch">寰宇探寻</system:String>
     <system:String x:Key="Config.TestConnection">叩门试通</system:String>
-    <system:String x:Key="Config.Test">试</system:String>
+    <system:String x:Key="Config.Test">测试</system:String>
 
     <!-- Headless Browser -->
     <system:String x:Key="Config.Browser">观界之镜</system:String>

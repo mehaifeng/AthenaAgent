@@ -14,7 +14,14 @@ public class CliService : ICliService
 {
     private readonly ILogger _logger = Log.ForContext<CliService>();
 
-    public async Task<CliResult> ExecuteAsync(string command, IEnumerable<string> arguments, string? workingDirectory = null, IDictionary<string, string>? environmentVariables = null, bool waitForExit = true, CancellationToken ct = default)
+    // waitForExit=true 时的默认超时时间：多数命令几秒到几分钟内完成，5分钟足够覆盖常见场景（编译、格式化、简单安装等）。
+    private const int DefaultTimeoutSeconds = 300;
+
+    // 超时上限：即使调用方显式指定更长的 timeoutSeconds（如已知的大文件下载/长时间安装），也不能无限等待，
+    // 避免因网络卡死、交互式提示（如 sudo 密码，见 npx playwright install chrome 的挂起问题）等原因导致进程被永久挂起且无任何反馈。
+    private const int MaxTimeoutSeconds = 1800;
+
+    public async Task<CliResult> ExecuteAsync(string command, IEnumerable<string> arguments, string? workingDirectory = null, IDictionary<string, string>? environmentVariables = null, bool waitForExit = true, int? timeoutSeconds = null, CancellationToken ct = default)
     {
         // 参数可能很长（如 TTS 的整段朗读文本），日志里截断，避免刷屏。
         var argsText = string.Join(" ", arguments);
@@ -55,15 +62,35 @@ public class CliService : ICliService
                 };
             }
 
-            var result = await cmd.ExecuteBufferedAsync(ct);
+            var effectiveTimeout = Math.Clamp(timeoutSeconds ?? DefaultTimeoutSeconds, 1, MaxTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(effectiveTimeout));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-            return new CliResult
+            try
             {
-                ExitCode = result.ExitCode,
-                StandardOutput = result.StandardOutput,
-                StandardError = result.StandardError,
-                RunTime = result.RunTime
-            };
+                var result = await cmd.ExecuteBufferedAsync(linkedCts.Token);
+
+                return new CliResult
+                {
+                    ExitCode = result.ExitCode,
+                    StandardOutput = result.StandardOutput,
+                    StandardError = result.StandardError,
+                    RunTime = result.RunTime
+                };
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                _logger.Warning("命令执行超时被强制终止: {Command} {Arguments} (timeout={Timeout}s)", command, argsForLog, effectiveTimeout);
+                return new CliResult
+                {
+                    ExitCode = -2,
+                    StandardError = $"命令执行超时（超过 {effectiveTimeout} 秒未结束），进程已被强制终止。若这是已知的长时间任务（如大文件下载/安装），可通过 timeoutSeconds 参数延长超时（最大 {MaxTimeoutSeconds} 秒）；若命令需要交互式输入（如 sudo 密码），请改用无需交互确认的等效命令。"
+                };
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

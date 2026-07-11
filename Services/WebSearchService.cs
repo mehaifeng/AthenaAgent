@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
@@ -61,7 +62,7 @@ public class WebSearchService : IWebSearchService
         return _configService.Load();
     }
 
-    public async Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5)
+    public async Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5, CancellationToken cancellationToken = default)
     {
         var config = GetConfig();
 
@@ -81,12 +82,16 @@ public class WebSearchService : IWebSearchService
         {
             return config.WebSearchProvider.ToLower() switch
             {
-                "tavily" => await SearchTavilyAsync(query, maxResults, config),
-                "websearchapi" => await SearchWebSearchApiAsync(query, maxResults, config),
-                "zhipu" or "智谱" => await SearchZhipuAsync(query, maxResults, config),
-                "baidu" or "百度" => await SearchBaiduAsync(query, maxResults, config),
+                "tavily" => await SearchTavilyAsync(query, maxResults, config, cancellationToken),
+                "websearchapi" => await SearchWebSearchApiAsync(query, maxResults, config, cancellationToken),
+                "zhipu" or "智谱" => await SearchZhipuAsync(query, maxResults, config, cancellationToken),
+                "baidu" or "百度" => await SearchBaiduAsync(query, maxResults, config, cancellationToken),
                 _ => throw new NotSupportedException($"不支持的 Web Search 供应商: {config.WebSearchProvider}")
             };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -101,7 +106,7 @@ public class WebSearchService : IWebSearchService
     /// Tavily API 搜索
     /// 文档: https://docs.tavily.com/documentation/api-reference/endpoint/search
     /// </summary>
-    private async Task<List<WebSearchResult>> SearchTavilyAsync(string query, int maxResults, AppConfig config)
+    private async Task<List<WebSearchResult>> SearchTavilyAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
     {
         var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.tavily.com"
@@ -117,10 +122,10 @@ public class WebSearchService : IWebSearchService
             include_raw_content = false
         };
 
-        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/search", request);
+        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/search", request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
         var tavilyResponse = JsonSerializer.Deserialize<TavilyResponse>(json);
 
         var results = new List<WebSearchResult>();
@@ -172,7 +177,7 @@ public class WebSearchService : IWebSearchService
     /// WebSearchAPI 搜索
     /// 文档: https://websearchapi.ai
     /// </summary>
-    private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(string query, int maxResults, AppConfig config)
+    private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
     {
         var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.websearchapi.ai"
@@ -192,10 +197,10 @@ public class WebSearchService : IWebSearchService
         };
         request.Headers.Add("Authorization", $"Bearer {config.WebSearchApiKey}");
 
-        var response = await _httpClient.SendAsync(request);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
         var parsed = JsonSerializer.Deserialize<WebSearchApiResponse>(json);
 
         var results = new List<WebSearchResult>();
@@ -256,7 +261,7 @@ public class WebSearchService : IWebSearchService
     /// 智谱 AI Web Search
     /// 文档: https://bigmodel.cn/dev/api/search-tool/web-search
     /// </summary>
-    private async Task<List<WebSearchResult>> SearchZhipuAsync(string query, int maxResults, AppConfig config)
+    private async Task<List<WebSearchResult>> SearchZhipuAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
     {
         var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://open.bigmodel.cn/api/paas/v4"
@@ -271,10 +276,10 @@ public class WebSearchService : IWebSearchService
             search_result_count = maxResults
         };
 
-        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/web_search", request);
+        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/web_search", request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
         var zhipuResponse = JsonSerializer.Deserialize<ZhipuWebResponse>(json);
 
         var results = new List<WebSearchResult>();
@@ -326,7 +331,7 @@ public class WebSearchService : IWebSearchService
     /// 文档: https://ai.baidu.com/ai-doc/AppBuilder/pmaxd1hvy
     /// API 示例: https://qianfan.baidubce.com/v2/ai_search/web_search
     /// </summary>
-    private async Task<List<WebSearchResult>> SearchBaiduAsync(string query, int maxResults, AppConfig config)
+    private async Task<List<WebSearchResult>> SearchBaiduAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
     {
         var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://qianfan.baidubce.com/v2/ai_search/web_search"
@@ -350,9 +355,9 @@ public class WebSearchService : IWebSearchService
         _logger.Debug("百度搜索请求: {RequestJson}", requestJson);
 
         var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync(baseUrl, content);
-        
-        var responseJson = await response.Content.ReadAsStringAsync();
+        var response = await _httpClient.PostAsync(baseUrl, content, cancellationToken);
+
+        var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
         _logger.Debug("百度搜索响应: {ResponseJson}", responseJson);
 
         if (!response.IsSuccessStatusCode)

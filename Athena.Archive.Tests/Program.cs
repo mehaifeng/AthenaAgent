@@ -56,7 +56,24 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: trusted maintenance path auto-allows", TestApprovalTrustedAllowAsync),
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
-    ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync)
+    ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
+    ("mcp: name encoder produces safe short names and hashes long ones", TestMcpNameEncoderAsync),
+    ("mcp: registry replace/remove is atomic and snapshot is ordered", TestMcpRegistryAsync),
+    ("mcp: list_tools filters by server and keyword and enforces limit", TestMcpListToolsAsync),
+    ("mcp: get_tool_schema returns descriptor for known name and error for unknown", TestMcpGetSchemaAsync),
+    ("mcp: call_tool delegates to host and surfaces IsError as failure", TestMcpCallToolAsync),
+    ("mcp: importer parses Claude Desktop format and wrapped/bare maps", TestMcpImporterAsync),
+    ("mcp: importer rejects malformed input", TestMcpImporterErrorsAsync),
+    ("mcp: config diff detects add/remove/restart and honors EnableMcp gate", TestMcpConfigDiffAsync),
+    ("mcp: add_server upserts, auto-enables MCP, and fires ConfigChanged", TestMcpAddServerAsync),
+    ("mcp: remove_server deletes by name and rejects unknown", TestMcpRemoveServerAsync),
+    ("mcp: failed start is not recorded and retries on next apply", TestMcpLifecycleRetryAsync),
+    ("mcp: arg list JSON round-trips as flat string array", TestMcpArgJsonRoundTripAsync),
+    ("mcp: call_tool normalizes object/json-string/empty arguments", TestMcpArgNormalizationAsync),
+    ("mcp: importer detects http url + headers", TestMcpImporterHttpAsync),
+    ("mcp: diff honors http url/headers and validity", TestMcpHttpDiffAsync),
+    ("mcp: import_json adds servers from pasted blob and enables MCP", TestMcpImportJsonToolAsync),
+    ("mcp: add_server coerces json-string env/args (weak-model resilience)", TestMcpAddServerCoerceAsync)
 };
 
 var failures = new List<string>();
@@ -1295,6 +1312,516 @@ static string CanonicalizeForTest(string path)
     return Path.GetFullPath(accumulated);
 }
 
+// ---------- MCP tests ----------
+
+static Task TestMcpNameEncoderAsync()
+{
+    var short1 = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode("fs", "read_file");
+    AssertEqual("mcp__fs__read_file", short1, "short name is prefix + server + tool");
+    AssertTrue(short1.Length <= Athena.UI.Services.Mcp.McpToolNameEncoder.MaxLength, "short name within limit");
+
+    // 非法字符替换
+    var slug = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode("weird server!", "call-api");
+    AssertTrue(slug.StartsWith("mcp__"), "prefix preserved");
+    AssertFalse(slug.Contains('!'), "punctuation replaced");
+    AssertFalse(slug.Contains('-'), "dash replaced");
+
+    // 超长：末尾 hash 兜底
+    var longServer = new string('a', 40);
+    var longTool = new string('b', 40);
+    var encoded = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode(longServer, longTool);
+    AssertTrue(encoded.Length <= Athena.UI.Services.Mcp.McpToolNameEncoder.MaxLength, "long name truncated to limit");
+    AssertTrue(encoded.StartsWith("mcp__"), "long name keeps prefix");
+
+    // 稳定性：相同输入产出相同输出（哈希 deterministic）
+    var again = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode(longServer, longTool);
+    AssertEqual(encoded, again, "encoder deterministic for long names");
+    return Task.CompletedTask;
+}
+
+static Task TestMcpRegistryAsync()
+{
+    var reg = new Athena.UI.Services.Mcp.McpToolRegistry();
+    var d1 = new Athena.UI.Models.Mcp.McpToolDescriptor("srvA", "readFile", "mcp__srvA__readFile", "read a file", default, null);
+    var d2 = new Athena.UI.Models.Mcp.McpToolDescriptor("srvA", "writeFile", "mcp__srvA__writeFile", "write a file", default, null);
+    var d3 = new Athena.UI.Models.Mcp.McpToolDescriptor("srvB", "search", "mcp__srvB__search", "search", default, null);
+
+    reg.ReplaceServerTools("srvA", new[] { d1, d2 });
+    reg.ReplaceServerTools("srvB", new[] { d3 });
+    AssertEqual(3, reg.Snapshot().Count, "3 tools registered");
+
+    var onlyA = reg.Snapshot("srvA");
+    AssertEqual(2, onlyA.Count, "filter by server returns 2");
+    AssertEqual("readFile", onlyA[0].OriginalName, "snapshot ordered by tool name");
+
+    // 原子替换：srvA 只保留 writeFile
+    reg.ReplaceServerTools("srvA", new[] { d2 });
+    AssertEqual(2, reg.Snapshot().Count, "after replace srvA drops readFile");
+    AssertTrue(reg.Find("mcp__srvA__readFile") is null, "old tool gone");
+    AssertTrue(reg.Find("mcp__srvA__writeFile") is not null, "surviving tool present");
+
+    reg.RemoveServer("srvB");
+    AssertEqual(1, reg.Snapshot().Count, "server removal clears its tools");
+    return Task.CompletedTask;
+}
+
+static async Task TestMcpListToolsAsync()
+{
+    var host = new FakeMcpHost();
+    host.Seed("fs", ("read_file", "Read a text file."), ("write_file", "Write a text file."));
+    host.Seed("github", ("create_issue", "Create a GitHub issue."));
+    var fn = new Athena.UI.Services.Mcp.McpDiscoveryFunctions(host, Log.Logger);
+
+    var all = await fn.ListToolsAsync(null, null, null);
+    AssertTrue(all.Success, "list returns success");
+    using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(all.Data)))
+    {
+        AssertEqual(3, doc.RootElement.GetProperty("total").GetInt32(), "total across servers");
+        AssertEqual(3, doc.RootElement.GetProperty("returned").GetInt32(), "returned matches count");
+        var tools = doc.RootElement.GetProperty("tools");
+        AssertEqual(3, tools.GetArrayLength(), "tools array length");
+    }
+
+    var onlyFs = await fn.ListToolsAsync("fs", null, null);
+    using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(onlyFs.Data)))
+    {
+        AssertEqual(2, doc.RootElement.GetProperty("returned").GetInt32(), "server filter narrows to 2");
+    }
+
+    var kw = await fn.ListToolsAsync(null, "issue", null);
+    using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(kw.Data)))
+    {
+        AssertEqual(1, doc.RootElement.GetProperty("returned").GetInt32(), "keyword filter matches description");
+        var name = doc.RootElement.GetProperty("tools")[0].GetProperty("name").GetString();
+        AssertTrue(name!.EndsWith("__create_issue"), "keyword matched create_issue");
+    }
+
+    var limited = await fn.ListToolsAsync(null, null, 1);
+    using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(limited.Data)))
+    {
+        AssertEqual(3, doc.RootElement.GetProperty("total").GetInt32(), "total unchanged by limit");
+        AssertEqual(1, doc.RootElement.GetProperty("returned").GetInt32(), "limit truncates page");
+    }
+}
+
+static async Task TestMcpGetSchemaAsync()
+{
+    var host = new FakeMcpHost();
+    host.Seed("fs", ("read_file", "Read a text file."));
+    var fn = new Athena.UI.Services.Mcp.McpDiscoveryFunctions(host, Log.Logger);
+
+    var fq = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode("fs", "read_file");
+    var ok = await fn.GetToolSchemaAsync(fq);
+    AssertTrue(ok.Success, "known name returns success");
+    using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(ok.Data)))
+    {
+        AssertEqual(fq, doc.RootElement.GetProperty("name").GetString()!, "name echoed");
+        AssertEqual("fs", doc.RootElement.GetProperty("server").GetString()!, "server field");
+        AssertEqual("object", doc.RootElement.GetProperty("inputSchema").GetProperty("type").GetString()!, "input schema surfaced");
+    }
+
+    var bad = await fn.GetToolSchemaAsync("mcp__unknown__nope");
+    AssertFalse(bad.Success, "unknown name returns failure");
+
+    var empty = await fn.GetToolSchemaAsync("");
+    AssertFalse(empty.Success, "empty name returns failure");
+}
+
+static async Task TestMcpCallToolAsync()
+{
+    var host = new FakeMcpHost();
+    host.Seed("fs", ("read_file", "Read a text file."));
+    var fq = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode("fs", "read_file");
+    var fn = new Athena.UI.Services.Mcp.McpDiscoveryFunctions(host, Log.Logger);
+
+    var args = JsonDocument.Parse("{\"path\":\"/tmp/x\"}").RootElement;
+    var ok = await fn.CallToolAsync(fq, args);
+    AssertTrue(ok.Success, "call succeeds when host returns non-error");
+    AssertEqual(fq, host.LastCalled, "host received fully qualified name");
+    AssertTrue(host.LastArgsJson.Contains("/tmp/x"), "args passed through");
+
+    host.ReturnError = true;
+    var err = await fn.CallToolAsync(fq, args);
+    AssertFalse(err.Success, "IsError from host surfaces as FunctionResult failure");
+
+    host.ReturnError = false;
+    host.ThrowOnCall = true;
+    var thrown = await fn.CallToolAsync(fq, args);
+    AssertFalse(thrown.Success, "exceptions caught and surfaced as failure");
+
+    var unknown = await fn.CallToolAsync("mcp__nope__x", args);
+    AssertFalse(unknown.Success, "unknown tool rejected before host call");
+}
+
+static Task TestMcpImporterAsync()
+{
+    // 标准 Claude Desktop 包裹格式
+    var json = """
+    {
+      "mcpServers": {
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+          "env": { "FOO": "bar" }
+        },
+        "github": { "command": "docker", "args": ["run", "ghcr.io/x"] }
+      }
+    }
+    """;
+    var parsed = Athena.UI.Services.Mcp.McpConfigImporter.Parse(json);
+    AssertEqual(2, parsed.Count, "two servers parsed");
+
+    var fs = parsed.First(s => s.Name == "filesystem");
+    AssertEqual("npx", fs.Command, "command parsed");
+    AssertEqual(3, fs.Arguments.Count, "args parsed");
+    AssertEqual("/tmp", fs.Arguments[2].Value, "arg order preserved");
+    AssertEqual(1, fs.Environment.Count, "env parsed");
+    AssertEqual("FOO", fs.Environment[0].Key, "env key");
+    AssertEqual("bar", fs.Environment[0].Value, "env value");
+    AssertTrue(fs.Enabled, "imported servers enabled by default");
+
+    // 裸 map（无 mcpServers 包裹层）也应接受
+    var bare = Athena.UI.Services.Mcp.McpConfigImporter.Parse("""{ "solo": { "command": "uvx" } }""");
+    AssertEqual(1, bare.Count, "bare map accepted");
+    AssertEqual("uvx", bare[0].Command, "bare map command");
+    return Task.CompletedTask;
+}
+
+static Task TestMcpImporterErrorsAsync()
+{
+    static void ExpectFormat(string json, string label)
+    {
+        try
+        {
+            Athena.UI.Services.Mcp.McpConfigImporter.Parse(json);
+            throw new InvalidOperationException($"{label}: expected FormatException but none thrown");
+        }
+        catch (FormatException) { /* expected */ }
+    }
+
+    ExpectFormat("", "empty string");
+    ExpectFormat("   ", "whitespace");
+    ExpectFormat("not json", "garbage");
+    ExpectFormat("[1,2,3]", "array top-level");
+    ExpectFormat("""{ "mcpServers": {} }""", "no entries");
+    return Task.CompletedTask;
+}
+
+static Task TestMcpConfigDiffAsync()
+{
+    static AppConfig Cfg(bool enable, params (string name, string cmd, bool en)[] servers)
+    {
+        var c = new AppConfig { EnableMcp = enable };
+        foreach (var (name, cmd, en) in servers)
+            c.McpServers.Add(new McpServerConfig { Name = name, Command = cmd, Enabled = en });
+        return c;
+    }
+
+    // EnableMcp=false → 目标为空
+    var off = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(Cfg(false, ("a", "npx", true)));
+    AssertEqual(0, off.Count, "EnableMcp gate yields empty desired");
+
+    // Enabled=false 或空命令的服务器不纳入
+    var partial = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(Cfg(true, ("a", "npx", true), ("b", "npx", false), ("c", "", true)));
+    AssertEqual(1, partial.Count, "only enabled+command servers included");
+    AssertTrue(partial.ContainsKey("a"), "server a included");
+
+    // 首次应用：全部为新增
+    var empty = new Dictionary<string, Athena.UI.Services.Mcp.McpServerSpec>();
+    var plan1 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(empty, partial);
+    AssertEqual(1, plan1.ToStart.Count, "fresh apply starts a");
+    AssertEqual(0, plan1.ToStop.Count, "fresh apply stops nothing");
+
+    // 无变化：diff 为空
+    var plan2 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(partial, partial);
+    AssertEqual(0, plan2.ToStart.Count, "identical state starts nothing");
+    AssertEqual(0, plan2.ToStop.Count, "identical state stops nothing");
+
+    // 命令变化 → 重启（既停又起）
+    var changed = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(Cfg(true, ("a", "uvx", true)));
+    var plan3 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(partial, changed);
+    AssertEqual(1, plan3.ToStop.Count, "command change stops old");
+    AssertEqual(1, plan3.ToStart.Count, "command change starts new");
+
+    // 删除 → 仅停止
+    var plan4 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(partial, empty);
+    AssertEqual(0, plan4.ToStart.Count, "removal starts nothing");
+    AssertEqual(1, plan4.ToStop.Count, "removal stops a");
+    return Task.CompletedTask;
+}
+
+static async Task TestMcpAddServerAsync()
+{
+    var config = new AppConfig { EnableMcp = false };
+    var cfgSvc = new CapturingConfigService(config);
+    var fn = new Athena.UI.Services.Mcp.McpManagementFunctions(cfgSvc, Log.Logger);
+
+    var none = default(JsonElement); // undefined → 忽略
+    var args = JsonDocument.Parse("""["-y","@modelcontextprotocol/server-filesystem","/tmp"]""").RootElement;
+    var env = JsonDocument.Parse("""{"TOKEN":"abc"}""").RootElement;
+    var res = await fn.AddServerAsync("filesystem", "npx", args, env, null, none);
+    AssertTrue(res.Success, "add returns success");
+    AssertEqual(1, config.McpServers.Count, "server added");
+    AssertTrue(config.EnableMcp, "EnableMcp auto-turned on");
+    AssertEqual(1, cfgSvc.SaveCount, "config saved once");
+    AssertTrue(cfgSvc.ConfigChangedFired, "ConfigChanged fired to trigger hot restart");
+
+    var added = config.McpServers[0];
+    AssertEqual(McpTransportKind.Stdio, added.Transport, "stdio transport inferred from command");
+    AssertEqual("npx", added.Command, "command stored");
+    AssertEqual(3, added.Arguments.Count, "args stored");
+    AssertEqual("TOKEN", added.Environment[0].Key, "env stored");
+    AssertTrue(added.Enabled, "added server enabled");
+
+    // 同名 upsert：替换而非追加
+    var empty = JsonDocument.Parse("[]").RootElement;
+    var res2 = await fn.AddServerAsync("filesystem", "uvx", empty, none, null, none);
+    AssertTrue(res2.Success, "upsert success");
+    AssertEqual(1, config.McpServers.Count, "same name replaces, not appends");
+    AssertEqual("uvx", config.McpServers[0].Command, "command updated on upsert");
+
+    // Http：传 url → Http 传输，带 headers
+    var headers = JsonDocument.Parse("""{"Authorization":"Bearer xyz"}""").RootElement;
+    var resHttp = await fn.AddServerAsync("remote", null, none, none, "https://example.com/mcp", headers);
+    AssertTrue(resHttp.Success, "http add succeeds with url");
+    var http = config.McpServers.First(s => s.Name == "remote");
+    AssertEqual(McpTransportKind.Http, http.Transport, "http transport inferred from url");
+    AssertEqual("https://example.com/mcp", http.Url, "url stored");
+    AssertEqual("Authorization", http.Headers[0].Key, "header stored");
+    AssertEqual("Bearer xyz", http.Headers[0].Value, "header value stored");
+
+    // 参数校验
+    var bad = await fn.AddServerAsync("", "npx", empty, none, null, none);
+    AssertFalse(bad.Success, "empty name rejected");
+    var bad2 = await fn.AddServerAsync("x", "", none, none, null, none);
+    AssertFalse(bad2.Success, "neither command nor url rejected");
+}
+
+static async Task TestMcpRemoveServerAsync()
+{
+    var config = new AppConfig { EnableMcp = true };
+    config.McpServers.Add(new McpServerConfig { Name = "gh", Command = "docker" });
+    var cfgSvc = new CapturingConfigService(config);
+    var fn = new Athena.UI.Services.Mcp.McpManagementFunctions(cfgSvc, Log.Logger);
+
+    var ok = await fn.RemoveServerAsync("gh");
+    AssertTrue(ok.Success, "remove existing succeeds");
+    AssertEqual(0, config.McpServers.Count, "server removed");
+    AssertTrue(cfgSvc.ConfigChangedFired, "ConfigChanged fired on remove");
+
+    var missing = await fn.RemoveServerAsync("nope");
+    AssertFalse(missing.Success, "removing unknown server fails");
+
+    var empty = await fn.RemoveServerAsync("");
+    AssertFalse(empty.Success, "empty name rejected");
+}
+
+static async Task TestMcpLifecycleRetryAsync()
+{
+    var config = new AppConfig { EnableMcp = true };
+    config.McpServers.Add(new McpServerConfig { Name = "flaky", Command = "npx", Enabled = true });
+    var cfgSvc = new CapturingConfigService(config);
+    var controller = new FakeMcpController();
+    var lifecycle = new Athena.UI.Services.Mcp.McpLifecycleService(controller, cfgSvc, Log.Logger);
+
+    // 第一次：控制器模拟连接失败
+    controller.NextStartResult = false;
+    await lifecycle.StartAsync();
+    AssertEqual(1, controller.StartCalls, "first apply attempted start");
+    AssertEqual(0, controller.StopCalls, "nothing stopped on first apply");
+
+    // 失败不入册：再次 apply（无配置变化）应重试，而不是判定"无变化跳过"
+    controller.NextStartResult = false;
+    await lifecycle.ApplyAsync(config);
+    AssertEqual(2, controller.StartCalls, "failed server retried on next apply");
+
+    // 修好后成功：这次入册
+    controller.NextStartResult = true;
+    await lifecycle.ApplyAsync(config);
+    AssertEqual(3, controller.StartCalls, "retried again and succeeded");
+
+    // 成功后入册：再 apply 不应重复启动
+    controller.NextStartResult = true;
+    await lifecycle.ApplyAsync(config);
+    AssertEqual(3, controller.StartCalls, "succeeded server not restarted when unchanged");
+
+    // 删除服务器 → 停止
+    config.McpServers.Clear();
+    await lifecycle.ApplyAsync(config);
+    AssertEqual(1, controller.StopCalls, "removed server stopped");
+}
+
+static Task TestMcpArgJsonRoundTripAsync()
+{
+    var options = new JsonSerializerOptions { WriteIndented = false, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    var server = new McpServerConfig { Name = "x", Command = "npx" };
+    server.Arguments.Add(new McpArgEntry("-y"));
+    server.Arguments.Add(new McpArgEntry("@scope/pkg"));
+
+    var json = JsonSerializer.Serialize(server, options);
+    // arguments 必须序列化为扁平字符串数组，兼容 Claude Desktop
+    AssertTrue(json.Contains("\"arguments\":[\"-y\",\"@scope/pkg\"]"), $"args serialize as flat array; got {json}");
+    // 运行期状态字段不得落盘
+    AssertFalse(json.Contains("status"), "runtime Status not serialized");
+    AssertFalse(json.Contains("discoveredToolCount"), "runtime tool count not serialized");
+
+    var back = JsonSerializer.Deserialize<McpServerConfig>(json, options)!;
+    AssertEqual(2, back.Arguments.Count, "args round-trip count");
+    AssertEqual("-y", back.Arguments[0].Value, "first arg round-trips");
+    AssertEqual("@scope/pkg", back.Arguments[1].Value, "second arg round-trips");
+    return Task.CompletedTask;
+}
+
+static async Task TestMcpArgNormalizationAsync()
+{
+    var host = new FakeMcpHost();
+    host.Seed("net", ("ip_location", "Locate an IP."));
+    var fq = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode("net", "ip_location");
+    var fn = new Athena.UI.Services.Mcp.McpDiscoveryFunctions(host, Log.Logger);
+
+    // 1) 正常对象 → 透传
+    var obj = JsonDocument.Parse("""{"ip":"5.34.216.211"}""").RootElement;
+    var r1 = await fn.CallToolAsync(fq, obj);
+    AssertTrue(r1.Success, "object args pass through");
+    AssertTrue(host.LastArgsJson.Contains("5.34.216.211"), "object args reached host");
+
+    // 2) JSON 字符串（弱模型常见）→ 解析成对象
+    var strArg = JsonDocument.Parse("\"{\\\"ip\\\":\\\"1.2.3.4\\\"}\"").RootElement;
+    var r2 = await fn.CallToolAsync(fq, strArg);
+    AssertTrue(r2.Success, "json-string args accepted");
+    AssertTrue(host.LastArgsJson.Contains("1.2.3.4"), "json-string parsed to object for host");
+
+    // 3) 空字符串 → 归一为 {}（到达 host，服务器可自行决定是否报缺参）
+    var empty = JsonDocument.Parse("\"\"").RootElement;
+    var r3 = await fn.CallToolAsync(fq, empty);
+    AssertTrue(r3.Success, "empty string normalized to empty object, still dispatched");
+
+    // 4) 非法 JSON 字符串 → 明确报错，不吞
+    var bad = JsonDocument.Parse("\"not json\"").RootElement;
+    var r4 = await fn.CallToolAsync(fq, bad);
+    AssertFalse(r4.Success, "invalid json string rejected with guidance");
+
+    // 5) 直接单测归一化函数：数组标量被拒
+    var arr = JsonDocument.Parse("[1,2]").RootElement;
+    var okArr = Athena.UI.Services.Mcp.McpDiscoveryFunctions.TryNormalizeArguments(arr, out _, out var err);
+    AssertFalse(okArr, "array arguments rejected");
+    AssertTrue(!string.IsNullOrEmpty(err), "rejection carries guidance");
+}
+
+static Task TestMcpImporterHttpAsync()
+{
+    var json = """
+    {
+      "mcpServers": {
+        "remote": { "url": "https://api.example.com/mcp", "headers": { "Authorization": "Bearer t0ken" } },
+        "local":  { "command": "npx", "args": ["-y","pkg"] }
+      }
+    }
+    """;
+    var parsed = Athena.UI.Services.Mcp.McpConfigImporter.Parse(json);
+    var remote = parsed.First(s => s.Name == "remote");
+    AssertEqual(McpTransportKind.Http, remote.Transport, "url => http transport");
+    AssertEqual("https://api.example.com/mcp", remote.Url, "url parsed");
+    AssertEqual("Authorization", remote.Headers[0].Key, "header key parsed");
+    AssertEqual("Bearer t0ken", remote.Headers[0].Value, "header value parsed");
+
+    var local = parsed.First(s => s.Name == "local");
+    AssertEqual(McpTransportKind.Stdio, local.Transport, "command => stdio transport");
+    return Task.CompletedTask;
+}
+
+static Task TestMcpHttpDiffAsync()
+{
+    static AppConfig HttpCfg(string url, params (string k, string v)[] headers)
+    {
+        var c = new AppConfig { EnableMcp = true };
+        var s = new McpServerConfig { Name = "r", Enabled = true, Transport = McpTransportKind.Http, Url = url };
+        foreach (var (k, v) in headers) s.Headers.Add(new McpEnvEntry { Key = k, Value = v });
+        c.McpServers.Add(s);
+        return c;
+    }
+
+    // Http 校验：无 url 不纳入
+    var noUrl = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(HttpCfg(""));
+    AssertEqual(0, noUrl.Count, "http server without url excluded");
+
+    var d1 = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(HttpCfg("https://a.com/mcp", ("Authorization", "Bearer 1")));
+    AssertEqual(1, d1.Count, "http server with url included");
+
+    // 改 header → 指纹变化 → 重启
+    var d2 = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(HttpCfg("https://a.com/mcp", ("Authorization", "Bearer 2")));
+    var plan = Athena.UI.Services.Mcp.McpConfigDiff.Diff(d1, d2);
+    AssertEqual(1, plan.ToStop.Count, "header change restarts (stop)");
+    AssertEqual(1, plan.ToStart.Count, "header change restarts (start)");
+
+    // 改 url → 重启
+    var d3 = Athena.UI.Services.Mcp.McpConfigDiff.BuildDesired(HttpCfg("https://b.com/mcp", ("Authorization", "Bearer 1")));
+    var plan2 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(d1, d3);
+    AssertEqual(1, plan2.ToStart.Count, "url change restarts");
+
+    // 相同 → 无操作
+    var plan3 = Athena.UI.Services.Mcp.McpConfigDiff.Diff(d1, d1);
+    AssertEqual(0, plan3.ToStart.Count, "identical http state no-op");
+    return Task.CompletedTask;
+}
+
+static async Task TestMcpImportJsonToolAsync()
+{
+    var config = new AppConfig { EnableMcp = false };
+    var cfgSvc = new CapturingConfigService(config);
+    var fn = new Athena.UI.Services.Mcp.McpManagementFunctions(cfgSvc, Log.Logger);
+
+    // 用户粘贴的原始配置（env 里带 API key）
+    var blob = """
+    {
+      "mcpServers": {
+        "kuaidi100": {
+          "command": "uvx",
+          "args": ["kuaidi100-mcp"],
+          "env": { "KUAIDI100_API_KEY": "secret-key-123" }
+        }
+      }
+    }
+    """;
+    var res = await fn.ImportJsonAsync(blob);
+    AssertTrue(res.Success, "import succeeds");
+    AssertEqual(1, config.McpServers.Count, "server imported");
+    AssertTrue(config.EnableMcp, "MCP auto-enabled");
+
+    var s = config.McpServers[0];
+    AssertEqual("kuaidi100", s.Name, "name imported");
+    AssertEqual("uvx", s.Command, "command imported");
+    AssertEqual(1, s.Environment.Count, "env imported");
+    AssertEqual("KUAIDI100_API_KEY", s.Environment[0].Key, "env key imported");
+    AssertEqual("secret-key-123", s.Environment[0].Value, "env value (api key) imported — the whole point");
+
+    // 空/非法输入
+    var empty = await fn.ImportJsonAsync("");
+    AssertFalse(empty.Success, "empty json rejected");
+    var bad = await fn.ImportJsonAsync("not json");
+    AssertFalse(bad.Success, "invalid json rejected");
+}
+
+static async Task TestMcpAddServerCoerceAsync()
+{
+    var config = new AppConfig { EnableMcp = true };
+    var cfgSvc = new CapturingConfigService(config);
+    var fn = new Athena.UI.Services.Mcp.McpManagementFunctions(cfgSvc, Log.Logger);
+    var none = default(JsonElement);
+
+    // 弱模型把 env/args 发成 JSON 字符串（而非对象/数组）——应被解析
+    var envStr = JsonDocument.Parse("\"{\\\"KUAIDI100_API_KEY\\\":\\\"k123\\\"}\"").RootElement;
+    var argsStr = JsonDocument.Parse("\"[\\\"kuaidi100-mcp\\\"]\"").RootElement;
+    var res = await fn.AddServerAsync("kuaidi100", "uvx", argsStr, envStr, null, none);
+    AssertTrue(res.Success, "add succeeds with string-encoded env/args");
+
+    var s = config.McpServers[0];
+    AssertEqual(1, s.Arguments.Count, "json-string args coerced");
+    AssertEqual("kuaidi100-mcp", s.Arguments[0].Value, "arg value parsed");
+    AssertEqual(1, s.Environment.Count, "json-string env coerced");
+    AssertEqual("k123", s.Environment[0].Value, "api key recovered from string-encoded env");
+}
+
 static void AssertTrue(bool condition, string message)
 {
     if (!condition)
@@ -1346,6 +1873,38 @@ static ChatAttachment CreateImageAttachment(string id, string fileName, string s
         MimeType = "image/png",
         CreatedAt = createdAt
     };
+}
+
+sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost
+{
+    private readonly Athena.UI.Services.Mcp.McpToolRegistry _reg = new();
+    public bool ThrowOnCall { get; set; }
+    public bool ReturnError { get; set; }
+    public string LastCalled { get; private set; } = string.Empty;
+    public string LastArgsJson { get; private set; } = string.Empty;
+
+    public void Seed(string server, params (string name, string description)[] tools)
+    {
+        var list = new List<Athena.UI.Models.Mcp.McpToolDescriptor>();
+        foreach (var (n, d) in tools)
+        {
+            var schema = JsonDocument.Parse("{\"type\":\"object\"}").RootElement.Clone();
+            var fq = Athena.UI.Services.Mcp.McpToolNameEncoder.Encode(server, n);
+            list.Add(new Athena.UI.Models.Mcp.McpToolDescriptor(server, n, fq, d, schema, null));
+        }
+        _reg.ReplaceServerTools(server, list);
+    }
+
+    public IReadOnlyList<Athena.UI.Models.Mcp.McpToolDescriptor> ListTools(string? serverFilter = null)
+        => _reg.Snapshot(serverFilter);
+    public Athena.UI.Models.Mcp.McpToolDescriptor? Find(string fq) => _reg.Find(fq);
+    public Task<Athena.UI.Services.Mcp.McpCallResult> CallToolAsync(string fq, JsonElement args, CancellationToken ct)
+    {
+        LastCalled = fq;
+        LastArgsJson = args.ValueKind == JsonValueKind.Undefined ? "" : args.GetRawText();
+        if (ThrowOnCall) throw new InvalidOperationException("boom");
+        return Task.FromResult(new Athena.UI.Services.Mcp.McpCallResult(ReturnError, ReturnError ? "server said no" : "hello from tool"));
+    }
 }
 
 sealed class TestHarness : IDisposable
@@ -1529,6 +2088,45 @@ sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHist
             Messages = snapshot.Messages.ToList()
         });
     }
+}
+
+// 假服务器控制器：可编排下一次启动成功/失败，记录启停调用次数，用于验证 Lifecycle 重试逻辑。
+sealed class FakeMcpController : Athena.UI.Services.Mcp.IMcpServerController
+{
+    public bool NextStartResult { get; set; } = true;
+    public int StartCalls { get; private set; }
+    public int StopCalls { get; private set; }
+
+    public Task<bool> StartServerAsync(McpServerConfig config, CancellationToken cancellationToken = default)
+    {
+        StartCalls++;
+        return Task.FromResult(NextStartResult);
+    }
+
+    public Task StopServerAsync(string serverName)
+    {
+        StopCalls++;
+        return Task.CompletedTask;
+    }
+}
+
+// 支持 SaveAsync 并记录调用次数 / ConfigChanged 触发的假配置服务，用于 MCP 管理工具测试。
+sealed class CapturingConfigService(AppConfig config) : IConfigService
+{
+    public int SaveCount { get; private set; }
+    public bool ConfigChangedFired { get; private set; }
+
+    public Task<AppConfig> LoadAsync() => Task.FromResult(config);
+    public AppConfig Load() => config;
+    public Task SaveAsync(AppConfig c)
+    {
+        SaveCount++;
+        ConfigChangedFired = true;
+        ConfigChanged?.Invoke(this, c);
+        return Task.CompletedTask;
+    }
+    public string ConfigFilePath => string.Empty;
+    public event EventHandler<AppConfig>? ConfigChanged;
 }
 
 sealed class TestConfigService(AppConfig config) : IConfigService
