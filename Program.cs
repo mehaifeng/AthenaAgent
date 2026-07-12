@@ -69,6 +69,17 @@ class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // macOS 专用（其他平台忽略此选项）：Avalonia 12 默认优先 Metal 后端，
+            // 连续出帧时中间调颜色会产生肉眼可见的频闪（Metal 后端尚不稳定，
+            // 参见 AvaloniaUI/Avalonia#14829、#17025），故退回 OpenGL。
+            .With(new AvaloniaNativePlatformOptions
+            {
+                RenderingMode = new[]
+                {
+                    AvaloniaNativeRenderingMode.OpenGl,
+                    AvaloniaNativeRenderingMode.Software
+                }
+            })
             .WithInterFont()
             .LogToTrace();
 

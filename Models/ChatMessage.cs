@@ -59,6 +59,7 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
     private bool _isLoading;
 
     /// <summary>
@@ -159,6 +160,7 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasToolExecutionSummary))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
     private string _toolExecutionSummary = string.Empty;
 
     /// <summary>
@@ -168,6 +170,13 @@ public partial class ChatMessage : ObservableObject
     private string _toolName = string.Empty;
 
     public bool HasToolExecutionSummary => !string.IsNullOrEmpty(ToolExecutionSummary);
+
+    /// <summary>
+    /// 是否展示"思考中"回纹加载指示。动画样式类必须绑定此属性挂/摘，
+    /// 不能只靠 IsVisible 隐藏：Avalonia 对不可见元素的关键帧动画仍会持续
+    /// 驱动合成器逐帧渲染（AvaloniaUI/Avalonia#17139）。
+    /// </summary>
+    public bool ShowThinkingIndicator => IsLoading && !HasToolExecutionSummary;
 
     public bool HasAudioError => !string.IsNullOrWhiteSpace(AudioErrorMessage);
 

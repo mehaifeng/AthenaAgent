@@ -61,13 +61,18 @@
             <Setter Property="Opacity" Value="0.35"/>
         </Style>
 
-        <!-- 铭文式呼吸文本：衬线体 + 大字距，缓慢明暗如烛光拂过刻字 -->
+        <!-- 铭文式呼吸文本：衬线体 + 大字距，缓慢明暗如烛光拂过刻字。
+             动画拆到 breathing 子类并由 ShowThinkingIndicator 绑定挂/摘：
+             Avalonia 对 IsVisible=false 元素的关键帧动画仍会驱动合成器逐帧渲染
+             （AvaloniaUI/Avalonia#17139），静态挂类会让聊天页闲置时也全程重绘。 -->
         <Style Selector="TextBlock.thinking-text">
             <Setter Property="FontFamily" Value="Georgia, Times New Roman, Songti SC, SimSun, serif"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="LetterSpacing" Value="3"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="TextBlock.thinking-text.breathing">
             <Style.Animations>
                 <Animation Duration="0:0:2.2" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="SineEaseInOut">
                     <KeyFrame Cue="0%"> <Setter Property="Opacity" Value="0.35"/> </KeyFrame>
@@ -496,7 +501,7 @@
                                         </Border>
 
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
-                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="14" Height="14" Opacity="0.6"/>
+                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
                                         </StackPanel>
 
@@ -504,13 +509,14 @@
                                             <StackPanel Orientation="Vertical" Spacing="3" VerticalAlignment="Center"
                                                         IsVisible="{Binding !HasToolExecutionSummary}">
                                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <Path Classes="meander-glyph m1"/>
-                                                    <Path Classes="meander-glyph m2"/>
-                                                    <Path Classes="meander-glyph m3"/>
+                                                    <Path Classes="meander-glyph" Classes.m1="{Binding ShowThinkingIndicator}"/>
+                                                    <Path Classes="meander-glyph" Classes.m2="{Binding ShowThinkingIndicator}"/>
+                                                    <Path Classes="meander-glyph" Classes.m3="{Binding ShowThinkingIndicator}"/>
                                                 </StackPanel>
                                                 <Rectangle Classes="meander-base" Width="41"/>
                                             </StackPanel>
                                             <TextBlock Classes="thinking-text"
+                                                       Classes.breathing="{Binding ShowThinkingIndicator}"
                                                        Text="{loc:Loc Chat.ReceivingData}"
                                                        IsVisible="{Binding !HasToolExecutionSummary}"/>
                                         </StackPanel>
@@ -643,7 +649,7 @@
 
                                     <!-- 文档解析状态 -->
                                     <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" Margin="0,3,0,0" IsVisible="{Binding IsParsing}">
-                                        <PathIcon Data="{StaticResource SemiIconLoading}" Classes="SlowSpin" Width="10" Height="10" Opacity="0.7"/>
+                                        <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding IsParsing}" Width="10" Height="10" Opacity="0.7"/>
                                         <TextBlock Text="{loc:Loc Chat.Attach.Parsing}" FontSize="10" Opacity="0.7"/>
                                     </StackPanel>
                                     <TextBlock Grid.Row="3"

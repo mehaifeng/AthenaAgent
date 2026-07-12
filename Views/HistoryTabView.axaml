@@ -238,7 +238,7 @@
                                                           Width="12"
                                                           Height="12"
                                                           Foreground="{DynamicResource History.PendingStatusForeground}"
-                                                          Classes="SlowSpin"/>
+                                                          Classes.SlowSpin="{Binding HasArchiveStatus}"/>
                                                 <TextBlock Text="{Binding ArchiveStatusText}"
                                                            Classes="pending-archive-status"/>
                                             </StackPanel>
