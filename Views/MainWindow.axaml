@@ -25,10 +25,19 @@
 
     <Grid RowDefinitions="*,Auto">
         <!-- 背景图片 -->
-        <Image Source="{DynamicResource App.BackgroundImage}"
+        <Image x:Name="BaseBackgroundImage"
+               Source="{DynamicResource App.BackgroundImage}"
                Grid.Row="0"
                Grid.RowSpan="2"
                Stretch="UniformToFill"
+               IsHitTestVisible="False" />
+        <!-- 主题切换过渡层：持有旧主题背景做"失焦淡出"，平时隐藏；
+             位于底图之上、蒙版之下，效果只发生在真正的底层背景上 -->
+        <Image x:Name="ThemeTransitionImage"
+               Grid.Row="0"
+               Grid.RowSpan="2"
+               Stretch="UniformToFill"
+               Opacity="0"
                IsHitTestVisible="False" />
         <!-- 背景蒙版 -->
         <Border Grid.Row="0"

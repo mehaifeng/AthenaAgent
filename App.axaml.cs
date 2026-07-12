@@ -455,7 +455,7 @@ public partial class App : Application
         var isDark = themeName?.ToLower() != "light";
         var theme = isDark ? ThemeVariant.Dark : ThemeVariant.Light;
 
-        // 触发主题过渡动画（动画渐入后再切换主题，避免控件先变再动画的割裂感）
+        // 触发主题过渡动画（运行期为背景"景深聚焦"过渡；引导交接为满幕版画揭幕）
         if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow is Views.MainWindow mainWindow)
         {
             await mainWindow.ShowThemeSplashAsync(themeName ?? "Dark");

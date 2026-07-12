@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
@@ -15,6 +16,8 @@ namespace Athena.UI.Views;
 public partial class MainWindow : Window
 {
     private Image? _themeSplashImage;
+    private Image? _baseBackgroundImage;
+    private Image? _themeTransitionImage;
     private TabControl? _mainTabControl;
     private ChatTabView? _chatTabView;
 
@@ -22,6 +25,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
+        _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
+        _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
         _mainTabControl = this.FindControl<TabControl>("MainTabControl");
         _chatTabView = this.FindControl<ChatTabView>("ChatTabView");
         if (_mainTabControl != null)
@@ -95,7 +100,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 显示主题过渡动画
+    /// 显示主题过渡动画：
+    /// 引导交接（force）播放满幕版画揭幕；运行期主题切换播放"景深聚焦"背景过渡。
     /// </summary>
     /// <param name="theme">"Dark" 或 "Light"</param>
     /// <param name="force">
@@ -104,8 +110,6 @@ public partial class MainWindow : Window
     /// </param>
     public async Task ShowThemeSplashAsync(string theme, bool force = false)
     {
-        if (_themeSplashImage == null) return;
-
         // 如果主题与当前 Avalonia 主题相同，跳过动画（避免 ConfigTabView auto-save 重复触发）。
         // 引导交接（force）除外——该路径的意义正是同主题下的揭幕动画。
         var isTargetDark = theme?.ToLower() != "light";
@@ -113,9 +117,26 @@ public partial class MainWindow : Window
         var isCurrentDark = currentVariant == Avalonia.Styling.ThemeVariant.Dark;
         if (!force && isTargetDark == isCurrentDark) return;
 
+        if (force)
+        {
+            await RunSplashHandoffAsync(theme, isTargetDark, isCurrentDark);
+        }
+        else
+        {
+            await RunFocusTransitionAsync(isTargetDark);
+        }
+    }
+
+    /// <summary>
+    /// 引导交接的满幕版画揭幕（仅 force 路径）：遮罩已定格则停留后揭幕，否则渐入→切主题→揭幕。
+    /// </summary>
+    private async Task RunSplashHandoffAsync(string? theme, bool isTargetDark, bool isCurrentDark)
+    {
+        if (_themeSplashImage == null) return;
+
         try
         {
-            var coveredAlready = force && _themeSplashImage.Source != null && _themeSplashImage.Opacity >= 1;
+            var coveredAlready = _themeSplashImage.Source != null && _themeSplashImage.Opacity >= 1;
 
             if (!coveredAlready)
             {
@@ -161,6 +182,91 @@ public partial class MainWindow : Window
         }
     }
 
+    // 景深聚焦过渡时长
+    private const int FocusTransitionMs = 1200;
+
+    // 景深聚焦：旧背景失焦的模糊终值 / 新背景落定的缩放起点
+    private const double FocusBlurRadius = 26d;
+    private const double FocusSettleScale = 1.06;
+
+    // 过渡进行中的重入保护：连点切换时后到者直接落地变体，不叠加第二场动画
+    private bool _focusTransitionRunning;
+
+    /// <summary>
+    /// 运行期主题切换的"景深聚焦"过渡：旧背景在原位模糊失焦并淡出，
+    /// 新背景带轻微缩放落定，像相机重新对焦到另一幅版画。
+    /// 过渡只发生在底层背景图上（蒙版之下）；蒙版与 UI 控件颜色随主题变体即时切换。
+    /// 与版画揭幕同理，此处直接落地 RequestedThemeVariant，绝不能回调 App.SetTheme。
+    /// </summary>
+    private async Task RunFocusTransitionAsync(bool isTargetDark)
+    {
+        if (Application.Current == null) return;
+        var targetVariant = isTargetDark ? ThemeVariant.Dark : ThemeVariant.Light;
+
+        // 控件缺失、窗口尚未加载（启动路径）或已有过渡在播时直接落地主题，不做动画
+        // （在播场景下，正在进行的动画会自然揭示换新后的底图，收尾状态仍一致）
+        if (_themeTransitionImage == null || _baseBackgroundImage == null || !IsLoaded || _focusTransitionRunning)
+        {
+            Application.Current.RequestedThemeVariant = targetVariant;
+            return;
+        }
+
+        _focusTransitionRunning = true;
+        try
+        {
+            // 过渡层先顶上旧主题背景（与底图像素一致，接管瞬间无感知），
+            // 再落地主题变体：底图 DynamicResource 换成新背景，此刻被过渡层盖住
+            _themeTransitionImage.Effect = null;
+            _themeTransitionImage.Source = LoadSplashBitmap(isTargetDark ? "Light" : "Dark");
+            _themeTransitionImage.Opacity = 1;
+            Application.Current.RequestedThemeVariant = targetVariant;
+
+            // 旧背景模糊失焦并淡出（透明度前 35% 定格，让"失焦"先于消失被看见），
+            // 同时新背景从 1.06 缩放回 1.0 落定。
+            // 陷阱：Animation.RunAsync 完成、订阅解除的瞬间，属性会回落到局部值，
+            // 之后才轮到代码补设终值——若局部值 ≠ 动画终值，收尾就会闪出一帧突变
+            // （缩放弹回 1.06 / 旧图闪现 / 模糊骤清）。因此局部值一律预置为动画终值，
+            // 且置值与挂动画在同一同步块内完成（Cue 0 立即接管，中间无渲染帧，起始不闪）。
+            var blur = new BlurEffect { Radius = FocusBlurRadius };
+            var settle = new ScaleTransform(1.0, 1.0);
+            _themeTransitionImage.Opacity = 0;
+            _themeTransitionImage.Effect = blur;
+            _baseBackgroundImage.RenderTransform = settle;
+
+            var fadeOut = new Animation
+            {
+                Duration = TimeSpan.FromMilliseconds(FocusTransitionMs),
+                Easing = new LinearEasing(),
+                FillMode = FillMode.Forward,
+                Children =
+                {
+                    new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(Visual.OpacityProperty, 1d) } },
+                    new KeyFrame { Cue = new Cue(0.35), Setters = { new Setter(Visual.OpacityProperty, 1d) } },
+                    new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(Visual.OpacityProperty, 0d) } }
+                }
+            };
+
+            await Task.WhenAll(
+                fadeOut.RunAsync(_themeTransitionImage),
+                AnimateAsync(blur, BlurEffect.RadiusProperty, 0d, FocusBlurRadius, FocusTransitionMs, new CubicEaseOut()),
+                AnimateAsync(settle, ScaleTransform.ScaleXProperty, FocusSettleScale, 1.0, FocusTransitionMs, new CubicEaseOut()),
+                AnimateAsync(settle, ScaleTransform.ScaleYProperty, FocusSettleScale, 1.0, FocusTransitionMs, new CubicEaseOut()));
+        }
+        catch (Exception)
+        {
+            // 静默处理：主题已在动画前落地，动画失败不影响主流程
+        }
+        finally
+        {
+            // 清理过渡状态，释放模糊效果、位图引用与缩放变换
+            _themeTransitionImage.Opacity = 0;
+            _themeTransitionImage.Effect = null;
+            _themeTransitionImage.Source = null;
+            _baseBackgroundImage.RenderTransform = null;
+            _focusTransitionRunning = false;
+        }
+    }
+
     // 版画位图进程内缓存：每主题只解码一次
     private static readonly ConcurrentDictionary<string, Bitmap> _splashBitmapCache = new();
 
@@ -179,33 +285,37 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 合成器时钟驱动的透明度动画，交由渲染管线插值，帧率平滑不受 UI 线程抖动影响。
+    /// 合成器时钟驱动的单属性动画（Animatable 通用：透明度、模糊半径、缩放等），
+    /// 交由渲染管线插值，帧率平滑不受 UI 线程抖动影响。
     /// </summary>
-    private static async Task AnimateOpacityAsync(Visual target, double from, double to, int durationMs)
+    private static async Task AnimateAsync(Animatable target, AvaloniaProperty property, object from, object to, int durationMs, Easing? easing = null)
     {
         var animation = new Animation
         {
             Duration = TimeSpan.FromMilliseconds(durationMs),
-            Easing = new LinearEasing(),
+            Easing = easing ?? new LinearEasing(),
             FillMode = FillMode.Forward,
             Children =
             {
                 new KeyFrame
                 {
                     Cue = new Cue(0d),
-                    Setters = { new Setter(Visual.OpacityProperty, from) }
+                    Setters = { new Setter(property, from) }
                 },
                 new KeyFrame
                 {
                     Cue = new Cue(1d),
-                    Setters = { new Setter(Visual.OpacityProperty, to) }
+                    Setters = { new Setter(property, to) }
                 }
             }
         };
 
         await animation.RunAsync(target);
-        target.Opacity = to; // 动画结束固化终值
+        target.SetValue(property, to); // 动画结束固化终值
     }
+
+    private static Task AnimateOpacityAsync(Visual target, double from, double to, int durationMs)
+        => AnimateAsync(target, Visual.OpacityProperty, from, to, durationMs);
 
     private Task FadeInAsync(Image image, int durationMs) => AnimateOpacityAsync(image, 0, 1, durationMs);
 
