@@ -262,6 +262,62 @@
                                 </StackPanel>
                             </TabItem>
 
+                            <TabItem Header="{loc:Loc Config.SubAgents}">
+                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                                    <TextBlock Text="{loc:Loc Config.SubAgentsDescription}"
+                                               TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Opacity="0.7"/>
+
+                                    <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                        <TextBlock Grid.Column="0" Text="{loc:Loc Config.SubAgentsEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSubAgents}" HorizontalAlignment="Left"/>
+                                    </Grid>
+
+                                    <StackPanel Spacing="16" IsEnabled="{Binding Config.EnableSubAgents}">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentMaxParallel}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Config.SubAgentMaxParallel}" Minimum="1" Maximum="12" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.SubAgentMaxIterations}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.SubAgentMaxIterations}" Minimum="1" Maximum="60" Increment="1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.SubAgentTimeout}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Config.SubAgentTimeoutSeconds}" Minimum="10" Maximum="1200" Increment="10" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.SubAgentModelSource}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ToggleSwitch Grid.Row="0" Grid.Column="1"
+                                                          IsChecked="{Binding UseMainModelForSubAgent}"
+                                                          OnContent="{loc:Loc Config.SubAgentModelSourceInherit}"
+                                                          OffContent="{loc:Loc Config.SubAgentModelSourceCustom}"
+                                                          HorizontalAlignment="Left"/>
+                                        </Grid>
+
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" IsVisible="{Binding IsSubAgentModelCustom}">
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.SubAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.SubAgentBaseUrl}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.SubAgentApiKey}" PasswordChar="*" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.SubAgentModel}" PlaceholderText="{loc:Loc Config.InheritPrimary}" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.SubAgentMaxTokens}" Minimum="256" Maximum="32000" Increment="256" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding Config.SubAgentTemperature}" Minimum="0" Maximum="2" Increment="0.1" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </TabItem>
+
                             <TabItem Header="{loc:Loc Config.VectorKb}">
                                 <StackPanel Spacing="12" Margin="0,12,0,0">
                                     <TextBlock Text="{loc:Loc Config.SectionEmbedding}" FontWeight="SemiBold" Opacity="0.8"/>

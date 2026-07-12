@@ -73,7 +73,7 @@ public class SystemAudioService : ISystemAudioService
             }
             else if (OperatingSystem.IsLinux())
             {
-                result = await _cliService.ExecuteAsync("aplay", [filePath], ct: cancellationToken);
+                return await PlayFileLinuxAsync(filePath, cancellationToken);
             }
             else if (OperatingSystem.IsWindows())
             {
@@ -97,6 +97,52 @@ public class SystemAudioService : ISystemAudioService
             _logger.Error(ex, "System audio playback failed");
             return new SystemAudioResult { Success = false, Message = ex.Message };
         }
+    }
+
+    // Linux 没有百分百预装且通吃 mp3/wav 的播放命令：wav 优先 aplay，
+    // 其余格式依次尝试常见播放器，直到某个命令既存在又成功。
+    private async Task<SystemAudioResult> PlayFileLinuxAsync(string filePath, CancellationToken cancellationToken)
+    {
+        var isWav = filePath.EndsWith(".wav", StringComparison.OrdinalIgnoreCase);
+        (string Command, string[] Args)[] candidates = isWav
+            ?
+            [
+                ("aplay", new[] { filePath }),
+                ("ffplay", new[] { "-nodisp", "-autoexit", "-loglevel", "error", filePath })
+            ]
+            :
+            [
+                ("mpg123", new[] { "-q", filePath }),
+                ("ffplay", new[] { "-nodisp", "-autoexit", "-loglevel", "error", filePath }),
+                ("mplayer", new[] { "-really-quiet", filePath })
+            ];
+
+        string lastError = "No suitable audio player found (tried: " + string.Join(", ", candidates.Select(c => c.Command)) + ").";
+        foreach (var (command, args) in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await _cliService.ExecuteAsync(command, args, ct: cancellationToken);
+                if (result.IsSuccess)
+                {
+                    return new SystemAudioResult { Success = true, Message = string.Empty };
+                }
+
+                lastError = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // 命令不存在等启动失败——换下一个候选。
+                lastError = ex.Message;
+            }
+        }
+
+        return new SystemAudioResult { Success = false, Message = lastError };
     }
 
     private static IEnumerable<string> BuildMacOsSayArguments(string outputPath, string voice, string text)
@@ -138,10 +184,26 @@ public class SystemAudioService : ISystemAudioService
     private static IEnumerable<string> BuildWindowsPlayArguments(string filePath)
     {
         var escapedPath = EscapePowerShellString(filePath);
+
+        // SoundPlayer 只认 WAV；mp3 等其他格式用系统自带的 WPF MediaPlayer（PresentationCore）。
+        if (filePath.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            var wavScript = "$ErrorActionPreference='Stop';" +
+                            $"$player = New-Object Media.SoundPlayer '{escapedPath}';" +
+                            "$player.PlaySync();";
+            return ["-NoProfile", "-Command", wavScript];
+        }
+
         var script = "$ErrorActionPreference='Stop';" +
-                     $"$player = New-Object Media.SoundPlayer '{escapedPath}';" +
-                     "$player.PlaySync();";
-        return ["-NoProfile", "-Command", script];
+                     "Add-Type -AssemblyName PresentationCore;" +
+                     "$p = New-Object System.Windows.Media.MediaPlayer;" +
+                     $"$p.Open([Uri]::new('{escapedPath}'));" +
+                     "$t = 0; while (-not $p.NaturalDuration.HasTimeSpan -and $t -lt 100) { Start-Sleep -Milliseconds 100; $t++ };" +
+                     "if (-not $p.NaturalDuration.HasTimeSpan) { throw 'Cannot open media file.' };" +
+                     "$p.Play();" +
+                     "Start-Sleep -Milliseconds ([int]$p.NaturalDuration.TimeSpan.TotalMilliseconds + 200);" +
+                     "$p.Stop(); $p.Close();";
+        return ["-NoProfile", "-STA", "-Command", script];
     }
 
     private static string EscapePowerShellString(string value)

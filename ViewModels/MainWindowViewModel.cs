@@ -108,7 +108,6 @@ public partial class MainWindowViewModel : ViewModelBase
         IWebSearchService? webSearchService,
         IUpdateService? updateService,
         IAttachmentStoreService? attachmentStoreService,
-        IAudioPlaybackService? audioPlaybackService,
         ISystemAudioService? systemAudioService,
         IConversationArchiveService? archiveService,
         IImageGenerationSessionService? imageGenerationSessionService,
@@ -124,10 +123,10 @@ public partial class MainWindowViewModel : ViewModelBase
         Orchestrator = subAgentOrchestrator;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, audioPlaybackService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, modelCatalogService, knowledgeMaintenanceService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
-        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, browserService, browserVisionService, audioPlaybackService, systemAudioService, modelCatalogService);
+        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, browserService, browserVisionService, systemAudioService, modelCatalogService);
         _extensionsTabViewModel.Initialize(_configTabViewModel);
         _mcpTabViewModel = new McpTabViewModel(configService, localizationService);
         _mcpTabViewModel.Initialize(_configTabViewModel);

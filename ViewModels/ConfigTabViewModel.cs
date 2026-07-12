@@ -146,6 +146,23 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public bool IsEmbeddingCredentialCustom => Config.EmbeddingCredentialSource == ModelCredentialSource.Custom;
 
+    /// <summary>子代理模型来源开关：true=跟随主模型（复用主对话模型凭据），false=自定义。绑定到 ToggleSwitch。</summary>
+    public bool UseMainModelForSubAgent
+    {
+        get => Config.SubAgentModelSource == SubAgentModelSource.InheritMain;
+        set
+        {
+            var newSource = value ? SubAgentModelSource.InheritMain : SubAgentModelSource.Custom;
+            if (Config.SubAgentModelSource != newSource)
+            {
+                Config.SubAgentModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
+            }
+        }
+    }
+
+    /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
+    public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
+
     private static void SetCredentialSource(Action<ModelCredentialSource> setter, ModelCredentialSource current, bool inherit)
     {
         var newSource = inherit ? ModelCredentialSource.InheritMain : ModelCredentialSource.Custom;
@@ -251,6 +268,8 @@ public partial class ConfigTabViewModel : ViewModelBase
             OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
             OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
             OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+            OnPropertyChanged(nameof(UseMainModelForSubAgent));
+            OnPropertyChanged(nameof(IsSubAgentModelCustom));
             // 订阅 Config 属性变化，触发 UI 更新
             value.PropertyChanged += (s, e) =>
             {
@@ -267,6 +286,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
                     OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+                }
+                else if (e.PropertyName == nameof(AppConfig.SubAgentModelSource))
+                {
+                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
+                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
                 }
             };
         }

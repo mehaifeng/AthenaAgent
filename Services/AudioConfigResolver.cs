@@ -16,19 +16,14 @@ public static class AudioConfigResolver
 
     public static ResolvedAudioConfig Resolve(AppConfig config)
     {
-        // 统一继承树的音频例外：InheritMain 仅继承主 AI 的 ApiKey；BaseUrl 不继承主聊天端点
-        // （主 BaseUrl 是 /v1 聊天端点而非 /audio/speech，直接继承会弄坏 TTS），
-        // 始终按音频 provider 的默认端点解析，Custom 模式下才用用户填写的音频 BaseUrl。
-        var inherit = config.ChatAudioCredentialSource == ModelCredentialSource.InheritMain;
+        // 语音播报使用独立凭据，不继承主对话模型；BaseUrl 留空时按音频 provider 的默认端点解析。
         var provider = string.IsNullOrWhiteSpace(config.ChatAudioProvider)
             ? "OpenAI"
             : config.ChatAudioProvider;
-        var baseUrl = !inherit && !string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl)
+        var baseUrl = !string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl)
             ? config.ChatAudioBaseUrl
             : GetDefaultBaseUrl(provider);
-        var apiKey = inherit
-            ? config.ApiKey
-            : ModelCredentialResolver.FirstNonEmpty(config.ChatAudioApiKey, config.ApiKey);
+        var apiKey = config.ChatAudioApiKey;
         var model = string.IsNullOrWhiteSpace(config.ChatAudioModel)
             ? "gpt-4o-mini-tts"
             : config.ChatAudioModel;

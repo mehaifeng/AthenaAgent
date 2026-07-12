@@ -145,12 +145,13 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
     }
 
-    // 统一继承树：凭据解析集中在 ModelCredentialResolver（图像无独立 provider 字段，传空即回退主配置）。
+    // 图像生成使用独立凭据，不继承主对话模型；BaseUrl 留空时使用 OpenAI 默认端点。
     private static EffectiveModelConfig GetEffective(AppConfig config) =>
-        ModelCredentialResolver.Resolve(
-            config.ImageGenerationCredentialSource, config,
-            string.Empty, config.ImageGenerationBaseUrl, config.ImageGenerationApiKey,
-            config.ImageGenerationModel, "gpt-image-1");
+        new(
+            string.Empty,
+            ModelCredentialResolver.FirstNonEmpty(config.ImageGenerationBaseUrl, "https://api.openai.com/v1"),
+            config.ImageGenerationApiKey,
+            ModelCredentialResolver.FirstNonEmpty(config.ImageGenerationModel, "gpt-image-1"));
 
     private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
 

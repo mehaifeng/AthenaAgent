@@ -151,7 +151,7 @@
     <system:String x:Key="Config.KbMaintenanceRunning">正在整理知识库…</system:String>
     <system:String x:Key="Config.KbMaintenanceNeverRun">尚未整理</system:String>
     <system:String x:Key="Config.InheritSecondaryOrPrimary">留空则继承辅助或主对话模型的配置</system:String>
-    <system:String x:Key="Config.AudioOutput">语音播报</system:String>
+    <system:String x:Key="Config.AudioOutput">语音合成</system:String>
     <system:String x:Key="Config.ImageGeneration">图像生成</system:String>
     <system:String x:Key="Config.BgTask2ndAICore">后台任务与辅助模型</system:String>
     <system:String x:Key="Config.Enable">启用网络搜索</system:String>
@@ -173,13 +173,10 @@
     <system:String x:Key="Config.ParamMaxTokens">最大 Token：</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">工具调用：</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">启用语音播报：</system:String>
-    <system:String x:Key="Config.ChatAudioAutoPlay">自动播放 Athena 的回复：</system:String>
+    <system:String x:Key="Config.ChatAudioAutoPlay">语音自动播放：</system:String>
     <system:String x:Key="Config.ChatAudioVoice">语音：</system:String>
     <system:String x:Key="Config.TestAudioOutput">试听：</system:String>
     <system:String x:Key="Config.ImageGenerationEnabled">启用图像生成：</system:String>
-    <system:String x:Key="Config.ImageGenerationModel">图像生成模型：</system:String>
-    <system:String x:Key="Config.ImageGenerationBaseUrl">图像生成 API 地址：</system:String>
-    <system:String x:Key="Config.ImageGenerationApiKey">图像生成 API Key：</system:String>
     <system:String x:Key="Config.CtxUsage">当前 Token 用量</system:String>
     <system:String x:Key="Config.MemMaxCtx">上下文长度上限：</system:String>
     <system:String x:Key="Config.MemCompThresh">压缩阈值：</system:String>
@@ -400,7 +397,7 @@
     <!-- Headless Browser -->
     <system:String x:Key="Config.Browser">浏览器自动化</system:String>
     <system:String x:Key="Config.BrowserDescription">启用后，Athena 可在隔离会话中查看并操作网页。底层操作不进入主对话上下文。</system:String>
-    <system:String x:Key="Config.BrowserEnabled">启用浏览器自动化：</system:String>
+    <system:String x:Key="Config.BrowserEnabled">启用浏览器操作：</system:String>
     <system:String x:Key="Config.BrowserObservationMode">观察方式：</system:String>
     <system:String x:Key="Config.BrowserHeadless">无头模式：</system:String>
     <system:String x:Key="Config.BrowserDiagnostics">运行诊断</system:String>
@@ -422,9 +419,6 @@
     <system:String x:Key="Config.BrowserScreenshotScale">截图缩放：</system:String>
     <system:String x:Key="Config.BrowserImageQuality">图片质量：</system:String>
     <system:String x:Key="Config.BrowserAgentModel">浏览器模型</system:String>
-    <system:String x:Key="Config.BrowserModelSource">模型来源：</system:String>
-    <system:String x:Key="Config.BrowserModelSourceInherit">与主对话模型相同</system:String>
-    <system:String x:Key="Config.BrowserModelSourceCustom">自定义</system:String>
     <system:String x:Key="Config.CredentialSource">API Key 来源：</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">与主对话模型相同</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">自定义</system:String>

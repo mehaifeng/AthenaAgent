@@ -26,45 +26,22 @@ internal static class BrowserAgentModelResolver
 {
     public static EffectiveBrowserAgentConfig Resolve(AppConfig config)
     {
-        // 跟随主模型：Provider/BaseUrl/ApiKey/Model 全部复用主 AI；仅保留浏览器循环
-        // 专属的采样参数（输出 token 预算、温度），它们是智能体调参而非模型身份。
-        if (config.BrowserModelSource == BrowserModelSource.InheritMain)
-        {
-            return new EffectiveBrowserAgentConfig
-            {
-                Provider = config.Provider,
-                BaseUrl = config.BaseUrl,
-                ApiKey = config.ApiKey,
-                Model = config.Model,
-                MaxTokens = config.BrowserAgentMaxTokens,
-                Temperature = config.BrowserAgentTemperature,
-                BaseUrlSource = "MainAI(Inherit)",
-                ApiKeySource = "MainAI(Inherit)"
-            };
-        }
-
-        // 自定义：凭据委托统一继承树解析器（逐字段留空回退主 AI，保持向后兼容）；
-        // 遗留 provider="Inherit" 字符串在此归一化为空以触发回退。
-        var apiKeyFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentApiKey);
-        var baseUrlFromBrowser = !string.IsNullOrWhiteSpace(config.BrowserAgentBaseUrl);
-        var providerRaw = string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
+        // 浏览器智能体使用独立凭据，不继承主对话模型；遗留 provider="Inherit" 字符串归一化为 OpenAI。
+        var provider = string.IsNullOrWhiteSpace(config.BrowserAgentProvider)
+            || string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase)
+            ? "OpenAI"
             : config.BrowserAgentProvider;
-        var effective = ModelCredentialResolver.Resolve(
-            ModelCredentialSource.Custom, config,
-            providerRaw, config.BrowserAgentBaseUrl, config.BrowserAgentApiKey,
-            config.BrowserAgentModel, config.BrowserAgentModel);
 
         return new EffectiveBrowserAgentConfig
         {
-            Provider = effective.Provider,
-            BaseUrl = effective.BaseUrl,
-            ApiKey = effective.ApiKey,
-            Model = config.BrowserAgentModel,
+            Provider = provider,
+            BaseUrl = ModelCredentialResolver.FirstNonEmpty(config.BrowserAgentBaseUrl, "https://api.openai.com/v1"),
+            ApiKey = config.BrowserAgentApiKey,
+            Model = ModelCredentialResolver.FirstNonEmpty(config.BrowserAgentModel, "gpt-4o-mini"),
             MaxTokens = config.BrowserAgentMaxTokens,
             Temperature = config.BrowserAgentTemperature,
-            BaseUrlSource = baseUrlFromBrowser ? "BrowserAgent" : "MainAI",
-            ApiKeySource = apiKeyFromBrowser ? "BrowserAgent" : "MainAI"
+            BaseUrlSource = "BrowserAgent",
+            ApiKeySource = "BrowserAgent"
         };
     }
 }

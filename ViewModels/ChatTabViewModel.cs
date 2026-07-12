@@ -40,7 +40,6 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
-    private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
     // Cancels in-flight system (afplay/aplay/powershell) playback so Stop can
     // actually terminate the external process — pausing the libvlc player does
@@ -282,7 +281,6 @@ public partial class ChatTabViewModel : ViewModelBase
         ITokenService? tokenService,
         ILocalizationService? localizationService,
         IAttachmentStoreService? attachmentStoreService = null,
-        IAudioPlaybackService? audioPlaybackService = null,
         ISystemAudioService? systemAudioService = null,
         IConversationArchiveService? archiveService = null,
         IImageGenerationSessionService? imageGenerationSessionService = null,
@@ -305,7 +303,6 @@ public partial class ChatTabViewModel : ViewModelBase
         _tokenService = tokenService;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
-        _audioPlaybackService = audioPlaybackService;
         _systemAudioService = systemAudioService;
         _archiveService = archiveService;
         _imageGenerationSessionService = imageGenerationSessionService;
@@ -352,11 +349,6 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             _archiveService.ArchiveCompleted += OnArchiveCompleted;
             _archiveService.ArchiveFailed += OnArchiveFailed;
-        }
-
-        if (_audioPlaybackService != null)
-        {
-            _audioPlaybackService.PlaybackStateChanged += OnPlaybackStateChanged;
         }
 
         RestoreDraftIfNeeded();
@@ -2332,20 +2324,11 @@ public partial class ChatTabViewModel : ViewModelBase
         // Only one clip plays at a time — tear down whatever is running first.
         StopAudioPlayback();
 
-        if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
-        {
-            // Fire-and-forget: the command must return immediately so that the
-            // generated IAsyncRelayCommand keeps CanExecute == true while the
-            // system process (afplay/aplay) is running — otherwise the Stop
-            // button is greyed out for the entire playback duration.
-            _ = PlaySystemAudioAttachmentAsync(attachment, null);
-            return;
-        }
-
-        if (_audioPlaybackService?.Play(attachment) == true)
-        {
-            UpdateAudioPlayingState(attachment.Id, true);
-        }
+        // Fire-and-forget: the command must return immediately so that the
+        // generated IAsyncRelayCommand keeps CanExecute == true while the
+        // system process (afplay/aplay/powershell) is running — otherwise the
+        // Stop button is greyed out for the entire playback duration.
+        _ = PlaySystemAudioAttachmentAsync(attachment, null);
     }
 
     private void StopAudioPlayback()
@@ -2357,17 +2340,8 @@ public partial class ChatTabViewModel : ViewModelBase
             _systemAudioCts = null;
         }
 
-        _audioPlaybackService?.Stop();
         _playingAttachmentId = null;
         UpdateAudioPlayingState(null, false);
-    }
-
-    private void OnPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            UpdateAudioPlayingState(e.AttachmentId, e.IsPlaying);
-        });
     }
 
     private void UpdateAudioPlayingState(string? attachmentId, bool isPlaying)
@@ -2380,7 +2354,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private void TryAutoPlayAssistantAudio(ChatAttachment attachment, ChatMessage message)
     {
-        if (_audioPlaybackService == null || _configService == null)
+        if (_configService == null)
         {
             return;
         }
@@ -2393,24 +2367,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            if (attachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
-            {
-                _ = PlaySystemAudioAttachmentAsync(attachment, message);
-                return;
-            }
-
-            if (_audioPlaybackService.Play(attachment))
-            {
-                UpdateAudioPlayingState(attachment.Id, true);
-            }
-            else if (_systemAudioService?.IsSupported == true)
-            {
-                _ = PlaySystemAudioAttachmentAsync(attachment, message);
-            }
-            else
-            {
-                message.AudioErrorMessage = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
-            }
+            _ = PlaySystemAudioAttachmentAsync(attachment, message);
         }
         catch (Exception ex)
         {

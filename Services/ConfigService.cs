@@ -54,7 +54,6 @@ public class ConfigService : IConfigService
             var json = await File.ReadAllTextAsync(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
-            resolved = ApplyLegacyBrowserModelSource(resolved, json);
             resolved = ApplyLegacyBrowserAgentFields(resolved, json);
             resolved = ApplyCredentialSourceMigration(resolved, json);
             StoreCache(resolved, writeTimeUtc);
@@ -87,7 +86,6 @@ public class ConfigService : IConfigService
             var json = File.ReadAllText(ConfigFilePath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
             var resolved = ApplyLegacyBrowserObservationMode(config ?? new AppConfig(), json);
-            resolved = ApplyLegacyBrowserModelSource(resolved, json);
             resolved = ApplyLegacyBrowserAgentFields(resolved, json);
             resolved = ApplyCredentialSourceMigration(resolved, json);
             StoreCache(resolved, writeTimeUtc);
@@ -191,44 +189,6 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// 迁移浏览器智能体模型来源：本功能引入前的配置一律是"自定义视觉模型"语义
-    /// （Model 永远取 browserVisionModel），因此凡是带有旧浏览器模型字段、却没有
-    /// browserModelSource 键的配置，统一迁移为 Custom 以原样保留其行为；全新配置
-    /// 则采用默认的 InheritMain（跟随主模型）。
-    /// </summary>
-    private static AppConfig ApplyLegacyBrowserModelSource(AppConfig config, string json)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-
-            // 已显式写入来源（新版本保存过）则不再迁移。
-            if (root.TryGetProperty("browserModelSource", out _))
-            {
-                return config;
-            }
-
-            // 存在旧的浏览器模型字段，说明是历史配置：保持其"使用独立模型"的既有行为。
-            var hasLegacyModelFields =
-                root.TryGetProperty("browserVisionModel", out _)
-                || root.TryGetProperty("browserVisionApiKey", out _)
-                || root.TryGetProperty("browserVisionBaseUrl", out _);
-
-            if (hasLegacyModelFields)
-            {
-                config.BrowserModelSource = BrowserModelSource.Custom;
-            }
-        }
-        catch
-        {
-            // Ignore migration failures; default config values remain valid.
-        }
-
-        return config;
-    }
-
-    /// <summary>
     /// 字段改名迁移：历史配置使用 browserVision* 键，重命名为 browserAgent* 后，
     /// 反序列化不会再填充这些值。此处在新键缺失时，把旧键的值搬到新字段，避免老用户
     /// 丢失浏览器模型配置。
@@ -268,10 +228,11 @@ public class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// 统一凭据继承树迁移：本功能引入前，各角色（次级/Embedding/图像/音频）靠"留空回退主配置"
+    /// 统一凭据继承树迁移：本功能引入前，各角色（次级/Embedding）靠"留空回退主配置"
     /// 的隐式语义工作。凡是没有写过对应 *CredentialSource 键的历史配置：角色的 ApiKey 或 BaseUrl
     /// 已填 → 迁移为 Custom（Custom 仍保留逐字段回退，行为不变）；全空 → InheritMain。
     /// 次级模型的遗留 provider="Inherit" 字符串强制归为 InheritMain 并归一化 provider。
+    /// （图像/音频/浏览器已改为独立凭据，不再参与继承树。）
     /// </summary>
     private static AppConfig ApplyCredentialSourceMigration(AppConfig config, string json)
     {
@@ -302,22 +263,6 @@ public class ConfigService : IConfigService
                     : ModelCredentialSource.InheritMain;
             }
 
-            if (!root.TryGetProperty("imageGenerationCredentialSource", out _))
-            {
-                config.ImageGenerationCredentialSource = HasCustomCredential(config.ImageGenerationApiKey, config.ImageGenerationBaseUrl)
-                    ? ModelCredentialSource.Custom
-                    : ModelCredentialSource.InheritMain;
-            }
-
-            if (!root.TryGetProperty("chatAudioCredentialSource", out _))
-            {
-                // 音频的默认 BaseUrl 非空（provider 默认端点），只看 ApiKey 与"改过 BaseUrl"两个信号。
-                var audioBaseUrlCustomized = !string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl)
-                    && !string.Equals(config.ChatAudioBaseUrl, AudioConfigResolver.GetDefaultBaseUrl(config.ChatAudioProvider), StringComparison.OrdinalIgnoreCase);
-                config.ChatAudioCredentialSource = !string.IsNullOrWhiteSpace(config.ChatAudioApiKey) || audioBaseUrlCustomized
-                    ? ModelCredentialSource.Custom
-                    : ModelCredentialSource.InheritMain;
-            }
         }
         catch
         {

@@ -1012,6 +1012,8 @@ public class OpenAIChatService : IChatService
 
     private async Task<(ChatAttachment? Attachment, string ErrorMessage)> CreateAssistantAudioAttachmentAsync(byte[] audioBytes, CancellationToken cancellationToken)
     {
+        // mp3：兼容服务商普遍只支持 mp3/pcm（wav 会被拒），播放侧三平台均可解
+        // （macOS afplay / Windows MediaPlayer / Linux mpg123 或 ffplay）。
         return await CreateAssistantAudioAttachmentAsync(
             audioBytes,
             $"assistant-{DateTime.Now:yyyyMMdd-HHmmss}.mp3",

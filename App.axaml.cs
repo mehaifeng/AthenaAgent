@@ -656,12 +656,6 @@ public partial class App : Application
             return new OpenAIImageGenerationService(configService, attachmentStoreService, logger);
         });
 
-        services.AddSingleton<IAudioPlaybackService>(sp =>
-        {
-            var logger = Log.ForContext<LibVlcAudioPlaybackService>();
-            return new LibVlcAudioPlaybackService(logger);
-        });
-
         // Headless Browser 服务
         services.AddSingleton<IBrowserSessionManager>(sp =>
         {
@@ -911,7 +905,6 @@ public partial class App : Application
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var documentParserService = sp.GetService<IDocumentParserService>();
-            var audioPlaybackService = sp.GetService<IAudioPlaybackService>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
@@ -939,7 +932,6 @@ public partial class App : Application
                 webSearchService,
                 updateService,
                 attachmentStoreService,
-                audioPlaybackService,
                 systemAudioService,
                 archiveService,
                 imageGenerationSessionService,

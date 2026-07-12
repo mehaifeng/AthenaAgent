@@ -47,10 +47,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _chatAudioEnabled;
 
-    // 音频凭据来源：InheritMain 仅继承主 AI 的 Provider/ApiKey（BaseUrl 仍按 provider 默认音频端点解析）。
-    [ObservableProperty]
-    private ModelCredentialSource _chatAudioCredentialSource = ModelCredentialSource.InheritMain;
-
     [ObservableProperty]
     private string _chatAudioProvider = "OpenAI";
 
@@ -71,10 +67,6 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private bool _imageGenerationEnabled = true;
-
-    // 图像生成凭据来源：默认继承主 AI（旧配置在 ConfigService 加载时按已填字段迁移为 Custom）。
-    [ObservableProperty]
-    private ModelCredentialSource _imageGenerationCredentialSource = ModelCredentialSource.InheritMain;
 
     [ObservableProperty]
     private string _imageGenerationModel = "gpt-image-1";
@@ -223,11 +215,7 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _browserSomIncludeText = true;
 
-    // 浏览器智能体模型来源：默认跟随主模型，避免主模型已支持视觉时还要重复配置。
-    // 旧配置在 ConfigService 加载时会被迁移为 Custom 以保持原有行为。
-    [ObservableProperty]
-    private BrowserModelSource _browserModelSource = BrowserModelSource.InheritMain;
-
+    // 浏览器智能体模型：独立凭据，不继承主对话模型。
     [ObservableProperty]
     private string _browserAgentProvider = "OpenAI";
 

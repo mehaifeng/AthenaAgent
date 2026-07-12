@@ -174,13 +174,10 @@
     <system:String x:Key="Config.ParamMaxTokens">Max tokens:</system:String>
     <system:String x:Key="Config.EnableFunctionCalling">Tool calling:</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">Enable voice:</system:String>
-    <system:String x:Key="Config.ChatAudioAutoPlay">Auto-play Athena's replies:</system:String>
+    <system:String x:Key="Config.ChatAudioAutoPlay">Audio auto-play:</system:String>
     <system:String x:Key="Config.ChatAudioVoice">Voice:</system:String>
     <system:String x:Key="Config.TestAudioOutput">Test voice:</system:String>
     <system:String x:Key="Config.ImageGenerationEnabled">Enable image generation:</system:String>
-    <system:String x:Key="Config.ImageGenerationModel">Image generation model:</system:String>
-    <system:String x:Key="Config.ImageGenerationBaseUrl">Image generation API endpoint:</system:String>
-    <system:String x:Key="Config.ImageGenerationApiKey">Image generation API Key:</system:String>
     <system:String x:Key="Config.CtxUsage">Current token usage</system:String>
     <system:String x:Key="Config.MemMaxCtx">Context length limit:</system:String>
     <system:String x:Key="Config.MemCompThresh">Compression threshold:</system:String>
@@ -422,9 +419,6 @@
     <system:String x:Key="Config.BrowserScreenshotScale">Screenshot scale:</system:String>
     <system:String x:Key="Config.BrowserImageQuality">Image quality:</system:String>
     <system:String x:Key="Config.BrowserAgentModel">Browser model</system:String>
-    <system:String x:Key="Config.BrowserModelSource">Model source:</system:String>
-    <system:String x:Key="Config.BrowserModelSourceInherit">Same as primary</system:String>
-    <system:String x:Key="Config.BrowserModelSourceCustom">Custom</system:String>
     <system:String x:Key="Config.CredentialSource">API Key source:</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">Same as primary</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">Custom</system:String>

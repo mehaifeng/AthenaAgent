@@ -25,7 +25,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     private readonly IWebSearchService? _webSearchService;
     private readonly IHeadlessBrowserService? _browserService;
     private readonly IBrowserVisionService? _browserVisionService;
-    private readonly IAudioPlaybackService? _audioPlaybackService;
     private readonly ISystemAudioService? _systemAudioService;
     private readonly IModelCatalogService? _modelCatalogService;
     // Cancels in-flight system playback so Stop can kill the external process.
@@ -36,7 +35,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     [ObservableProperty]
     private AppConfig _config = new();
 
-    public ExtensionsTabViewModel() : this(null, null, null, null, null, null, null, null, null) { }
+    public ExtensionsTabViewModel() : this(null, null, null, null, null, null, null, null) { }
 
     public ExtensionsTabViewModel(
         IConfigService? configService,
@@ -45,7 +44,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         IWebSearchService? webSearchService,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
-        IAudioPlaybackService? audioPlaybackService = null,
         ISystemAudioService? systemAudioService = null,
         IModelCatalogService? modelCatalogService = null)
     {
@@ -55,14 +53,8 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         _webSearchService = webSearchService;
         _browserService = browserService;
         _browserVisionService = browserVisionService;
-        _audioPlaybackService = audioPlaybackService;
         _systemAudioService = systemAudioService;
         _modelCatalogService = modelCatalogService;
-
-        if (_audioPlaybackService != null)
-        {
-            _audioPlaybackService.PlaybackStateChanged += OnAudioPlaybackStateChanged;
-        }
 
         _ = LoadSystemVoicesAsync();
     }
@@ -87,15 +79,8 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         if (value == null) return;
 
         // Config 实例被整体替换后，刷新依赖其值的计算属性
+        RefreshAudioVoices();
         OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-        OnPropertyChanged(nameof(UseMainModelForBrowser));
-        OnPropertyChanged(nameof(IsBrowserModelCustom));
-        OnPropertyChanged(nameof(UseMainModelForSubAgent));
-        OnPropertyChanged(nameof(IsSubAgentModelCustom));
-        OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
-        OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
-        OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
-        OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
         OnPropertyChanged(nameof(IsRemoteAudioProvider));
         OnPropertyChanged(nameof(CanEditRemoteAudioFields));
         OnPropertyChanged(nameof(IsBaiduProvider));
@@ -112,28 +97,13 @@ public partial class ExtensionsTabViewModel : ViewModelBase
                 case nameof(AppConfig.ChatAudioProvider):
                     OnPropertyChanged(nameof(IsRemoteAudioProvider));
                     OnPropertyChanged(nameof(CanEditRemoteAudioFields));
+                    RefreshAudioVoices();
                     break;
                 case nameof(AppConfig.ChatAudioEnabled):
                     OnPropertyChanged(nameof(CanEditRemoteAudioFields));
                     break;
                 case nameof(AppConfig.BrowserObservationMode):
                     OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-                    break;
-                case nameof(AppConfig.BrowserModelSource):
-                    OnPropertyChanged(nameof(UseMainModelForBrowser));
-                    OnPropertyChanged(nameof(IsBrowserModelCustom));
-                    break;
-                case nameof(AppConfig.SubAgentModelSource):
-                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
-                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
-                    break;
-                case nameof(AppConfig.ImageGenerationCredentialSource):
-                    OnPropertyChanged(nameof(UseMainCredentialForImageGeneration));
-                    OnPropertyChanged(nameof(IsImageGenerationCredentialCustom));
-                    break;
-                case nameof(AppConfig.ChatAudioCredentialSource):
-                    OnPropertyChanged(nameof(UseMainCredentialForChatAudio));
-                    OnPropertyChanged(nameof(IsChatAudioCredentialCustom));
                     break;
                 case nameof(AppConfig.DocumentParserMode):
                 case nameof(AppConfig.DocumentParserEnabled):
@@ -175,8 +145,23 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     public ObservableCollection<string> AudioProviders { get; } = new(ConfigTabViewModel.AudioProviderNames);
 
-    // 系统 TTS 已安装的语音（Windows SAPI / macOS say / Linux espeak-ng），供 provider=System 时的输入下拉建议。
+    // 音色下拉建议：provider=System 时为本机已安装语音（Windows SAPI / macOS say / Linux espeak-ng），
+    // 远端 provider 时为 OpenAI 官方预置音色（服务端没有"列出音色"API，兼容服务商可手输自定义音色名）。
     public ObservableCollection<string> AudioVoices { get; } = new();
+
+    private static readonly string[] OpenAiPresetVoices =
+    {
+        "alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"
+    };
+
+    private System.Collections.Generic.IReadOnlyList<string> _systemVoices = Array.Empty<string>();
+
+    private void RefreshAudioVoices()
+    {
+        AudioVoices.Clear();
+        var source = IsRemoteAudioProvider ? OpenAiPresetVoices : _systemVoices;
+        foreach (var v in source) AudioVoices.Add(v);
+    }
 
     public ObservableCollection<DocumentParserMode> DocumentParserModes { get; } = new()
     {
@@ -189,67 +174,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
     public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
-
-    /// <summary>浏览器智能体模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainModelForBrowser
-    {
-        get => Config.BrowserModelSource == BrowserModelSource.InheritMain;
-        set
-        {
-            var newSource = value ? BrowserModelSource.InheritMain : BrowserModelSource.Custom;
-            if (Config.BrowserModelSource != newSource)
-            {
-                Config.BrowserModelSource = newSource; // 触发 Config.PropertyChanged → 属主自动保存 + 下方通知
-            }
-        }
-    }
-
-    /// <summary>是否使用自定义浏览器模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsBrowserModelCustom => Config.BrowserModelSource == BrowserModelSource.Custom;
-
-    /// <summary>子代理模型来源开关：true=跟随主模型，false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainModelForSubAgent
-    {
-        get => Config.SubAgentModelSource == SubAgentModelSource.InheritMain;
-        set
-        {
-            var newSource = value ? SubAgentModelSource.InheritMain : SubAgentModelSource.Custom;
-            if (Config.SubAgentModelSource != newSource)
-            {
-                Config.SubAgentModelSource = newSource; // 触发 Config.PropertyChanged → 属主自动保存 + 下方通知
-            }
-        }
-    }
-
-    /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
-
-    /// <summary>图像生成凭据来源开关。</summary>
-    public bool UseMainCredentialForImageGeneration
-    {
-        get => Config.ImageGenerationCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.ImageGenerationCredentialSource = v, Config.ImageGenerationCredentialSource, value);
-    }
-
-    public bool IsImageGenerationCredentialCustom => Config.ImageGenerationCredentialSource == ModelCredentialSource.Custom;
-
-    /// <summary>音频凭据来源开关（InheritMain 仅继承 ApiKey，BaseUrl 按 provider 默认端点解析）。</summary>
-    public bool UseMainCredentialForChatAudio
-    {
-        get => Config.ChatAudioCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.ChatAudioCredentialSource = v, Config.ChatAudioCredentialSource, value);
-    }
-
-    public bool IsChatAudioCredentialCustom => Config.ChatAudioCredentialSource == ModelCredentialSource.Custom;
-
-    private static void SetCredentialSource(Action<ModelCredentialSource> setter, ModelCredentialSource current, bool inherit)
-    {
-        var newSource = inherit ? ModelCredentialSource.InheritMain : ModelCredentialSource.Custom;
-        if (current != newSource)
-        {
-            setter(newSource); // 触发 Config.PropertyChanged → 属主自动保存 + 下方通知
-        }
-    }
 
     /// <summary>
     /// 更新 Web Search Base URL（供应商切换时调用）
@@ -366,7 +290,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     {
         if (_browserVisionService == null) { BrowserAgentTestStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
         if (!Config.BrowserEnabled) { BrowserAgentTestStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
-        if (string.IsNullOrWhiteSpace(Config.BrowserAgentApiKey) && string.IsNullOrWhiteSpace(Config.ApiKey)) { BrowserAgentTestStatus = GetString("Status.EnterApiKeyFirst", "Please enter API Key first"); return; }
+        if (string.IsNullOrWhiteSpace(Config.BrowserAgentApiKey)) { BrowserAgentTestStatus = GetString("Status.EnterApiKeyFirst", "Please enter API Key first"); return; }
 
         IsTestingBrowserAgent = true;
         BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
@@ -433,18 +357,15 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
         StopAudioTestPlayback();
 
-        if (AudioTestAttachment.UsesSystemAudioPlayback && _systemAudioService?.IsSupported == true)
+        if (_systemAudioService?.IsSupported != true)
         {
-            // Fire-and-forget so the command returns immediately and the Stop
-            // button's CanExecute stays true during playback.
-            _ = RunSystemAudioTestPlaybackAsync(AudioTestAttachment);
+            AudioOutputTestStatus = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
             return;
         }
 
-        if (_audioPlaybackService == null || !_audioPlaybackService.Play(AudioTestAttachment))
-        {
-            AudioOutputTestStatus = GetString("Chat.Audio.PlaybackUnavailable", "Audio playback is unavailable on this device.");
-        }
+        // Fire-and-forget so the command returns immediately and the Stop
+        // button's CanExecute stays true during playback.
+        _ = RunSystemAudioTestPlaybackAsync(AudioTestAttachment);
     }
 
     private async Task RunSystemAudioTestPlaybackAsync(ChatAttachment attachment)
@@ -486,34 +407,17 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             _audioTestCts = null;
         }
 
-        _audioPlaybackService?.Stop();
         if (AudioTestAttachment != null)
         {
             AudioTestAttachment.IsPlaying = false;
         }
     }
 
-    private void OnAudioPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
-    {
-        if (AudioTestAttachment == null || AudioTestAttachment.Id != e.AttachmentId)
-        {
-            return;
-        }
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            AudioTestAttachment.IsPlaying = e.IsPlaying;
-            if (e.Duration > TimeSpan.Zero)
-            {
-                AudioTestAttachment.Duration = e.Duration;
-            }
-
-            AudioTestAttachment.Position = e.Position;
-        });
-    }
-
     private async Task LoadSystemVoicesAsync()
     {
+        // 远端 provider 的预置音色先就位，系统语音异步补充。
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RefreshAudioVoices);
+
         if (_systemAudioService is not { IsSupported: true }) return;
         try
         {
@@ -521,8 +425,8 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             if (voices.Count == 0) return;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                AudioVoices.Clear();
-                foreach (var v in voices) AudioVoices.Add(v);
+                _systemVoices = voices;
+                RefreshAudioVoices();
             });
         }
         catch (Exception ex)
@@ -555,8 +459,9 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             return;
         }
 
-        var baseUrl = FirstNonBlank(Config.BrowserAgentBaseUrl, Config.BaseUrl);
-        var apiKey = FirstNonBlank(Config.BrowserAgentApiKey, Config.ApiKey);
+        // 浏览器智能体使用独立凭据，不回退主对话模型。
+        var baseUrl = Config.BrowserAgentBaseUrl;
+        var apiKey = Config.BrowserAgentApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             BrowserAgentModelsStatus = GetString("Status.EnterApiKeyFirst", "Please enter API Key first");
@@ -601,9 +506,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             IsLoadingBrowserAgentModels = false;
         }
     }
-
-    private static string? FirstNonBlank(string? primary, string? fallback)
-        => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
 
     #endregion
 }

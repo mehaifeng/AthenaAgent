@@ -18,7 +18,7 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
-    ("audio config inherits primary settings when audio values are empty", TestAudioConfigInheritanceAsync),
+    ("audio config uses dedicated credentials and provider default endpoint", TestAudioConfigInheritanceAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
@@ -157,6 +157,7 @@ static Task TestAudioConfigInheritanceAsync()
         ApiKey = "primary-key",
         Model = "gpt-5-mini",
         ChatAudioEnabled = true,
+        ChatAudioApiKey = "audio-key",
         ChatAudioVoice = "alloy"
     };
 
@@ -164,10 +165,15 @@ static Task TestAudioConfigInheritanceAsync()
 
     AssertEqual("OpenAI", resolved.Provider, "audio provider should default independently");
     AssertEqual("https://api.openai.com/v1/audio/speech", resolved.BaseUrl, "audio base url should use dedicated audio endpoint");
-    AssertEqual("primary-key", resolved.ApiKey, "audio api key should inherit primary key");
+    AssertEqual("audio-key", resolved.ApiKey, "audio api key should use dedicated credential");
     AssertEqual("gpt-4o-mini-tts", resolved.Model, "audio model should use dedicated default");
     AssertEqual("alloy", resolved.Voice, "audio voice should use explicit audio voice");
     AssertFalse(resolved.AutoPlay, "auto play should default to false");
+
+    // 语音播报使用独立凭据：主对话模型的 ApiKey 不再被继承。
+    config.ChatAudioApiKey = string.Empty;
+    var resolvedWithoutKey = AudioConfigResolver.Resolve(config);
+    AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio api key should not inherit primary key");
     return Task.CompletedTask;
 }
 
@@ -706,7 +712,7 @@ static async Task TestMissingReferenceImageAsync()
         new TestConfigService(new AppConfig
         {
             ImageGenerationEnabled = true,
-            ApiKey = "test-key",
+            ImageGenerationApiKey = "test-key",
             ImageGenerationModel = "gpt-image-1"
         }),
         new TestAttachmentStoreService(),
