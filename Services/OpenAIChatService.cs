@@ -322,13 +322,25 @@ public class OpenAIChatService : IChatService
                 Log.Warning("用量: 第 {Iteration} 轮未收到 usage（供应商可能未在流式响应中回报）", iteration);
             }
             var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
-            // finishReason=Length 表示输出被 MaxTokens 截断，此时 toolCallBuilders 中的参数 JSON 很可能不完整。
+            // 输出被 MaxTokens 截断时，toolCallBuilders 中的参数 JSON 很可能不完整；
             // 直接执行会导致 JsonException，模型反复重试同样的截断模式。丢弃并引导模型精简参数。
-            if (finishReason == ChatFinishReason.Length && toolCallBuilders.Count > 0)
+            // 不能只信 finishReason==Length：不少 OpenAI 兼容供应商在截断工具调用时会把 finish_reason
+            // 报成 tool_calls / stop / null，此时必须靠参数 JSON 的完整性自行判断。
+            if (toolCallBuilders.Count > 0)
             {
-                Log.Warning("流式响应因 MaxTokens 截断（finishReason=Length），丢弃 {Count} 个可能不完整的工具调用", toolCallBuilders.Count);
-                messages.Add(new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated due to max token limit. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]"));
-                continue;
+                var truncatedByLength = finishReason == ChatFinishReason.Length;
+                var incomplete = toolCallBuilders.Values
+                    .Where(b => !IsCompleteJsonArguments(b.Arguments.ToString()))
+                    .ToList();
+                if (truncatedByLength || incomplete.Count > 0)
+                {
+                    var reason = truncatedByLength ? "finishReason=Length" : "参数 JSON 不完整";
+                    Log.Warning("流式响应工具调用疑似被截断（{Reason}），丢弃 {Count} 个可能不完整的工具调用: {Names}",
+                        reason, toolCallBuilders.Count,
+                        string.Join(", ", toolCallBuilders.Values.Select(b => b.FunctionName)));
+                    messages.Add(new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated (likely due to max token limit) and produced invalid JSON. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]"));
+                    continue;
+                }
             }
 
             var hasToolCalls = finishReason == ChatFinishReason.ToolCalls || toolCallBuilders.Count > 0;
@@ -556,6 +568,27 @@ public class OpenAIChatService : IChatService
     private bool IsFunctionCallingEnabled()
     {
         return _config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true;
+    }
+
+    // 校验流式累积出来的工具参数是否为完整 JSON。截断的工具调用（如被 MaxTokens 切断）会得到
+    // 半截 JSON（例如缺少收尾的 }），直接执行会在解析阶段抛异常并让模型陷入同样的重试循环。
+    // 空串 / "{}" 视为合法（无参工具的常见输出）；只有能完整解析的对象/数组才算完整。
+    private static bool IsCompleteJsonArguments(string? arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+        {
+            return true;
+        }
+
+        try
+        {
+            using var _ = JsonDocument.Parse(arguments);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private void ApplyToolOptions(ChatCompletionOptions options)

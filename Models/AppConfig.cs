@@ -33,7 +33,7 @@ public partial class AppConfig : ObservableObject
     private double _temperature = 0.7;
 
     [ObservableProperty]
-    private int _maxTokens = 8000;
+    private int _maxTokens = 16000;
 
     [ObservableProperty]
     private double _topP = 1.0;
