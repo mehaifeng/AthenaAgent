@@ -6,8 +6,7 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:u="https://irihi.tech/ursa"
              xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
-             xmlns:appconv="using:Athena.UI.Converters"
-             mc:Ignorable="d" 
+             mc:Ignorable="d"
              d:DesignWidth="720" 
              d:DesignHeight="2000"
              x:Class="Athena.UI.Views.ExtensionsTabView"
@@ -16,11 +15,6 @@
     <Design.DataContext>
         <vm:ExtensionsTabViewModel/>
     </Design.DataContext>
-
-    <UserControl.Resources>
-        <appconv:McpStatusToBrushConverter x:Key="McpStatusToBrushConverter"/>
-        <appconv:McpTransportIsHttpConverter x:Key="McpTransportIsHttp"/>
-    </UserControl.Resources>
 
     <Grid RowDefinitions="40,*">
 
@@ -36,23 +30,15 @@
 
         <!-- SCROLLABLE CONTENT -->
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
-            <Grid Grid.RowDefinitions="Auto,Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" RowSpacing="10" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="10" Width="{Binding #MainScrollViewer.Viewport.Width}" HorizontalAlignment="Stretch" Margin="0,0,0,60">
 
-                <!-- SECTION 1: AUXILIARY CORES -->
-                <Border 
-                    Grid.Row="0"
-                    Background="{DynamicResource App.SectionBg}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Ext.SectionCapabilities}" FontWeight="Bold" FontSize="15" />
-                        
-                        <TabControl Background="Transparent" Padding="0,12,0,0">
-
-                            <TabItem Header="{loc:Loc Config.AudioOutput}">
-                                <StackPanel Spacing="12" Margin="0,12,0,0">
-                                    <TextBlock Text="{loc:Loc Config.SectionChatAudio}" FontWeight="SemiBold" Opacity="0.8"/>
+                        <TextBlock Text="{loc:Loc Config.AudioOutput}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="12">
                                     <!-- 凭据来源：跟随主模型时仅继承 ApiKey（BaseUrl 按下方 Provider 的默认音频端点解析） -->
 
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
@@ -147,11 +133,16 @@
                                         </Border>
                                     </Grid>
                                 </StackPanel>
-                            </TabItem>
+                    </StackPanel>
+                </Border>
 
-                            <TabItem Header="{loc:Loc Config.ImageGeneration}">
-                                <StackPanel Spacing="12" Margin="0,12,0,0">
-                                    <TextBlock Text="{loc:Loc Config.SectionImageGeneration}" FontWeight="SemiBold" Opacity="0.8"/>
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.ImageGeneration}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="12">
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" HorizontalAlignment="Left" Margin="0,0,0,8"/>
@@ -174,10 +165,16 @@
                                         <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Config.ImageGenerationApiKey}" PasswordChar="*" Margin="0,0,0,8" IsEnabled="{Binding Config.ImageGenerationEnabled}" PlaceholderText="{loc:Loc Config.InheritPrimary}" IsVisible="{Binding IsImageGenerationCredentialCustom}"/>
                                     </Grid>
                                 </StackPanel>
-                            </TabItem>
+                    </StackPanel>
+                </Border>
 
-                            <TabItem Header="{loc:Loc Config.WebSearch}">
-                                <StackPanel Spacing="12" Margin="0,12,0,0">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.WebSearch}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="12">
                                     <!-- 启用开关 -->
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
                                         <TextBlock Grid.Column="0" Text="{loc:Loc Config.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
@@ -223,10 +220,16 @@
                                         </Grid>
                                     </Grid>
                                 </StackPanel>
-                            </TabItem>
+                    </StackPanel>
+                </Border>
 
-                            <TabItem Header="{loc:Loc Config.Browser}">
-                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.Browser}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="8">
                                     <TextBlock Text="{loc:Loc Config.BrowserDescription}"
                                                TextWrapping="Wrap"
                                                FontSize="12"
@@ -414,10 +417,16 @@
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
-                            </TabItem>
+                    </StackPanel>
+                </Border>
 
-                            <TabItem Header="{loc:Loc Config.SubAgents}">
-                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.SubAgents}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="8">
                                     <TextBlock Text="{loc:Loc Config.SubAgentsDescription}"
                                                TextWrapping="Wrap"
                                                FontSize="12"
@@ -471,10 +480,16 @@
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
-                            </TabItem>
+                    </StackPanel>
+                </Border>
 
-                            <TabItem Header="{loc:Loc Config.SectionDocumentParser}">
-                                <StackPanel Spacing="8" Margin="0,12,0,0">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{loc:Loc Config.SectionDocumentParser}" FontWeight="Bold" FontSize="15"/>
+                                <StackPanel Spacing="8">
                                     <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
                                                TextWrapping="Wrap"
                                                FontSize="12"
@@ -514,166 +529,9 @@
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
-                            </TabItem>
-                        </TabControl>
                     </StackPanel>
                 </Border>
-
-                <!-- SECTION 2: MCP SERVERS -->
-                <Border
-                    Grid.Row="1"
-                    Background="{DynamicResource App.SectionBg}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Margin="0,0,0,60"
-                    Padding="16">
-                    <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.Mcp}" FontWeight="Bold" FontSize="15"/>
-
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
-                            <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableMcp}" HorizontalAlignment="Left"/>
-                        </Grid>
-                        <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
-
-                        <Button Content="{loc:Loc Config.Mcp.AddServer}"
-                                Command="{Binding AddMcpServerCommand}"
-                                HorizontalAlignment="Left"
-                                IsEnabled="{Binding Config.EnableMcp}"/>
-
-                        <ItemsControl ItemsSource="{Binding Config.McpServers}" IsEnabled="{Binding Config.EnableMcp}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
-                                        <StackPanel Spacing="6">
-                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                                <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="{loc:Loc Config.Mcp.Enabled}" OffContent="{loc:Loc Config.Mcp.Disabled}" HorizontalAlignment="Left"/>
-                                                <!-- 连接状态灯 + 提示 -->
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                    <Ellipse Width="10" Height="10" VerticalAlignment="Center"
-                                                             Fill="{Binding Status, Converter={StaticResource McpStatusToBrushConverter}}"/>
-                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <Button Grid.Column="2"
-                                                        Content="{loc:Loc Config.Mcp.Reconnect}"
-                                                        Command="{Binding $parent[ItemsControl].((vm:ExtensionsTabViewModel)DataContext).ReconnectMcpCommand}"/>
-                                                <Button Grid.Column="3"
-                                                        Content="{loc:Loc Config.Mcp.Remove}"
-                                                        Command="{Binding $parent[ItemsControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpServerCommand}"
-                                                        CommandParameter="{Binding}"/>
-                                            </Grid>
-                                            <!-- 名称 + 传输类型 -->
-                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                                <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Name}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                <TextBox Grid.Column="1" Text="{Binding Name}"/>
-                                                <ToggleSwitch Grid.Column="2"
-                                                              IsChecked="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}"
-                                                              OnContent="{loc:Loc Config.Mcp.TransportHttp}"
-                                                              OffContent="{loc:Loc Config.Mcp.TransportStdio}"/>
-                                            </Grid>
-
-                                            <!-- Stdio 段 -->
-                                            <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}, ConverterParameter=Stdio}">
-                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" RowDefinitions="Auto,Auto">
-                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.Mcp.Command}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Text="{Binding Command}" PlaceholderText="npx / uv / python …"/>
-                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.Mcp.WorkingDir}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkingDirectory}" PlaceholderText="(optional)"/>
-                                                </Grid>
-
-                                                <!-- 启动参数列表 -->
-                                                <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Args}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpArgCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding Arguments}">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
-                                                                <TextBox Grid.Column="0" Text="{Binding Value}"/>
-                                                                <Button Grid.Column="1" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpArgCommand}"
-                                                                        CommandParameter="{Binding}"/>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-
-                                                <!-- 环境变量列表 -->
-                                                <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Env}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpEnvCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding Environment}">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
-                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="KEY"/>
-                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="value"/>
-                                                                <Button Grid.Column="2" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpEnvCommand}"
-                                                                        CommandParameter="{Binding}"/>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
-
-                                            <!-- Http 段 -->
-                                            <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}">
-                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="https://example.com/mcp"/>
-                                                </Grid>
-
-                                                <!-- 请求头列表 -->
-                                                <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Headers}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).AddMcpHeaderCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding Headers}">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
-                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="Authorization"/>
-                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="Bearer …"/>
-                                                                <Button Grid.Column="2" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:ExtensionsTabViewModel)DataContext).RemoveMcpHeaderCommand}"
-                                                                        CommandParameter="{Binding}"/>
-                                                            </Grid>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- Claude Desktop JSON 导入 -->
-                        <TextBlock Text="{loc:Loc Config.Mcp.ImportTitle}" FontWeight="SemiBold" Opacity="0.8"/>
-                        <TextBox Text="{Binding McpImportJson}"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="80"
-                                 IsEnabled="{Binding Config.EnableMcp}"
-                                 PlaceholderText="{loc:Loc Config.Mcp.ImportPlaceholder}"/>
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                            <Button Grid.Column="0" Content="{loc:Loc Config.Mcp.Import}"
-                                    Command="{Binding ImportMcpJsonCommand}"
-                                    IsEnabled="{Binding Config.EnableMcp}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </Grid>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>

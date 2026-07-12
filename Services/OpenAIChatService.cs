@@ -322,6 +322,15 @@ public class OpenAIChatService : IChatService
                 Log.Warning("用量: 第 {Iteration} 轮未收到 usage（供应商可能未在流式响应中回报）", iteration);
             }
             var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
+            // finishReason=Length 表示输出被 MaxTokens 截断，此时 toolCallBuilders 中的参数 JSON 很可能不完整。
+            // 直接执行会导致 JsonException，模型反复重试同样的截断模式。丢弃并引导模型精简参数。
+            if (finishReason == ChatFinishReason.Length && toolCallBuilders.Count > 0)
+            {
+                Log.Warning("流式响应因 MaxTokens 截断（finishReason=Length），丢弃 {Count} 个可能不完整的工具调用", toolCallBuilders.Count);
+                messages.Add(new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated due to max token limit. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]"));
+                continue;
+            }
+
             var hasToolCalls = finishReason == ChatFinishReason.ToolCalls || toolCallBuilders.Count > 0;
 
             if (!IsFunctionCallingEnabled() && hasToolCalls)

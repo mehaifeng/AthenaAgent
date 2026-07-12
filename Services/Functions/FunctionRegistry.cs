@@ -454,10 +454,10 @@ public class FunctionRegistry : IFunctionRegistry
                     {
                         name = new { type = "string", description = "Unique server name (existing server with the same name is replaced)." },
                         command = new { type = "string", description = "LOCAL (stdio) launcher executable, e.g. 'npx', 'uvx', 'docker'. Provide either command or url." },
-                        args = new { type = new[] { "array", "string" }, description = "Launch arguments for a stdio server, each as a separate string (e.g. ['-y','@modelcontextprotocol/server-filesystem','/path']). May also be the same JSON array encoded as a string." },
-                        env = new { type = new[] { "object", "string" }, description = "Environment variables for a stdio server as a flat JSON object, e.g. {\"API_KEY\":\"xxx\"}. If you cannot emit a nested object, pass the SAME JSON encoded as a string. NEVER pass an empty value if the server needs a key." },
+                        args = new { type = "string", description = "Launch arguments for a stdio server as a JSON array string, e.g. \"[-y,@amap/amap-maps-mcp-server]\"." },
+                        env = new { type = "string", description = "Environment variables for a stdio server as a JSON object string, e.g. \"{\\\"API_KEY\\\":\\\"xxx\\\"}\". NEVER pass an empty value if the server needs a key." },
                         url = new { type = "string", description = "REMOTE (http) server endpoint URL. Provide either command or url." },
-                        headers = new { type = new[] { "object", "string" }, description = "HTTP headers for a remote server as a flat JSON object, e.g. {\"Authorization\":\"Bearer xxx\"}. May also be passed as a JSON string." }
+                        headers = new { type = "string", description = "HTTP headers for a remote server as a JSON object string, e.g. \"{\\\"Authorization\\\":\\\"Bearer xxx\\\"}\"." }
                     },
                     required = new[] { "name" }
                 });
@@ -553,7 +553,10 @@ public class FunctionRegistry : IFunctionRegistry
             catch (JsonException jsonEx)
             {
                 _logger.Warning("LLM provided invalid JSON for function {FunctionName}. Error: {Message}", name, jsonEx.Message);
-                return FunctionResult.FailureResult($"Invalid JSON format in arguments: {jsonEx.Message}. Please ensure you output valid JSON.");
+                var hint = string.Equals(name, "mcp_add_server", StringComparison.OrdinalIgnoreCase)
+                    ? " Your arguments may be truncated. Try mcp_import_json instead — pass the entire MCP config as a single JSON string to avoid nested object issues."
+                    : "";
+                return FunctionResult.FailureResult($"Invalid JSON format in arguments: {jsonEx.Message}. Please ensure you output valid JSON.{hint}");
             }
             catch (Exception ex)
             {

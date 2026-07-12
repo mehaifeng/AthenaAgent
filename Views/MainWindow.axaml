@@ -61,9 +61,14 @@
                 <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
             </TabItem>
 
-            <!-- 扩展（扩展能力 / MCP / 工具与安全） -->
+            <!-- 扩展（扩展能力：语音 / 生图 / 搜索 / 浏览器 / 子代理 / 文档解析） -->
             <TabItem Header="{loc:Loc Tab.Extensions}">
                 <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
+            </TabItem>
+
+            <!-- MCP 服务 -->
+            <TabItem Header="{loc:Loc Tab.McpServer}">
+                <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
             </TabItem>
 
             <!-- 任务 -->
