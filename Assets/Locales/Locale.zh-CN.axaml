@@ -111,7 +111,9 @@
     <system:String x:Key="Config.Mcp">MCP Server</system:String>
     <system:String x:Key="Config.Mcp.SectionServers">MCP 服务器</system:String>
     <system:String x:Key="Config.Mcp.Enable">启用 MCP 扩展：</system:String>
-    <system:String x:Key="Config.Mcp.DiscoveryHint">主模型默认仅可见三个元工具（mcp_list_tools / mcp_get_tool_schema / mcp_call_tool），按需检索外部能力，避免 schema 占用初始上下文。</system:String>
+    <system:String x:Key="Config.Mcp.DiscoveryHint">MCP（模型上下文协议）让助手接入外部服务器，按需调用其提供的工具与数据，从而扩展可用能力。</system:String>
+    <system:String x:Key="Config.Mcp.ExampleHint">可在此处发现更多 MCP 服务器：</system:String>
+    <system:String x:Key="Config.Mcp.ExampleLink">ModelScope MCP 广场</system:String>
     <system:String x:Key="Config.Mcp.AddServer">添加服务器</system:String>
     <system:String x:Key="Config.Mcp.Remove">移除</system:String>
     <system:String x:Key="Config.Mcp.Enabled">已启用</system:String>
@@ -134,7 +136,7 @@
     <system:String x:Key="Config.Mcp.TransportHttp">远程（HTTP）</system:String>
     <system:String x:Key="Config.Mcp.Url">服务地址：</system:String>
     <system:String x:Key="Config.Mcp.Headers">请求头</system:String>
-    <system:String x:Key="Config.VectorKb">知识库（向量）</system:String>
+    <system:String x:Key="Config.VectorKb">向量知识库</system:String>
     <system:String x:Key="Config.KbMaintenanceSection">知识库定期整理</system:String>
     <system:String x:Key="Config.KbMaintenanceDescription">后台按设定周期自动合并知识库中重复或相似的条目，避免同一主题分散多处。整理前会先备份，合并时保留所有独特信息，再删除冗余条目。</system:String>
     <system:String x:Key="Config.KbMaintenanceEnabled">启用定期整理：</system:String>

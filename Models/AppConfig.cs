@@ -98,7 +98,7 @@ public partial class AppConfig : ObservableObject
     private double _secondaryTemperature = 0.3;
 
     [ObservableProperty]
-    private int _secondaryMaxTokens = 500;
+    private int _secondaryMaxTokens = 16000;
 
     // Embedding 模型配置（用于向量检索）
     [ObservableProperty]
@@ -229,7 +229,7 @@ public partial class AppConfig : ObservableObject
     private string _browserAgentModel = "gpt-4o-mini";
 
     [ObservableProperty]
-    private int _browserAgentMaxTokens = 1000;
+    private int _browserAgentMaxTokens = 16000;
 
     [ObservableProperty]
     private double _browserAgentTemperature = 0.2;
@@ -255,7 +255,7 @@ public partial class AppConfig : ObservableObject
     private string _subAgentModel = "gpt-4o-mini";
 
     [ObservableProperty]
-    private int _subAgentMaxTokens = 4000;
+    private int _subAgentMaxTokens = 16000;
 
     [ObservableProperty]
     private double _subAgentTemperature = 0.3;

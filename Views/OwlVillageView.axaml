@@ -4,7 +4,7 @@
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.OwlVillageView"
              x:DataType="vm:ChatTabViewModel"
-             Width="670">
+             Width="560">
 
     <UserControl.Styles>
         <!-- 运行中的猫头鹰轻微"呼吸"；归巢/出错后静止。 -->
@@ -56,8 +56,13 @@
         <TextBlock Grid.Row="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="16" FontWeight="SemiBold"
                    VerticalAlignment="Center" Margin="0,0,0,12"/>
 
-        <!-- 小镇画布：场所背景 + 猫头鹰图层 -->
-        <Grid Grid.Row="1" Width="636" Height="522" HorizontalAlignment="Center" Margin="0,0,0,12">
+        <!-- 小镇画布：场所背景 + 猫头鹰图层。整体用 LayoutTransform 等比缩小，
+             猫头鹰图层与场所格同属该 Grid，会一并缩小，无需改动 VM 里的定位坐标。 -->
+        <LayoutTransformControl Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,12">
+            <LayoutTransformControl.LayoutTransform>
+                <ScaleTransform ScaleX="0.8" ScaleY="0.8"/>
+            </LayoutTransformControl.LayoutTransform>
+        <Grid Width="636" Height="522">
             <Canvas Width="636" Height="522">
                 <!-- 2×3 网格。上排：Archeion(文件) | Ourania(电脑) -->
                 <Border Canvas.Left="12" Canvas.Top="12" Width="300" Height="158" CornerRadius="8" ClipToBounds="True">
@@ -156,6 +161,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </Grid>
+        </LayoutTransformControl>
 
         <TextBlock Grid.Row="2" Text="{loc:Loc SubAgent.ListHeader}" FontSize="12" Opacity="0.6" Margin="0,0,0,6"/>
 

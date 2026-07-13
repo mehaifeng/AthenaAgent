@@ -111,7 +111,9 @@
     <system:String x:Key="Config.Mcp">MCP Server</system:String>
     <system:String x:Key="Config.Mcp.SectionServers">MCP servers</system:String>
     <system:String x:Key="Config.Mcp.Enable">Enable MCP:</system:String>
-    <system:String x:Key="Config.Mcp.DiscoveryHint">The primary model initially sees only three meta-tools (mcp_list_tools / mcp_get_tool_schema / mcp_call_tool); external schemas are fetched on demand to avoid bloating the initial context.</system:String>
+    <system:String x:Key="Config.Mcp.DiscoveryHint">MCP (Model Context Protocol) lets the assistant connect to external servers and use the tools and data they provide on demand, extending its capabilities.</system:String>
+    <system:String x:Key="Config.Mcp.ExampleHint">Discover more MCP servers here:</system:String>
+    <system:String x:Key="Config.Mcp.ExampleLink">ModelScope MCP Marketplace</system:String>
     <system:String x:Key="Config.Mcp.AddServer">Add server</system:String>
     <system:String x:Key="Config.Mcp.Remove">Remove</system:String>
     <system:String x:Key="Config.Mcp.Enabled">Enabled</system:String>
@@ -134,7 +136,7 @@
     <system:String x:Key="Config.Mcp.TransportHttp">Remote (HTTP)</system:String>
     <system:String x:Key="Config.Mcp.Url">URL:</system:String>
     <system:String x:Key="Config.Mcp.Headers">Headers</system:String>
-    <system:String x:Key="Config.VectorKb">Knowledge base (vectors)</system:String>
+    <system:String x:Key="Config.VectorKb">Knowledge base</system:String>
     <system:String x:Key="Config.KbMaintenanceSection">Periodic knowledge base maintenance</system:String>
     <system:String x:Key="Config.KbMaintenanceDescription">In the background, at the set interval, duplicate or similar entries in the knowledge base are merged automatically. Everything is backed up first; unique information is preserved into the canonical entry before redundant ones are removed.</system:String>
     <system:String x:Key="Config.KbMaintenanceEnabled">Enable periodic maintenance:</system:String>

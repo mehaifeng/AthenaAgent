@@ -88,7 +88,7 @@
 
                                         <Border Grid.Row="8"
                                                 Grid.ColumnSpan="2"
-                                                IsVisible="{Binding AudioTestAttachment}"
+                                                IsVisible="{Binding AudioTestAttachment, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                 Background="{DynamicResource App.SectionBg}"
                                                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                                                 BorderThickness="1"
@@ -167,11 +167,11 @@
                                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                                           IsEnabled="{Binding Config.WebSearchEnabled}">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
+                                        <!-- 供应商切换后的默认端点回填由配置属主（ConfigTabViewModel）的属性监听统一处理 -->
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding WebSearchProviders}"
                                                   SelectedItem="{Binding Config.WebSearchProvider}"
-                                                  HorizontalAlignment="Stretch" Margin="0,0,0,8"
-                                                  SelectionChanged="WebSearchProvider_SelectionChanged"/>
+                                                  HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                         <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.8"/>
                                         <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.WebSearchBaseUrl}" Margin="0,0,0,8"/>
@@ -349,7 +349,7 @@
                                             </StackPanel>
 
                                             <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ParamMaxTokens}" VerticalAlignment="Center" Opacity="0.8"/>
-                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.BrowserAgentMaxTokens}" Minimum="100" Maximum="8000" Increment="100" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding Config.BrowserAgentMaxTokens}" Minimum="100" Maximum="1000000" Increment="1000" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
                                             <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ParamTemp}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">

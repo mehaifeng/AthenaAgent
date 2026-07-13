@@ -43,13 +43,27 @@
                     Margin="0,0,0,60"
                     Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.Mcp}" FontWeight="Bold" FontSize="15"/>
-
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
                             <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableMcp}" HorizontalAlignment="Left"/>
                         </Grid>
-                        <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{loc:Loc Config.Mcp.ExampleHint}"
+                                           TextWrapping="Wrap"
+                                           FontSize="11"
+                                           Opacity="0.6"
+                                           VerticalAlignment="Center"/>
+                                <HyperlinkButton Margin="5,0,0,0"
+                                                 Content="{loc:Loc Config.Mcp.ExampleLink}"
+                                                 NavigateUri="https://www.modelscope.ai/mcp"
+                                                 FontSize="11"
+                                                 Padding="0"
+                                                 MinHeight="0"
+                                                 VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
 
                         <Button Content="{loc:Loc Config.Mcp.AddServer}"
                                 Command="{Binding AddMcpServerCommand}"

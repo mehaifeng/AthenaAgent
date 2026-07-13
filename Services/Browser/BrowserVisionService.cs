@@ -203,20 +203,28 @@ public class BrowserVisionService : IBrowserVisionService
                     ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(OnePixelPngBytes), "image/png", ChatImageDetailLevel.Low))
                 : new UserChatMessage("test");
 
+            // 上限给足：reasoning 模型的思考 token 也计入 max_tokens，给太小会在
+            // 输出可见内容前被截断，表现为"空响应"。Temperature 留空用服务端默认值，
+            // 避免个别下游供应商拒绝显式参数。
             var response = await chatClient.CompleteChatAsync(
                 new OpenAI.Chat.ChatMessage[]
                 {
                     new SystemChatMessage("Reply with OK only."),
                     userMessage
                 },
-                new ChatCompletionOptions { MaxOutputTokenCount = 10, Temperature = 0 },
+                new ChatCompletionOptions { MaxOutputTokenCount = 512 },
                 cancellationToken);
 
             var text = response.Value.Content.FirstOrDefault()?.Text;
             var capability = needsVision ? "vision (image input verified)" : "text-only";
-            return string.IsNullOrWhiteSpace(text)
-                ? (false, "Browser agent model returned an empty response.")
-                : (true, $"Browser agent model connection succeeded [{capability}]. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return response.Value.FinishReason == ChatFinishReason.Length
+                    ? (false, "Browser agent model output was truncated by max_tokens before any visible content (likely a reasoning model burning tokens on hidden thinking).")
+                    : (false, "Browser agent model returned an empty response.");
+            }
+
+            return (true, $"Browser agent model connection succeeded [{capability}]. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
         }
         catch (Exception ex)
         {

@@ -14,6 +14,10 @@ public static class AudioConfigResolver
         ["Custom"] = string.Empty
     };
 
+    /// <summary>音频供应商候选（配置 UI 下拉框数据源，顺序即展示顺序）。</summary>
+    public static IReadOnlyList<string> ProviderNames { get; } =
+        new[] { "OpenAI", "OpenRouter", "System", "Custom" };
+
     public static ResolvedAudioConfig Resolve(AppConfig config)
     {
         // 语音播报使用独立凭据，不继承主对话模型；BaseUrl 留空时按音频 provider 的默认端点解析。
@@ -39,6 +43,10 @@ public static class AudioConfigResolver
             voice,
             config.ChatAudioAutoPlay);
     }
+
+    /// <summary>按供应商取默认端点（仅精确匹配，供应商切换回填用；未知供应商返回 false 不动原值）。</summary>
+    public static bool TryGetDefaultBaseUrl(string? provider, out string url)
+        => AudioProviderUrls.TryGetValue(provider ?? string.Empty, out url!);
 
     public static string GetDefaultBaseUrl(string? provider)
     {

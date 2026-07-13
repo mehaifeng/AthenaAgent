@@ -6,6 +6,9 @@ using System;
 using System.ClientModel;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,6 +23,7 @@ public sealed class ModelCatalogService : IModelCatalogService
 {
     // 防止个别代理端点长时间挂起拖住 UI 上的拉取动作。
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
+    private static readonly HttpClient HttpClient = new();
     private readonly ILogger _logger = Log.ForContext<ModelCatalogService>();
 
     public async Task<ModelCatalogResult> GetModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default)
@@ -88,5 +92,101 @@ public sealed class ModelCatalogService : IModelCatalogService
             _logger.Warning(ex, "拉取模型列表失败");
             return ModelCatalogResult.Fail(ex.Message);
         }
+    }
+
+    public async Task<ModelCatalogResult> GetEmbeddingModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default)
+    {
+        // 只有 OpenRouter 支持 output_modalities 服务端过滤；其它端点回退到全量拉取，由上层按 ID 关键字筛选。
+        if (!IsOpenRouter(baseUrl))
+        {
+            return await GetModelsAsync(baseUrl, apiKey, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return ModelCatalogResult.Fail("API Key is empty");
+        }
+
+        Uri requestUri;
+        try
+        {
+            requestUri = new Uri(AppendModelsPath(baseUrl!) + "?output_modalities=embeddings");
+        }
+        catch (UriFormatException)
+        {
+            return ModelCatalogResult.Fail($"Invalid Base URL: {baseUrl}");
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(RequestTimeout);
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+
+            using var response = await HttpClient.SendAsync(request, cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return ModelCatalogResult.Fail($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token).ConfigureAwait(false);
+
+            var models = new List<string>();
+            if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in data.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var idElement) &&
+                        idElement.ValueKind == JsonValueKind.String &&
+                        idElement.GetString() is { Length: > 0 } id)
+                    {
+                        models.Add(id);
+                    }
+                }
+            }
+
+            var distinct = models
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _logger.Information("OpenRouter 嵌入模型列表拉取成功，共 {Count} 个", distinct.Count);
+            return ModelCatalogResult.Ok(distinct);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return ModelCatalogResult.Fail($"Request timed out after {RequestTimeout.TotalSeconds:F0}s");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "拉取 OpenRouter 嵌入模型列表失败");
+            return ModelCatalogResult.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>端点主机是否为 OpenRouter（含自定义子域，如 openrouter.ai）。</summary>
+    private static bool IsOpenRouter(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        return uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>在已含 /v1 的 BaseUrl 后追加 /models，与 SDK 端点处理保持一致。</summary>
+    private static string AppendModelsPath(string baseUrl)
+    {
+        var trimmed = baseUrl.Trim().TrimEnd('/');
+        return trimmed + "/models";
     }
 }

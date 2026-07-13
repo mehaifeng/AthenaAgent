@@ -11,8 +11,10 @@ namespace Athena.UI.ViewModels;
 /// <summary>
 /// MCP 服务页 ViewModel：MCP 服务器的增删改、重连与 JSON 导入。
 /// 与 ConfigTabViewModel 共享同一个 AppConfig 实例——配置的加载、监听与防抖
-/// 自动保存仍由 ConfigTabViewModel（配置属主）负责，本 VM 只承载 MCP 相关的
-/// UI 状态与命令。
+/// 自动保存仍由 ConfigTabViewModel（配置属主）负责：属主对 McpServers 及其
+/// 条目做了深度订阅，本页的任何增删改都会经由该订阅触发防抖保存并广播
+/// ConfigChanged（进而驱动 MCP 生命周期按差异重连），因此本页命令只改状态、
+/// 不直接落盘。唯一例外是「重连」——配置未变时需要显式重存一次来触发广播。
 /// </summary>
 public partial class McpTabViewModel : ViewModelBase
 {
@@ -53,7 +55,7 @@ public partial class McpTabViewModel : ViewModelBase
 
     /// <summary>新增一个空 MCP 服务器条目，等待用户填入命令。</summary>
     [RelayCommand]
-    private async Task AddMcpServerAsync()
+    private void AddMcpServer()
     {
         var idx = Config.McpServers.Count + 1;
         Config.McpServers.Add(new McpServerConfig
@@ -64,83 +66,70 @@ public partial class McpTabViewModel : ViewModelBase
             StartupTimeoutSeconds = 15,
             CallTimeoutSeconds = 60
         });
-        if (_configService != null) await _configService.SaveAsync(Config);
     }
 
     /// <summary>删除指定 MCP 服务器条目。</summary>
     [RelayCommand]
-    private async Task RemoveMcpServerAsync(McpServerConfig? server)
+    private void RemoveMcpServer(McpServerConfig? server)
     {
-        if (server != null && Config.McpServers.Remove(server) && _configService != null)
-        {
-            await _configService.SaveAsync(Config);
-        }
+        if (server != null) Config.McpServers.Remove(server);
     }
 
     /// <summary>给指定服务器追加一个空参数条目。</summary>
     [RelayCommand]
-    private async Task AddMcpArgAsync(McpServerConfig? server)
+    private void AddMcpArg(McpServerConfig? server)
     {
-        if (server == null) return;
-        server.Arguments.Add(new McpArgEntry());
-        if (_configService != null) await _configService.SaveAsync(Config);
+        server?.Arguments.Add(new McpArgEntry());
     }
 
     /// <summary>删除一个参数条目（在所有服务器里查找其归属）。</summary>
     [RelayCommand]
-    private async Task RemoveMcpArgAsync(McpArgEntry? entry)
+    private void RemoveMcpArg(McpArgEntry? entry)
     {
         if (entry == null) return;
         foreach (var s in Config.McpServers)
         {
             if (s.Arguments.Remove(entry)) break;
         }
-        if (_configService != null) await _configService.SaveAsync(Config);
     }
 
     /// <summary>给指定服务器追加一个空环境变量条目。</summary>
     [RelayCommand]
-    private async Task AddMcpEnvAsync(McpServerConfig? server)
+    private void AddMcpEnv(McpServerConfig? server)
     {
-        if (server == null) return;
-        server.Environment.Add(new McpEnvEntry());
-        if (_configService != null) await _configService.SaveAsync(Config);
+        server?.Environment.Add(new McpEnvEntry());
     }
 
     /// <summary>删除一个环境变量条目（在所有服务器里查找其归属）。</summary>
     [RelayCommand]
-    private async Task RemoveMcpEnvAsync(McpEnvEntry? entry)
+    private void RemoveMcpEnv(McpEnvEntry? entry)
     {
         if (entry == null) return;
         foreach (var s in Config.McpServers)
         {
             if (s.Environment.Remove(entry)) break;
         }
-        if (_configService != null) await _configService.SaveAsync(Config);
     }
 
     /// <summary>给指定 Http 服务器追加一个空请求头条目。</summary>
     [RelayCommand]
-    private async Task AddMcpHeaderAsync(McpServerConfig? server)
+    private void AddMcpHeader(McpServerConfig? server)
     {
-        if (server == null) return;
-        server.Headers.Add(new McpEnvEntry());
-        if (_configService != null) await _configService.SaveAsync(Config);
+        server?.Headers.Add(new McpEnvEntry());
     }
 
     /// <summary>删除一个请求头条目（在所有服务器里查找其归属）。</summary>
     [RelayCommand]
-    private async Task RemoveMcpHeaderAsync(McpEnvEntry? entry)
+    private void RemoveMcpHeader(McpEnvEntry? entry)
     {
         if (entry == null) return;
         foreach (var s in Config.McpServers)
         {
             if (s.Headers.Remove(entry)) break;
         }
-        if (_configService != null) await _configService.SaveAsync(Config);
     }
 
-    /// <summary>重新应用 MCP 配置：再次保存即触发 ConfigChanged → 生命周期重连未生效（含失败）的服务器。</summary>
+    /// <summary>重新应用 MCP 配置：配置未变，需显式重存一次以触发 ConfigChanged → 生命周期重连未生效（含失败）的服务器。</summary>
     [RelayCommand]
     private async Task ReconnectMcpAsync()
     {
@@ -157,7 +146,7 @@ public partial class McpTabViewModel : ViewModelBase
 
     /// <summary>解析粘贴的 JSON，按名称合并进 McpServers（同名覆盖）。</summary>
     [RelayCommand]
-    private async Task ImportMcpJsonAsync()
+    private void ImportMcpJson()
     {
         if (string.IsNullOrWhiteSpace(McpImportJson))
         {
@@ -178,7 +167,6 @@ public partial class McpTabViewModel : ViewModelBase
             McpImportStatus = string.Format(
                 GetString("Config.Mcp.ImportSuccess", "Imported {0} server(s)."), parsed.Count);
             McpImportJson = string.Empty;
-            if (_configService != null) await _configService.SaveAsync(Config);
         }
         catch (Exception ex)
         {

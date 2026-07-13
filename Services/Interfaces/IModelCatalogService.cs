@@ -27,4 +27,11 @@ public interface IModelCatalogService
     /// <param name="baseUrl">端点地址；为空时回退到 OpenAI 官方端点。</param>
     /// <param name="apiKey">用于鉴权的 API Key；为空时直接返回失败。</param>
     Task<ModelCatalogResult> GetModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 仅查询嵌入类模型。识别到 OpenRouter 端点时，走其私有的
+    /// <c>?output_modalities=embeddings</c> 查询参数由服务端精确过滤；
+    /// 其它端点不支持该参数，回退为全量拉取（由上层按 ID 关键字过滤）。
+    /// </summary>
+    Task<ModelCatalogResult> GetEmbeddingModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default);
 }

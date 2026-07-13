@@ -124,7 +124,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Initialize Tab ViewModels
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, modelCatalogService, knowledgeMaintenanceService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, modelCatalogService, knowledgeMaintenanceService, knowledgeBaseService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, browserService, browserVisionService, systemAudioService, modelCatalogService);
         _extensionsTabViewModel.Initialize(_configTabViewModel);

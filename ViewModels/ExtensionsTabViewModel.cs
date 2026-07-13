@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace Athena.UI.ViewModels;
 
 /// <summary>
-/// 「神工坊」扩展页 ViewModel：扩展能力（语音/生图/搜索/浏览器/子代理/文档解析）。
+/// 「神工坊」扩展页 ViewModel：扩展能力（语音/生图/搜索/浏览器/文档解析）。
 /// MCP 服务器管理已拆分至 McpTabViewModel。与 ConfigTabViewModel 共享同一个 AppConfig 实例——
 /// 配置的加载、监听与防抖自动保存仍由 ConfigTabViewModel（配置属主）负责，
 /// 本 VM 只承载扩展相关的 UI 状态、计算属性与命令。
@@ -121,7 +121,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     #region 集合与计算属性
 
     /// <summary>API 供应商候选（与配置页共用同一份目录）。</summary>
-    public ObservableCollection<string> Providers { get; } = new(ConfigTabViewModel.ProviderNames);
+    public ObservableCollection<string> Providers { get; } = new(ProviderCatalog.ChatProviders);
 
     public ObservableCollection<BrowserObservationMode> BrowserObservationModes { get; } = new()
     {
@@ -131,19 +131,11 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
-    public ObservableCollection<string> WebSearchProviders { get; } = new() { "Tavily", "WebSearchAPI", "Zhipu", "Baidu" };
+    public ObservableCollection<string> WebSearchProviders { get; } = new(ProviderCatalog.WebSearchProviders);
 
     public bool IsBaiduProvider => Config.WebSearchProvider == "Baidu";
 
-    private static readonly System.Collections.Generic.Dictionary<string, string> WebSearchUrls = new()
-    {
-        { "Tavily", "https://api.tavily.com" },
-        { "WebSearchAPI", "https://api.websearchapi.ai" },
-        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
-        { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
-    };
-
-    public ObservableCollection<string> AudioProviders { get; } = new(ConfigTabViewModel.AudioProviderNames);
+    public ObservableCollection<string> AudioProviders { get; } = new(AudioConfigResolver.ProviderNames);
 
     // 音色下拉建议：provider=System 时为本机已安装语音（Windows SAPI / macOS say / Linux espeak-ng），
     // 远端 provider 时为 OpenAI 官方预置音色（服务端没有"列出音色"API，兼容服务商可手输自定义音色名）。
@@ -174,18 +166,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
     public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
-
-    /// <summary>
-    /// 更新 Web Search Base URL（供应商切换时调用）
-    /// </summary>
-    public void UpdateWebSearchBaseUrl(string? provider)
-    {
-        if (string.IsNullOrEmpty(provider)) return;
-        if (WebSearchUrls.TryGetValue(provider, out var url))
-        {
-            Config.WebSearchBaseUrl = url;
-        }
-    }
 
     #endregion
 
@@ -296,7 +276,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
         try
         {
-            ConfigTabViewModel.NormalizeBrowserConfig(Config);
+            AppConfigNormalizer.NormalizeBrowser(Config);
             if (_configService != null)
             {
                 await _configService.SaveAsync(Config);
@@ -453,53 +433,17 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     {
         if (target != "BrowserAgent" || IsLoadingBrowserAgentModels) return;
 
-        if (_modelCatalogService == null)
-        {
-            BrowserAgentModelsStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
-            return;
-        }
-
-        // 浏览器智能体使用独立凭据，不回退主对话模型。
-        var baseUrl = Config.BrowserAgentBaseUrl;
-        var apiKey = Config.BrowserAgentApiKey;
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            BrowserAgentModelsStatus = GetString("Status.EnterApiKeyFirst", "Please enter API Key first");
-            return;
-        }
-
         IsLoadingBrowserAgentModels = true;
-        BrowserAgentModelsStatus = GetString("Status.LoadingModels", "Loading models...");
         try
         {
-            var result = await _modelCatalogService.GetModelsAsync(baseUrl, apiKey);
-            if (!result.Success)
-            {
-                BrowserAgentModelsStatus = string.Format(
-                    GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
-                    result.ErrorMessage);
-                return;
-            }
-
-            BrowserAgentModelOptions.Clear();
-            foreach (var model in result.Models)
-            {
-                BrowserAgentModelOptions.Add(model);
-            }
-
-            BrowserAgentModelsStatus = result.Models.Count == 0
-                ? GetString("Status.NoModelsReturned", "Endpoint returned no models")
-                : string.Format(GetString("Status.ModelsLoaded", "Loaded {0} models"), result.Models.Count);
-        }
-        catch (OperationCanceledException)
-        {
-            // 页面切换等外部取消，无需提示。
-        }
-        catch (Exception ex)
-        {
-            BrowserAgentModelsStatus = string.Format(
-                GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
-                ex.Message);
+            // 浏览器智能体使用独立凭据，不回退主对话模型。
+            await ModelOptionsLoader.LoadAsync(
+                _modelCatalogService,
+                Config.BrowserAgentBaseUrl,
+                Config.BrowserAgentApiKey,
+                BrowserAgentModelOptions,
+                status => BrowserAgentModelsStatus = status,
+                GetString);
         }
         finally
         {

@@ -24,7 +24,11 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly ILocalizationService? _localizationService;
     private readonly IModelCatalogService? _modelCatalogService;
     private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
+    private readonly IKnowledgeBaseService? _knowledgeBaseService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
+
+    /// <summary>已应用到 embedding 服务的向量身份（模型/提供商/端点/凭据源）。变化时需重建知识库向量索引。</summary>
+    private string? _appliedEmbeddingIdentity;
 
     [ObservableProperty]
     private AppConfig _config = new();
@@ -53,9 +57,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     [ObservableProperty]
     private ITokenService? _tokenService;
 
-    [ObservableProperty]
-    private int _contextTokensThreshold = 64000;
-
     public bool CanTestConnection => !IsTestingConnection;
     public bool CanTestSecondary => !IsTestingSecondary;
     public bool CanTestEmbedding => !IsTestingEmbedding;
@@ -78,26 +79,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     private CancellationTokenSource? _autoSaveCts;
     private bool _isInternalSaving;
 
-    private static readonly Dictionary<string, string> ProviderUrls = new()
-    {
-        { "OpenAI", "https://api.openai.com/v1" },
-        { "Anthropic", "https://api.anthropic.com/v1/" },
-        { "Google", "https://generativelanguage.googleapis.com/v1beta/openai/" },
-        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
-        { "Mimimaxi", "https://api.minimaxi.com/v1" },
-        { "Alibaba", "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-        { "Deepseek", "https://api.deepseek.com/v1" },
-        { "OpenRouter", "https://openrouter.ai/api/v1" },
-        { "Custom", "" }
-    };
-
-    /// <summary>API 供应商名称目录（供扩展页 ViewModel 共用同一份候选）。</summary>
-    internal static IReadOnlyCollection<string> ProviderNames => ProviderUrls.Keys;
-
-    /// <summary>音频供应商名称目录（供扩展页 ViewModel 共用同一份候选）。</summary>
-    internal static IReadOnlyCollection<string> AudioProviderNames => AudioProviderUrls.Keys;
-
-    public ObservableCollection<string> Providers { get; } = new(ProviderUrls.Keys);
+    public ObservableCollection<string> Providers { get; } = new(ProviderCatalog.ChatProviders);
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
 
     /// <summary>工具审批模式候选。</summary>
@@ -185,14 +167,6 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ObservableCollection<string> Languages { get; }
 
-    private static readonly Dictionary<string, string> AudioProviderUrls = new()
-    {
-        { "OpenAI", "https://api.openai.com/v1/audio/speech" },
-        { "OpenRouter", "https://openrouter.ai/api/v1/audio/speech" },
-        { "System", string.Empty },
-        { "Custom", string.Empty }
-    };
-
     [ObservableProperty]
     private int _selectedLanguageIndex;
 
@@ -212,7 +186,7 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     public ConfigTabViewModel() : this(null, null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null, IKnowledgeBaseService? knowledgeBaseService = null)
     {
         _configService = configService;
         _chatService = chatService;
@@ -221,6 +195,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         _localizationService = localizationService;
         _modelCatalogService = modelCatalogService;
         _maintenanceService = maintenanceService;
+        _knowledgeBaseService = knowledgeBaseService;
 
         if (_maintenanceService != null)
         {
@@ -259,41 +234,23 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     partial void OnConfigChanged(AppConfig value)
     {
-        if (value != null)
-        {
-            SetupConfigListener(value);
-            // Config 被整体替换后，刷新依赖其值的计算属性（外部工具改配置等场景）
-            OnPropertyChanged(nameof(IsMaintenanceModelCustom));
-            OnPropertyChanged(nameof(UseMainCredentialForSecondary));
-            OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
-            OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
-            OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
-            OnPropertyChanged(nameof(UseMainModelForSubAgent));
-            OnPropertyChanged(nameof(IsSubAgentModelCustom));
-            // 订阅 Config 属性变化，触发 UI 更新
-            value.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(AppConfig.KnowledgeMaintenanceModelSource))
-                {
-                    OnPropertyChanged(nameof(IsMaintenanceModelCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.SecondaryCredentialSource))
-                {
-                    OnPropertyChanged(nameof(UseMainCredentialForSecondary));
-                    OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.EmbeddingCredentialSource))
-                {
-                    OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
-                    OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
-                }
-                else if (e.PropertyName == nameof(AppConfig.SubAgentModelSource))
-                {
-                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
-                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
-                }
-            };
-        }
+        if (value == null) return;
+
+        SetupConfigListener(value);
+        // Config 被整体替换后，刷新依赖其值的计算属性（外部工具改配置等场景）
+        NotifyCredentialSourceProperties();
+    }
+
+    /// <summary>刷新所有依赖 Config 取值的「来源开关」计算属性。</summary>
+    private void NotifyCredentialSourceProperties()
+    {
+        OnPropertyChanged(nameof(IsMaintenanceModelCustom));
+        OnPropertyChanged(nameof(UseMainCredentialForSecondary));
+        OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
+        OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
+        OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+        OnPropertyChanged(nameof(UseMainModelForSubAgent));
+        OnPropertyChanged(nameof(IsSubAgentModelCustom));
     }
 
     /// <summary>
@@ -303,31 +260,17 @@ public partial class ConfigTabViewModel : ViewModelBase
     {
         if (_isInternalSaving) return; // Ignore events triggered by our own auto-save
 
+        // 其他页面（MCP/扩展）对共享实例的显式保存也会走到这里：
+        // 同一实例说明本 VM 的监听早已就位，无需整体替换（替换同实例本身也会被 setter 相等性检查吞掉）。
+        if (ReferenceEquals(newConfig, Config)) return;
+
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            NormalizeExternalAudioConfig(newConfig);
+            AppConfigNormalizer.NormalizeAudio(newConfig);
             Config = newConfig;
             if (TokenService != null) TokenService.MaxTokens = newConfig.MaxContextTokens;
             _logger.Information("ConfigTab: 检测到外部配置变更，已刷新 UI");
         });
-    }
-
-    private void NormalizeExternalAudioConfig(AppConfig config)
-    {
-        if (string.IsNullOrWhiteSpace(config.ChatAudioProvider))
-        {
-            config.ChatAudioProvider = "OpenAI";
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl))
-        {
-            config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(config.ChatAudioProvider);
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ChatAudioModel))
-        {
-            config.ChatAudioModel = "gpt-4o-mini-tts";
-        }
     }
 
     private void SetupConfigListener(AppConfig? config)
@@ -335,44 +278,54 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (config == null) return;
         config.PropertyChanged += (s, e) =>
         {
-            if (e.PropertyName == nameof(AppConfig.MaxContextTokens))
+            switch (e.PropertyName)
             {
-                if (TokenService != null) TokenService.MaxTokens = config.MaxContextTokens;
-            }
-            else if (e.PropertyName == nameof(AppConfig.Provider))
-            {
-                if (ProviderUrls.TryGetValue(config.Provider, out var url))
-                {
-                    config.BaseUrl = url;
-                }
-            }
-            else if (e.PropertyName == nameof(AppConfig.ChatAudioProvider))
-            {
-                if (AudioProviderUrls.TryGetValue(config.ChatAudioProvider, out var url))
-                {
-                    config.ChatAudioBaseUrl = url;
-                }
-            }
-            else if (e.PropertyName == nameof(AppConfig.SecondaryProvider))
-            {
-                if (ProviderUrls.TryGetValue(config.SecondaryProvider, out var url))
-                {
-                    config.SecondaryBaseUrl = url;
-                }
-            }
-            else if (e.PropertyName == nameof(AppConfig.EmbeddingProvider))
-            {
-                if (ProviderUrls.TryGetValue(config.EmbeddingProvider, out var url))
-                {
-                    config.EmbeddingBaseUrl = url;
-                }
-            }
-            else if (e.PropertyName == nameof(AppConfig.BrowserAgentProvider))
-            {
-                if (ProviderUrls.TryGetValue(config.BrowserAgentProvider, out var url))
-                {
-                    config.BrowserAgentBaseUrl = url;
-                }
+                case nameof(AppConfig.MaxContextTokens):
+                    if (TokenService != null) TokenService.MaxTokens = config.MaxContextTokens;
+                    break;
+
+                // 供应商切换 → 回填该类别的默认端点
+                case nameof(AppConfig.Provider):
+                    if (ProviderCatalog.TryGetChatBaseUrl(config.Provider, out var mainUrl))
+                        config.BaseUrl = mainUrl;
+                    break;
+                case nameof(AppConfig.SecondaryProvider):
+                    if (ProviderCatalog.TryGetChatBaseUrl(config.SecondaryProvider, out var secondaryUrl))
+                        config.SecondaryBaseUrl = secondaryUrl;
+                    break;
+                case nameof(AppConfig.EmbeddingProvider):
+                    if (ProviderCatalog.TryGetChatBaseUrl(config.EmbeddingProvider, out var embeddingUrl))
+                        config.EmbeddingBaseUrl = embeddingUrl;
+                    break;
+                case nameof(AppConfig.BrowserAgentProvider):
+                    if (ProviderCatalog.TryGetChatBaseUrl(config.BrowserAgentProvider, out var browserUrl))
+                        config.BrowserAgentBaseUrl = browserUrl;
+                    break;
+                case nameof(AppConfig.WebSearchProvider):
+                    if (ProviderCatalog.TryGetWebSearchBaseUrl(config.WebSearchProvider, out var searchUrl))
+                        config.WebSearchBaseUrl = searchUrl;
+                    break;
+                case nameof(AppConfig.ChatAudioProvider):
+                    if (AudioConfigResolver.TryGetDefaultBaseUrl(config.ChatAudioProvider, out var audioUrl))
+                        config.ChatAudioBaseUrl = audioUrl;
+                    break;
+
+                // 模型/凭据来源切换 → 通知依赖的计算属性
+                case nameof(AppConfig.KnowledgeMaintenanceModelSource):
+                    OnPropertyChanged(nameof(IsMaintenanceModelCustom));
+                    break;
+                case nameof(AppConfig.SecondaryCredentialSource):
+                    OnPropertyChanged(nameof(UseMainCredentialForSecondary));
+                    OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
+                    break;
+                case nameof(AppConfig.EmbeddingCredentialSource):
+                    OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
+                    OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+                    break;
+                case nameof(AppConfig.SubAgentModelSource):
+                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
+                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
+                    break;
             }
 
             // Trigger auto-save on any property change
@@ -465,12 +418,11 @@ public partial class ConfigTabViewModel : ViewModelBase
                 if (Config.CompressionThreshold > Config.MaxContextTokens)
                 {
                     Config.CompressionThreshold = Config.MaxContextTokens;
-                    ContextTokensThreshold = Config.CompressionThreshold;
                     _logger.Information("压缩阈值已自动调整为最大上下文限制: {Value}", Config.MaxContextTokens);
                 }
 
-                NormalizeBrowserConfig(Config);
-                NormalizeAudioConfig();
+                AppConfigNormalizer.NormalizeBrowser(Config);
+                AppConfigNormalizer.NormalizeAudio(Config);
                 await _configService.SaveAsync(Config);
 
                 // Dispatch UI-related updates back to the UI thread
@@ -478,7 +430,23 @@ public partial class ConfigTabViewModel : ViewModelBase
                 {
                     App.SetTheme(Config.Theme);
                     _chatService?.UpdateConfig(Config);
-                    if (_embeddingService is OpenAIEmbeddingService openAIEmbedding) openAIEmbedding.UpdateConfig(Config);
+                    if (_embeddingService is OpenAIEmbeddingService openAIEmbedding)
+                    {
+                        openAIEmbedding.UpdateConfig(Config);
+
+                        // 换 embedding 模型/端点会改变向量空间：旧向量与新查询不可比，recall 将查无结果。
+                        // 使内存向量缓存失效，下次检索时 KnowledgeBaseService 的指纹校验会触发全量重建。
+                        var newIdentity = ComputeEmbeddingIdentity(Config);
+                        if (newIdentity != _appliedEmbeddingIdentity)
+                        {
+                            _appliedEmbeddingIdentity = newIdentity;
+                            if (_knowledgeBaseService != null)
+                            {
+                                await _knowledgeBaseService.RefreshVectorCacheAsync();
+                                _logger.Information("Embedding 配置变化，已失效向量缓存，下次检索将重建知识库索引");
+                            }
+                        }
+                    }
                     if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
                     
                     if (ChatTabViewModel != null)
@@ -498,41 +466,21 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    /// <summary>钳制浏览器相关配置到合法区间（自动保存与扩展页的浏览器诊断共用）。</summary>
-    internal static void NormalizeBrowserConfig(AppConfig config)
-    {
-        config.BrowserViewportWidth = Math.Clamp(config.BrowserViewportWidth, 320, 3840);
-        config.BrowserViewportHeight = Math.Clamp(config.BrowserViewportHeight, 240, 2160);
-        config.BrowserMaxSteps = Math.Clamp(config.BrowserMaxSteps, 1, 50);
-        config.BrowserOperationTimeoutSeconds = Math.Clamp(config.BrowserOperationTimeoutSeconds, 5, 300);
-        config.BrowserSessionTtlMinutes = Math.Clamp(config.BrowserSessionTtlMinutes, 1, 120);
-        config.BrowserScreenshotScale = Math.Clamp(config.BrowserScreenshotScale, 0.25, 2.0);
-        config.BrowserImageQuality = Math.Clamp(config.BrowserImageQuality, 30, 100);
-        config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
-        config.BrowserAgentMaxTokens = Math.Clamp(config.BrowserAgentMaxTokens, 100, 8000);
-        config.BrowserAgentTemperature = Math.Clamp(config.BrowserAgentTemperature, 0, 2);
-    }
-
-    private void NormalizeAudioConfig()
-    {
-        if (string.IsNullOrWhiteSpace(Config.ChatAudioProvider))
-        {
-            Config.ChatAudioProvider = "OpenAI";
-        }
-
-        if (string.IsNullOrWhiteSpace(Config.ChatAudioBaseUrl))
-        {
-            Config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(Config.ChatAudioProvider);
-        }
-    }
+    /// <summary>汇总影响向量空间的 embedding 配置。任一变化都意味着旧向量与新查询不可比，需重建索引。</summary>
+    private static string ComputeEmbeddingIdentity(AppConfig config)
+        => string.Join('|',
+            config.EmbeddingCredentialSource,
+            config.EmbeddingProvider ?? string.Empty,
+            config.EmbeddingBaseUrl ?? string.Empty,
+            config.EmbeddingModel ?? string.Empty);
 
     private async Task LoadConfigAsync()
     {
         if (_configService != null)
         {
             Config = await _configService.LoadAsync();
-            NormalizeAudioConfig();
-            ContextTokensThreshold = Config.CompressionThreshold;
+            AppConfigNormalizer.NormalizeAudio(Config);
+            _appliedEmbeddingIdentity = ComputeEmbeddingIdentity(Config);
             if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
 
             if (_localizationService != null)
@@ -725,6 +673,8 @@ public partial class ConfigTabViewModel : ViewModelBase
         Action<bool> setLoading;
         Action<string> setStatus;
         bool alreadyLoading;
+        Func<string, bool>? filter = null;
+        Func<IModelCatalogService, string?, string?, Task<ModelCatalogResult>>? fetch = null;
 
         switch (target)
         {
@@ -751,6 +701,15 @@ public partial class ConfigTabViewModel : ViewModelBase
                 alreadyLoading = IsLoadingEmbeddingModels;
                 setLoading = v => IsLoadingEmbeddingModels = v;
                 setStatus = v => EmbeddingModelsStatus = v;
+                if (IsOpenRouterUrl(baseUrl))
+                {
+                    // OpenRouter 支持服务端按 embeddings 精确过滤，无需本地关键字兜底。
+                    fetch = (c, b, k) => c.GetEmbeddingModelsAsync(b, k);
+                }
+                else
+                {
+                    filter = IsEmbeddingModelId;
+                }
                 break;
             default:
                 return;
@@ -758,62 +717,10 @@ public partial class ConfigTabViewModel : ViewModelBase
 
         if (alreadyLoading) return; // 防重入
 
-        if (_modelCatalogService == null)
-        {
-            setStatus(GetString("Status.ServiceNotInitialized", "Service not initialized"));
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            setStatus(GetString("Status.EnterApiKeyFirst", "Please enter API Key first"));
-            return;
-        }
-
         setLoading(true);
-        setStatus(GetString("Status.LoadingModels", "Loading models..."));
         try
         {
-            var result = await _modelCatalogService.GetModelsAsync(baseUrl, apiKey);
-
-            if (!result.Success)
-            {
-                setStatus(string.Format(
-                    GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
-                    result.ErrorMessage));
-                return;
-            }
-
-            var filtered = target == "Embedding"
-                ? result.Models.Where(m => m?.IndexOf("embedding", StringComparison.OrdinalIgnoreCase) >= 0).ToList()
-                : result.Models.ToList();
-
-            options.Clear();
-            foreach (var model in filtered)
-            {
-                options.Add(model);
-            }
-
-            if (filtered.Count == 0)
-            {
-                setStatus(GetString("Status.NoModelsReturned", "Endpoint returned no models"));
-            }
-            else
-            {
-                setStatus(string.Format(
-                    GetString("Status.ModelsLoaded", "Loaded {0} models"),
-                    filtered.Count));
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // 页面切换等外部取消，无需提示。
-        }
-        catch (Exception ex)
-        {
-            setStatus(string.Format(
-                GetString("Status.LoadModelsFailed", "Failed to load models: {0}"),
-                ex.Message));
+            await ModelOptionsLoader.LoadAsync(_modelCatalogService, baseUrl, apiKey, options, setStatus, GetString, filter, fetch);
         }
         finally
         {
@@ -823,6 +730,23 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     private static string? FirstNonBlank(string? primary, string? fallback)
         => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
+
+    /// <summary>
+    /// OpenAI 兼容的 /models 接口不区分模型类别，只能按 ID 命名启发式过滤出嵌入模型。
+    /// 覆盖常见命名：embedding / embed（OpenAI、通义等）、GTE（阿里 general text embedding）、bge（BAAI）。
+    /// </summary>
+    private static readonly string[] EmbeddingModelKeywords = { "embedding", "embed", "gte", "bge" };
+
+    private static bool IsEmbeddingModelId(string? modelId)
+        => !string.IsNullOrWhiteSpace(modelId)
+           && EmbeddingModelKeywords.Any(k => modelId.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+
+    /// <summary>端点是否为 OpenRouter：其 /models 接口支持 output_modalities 服务端过滤。</summary>
+    private static bool IsOpenRouterUrl(string? baseUrl)
+        => !string.IsNullOrWhiteSpace(baseUrl)
+           && Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri)
+           && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+               || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase));
 
     #endregion
 }
