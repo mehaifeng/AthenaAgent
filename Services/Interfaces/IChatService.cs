@@ -50,4 +50,13 @@ public interface IChatService
     void UpdateConfig(AppConfig config);
 
     Task<AudioOutputTestResult> TestAudioOutputAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 为给定文本生成助手语音附件（TTS）。从流式回复中解耦，供 UI 在文本回复结束后
+    /// 于后台单独调用，避免语音生成阻塞发送/回缩/分支等交互。
+    /// </summary>
+    /// <returns>成功时返回音频附件；失败时 Attachment 为 null 且 ErrorMessage 非空。</returns>
+    Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateAssistantSpeechAsync(
+        string text,
+        CancellationToken cancellationToken = default);
 }

@@ -18,6 +18,8 @@
     <UserControl.Resources>
         <appconv:McpStatusToBrushConverter x:Key="McpStatusToBrushConverter"/>
         <appconv:McpTransportIsHttpConverter x:Key="McpTransportIsHttp"/>
+        <appconv:McpStatusIsFailedConverter x:Key="McpStatusIsFailed"/>
+        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
     </UserControl.Resources>
 
     <Grid RowDefinitions="40,*">
@@ -75,22 +77,49 @@
                                 <DataTemplate>
                                     <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
                                         <StackPanel Spacing="6">
-                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                                <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="{loc:Loc Config.Mcp.Enabled}" OffContent="{loc:Loc Config.Mcp.Disabled}" HorizontalAlignment="Left"/>
+                                            <!-- 折叠标题栏（始终可见）：展开箭头 · 名称 · 状态 · 重连(仅失败) · 开关 · 删除 -->
+                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                                                <Button Grid.Column="0"
+                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).ToggleMcpExpandedCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Padding="4,0"
+                                                        MinWidth="0"
+                                                        VerticalAlignment="Center"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
+                                                <!-- 名称：点击也可展开/折叠 -->
+                                                <Button Grid.Column="1"
+                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).ToggleMcpExpandedCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Padding="0"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Left">
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                </Button>
                                                 <!-- 连接状态灯 + 提示 -->
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                     <Ellipse Width="10" Height="10" VerticalAlignment="Center"
                                                              Fill="{Binding Status, Converter={StaticResource McpStatusToBrushConverter}}"/>
-                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="12"
+                                                               MaxWidth="180" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
-                                                <Button Grid.Column="2"
-                                                        Content="{loc:Loc Config.Mcp.Reconnect}"
-                                                        Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).ReconnectMcpCommand}"/>
+                                                <!-- 重连：仅在连接失败时出现（改动配置会自动重连，此处用于配置未变时的失败重试） -->
                                                 <Button Grid.Column="3"
+                                                        Content="{loc:Loc Config.Mcp.Reconnect}"
+                                                        IsVisible="{Binding Status, Converter={StaticResource McpStatusIsFailed}}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).ReconnectMcpCommand}"/>
+                                                <ToggleSwitch Grid.Column="4" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="5"
                                                         Content="{loc:Loc Config.Mcp.Remove}"
                                                         Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).RemoveMcpServerCommand}"
                                                         CommandParameter="{Binding}"/>
                                             </Grid>
+
+                                            <!-- 可编辑详情（默认折叠） -->
+                                            <StackPanel Spacing="6" IsVisible="{Binding IsExpanded}">
                                             <!-- 名称 + 传输类型 -->
                                             <Grid ColumnDefinitions="90,*,Auto" ColumnSpacing="10">
                                                 <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Name}" VerticalAlignment="Center" Opacity="0.8"/>
@@ -179,6 +208,7 @@
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
+                                            </StackPanel>
                                             </StackPanel>
                                         </StackPanel>
                                     </Border>

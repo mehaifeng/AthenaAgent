@@ -47,6 +47,30 @@ public class McpStatusToBrushConverter : IValueConverter
 }
 
 /// <summary>
+/// MCP 连接状态 → 是否失败（bool）。用于「重连」按钮仅在失败时显示。
+/// </summary>
+public class McpStatusIsFailedConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is McpConnectionStatus.Failed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// 折叠状态（bool）→ 展开箭头字形。展开为 ▾，折叠为 ▸。
+/// </summary>
+public class BoolToExpandGlyphConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? "▾" : "▸";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// 工具审批模式枚举 → 本地化显示文本。
 /// </summary>
 public class ToolApprovalModeToDisplayConverter : IValueConverter

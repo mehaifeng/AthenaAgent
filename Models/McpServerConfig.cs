@@ -63,6 +63,11 @@ public partial class McpServerConfig : ObservableObject
     [ObservableProperty]
     [property: JsonIgnore]
     private int _discoveredToolCount;
+
+    // UI 折叠状态（不持久化）：默认折叠，仅在展开时显示可编辑详情。
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private bool _isExpanded;
 }
 
 /// <summary>MCP 服务器传输方式。</summary>

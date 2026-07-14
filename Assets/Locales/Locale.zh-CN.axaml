@@ -86,6 +86,8 @@
     <system:String x:Key="Chat.Audio.PlaybackFailedDetail">音频播放失败: {0}</system:String>
     <system:String x:Key="Chat.Audio.Play">播放</system:String>
     <system:String x:Key="Chat.Audio.Stop">停止</system:String>
+    <system:String x:Key="Chat.Audio.Generating">正在生成语音…</system:String>
+    <system:String x:Key="Chat.Audio.Generate">生成语音</system:String>
     <system:String x:Key="Chat.RoleUser">你</system:String>
     <system:String x:Key="Chat.RoleAssistant">Athena</system:String>
 

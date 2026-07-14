@@ -50,6 +50,13 @@ public partial class ChatTabViewModel : ViewModelBase
     // this before clearing state — preventing it from undoing the new clip's
     // IsPlaying=true.
     private string? _playingAttachmentId;
+    // Session-scoped cancellation for background TTS. Multiple messages may
+    // generate audio concurrently (auto after a reply, or manual on demand),
+    // so generations are NOT single-flight — sending a new message must not
+    // kill the previous message's audio. Rewind / fork / conversation-switch
+    // cancel + replace this token to abort every in-flight generation whose
+    // target message or session is going away.
+    private CancellationTokenSource _audioSessionCts = new();
     private readonly IConversationArchiveService? _archiveService;
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly IDocumentParserService? _documentParserService;
@@ -336,6 +343,15 @@ public partial class ChatTabViewModel : ViewModelBase
             UpdateBubbleButtonVisibility();
         };
 
+        // 监听配置变更（如在扩展页开启/关闭语音合成）：刷新各气泡「生成语音」按钮显隐。
+        if (_configService != null)
+        {
+            _configService.ConfigChanged += (_, _) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(UpdateBubbleButtonVisibility);
+            };
+        }
+
         PendingAttachments.CollectionChanged += (s, e) =>
         {
             OnPropertyChanged(nameof(HasPendingAttachments));
@@ -530,6 +546,10 @@ public partial class ChatTabViewModel : ViewModelBase
             }
         }
 
+        // 回缩会移除后续（含刚生成的助手）消息：先取消后台语音生成并止播，
+        // 避免语音挂到即将被删除的消息上或继续为已撤回内容播放。
+        CancelPendingAudio();
+
         // 目标消息自身的附件回收到输入区（不删物理文件）；超出挂载上限的部分只能放弃并清理
         RestoreAttachmentsToPending(message.Attachments.ToList());
         message.Attachments.Clear();
@@ -561,6 +581,10 @@ public partial class ChatTabViewModel : ViewModelBase
 
         int msgIndex = Messages.IndexOf(message);
         if (msgIndex < 0) return;
+
+        // 分支会截断 fork 点之后的消息（含刚生成的助手回复）：先取消后台语音生成并止播，
+        // 避免语音挂到即将被移除的消息或为已切走的分支继续播放。
+        CancelPendingAudio();
 
         FinalizePendingAssistantMessages();
         msgIndex = Messages.IndexOf(message);
@@ -1313,6 +1337,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         Interlocked.Increment(ref _conversationEpoch);
         _responseCts?.Cancel();
+        CancelPendingAudio();
         FinalizePendingAssistantMessages();
         IsSending = false;
         UpdateConversationContext();
@@ -1663,6 +1688,16 @@ public partial class ChatTabViewModel : ViewModelBase
                 IsSending = false;
                 UpdateContextTokensDisplay();
                 UpdateBubbleButtonVisibility();
+
+                // 文本回复已结束、发送态已解除：语音在后台异步生成，不阻塞任何交互。
+                // 仅对成功产出正文、非报错/中断的终态气泡生成语音。
+                if (outcome.Outcome == TaskExecutionOutcome.Succeeded
+                    && !string.IsNullOrWhiteSpace(assistantMsg.Content)
+                    && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
+                    && Messages.Contains(assistantMsg))
+                {
+                    _ = RunAudioGenerationAsync(assistantMsg, epoch, forcePlay: false);
+                }
             }
 
             await NotifySchedulerAvailabilityAsync();
@@ -1784,9 +1819,13 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private void UpdateBubbleButtonVisibility()
     {
+        // 语音功能开关回填到每条消息，驱动「生成语音」按钮显隐。
+        // 放在早退之前：发送/压缩中也应保持该状态正确。
+        var audioEnabled = _configService?.Load().ChatAudioEnabled == true;
         foreach (var msg in Messages)
         {
             msg.CanRewind = false;
+            msg.AudioFeatureEnabled = audioEnabled;
         }
 
         // 发送中或压缩中，所有操作按钮不可用
@@ -2344,11 +2383,136 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateAudioPlayingState(null, false);
     }
 
+    /// <summary>
+    /// 回缩/分支/切换会话时统一调用：取消并重建会话级语音令牌，以中止所有在飞的语音
+    /// 生成，并停止当前播放。后台生成任务自身还会做 epoch + 消息归属复检，此处取消是
+    /// 即时止损（尽快掐断网络请求/系统进程）。
+    /// </summary>
+    private void CancelPendingAudio()
+    {
+        var old = _audioSessionCts;
+        _audioSessionCts = new CancellationTokenSource();
+        try { old.Cancel(); } catch (ObjectDisposedException) { }
+        old.Dispose();
+        StopAudioPlayback();
+    }
+
     private void UpdateAudioPlayingState(string? attachmentId, bool isPlaying)
     {
         foreach (var attachment in Messages.SelectMany(m => m.Attachments).Where(a => a.IsAudio))
         {
             attachment.IsPlaying = isPlaying && attachment.Id == attachmentId;
+        }
+    }
+
+    /// <summary>
+    /// 用户点击气泡底部「生成语音」按钮：为该条历史/漏生成的助手消息补生成语音并播放。
+    /// forcePlay=true → 无视「自动播放」开关，用户既然主动点了就直接播。
+    /// </summary>
+    [RelayCommand]
+    private Task GenerateMessageAudioAsync(ChatMessage? message)
+    {
+        if (message == null || !message.CanGenerateAudio)
+        {
+            return Task.CompletedTask;
+        }
+        var epoch = Volatile.Read(ref _conversationEpoch);
+        return RunAudioGenerationAsync(message, epoch, forcePlay: true);
+    }
+
+    /// <summary>
+    /// 后台生成助手语音（TTS），与发送态(IsSending)解耦：文本回复结束后异步进行，
+    /// 期间用户可正常发送/回缩/分支。多条消息的语音可并发生成（不再单飞互斥，
+    /// 因此发送新消息不会掐掉上一条正在生成的语音）。完成时若会话已切换(epoch 变)、
+    /// 该消息已被回缩/分支移除，或本次生成被会话级取消，则丢弃音频（删除已落盘文件），
+    /// 不挂载、不播放。
+    /// </summary>
+    /// <param name="forcePlay">true=用户手动点击，生成后直接播放；false=自动流程，仅在开启自动播放且该消息仍是最新回复时播放。</param>
+    private async Task RunAudioGenerationAsync(ChatMessage assistantMsg, int epoch, bool forcePlay)
+    {
+        if (_chatService == null || _configService == null)
+        {
+            return;
+        }
+
+        AppConfig config;
+        try
+        {
+            config = _configService.Load();
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!config.ChatAudioEnabled)
+        {
+            return;
+        }
+
+        var text = assistantMsg.Content;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        // 与会话级令牌联动：回缩/分支/切换会话会取消该令牌，从而中止所有在飞生成；
+        // 但同一时刻的多条生成彼此独立、并发进行。
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_audioSessionCts.Token);
+
+        assistantMsg.IsGeneratingAudio = true;
+        try
+        {
+            var (attachment, errorMessage) = await _chatService.GenerateAssistantSpeechAsync(text, linkedCts.Token);
+
+            // 生成期间发生了回缩/分支/会话切换：丢弃产物，绝不挂到已失效的消息/会话。
+            if (linkedCts.IsCancellationRequested
+                || !IsCurrentConversationEpoch(epoch)
+                || !Messages.Contains(assistantMsg))
+            {
+                if (attachment != null)
+                {
+                    _attachmentStoreService?.DeleteStoredAttachment(attachment);
+                }
+                return;
+            }
+
+            if (attachment != null)
+            {
+                assistantMsg.Attachments.Add(attachment);
+                assistantMsg.NotifyAttachmentsChanged();
+                // 把音频并入持久化上下文（UpdateConversationContext 从 Messages 重建）。
+                UpdateConversationContext();
+
+                if (forcePlay)
+                {
+                    // 手动生成：无条件播放（用户明确点了「生成语音」）。
+                    StopAudioPlayback();
+                    _ = PlaySystemAudioAttachmentAsync(attachment, assistantMsg);
+                }
+                else if (ReferenceEquals(Messages.LastOrDefault(), assistantMsg))
+                {
+                    // 自动生成：仅当该消息仍是最新回复时才自动播放，避免旧回复的
+                    // 语音在用户已发出新消息后回来抢占播放。
+                    TryAutoPlayAssistantAudio(attachment, assistantMsg);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                assistantMsg.AudioErrorMessage = errorMessage;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 回缩/分支/切换会话触发的取消，属预期，静默。
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "后台生成助手语音失败");
+        }
+        finally
+        {
+            assistantMsg.IsGeneratingAudio = false;
         }
     }
 

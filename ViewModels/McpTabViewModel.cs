@@ -75,6 +75,13 @@ public partial class McpTabViewModel : ViewModelBase
         if (server != null) Config.McpServers.Remove(server);
     }
 
+    /// <summary>切换某条服务器的折叠/展开状态（点击标题栏名称时触发）。</summary>
+    [RelayCommand]
+    private void ToggleMcpExpanded(McpServerConfig? server)
+    {
+        if (server != null) server.IsExpanded = !server.IsExpanded;
+    }
+
     /// <summary>给指定服务器追加一个空参数条目。</summary>
     [RelayCommand]
     private void AddMcpArg(McpServerConfig? server)

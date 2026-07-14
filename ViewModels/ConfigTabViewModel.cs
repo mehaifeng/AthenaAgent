@@ -356,9 +356,11 @@ public partial class ConfigTabViewModel : ViewModelBase
         server.PropertyChanged += (_, e) =>
         {
             // 运行期状态字段由连接过程回填，不应触发保存（否则连接→状态变→保存→重连 死循环）。
+            // IsExpanded 是纯 UI 折叠状态，同样不落盘、不触发重连。
             if (e.PropertyName is nameof(McpServerConfig.Status)
                 or nameof(McpServerConfig.StatusDetail)
-                or nameof(McpServerConfig.DiscoveredToolCount))
+                or nameof(McpServerConfig.DiscoveredToolCount)
+                or nameof(McpServerConfig.IsExpanded))
                 return;
             RequestAutoSave();
         };

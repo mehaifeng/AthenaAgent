@@ -362,49 +362,21 @@ public class OpenAIChatService : IChatService
 
             if (!hasToolCalls)
             {
-                ChatAttachment? audioAttachment = null;
-                string audioErrorMessage = string.Empty;
-
                 var finalContent = assistantContent.ToString();
 
-                if (_config.ChatAudioEnabled && !string.IsNullOrWhiteSpace(finalContent))
-                {
-                    var audioResult = await GenerateSpeechAttachmentAsync(finalContent, cancellationToken);
-                    audioAttachment = audioResult.Attachment;
-                    audioErrorMessage = audioResult.ErrorMessage;
-                }
-
+                // 语音生成不再内联于流式路径：文本回复到此即完，UI 会在流结束、
+                // 解除发送态后于后台调用 GenerateAssistantSpeechAsync 单独生成语音，
+                // 避免 TTS 阻塞发送/回缩/分支等交互（音频落盘由 UI 侧 Messages 重建上下文承接）。
                 if (assistantContent.Length == 0 && !string.IsNullOrWhiteSpace(finalContent))
                 {
                     yield return finalContent;
                 }
 
-                if (!string.IsNullOrWhiteSpace(finalContent) || reasoningContent != null || audioAttachment != null || !string.IsNullOrWhiteSpace(audioErrorMessage))
+                if (!string.IsNullOrWhiteSpace(finalContent) || reasoningContent != null)
                 {
                     context.AddAssistantMessage(
                         finalContent,
-                        reasoningContent: reasoningContent,
-                        attachments: audioAttachment != null ? [audioAttachment] : null);
-
-                    if (audioAttachment != null)
-                    {
-                        onMessageAdded?.Invoke(new Models.ChatMessage
-                        {
-                            Role = "assistant",
-                            Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { audioAttachment },
-                            AudioErrorMessage = audioErrorMessage,
-                            Timestamp = DateTime.Now
-                        });
-                    }
-                    else if (!string.IsNullOrWhiteSpace(audioErrorMessage))
-                    {
-                        onMessageAdded?.Invoke(new Models.ChatMessage
-                        {
-                            Role = "assistant",
-                            AudioErrorMessage = audioErrorMessage,
-                            Timestamp = DateTime.Now
-                        });
-                    }
+                        reasoningContent: reasoningContent);
 
                     if (reasoningContent != null)
                     {
@@ -1140,6 +1112,15 @@ public class OpenAIChatService : IChatService
             };
         }
     }
+
+    /// <summary>
+    /// 公开的助手语音生成入口：供 UI 在文本回复结束后于后台单独调用。
+    /// 内部复用与流式路径相同的 <see cref="GenerateSpeechAttachmentAsync"/> 逻辑。
+    /// </summary>
+    public Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateAssistantSpeechAsync(
+        string text,
+        CancellationToken cancellationToken = default)
+        => GenerateSpeechAttachmentAsync(text, cancellationToken);
 
     private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSpeechAttachmentAsync(string text, CancellationToken cancellationToken)
     {

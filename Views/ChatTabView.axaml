@@ -500,6 +500,26 @@
                                                        FontSize="12"/>
                                         </Border>
 
+                                        <!-- 后台语音生成中提示（不阻塞任何交互） -->
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsGeneratingAudio}">
+                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
+                                            <TextBlock Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- 手动生成语音：语音开启但该消息尚无音频时出现（补生成被挤掉的/历史消息的语音） -->
+                                        <Button HorizontalAlignment="Left"
+                                                Padding="8,4"
+                                                FontSize="12"
+                                                IsVisible="{Binding CanGenerateAudio}"
+                                                Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).GenerateMessageAudioCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{loc:Loc Chat.Audio.Generate}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <PathIcon Data="{StaticResource SemiIconVolume2}" Width="13" Height="13" Opacity="0.75"/>
+                                                <TextBlock Text="{loc:Loc Chat.Audio.Generate}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
                                             <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
