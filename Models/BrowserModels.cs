@@ -39,6 +39,21 @@ public enum BrowserObservationMode
     VisionWithSom
 }
 
+/// <summary>
+/// 浏览器 Agent 模型的结构化输出策略。控制是否向后端发送 <c>response_format=json_object</c>。
+/// </summary>
+public enum BrowserStructuredOutputMode
+{
+    /// <summary>乐观启用 json_object；后端明确拒绝时自动降级为纯 prompt 约束并记忆。（默认）</summary>
+    Auto,
+
+    /// <summary>强制启用 json_object，不降级（后端不支持时调用会直接失败）。</summary>
+    JsonObject,
+
+    /// <summary>不发送 response_format，仅靠 prompt 约束 + 解析层容错（兼容任意后端）。</summary>
+    PromptOnly
+}
+
 public enum BrowserRiskType
 {
     None,

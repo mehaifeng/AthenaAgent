@@ -403,6 +403,8 @@
     <system:String x:Key="Config.BrowserDescription">When enabled, Athena can view and operate web pages inside an isolated session. Underlying operations do not enter the main chat context.</system:String>
     <system:String x:Key="Config.BrowserEnabled">Enable browser automation:</system:String>
     <system:String x:Key="Config.BrowserObservationMode">Observation mode:</system:String>
+    <system:String x:Key="Config.BrowserStructuredOutputMode">Structured output:</system:String>
+    <system:String x:Key="Config.BrowserStructuredOutputModeHint">Auto: ask the model for a JSON object, downgrading automatically if the backend rejects it. JsonObject: force it (errors if unsupported). PromptOnly: rely on prompt wording only, compatible with any backend.</system:String>
     <system:String x:Key="Config.BrowserHeadless">Headless mode:</system:String>
     <system:String x:Key="Config.BrowserDiagnostics">Runtime diagnostics</system:String>
     <system:String x:Key="Config.BrowserRuntimeStatus">Browser runtime:</system:String>

@@ -129,6 +129,13 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         BrowserObservationMode.DomOnly
     };
 
+    public ObservableCollection<BrowserStructuredOutputMode> BrowserStructuredOutputModes { get; } = new()
+    {
+        BrowserStructuredOutputMode.Auto,
+        BrowserStructuredOutputMode.JsonObject,
+        BrowserStructuredOutputMode.PromptOnly
+    };
+
     public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
     public ObservableCollection<string> WebSearchProviders { get; } = new(ProviderCatalog.WebSearchProviders);

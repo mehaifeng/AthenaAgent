@@ -72,8 +72,16 @@ public class BrowserVisionService : IBrowserVisionService
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
-            var completion = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-            var content = completion.Value.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var completion = await BrowserStructuredOutput.CompleteAsync(
+                chatClient,
+                messages,
+                options,
+                config.BrowserStructuredOutputMode,
+                effectiveConfig.BaseUrl,
+                effectiveConfig.Model,
+                _logger,
+                cancellationToken);
+            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
             var output = ParseAgentOutput(content);
             if (output.Action.Count == 0)
             {
@@ -141,8 +149,16 @@ public class BrowserVisionService : IBrowserVisionService
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
-            var completion = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-            var content = completion.Value.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var completion = await BrowserStructuredOutput.CompleteAsync(
+                chatClient,
+                messages,
+                options,
+                config.BrowserStructuredOutputMode,
+                effectiveConfig.BaseUrl,
+                effectiveConfig.Model,
+                _logger,
+                cancellationToken);
+            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
             var decision = ParseDecision(content, task, observation);
             _logger.Information(
                 "Browser vision decision received. Model={Model}, Action={Action}, ElementId={ElementId}, Url={Url}, Confidence={Confidence}, ResponseLength={ResponseLength}",
@@ -401,7 +417,7 @@ public class BrowserVisionService : IBrowserVisionService
 
     private static BrowserAgentOutput ParseAgentOutput(string content)
     {
-        var json = ExtractJson(content);
+        var json = JsonExtraction.ExtractFirstJsonObject(content);
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var output = new BrowserAgentOutput
@@ -495,7 +511,7 @@ public class BrowserVisionService : IBrowserVisionService
     {
         try
         {
-            var json = ExtractJson(content);
+            var json = JsonExtraction.ExtractFirstJsonObject(content);
             var decision = JsonSerializer.Deserialize<VisionDecision>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (decision == null)
             {
@@ -663,24 +679,6 @@ public class BrowserVisionService : IBrowserVisionService
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string ExtractJson(string content)
-    {
-        var trimmed = content.Trim();
-        if (trimmed.StartsWith('{') && trimmed.EndsWith('}'))
-        {
-            return trimmed;
-        }
-
-        var start = trimmed.IndexOf('{');
-        var end = trimmed.LastIndexOf('}');
-        if (start >= 0 && end > start)
-        {
-            return trimmed[start..(end + 1)];
-        }
-
-        throw new JsonException("No JSON object found.");
-    }
 
     private static BrowserActionRequest Finish(string reason, bool isFailure = false) =>
         new()

@@ -313,7 +313,7 @@
                                                        TextWrapping="Wrap" FontSize="12" Opacity="0.8"/>
                                         </Border>
 
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.8"/>
                                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.BrowserAgentProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
 
@@ -367,6 +367,15 @@
                                                            FontWeight="SemiBold"
                                                            Margin="12,0,0,0"/>
                                             </Grid>
+
+                                            <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.BrowserStructuredOutputMode}" VerticalAlignment="Center" Opacity="0.8"/>
+                                            <StackPanel Grid.Row="6" Grid.Column="1" Spacing="4" Margin="0,0,0,8">
+                                                <ComboBox ItemsSource="{Binding BrowserStructuredOutputModes}"
+                                                          SelectedItem="{Binding Config.BrowserStructuredOutputMode}"
+                                                          HorizontalAlignment="Stretch"/>
+                                                <TextBlock Text="{loc:Loc Config.BrowserStructuredOutputModeHint}"
+                                                           TextWrapping="Wrap" FontSize="11" Opacity="0.7"/>
+                                            </StackPanel>
                                         </Grid>
                                         <!-- 测试连接：SoM 模式会附带测试图验证视觉能力 -->
                                         <Grid ColumnSpacing="20" RowDefinitions="Auto">

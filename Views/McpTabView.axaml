@@ -183,7 +183,7 @@
 
                                             <!-- Http 段 -->
                                             <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}">
-                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                                <Grid ColumnDefinitions="90,*" ColumnSpacing="10">
                                                     <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center" Opacity="0.8"/>
                                                     <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="https://example.com/mcp"/>
                                                 </Grid>

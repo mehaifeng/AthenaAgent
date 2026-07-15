@@ -53,7 +53,8 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
                 Start URL:
                 {request.StartUrl ?? "(none)"}
                 """;
-            var completion = await chatClient.CompleteChatAsync(
+            var completion = await BrowserStructuredOutput.CompleteAsync(
+                chatClient,
                 new OpenAI.Chat.ChatMessage[]
                 {
                     new SystemChatMessage(BrowserPrompts.TaskPlanningPrompt),
@@ -64,9 +65,13 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
                     Temperature = 0,
                     MaxOutputTokenCount = Math.Max(800, Math.Min(effectiveConfig.MaxTokens, 2000))
                 },
+                config.BrowserStructuredOutputMode,
+                effectiveConfig.BaseUrl,
+                effectiveConfig.Model,
+                _logger,
                 cancellationToken);
 
-            var content = completion.Value.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
             var plan = ParsePlan(content, request);
             if (plan.Goals.Count == 0)
             {
@@ -87,7 +92,7 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
 
     private static BrowserTaskPlan ParsePlan(string content, BrowserTaskRequest request)
     {
-        var json = ExtractJson(content);
+        var json = JsonExtraction.ExtractFirstJsonObject(content);
         var dto = JsonSerializer.Deserialize<PlannerResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         var plan = new BrowserTaskPlan { Summary = NullIfWhiteSpace(dto?.Summary) ?? "Browser task plan." };
         foreach (var goalDto in dto?.Goals ?? new List<PlannerGoal>())
@@ -306,24 +311,6 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string ExtractJson(string content)
-    {
-        var trimmed = content.Trim();
-        if (trimmed.StartsWith('{') && trimmed.EndsWith('}'))
-        {
-            return trimmed;
-        }
-
-        var start = trimmed.IndexOf('{');
-        var end = trimmed.LastIndexOf('}');
-        if (start >= 0 && end > start)
-        {
-            return trimmed[start..(end + 1)];
-        }
-
-        throw new JsonException("No JSON object found.");
-    }
 
     private sealed class PlannerResponse
     {

@@ -403,6 +403,8 @@
     <system:String x:Key="Config.BrowserDescription">启用后，Athena 可在隔离会话中查看并操作网页。底层操作不进入主对话上下文。</system:String>
     <system:String x:Key="Config.BrowserEnabled">启用浏览器操作：</system:String>
     <system:String x:Key="Config.BrowserObservationMode">观察方式：</system:String>
+    <system:String x:Key="Config.BrowserStructuredOutputMode">结构化输出：</system:String>
+    <system:String x:Key="Config.BrowserStructuredOutputModeHint">Auto：优先要求模型返回 JSON 对象，后端不支持时自动降级。JsonObject：强制要求（不支持则报错）。PromptOnly：仅靠提示词约束，兼容任意后端。</system:String>
     <system:String x:Key="Config.BrowserHeadless">无头模式：</system:String>
     <system:String x:Key="Config.BrowserDiagnostics">运行诊断</system:String>
     <system:String x:Key="Config.BrowserRuntimeStatus">浏览器运行时：</system:String>

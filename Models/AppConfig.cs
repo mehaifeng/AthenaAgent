@@ -234,6 +234,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private double _browserAgentTemperature = 0.2;
 
+    // 浏览器 Agent 结构化输出策略：Auto 乐观启用 json_object 并在后端拒绝时自动降级。
+    [ObservableProperty]
+    private BrowserStructuredOutputMode _browserStructuredOutputMode = BrowserStructuredOutputMode.Auto;
+
     // 子代理配置（dispatch_subagents：主模型并行派生隔离上下文的子代理）
     [ObservableProperty]
     private bool _enableSubAgents = false;
