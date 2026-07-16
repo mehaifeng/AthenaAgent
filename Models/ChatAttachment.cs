@@ -14,6 +14,9 @@ public partial class ChatAttachment : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsDocument))]
     [NotifyPropertyChangedFor(nameof(IsGenericFile))]
     [NotifyPropertyChangedFor(nameof(DisplayKind))]
+    [NotifyPropertyChangedFor(nameof(ImageContent))]
+    [NotifyPropertyChangedFor(nameof(GenericFileContent))]
+    [NotifyPropertyChangedFor(nameof(AudioContent))]
     private AttachmentKind _kind = AttachmentKind.Unknown;
 
     [ObservableProperty]
@@ -104,6 +107,15 @@ public partial class ChatAttachment : ObservableObject
 
     [JsonIgnore]
     public bool IsDocument => Kind == AttachmentKind.Document;
+
+    [JsonIgnore]
+    public ChatAttachment? ImageContent => IsImage ? this : null;
+
+    [JsonIgnore]
+    public ChatAttachment? GenericFileContent => IsGenericFile ? this : null;
+
+    [JsonIgnore]
+    public ChatAttachment? AudioContent => IsAudio ? this : null;
 
     [JsonIgnore]
     public bool IsParsing => ParseState == DocumentParseState.Parsing;

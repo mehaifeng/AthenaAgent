@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -16,6 +17,7 @@ Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("bulk collection replacement emits one reset", TestBulkCollectionReplaceAllAsync),
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config uses dedicated credentials and provider default endpoint", TestAudioConfigInheritanceAsync),
@@ -94,6 +96,20 @@ foreach (var (name, run) in tests)
 }
 
 return failures.Count == 0 ? 0 : 1;
+
+static Task TestBulkCollectionReplaceAllAsync()
+{
+    var collection = new BulkObservableCollection<int> { 9 };
+    var events = new List<NotifyCollectionChangedEventArgs>();
+    collection.CollectionChanged += (_, args) => events.Add(args);
+
+    collection.ReplaceAll([1, 2, 3]);
+
+    AssertEqual(1, events.Count, "replacement should emit one collection event");
+    AssertEqual(NotifyCollectionChangedAction.Reset, events[0].Action, "replacement event should be Reset");
+    AssertEqual("1,2,3", string.Join(',', collection), "replacement contents should be complete");
+    return Task.CompletedTask;
+}
 
 static Task TestSnapshotFilterAsync()
 {

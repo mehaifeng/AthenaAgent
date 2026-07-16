@@ -31,6 +31,18 @@ public class IntToColumnConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
+/// <summary>主导航页缓存：仅切换页面可见性，不从视觉树移除页面。</summary>
+public class IntEqualsConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is int actual
+           && int.TryParse(parameter?.ToString(), out var expected)
+           && actual == expected;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
 // 移除 RoleToBrushConverter 和 RoleToBgConverter 的复杂逻辑，改为简单的占位符或删除（如果不再使用）
 public class RoleToBrushConverter : IValueConverter
 {

@@ -340,38 +340,58 @@
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
-                                        <!-- user / assistant 消息统一 Markdown 渲染 -->
-                                        <lmd:MarkdownRenderer
-                                                   loc:MarkdownHelper.Text="{Binding DisplayText}"
-                                                   IsVisible="{Binding ShouldShowLegacyMarkdown}"
-                                                   HorizontalAlignment="Stretch" />
+                                        <!-- Content 为 null 时不实例化重型 Markdown 模板。 -->
+                                        <ContentControl Content="{Binding LegacyMarkdownContent}">
+                                            <ContentControl.ContentTemplate>
+                                                <DataTemplate x:DataType="models:ChatMessage">
+                                                    <lmd:MarkdownRenderer
+                                                        loc:MarkdownHelper.Text="{Binding DisplayText}"
+                                                        HorizontalAlignment="Stretch" />
+                                                </DataTemplate>
+                                            </ContentControl.ContentTemplate>
+                                        </ContentControl>
 
-                                        <ItemsControl ItemsSource="{Binding Segments}" IsVisible="{Binding UsesSegmentLayout}">
+                                        <ItemsControl ItemsSource="{Binding SegmentContent}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="models:ChatMessageSegment">
                                                     <StackPanel Margin="0,0,0,6">
-                                                        <lmd:MarkdownRenderer
-                                                            loc:MarkdownHelper.Text="{Binding Text}"
-                                                            IsVisible="{Binding IsMarkdown}"
-                                                            HorizontalAlignment="Stretch" />
+                                                        <ContentControl Content="{Binding MarkdownContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                                    <lmd:MarkdownRenderer
+                                                                        loc:MarkdownHelper.Text="{Binding Text}"
+                                                                        HorizontalAlignment="Stretch" />
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
 
-                                                        <Button IsVisible="{Binding IsGeneratedImage}"
-                                                                Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
-                                                                CommandParameter="{Binding Attachment}"
-                                                                Padding="0"
-                                                                Background="Transparent"
-                                                                BorderThickness="0"
-                                                                HorizontalAlignment="Left">
-                                                            <Border Classes="inline-generated-image">
-                                                                <Image Source="{Binding Attachment.PreviewImage}"
-                                                                       Stretch="Uniform"
-                                                                       MaxWidth="560"/>
-                                                            </Border>
-                                                        </Button>
+                                                        <ContentControl Content="{Binding GeneratedImageContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                                    <Button Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                            CommandParameter="{Binding Attachment}"
+                                                                            Padding="0"
+                                                                            Background="Transparent"
+                                                                            BorderThickness="0"
+                                                                            HorizontalAlignment="Left">
+                                                                        <Border Classes="inline-generated-image">
+                                                                            <Image Source="{Binding Attachment.PreviewImage}"
+                                                                                   Stretch="Uniform"
+                                                                                   MaxWidth="560"/>
+                                                                        </Border>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
 
-                                                        <!-- 工具调用组：自定义折叠容器（收起露 3 个 + 第 4 个 peek + 底部朦胧） -->
-                                                        <controls:ToolCallStackView IsVisible="{Binding IsToolCallGroup}"
-                                                                                    HorizontalAlignment="Stretch"/>
+                                                        <ContentControl Content="{Binding ToolCallContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                                    <!-- 工具调用组：自定义折叠容器（收起露 3 个 + 第 4 个 peek + 底部朦胧） -->
+                                                                    <controls:ToolCallStackView HorizontalAlignment="Stretch"/>
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -386,103 +406,68 @@
                                                 <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="models:ChatAttachment">
                                                     <Grid Margin="0,4,8,4">
-                                                        <Button IsVisible="{Binding IsImage}"
-                                                                Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
-                                                                CommandParameter="{Binding}"
-                                                                Padding="0"
-                                                                Background="Transparent"
-                                                                BorderThickness="0"
-                                                                HorizontalAlignment="Left"
-                                                                ToolTip.Tip="{Binding DisplayName}">
-                                                            <Border Classes="attachment-card">
-                                                                <Grid RowDefinitions="56,Auto,Auto">
-                                                                    <Border Grid.Row="0"
-                                                                            CornerRadius="5"
-                                                                            ClipToBounds="True"
-                                                                            Background="{DynamicResource SemiGreyLowBrush}">
-                                                                        <Image Source="{Binding PreviewImage}"
-                                                                               Stretch="UniformToFill"/>
+                                                        <ContentControl Content="{Binding ImageContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatAttachment">
+                                                                    <Button Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                            CommandParameter="{Binding}"
+                                                                            Padding="0"
+                                                                            Background="Transparent"
+                                                                            BorderThickness="0"
+                                                                            HorizontalAlignment="Left"
+                                                                            ToolTip.Tip="{Binding DisplayName}">
+                                                                        <Border Classes="attachment-card">
+                                                                            <Grid RowDefinitions="56,Auto,Auto">
+                                                                                <Border Grid.Row="0" CornerRadius="5" ClipToBounds="True" Background="{DynamicResource SemiGreyLowBrush}">
+                                                                                    <Image Source="{Binding PreviewImage}" Stretch="UniformToFill"/>
+                                                                                </Border>
+                                                                                <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,5,0,0"/>
+                                                                                <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65"/>
+                                                                            </Grid>
+                                                                        </Border>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
+
+                                                        <ContentControl Content="{Binding GenericFileContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatAttachment">
+                                                                    <Border Classes="attachment-card">
+                                                                        <Grid RowDefinitions="56,Auto,Auto,Auto">
+                                                                            <Border Grid.Row="0" Background="{DynamicResource SemiGreyLowBrush}" CornerRadius="5">
+                                                                                <TextBlock Text="{Binding FileExtension}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold"/>
+                                                                            </Border>
+                                                                            <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,5,0,0"/>
+                                                                            <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65"/>
+                                                                            <TextBlock Grid.Row="3" Text="{loc:Loc Chat.Attach.Parsed}" FontSize="10" Margin="0,3,0,0" Foreground="{DynamicResource SemiGreen6}" IsVisible="{Binding IsParsed}"/>
+                                                                            <TextBlock Grid.Row="3" Text="{loc:Loc Chat.Attach.ParseFailedShort}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ParseError}" Foreground="{DynamicResource SemiRed6}" IsVisible="{Binding IsParseFailed}"/>
+                                                                        </Grid>
                                                                     </Border>
-                                                                    <TextBlock Grid.Row="1"
-                                                                               Text="{Binding DisplayName}"
-                                                                               TextTrimming="CharacterEllipsis"
-                                                                               FontSize="11"
-                                                                               Margin="0,5,0,0"/>
-                                                                    <TextBlock Grid.Row="2"
-                                                                               Text="{Binding DisplaySize}"
-                                                                               FontSize="10"
-                                                                               Opacity="0.65"/>
-                                                                </Grid>
-                                                            </Border>
-                                                        </Button>
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
 
-                                                        <Border Classes="attachment-card" IsVisible="{Binding IsGenericFile}">
-                                                            <Grid RowDefinitions="56,Auto,Auto,Auto">
-                                                                <Border Grid.Row="0"
-                                                                        Background="{DynamicResource SemiGreyLowBrush}"
-                                                                        CornerRadius="5">
-                                                                    <TextBlock Text="{Binding FileExtension}"
-                                                                               HorizontalAlignment="Center"
-                                                                               VerticalAlignment="Center"
-                                                                               FontSize="13"
-                                                                               FontWeight="Bold"/>
-                                                                </Border>
-                                                                <TextBlock Grid.Row="1"
-                                                                           Text="{Binding DisplayName}"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           FontSize="11"
-                                                                           Margin="0,5,0,0"/>
-                                                                <TextBlock Grid.Row="2"
-                                                                           Text="{Binding DisplaySize}"
-                                                                           FontSize="10"
-                                                                           Opacity="0.65"/>
-                                                                <TextBlock Grid.Row="3"
-                                                                           Text="{loc:Loc Chat.Attach.Parsed}"
-                                                                           FontSize="10"
-                                                                           Margin="0,3,0,0"
-                                                                           Foreground="{DynamicResource SemiGreen6}"
-                                                                           IsVisible="{Binding IsParsed}"/>
-                                                                <TextBlock Grid.Row="3"
-                                                                           Text="{loc:Loc Chat.Attach.ParseFailedShort}"
-                                                                           FontSize="10"
-                                                                           Margin="0,3,0,0"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           ToolTip.Tip="{Binding ParseError}"
-                                                                           Foreground="{DynamicResource SemiRed6}"
-                                                                           IsVisible="{Binding IsParseFailed}"/>
-                                                            </Grid>
-                                                        </Border>
-
-                                                        <Border Classes="audio-attachment-card" IsVisible="{Binding IsAudio}">
-                                                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                                                <Panel Grid.Column="0" VerticalAlignment="Center">
-                                                                    <Button Width="32" Height="32" Padding="0"
-                                                                            IsVisible="{Binding !IsPlaying}"
-                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}"
-                                                                            CommandParameter="{Binding}"
-                                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
-                                                                        <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
-                                                                    </Button>
-                                                                    <Button Width="32" Height="32" Padding="0"
-                                                                            IsVisible="{Binding IsPlaying}"
-                                                                            Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}"
-                                                                            CommandParameter="{Binding}"
-                                                                            ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
-                                                                        <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
-                                                                    </Button>
-                                                                </Panel>
-                                                                <TextBlock Grid.Column="1"
-                                                                           Text="{Binding DisplayName}"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           VerticalAlignment="Center"
-                                                                           Margin="8,0,8,0"/>
-                                                                <TextBlock Grid.Column="2"
-                                                                           Text="{Binding DisplaySize}"
-                                                                           FontSize="10"
-                                                                           Opacity="0.65"
-                                                                           VerticalAlignment="Center"/>
-                                                            </Grid>
-                                                        </Border>
+                                                        <ContentControl Content="{Binding AudioContent}">
+                                                            <ContentControl.ContentTemplate>
+                                                                <DataTemplate x:DataType="models:ChatAttachment">
+                                                                    <Border Classes="audio-attachment-card">
+                                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                            <Panel Grid.Column="0" VerticalAlignment="Center">
+                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding !IsPlaying}" Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
+                                                                                    <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
+                                                                                </Button>
+                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding IsPlaying}" Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
+                                                                                    <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
+                                                                                </Button>
+                                                                            </Panel>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                                                                            <TextBlock Grid.Column="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65" VerticalAlignment="Center"/>
+                                                                        </Grid>
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ContentControl.ContentTemplate>
+                                                        </ContentControl>
                                                     </Grid>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>

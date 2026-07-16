@@ -53,57 +53,53 @@
                IsHitTestVisible="True"
                ZIndex="100"/>
 
-        <!-- TabControl (功能模块) -->
-        <TabControl Grid.Row="0"
-                    SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"
-                    Margin="5"
-                    Name="MainTabControl">
+        <!-- 主页面始终留在视觉树中，仅切换 IsVisible。这样 Chat 消息控件不会在每次切页时重建。 -->
+        <Grid Grid.Row="0" Margin="5" RowDefinitions="Auto,*">
+            <TabStrip Grid.Row="0"
+                      Name="MainTabControl"
+                      SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"
+                      FontSize="15"
+                      FontWeight="Medium">
+                <TabStripItem Content="{loc:Loc Tab.ChatLink}"/>
+                <TabStripItem Content="{loc:Loc Tab.SysConfig}"/>
+                <TabStripItem Content="{loc:Loc Tab.Extensions}"/>
+                <TabStripItem Content="{loc:Loc Tab.McpServer}"/>
+                <TabStripItem Content="{loc:Loc Tab.Scheduler}"/>
+                <TabStripItem Content="{loc:Loc Tab.Archives}"/>
+                <TabStripItem Content="{loc:Loc Tab.Files}"/>
+                <TabStripItem Content="{loc:Loc Tab.SysLogs}"/>
+                <TabStripItem Content="{loc:Loc Tab.Diagnostic}"/>
+            </TabStrip>
 
-            <!-- 聊天 -->
-            <TabItem Header="{loc:Loc Tab.ChatLink}">
-                <views:ChatTabView x:Name="ChatTabView"
-                                   DataContext="{Binding ChatTabViewModel}"/>
-            </TabItem>
-
-            <!-- 配置 -->
-            <TabItem Header="{loc:Loc Tab.SysConfig}">
-                <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
-            </TabItem>
-
-            <!-- 扩展（扩展能力：语音 / 生图 / 搜索 / 浏览器 / 子代理 / 文档解析） -->
-            <TabItem Header="{loc:Loc Tab.Extensions}">
-                <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
-            </TabItem>
-
-            <!-- MCP 服务 -->
-            <TabItem Header="{loc:Loc Tab.McpServer}">
-                <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
-            </TabItem>
-
-            <!-- 任务 -->
-            <TabItem Header="{loc:Loc Tab.Scheduler}">
-                <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
-            </TabItem>
-
-            <!-- 历史 -->
-            <TabItem Header="{loc:Loc Tab.Archives}">
-                <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
-            </TabItem>
-
-            <!-- 知识库 -->
-            <TabItem Header="{loc:Loc Tab.Files}">
-                <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
-            </TabItem>
-
-            <!-- 日志 -->
-            <TabItem Header="{loc:Loc Tab.SysLogs}">
-                <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
-            </TabItem>
-
-            <!-- 关于 -->
-            <TabItem Header="{loc:Loc Tab.Diagnostic}">
-                <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
-            </TabItem>
-        </TabControl>
+            <Grid Grid.Row="1">
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=0}">
+                    <views:ChatTabView x:Name="ChatTabView" DataContext="{Binding ChatTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=1}">
+                    <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=2}">
+                    <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=3}">
+                    <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=4}">
+                    <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=5}">
+                    <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=6}">
+                    <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=7}">
+                    <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=8}">
+                    <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
+                </Border>
+            </Grid>
+        </Grid>
     </Grid>
 </Window>

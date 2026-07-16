@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace Athena.UI.Models;
 
@@ -29,6 +30,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(LegacyMarkdownContent))]
     private string _role = string.Empty;
 
     /// <summary>
@@ -39,6 +41,7 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsContentVisible))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
+    [NotifyPropertyChangedFor(nameof(LegacyMarkdownContent))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
     private string _content = string.Empty;
 
@@ -153,6 +156,14 @@ public partial class ChatMessage : ObservableObject
     /// 无 Segment 布局时，user / assistant 消息统一使用 Markdown 渲染
     /// </summary>
     public bool ShouldShowLegacyMarkdown => !UsesSegmentLayout && IsContentVisible;
+
+    /// <summary>非空时才实例化 legacy Markdown 模板。</summary>
+    [JsonIgnore]
+    public ChatMessage? LegacyMarkdownContent => ShouldShowLegacyMarkdown ? this : null;
+
+    /// <summary>Segment 布局未启用时不创建无效子项。</summary>
+    [JsonIgnore]
+    public IEnumerable<ChatMessageSegment>? SegmentContent => UsesSegmentLayout ? Segments : null;
 
     public IEnumerable<ChatAttachment> AttachmentPanelItems =>
         UsesSegmentLayout
@@ -271,6 +282,8 @@ public partial class ChatMessage : ObservableObject
         OnPropertyChanged(nameof(DisplayText)); // DisplayText 随布局切换取值
         OnPropertyChanged(nameof(HasImageSegments));
         OnPropertyChanged(nameof(ShouldShowLegacyMarkdown));
+        OnPropertyChanged(nameof(LegacyMarkdownContent));
+        OnPropertyChanged(nameof(SegmentContent));
         OnPropertyChanged(nameof(AttachmentPanelItems));
         OnPropertyChanged(nameof(ShouldShowAttachmentPanel));
         OnPropertyChanged(nameof(IsBubbleVisible));

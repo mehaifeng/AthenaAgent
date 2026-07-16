@@ -369,7 +369,6 @@ public partial class App : Application
         var initialSplashShown = false;
         mainWindow.Opened += async (s, e) =>
         {
-            mainWindow.ScrollChatToBottomIfVisible();
             if (!initialSplashShown)
             {
                 initialSplashShown = true;
@@ -377,7 +376,6 @@ public partial class App : Application
                 // 引导交接路径强制播放：即使主题与当前一致也要完成"停留→揭幕"，
                 // 否则覆盖层会永远留在屏幕上/或完全不播导致生硬切换。
                 await mainWindow.ShowThemeSplashAsync(initialTheme, force: onboardingHandoff);
-                mainWindow.ScrollChatToBottomIfVisible();
             }
         };
 

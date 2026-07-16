@@ -48,6 +48,7 @@ public partial class ChatTabView : UserControl
         {
             _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.HistoryConversationLoaded -= OnHistoryConversationLoaded;
         }
         if (_subAgentsCollection != null)
         {
@@ -60,6 +61,7 @@ public partial class ChatTabView : UserControl
             _viewModel = viewModel;
             viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            viewModel.HistoryConversationLoaded += OnHistoryConversationLoaded;
 
             _subAgentsCollection = viewModel.Orchestrator?.ActiveAgents;
             if (_subAgentsCollection != null)
@@ -86,10 +88,8 @@ public partial class ChatTabView : UserControl
         if (e.Action == NotifyCollectionChangedAction.Add && !_isUserScrolling) ScrollToBottom();
     }
 
-    private void OnIsVisibleChanged(bool isVisible)
-    {
-        if (isVisible) ScrollToBottomIfHasMessages();
-    }
+    private void OnHistoryConversationLoaded(object? sender, EventArgs e)
+        => ScrollToBottomIfHasMessages();
 
     public void ScrollToBottomIfHasMessages()
     {
@@ -119,16 +119,6 @@ public partial class ChatTabView : UserControl
         }
 
         ScrollToBottomIfHasMessages();
-    }
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-
-        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
-        {
-            OnIsVisibleChanged(true);
-        }
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)

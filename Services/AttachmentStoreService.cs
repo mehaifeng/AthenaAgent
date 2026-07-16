@@ -293,6 +293,7 @@ public class AttachmentStoreService : IAttachmentStoreService
             return;
         }
 
+        Bitmap? decodedBitmap = null;
         try
         {
             var storedPath = attachment.StoredPath;
@@ -328,12 +329,16 @@ public class AttachmentStoreService : IAttachmentStoreService
 
                 return (bmp, rw, rh);
             }, cancellationToken);
+            decodedBitmap = bitmap;
+            cancellationToken.ThrowIfCancellationRequested();
 
             void Apply()
             {
-                attachment.PreviewImage = bitmap;
+                cancellationToken.ThrowIfCancellationRequested();
+                attachment.PreviewImage = decodedBitmap;
                 attachment.Width = attachment.Width == 0 ? realWidth : attachment.Width;
                 attachment.Height = attachment.Height == 0 ? realHeight : attachment.Height;
+                decodedBitmap = null; // ownership transferred to the attachment
             }
 
             // PreviewImage 触发 UI 绑定刷新，属性写入必须回到 UI 线程
@@ -346,9 +351,22 @@ public class AttachmentStoreService : IAttachmentStoreService
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(Apply);
             }
         }
+        catch (OperationCanceledException)
+        {
+            decodedBitmap?.Dispose();
+            throw;
+        }
         catch (Exception ex)
         {
-            attachment.PreviewImage = null;
+            decodedBitmap?.Dispose();
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                attachment.PreviewImage = null;
+            }
+            else
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => attachment.PreviewImage = null);
+            }
             _logger.Warning(ex, "Failed to load attachment preview: {Path}", attachment.StoredPath);
         }
     }

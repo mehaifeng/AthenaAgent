@@ -130,7 +130,7 @@ public partial class ChatTabViewModel : ViewModelBase
     /// <summary>仅当对话流处于「完成」态（非发送/压缩/解析/重置）时，才允许切换 raw 视图。</summary>
     public bool CanToggleRawContext => !IsSending && !IsCompressing && !HasParsingAttachments && !IsResetting;
 
-    public ObservableCollection<ChatMessage> Messages { get; } = new();
+    public BulkObservableCollection<ChatMessage> Messages { get; } = new();
 
     public ObservableCollection<ChatAttachment> PendingAttachments { get; } = new();
 
@@ -154,8 +154,12 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public event EventHandler? SwitchToTasksTabRequested;
 
+    /// <summary>历史会话完成替换后，请求聊天视图在下一轮布局完成时滚动到底部。</summary>
+    public event EventHandler? HistoryConversationLoaded;
+
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
+    private CancellationTokenSource? _previewLoadCts;
     private readonly SemaphoreSlim _conversationTransitionLock = new(1, 1);
     private int _conversationEpoch;
 
@@ -890,6 +894,7 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             CancelDocumentParsing(attachment);
             _attachmentStoreService?.DeleteStoredAttachment(attachment);
+            ReleaseAttachmentPreviews([attachment]);
             AttachmentStatusMessage = string.Empty;
             OnPropertyChanged(nameof(HasParsingAttachments));
             OnPropertyChanged(nameof(CanToggleRawContext));
@@ -1337,6 +1342,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         Interlocked.Increment(ref _conversationEpoch);
         _responseCts?.Cancel();
+        CancelPendingPreviewLoading();
         CancelPendingAudio();
         FinalizePendingAssistantMessages();
         IsSending = false;
@@ -1383,9 +1389,13 @@ public partial class ChatTabViewModel : ViewModelBase
         };
     }
 
-    private void ResetConversationState()
+    private void ResetConversationState(bool clearMessages = true)
     {
-        Messages.Clear();
+        ReleaseAttachmentPreviews(Messages.SelectMany(message => message.Attachments));
+        if (clearMessages)
+        {
+            Messages.Clear();
+        }
         InputText = string.Empty;
         ClearPendingAttachments(deleteStoredFiles: true);
         if (_imageGenerationSessionService != null)
@@ -1955,7 +1965,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            ResetConversationState();
+            ResetConversationState(clearMessages: false);
             _conversationId = string.IsNullOrWhiteSpace(history.ConversationId)
                 ? Guid.NewGuid().ToString("N")
                 : history.ConversationId;
@@ -1968,24 +1978,30 @@ public partial class ChatTabViewModel : ViewModelBase
             SetActiveContextSummary(history.ContextSummary);
             UndoCompressionCommand.NotifyCanExecuteChanged();
 
-            if (history.Messages != null)
+            var restoredMessages = history.Messages ?? [];
+            if (restoredMessages.Count > 0)
             {
                 // 消息先全部上屏，预览图后台解码陆续回填（PreviewImage 是 ObservableProperty，绑定自动刷新）
                 _isBulkLoadingMessages = true;
                 try
                 {
-                    foreach (var msg in history.Messages)
+                    foreach (var msg in restoredMessages)
                     {
                         ConversationPersistenceHelper.PrepareRestoredMessage(msg);
-                        Messages.Add(msg);
                     }
+
+                    Messages.ReplaceAll(restoredMessages);
                 }
                 finally
                 {
                     _isBulkLoadingMessages = false;
                 }
 
-                LoadPreviewsInBackground(history.Messages);
+                LoadPreviewsInBackground(restoredMessages);
+            }
+            else
+            {
+                Messages.ReplaceAll([]);
             }
 
             await ReconcileImageGenerationSessionAsync();
@@ -1996,6 +2012,7 @@ public partial class ChatTabViewModel : ViewModelBase
             UpdateConversationContext();
             UpdateContextTokensDisplay();
             UpdateBubbleButtonVisibility();
+            HistoryConversationLoaded?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
@@ -2010,6 +2027,7 @@ public partial class ChatTabViewModel : ViewModelBase
     /// </summary>
     private void LoadPreviewsInBackground(IEnumerable<ChatMessage> messages)
     {
+        CancelPendingPreviewLoading();
         if (_attachmentStoreService == null) return;
 
         var snapshot = messages
@@ -2018,18 +2036,43 @@ public partial class ChatTabViewModel : ViewModelBase
             .ToList();
         if (snapshot.Count == 0) return;
 
-        _ = Task.Run(async () =>
+        var cts = new CancellationTokenSource();
+        _previewLoadCts = cts;
+        var epoch = Volatile.Read(ref _conversationEpoch);
+        _ = LoadPreviewsAsync(snapshot, cts, epoch);
+    }
+
+    private async Task LoadPreviewsAsync(
+        IReadOnlyList<ChatAttachment> attachments,
+        CancellationTokenSource cts,
+        int epoch)
+    {
+        try
         {
-            try
+            await _attachmentStoreService!.LoadPreviewsAsync(attachments, cts.Token);
+            if (IsCurrentConversationEpoch(epoch) && !cts.IsCancellationRequested)
             {
-                await _attachmentStoreService.LoadPreviewsAsync(snapshot);
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => UpdateContextTokensDisplay());
             }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "后台回填附件预览失败");
-            }
-        });
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // 切换会话时的预期取消。
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "后台回填附件预览失败");
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _previewLoadCts, null, cts);
+            cts.Dispose();
+        }
+    }
+
+    private void CancelPendingPreviewLoading()
+    {
+        Interlocked.Exchange(ref _previewLoadCts, null)?.Cancel();
     }
 
     private async Task<TransitionStageResult> TryStageCurrentConversationForTransitionAsync()
@@ -2127,7 +2170,6 @@ public partial class ChatTabViewModel : ViewModelBase
             return;
         }
 
-        Messages.Clear();
         _conversationId = string.IsNullOrWhiteSpace(snapshot.ConversationId)
             ? Guid.NewGuid().ToString("N")
             : snapshot.ConversationId;
@@ -2150,8 +2192,9 @@ public partial class ChatTabViewModel : ViewModelBase
                 foreach (var msg in snapshot.Messages)
                 {
                     ConversationPersistenceHelper.PrepareRestoredMessage(msg);
-                    Messages.Add(msg);
                 }
+
+                Messages.ReplaceAll(snapshot.Messages);
             }
             finally
             {
@@ -2159,6 +2202,10 @@ public partial class ChatTabViewModel : ViewModelBase
             }
 
             LoadPreviewsInBackground(snapshot.Messages);
+        }
+        else
+        {
+            Messages.ReplaceAll([]);
         }
 
         _ = ReconcileImageGenerationSessionAsync();
@@ -2243,7 +2290,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private void ClearPendingAttachments(bool deleteStoredFiles)
     {
-        foreach (var attachment in PendingAttachments.ToList())
+        var attachments = PendingAttachments.ToList();
+        foreach (var attachment in attachments)
         {
             CancelDocumentParsing(attachment);
             if (deleteStoredFiles)
@@ -2252,6 +2300,7 @@ public partial class ChatTabViewModel : ViewModelBase
             }
         }
 
+        ReleaseAttachmentPreviews(attachments);
         PendingAttachments.Clear();
         AttachmentStatusMessage = string.Empty;
         OnPropertyChanged(nameof(HasParsingAttachments));
@@ -2600,9 +2649,30 @@ public partial class ChatTabViewModel : ViewModelBase
             return;
         }
 
-        foreach (var attachment in message.Attachments.ToList())
+        var attachments = message.Attachments.ToList();
+        foreach (var attachment in attachments)
         {
             _attachmentStoreService.DeleteStoredAttachment(attachment);
+        }
+
+        ReleaseAttachmentPreviews(attachments);
+    }
+
+    private static void ReleaseAttachmentPreviews(IEnumerable<ChatAttachment> attachments)
+    {
+        var previews = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var attachment in attachments)
+        {
+            if (attachment.PreviewImage is { } preview)
+            {
+                previews.Add(preview);
+                attachment.PreviewImage = null;
+            }
+        }
+
+        foreach (var preview in previews.OfType<IDisposable>())
+        {
+            preview.Dispose();
         }
     }
 

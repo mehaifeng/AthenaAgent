@@ -30,6 +30,12 @@ public partial class ChatMessageSegment : ObservableObject
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMarkdown))]
+    [NotifyPropertyChangedFor(nameof(IsGeneratedImage))]
+    [NotifyPropertyChangedFor(nameof(IsToolCallGroup))]
+    [NotifyPropertyChangedFor(nameof(MarkdownContent))]
+    [NotifyPropertyChangedFor(nameof(GeneratedImageContent))]
+    [NotifyPropertyChangedFor(nameof(ToolCallContent))]
     private ChatMessageSegmentKind _kind;
 
     [ObservableProperty]
@@ -78,6 +84,15 @@ public partial class ChatMessageSegment : ObservableObject
 
     [JsonIgnore]
     public bool IsToolCallGroup => Kind == ChatMessageSegmentKind.ToolCallGroup;
+
+    [JsonIgnore]
+    public ChatMessageSegment? MarkdownContent => IsMarkdown ? this : null;
+
+    [JsonIgnore]
+    public ChatMessageSegment? GeneratedImageContent => IsGeneratedImage ? this : null;
+
+    [JsonIgnore]
+    public ChatMessageSegment? ToolCallContent => IsToolCallGroup ? this : null;
 
     [JsonIgnore]
     public int ToolCallCount => ToolCalls.Count;

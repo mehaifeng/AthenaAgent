@@ -279,6 +279,7 @@
             <!-- 转换器 -->
             <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
             <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
+            <conv:IntEqualsConverter x:Key="IntEqualsConverter"/>
             <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
             <conv:RawRoleToBrushConverter x:Key="RawRoleToBrushConverter"/>
             <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
