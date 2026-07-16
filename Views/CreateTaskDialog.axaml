@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:controls="using:Athena.UI.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:loc="using:Athena.UI.Markup"
@@ -114,10 +115,10 @@
                                     <TextBlock Grid.Column="0"
                                                Text="{loc:Loc TaskDialog.Every}"
                                                VerticalAlignment="Center"/>
-                                    <NumericUpDown Grid.Column="1"
-                                                   Minimum="1"
-                                                   Value="{Binding CustomInterval}"
-                                                   FormatString="N0"/>
+                                    <controls:SafeNumericUpDown Grid.Column="1"
+                                                                Minimum="1"
+                                                                Value="{Binding CustomInterval}"
+                                                                FormatString="N0"/>
                                     <ComboBox Grid.Column="2"
                                               ItemsSource="{Binding IntervalUnitDisplayNames}"
                                               SelectedIndex="{Binding SelectedIntervalUnitIndex}"/>
@@ -132,10 +133,10 @@
                                     <TextBlock Grid.Column="0"
                                                Text="{loc:Loc TaskDialog.EveryNWeeks}"
                                                VerticalAlignment="Center"/>
-                                    <NumericUpDown Grid.Column="1"
-                                                   Minimum="1"
-                                                   Value="{Binding CustomInterval}"
-                                                   FormatString="N0"/>
+                                    <controls:SafeNumericUpDown Grid.Column="1"
+                                                                Minimum="1"
+                                                                Value="{Binding CustomInterval}"
+                                                                FormatString="N0"/>
                                     <TextBlock Grid.Column="2"
                                                Text="{loc:Loc TaskDialog.WeeksSuffix}"
                                                VerticalAlignment="Center"/>
