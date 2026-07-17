@@ -46,6 +46,9 @@ public partial class App : Application
 
     public override void Initialize()
     {
+        // Optional parsers and nodes must be registered before XAML creates a renderer.
+        MarkdownConfiguration.Configure();
+
         // 初始化平台路径服务（需要在日志之前初始化）
         _platformPathService = new DesktopPlatformPathService();
 

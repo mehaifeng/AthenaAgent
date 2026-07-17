@@ -8,6 +8,7 @@
              xmlns:semi="https://irihi.tech/semi"
              xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
+             xmlns:csm="clr-namespace:CSharpMath.Avalonia;assembly=CSharpMath.Avalonia"
              RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
@@ -155,6 +156,12 @@
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPressedBackground" Color="#2EFFFFFF" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBorderBrush" Color="#33FFFFFF" />
                     <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#FFFFFF" />
+                    <Color x:Key="BorderColor">#3DFFFFFF</Color>
+                    <Color x:Key="ForegroundColor">#FFFFFF</Color>
+                    <Color x:Key="CardBackgroundColor">#18FFFFFF</Color>
+                    <Color x:Key="SecondaryCardBackgroundColor">#22FFFFFF</Color>
+                    <Color x:Key="CodeInlineColor">#F2C96D</Color>
+                    <Color x:Key="QuoteBorderColor">#D7BA7D</Color>
                 </ResourceDictionary>
                 <!-- 语义化颜色 definition：浅色模式 -->
                 <ResourceDictionary x:Key="Light">
@@ -273,6 +280,12 @@
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedPressedBackground" Color="#22000000" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonCheckedBorderBrush" Color="#1A000000" />
                     <SolidColorBrush x:Key="Markdown.HeadingFg" Color="#1F1F1F" />
+                    <Color x:Key="BorderColor">#24000000</Color>
+                    <Color x:Key="ForegroundColor">#1F1F1F</Color>
+                    <Color x:Key="CardBackgroundColor">#0A000000</Color>
+                    <Color x:Key="SecondaryCardBackgroundColor">#0C000000</Color>
+                    <Color x:Key="CodeInlineColor">#805400</Color>
+                    <Color x:Key="QuoteBorderColor">#A97917</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
@@ -294,7 +307,7 @@
 
             <!-- 字体设置 -->
             <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
-            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI, sans-serif</FontFamily>
+            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
             <FontFamily x:Key="ContentControlThemeFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI, sans-serif</FontFamily>
 
@@ -333,6 +346,33 @@
 
         <Style Selector="lmd|MarkdownRenderer">
             <Setter Property="TextElement.FontFamily" Value="{DynamicResource MainFontFamily}"/>
+
+            <Style Selector="^ Span.Emphasis.Subscript">
+                <Setter Property="BaselineAlignment" Value="Subscript"/>
+                <Setter Property="FontSize" Value="10"/>
+            </Style>
+
+            <Style Selector="^ Span.Emphasis.Superscript">
+                <Setter Property="BaselineAlignment" Value="Superscript"/>
+                <Setter Property="FontSize" Value="10"/>
+            </Style>
+
+            <Style Selector="^ csm|MathView">
+                <Setter Property="TextColor" Value="{DynamicResource ForegroundColor}"/>
+            </Style>
+
+            <Style Selector="^ Expander.DetailsBlock">
+                <Setter Property="Margin" Value="0,6"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Background" Value="{DynamicResource CardBackgroundColor}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="4"/>
+            </Style>
+
+            <Style Selector="^ lmd|MarkdownTextBlock.DetailsSummary">
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Style>
         </Style>
 
         <Style Selector="lmd|MarkdownTextBlock">
