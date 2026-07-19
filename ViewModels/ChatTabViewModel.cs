@@ -33,7 +33,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     private readonly IChatService? _chatService;
     private readonly IConfigService? _configService;
-    private readonly IConversationHistoryService? _historyService;
+    private readonly IContextCompressionService? _contextCompressionService;
     private readonly IPromptService? _promptService;
     private readonly ITaskScheduler? _taskScheduler;
     private readonly IFunctionRegistry? _functionRegistry;
@@ -61,6 +61,9 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IImageGenerationSessionService? _imageGenerationSessionService;
     private readonly IDocumentParserService? _documentParserService;
     private readonly IScreenCaptureService? _screenCaptureService;
+    private readonly IWorkspaceService? _workspaceService;
+    private readonly IConversationSessionAccessor? _sessionAccessor;
+    private readonly IUserInteractionService? _userInteractionService;
     // Tracks in-flight document parsing tasks so send can be gated and parsing
     // can be cancelled when the conversation is reset.
     private readonly Dictionary<string, CancellationTokenSource> _documentParseCts = new();
@@ -280,12 +283,209 @@ public partial class ChatTabViewModel : ViewModelBase
     [RelayCommand]
     private void CloseSubAgentPopup() => IsSubAgentPopupOpen = false;
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    #region Workspace
+
+    /// <summary>所有已注册的工作区列表（供下拉选择）</summary>
+    public ObservableCollection<WorkspaceProfile> AvailableWorkspaces { get; } = new();
+
+    /// <summary>当前激活的工作区</summary>
+    [ObservableProperty]
+    private WorkspaceProfile? _currentWorkspace;
+
+    /// <summary>工作区管理面板是否展开</summary>
+    [ObservableProperty]
+    private bool _isWorkspaceFlyoutOpen;
+
+    [RelayCommand]
+    private void ToggleWorkspaceFlyout()
+    {
+        IsWorkspaceFlyoutOpen = !IsWorkspaceFlyoutOpen;
+    }
+
+    /// <summary>当前工作区显示名称（无工作区时显示"未选择工作区"）</summary>
+    public string CurrentWorkspaceDisplayName =>
+        CurrentWorkspace?.Name ?? GetString("Chat.Workspace.None", "未选择工作区");
+
+    /// <summary>当前工作区目录路径（无则为空）</summary>
+    public string? CurrentWorkspacePath => CurrentWorkspace?.DirectoryPath;
+
+    partial void OnCurrentWorkspaceChanged(WorkspaceProfile? value)
+    {
+        OnPropertyChanged(nameof(CurrentWorkspaceDisplayName));
+        OnPropertyChanged(nameof(CurrentWorkspacePath));
+        ApplyWorkspaceToContext(value);
+    }
+
+    /// <summary>将工作区信息同步到当前对话上下文</summary>
+    private void ApplyWorkspaceToContext(WorkspaceProfile? workspace)
+    {
+        _currentContext.WorkspaceId = workspace?.Id;
+        _currentContext.WorkspaceDirectoryPath = workspace?.DirectoryPath;
+        _currentContext.WorkspaceKnowledgeFilePath = workspace == null
+            ? null
+            : _workspaceService?.GetKnowledgeFilePath(workspace);
+        _workspaceService?.SetActiveWorkspace(workspace);
+
+        // 持久化最近活跃工作区
+        if (_configService != null)
+        {
+            var config = _configService.Load();
+            config.LastActiveWorkspaceId = workspace?.Id;
+            _configService.SaveAsync(config);
+        }
+
+        UpdateContextTokensDisplay();
+    }
+
+    /// <summary>加载工作区列表并恢复上次活跃工作区</summary>
+    public async Task InitializeWorkspacesAsync()
+    {
+        if (_workspaceService == null) return;
+
+        var workspaces = await _workspaceService.LoadAllAsync();
+        AvailableWorkspaces.Clear();
+        foreach (var ws in workspaces)
+        {
+            AvailableWorkspaces.Add(ws);
+        }
+
+        // 恢复上次活跃工作区
+        if (_configService != null)
+        {
+            var config = _configService.Load();
+            if (!string.IsNullOrEmpty(config.LastActiveWorkspaceId))
+            {
+                var last = workspaces.FirstOrDefault(w => w.Id == config.LastActiveWorkspaceId);
+                if (last != null)
+                {
+                    CurrentWorkspace = last;
+                }
+            }
+        }
+    }
+
+    /// <summary>选择工作区</summary>
+    [RelayCommand]
+    private async Task SelectWorkspaceAsync(WorkspaceProfile? workspace)
+    {
+        if (CurrentWorkspace?.Id == workspace?.Id)
+        {
+            IsWorkspaceFlyoutOpen = false;
+            return;
+        }
+
+        // 会话的工作区归属应保持单一。已有消息时先归档并开启新会话，
+        // 避免一段历史混入多个项目上下文后被错误归类。
+        if (Messages.Count > 0)
+        {
+            var destination = workspace?.Name ?? GetString("Chat.Workspace.Global", "全局聊天（不使用工作区）");
+            if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
+                GetString("Chat.Workspace.SwitchConfirm.Title", "切换工作区"),
+                string.Format(
+                    GetString("Chat.Workspace.SwitchConfirm.Message", "切换到“{0}”会先保存当前会话，并开启一个新会话，是否继续？"),
+                    destination),
+                GetString("Chat.Workspace.SwitchConfirm.Yes", "切换"),
+                GetString("Chat.Workspace.SwitchConfirm.No", "取消"))) return;
+
+            if (!await StartNewConversationForWorkspaceChangeAsync()) return;
+        }
+
+        CurrentWorkspace = workspace;
+        IsWorkspaceFlyoutOpen = false;
+    }
+
+    private async Task<bool> StartNewConversationForWorkspaceChangeAsync()
+    {
+        await _conversationTransitionLock.WaitAsync();
+        try
+        {
+            IsResetting = true;
+            BeginConversationTransition();
+            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
+            if (stagedSnapshot == TransitionStageResult.Failed) return false;
+
+            ResetConversationState();
+            return true;
+        }
+        finally
+        {
+            IsResetting = false;
+            _conversationTransitionLock.Release();
+        }
+    }
+
+    /// <summary>添加工作区（弹出文件夹选择器）</summary>
+    [RelayCommand]
+    private async Task AddWorkspaceAsync()
+    {
+        if (_workspaceService == null) return;
+
+        var dirPath = _userInteractionService == null
+            ? null
+            : await _userInteractionService.PickFolderAsync(GetString("Chat.Workspace.SelectFolder", "选择工作区目录"));
+        if (string.IsNullOrWhiteSpace(dirPath)) return;
+
+        // 检查是否已存在同目录的工作区
+        var existing = await _workspaceService.FindByDirectoryAsync(dirPath);
+        if (existing != null)
+        {
+            await SelectWorkspaceAsync(existing);
+            return;
+        }
+
+        // 以目录名作为工作区名
+        var name = System.IO.Path.GetFileName(dirPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(name)) name = "Workspace";
+
+        var workspace = new WorkspaceProfile
+        {
+            Name = name,
+            DirectoryPath = dirPath
+        };
+
+        await _workspaceService.SaveAsync(workspace);
+        AvailableWorkspaces.Add(workspace);
+        await SelectWorkspaceAsync(workspace);
+    }
+
+    /// <summary>删除工作区</summary>
+    [RelayCommand]
+    private async Task RemoveWorkspaceAsync(WorkspaceProfile? workspace)
+    {
+        if (workspace == null || _workspaceService == null) return;
+
+        if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
+            GetString("Chat.Workspace.RemoveConfirm.Title", "移除工作区"),
+            string.Format(
+                GetString("Chat.Workspace.RemoveConfirm.Message", "确定要移除“{0}”吗？其工作区知识文件将被永久删除；会话历史会保留为未分组记录。"),
+                workspace.Name),
+            GetString("Chat.Workspace.RemoveConfirm.Yes", "移除"),
+            GetString("Chat.Workspace.RemoveConfirm.No", "取消"))) return;
+
+        var isCurrentWorkspace = CurrentWorkspace?.Id == workspace.Id;
+        if (isCurrentWorkspace && Messages.Count > 0
+            && !await StartNewConversationForWorkspaceChangeAsync())
+        {
+            return;
+        }
+
+        if (!await _workspaceService.DeleteAsync(workspace.Id)) return;
+        AvailableWorkspaces.Remove(workspace);
+
+        if (isCurrentWorkspace)
+        {
+            CurrentWorkspace = null;
+        }
+    }
+
+    #endregion
+
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
         IConfigService? configService,
-        IConversationHistoryService? historyService,
+        IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
         ITaskScheduler? taskScheduler,
         IFunctionRegistry? functionRegistry,
@@ -297,7 +497,10 @@ public partial class ChatTabViewModel : ViewModelBase
         IImageGenerationSessionService? imageGenerationSessionService = null,
         IDocumentParserService? documentParserService = null,
         IScreenCaptureService? screenCaptureService = null,
-        ISubAgentOrchestrator? subAgentOrchestrator = null)
+        ISubAgentOrchestrator? subAgentOrchestrator = null,
+        IWorkspaceService? workspaceService = null,
+        IConversationSessionAccessor? sessionAccessor = null,
+        IUserInteractionService? userInteractionService = null)
     {
         Orchestrator = subAgentOrchestrator;
         if (Orchestrator != null)
@@ -307,7 +510,7 @@ public partial class ChatTabViewModel : ViewModelBase
         }
         _chatService = chatService;
         _configService = configService;
-        _historyService = historyService;
+        _contextCompressionService = contextCompressionService;
         _promptService = promptService;
         _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
@@ -319,6 +522,9 @@ public partial class ChatTabViewModel : ViewModelBase
         _imageGenerationSessionService = imageGenerationSessionService;
         _documentParserService = documentParserService;
         _screenCaptureService = screenCaptureService;
+        _workspaceService = workspaceService;
+        _sessionAccessor = sessionAccessor;
+        _userInteractionService = userInteractionService;
 
         // Initialize from config
         if (_configService != null)
@@ -352,7 +558,11 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             _configService.ConfigChanged += (_, _) =>
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(UpdateBubbleButtonVisibility);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    UpdateBubbleButtonVisibility();
+                    UpdateContextTokensDisplay();
+                });
             };
         }
 
@@ -774,14 +984,8 @@ public partial class ChatTabViewModel : ViewModelBase
             return;
         }
 
-        var owner = GetMainWindow();
-        if (owner == null)
-        {
-            return;
-        }
-
-        var window = new Views.ImagePreviewWindow(attachment);
-        await window.ShowDialog(owner);
+        if (_userInteractionService != null)
+            await _userInteractionService.ShowImagePreviewAsync(attachment);
     }
 
     /// <summary>
@@ -1002,7 +1206,7 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         // 延迟载入依赖模型用文件系统工具按需读取；若工具调用被关闭，则无论多大都只能内联，
         // 否则模型将既看不到全文、也无法读取指针。
-        var functionCallingEnabled = _configService?.Load().EnableFunctionCalling == true;
+        var functionCallingEnabled = true;
 
         if (!functionCallingEnabled || attachment.EstimatedTokens <= InlineTokenBudget)
         {
@@ -1382,6 +1586,7 @@ public partial class ChatTabViewModel : ViewModelBase
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
+            WorkspaceId = _currentContext.WorkspaceId,
             Messages = messages,
             ImageSession = imageSessionSnapshot,
             CapturedAt = DateTime.Now,
@@ -1415,7 +1620,7 @@ public partial class ChatTabViewModel : ViewModelBase
         SetActiveContextSummary(null);
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
-        _historyService?.DeleteDraft();
+        _archiveService?.DeleteDraft();
         // 新会话：清空真实用量锚点，避免沿用上一会话的过时数值。
         _tokenService?.ResetUsage();
         UpdateConversationContext();
@@ -1799,13 +2004,36 @@ public partial class ChatTabViewModel : ViewModelBase
     {
         if (_tokenService == null || _promptService == null || _functionRegistry == null) return;
         var config = _configService?.Load();
-        var functionCallingEnabled = config?.EnableFunctionCalling == true && _functionRegistry.HasFunctions;
+        var functionCallingEnabled = _functionRegistry.HasFunctions;
 
         // persona + 工具声明是估算兜底的固定开销来源（真实请求的 system 消息在 ChatService 内另行构建）。
         var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona);
         if (functionCallingEnabled)
         {
             systemPrompt = _promptService.GetPrompt(PromptType.ToolCallingPolicy) + "\n\n---\n\n" + systemPrompt;
+        }
+
+        // 工作区知识是全量写入 system prompt 的内容，必须按实际拼合后的文本计入估算；
+        // 不能直接加配置预算，否则空/短知识库都会被高估。
+        if (_workspaceService != null
+            && !string.IsNullOrEmpty(_currentContext.WorkspaceId)
+            && !string.IsNullOrEmpty(_currentContext.WorkspaceDirectoryPath))
+        {
+            systemPrompt += $"\n\n---\n\n## Current Workspace\nProject Directory: {_currentContext.WorkspaceDirectoryPath}";
+            if (!string.IsNullOrEmpty(_currentContext.WorkspaceKnowledgeFilePath))
+            {
+                systemPrompt += $"\nWorkspace Knowledge File: {_currentContext.WorkspaceKnowledgeFilePath}\nUse modify_system_file to update this system-managed file. Do not create additional workspace knowledge files.";
+            }
+
+            var workspaceKnowledgeBudget = config?.WorkspaceKnowledgeTokenBudget ?? 2000;
+            var workspaceKnowledge = _workspaceService.BuildWorkspaceKnowledgeContext(
+                _currentContext.WorkspaceId,
+                _currentContext.WorkspaceKnowledgeFilePath,
+                workspaceKnowledgeBudget);
+            if (!string.IsNullOrEmpty(workspaceKnowledge))
+            {
+                systemPrompt += $"\n\n---\n\n## Workspace Knowledge\n{workspaceKnowledge}";
+            }
         }
 
         _currentContext.SetMainPersona(systemPrompt);
@@ -1863,7 +2091,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public async Task InternalCompressContextAsync()
     {
-        if (_historyService == null || _configService == null) return;
+        if (_contextCompressionService == null || _configService == null) return;
 
         var config = _configService.Load();
         IsCompressing = true;
@@ -1871,7 +2099,10 @@ public partial class ChatTabViewModel : ViewModelBase
         {
             var previousSummary = _activeContextSummary;
             var messagesList = Messages.ToList();
-            var result = await _historyService.CompressContextAsync(messagesList, previousSummary, config.KeepRecentRounds);
+            var result = await _contextCompressionService.CompressAsync(
+                messagesList,
+                previousSummary,
+                config.KeepRecentRounds);
             if (result.Summary != null && result.CompressedCount > 0)
             {
                 // 入压缩撤销栈：捕获压缩前摘要与被压缩消息引用
@@ -1944,7 +2175,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public async Task LoadHistoryConversationAsync(ConversationHistoryItem item)
     {
-        if (_historyService == null || item.IsArchivePlaceholder) return;
+        if (_archiveService == null || item.IsArchivePlaceholder) return;
 
         await _conversationTransitionLock.WaitAsync();
         try
@@ -1958,7 +2189,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            var history = await _historyService.LoadByIdAsync(item.Id);
+            var history = await _archiveService.LoadByIdAsync(item.Id);
             if (history == null)
             {
                 _logger.Warning("未找到要加载的历史对话: {Id}", item.Id);
@@ -1974,6 +2205,26 @@ public partial class ChatTabViewModel : ViewModelBase
             _forkedFromConversationId = history.ForkedFromConversationId;
             _forkedFromHistoryId = history.ForkedFromHistoryId;
             _forkedAtMessageId = history.ForkedAtMessageId;
+
+            // 恢复工作区绑定
+            if (!string.IsNullOrEmpty(history.WorkspaceId) && _workspaceService != null)
+            {
+                var ws = AvailableWorkspaces.FirstOrDefault(w => w.Id == history.WorkspaceId);
+                if (ws != null)
+                {
+                    CurrentWorkspace = ws;
+                }
+                else
+                {
+                    // 工作区可能已删除，清理悬空引用
+                    CurrentWorkspace = null;
+                }
+            }
+            else
+            {
+                CurrentWorkspace = null;
+            }
+
             _compressionHistory.Clear();
             SetActiveContextSummary(history.ContextSummary);
             UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -2121,11 +2372,11 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public void PersistDraft()
     {
-        if (_historyService == null) return;
+        if (_archiveService == null) return;
 
         if (!HasConversationStateToPersist() || !IsConversationModified())
         {
-            _historyService.DeleteDraft();
+            _archiveService.DeleteDraft();
             return;
         }
 
@@ -2147,18 +2398,18 @@ public partial class ChatTabViewModel : ViewModelBase
 
         if (snapshot.Messages.Count == 0 && string.IsNullOrWhiteSpace(snapshot.ContextSummary))
         {
-            _historyService.DeleteDraft();
+            _archiveService.DeleteDraft();
             return;
         }
 
-        _historyService.SaveDraft(snapshot);
+        _archiveService.SaveDraft(snapshot);
     }
 
     private void RestoreDraftIfNeeded()
     {
-        if (_historyService == null) return;
+        if (_archiveService == null) return;
 
-        var snapshot = _historyService.LoadDraft();
+        var snapshot = _archiveService.LoadDraft();
         if (snapshot == null)
         {
             return;
@@ -2166,7 +2417,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
         if ((snapshot.Messages == null || snapshot.Messages.Count == 0) && string.IsNullOrWhiteSpace(snapshot.ContextSummary))
         {
-            _historyService.DeleteDraft();
+            _archiveService.DeleteDraft();
             return;
         }
 
@@ -2377,7 +2628,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.");
         }
 
-        return $"Error: {ex.Message}";
+        return string.Format(GetString("Chat.Error.Generic", "Error: {0}"), ex.Message);
     }
 
     private static bool IsLikelyImageInputFailure(Exception ex)
@@ -2751,7 +3002,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 return;
             }
 
-            var group = GetOrCreateToolCallGroup(message);
+            ChatMessageSegment? group = null;
 
             foreach (var node in toolCalls)
             {
@@ -2764,6 +3015,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 var id = node["Id"]?.ToString();
                 var arguments = node["Arguments"]?.ToString();
 
+                group ??= GetOrCreateToolCallGroup(message);
                 group.ToolCalls.Add(new ToolCallEntry
                 {
                     ToolCallId = id,
@@ -2775,12 +3027,15 @@ public partial class ChatTabViewModel : ViewModelBase
             }
 
             // 流式期间展开整组，方便观察实时进度（除非用户已手动收起）
-            if (!group.UserToggledGroup)
+            if (group != null && !group.UserToggledGroup)
             {
                 group.IsGroupExpanded = true;
             }
 
-            message.NotifySegmentsChanged();
+            if (group != null)
+            {
+                message.NotifySegmentsChanged();
+            }
         }
         catch
         {

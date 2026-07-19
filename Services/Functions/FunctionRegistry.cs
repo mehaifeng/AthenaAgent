@@ -110,9 +110,10 @@ public class FunctionRegistry : IFunctionRegistry
         // --- Long-term Memory ---
         RegisterFunction("create_new_memory", knowledgeFunctions.CreateKnowledgeFile,
             "Creates a NEW memory file in the knowledge base. Use this ONLY for a genuinely new topic that no existing memory covers. " +
-            "Keep one topic in one file: if recall_from_memory returns any file on the same subject, do NOT create a parallel file — add the fact to that file with modify_system_file instead (the relative path returned by recall works directly). " +
-            "This tool runs a semantic duplicate check and will REJECT the creation if a highly similar memory already exists, pointing you to the file to modify. " +
-            "Only when you are certain the information is a distinct new topic should you retry with allowDuplicate=true.",
+            "For GLOBAL knowledge only: keep one topic in one file; if recall_from_memory returns a matching global file, update it instead of creating a parallel file. " +
+            "This tool runs a semantic duplicate check for global knowledge and will REJECT highly similar global records. " +
+            "This tool creates GLOBAL knowledge only. When a workspace is active, its single system-managed knowledge file path is provided in the system prompt; update that file with modify_system_file instead. Do not call this tool for project-specific knowledge and do not create additional workspace knowledge files. " +
+            "Use this only for general knowledge that applies across all contexts (user preferences, global facts, cross-project patterns).",
             new
             {
                 type = "object",
@@ -120,14 +121,15 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     filePath = new { type = "string", description = "Relative path for the memory file (e.g., 'user_preferences/coding_style.md'). Use a stable, descriptive path so the same topic always lands in the same file." },
                     content = new { type = "string", description = "The detailed information to be remembered." },
-                    allowDuplicate = new { type = "boolean", description = "Set true ONLY to override the semantic duplicate guard after you have confirmed this is a distinct new topic, not a variant of an existing memory.", @default = false }
+                    allowDuplicate = new { type = "boolean", description = "Set true ONLY to override the semantic duplicate guard after you have confirmed this is a distinct new topic, not a variant of an existing memory.", @default = false },
+                    workspaceScoped = new { type = "boolean", description = "Deprecated for workspace writes. Keep false for global knowledge; true returns the system-managed workspace knowledge file path and instructs you to modify it instead.", @default = false }
                 },
                 required = new[] { "filePath", "content" }
             });
 
         RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
-            "Searches across all memory domains using hybrid semantic + keyword vector search. Results are aggregated per file: each hit is a distinct memory file with its heading path and matchCount (how many sections of that file matched — a high count means the topic already lives there). " +
-            "MUST be called before create_new_memory — this is mandatory, no exceptions. Before writing, check whether any returned file already owns this topic; if so, modify that file instead of creating a new one. " +
+            "Searches GLOBAL knowledge only using hybrid semantic + keyword vector search. It never searches workspace knowledge. Results are aggregated per file: each hit is a distinct global memory file with its heading path and matchCount. " +
+            "Call it before creating or changing GLOBAL knowledge. Do NOT call it for workspace knowledge: the system-managed workspace file is already supplied in the current system context and must remain isolated from global memories. " +
             "Also call this whenever the user asks something that may rely on past context.",
             new
             {

@@ -9,6 +9,13 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class AppConfig : ObservableObject
 {
+    // 配置结构版本。v3 将供应商集合收敛为全局唯一供应商。
+    [ObservableProperty]
+    private int _configSchemaVersion = 3;
+
+    [ObservableProperty]
+    private AiModelConfiguration _aiModels = new();
+
     // 外观设置
     [ObservableProperty]
     private string _theme = "Dark";
@@ -40,9 +47,6 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private int _timeout = 60;
-
-    [ObservableProperty]
-    private bool _enableFunctionCalling = true;
 
     [ObservableProperty]
     private bool _chatAudioEnabled;
@@ -77,32 +81,9 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _imageGenerationApiKey = string.Empty;
 
-    // 次级模型配置（用于摘要生成等后台任务）
-    // 凭据来源：默认继承主 AI；旧配置的 provider="Inherit" 会在加载时迁移为 InheritMain。
-    [ObservableProperty]
-    private ModelCredentialSource _secondaryCredentialSource = ModelCredentialSource.InheritMain;
-
-    [ObservableProperty]
-    private string _secondaryProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _secondaryBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _secondaryApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _secondaryModel = "gpt-4o-mini";
-
-    [ObservableProperty]
-    private double _secondaryTemperature = 0.3;
-
-    [ObservableProperty]
-    private int _secondaryMaxTokens = 16000;
-
     // Embedding 模型配置（用于向量检索）
     [ObservableProperty]
-    private ModelCredentialSource _embeddingCredentialSource = ModelCredentialSource.InheritMain;
+    private EmbeddingConnectionSource _embeddingCredentialSource = EmbeddingConnectionSource.Provider;
 
     [ObservableProperty]
     private string _embeddingProvider = "OpenAI";
@@ -317,4 +298,13 @@ public partial class AppConfig : ObservableObject
     // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
     [ObservableProperty]
     private bool _onboardingCompleted;
+
+    // 工作区配置
+    // 最近活跃的工作区 ID（启动时恢复，null 表示无活跃工作区）。
+    [ObservableProperty]
+    private string? _lastActiveWorkspaceId;
+
+    // 工作区知识文件全量注入 system prompt 时的 token 预算上限。
+    [ObservableProperty]
+    private int _workspaceKnowledgeTokenBudget = 2000;
 }

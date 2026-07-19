@@ -97,6 +97,38 @@
     <system:String x:Key="Ext.SectionCapabilities">Extended capabilities</system:String>
     <system:String x:Key="Config.SectionAppearance">Appearance</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">Primary model</system:String>
+    <system:String x:Key="Config.UnifiedModels.Header">Providers and model roles</system:String>
+    <system:String x:Key="Config.UnifiedModels.Hint">All business models use the OpenAI SDK-compatible protocol. Providers own connection details; roles select only a provider and model. TTS and image generation remain independent in Extensions.</system:String>
+    <system:String x:Key="Config.UnifiedModels.Providers">Provider connection</system:String>
+    <system:String x:Key="Config.UnifiedModels.AddProvider">Add provider</system:String>
+    <system:String x:Key="Config.UnifiedModels.ProviderName">Display name</system:String>
+    <system:String x:Key="Config.UnifiedModels.RemoveProvider">Remove</system:String>
+    <system:String x:Key="Config.UnifiedModels.Roles">Model roles</system:String>
+    <system:String x:Key="Config.UnifiedModels.Role">Role</system:String>
+    <system:String x:Key="Config.UnifiedModels.Provider">Provider</system:String>
+    <system:String x:Key="Config.UnifiedModels.Model">Model</system:String>
+    <system:String x:Key="Config.UnifiedModels.Temperature">Temperature</system:String>
+    <system:String x:Key="Config.UnifiedModels.MaxOutput">Max output</system:String>
+    <system:String x:Key="Config.UnifiedModels.Runtime">Agent runtime</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestMain">Test main</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestTitle">Test title</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestEmbedding">Test embedding</system:String>
+    <system:String x:Key="Config.ModelRole.Main">Main conversation</system:String>
+    <system:String x:Key="Config.ModelRole.Tool">Tool calling</system:String>
+    <system:String x:Key="Config.ModelRole.Title">Title generation</system:String>
+    <system:String x:Key="Config.ModelRole.Compression">Context compression</system:String>
+    <system:String x:Key="Config.ModelRole.Approval">Automatic approval</system:String>
+    <system:String x:Key="Config.ModelRole.Embedding">Embedding</system:String>
+    <system:String x:Key="Config.ModelRole.Browser">Automatic browser</system:String>
+    <system:String x:Key="Config.SubAgentParameters">Sub-agent parameters</system:String>
+    <system:String x:Key="Config.KnowledgeMaintenance">Knowledge maintenance</system:String>
+    <system:String x:Key="Config.EmbeddingModel">Embedding model</system:String>
+    <system:String x:Key="Config.EmbeddingConnection">Connection source</system:String>
+    <system:String x:Key="Config.EmbeddingConnection.Provider">Use provider connection</system:String>
+    <system:String x:Key="Config.EmbeddingConnection.Custom">Custom connection</system:String>
+    <system:String x:Key="Config.BrowserUnifiedModelHint">Automatic browser uses the Automatic browser role under Settings → Providers and model roles.</system:String>
+    <system:String x:Key="Config.ModelRole.SubAgent">Sub-agent</system:String>
+    <system:String x:Key="Config.ModelRole.Maintenance">Knowledge maintenance</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">Secondary model</system:String>
     <system:String x:Key="Config.SectionEmbedding">Embedding model</system:String>
     <system:String x:Key="Config.SectionChatAudio">Voice</system:String>
@@ -173,10 +205,10 @@
     <system:String x:Key="Config.AuthToken">API Key:</system:String>
     <system:String x:Key="Config.ModelId">Model name:</system:String>
     <system:String x:Key="Config.LoadModels">Load model list</system:String>
+    <system:String x:Key="Config.RefreshModelList">Refresh model list</system:String>
     <system:String x:Key="Config.LoadModelsHint">Fetch the available models from this endpoint</system:String>
     <system:String x:Key="Config.ParamTemp">Temperature:</system:String>
     <system:String x:Key="Config.ParamMaxTokens">Max tokens:</system:String>
-    <system:String x:Key="Config.EnableFunctionCalling">Tool calling:</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">Enable voice:</system:String>
     <system:String x:Key="Config.ChatAudioAutoPlay">Audio auto-play:</system:String>
     <system:String x:Key="Config.ChatAudioVoice">Voice:</system:String>
@@ -184,6 +216,7 @@
     <system:String x:Key="Config.ImageGenerationEnabled">Enable image generation:</system:String>
     <system:String x:Key="Config.CtxUsage">Current token usage</system:String>
     <system:String x:Key="Config.MemMaxCtx">Context length limit:</system:String>
+    <system:String x:Key="Config.WorkspaceKnowledgeBudget">Workspace knowledge budget:</system:String>
     <system:String x:Key="Config.MemCompThresh">Compression threshold:</system:String>
     <system:String x:Key="Config.MemAutoComp">Auto compression:</system:String>
     <system:String x:Key="Config.WarnHigh">High load (&gt;80%)</system:String>
@@ -230,6 +263,24 @@
     <system:String x:Key="History.PendingStatus">Summarizing</system:String>
     <system:String x:Key="History.NoRecords">No history yet</system:String>
     <system:String x:Key="History.FooterHint">Select "Restore" to load a past conversation into the current session.</system:String>
+    <system:String x:Key="History.Group.Ungrouped">Ungrouped</system:String>
+
+    <!-- Workspace -->
+    <system:String x:Key="Chat.Workspace.SwitchTip">Switch workspace</system:String>
+    <system:String x:Key="Chat.Workspace.None">No workspace</system:String>
+    <system:String x:Key="Chat.Workspace.Global">Global chat (no workspace)</system:String>
+    <system:String x:Key="Chat.Workspace.Add">Add workspace</system:String>
+    <system:String x:Key="Chat.Workspace.Remove">Remove workspace</system:String>
+    <system:String x:Key="Chat.Workspace.SelectFolder">Select workspace directory</system:String>
+    <system:String x:Key="Chat.Workspace.SelectExisting">Select an existing workspace</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Title">Remove workspace</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Message">Remove “{0}”? Its workspace knowledge files will be permanently deleted; conversation history will be kept as ungrouped.</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Yes">Remove</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.No">Cancel</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Title">Switch workspace</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">Switching to “{0}” will save the current conversation and start a new one. Continue?</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">Switch</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.No">Cancel</system:String>
 
     <!-- Files Tab -->
     <system:String x:Key="Files.Header">Knowledge base</system:String>
@@ -447,6 +498,8 @@
     <system:String x:Key="Status.TestingConnection">Testing connection…</system:String>
     <system:String x:Key="Status.LoadingModels">Loading model list…</system:String>
     <system:String x:Key="Status.ModelsLoaded">Loaded {0} model(s)</system:String>
+    <system:String x:Key="Status.TextAndEmbeddingModelsLoaded">Loaded {0} text model(s) and {1} embedding model(s)</system:String>
+    <system:String x:Key="Status.TextModelsLoadedEmbeddingFailed">Loaded {0} text model(s); embedding models failed: {1}</system:String>
     <system:String x:Key="Status.NoModelsReturned">No models returned from this endpoint</system:String>
     <system:String x:Key="Status.LoadModelsFailed">Failed to load model list: {0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">Please enable voice first</system:String>
@@ -495,7 +548,9 @@
     <system:String x:Key="Config.ToolApproval.Mode.Off">Off (auto-allow all)</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Balanced">Balanced (confirm writes/deletes/terminal, recommended)</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Strict">Strict (confirm every tool)</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Automatic">Automatic (approval model decides)</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">In Balanced mode, read-only tools run automatically; write, delete, and terminal commands ask for confirmation before running.</system:String>
+    <system:String x:Key="Config.ToolApproval.AutomaticHint">Automatic mode is active: calls not decided by static rules are evaluated by the Automatic approval model above. Evaluation failures deny by default.</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">Sub-agents inherit primary chat approval</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">Always-allowed tools</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">Terminal command allowlist</system:String>
@@ -581,4 +636,16 @@
     <system:String x:Key="KbMaint.Canceled">Maintenance canceled.</system:String>
     <system:String x:Key="KbMaint.Exception">Error: {0}</system:String>
 
+    <system:String x:Key="Chat.Archived">Archived</system:String>
+    <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>
+    <system:String x:Key="Knowledge.SelectFile">Select a file to view</system:String>
+    <system:String x:Key="Knowledge.LoadFailed">Failed to load: {0}</system:String>
+    <system:String x:Key="Knowledge.ImportPickerTitle">Select Markdown files to import</system:String>
+    <system:String x:Key="Knowledge.ExportPickerTitle">Select export folder</system:String>
+    <system:String x:Key="Logs.ExportPickerTitle">Export logs</system:String>
+    <system:String x:Key="Chat.Error.Generic">Error: {0}</system:String>
+    <system:String x:Key="Config.RebuildVectorIndex">Rebuild vector index</system:String>
+    <system:String x:Key="Config.VectorIndexRebuilding">Rebuilding vector index…</system:String>
+    <system:String x:Key="Config.VectorIndexRebuilt">Vector index rebuilt</system:String>
+    <system:String x:Key="Config.VectorIndexRebuildFailed">Failed to rebuild vector index: {0}</system:String>
 </ResourceDictionary>

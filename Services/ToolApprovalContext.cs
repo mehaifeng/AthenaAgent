@@ -32,12 +32,14 @@ public static class ToolApprovalContext
     }
 
     private static readonly AsyncLocal<ExecutionMode> _mode = new();
+    private static readonly AsyncLocal<string?> _delegatedTask = new();
 
     /// <summary>当前执行流的审批模式；未设置时为 <see cref="ExecutionMode.Unset"/>。</summary>
     public static ExecutionMode CurrentMode => _mode.Value;
+    public static string? CurrentDelegatedTask => _delegatedTask.Value;
 
     /// <summary>进入交互式作用域（主对话循环）。Dispose 时恢复先前值。</summary>
-    public static IDisposable EnterInteractive() => Enter(ExecutionMode.Interactive);
+    public static IDisposable EnterInteractive(string? delegatedTask = null) => Enter(ExecutionMode.Interactive, delegatedTask);
 
     /// <summary>进入无人值守作用域（并发子代理）。Dispose 时恢复先前值。</summary>
     public static IDisposable EnterNonInteractive() => Enter(ExecutionMode.NonInteractive);
@@ -45,25 +47,33 @@ public static class ToolApprovalContext
     /// <summary>进入受信任的第一方例程作用域（知识库定期整理），审批自动放行。Dispose 时恢复先前值。</summary>
     public static IDisposable EnterTrusted() => Enter(ExecutionMode.Trusted);
 
-    private static IDisposable Enter(ExecutionMode mode)
+    private static IDisposable Enter(ExecutionMode mode, string? delegatedTask = null)
     {
         var previous = _mode.Value;
+        var previousTask = _delegatedTask.Value;
         _mode.Value = mode;
-        return new Scope(previous);
+        _delegatedTask.Value = delegatedTask;
+        return new Scope(previous, previousTask);
     }
 
     private sealed class Scope : IDisposable
     {
         private readonly ExecutionMode _previous;
+        private readonly string? _previousTask;
         private bool _disposed;
 
-        public Scope(ExecutionMode previous) => _previous = previous;
+        public Scope(ExecutionMode previous, string? previousTask)
+        {
+            _previous = previous;
+            _previousTask = previousTask;
+        }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
             _mode.Value = _previous;
+            _delegatedTask.Value = _previousTask;
         }
     }
 }

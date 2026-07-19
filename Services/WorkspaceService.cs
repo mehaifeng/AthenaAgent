@@ -1,0 +1,355 @@
+using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
+using Serilog;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Athena.UI.Services;
+
+/// <summary>
+/// 工作区服务实现 — 管理工作区配置和知识文件上下文注入
+/// </summary>
+public class WorkspaceService : IWorkspaceService
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    private readonly IPlatformPathService _platformPathService;
+    private readonly ILogger _logger;
+    private readonly string _workspacesDirectory;
+    private readonly IConfigService? _configService;
+    private readonly IWorkspaceKnowledgeCompressor? _knowledgeCompressor;
+
+    private WorkspaceProfile? _activeWorkspace;
+
+    public WorkspaceProfile? ActiveWorkspace => _activeWorkspace;
+
+    public event EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged;
+
+    public WorkspaceService(
+        IPlatformPathService platformPathService,
+        ILogger logger,
+        IConfigService? configService = null,
+        IWorkspaceKnowledgeCompressor? knowledgeCompressor = null)
+    {
+        _platformPathService = platformPathService;
+        _logger = logger.ForContext<WorkspaceService>();
+        _configService = configService;
+        _knowledgeCompressor = knowledgeCompressor;
+        _workspacesDirectory = platformPathService.GetWorkspacesDirectory();
+        Directory.CreateDirectory(_workspacesDirectory);
+    }
+
+    public async Task<List<WorkspaceProfile>> LoadAllAsync()
+    {
+        var result = new List<WorkspaceProfile>();
+        try
+        {
+            var files = Directory.GetFiles(_workspacesDirectory, "*.json");
+            foreach (var file in files)
+            {
+                try
+                {
+                    var json = await File.ReadAllTextAsync(file);
+                    var workspace = JsonSerializer.Deserialize<WorkspaceProfile>(json, JsonOptions);
+                    if (workspace != null)
+                    {
+                        var previousKnowledgeFileName = workspace.KnowledgeFileName;
+                        await EnsureKnowledgeFileAsync(workspace);
+                        if (!string.Equals(previousKnowledgeFileName, workspace.KnowledgeFileName, StringComparison.Ordinal))
+                        {
+                            await File.WriteAllTextAsync(file, JsonSerializer.Serialize(workspace, JsonOptions));
+                        }
+                        result.Add(workspace);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "加载工作区配置失败: {File}", file);
+                }
+            }
+
+            result = result.OrderBy(w => w.Name).ToList();
+            _logger.Information("加载了 {Count} 个工作区", result.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "加载工作区列表失败");
+        }
+
+        return result;
+    }
+
+    public async Task<WorkspaceProfile?> LoadByIdAsync(string id)
+    {
+        var filePath = Path.Combine(_workspacesDirectory, $"{ValidateId(id)}.json");
+        if (!File.Exists(filePath)) return null;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(filePath);
+            var workspace = JsonSerializer.Deserialize<WorkspaceProfile>(json, JsonOptions);
+            if (workspace != null)
+            {
+                var previousKnowledgeFileName = workspace.KnowledgeFileName;
+                await EnsureKnowledgeFileAsync(workspace);
+                if (!string.Equals(previousKnowledgeFileName, workspace.KnowledgeFileName, StringComparison.Ordinal))
+                {
+                    await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(workspace, JsonOptions));
+                }
+            }
+            return workspace;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "加载工作区失败: {Id}", id);
+            return null;
+        }
+    }
+
+    public async Task SaveAsync(WorkspaceProfile workspace)
+    {
+        workspace.Id = ValidateId(workspace.Id);
+        await EnsureKnowledgeFileAsync(workspace);
+        workspace.UpdatedAt = DateTime.Now;
+        var filePath = Path.Combine(_workspacesDirectory, $"{workspace.Id}.json");
+        var json = JsonSerializer.Serialize(workspace, JsonOptions);
+        await File.WriteAllTextAsync(filePath, json);
+
+        _logger.Information("保存工作区: {Id} - {Name}", workspace.Id, workspace.Name);
+    }
+
+    public Task<bool> DeleteAsync(string id)
+    {
+        try
+        {
+            var safeId = ValidateId(id);
+            var filePath = Path.Combine(_workspacesDirectory, $"{safeId}.json");
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+
+            // 删除工作区知识目录
+            var workspaceDir = Path.Combine(_workspacesDirectory, safeId);
+            if (Directory.Exists(workspaceDir))
+            {
+                Directory.Delete(workspaceDir, recursive: true);
+            }
+
+            if (_activeWorkspace?.Id == id)
+            {
+                SetActiveWorkspace(null);
+            }
+
+            _logger.Information("删除工作区: {Id}", id);
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "删除工作区失败: {Id}", id);
+            return Task.FromResult(false);
+        }
+    }
+
+    private static string ValidateId(string id)
+    {
+        if (!Guid.TryParse(id, out var parsed))
+            throw new ArgumentException("Workspace ID must be a GUID.", nameof(id));
+        return parsed.ToString("N");
+    }
+
+    public async Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath)
+    {
+        var all = await LoadAllAsync();
+        var normalized = Path.GetFullPath(directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return all.FirstOrDefault(w =>
+            string.Equals(
+                Path.GetFullPath(w.DirectoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    public void SetActiveWorkspace(WorkspaceProfile? workspace)
+    {
+        _activeWorkspace = workspace;
+        ActiveWorkspaceChanged?.Invoke(this, workspace);
+        _logger.Information("激活工作区: {Name}", workspace?.Name ?? "(none)");
+    }
+
+    public string GetKnowledgeFilePath(WorkspaceProfile workspace)
+    {
+        workspace.Id = ValidateId(workspace.Id);
+        var fileName = SanitizeKnowledgeFileName(workspace.KnowledgeFileName);
+        return Path.Combine(_platformPathService.GetWorkspaceKnowledgeDirectory(workspace.Id), fileName);
+    }
+
+    public async Task<string?> GetKnowledgeFilePathAsync(string workspaceId)
+    {
+        var workspace = await LoadByIdAsync(workspaceId);
+        return workspace == null ? null : GetKnowledgeFilePath(workspace);
+    }
+
+    public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget)
+    {
+        try
+        {
+            if (tokenBudget <= 0) return null;
+
+            var path = knowledgeFilePath;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = Path.Combine(_platformPathService.GetWorkspaceKnowledgeDirectory(workspaceId), "workspace.md");
+            }
+            if (!IsWorkspaceKnowledgeFile(path) || !File.Exists(path)) return null;
+
+            var content = File.ReadAllText(path);
+            var fileName = Path.GetFileNameWithoutExtension(path);
+            var header = $"### {fileName}\n";
+            if (ConversationContext.EstimateTokens(header + content) <= tokenBudget)
+            {
+                return header + content;
+            }
+
+            var low = 0;
+            var high = content.Length;
+            while (low < high)
+            {
+                var mid = (low + high + 1) / 2;
+                if (ConversationContext.EstimateTokens(header + content[..mid]) <= tokenBudget) low = mid;
+                else high = mid - 1;
+            }
+            return low == 0 ? null : header + content[..low].TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "构建工作区知识上下文失败: {WorkspaceId}", workspaceId);
+            return null;
+        }
+    }
+
+    public async Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default)
+    {
+        if (_configService == null || _knowledgeCompressor == null || !IsWorkspaceKnowledgeFile(fullPath) || !File.Exists(fullPath)) return;
+
+        var budget = _configService.Load().WorkspaceKnowledgeTokenBudget;
+        if (budget <= 0) return; // 0 表示禁用工作区知识注入，不应为此删除本地知识。
+
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(fullPath, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "读取工作区知识文件以检查预算失败: {Path}", fullPath);
+            return;
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(fullPath);
+        var contentBudget = Math.Max(1, budget - ConversationContext.EstimateTokens($"### {fileName}\n"));
+        var originalTokens = ConversationContext.EstimateTokens(content);
+        if (originalTokens <= contentBudget) return;
+
+        var compressed = await _knowledgeCompressor.CompressAsync(content, contentBudget, ct);
+        if (string.IsNullOrWhiteSpace(compressed))
+        {
+            _logger.Warning("工作区知识超出预算但压缩未成功，保留原文件: {Path} ({Tokens}/{Budget})",
+                fullPath, originalTokens, budget);
+            return;
+        }
+
+        var bounded = TruncateToTokenBudget(compressed, contentBudget);
+        try
+        {
+            await File.WriteAllTextAsync(fullPath, bounded, ct);
+            _logger.Information("工作区知识文件已压缩: {Path} ({Before} -> {After}, budget {Budget})",
+                fullPath, originalTokens, ConversationContext.EstimateTokens(bounded), contentBudget);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "写入压缩后的工作区知识文件失败: {Path}", fullPath);
+        }
+    }
+
+    private static string TruncateToTokenBudget(string content, int tokenBudget)
+    {
+        if (ConversationContext.EstimateTokens(content) <= tokenBudget) return content;
+
+        int low = 0;
+        int high = content.Length;
+        while (low < high)
+        {
+            var mid = (low + high + 1) / 2;
+            if (ConversationContext.EstimateTokens(content[..mid]) <= tokenBudget)
+            {
+                low = mid;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return low == 0 ? string.Empty : content[..low].TrimEnd();
+    }
+
+    private bool IsWorkspaceKnowledgeFile(string fullPath)
+    {
+        var workspaceRoot = Path.GetFullPath(_workspacesDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var normalizedPath = Path.GetFullPath(fullPath);
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (!normalizedPath.StartsWith(workspaceRoot, comparison) || !normalizedPath.EndsWith(".md", comparison)) return false;
+
+        var relative = Path.GetRelativePath(workspaceRoot, normalizedPath);
+        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (segments.Length < 3 || !string.Equals(segments[1], "knowledge", comparison)) return false;
+
+        var knowledgeRoot = Path.GetFullPath(_platformPathService.GetWorkspaceKnowledgeDirectory(segments[0]))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(knowledgeRoot, comparison);
+    }
+
+    private async Task EnsureKnowledgeFileAsync(WorkspaceProfile workspace)
+    {
+        var knowledgeDir = _platformPathService.GetWorkspaceKnowledgeDirectory(workspace.Id);
+        Directory.CreateDirectory(knowledgeDir);
+
+        if (string.IsNullOrWhiteSpace(workspace.KnowledgeFileName) || workspace.KnowledgeFileName == "workspace.md")
+        {
+            var existingFiles = Directory.GetFiles(knowledgeDir, "*.md", SearchOption.TopDirectoryOnly);
+            var preferred = existingFiles.FirstOrDefault(path =>
+                string.Equals(Path.GetFileName(path), "workspace.md", StringComparison.OrdinalIgnoreCase))
+                ?? existingFiles.OrderByDescending(File.GetLastWriteTime).FirstOrDefault();
+            workspace.KnowledgeFileName = preferred == null ? "workspace.md" : Path.GetFileName(preferred);
+        }
+
+        var fullPath = GetKnowledgeFilePath(workspace);
+        if (!File.Exists(fullPath))
+        {
+            await File.WriteAllTextAsync(fullPath, $"# {workspace.Name} Workspace Knowledge\n");
+        }
+    }
+
+    private static string SanitizeKnowledgeFileName(string? fileName)
+    {
+        var sanitized = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(sanitized) || !sanitized.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+        {
+            return "workspace.md";
+        }
+        return sanitized;
+    }
+}

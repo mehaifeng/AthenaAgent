@@ -26,22 +26,18 @@ internal static class BrowserAgentModelResolver
 {
     public static EffectiveBrowserAgentConfig Resolve(AppConfig config)
     {
-        // 浏览器智能体使用独立凭据，不继承主对话模型；遗留 provider="Inherit" 字符串归一化为 OpenAI。
-        var provider = string.IsNullOrWhiteSpace(config.BrowserAgentProvider)
-            || string.Equals(config.BrowserAgentProvider, "Inherit", StringComparison.OrdinalIgnoreCase)
-            ? "OpenAI"
-            : config.BrowserAgentProvider;
+        var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.BrowserAgent);
 
         return new EffectiveBrowserAgentConfig
         {
-            Provider = provider,
-            BaseUrl = ModelCredentialResolver.FirstNonEmpty(config.BrowserAgentBaseUrl, "https://api.openai.com/v1"),
-            ApiKey = config.BrowserAgentApiKey,
-            Model = ModelCredentialResolver.FirstNonEmpty(config.BrowserAgentModel, "gpt-4o-mini"),
-            MaxTokens = config.BrowserAgentMaxTokens,
-            Temperature = config.BrowserAgentTemperature,
-            BaseUrlSource = "BrowserAgent",
-            ApiKeySource = "BrowserAgent"
+            Provider = effective.ProviderDisplayName,
+            BaseUrl = effective.BaseUrl,
+            ApiKey = effective.ApiKey,
+            Model = effective.Model,
+            MaxTokens = effective.MaxOutputTokens,
+            Temperature = effective.Temperature,
+            BaseUrlSource = effective.ProviderDisplayName,
+            ApiKeySource = effective.ProviderDisplayName
         };
     }
 }

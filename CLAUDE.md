@@ -28,18 +28,15 @@ The repository is a multi-project solution (`Athena.UI.sln`):
 Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README_CN.md`. Longer-form docs live in `Docs/` (user guides, `PrivacyPolicy.md`, `MinerU_API.md`). Release tooling lives in `release.sh` and `Scripts/`.
 
 ### Key Features
-- **Tiered Multi-Model Architecture**:
-  - **Primary Model**: Heavy lifting, tool execution, and complex reasoning (e.g., `gpt-4o`).
-  - **Secondary Model**: Background tasks like history summarization and context compression (e.g., `gpt-4.1-mini` / `gpt-4o-mini`).
-  - **Embedding Model**: Fast, cheap semantic mapping for the knowledge base (e.g., `text-embedding-3-small`).
-- **Direct Tool Calling**: Carries all available tool descriptions in every conversation. Provides advanced UI state management during tool execution (smooth transitions, hidden intermediate steps, real-time summaries). Tool calls render as grouped, stacked cards (`ToolCallStackView`) with single-card / expand-all controls.
+- **Unified OpenAI-Compatible Model Roles**: One shared provider holds Base URL/API key data. Main conversation, title generation, context compression, automatic approval, embedding, browser, sub-agent, and maintenance roles independently select a model. TTS and image generation retain extension-specific connections.
+- **Direct Tool Calling**: The main conversation directly owns built-in and MCP tool calls. Each call is rendered in grouped `ToolCallStackView` cards.
 - **Parallel Sub-Agents ("Owl Village")**: The `dispatch_subagents` tool fans out a batch of isolated sub-agents (presets: `general`, `researcher`, `file_worker`) with per-type tool gating, orchestrated by `Services/SubAgents/`. Progress is visualized as an owl-village overview (`OwlVillageView`) plus a side dock, with walk animations and batch curtain-call dismissal.
 - **Knowledge Base (Vector Database)**: Local Markdown-based memory stored in `AthenaData/KnowledgeBase`. Powered by synchronous SQLite vector persistence to ensure 100% "what-you-write-is-what-you-search" real-time consistency. Retrieval is hybrid (L2-normalized vectors + BM25/FTS) with heading/path context and file-level result aggregation; the store carries an embedding-model fingerprint and supports schema migration.
 - **Knowledge Base Self-Maintenance**: Write-time duplicate-detection guardrails on `create_new_memory`, plus a periodic maintenance agent (`KnowledgeBaseMaintenanceService` / `KnowledgeBaseMaintenanceRunner`) that consolidates and prunes memory files in the background.
-- **Context Management**: Centralized `TokenService` provides UI-wide atomic tracking of context window pressure, with visual warnings as the threshold approaches; long sessions are compressed via secondary-model summarization.
+- **Context Management**: Centralized `TokenService` provides UI-wide atomic tracking of context window pressure, with visual warnings as the threshold approaches; `ContextCompressionService` uses the independently configured compression role.
 - **Image Generation**: OpenAI-backed image generation with logical continuity across turns; generated images render inline within Markdown chat output.
 - **Audio Output**: TTS playback via `LibVlcAudioPlaybackService` (toggle play/pause, stop), with audio config resolved per-model.
-- **Browser Automation**: Vision-guided agent (`Services/Browser/`) using Playwright + Set-of-Marks annotation to plan and execute multi-step web tasks via the `run_browser_task` tool; its vision model can follow the primary model configuration.
+- **Browser Automation**: Vision-guided agent (`Services/Browser/`) using Playwright + Set-of-Marks annotation to plan and execute multi-step web tasks via the `run_browser_task` tool; its model is selected by the unified Browser Agent role.
 - **Document Parsing**: MinerU-based document parser (`Services/Parsers/`) exposed via `DocumentParserFunctions` (`get_document_outline`, `parse_office_document`) for extracting outlines/content from attachments (see `Docs/MinerU_API.md`).
 - **Screenshot Capture**: In-app screenshot tool with option to hide or retain the window during capture.
 - **In-App Updates**: `GitHubUpdateService` checks GitHub releases; the separate `Athena.Updater` performs the swap. Windows releases ship both a zip (for in-app updates) and a bilingual Inno Setup installer. (macOS DMGs are unsigned/ad-hoc signed — see project memory on Gatekeeper/App Translocation.)

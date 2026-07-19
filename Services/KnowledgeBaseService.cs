@@ -824,6 +824,26 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         _vectorCacheInitialized = false;
     }
 
+    /// <summary>清空派生向量数据，并使用当前 Embedding 配置立即全量重建。</summary>
+    public async Task RebuildVectorIndexAsync()
+    {
+        await _initLock.WaitAsync();
+        try
+        {
+            await _vectorStoreService.InitializeAsync();
+            await _vectorStoreService.ClearAllAsync();
+            _vectorCache.Clear();
+            _vectorCacheInitialized = false;
+            _logger.Information("已清空全局知识库向量索引，开始使用当前 Embedding 配置全量重建");
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+
+        await LoadOrRefreshVectorsAsync();
+    }
+
     /// <summary>
     /// 增量更新单个文件的向量
     /// </summary>

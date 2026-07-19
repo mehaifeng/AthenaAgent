@@ -11,7 +11,6 @@ public static class ProviderCatalog
     private static readonly Dictionary<string, string> ChatProviderUrls = new()
     {
         ["OpenAI"] = "https://api.openai.com/v1",
-        ["Anthropic"] = "https://api.anthropic.com/v1/",
         ["Google"] = "https://generativelanguage.googleapis.com/v1beta/openai/",
         ["Zhipu"] = "https://open.bigmodel.cn/api/paas/v4",
         ["Mimimaxi"] = "https://api.minimaxi.com/v1",

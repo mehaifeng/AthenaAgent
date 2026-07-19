@@ -25,7 +25,9 @@ public enum ToolApprovalMode
 {
     Off,
     Balanced,
-    Strict
+    Strict,
+    // 必须追加在末尾：历史配置按枚举数字序列化，插入中间会改变旧值语义。
+    Automatic
 }
 
 /// <summary>

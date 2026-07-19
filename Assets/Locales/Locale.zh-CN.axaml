@@ -97,6 +97,38 @@
     <system:String x:Key="Ext.SectionCapabilities">扩展能力</system:String>
     <system:String x:Key="Config.SectionAppearance">外观</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">主对话模型</system:String>
+    <system:String x:Key="Config.UnifiedModels.Header">供应商与业务模型</system:String>
+    <system:String x:Key="Config.UnifiedModels.Hint">所有业务模型均使用 OpenAI SDK 兼容协议。供应商统一保存连接信息，各角色只选择供应商和模型；TTS 与生图继续在扩展页独立配置。</system:String>
+    <system:String x:Key="Config.UnifiedModels.Providers">唯一供应商连接</system:String>
+    <system:String x:Key="Config.UnifiedModels.AddProvider">添加供应商</system:String>
+    <system:String x:Key="Config.UnifiedModels.ProviderName">显示名称</system:String>
+    <system:String x:Key="Config.UnifiedModels.RemoveProvider">移除</system:String>
+    <system:String x:Key="Config.UnifiedModels.Roles">模型角色</system:String>
+    <system:String x:Key="Config.UnifiedModels.Role">角色</system:String>
+    <system:String x:Key="Config.UnifiedModels.Provider">供应商</system:String>
+    <system:String x:Key="Config.UnifiedModels.Model">模型</system:String>
+    <system:String x:Key="Config.UnifiedModels.Temperature">温度</system:String>
+    <system:String x:Key="Config.UnifiedModels.MaxOutput">最大输出</system:String>
+    <system:String x:Key="Config.UnifiedModels.Runtime">Agent 运行参数</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestMain">测试主对话</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestTitle">测试标题</system:String>
+    <system:String x:Key="Config.UnifiedModels.TestEmbedding">测试嵌入</system:String>
+    <system:String x:Key="Config.ModelRole.Main">主对话</system:String>
+    <system:String x:Key="Config.ModelRole.Tool">工具调用</system:String>
+    <system:String x:Key="Config.ModelRole.Title">标题生成</system:String>
+    <system:String x:Key="Config.ModelRole.Compression">上下文压缩</system:String>
+    <system:String x:Key="Config.ModelRole.Approval">自动审批</system:String>
+    <system:String x:Key="Config.ModelRole.Embedding">向量嵌入</system:String>
+    <system:String x:Key="Config.ModelRole.Browser">自动浏览器</system:String>
+    <system:String x:Key="Config.SubAgentParameters">子代理参数</system:String>
+    <system:String x:Key="Config.KnowledgeMaintenance">知识库整理</system:String>
+    <system:String x:Key="Config.EmbeddingModel">向量嵌入模型</system:String>
+    <system:String x:Key="Config.EmbeddingConnection">连接来源：</system:String>
+    <system:String x:Key="Config.EmbeddingConnection.Provider">使用供应商连接</system:String>
+    <system:String x:Key="Config.EmbeddingConnection.Custom">自定义连接</system:String>
+    <system:String x:Key="Config.BrowserUnifiedModelHint">自动浏览器使用“设置 → 供应商与业务模型”中的自动浏览器角色。</system:String>
+    <system:String x:Key="Config.ModelRole.SubAgent">子代理</system:String>
+    <system:String x:Key="Config.ModelRole.Maintenance">知识库整理</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">辅助模型</system:String>
     <system:String x:Key="Config.SectionEmbedding">嵌入模型</system:String>
     <system:String x:Key="Config.SectionChatAudio">语音播报</system:String>
@@ -172,10 +204,10 @@
     <system:String x:Key="Config.AuthToken">API Key：</system:String>
     <system:String x:Key="Config.ModelId">模型名称：</system:String>
     <system:String x:Key="Config.LoadModels">加载模型列表</system:String>
+    <system:String x:Key="Config.RefreshModelList">刷新模型列表</system:String>
     <system:String x:Key="Config.LoadModelsHint">从该地址拉取可用模型</system:String>
     <system:String x:Key="Config.ParamTemp">温度：</system:String>
     <system:String x:Key="Config.ParamMaxTokens">最大 Token：</system:String>
-    <system:String x:Key="Config.EnableFunctionCalling">工具调用：</system:String>
     <system:String x:Key="Config.ChatAudioEnabled">启用语音播报：</system:String>
     <system:String x:Key="Config.ChatAudioAutoPlay">语音自动播放：</system:String>
     <system:String x:Key="Config.ChatAudioVoice">语音：</system:String>
@@ -183,6 +215,7 @@
     <system:String x:Key="Config.ImageGenerationEnabled">启用图像生成：</system:String>
     <system:String x:Key="Config.CtxUsage">当前 Token 用量</system:String>
     <system:String x:Key="Config.MemMaxCtx">上下文长度上限：</system:String>
+    <system:String x:Key="Config.WorkspaceKnowledgeBudget">工作区知识预算：</system:String>
     <system:String x:Key="Config.MemCompThresh">压缩阈值：</system:String>
     <system:String x:Key="Config.MemAutoComp">自动压缩：</system:String>
     <system:String x:Key="Config.WarnHigh">高负载（&gt;80%）</system:String>
@@ -230,6 +263,24 @@
     <system:String x:Key="History.PendingStatus">生成摘要中</system:String>
     <system:String x:Key="History.NoRecords">暂无历史记录</system:String>
     <system:String x:Key="History.FooterHint">选择「恢复」可将历史对话载入当前会话。</system:String>
+    <system:String x:Key="History.Group.Ungrouped">未分组</system:String>
+
+    <!-- Workspace -->
+    <system:String x:Key="Chat.Workspace.SwitchTip">切换工作区</system:String>
+    <system:String x:Key="Chat.Workspace.None">未选择工作区</system:String>
+    <system:String x:Key="Chat.Workspace.Global">全局聊天（不使用工作区）</system:String>
+    <system:String x:Key="Chat.Workspace.Add">添加工作区</system:String>
+    <system:String x:Key="Chat.Workspace.Remove">移除工作区</system:String>
+    <system:String x:Key="Chat.Workspace.SelectFolder">选择工作区目录</system:String>
+    <system:String x:Key="Chat.Workspace.SelectExisting">选择已有工作区</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Title">移除工作区</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Message">确定要移除“{0}”吗？其工作区知识文件将被永久删除；会话历史会保留为未分组记录。</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.Yes">移除</system:String>
+    <system:String x:Key="Chat.Workspace.RemoveConfirm.No">取消</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Title">切换工作区</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">切换到“{0}”会先保存当前会话，并开启一个新会话，是否继续？</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">切换</system:String>
+    <system:String x:Key="Chat.Workspace.SwitchConfirm.No">取消</system:String>
 
     <!-- Files Tab -->
     <system:String x:Key="Files.Header">知识库管理</system:String>
@@ -447,6 +498,8 @@
     <system:String x:Key="Status.TestingConnection">测试连接中…</system:String>
     <system:String x:Key="Status.LoadingModels">正在加载模型列表…</system:String>
     <system:String x:Key="Status.ModelsLoaded">已加载 {0} 个模型</system:String>
+    <system:String x:Key="Status.TextAndEmbeddingModelsLoaded">已加载 {0} 个文本模型和 {1} 个嵌入模型</system:String>
+    <system:String x:Key="Status.TextModelsLoadedEmbeddingFailed">已加载 {0} 个文本模型；嵌入模型加载失败：{1}</system:String>
     <system:String x:Key="Status.NoModelsReturned">该地址未返回任何模型</system:String>
     <system:String x:Key="Status.LoadModelsFailed">加载模型列表失败：{0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">请先启用语音播报</system:String>
@@ -495,7 +548,9 @@
     <system:String x:Key="Config.ToolApproval.Mode.Off">关闭（全部自动放行）</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Balanced">平衡（写入/删除/终端需确认，推荐）</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Strict">严格（所有工具都需确认）</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Automatic">自动（由审批模型裁决）</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">在平衡模式下，只读类工具自动放行；写入、删除、终端命令在执行前请求确认。</system:String>
+    <system:String x:Key="Config.ToolApproval.AutomaticHint">自动模式已启用：未被静态规则直接放行或拒绝的调用，将交给上方“自动审批”模型裁决；模型异常时默认拒绝。</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">子代理沿用主对话授权</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">始终允许的工具</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">终端命令白名单</system:String>
@@ -581,4 +636,16 @@
     <system:String x:Key="KbMaint.Canceled">已取消。</system:String>
     <system:String x:Key="KbMaint.Exception">出错：{0}</system:String>
 
+    <system:String x:Key="Chat.Archived">已归档</system:String>
+    <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
+    <system:String x:Key="Knowledge.SelectFile">选择文件以查看</system:String>
+    <system:String x:Key="Knowledge.LoadFailed">加载失败：{0}</system:String>
+    <system:String x:Key="Knowledge.ImportPickerTitle">选择要导入的 Markdown 文件</system:String>
+    <system:String x:Key="Knowledge.ExportPickerTitle">选择导出目录</system:String>
+    <system:String x:Key="Logs.ExportPickerTitle">导出日志</system:String>
+    <system:String x:Key="Chat.Error.Generic">错误：{0}</system:String>
+    <system:String x:Key="Config.RebuildVectorIndex">重新生成索引</system:String>
+    <system:String x:Key="Config.VectorIndexRebuilding">正在重新生成向量索引…</system:String>
+    <system:String x:Key="Config.VectorIndexRebuilt">向量索引已重新生成</system:String>
+    <system:String x:Key="Config.VectorIndexRebuildFailed">重新生成向量索引失败：{0}</system:String>
 </ResourceDictionary>

@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using System;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -58,16 +59,23 @@ public class ConfigurationFunctions
             }
 
             var config = await _configService.LoadAsync();
-            var property = typeof(AppConfig).GetProperty(key, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-
-            if (property == null)
+            if (key.Equals("Temperature", StringComparison.OrdinalIgnoreCase))
             {
-                return FunctionResult.FailureResult($"未找到配置项: {key}");
+                config.AiModels.MainConversation.Temperature = double.Parse(value);
             }
-
-            // 转换值类型
-            var convertedValue = ConvertValue(value, property.PropertyType);
-            property.SetValue(config, convertedValue);
+            else if (key.Equals("MaxTokens", StringComparison.OrdinalIgnoreCase))
+            {
+                config.AiModels.MainConversation.MaxOutputTokens = int.Parse(value);
+            }
+            else
+            {
+                var property = typeof(AppConfig).GetProperty(key, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+                if (property == null)
+                {
+                    return FunctionResult.FailureResult($"未找到配置项: {key}");
+                }
+                property.SetValue(config, ConvertValue(value, property.PropertyType));
+            }
 
             // 保存配置
             await _configService.SaveAsync(config);
@@ -110,17 +118,14 @@ public class ConfigurationFunctions
                 // 返回所有配置（但隐藏敏感信息）
                 result = new
                 {
-                    // AI 配置
+                    // AI 配置（不返回 API Key / BaseUrl）
                     AI = new
                     {
-                        Provider = config.Provider,
-                        Model = config.Model,
-                        Temperature = config.Temperature,
-                        MaxTokens = config.MaxTokens,
+                        Provider = new { config.AiModels.Provider.ProviderPreset, config.AiModels.Provider.DisplayName },
+                        Roles = GetSanitizedRoles(config),
                         TopP = config.TopP,
                         Timeout = config.Timeout,
-                        EnableFunctionCalling = config.EnableFunctionCalling
-                        // 注意：不返回 ApiKey 和 BaseUrl
+                        ApprovalMode = config.ToolApprovalMode.ToString()
                     },
                     // 外观配置
                     Appearance = new
@@ -143,13 +148,11 @@ public class ConfigurationFunctions
                 {
                     "ai" => new
                     {
-                        Provider = config.Provider,
-                        Model = config.Model,
-                        Temperature = config.Temperature,
-                        MaxTokens = config.MaxTokens,
+                        Provider = new { config.AiModels.Provider.ProviderPreset, config.AiModels.Provider.DisplayName },
+                        Roles = GetSanitizedRoles(config),
                         TopP = config.TopP,
                         Timeout = config.Timeout,
-                        EnableFunctionCalling = config.EnableFunctionCalling
+                        ApprovalMode = config.ToolApprovalMode.ToString()
                     },
                     "appearance" => new
                     {
@@ -202,4 +205,23 @@ public class ConfigurationFunctions
         // 尝试其他类型
         return System.Convert.ChangeType(value, targetType);
     }
+
+    private static object GetSanitizedRoles(AppConfig config) => new
+    {
+        MainConversation = Sanitize(config.AiModels.MainConversation),
+        TitleGeneration = Sanitize(config.AiModels.TitleGeneration),
+        ContextCompression = Sanitize(config.AiModels.ContextCompression),
+        Approval = Sanitize(config.AiModels.Approval),
+        Embedding = Sanitize(config.AiModels.Embedding),
+        BrowserAgent = Sanitize(config.AiModels.BrowserAgent),
+        SubAgent = Sanitize(config.AiModels.SubAgent),
+        KnowledgeMaintenance = Sanitize(config.AiModels.KnowledgeMaintenance)
+    };
+
+    private static object Sanitize(ModelRoleSettings role) => new
+    {
+        role.Model,
+        role.Temperature,
+        role.MaxOutputTokens
+    };
 }

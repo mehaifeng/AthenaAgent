@@ -23,10 +23,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     private readonly IChatService? _chatService;
     private readonly ILocalizationService? _localizationService;
     private readonly IWebSearchService? _webSearchService;
-    private readonly IHeadlessBrowserService? _browserService;
-    private readonly IBrowserVisionService? _browserVisionService;
     private readonly ISystemAudioService? _systemAudioService;
-    private readonly IModelCatalogService? _modelCatalogService;
     // Cancels in-flight system playback so Stop can kill the external process.
     private CancellationTokenSource? _audioTestCts;
     private readonly ILogger _logger = Log.ForContext<ExtensionsTabViewModel>();
@@ -35,26 +32,20 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     [ObservableProperty]
     private AppConfig _config = new();
 
-    public ExtensionsTabViewModel() : this(null, null, null, null, null, null, null, null) { }
+    public ExtensionsTabViewModel() : this(null, null, null, null, null) { }
 
     public ExtensionsTabViewModel(
         IConfigService? configService,
         IChatService? chatService,
         ILocalizationService? localizationService,
         IWebSearchService? webSearchService,
-        IHeadlessBrowserService? browserService = null,
-        IBrowserVisionService? browserVisionService = null,
-        ISystemAudioService? systemAudioService = null,
-        IModelCatalogService? modelCatalogService = null)
+        ISystemAudioService? systemAudioService = null)
     {
         _configService = configService;
         _chatService = chatService;
         _localizationService = localizationService;
         _webSearchService = webSearchService;
-        _browserService = browserService;
-        _browserVisionService = browserVisionService;
         _systemAudioService = systemAudioService;
-        _modelCatalogService = modelCatalogService;
 
         _ = LoadSystemVoicesAsync();
     }
@@ -80,7 +71,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
         // Config 实例被整体替换后，刷新依赖其值的计算属性
         RefreshAudioVoices();
-        OnPropertyChanged(nameof(IsBrowserVisionEnabled));
         OnPropertyChanged(nameof(IsRemoteAudioProvider));
         OnPropertyChanged(nameof(CanEditRemoteAudioFields));
         OnPropertyChanged(nameof(IsBaiduProvider));
@@ -102,9 +92,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
                 case nameof(AppConfig.ChatAudioEnabled):
                     OnPropertyChanged(nameof(CanEditRemoteAudioFields));
                     break;
-                case nameof(AppConfig.BrowserObservationMode):
-                    OnPropertyChanged(nameof(IsBrowserVisionEnabled));
-                    break;
                 case nameof(AppConfig.DocumentParserMode):
                 case nameof(AppConfig.DocumentParserEnabled):
                     OnPropertyChanged(nameof(CanEditParserToken));
@@ -122,21 +109,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     /// <summary>API 供应商候选（与配置页共用同一份目录）。</summary>
     public ObservableCollection<string> Providers { get; } = new(ProviderCatalog.ChatProviders);
-
-    public ObservableCollection<BrowserObservationMode> BrowserObservationModes { get; } = new()
-    {
-        BrowserObservationMode.VisionWithSom,
-        BrowserObservationMode.DomOnly
-    };
-
-    public ObservableCollection<BrowserStructuredOutputMode> BrowserStructuredOutputModes { get; } = new()
-    {
-        BrowserStructuredOutputMode.Auto,
-        BrowserStructuredOutputMode.JsonObject,
-        BrowserStructuredOutputMode.PromptOnly
-    };
-
-    public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
     public ObservableCollection<string> WebSearchProviders { get; } = new(ProviderCatalog.WebSearchProviders);
 
@@ -179,9 +151,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     #region 诊断测试（搜索 / 浏览器 / 音频）
 
     public bool CanTestWebSearch => !IsTestingWebSearch;
-    public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
-    public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
-    public bool CanTestBrowserAgent => !IsTestingBrowserAgent;
     public bool CanTestAudioOutput => !IsTestingAudioOutput;
 
     [ObservableProperty]
@@ -190,26 +159,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(TestWebSearchCommand))]
     private bool _isTestingWebSearch;
-
-    [ObservableProperty]
-    private string _browserRuntimeStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
-    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
-    private bool _isTestingBrowserRuntime;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand))]
-    private bool _isInstallingBrowserRuntime;
-
-    [ObservableProperty]
-    private string _browserAgentTestStatus = string.Empty;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestBrowserAgentCommand))]
-    private bool _isTestingBrowserAgent;
 
     [ObservableProperty]
     private string _audioOutputTestStatus = string.Empty;
@@ -238,61 +187,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             WebSearchTestStatus = message;
         }
         finally { IsTestingWebSearch = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanTestBrowserRuntime))]
-    private async Task TestBrowserRuntimeAsync()
-    {
-        if (_browserService == null) { BrowserRuntimeStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
-        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
-
-        IsTestingBrowserRuntime = true;
-        BrowserRuntimeStatus = GetString("Status.TestingConnection", "Testing...");
-        try
-        {
-            var status = await _browserService.GetRuntimeStatusAsync();
-            BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
-        }
-        finally { IsTestingBrowserRuntime = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanInstallBrowserRuntime))]
-    private async Task InstallBrowserRuntimeAsync()
-    {
-        if (_browserService == null) { BrowserRuntimeStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
-        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
-
-        IsInstallingBrowserRuntime = true;
-        BrowserRuntimeStatus = GetString("Status.InstallingBrowserRuntime", "Installing browser runtime...");
-        try
-        {
-            var result = await _browserService.InstallRuntimeAsync();
-            BrowserRuntimeStatus = result.Message;
-        }
-        finally { IsInstallingBrowserRuntime = false; }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanTestBrowserAgent))]
-    private async Task TestBrowserAgentAsync()
-    {
-        if (_browserVisionService == null) { BrowserAgentTestStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
-        if (!Config.BrowserEnabled) { BrowserAgentTestStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
-        if (string.IsNullOrWhiteSpace(Config.BrowserAgentApiKey)) { BrowserAgentTestStatus = GetString("Status.EnterApiKeyFirst", "Please enter API Key first"); return; }
-
-        IsTestingBrowserAgent = true;
-        BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
-        try
-        {
-            AppConfigNormalizer.NormalizeBrowser(Config);
-            if (_configService != null)
-            {
-                await _configService.SaveAsync(Config);
-            }
-
-            var (success, message) = await _browserVisionService.TestConnectionAsync();
-            BrowserAgentTestStatus = message;
-        }
-        finally { IsTestingBrowserAgent = false; }
     }
 
     [RelayCommand(CanExecute = nameof(CanTestAudioOutput))]
@@ -424,39 +318,4 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     #endregion
 
-    #region 浏览器智能体模型列表拉取（可编辑下拉框）
-
-    public ObservableCollection<string> BrowserAgentModelOptions { get; } = new();
-
-    [ObservableProperty]
-    private bool _isLoadingBrowserAgentModels;
-
-    [ObservableProperty]
-    private string _browserAgentModelsStatus = string.Empty;
-
-    /// <summary>与配置页共用 XAML 结构（CommandParameter="BrowserAgent"），本页仅支持该目标。</summary>
-    [RelayCommand]
-    private async Task LoadModelsAsync(string? target)
-    {
-        if (target != "BrowserAgent" || IsLoadingBrowserAgentModels) return;
-
-        IsLoadingBrowserAgentModels = true;
-        try
-        {
-            // 浏览器智能体使用独立凭据，不回退主对话模型。
-            await ModelOptionsLoader.LoadAsync(
-                _modelCatalogService,
-                Config.BrowserAgentBaseUrl,
-                Config.BrowserAgentApiKey,
-                BrowserAgentModelOptions,
-                status => BrowserAgentModelsStatus = status,
-                GetString);
-        }
-        finally
-        {
-            IsLoadingBrowserAgentModels = false;
-        }
-    }
-
-    #endregion
 }

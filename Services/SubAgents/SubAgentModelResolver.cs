@@ -21,22 +21,15 @@ internal static class SubAgentModelResolver
 {
     public static EffectiveSubAgentConfig Resolve(AppConfig config)
     {
-        // 凭据部分委托统一继承树解析器；采样参数（token 预算、温度）保留子代理专属。
-        var source = config.SubAgentModelSource == SubAgentModelSource.InheritMain
-            ? ModelCredentialSource.InheritMain
-            : ModelCredentialSource.Custom;
-        var effective = ModelCredentialResolver.Resolve(
-            source, config,
-            config.SubAgentProvider, config.SubAgentBaseUrl, config.SubAgentApiKey,
-            config.SubAgentModelSource == SubAgentModelSource.InheritMain ? config.Model : config.SubAgentModel);
+        var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.SubAgent);
 
         return new EffectiveSubAgentConfig
         {
             BaseUrl = effective.BaseUrl,
             ApiKey = effective.ApiKey,
             Model = effective.Model,
-            MaxTokens = config.SubAgentMaxTokens,
-            Temperature = config.SubAgentTemperature
+            MaxTokens = effective.MaxOutputTokens,
+            Temperature = effective.Temperature
         };
     }
 }

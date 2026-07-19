@@ -265,7 +265,8 @@ public partial class App : Application
                 var onboarding = new OnboardingWindow(new OnboardingViewModel(
                     configService,
                     Services.GetService<ILocalizationService>(),
-                    Services.GetService<IChatService>()));
+                    Services.GetService<IChatService>(),
+                    Services.GetService<IModelCatalogService>()));
                 desktop.MainWindow = onboarding;
 
                 // 标记引导完成并返回最新主题（幂等的公共尾巴）。
@@ -586,7 +587,9 @@ public partial class App : Application
         {
             var knowledgeBase = sp.GetRequiredService<IKnowledgeBaseService>();
             var logger = Log.ForContext<KnowledgeBaseFunctions>();
-            return new KnowledgeBaseFunctions(knowledgeBase, logger);
+            var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
+            var workspaceService = sp.GetService<IWorkspaceService>();
+            return new KnowledgeBaseFunctions(knowledgeBase, logger, sessionAccessor, workspaceService);
         });
 
         services.AddSingleton<ConfigurationFunctions>(sp =>
@@ -600,8 +603,9 @@ public partial class App : Application
         {
             var fileSystemService = sp.GetRequiredService<IFileSystemService>();
             var knowledgeBaseService = sp.GetRequiredService<IKnowledgeBaseService>();
+            var workspaceService = sp.GetService<IWorkspaceService>();
             var logger = Log.ForContext<FileSystemFunctions>();
-            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger);
+            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger, workspaceService);
         });
 
         services.AddSingleton<CliFunctions>(sp =>
@@ -641,6 +645,39 @@ public partial class App : Application
         });
 
         services.AddSingleton<IConversationSessionAccessor, ConversationSessionAccessor>();
+        services.AddSingleton<IUserInteractionService, AvaloniaUserInteractionService>();
+
+        services.AddSingleton<ConversationArchiveStore>(sp =>
+            new ConversationArchiveStore(
+                sp.GetRequiredService<IPlatformPathService>(),
+                Log.ForContext<ConversationArchiveStore>()));
+        services.AddSingleton<IConversationArchiveStore>(sp => sp.GetRequiredService<ConversationArchiveStore>());
+        services.AddSingleton<IConversationDraftStore>(sp => sp.GetRequiredService<ConversationArchiveStore>());
+        services.AddSingleton<IConversationTitleGenerator>(sp =>
+            new ConversationTitleGenerator(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<IPromptService>(),
+                Log.ForContext<ConversationTitleGenerator>(),
+                sp.GetService<ILocalizationService>()));
+        services.AddSingleton<IContextCompressionService>(sp =>
+            new ContextCompressionService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<IPromptService>(),
+                Log.ForContext<ContextCompressionService>(),
+                sp.GetService<ILocalizationService>()));
+        services.AddSingleton<IWorkspaceKnowledgeCompressor>(sp =>
+            new WorkspaceKnowledgeCompressor(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                Log.ForContext<WorkspaceKnowledgeCompressor>()));
+
+        services.AddSingleton<IWorkspaceService>(sp =>
+        {
+            var platformPathService = sp.GetRequiredService<IPlatformPathService>();
+            var configService = sp.GetService<IConfigService>();
+            var knowledgeCompressor = sp.GetService<IWorkspaceKnowledgeCompressor>();
+            var logger = Log.ForContext<WorkspaceService>();
+            return new WorkspaceService(platformPathService, logger, configService, knowledgeCompressor);
+        });
 
         services.AddSingleton<IImageGenerationSessionService>(sp =>
         {
@@ -758,12 +795,18 @@ public partial class App : Application
         });
 
         // 工具审批服务（策略大脑 + 审计）。被 FunctionRegistry 这个唯一 chokepoint 调用。
+        services.AddSingleton<IAiToolApprovalEvaluator>(sp =>
+            new AiToolApprovalEvaluator(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                Log.ForContext<AiToolApprovalEvaluator>()));
+
         services.AddSingleton<IToolApprovalService>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var prompter = sp.GetService<IToolApprovalPrompter>();
             var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
-            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor);
+            var aiEvaluator = sp.GetService<IAiToolApprovalEvaluator>();
+            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator);
         });
 
         // --- MCP 扩展（Model Context Protocol）---
@@ -843,47 +886,36 @@ public partial class App : Application
         // 模型列表查询服务（无状态，按需用各字段的 BaseUrl/Key 临时构造客户端）
         services.AddSingleton<IModelCatalogService, ModelCatalogService>();
 
+        services.AddSingleton<OpenAiModelRuntimeFactory>();
         // AI 对话服务（单例，共享配置）
         services.AddSingleton<IChatService>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
-            var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var promptService = sp.GetRequiredService<IPromptService>();
-            var historyService = sp.GetService<IConversationHistoryService>();
+            var contextCompressionService = sp.GetService<IContextCompressionService>();
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
+            var workspaceService = sp.GetService<IWorkspaceService>();
+            var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var config = configService.Load();
-            Log.Information("AI 服务初始化，模型: {Model}, FunctionCalling: {Enabled}",
-                config.Model, config.EnableFunctionCalling);
-            return new OpenAIChatService(config, promptService, functionRegistry, historyService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService);
-        });
-
-        // 对话历史服务（单例）
-        services.AddSingleton<IConversationHistoryService>(sp =>
-        {
-            var promptService = sp.GetRequiredService<IPromptService>();
-            var configService = sp.GetService<IConfigService>();
-            var platformPathService = sp.GetRequiredService<IPlatformPathService>();
-            var localizationService = sp.GetService<ILocalizationService>();
-            var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
-            var config = configService?.Load();
-            var service = new ConversationHistoryService(promptService, platformPathService, localizationService, imageGenerationSessionService);
-            if (config != null)
-            {
-                service.UpdateSecondaryConfig(config);
-            }
-            Log.Information("对话历史服务初始化");
-            return service;
+            Log.Information("AI 服务初始化，供应商配置: {ProviderId}, 模型: {Model}, FunctionCalling: {Enabled}",
+                config.AiModels.Provider.ProviderPreset,
+                config.AiModels.MainConversation.Model,
+                true);
+            return new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry);
         });
 
         services.AddSingleton<IConversationArchiveService>(sp =>
         {
-            var historyService = sp.GetRequiredService<IConversationHistoryService>();
+            var store = sp.GetRequiredService<IConversationArchiveStore>();
+            var draftStore = sp.GetRequiredService<IConversationDraftStore>();
+            var titleGenerator = sp.GetRequiredService<IConversationTitleGenerator>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var logger = Log.ForContext<ConversationArchiveService>();
-            return new ConversationArchiveService(historyService, platformPathService, logger);
+            var imageSessionService = sp.GetService<IImageGenerationSessionService>();
+            return new ConversationArchiveService(store, draftStore, titleGenerator, platformPathService, logger, imageSessionService);
         });
 
         // ViewModels
@@ -892,7 +924,7 @@ public partial class App : Application
             var chatService = sp.GetService<IChatService>();
             var configService = sp.GetService<IConfigService>();
             var taskScheduler = sp.GetService<ITaskScheduler>();
-            var historyService = sp.GetService<IConversationHistoryService>();
+            var contextCompressionService = sp.GetService<IContextCompressionService>();
             var promptService = sp.GetService<IPromptService>();
             var logService = sp.GetService<ILogService>();
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
@@ -915,12 +947,16 @@ public partial class App : Application
             var screenCaptureService = sp.GetService<IScreenCaptureService>();
             var subAgentOrchestrator = sp.GetService<ISubAgentOrchestrator>();
             var knowledgeMaintenanceService = sp.GetService<IKnowledgeBaseMaintenanceService>();
+            var workspaceService = sp.GetService<IWorkspaceService>();
+            var conversationSessionAccessor = sp.GetService<IConversationSessionAccessor>();
+            var modelRuntimeFactory = sp.GetService<OpenAiModelRuntimeFactory>();
+            var userInteractionService = sp.GetService<IUserInteractionService>();
 
             return new MainWindowViewModel(
                 chatService,
                 configService,
                 taskScheduler,
-                historyService,
+                contextCompressionService,
                 promptService,
                 logService,
                 knowledgeBaseService,
@@ -942,7 +978,11 @@ public partial class App : Application
                 modelCatalogService,
                 screenCaptureService,
                 subAgentOrchestrator,
-                knowledgeMaintenanceService);
+                knowledgeMaintenanceService,
+                workspaceService,
+                conversationSessionAccessor,
+                modelRuntimeFactory,
+                userInteractionService);
         });
 
         Log.Debug("依赖注入服务配置完成");

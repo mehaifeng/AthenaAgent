@@ -328,7 +328,7 @@
                                                FontSize="10" 
                                                VerticalAlignment="Center"/>
                                     
-                                    <TextBlock Text="Archived" 
+                                    <TextBlock Text="{loc:Loc Chat.Archived}" 
                                                IsVisible="{Binding IsCompressed}" 
                                                Foreground="{DynamicResource Chat.ArchivedFg}" 
                                                FontSize="10" 
@@ -603,8 +603,109 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     Background="{DynamicResource App.SectionBg}"
                     Padding="8">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                <ItemsControl Grid.Row="0"
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <!-- 工作区指示器 -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                    <Button x:Name="WorkspaceSelectorButton"
+                            Grid.Column="0"
+                            Command="{Binding ToggleWorkspaceFlyoutCommand}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            HorizontalAlignment="Left"
+                            Padding="6,3"
+                            ToolTip.Tip="{loc:Loc Chat.Workspace.SwitchTip}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource SemiIconFolder}" Width="12" Height="12" Opacity="0.6"/>
+                            <TextBlock Text="{Binding CurrentWorkspaceDisplayName}"
+                                       FontSize="12"
+                                       Opacity="0.8"
+                                       VerticalAlignment="Center"/>
+                            <PathIcon Data="{StaticResource SemiIconChevronDown}" Width="9" Height="9" Opacity="0.4"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <!-- 工作区下拉面板：Popup 不参与输入区布局，点击外部或失焦自动关闭。 -->
+                <Popup x:Name="WorkspaceFlyoutPopup"
+                       DataContext="{Binding DataContext, ElementName=WorkspaceSelectorButton}"
+                       IsOpen="{Binding IsWorkspaceFlyoutOpen, Mode=TwoWay}"
+                       PlacementTarget="{Binding #WorkspaceSelectorButton}"
+                       Placement="BottomEdgeAlignedLeft"
+                       IsLightDismissEnabled="True">
+                    <Border
+                        Background="{DynamicResource App.SectionBg}"
+                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="6"
+                        BoxShadow="0 4 12 0 #40000000">
+                    <StackPanel Spacing="4" MinWidth="240" MaxWidth="360">
+                        <TextBlock Text="{loc:Loc Chat.Workspace.SelectExisting}"
+                                   FontSize="11" Opacity="0.6" Margin="0,0,0,4"/>
+                        <Button Background="Transparent"
+                                BorderThickness="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="6,4"
+                                Command="{Binding SelectWorkspaceCommand}"
+                                CommandParameter="{x:Null}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource SemiIconComment}" Width="12" Height="12" Opacity="0.6"/>
+                                <TextBlock Text="{loc:Loc Chat.Workspace.Global}" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                        <ItemsControl ItemsSource="{Binding AvailableWorkspaces}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:WorkspaceProfile">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                                        <Button Grid.Column="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Left"
+                                                Padding="6,4"
+                                                Command="{Binding #WorkspaceFlyoutPopup.DataContext.SelectWorkspaceCommand}"
+                                                CommandParameter="{Binding}">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <PathIcon Grid.Column="0" Data="{StaticResource SemiIconFolder}" Width="12" Height="12" Opacity="0.5" VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="1" Spacing="1" Margin="8,0,0,0">
+                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding DirectoryPath}" FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Button>
+                                        <Button Grid.Column="1"
+                                                Classes="danger"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="3"
+                                                VerticalAlignment="Center"
+                                                Command="{Binding #WorkspaceFlyoutPopup.DataContext.RemoveWorkspaceCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{loc:Loc Chat.Workspace.Remove}">
+                                            <PathIcon Data="{StaticResource SemiIconClose}" Width="10" Height="10" Opacity="0.4"/>
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Separator Margin="0,4"/>
+                        <Button Background="Transparent"
+                                BorderThickness="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Padding="6,4"
+                                Command="{Binding AddWorkspaceCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource SemiIconPlus}" Width="12" Height="12" Opacity="0.6"/>
+                                <TextBlock Text="{loc:Loc Chat.Workspace.Add}" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    </Border>
+                </Popup>
+
+                <ItemsControl Grid.Row="1"
                               ItemsSource="{Binding PendingAttachments}"
                               IsVisible="{Binding HasPendingAttachments}"
                               Margin="0,0,0,8">
@@ -677,7 +778,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Grid.Row="1"
+                <TextBlock Grid.Row="2"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource Chat.TimestampFg}"
                            FontSize="12"
@@ -685,7 +786,7 @@
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasBackgroundArchiveNeutralStatus}"/>
 
-                <TextBlock Grid.Row="1"
+                <TextBlock Grid.Row="2"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
                            FontSize="12"
@@ -693,7 +794,7 @@
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasBackgroundArchiveErrorStatus}"/>
 
-                <TextBlock Grid.Row="2"
+                <TextBlock Grid.Row="3"
                            Text="{Binding AttachmentStatusMessage}"
                            IsVisible="{Binding HasAttachmentStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
@@ -702,7 +803,7 @@
 
                 <!-- 文本输入：无边框，融入外层卡片 -->
                 <TextBox x:Name="MessageInputTextBox"
-                         Grid.Row="3"
+                         Grid.Row="4"
                          Text="{Binding InputText}"
                          PlaceholderText="{Binding InputPlaceholder, Converter={StaticResource LocConverter}}"
                          AcceptsReturn="True"
@@ -728,7 +829,7 @@
                 </TextBox>
 
                 <!-- 底部功能工具栏：左侧功能按钮，右侧发送/停止 -->
-                <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 Spacing="2"

@@ -17,6 +17,12 @@ public interface IToolApprovalService
     Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken);
 }
 
+/// <summary>Automatic 审批模式下，用无工具模型对一次调用作 fail-closed 裁决。</summary>
+public interface IAiToolApprovalEvaluator
+{
+    Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// 审批弹窗展示器（UI 层实现）。把服务层的策略与 UI 解耦：服务只依赖此接口，
 /// 具体在 UI 线程弹 <c>ToolApprovalDialog</c> 的实现由 ViewModels 层提供。

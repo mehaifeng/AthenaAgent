@@ -29,6 +29,12 @@ public interface IModelCatalogService
     Task<ModelCatalogResult> GetModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 查询可用于文本回复的模型。OpenRouter 使用 <c>output_modalities=text</c> 精确过滤；
+    /// 其它 OpenAI 兼容端点回退到普通 <c>/models</c> 列表。
+    /// </summary>
+    Task<ModelCatalogResult> GetTextModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 仅查询嵌入类模型。识别到 OpenRouter 端点时，走其私有的
     /// <c>?output_modalities=embeddings</c> 查询参数由服务端精确过滤；
     /// 其它端点不支持该参数，回退为全量拉取（由上层按 ID 关键字过滤）。

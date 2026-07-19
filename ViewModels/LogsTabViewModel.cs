@@ -7,7 +7,6 @@ using Avalonia.Styling;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
-using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -20,6 +19,8 @@ namespace Athena.UI.ViewModels;
 public partial class LogsTabViewModel : ViewModelBase
 {
     private readonly ILogService? _logService;
+    private readonly ILocalizationService? _localizationService;
+    private readonly IUserInteractionService? _userInteractionService;
     private readonly ILogger _logger = Log.ForContext<LogsTabViewModel>();
 
     [ObservableProperty]
@@ -78,11 +79,13 @@ public partial class LogsTabViewModel : ViewModelBase
 
     public ObservableCollection<int> LogPageSizes { get; } = new() { 20, 50, 100, 200 };
 
-    public LogsTabViewModel() : this(null) { }
+    public LogsTabViewModel() : this(null, null, null) { }
 
-    public LogsTabViewModel(ILogService? logService)
+    public LogsTabViewModel(ILogService? logService, ILocalizationService? localizationService = null, IUserInteractionService? userInteractionService = null)
     {
         _logService = logService;
+        _localizationService = localizationService;
+        _userInteractionService = userInteractionService;
         App.ThemeChanged += OnThemeChanged;
         RefreshLogsAsync().ConfigureAwait(false);
     }
@@ -146,35 +149,15 @@ public partial class LogsTabViewModel : ViewModelBase
             return;
         }
 
-        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            return;
-        }
-
-        var storageProvider = desktop.MainWindow?.StorageProvider;
-        if (storageProvider == null)
-        {
-            return;
-        }
-
-        var file = await storageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "导出日志",
-            SuggestedFileName = $"logs_export_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
-            FileTypeChoices =
-            [
-                new FilePickerFileType("Text File") { Patterns = ["*.txt"] },
-                new FilePickerFileType("Log File") { Patterns = ["*.log"] }
-            ]
-        });
-
-        if (file == null || string.IsNullOrWhiteSpace(file.Path.LocalPath))
-        {
-            return;
-        }
+        if (_userInteractionService == null) return;
+        var file = await _userInteractionService.PickSaveFileAsync(
+            _localizationService?.GetString("Logs.ExportPickerTitle", "Export logs") ?? "Export logs",
+            $"logs_export_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
+            "Log files", ["*.txt", "*.log"]);
+        if (string.IsNullOrWhiteSpace(file)) return;
 
         var query = BuildQuery(page: 1, pageSize: int.MaxValue);
-        await _logService.ExportLogsAsync(query, file.Path.LocalPath);
+        await _logService.ExportLogsAsync(query, file);
     }
 
     [RelayCommand]

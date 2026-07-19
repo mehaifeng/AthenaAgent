@@ -18,16 +18,35 @@ namespace Athena.UI.ViewModels;
 /// </summary>
 public partial class HistoryTabViewModel : ViewModelBase
 {
-    private readonly IConversationHistoryService _historyService;
-    private readonly IConversationArchiveService? _archiveService;
+    private readonly IConversationArchiveService _archiveService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IWorkspaceService? _workspaceService;
     private readonly Dictionary<string, ConversationHistoryItem> _pendingArchiveItems = new(StringComparer.Ordinal);
     private List<ConversationHistoryItem> _persistedHistoryItems = [];
+    private List<WorkspaceProfile> _workspaceCache = [];
 
     /// <summary>
-    /// 历史记录列表
+    /// 工作区分组模型
     /// </summary>
-    public ObservableCollection<ConversationHistoryItem> HistoryItems { get; } = new();
+    public partial class WorkspaceHistoryGroup : ObservableObject
+    {
+        public string? WorkspaceId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string? DirectoryPath { get; set; }
+
+        [ObservableProperty]
+        private bool _isExpanded = true;
+
+        public ObservableCollection<ConversationHistoryItem> Items { get; } = new();
+
+        [RelayCommand]
+        private void ToggleExpanded() => IsExpanded = !IsExpanded;
+    }
+
+    /// <summary>
+    /// 分组后的历史记录列表
+    /// </summary>
+    public ObservableCollection<WorkspaceHistoryGroup> GroupedHistoryItems { get; } = new();
 
     /// <summary>
     /// 选中的历史条目
@@ -134,20 +153,17 @@ public partial class HistoryTabViewModel : ViewModelBase
     /// 构造函数
     /// </summary>
     public HistoryTabViewModel(
-        IConversationHistoryService historyService,
-        IConversationArchiveService? archiveService = null,
-        ILocalizationService? localizationService = null)
+        IConversationArchiveService archiveService,
+        ILocalizationService? localizationService = null,
+        IWorkspaceService? workspaceService = null)
     {
-        _historyService = historyService;
         _archiveService = archiveService;
         _localizationService = localizationService;
+        _workspaceService = workspaceService;
 
-        if (_archiveService != null)
-        {
-            _archiveService.ArchiveStaged += OnArchiveStaged;
-            _archiveService.ArchiveCompleted += OnArchiveCompleted;
-            _archiveService.ArchiveFailed += OnArchiveFailed;
-        }
+        _archiveService.ArchiveStaged += OnArchiveStaged;
+        _archiveService.ArchiveCompleted += OnArchiveCompleted;
+        _archiveService.ArchiveFailed += OnArchiveFailed;
 
         Log.Information("HistoryTabViewModel 初始化");
     }
@@ -160,8 +176,14 @@ public partial class HistoryTabViewModel : ViewModelBase
         IsLoading = true;
         try
         {
+            // 先异步加载工作区列表到缓存（避免 RebuildHistoryItems 中同步阻塞）
+            if (_workspaceService != null)
+            {
+                _workspaceCache = await _workspaceService.LoadAllAsync();
+            }
+
             var selectedId = SelectedItem?.Id;
-            var items = await _historyService.LoadAllAsync();
+            var items = await _archiveService.LoadAllAsync();
             _persistedHistoryItems = items;
             RebuildHistoryItems(selectedId);
             Log.Information("历史列表加载完成，共 {Count} 条", items.Count);
@@ -203,8 +225,23 @@ public partial class HistoryTabViewModel : ViewModelBase
         try
         {
             var id = item.Id;
-            await _historyService.DeleteAsync(id);
-            HistoryItems.Remove(item);
+            await _archiveService.DeleteAsync(id);
+
+            // 从分组列表中移除
+            foreach (var group in GroupedHistoryItems)
+            {
+                if (group.Items.Remove(item))
+                    break;
+            }
+
+            // 移除空分组（未分组除外）
+            var emptyGroups = GroupedHistoryItems
+                .Where(g => g.Items.Count == 0 && g.WorkspaceId != null)
+                .ToList();
+            foreach (var g in emptyGroups)
+            {
+                GroupedHistoryItems.Remove(g);
+            }
 
             if (SelectedItem == item)
             {
@@ -261,6 +298,8 @@ public partial class HistoryTabViewModel : ViewModelBase
 
     private void RebuildHistoryItems(string? selectedId)
     {
+        var expansionStates = GroupedHistoryItems
+            .ToDictionary(group => group.WorkspaceId ?? string.Empty, group => group.IsExpanded, StringComparer.Ordinal);
         var pendingDisplayItems = _pendingArchiveItems.Values
             .GroupBy(item => item.Id, StringComparer.Ordinal)
             .Select(group => group.OrderByDescending(item => item.UpdatedAt).First())
@@ -277,15 +316,61 @@ public partial class HistoryTabViewModel : ViewModelBase
             .OrderByDescending(item => item.UpdatedAt)
             .ToList();
 
-        HistoryItems.Clear();
-        foreach (var item in mergedItems)
+        // 按工作区分组（用哨兵常量代替 null 作为 dict key，Dictionary 不允许 null key）
+        const string UngroupedKey = "__ungrouped__";
+        var workspaceMap = new Dictionary<string, WorkspaceHistoryGroup>(StringComparer.Ordinal);
+        var ungroupedGroup = new WorkspaceHistoryGroup
         {
-            HistoryItems.Add(item);
+            WorkspaceId = null,
+            DisplayName = GetString("History.Group.Ungrouped", "未分组"),
+            IsExpanded = expansionStates.GetValueOrDefault(string.Empty, true)
+        };
+        workspaceMap[UngroupedKey] = ungroupedGroup;
+
+        // 预加载工作区名称（从缓存读取，无 I/O）
+        foreach (var ws in _workspaceCache)
+        {
+            if (!workspaceMap.ContainsKey(ws.Id))
+            {
+                workspaceMap[ws.Id] = new WorkspaceHistoryGroup
+                {
+                    WorkspaceId = ws.Id,
+                    DisplayName = ws.Name,
+                    DirectoryPath = ws.DirectoryPath,
+                    IsExpanded = expansionStates.GetValueOrDefault(ws.Id, true)
+                };
+            }
         }
 
+        foreach (var item in mergedItems)
+        {
+            var key = string.IsNullOrEmpty(item.WorkspaceId) ? UngroupedKey : item.WorkspaceId!;
+            if (!workspaceMap.TryGetValue(key, out var group))
+            {
+                // 工作区已删除但历史仍有引用 → 归入未分组
+                group = ungroupedGroup;
+            }
+            group.Items.Add(item);
+        }
+
+        GroupedHistoryItems.Clear();
+        // 有工作区的组在前，按名称排序；未分组在最后
+        var sortedGroups = workspaceMap.Values
+            .Where(g => g.Items.Count > 0)
+            .OrderBy(g => g.WorkspaceId == null ? 1 : 0)
+            .ThenBy(g => g.DisplayName)
+            .ToList();
+        foreach (var group in sortedGroups)
+        {
+            GroupedHistoryItems.Add(group);
+        }
+
+        // 在所有分组中查找选中项
         SelectedItem = string.IsNullOrWhiteSpace(selectedId)
             ? null
-            : HistoryItems.FirstOrDefault(item => string.Equals(item.Id, selectedId, StringComparison.Ordinal));
+            : GroupedHistoryItems
+                .SelectMany(g => g.Items)
+                .FirstOrDefault(item => string.Equals(item.Id, selectedId, StringComparison.Ordinal));
 
         OnPropertyChanged(nameof(HasSelectedItem));
     }
@@ -357,7 +442,8 @@ public partial class HistoryTabViewModel : ViewModelBase
             UpdatedAt = snapshot.CapturedAt,
             IsArchivePlaceholder = true,
             ArchiveStagePath = stagedFilePath,
-            ArchiveStatusText = GetString("History.PendingStatus", "正在总结中")
+            ArchiveStatusText = GetString("History.PendingStatus", "正在总结中"),
+            WorkspaceId = snapshot.WorkspaceId
         };
     }
 

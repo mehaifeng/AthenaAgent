@@ -95,7 +95,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IChatService? chatService,
         IConfigService? configService,
         ITaskScheduler? taskScheduler,
-        IConversationHistoryService? historyService,
+        IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
         ILogService? logService,
         IKnowledgeBaseService? knowledgeBaseService,
@@ -117,27 +117,31 @@ public partial class MainWindowViewModel : ViewModelBase
         IModelCatalogService? modelCatalogService = null,
         IScreenCaptureService? screenCaptureService = null,
         ISubAgentOrchestrator? subAgentOrchestrator = null,
-        IKnowledgeBaseMaintenanceService? knowledgeMaintenanceService = null)
+        IKnowledgeBaseMaintenanceService? knowledgeMaintenanceService = null,
+        IWorkspaceService? workspaceService = null,
+        IConversationSessionAccessor? conversationSessionAccessor = null,
+        OpenAiModelRuntimeFactory? modelRuntimeFactory = null,
+        IUserInteractionService? userInteractionService = null)
     {
         _localizationService = localizationService;
         Orchestrator = subAgentOrchestrator;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, historyService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, historyService, localizationService, modelCatalogService, knowledgeMaintenanceService, knowledgeBaseService);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService);
+        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, localizationService, modelCatalogService, knowledgeMaintenanceService, knowledgeBaseService, browserService, browserVisionService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
-        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, browserService, browserVisionService, systemAudioService, modelCatalogService);
+        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, systemAudioService);
         _extensionsTabViewModel.Initialize(_configTabViewModel);
         _mcpTabViewModel = new McpTabViewModel(configService, localizationService);
         _mcpTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
-        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService);
-        _logsTabViewModel = new LogsTabViewModel(logService);
+        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService, userInteractionService);
+        _logsTabViewModel = new LogsTabViewModel(logService, localizationService, userInteractionService);
         _aboutTabViewModel = new AboutTabViewModel(localizationService, updateService);
 
-        if (historyService != null)
+        if (archiveService != null)
         {
-            _historyTabViewModel = new HistoryTabViewModel(historyService, archiveService, localizationService);
+            _historyTabViewModel = new HistoryTabViewModel(archiveService, localizationService, workspaceService);
             _historyTabViewModel.LoadHistoryRequested += OnLoadHistoryRequested;
             _historyTabViewModel.HistoryDeleted += OnHistoryDeleted;
         }
@@ -151,6 +155,9 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _logger.Information("MainWindowViewModel 初始化完成");
+
+        // 加载工作区列表并恢复上次活跃工作区
+        _ = ChatTabViewModel.InitializeWorkspacesAsync();
     }
 
     private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)

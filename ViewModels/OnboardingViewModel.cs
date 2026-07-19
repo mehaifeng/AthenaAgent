@@ -5,7 +5,10 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace Athena.UI.ViewModels;
 
@@ -19,6 +22,8 @@ public partial class OnboardingViewModel : ObservableObject
     private readonly IConfigService _configService;
     private readonly ILocalizationService? _localizationService;
     private readonly IChatService? _chatService;
+    private readonly IModelCatalogService? _modelCatalogService;
+    private CancellationTokenSource? _modelOptionsCts;
 
     /// <summary>请求关闭窗口（由 OnboardingWindow 注入）。</summary>
     public Action? RequestClose { get; set; }
@@ -28,7 +33,6 @@ public partial class OnboardingViewModel : ObservableObject
     private static readonly Dictionary<string, string> ProviderUrls = new()
     {
         { "OpenAI", "https://api.openai.com/v1" },
-        { "Anthropic", "https://api.anthropic.com/v1/" },
         { "Google", "https://generativelanguage.googleapis.com/v1beta/openai/" },
         { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
         { "Deepseek", "https://api.deepseek.com/v1" },
@@ -37,6 +41,9 @@ public partial class OnboardingViewModel : ObservableObject
     };
 
     public List<string> Providers { get; } = new(ProviderUrls.Keys);
+    [ObservableProperty]
+    private ObservableCollection<string> _modelOptions = new();
+    public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Provider;
 
     /// <summary>Web Search 供应商默认 BaseUrl。</summary>
     private static readonly Dictionary<string, string> WebSearchProviderUrls = new()
@@ -99,13 +106,14 @@ public partial class OnboardingViewModel : ObservableObject
         }
     }
 
-    public OnboardingViewModel() : this(null!, null, null) { }
+    public OnboardingViewModel() : this(null!, null, null, null) { }
 
-    public OnboardingViewModel(IConfigService configService, ILocalizationService? localizationService, IChatService? chatService)
+    public OnboardingViewModel(IConfigService configService, ILocalizationService? localizationService, IChatService? chatService, IModelCatalogService? modelCatalogService = null)
     {
         _configService = configService;
         _localizationService = localizationService;
         _chatService = chatService;
+        _modelCatalogService = modelCatalogService;
         Config = configService?.Load() ?? new AppConfig();
 
         // 向导语言跟随已保存配置（默认 zh-CN）。
@@ -116,6 +124,7 @@ public partial class OnboardingViewModel : ObservableObject
         App.ThemeChanged += theme =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 ThemeIcon = theme == "Dark" ? "Moon" : "Sun");
+        _ = LoadModelOptionsAsync();
     }
 
     partial void OnCurrentStepChanged(int value) => _ = SaveAsync();
@@ -124,10 +133,44 @@ public partial class OnboardingViewModel : ObservableObject
     [RelayCommand]
     private void ApplyProviderDefaultUrl()
     {
-        if (ProviderUrls.TryGetValue(Config.Provider, out var url) && !string.IsNullOrEmpty(url))
+        if (ProviderUrls.TryGetValue(PrimaryProvider.ProviderPreset, out var url) && !string.IsNullOrEmpty(url))
         {
-            Config.BaseUrl = url;
+            PrimaryProvider.BaseUrl = url;
         }
+        _ = LoadModelOptionsAsync();
+    }
+
+    [RelayCommand]
+    private async Task LoadModelOptionsAsync()
+    {
+        if (_modelCatalogService == null) return;
+        _modelOptionsCts?.Cancel();
+        _modelOptionsCts?.Dispose();
+        var cts = _modelOptionsCts = new CancellationTokenSource();
+        ModelCatalogResult result;
+        try
+        {
+            result = await _modelCatalogService.GetModelsAsync(PrimaryProvider.BaseUrl, PrimaryProvider.ApiKey, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (cts.IsCancellationRequested || !ReferenceEquals(cts, _modelOptionsCts)) return;
+        if (!result.Success) return;
+
+        var selected = new[]
+        {
+            Config.AiModels.MainConversation.Model,
+            Config.AiModels.TitleGeneration.Model,
+            Config.AiModels.ContextCompression.Model,
+            Config.AiModels.Approval.Model
+        };
+        // 整体替换 ItemsSource，避免 Clear() 的集合变更让四个下拉框依次丢失当前选择。
+        var options = new ObservableCollection<string>(result.Models);
+        foreach (var model in selected.Where(model => !string.IsNullOrWhiteSpace(model) && !options.Contains(model)))
+            options.Add(model);
+        ModelOptions = options;
     }
 
     /// <summary>Web Search 供应商变化时带出默认 BaseUrl（Custom 保留用户填的端点）。</summary>
@@ -147,7 +190,7 @@ public partial class OnboardingViewModel : ObservableObject
     private async Task TestConnectionAsync()
     {
         if (_chatService == null) return;
-        if (string.IsNullOrWhiteSpace(Config.ApiKey))
+        if (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey))
         {
             ConnectionStatus = GetString("Onboarding.EnterApiKeyFirst", "> enter api key first");
             return;

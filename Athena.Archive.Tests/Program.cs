@@ -4,6 +4,9 @@ using System.ComponentModel;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,8 +22,10 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("bulk collection replacement emits one reset", TestBulkCollectionReplaceAllAsync),
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
+    ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config uses dedicated credentials and provider default endpoint", TestAudioConfigInheritanceAsync),
+    ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
@@ -58,6 +63,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: trusted maintenance path auto-allows", TestApprovalTrustedAllowAsync),
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
+    ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
     ("mcp: name encoder produces safe short names and hashes long ones", TestMcpNameEncoderAsync),
     ("mcp: registry replace/remove is atomic and snapshot is ordered", TestMcpRegistryAsync),
@@ -111,6 +117,22 @@ static Task TestBulkCollectionReplaceAllAsync()
     return Task.CompletedTask;
 }
 
+static async Task TestOpenRouterModelCatalogFiltersAsync()
+{
+    var handler = new RecordingHttpHandler();
+    var service = new ModelCatalogService(new HttpClient(handler));
+
+    var text = await service.GetTextModelsAsync("https://openrouter.ai/api/v1", "test-key");
+    var embeddings = await service.GetEmbeddingModelsAsync("https://openrouter.ai/api/v1", "test-key");
+
+    AssertTrue(text.Success, "text model request should succeed");
+    AssertEqual("alpha/text-model", text.Models.Single(), "text response should be parsed");
+    AssertTrue(embeddings.Success, "embedding model request should succeed");
+    AssertEqual("alpha/embedding-model", embeddings.Models.Single(), "embedding response should be parsed without name heuristics");
+    AssertEqual("text,embeddings", string.Join(',', handler.Modalities), "OpenRouter requests should use distinct output modality filters");
+    AssertTrue(handler.AllAuthorized, "OpenRouter requests should carry bearer authorization");
+}
+
 static Task TestSnapshotFilterAsync()
 {
     var loadingBubble = new ChatMessage
@@ -130,6 +152,64 @@ static Task TestSnapshotFilterAsync()
     AssertFalse(ConversationPersistenceHelper.ShouldPersistMessage(loadingBubble), "empty loading bubble should be skipped");
     AssertTrue(ConversationPersistenceHelper.ShouldPersistMessage(partialBubble), "partial assistant text should be archived");
     return Task.CompletedTask;
+}
+
+static async Task TestWorkspaceProfileAndKnowledgeContextAsync()
+{
+    using var harness = new TestHarness();
+    var service = new WorkspaceService(harness.PathService, Log.ForContext<WorkspaceService>());
+    var workspace = new WorkspaceProfile
+    {
+        Name = "Demo project",
+        DirectoryPath = Path.Combine(harness.Root, "project")
+    };
+
+    await service.SaveAsync(workspace);
+    var duplicate = await service.FindByDirectoryAsync(workspace.DirectoryPath + Path.DirectorySeparatorChar);
+    AssertEqual(workspace.Id, duplicate?.Id, "workspace lookup should normalize directory paths");
+
+    var knowledgeFile = service.GetKnowledgeFilePath(workspace);
+    await File.WriteAllTextAsync(knowledgeFile, "Project overview for regression coverage.");
+    var context = service.BuildWorkspaceKnowledgeContext(workspace.Id, service.GetKnowledgeFilePath(workspace), 100);
+    AssertTrue(context?.Contains("Project overview", StringComparison.Ordinal) == true,
+        "workspace knowledge should be included in its prompt context");
+
+    var compressionBudget = 50;
+    var compressedKnowledge = "# Project\nKeep the build command and the deployment decision.";
+    var compressionHistory = new QueueWorkspaceCompressor(compressedKnowledge);
+    var compressionService = new WorkspaceService(
+        harness.PathService,
+        Log.ForContext<WorkspaceService>(),
+        new TestConfigService(new AppConfig { WorkspaceKnowledgeTokenBudget = compressionBudget }),
+        compressionHistory);
+    var oversizedFile = compressionService.GetKnowledgeFilePath(workspace);
+    await File.WriteAllTextAsync(oversizedFile, string.Join(' ', Enumerable.Repeat("detailed project fact", 100)));
+    await compressionService.EnforceKnowledgeFileBudgetAsync(oversizedFile);
+    var compressedContent = await File.ReadAllTextAsync(oversizedFile);
+    AssertEqual(compressedKnowledge, compressedContent, "oversized workspace knowledge should be replaced by the secondary-model summary");
+    AssertTrue(ConversationContext.EstimateTokens(compressedContent) <= compressionBudget,
+        "compressed workspace knowledge must fit its configured token budget");
+    var limitedContext = compressionService.BuildWorkspaceKnowledgeContext(workspace.Id, compressionService.GetKnowledgeFilePath(workspace), compressionBudget);
+    AssertTrue(ConversationContext.EstimateTokens(limitedContext) <= compressionBudget,
+        "the fully assembled workspace context must fit its configured token budget");
+
+    var legacyWorkspaceId = Guid.NewGuid().ToString("N");
+    var legacyKnowledgeDir = harness.PathService.GetWorkspaceKnowledgeDirectory(legacyWorkspaceId);
+    Directory.CreateDirectory(legacyKnowledgeDir);
+    await File.WriteAllTextAsync(Path.Combine(legacyKnowledgeDir, "autotrainer_overview.md"), "# Existing workspace knowledge");
+    var legacyProfilePath = Path.Combine(harness.PathService.GetWorkspacesDirectory(), legacyWorkspaceId + ".json");
+    Directory.CreateDirectory(harness.PathService.GetWorkspacesDirectory());
+    await File.WriteAllTextAsync(legacyProfilePath,
+        JsonSerializer.Serialize(new { id = legacyWorkspaceId, name = "Legacy", directoryPath = harness.Root }));
+    var migrated = await service.LoadByIdAsync(legacyWorkspaceId);
+    AssertEqual("autotrainer_overview.md", migrated?.KnowledgeFileName,
+        "legacy workspaces should adopt their existing knowledge file as the managed file");
+    AssertTrue(service.GetKnowledgeFilePath(migrated!).EndsWith("autotrainer_overview.md", StringComparison.Ordinal),
+        "the managed knowledge path should be stable and directly available to the prompt");
+
+    await service.DeleteAsync(workspace.Id);
+    AssertTrue(!Directory.Exists(Path.Combine(harness.PathService.GetWorkspacesDirectory(), workspace.Id)),
+        "removing a workspace should remove only its managed workspace data");
 }
 
 static Task TestAudioPersistenceCloneAsync()
@@ -321,7 +401,7 @@ static Task TestSummaryContextBudgetAsync()
         messages.Add(new ChatMessage { Role = "tool", Content = "tool result noise" });
     }
 
-    var entries = ConversationHistoryService.BuildSummaryContext(messages);
+    var entries = ConversationTitleGenerator.BuildContext(messages);
 
     AssertEqual(10, entries.Count, "context should keep at most 10 non-tool messages");
     AssertTrue(entries.Sum(e => e.Content.Length) <= 1000, "total context must be within the 1000-char budget");
@@ -332,7 +412,7 @@ static Task TestSummaryContextBudgetAsync()
     var longMessages = Enumerable.Range(0, 10)
         .Select(i => new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = new string((char)('a' + i), 500) })
         .ToList();
-    var clamped = ConversationHistoryService.BuildSummaryContext(longMessages);
+    var clamped = ConversationTitleGenerator.BuildContext(longMessages);
     AssertEqual(1000, clamped.Sum(e => e.Content.Length), "worst case converges to 10 x 100 chars");
     AssertTrue(clamped.All(e => e.Content.Length == 100), "each over-long entry is clamped to 100 chars");
 
@@ -342,13 +422,13 @@ static Task TestSummaryContextBudgetAsync()
         new() { Role = "user", Content = "short question" },
         new() { Role = "assistant", Content = "short answer" }
     };
-    var fewEntries = ConversationHistoryService.BuildSummaryContext(few);
+    var fewEntries = ConversationTitleGenerator.BuildContext(few);
     AssertEqual(2, fewEntries.Count, "fewer than 10 messages are all kept");
     AssertEqual("short question", fewEntries[0].Content, "under-budget content is untouched");
 
     // 硬截断不拆散代理对
     var emoji = string.Concat(Enumerable.Repeat("😀", 15)); // 30 chars (15 对代理对)
-    var truncated = ConversationHistoryService.TruncateAtChar(emoji, 21);
+    var truncated = ConversationTitleGenerator.Truncate(emoji, 21);
     AssertEqual(20, truncated.Length, "cut point should back off before a high surrogate");
 
     return Task.CompletedTask;
@@ -377,7 +457,7 @@ static async Task TestFallbackSummaryAsync()
 
     var item = await service.UpsertFromSnapshotAsync(snapshot);
     AssertEqual("This is a deliberat…", item.Summary, "summary should fall back to first user message clamped to the 20-char title limit");
-    AssertTrue(item.Summary.Length <= ConversationHistoryService.SummaryTitleMaxChars, "fallback title must respect the 20-char cap");
+    AssertTrue(item.Summary.Length <= ConversationTitleGenerator.TitleMaxChars, "fallback title must respect the 20-char cap");
     AssertTrue(File.Exists(Path.Combine(harness.PathService.GetHistoryDirectory(), $"{item.Id}.json")), "history file should still be written");
 }
 
@@ -770,8 +850,8 @@ static async Task TestArchiveQueueReplayAsync()
         ]
     };
 
-    var failingHistory = new QueueHistoryService(throwOnUpsert: true);
-    var firstArchiveService = new ConversationArchiveService(failingHistory, harness.PathService, Log.ForContext<ConversationArchiveService>());
+    var failingHistory = new QueueArchiveStore(throwOnSave: true);
+    var firstArchiveService = new ConversationArchiveService(failingHistory, failingHistory, new TestTitleGenerator(), harness.PathService, Log.ForContext<ConversationArchiveService>());
     var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     firstArchiveService.ArchiveFailed += (_, _) => failure.TrySetResult(true);
 
@@ -781,14 +861,14 @@ static async Task TestArchiveQueueReplayAsync()
     var stagedFiles = Directory.GetFiles(harness.PathService.GetPendingArchiveDirectory(), "*.json");
     AssertEqual(1, stagedFiles.Length, "failed archive should stay on disk");
 
-    var succeedingHistory = new QueueHistoryService();
-    var secondArchiveService = new ConversationArchiveService(succeedingHistory, harness.PathService, Log.ForContext<ConversationArchiveService>());
+    var succeedingHistory = new QueueArchiveStore();
+    var secondArchiveService = new ConversationArchiveService(succeedingHistory, succeedingHistory, new TestTitleGenerator(), harness.PathService, Log.ForContext<ConversationArchiveService>());
     var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     secondArchiveService.ArchiveCompleted += (_, _) => completion.TrySetResult(true);
 
     await AwaitWithTimeout(completion.Task, "archive replay completion");
     AssertEqual(0, Directory.GetFiles(harness.PathService.GetPendingArchiveDirectory(), "*.json").Length, "replayed archive should be deleted");
-    AssertEqual(1, succeedingHistory.UpsertedSnapshots.Count, "replayed archive should be delivered to history service");
+    AssertEqual(1, succeedingHistory.SavedItems.Count, "replayed archive should be delivered to archive store");
 }
 
 static Task TestRecurrenceMigrationAndValidationAsync()
@@ -1250,6 +1330,27 @@ static async Task TestApprovalSessionPerConversationAsync()
         AssertTrue(newConversation.Approved, "new conversation still approves after a fresh prompt");
         AssertEqual(2, prompter.CallCount, "new conversation must prompt again (session allow is per-conversation)");
     }
+}
+
+static async Task TestApprovalAutomaticModelAsync()
+{
+    var config = new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic };
+    var evaluator = new CapturingApprovalEvaluator();
+    var service = new ToolApprovalService(
+        new TestConfigService(config),
+        null,
+        Log.ForContext<ToolApprovalService>(),
+        aiEvaluator: evaluator);
+
+    using var scope = ToolApprovalContext.EnterInteractive("Update the scoped project file");
+    var decision = await service.EvaluateAsync(
+        "write_system_file",
+        "{\"path\":\"notes.md\",\"content\":\"ok\"}",
+        CancellationToken.None);
+
+    AssertTrue(decision.Approved, "automatic evaluator decision should be returned");
+    AssertEqual("write_system_file", evaluator.Request?.FunctionName, "automatic evaluator should receive the tool request");
+    AssertEqual("Update the scoped project file", evaluator.DelegatedTask, "delegated Tool Agent task should flow to approval evaluation");
 }
 
 static async Task TestFileSystemSymlinkEscapeAsync()
@@ -1942,9 +2043,16 @@ sealed class TestHarness : IDisposable
 
     public TestPlatformPathService PathService { get; }
 
-    public ConversationHistoryService CreateHistoryService()
+    public ConversationArchiveService CreateHistoryService()
     {
-        return new ConversationHistoryService(new TestPromptService(), PathService, new TestLocalizationService(), new ImageGenerationSessionService(PathService, Log.ForContext<ImageGenerationSessionService>()));
+        var store = new ConversationArchiveStore(PathService, Log.ForContext<ConversationArchiveStore>());
+        return new ConversationArchiveService(
+            store,
+            store,
+            new TestTitleGenerator(),
+            PathService,
+            Log.ForContext<ConversationArchiveService>(),
+            new ImageGenerationSessionService(PathService, Log.ForContext<ImageGenerationSessionService>()));
     }
 
     public void Dispose()
@@ -2049,66 +2157,59 @@ sealed class TestPlatformPathService(string root) : IPlatformPathService
     public string GetTaskSchedulerFilePath() => Path.Combine(root, "tasks.json");
 
     public string GetVectorStoreFilePath() => Path.Combine(root, "vectors.db");
+
+    public string GetWorkspacesDirectory() => Path.Combine(root, "workspaces");
+
+    public string GetWorkspaceKnowledgeDirectory(string workspaceId) =>
+        Path.Combine(root, "workspaces", workspaceId, "knowledge");
 }
 
-sealed class QueueHistoryService(bool throwOnUpsert = false) : IConversationHistoryService
+sealed class QueueWorkspaceCompressor(string? compressedKnowledge) : IWorkspaceKnowledgeCompressor
 {
-    public List<ConversationArchiveSnapshot> UpsertedSnapshots { get; } = new();
+    public Task<string?> CompressAsync(string content, int tokenBudget, CancellationToken cancellationToken = default)
+        => Task.FromResult(compressedKnowledge);
+}
 
-    public Task<List<ConversationHistoryItem>> LoadAllAsync() => Task.FromResult(new List<ConversationHistoryItem>());
+sealed class QueueArchiveStore(bool throwOnSave = false) : IConversationArchiveStore, IConversationDraftStore
+{
+    public List<ConversationHistoryItem> SavedItems { get; } = new();
 
-    public Task SaveAsync(ConversationHistoryItem item) => Task.CompletedTask;
+    public Task<List<ConversationHistoryItem>> LoadAllAsync() => Task.FromResult(SavedItems.ToList());
 
-    public Task DeleteAsync(string id) => Task.CompletedTask;
+    public Task<ConversationHistoryItem?> LoadByIdAsync(string id) =>
+        Task.FromResult(SavedItems.FirstOrDefault(item => item.Id == id));
 
-    public Task<string> GenerateSummaryAsync(List<ChatMessage> messages) => Task.FromResult("summary");
-
-    public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => Task.FromResult<ConversationHistoryItem?>(null);
-
-    public Task DeleteImageSessionAsync(string? conversationId) => Task.CompletedTask;
-
-    public void SaveDraft(ConversationDraftSnapshot snapshot)
+    public Task SaveAsync(ConversationHistoryItem item)
     {
-    }
-
-    public ConversationDraftSnapshot? LoadDraft() => null;
-
-    public void DeleteDraft()
-    {
-    }
-
-    public void UpdateSecondaryConfig(AppConfig config)
-    {
-    }
-
-    public Task<CompressionResult> CompressContextAsync(List<ChatMessage> messages, string? existingSummary, int keepRecentRounds = 3)
-    {
-        return Task.FromResult(CompressionResult.None);
-    }
-
-    public Task<(bool Success, string Message)> TestSecondaryConnectionAsync()
-    {
-        return Task.FromResult((true, "ok"));
-    }
-
-    public Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
-    {
-        if (throwOnUpsert)
+        if (throwOnSave)
         {
             throw new InvalidOperationException("simulated failure");
         }
+        SavedItems.RemoveAll(existing => existing.Id == item.Id);
+        SavedItems.Add(item);
+        return Task.CompletedTask;
+    }
 
-        UpsertedSnapshots.Add(snapshot);
-        return Task.FromResult(new ConversationHistoryItem
-        {
-            ConversationId = snapshot.ConversationId,
-            Id = snapshot.HistoryId ?? Guid.NewGuid().ToString("N"),
-            CreatedAt = snapshot.CapturedAt,
-            UpdatedAt = snapshot.CapturedAt,
-            Summary = "queued",
-            MessageCount = snapshot.Messages.Count,
-            Messages = snapshot.Messages.ToList()
-        });
+    public Task DeleteAsync(string id)
+    {
+        SavedItems.RemoveAll(item => item.Id == id);
+        return Task.CompletedTask;
+    }
+
+    public void Save(ConversationDraftSnapshot snapshot) { }
+    public ConversationDraftSnapshot? Load() => null;
+    public void Delete() { }
+}
+
+sealed class TestTitleGenerator : IConversationTitleGenerator
+{
+    public Task<string> GenerateAsync(IReadOnlyList<ChatMessage> messages, bool useAi, CancellationToken cancellationToken = default)
+    {
+        var content = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? "New conversation";
+        var title = content.Length <= ConversationTitleGenerator.TitleMaxChars
+            ? content
+            : ConversationTitleGenerator.Truncate(content, ConversationTitleGenerator.TitleMaxChars - 1) + "…";
+        return Task.FromResult(title);
     }
 }
 
@@ -2219,7 +2320,11 @@ sealed class TestConversationSessionAccessor(string conversationId) : IConversat
 {
     public string? CurrentConversationId => conversationId;
 
+    public string? CurrentWorkspaceId => null;
+
     public IDisposable Enter(string nextConversationId) => throw new NotSupportedException();
+
+    public IDisposable EnterWorkspace(string? workspaceId) => throw new NotSupportedException();
 }
 
 sealed class StubImageGenerationService : IImageGenerationService
@@ -2303,9 +2408,24 @@ sealed class FakeApprovalPrompter : IToolApprovalPrompter
     }
 }
 
+sealed class CapturingApprovalEvaluator : IAiToolApprovalEvaluator
+{
+    public ToolApprovalRequest? Request { get; private set; }
+    public string? DelegatedTask { get; private set; }
+
+    public Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
+    {
+        Request = request;
+        DelegatedTask = ToolApprovalContext.CurrentDelegatedTask;
+        return Task.FromResult(ToolApprovalDecision.AllowOnce("test evaluator"));
+    }
+}
+
 sealed class FakeConversationSessionAccessor : IConversationSessionAccessor
 {
     public string? CurrentConversationId { get; set; }
+
+    public string? CurrentWorkspaceId { get; set; }
 
     public IDisposable Enter(string conversationId)
     {
@@ -2314,9 +2434,47 @@ sealed class FakeConversationSessionAccessor : IConversationSessionAccessor
         return new Scope(this, previous);
     }
 
+    public IDisposable EnterWorkspace(string? workspaceId)
+    {
+        var previous = CurrentWorkspaceId;
+        CurrentWorkspaceId = workspaceId;
+        return new WorkspaceScope(this, previous);
+    }
+
     private sealed class Scope(FakeConversationSessionAccessor owner, string? previous) : IDisposable
     {
         public void Dispose() => owner.CurrentConversationId = previous;
+    }
+
+    private sealed class WorkspaceScope(FakeConversationSessionAccessor owner, string? previous) : IDisposable
+    {
+        public void Dispose() => owner.CurrentWorkspaceId = previous;
+    }
+}
+
+sealed class RecordingHttpHandler : HttpMessageHandler
+{
+    public List<string> Modalities { get; } = [];
+    public bool AllAuthorized { get; private set; } = true;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var query = request.RequestUri?.Query ?? string.Empty;
+        var modality = query.Contains("output_modalities=embeddings", StringComparison.Ordinal)
+            ? "embeddings"
+            : query.Contains("output_modalities=text", StringComparison.Ordinal)
+                ? "text"
+                : "missing";
+        Modalities.Add(modality);
+        AllAuthorized &= request.Headers.Authorization?.Scheme == "Bearer"
+                         && request.Headers.Authorization.Parameter == "test-key";
+
+        var id = modality == "embeddings" ? "alpha/embedding-model" : "alpha/text-model";
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent($$"""{"data":[{"id":"{{id}}"}]}""", Encoding.UTF8, "application/json")
+        };
+        return Task.FromResult(response);
     }
 }
 #pragma warning restore CS0067

@@ -22,8 +22,8 @@
                       Clicked="TrayIcon_OnClicked">
                 <TrayIcon.Menu>
                     <NativeMenu>
-                        <NativeMenuItem Header="open" Click="MenuShow_OnClick" />
-                        <NativeMenuItem Header="quit" Click="MenuQuit_OnClick" />
+                        <NativeMenuItem Header="{loc:Loc Tray.Show}" Click="MenuShow_OnClick" />
+                        <NativeMenuItem Header="{loc:Loc Tray.Quit}" Click="MenuQuit_OnClick" />
                     </NativeMenu>
                 </TrayIcon.Menu>
             </TrayIcon>

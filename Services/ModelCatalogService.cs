@@ -23,8 +23,16 @@ public sealed class ModelCatalogService : IModelCatalogService
 {
     // 防止个别代理端点长时间挂起拖住 UI 上的拉取动作。
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
-    private static readonly HttpClient HttpClient = new();
+    private static readonly HttpClient SharedHttpClient = new();
+    private readonly HttpClient _httpClient;
     private readonly ILogger _logger = Log.ForContext<ModelCatalogService>();
+
+    public ModelCatalogService() : this(SharedHttpClient) { }
+
+    public ModelCatalogService(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
 
     public async Task<ModelCatalogResult> GetModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default)
     {
@@ -94,6 +102,11 @@ public sealed class ModelCatalogService : IModelCatalogService
         }
     }
 
+    public Task<ModelCatalogResult> GetTextModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default)
+        => IsOpenRouter(baseUrl)
+            ? GetOpenRouterModelsAsync(baseUrl!, apiKey, "text", cancellationToken)
+            : GetModelsAsync(baseUrl, apiKey, cancellationToken);
+
     public async Task<ModelCatalogResult> GetEmbeddingModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default)
     {
         // 只有 OpenRouter 支持 output_modalities 服务端过滤；其它端点回退到全量拉取，由上层按 ID 关键字筛选。
@@ -101,6 +114,16 @@ public sealed class ModelCatalogService : IModelCatalogService
         {
             return await GetModelsAsync(baseUrl, apiKey, cancellationToken).ConfigureAwait(false);
         }
+
+        return await GetOpenRouterModelsAsync(baseUrl!, apiKey, "embeddings", cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ModelCatalogResult> GetOpenRouterModelsAsync(
+        string baseUrl,
+        string? apiKey,
+        string outputModality,
+        CancellationToken cancellationToken)
+    {
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -110,7 +133,7 @@ public sealed class ModelCatalogService : IModelCatalogService
         Uri requestUri;
         try
         {
-            requestUri = new Uri(AppendModelsPath(baseUrl!) + "?output_modalities=embeddings");
+            requestUri = new Uri(AppendModelsPath(baseUrl) + $"?output_modalities={Uri.EscapeDataString(outputModality)}");
         }
         catch (UriFormatException)
         {
@@ -125,7 +148,7 @@ public sealed class ModelCatalogService : IModelCatalogService
             using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
 
-            using var response = await HttpClient.SendAsync(request, cts.Token).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(request, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return ModelCatalogResult.Fail($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
@@ -153,7 +176,7 @@ public sealed class ModelCatalogService : IModelCatalogService
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            _logger.Information("OpenRouter 嵌入模型列表拉取成功，共 {Count} 个", distinct.Count);
+            _logger.Information("OpenRouter {Modality} 模型列表拉取成功，共 {Count} 个", outputModality, distinct.Count);
             return ModelCatalogResult.Ok(distinct);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -166,7 +189,7 @@ public sealed class ModelCatalogService : IModelCatalogService
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "拉取 OpenRouter 嵌入模型列表失败");
+            _logger.Warning(ex, "拉取 OpenRouter {Modality} 模型列表失败", outputModality);
             return ModelCatalogResult.Fail(ex.Message);
         }
     }

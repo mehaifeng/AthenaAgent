@@ -17,13 +17,19 @@ public class FileSystemFunctions
 {
     private readonly IFileSystemService _fileSystemService;
     private readonly IKnowledgeBaseService _knowledgeBaseService;
+    private readonly IWorkspaceService? _workspaceService;
     private readonly ILogger _logger;
 
-    public FileSystemFunctions(IFileSystemService fileSystemService, IKnowledgeBaseService knowledgeBaseService, ILogger logger)
+    public FileSystemFunctions(
+        IFileSystemService fileSystemService,
+        IKnowledgeBaseService knowledgeBaseService,
+        ILogger logger,
+        IWorkspaceService? workspaceService = null)
     {
         _fileSystemService = fileSystemService;
         _knowledgeBaseService = knowledgeBaseService;
         _logger = logger.ForContext<FileSystemFunctions>();
+        _workspaceService = workspaceService;
     }
 
     private async Task TryUpdateKnowledgeBaseVectorsAsync(string path)
@@ -40,10 +46,17 @@ public class FileSystemFunctions
                 await _knowledgeBaseService.RefreshVectorCacheAsync();
                 _logger.Information("检测到知识库文件被修改，已触发向量同步标志: {Path}", absolutePath);
             }
+
+            // 工作区知识可由 modify_system_file / write_system_file 直接更新，
+            // 因此在所有成功写入路径后统一检查目标文件预算。
+            if (_workspaceService != null)
+            {
+                await _workspaceService.EnforceKnowledgeFileBudgetAsync(absolutePath);
+            }
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "尝试刷新知识库向量缓存失败");
+            _logger.Warning(ex, "写入后同步知识库或检查工作区知识预算失败");
         }
     }
 

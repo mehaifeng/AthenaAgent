@@ -85,6 +85,7 @@ public class ToolApprovalModeToDisplayConverter : IValueConverter
             ToolApprovalMode.Off => ("Config.ToolApproval.Mode.Off", "关闭（全部自动放行）"),
             ToolApprovalMode.Balanced => ("Config.ToolApproval.Mode.Balanced", "均衡（写/删/终端需确认，推荐）"),
             ToolApprovalMode.Strict => ("Config.ToolApproval.Mode.Strict", "严格（所有工具都确认）"),
+            ToolApprovalMode.Automatic => ("Config.ToolApproval.Mode.Automatic", "自动（由审批模型裁决）"),
             _ => (string.Empty, mode.ToString())
         };
 
@@ -119,6 +120,25 @@ public class MaintenanceModelSourceToDisplayConverter : IValueConverter
 
         if (string.IsNullOrEmpty(key)) return fallback;
 
+        var localization = Athena.UI.App.Services?.GetService<ILocalizationService>();
+        return localization?.GetString(key, fallback) ?? fallback;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>嵌入连接来源枚举 → 本地化显示文本。</summary>
+public class EmbeddingCredentialSourceToDisplayConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var (key, fallback) = value switch
+        {
+            EmbeddingConnectionSource.Provider => ("Config.EmbeddingConnection.Provider", "使用供应商连接"),
+            EmbeddingConnectionSource.Custom => ("Config.EmbeddingConnection.Custom", "自定义连接"),
+            _ => (string.Empty, value?.ToString() ?? string.Empty)
+        };
         var localization = Athena.UI.App.Services?.GetService<ILocalizationService>();
         return localization?.GetString(key, fallback) ?? fallback;
     }

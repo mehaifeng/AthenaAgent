@@ -112,4 +112,7 @@ public interface IKnowledgeBaseService
     /// 刷新向量缓存（在文件变更后调用）
     /// </summary>
     Task RefreshVectorCacheAsync();
+
+    /// <summary>清空派生向量数据，并使用当前 Embedding 配置立即全量重建全局知识库索引。</summary>
+    Task RebuildVectorIndexAsync();
 }

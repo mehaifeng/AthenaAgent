@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -20,11 +21,12 @@ public partial class ConfigTabViewModel : ViewModelBase
     private readonly IConfigService? _configService;
     private readonly IChatService? _chatService;
     private readonly IEmbeddingService? _embeddingService;
-    private readonly IConversationHistoryService? _historyService;
     private readonly ILocalizationService? _localizationService;
     private readonly IModelCatalogService? _modelCatalogService;
     private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
+    private readonly IHeadlessBrowserService? _browserService;
+    private readonly IBrowserVisionService? _browserVisionService;
     private readonly ILogger _logger = Log.ForContext<ConfigTabViewModel>();
 
     /// <summary>已应用到 embedding 服务的向量身份（模型/提供商/端点/凭据源）。变化时需重建知识库向量索引。</summary>
@@ -37,16 +39,15 @@ public partial class ConfigTabViewModel : ViewModelBase
     private string _connectionStatus = string.Empty;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshModelOptionsCommand))]
+    private bool _isRefreshingModelOptions;
+
+    [ObservableProperty]
+    private string _modelOptionsStatus = string.Empty;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(TestConnectionCommand))]
     private bool _isTestingConnection;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestSecondaryCommand))]
-    private bool _isTestingSecondary;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(TestEmbeddingCommand))]
-    private bool _isTestingEmbedding;
 
     [ObservableProperty]
     private bool _isCompressing;
@@ -58,15 +59,6 @@ public partial class ConfigTabViewModel : ViewModelBase
     private ITokenService? _tokenService;
 
     public bool CanTestConnection => !IsTestingConnection;
-    public bool CanTestSecondary => !IsTestingSecondary;
-    public bool CanTestEmbedding => !IsTestingEmbedding;
-
-    [ObservableProperty]
-    private string _secondaryTestStatus = string.Empty;
-
-    [ObservableProperty]
-    private string _embeddingTestStatus = string.Empty;
-
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunKnowledgeMaintenanceCommand))]
     private bool _isRunningMaintenance;
@@ -74,20 +66,71 @@ public partial class ConfigTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _maintenanceStatus = string.Empty;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RebuildVectorIndexCommand))]
+    private bool _isRebuildingVectorIndex;
+
+    [ObservableProperty]
+    private string _vectorIndexStatus = string.Empty;
+
     public bool CanRunMaintenance => !IsRunningMaintenance;
+    public bool CanRebuildVectorIndex => !IsRebuildingVectorIndex;
+
+    public bool CanTestBrowserRuntime => !IsTestingBrowserRuntime && !IsInstallingBrowserRuntime;
+    public bool CanInstallBrowserRuntime => !IsInstallingBrowserRuntime && !IsTestingBrowserRuntime;
+    public bool CanTestBrowserAgent => !IsTestingBrowserAgent;
+
+    [ObservableProperty] private string _browserRuntimeStatus = string.Empty;
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand)), NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))] private bool _isTestingBrowserRuntime;
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(TestBrowserRuntimeCommand)), NotifyCanExecuteChangedFor(nameof(InstallBrowserRuntimeCommand))] private bool _isInstallingBrowserRuntime;
+    [ObservableProperty] private string _browserAgentTestStatus = string.Empty;
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(TestBrowserAgentCommand))] private bool _isTestingBrowserAgent;
+
+    public bool HasBrowserRuntimeStatus => !string.IsNullOrWhiteSpace(BrowserRuntimeStatus);
+    public bool HasBrowserAgentTestStatus => !string.IsNullOrWhiteSpace(BrowserAgentTestStatus);
+
+    partial void OnBrowserRuntimeStatusChanged(string value) => OnPropertyChanged(nameof(HasBrowserRuntimeStatus));
+    partial void OnBrowserAgentTestStatusChanged(string value) => OnPropertyChanged(nameof(HasBrowserAgentTestStatus));
 
     private CancellationTokenSource? _autoSaveCts;
     private bool _isInternalSaving;
+    private readonly List<Action> _configUnsubscribers = new();
 
     public ObservableCollection<string> Providers { get; } = new(ProviderCatalog.ChatProviders);
+    public ObservableCollection<EmbeddingConnectionSource> EmbeddingCredentialSources { get; } = new()
+    {
+        EmbeddingConnectionSource.Provider,
+        EmbeddingConnectionSource.Custom
+    };
+    public ObservableCollection<BrowserObservationMode> BrowserObservationModes { get; } = new()
+    {
+        BrowserObservationMode.VisionWithSom,
+        BrowserObservationMode.DomOnly
+    };
+    public ObservableCollection<BrowserStructuredOutputMode> BrowserStructuredOutputModes { get; } = new()
+    {
+        BrowserStructuredOutputMode.Auto,
+        BrowserStructuredOutputMode.JsonObject,
+        BrowserStructuredOutputMode.PromptOnly
+    };
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
+    public ObservableCollection<ModelRoleAssignmentViewModel> AiModelRoles { get; } = new();
+    public ObservableCollection<string> EmbeddingModelOptions { get; } = new()
+    {
+        "text-embedding-3-small", "text-embedding-3-large"
+    };
+    public OpenAiProviderConfiguration AiProvider => Config.AiModels.Provider;
+    public bool IsAutomaticApproval => Config.ToolApprovalMode == ToolApprovalMode.Automatic;
+    public bool IsEmbeddingCustomConnection => Config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom;
+    public bool IsBrowserVisionEnabled => Config.BrowserObservationMode != BrowserObservationMode.DomOnly;
 
     /// <summary>工具审批模式候选。</summary>
     public ObservableCollection<ToolApprovalMode> ToolApprovalModes { get; } = new()
     {
         ToolApprovalMode.Off,
         ToolApprovalMode.Balanced,
-        ToolApprovalMode.Strict
+        ToolApprovalMode.Strict,
+        ToolApprovalMode.Automatic
     };
 
     /// <summary>撤销某个「永久放行」的工具。集合变更不触发 AppConfig.PropertyChanged，故显式保存。</summary>
@@ -110,61 +153,6 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    /// <summary>次级模型凭据来源开关：true=跟随主模型凭据，false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainCredentialForSecondary
-    {
-        get => Config.SecondaryCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.SecondaryCredentialSource = v, Config.SecondaryCredentialSource, value);
-    }
-
-    public bool IsSecondaryCredentialCustom => Config.SecondaryCredentialSource == ModelCredentialSource.Custom;
-
-    /// <summary>Embedding 凭据来源开关。</summary>
-    public bool UseMainCredentialForEmbedding
-    {
-        get => Config.EmbeddingCredentialSource == ModelCredentialSource.InheritMain;
-        set => SetCredentialSource(v => Config.EmbeddingCredentialSource = v, Config.EmbeddingCredentialSource, value);
-    }
-
-    public bool IsEmbeddingCredentialCustom => Config.EmbeddingCredentialSource == ModelCredentialSource.Custom;
-
-    /// <summary>子代理模型来源开关：true=跟随主模型（复用主对话模型凭据），false=自定义。绑定到 ToggleSwitch。</summary>
-    public bool UseMainModelForSubAgent
-    {
-        get => Config.SubAgentModelSource == SubAgentModelSource.InheritMain;
-        set
-        {
-            var newSource = value ? SubAgentModelSource.InheritMain : SubAgentModelSource.Custom;
-            if (Config.SubAgentModelSource != newSource)
-            {
-                Config.SubAgentModelSource = newSource; // 触发 Config.PropertyChanged → 自动保存 + 下方通知
-            }
-        }
-    }
-
-    /// <summary>是否使用自定义子代理模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsSubAgentModelCustom => Config.SubAgentModelSource == SubAgentModelSource.Custom;
-
-    private static void SetCredentialSource(Action<ModelCredentialSource> setter, ModelCredentialSource current, bool inherit)
-    {
-        var newSource = inherit ? ModelCredentialSource.InheritMain : ModelCredentialSource.Custom;
-        if (current != newSource)
-        {
-            setter(newSource); // 触发 Config.PropertyChanged → 自动保存 + 下方通知
-        }
-    }
-
-    /// <summary>知识库整理 Agent 的模型来源候选。</summary>
-    public ObservableCollection<KnowledgeMaintenanceModelSource> KnowledgeMaintenanceModelSources { get; } = new()
-    {
-        KnowledgeMaintenanceModelSource.InheritSecondary,
-        KnowledgeMaintenanceModelSource.InheritMain,
-        KnowledgeMaintenanceModelSource.Custom
-    };
-
-    /// <summary>是否使用整理专属自定义模型（决定下方独立配置字段是否显示）。</summary>
-    public bool IsMaintenanceModelCustom => Config.KnowledgeMaintenanceModelSource == KnowledgeMaintenanceModelSource.Custom;
-
     public ObservableCollection<string> Languages { get; }
 
     [ObservableProperty]
@@ -184,18 +172,19 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
-    public ConfigTabViewModel() : this(null, null, null, null, null) { }
+    public ConfigTabViewModel() : this(null, null, null, null) { }
 
-    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, IConversationHistoryService? historyService, ILocalizationService? localizationService, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null, IKnowledgeBaseService? knowledgeBaseService = null)
+    public ConfigTabViewModel(IConfigService? configService, IChatService? chatService, IEmbeddingService? embeddingService, ILocalizationService? localizationService, IModelCatalogService? modelCatalogService = null, IKnowledgeBaseMaintenanceService? maintenanceService = null, IKnowledgeBaseService? knowledgeBaseService = null, IHeadlessBrowserService? browserService = null, IBrowserVisionService? browserVisionService = null)
     {
         _configService = configService;
         _chatService = chatService;
         _embeddingService = embeddingService;
-        _historyService = historyService;
         _localizationService = localizationService;
         _modelCatalogService = modelCatalogService;
         _maintenanceService = maintenanceService;
         _knowledgeBaseService = knowledgeBaseService;
+        _browserService = browserService;
+        _browserVisionService = browserVisionService;
 
         if (_maintenanceService != null)
         {
@@ -206,6 +195,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (_localizationService != null)
         {
             Languages = new ObservableCollection<string>(_localizationService.AvailableLanguageNames);
+            _localizationService.LanguageChanged += (_, _) => RebuildAiModelRoles();
         }
         else
         {
@@ -213,6 +203,7 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
 
         SetupConfigListener(Config);
+        RebuildAiModelRoles();
         LoadConfigAsync().ConfigureAwait(false);
 
         // 订阅配置变更事件（LLM 工具调用修改配置后及时刷新 UI）
@@ -237,20 +228,9 @@ public partial class ConfigTabViewModel : ViewModelBase
         if (value == null) return;
 
         SetupConfigListener(value);
-        // Config 被整体替换后，刷新依赖其值的计算属性（外部工具改配置等场景）
-        NotifyCredentialSourceProperties();
-    }
-
-    /// <summary>刷新所有依赖 Config 取值的「来源开关」计算属性。</summary>
-    private void NotifyCredentialSourceProperties()
-    {
-        OnPropertyChanged(nameof(IsMaintenanceModelCustom));
-        OnPropertyChanged(nameof(UseMainCredentialForSecondary));
-        OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
-        OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
-        OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
-        OnPropertyChanged(nameof(UseMainModelForSubAgent));
-        OnPropertyChanged(nameof(IsSubAgentModelCustom));
+        RebuildAiModelRoles();
+        OnPropertyChanged(nameof(AiProvider));
+        OnPropertyChanged(nameof(IsAutomaticApproval));
     }
 
     /// <summary>
@@ -275,8 +255,10 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     private void SetupConfigListener(AppConfig? config)
     {
+        foreach (var unsubscribe in _configUnsubscribers) unsubscribe();
+        _configUnsubscribers.Clear();
         if (config == null) return;
-        config.PropertyChanged += (s, e) =>
+        PropertyChangedEventHandler configChanged = (s, e) =>
         {
             switch (e.PropertyName)
             {
@@ -284,23 +266,6 @@ public partial class ConfigTabViewModel : ViewModelBase
                     if (TokenService != null) TokenService.MaxTokens = config.MaxContextTokens;
                     break;
 
-                // 供应商切换 → 回填该类别的默认端点
-                case nameof(AppConfig.Provider):
-                    if (ProviderCatalog.TryGetChatBaseUrl(config.Provider, out var mainUrl))
-                        config.BaseUrl = mainUrl;
-                    break;
-                case nameof(AppConfig.SecondaryProvider):
-                    if (ProviderCatalog.TryGetChatBaseUrl(config.SecondaryProvider, out var secondaryUrl))
-                        config.SecondaryBaseUrl = secondaryUrl;
-                    break;
-                case nameof(AppConfig.EmbeddingProvider):
-                    if (ProviderCatalog.TryGetChatBaseUrl(config.EmbeddingProvider, out var embeddingUrl))
-                        config.EmbeddingBaseUrl = embeddingUrl;
-                    break;
-                case nameof(AppConfig.BrowserAgentProvider):
-                    if (ProviderCatalog.TryGetChatBaseUrl(config.BrowserAgentProvider, out var browserUrl))
-                        config.BrowserAgentBaseUrl = browserUrl;
-                    break;
                 case nameof(AppConfig.WebSearchProvider):
                     if (ProviderCatalog.TryGetWebSearchBaseUrl(config.WebSearchProvider, out var searchUrl))
                         config.WebSearchBaseUrl = searchUrl;
@@ -310,31 +275,89 @@ public partial class ConfigTabViewModel : ViewModelBase
                         config.ChatAudioBaseUrl = audioUrl;
                     break;
 
-                // 模型/凭据来源切换 → 通知依赖的计算属性
-                case nameof(AppConfig.KnowledgeMaintenanceModelSource):
-                    OnPropertyChanged(nameof(IsMaintenanceModelCustom));
-                    break;
-                case nameof(AppConfig.SecondaryCredentialSource):
-                    OnPropertyChanged(nameof(UseMainCredentialForSecondary));
-                    OnPropertyChanged(nameof(IsSecondaryCredentialCustom));
+                case nameof(AppConfig.ToolApprovalMode):
+                    OnPropertyChanged(nameof(IsAutomaticApproval));
                     break;
                 case nameof(AppConfig.EmbeddingCredentialSource):
-                    OnPropertyChanged(nameof(UseMainCredentialForEmbedding));
-                    OnPropertyChanged(nameof(IsEmbeddingCredentialCustom));
+                    OnPropertyChanged(nameof(IsEmbeddingCustomConnection));
                     break;
-                case nameof(AppConfig.SubAgentModelSource):
-                    OnPropertyChanged(nameof(UseMainModelForSubAgent));
-                    OnPropertyChanged(nameof(IsSubAgentModelCustom));
+                case nameof(AppConfig.BrowserObservationMode):
+                    OnPropertyChanged(nameof(IsBrowserVisionEnabled));
                     break;
             }
 
             // Trigger auto-save on any property change
             RequestAutoSave();
         };
+        config.PropertyChanged += configChanged;
+        _configUnsubscribers.Add(() => config.PropertyChanged -= configChanged);
 
         // MCP 服务器是嵌套对象/集合，其内部编辑不会冒泡为 AppConfig.PropertyChanged，
         // 必须深度订阅，否则用户填的命令/参数/环境变量（如 API Key）不会落盘。
         HookMcpDeep(config);
+        HookAiModelsDeep(config);
+    }
+
+    private void HookAiModelsDeep(AppConfig config)
+    {
+        void HookRole(ModelRoleSettings role)
+        {
+            PropertyChangedEventHandler changed = (_, _) => RequestAutoSave();
+            role.PropertyChanged += changed;
+            _configUnsubscribers.Add(() => role.PropertyChanged -= changed);
+        }
+        void HookProvider(OpenAiProviderConfiguration provider)
+        {
+            PropertyChangedEventHandler changed = (_, e) =>
+            {
+                if (e.PropertyName == nameof(OpenAiProviderConfiguration.ProviderPreset))
+                {
+                    provider.DisplayName = provider.ProviderPreset;
+                    if (ProviderCatalog.TryGetChatBaseUrl(provider.ProviderPreset, out var url))
+                        provider.BaseUrl = url;
+                }
+                RequestAutoSave();
+            };
+            provider.PropertyChanged += changed;
+            _configUnsubscribers.Add(() => provider.PropertyChanged -= changed);
+        }
+
+        HookProvider(config.AiModels.Provider);
+        foreach (var role in GetRoleSettings(config.AiModels)) HookRole(role);
+    }
+
+    private static IEnumerable<ModelRoleSettings> GetRoleSettings(AiModelConfiguration models)
+    {
+        yield return models.MainConversation;
+        yield return models.TitleGeneration;
+        yield return models.ContextCompression;
+        yield return models.Approval;
+        yield return models.Embedding;
+        yield return models.BrowserAgent;
+        yield return models.SubAgent;
+        yield return models.KnowledgeMaintenance;
+    }
+
+    private void RebuildAiModelRoles()
+    {
+        if (Config?.AiModels == null) return;
+        AiModelRoles.Clear();
+        void Add(AiModelRole role, string key, string fallback, ModelRoleSettings settings) =>
+            AiModelRoles.Add(new ModelRoleAssignmentViewModel(
+                role,
+                _localizationService?.GetString(key, fallback) ?? fallback,
+                settings));
+        Add(AiModelRole.MainConversation, "Config.ModelRole.Main", "Main conversation", Config.AiModels.MainConversation);
+        Add(AiModelRole.TitleGeneration, "Config.ModelRole.Title", "Title generation", Config.AiModels.TitleGeneration);
+        Add(AiModelRole.ContextCompression, "Config.ModelRole.Compression", "Context compression", Config.AiModels.ContextCompression);
+        Add(AiModelRole.Approval, "Config.ModelRole.Approval", "Automatic approval", Config.AiModels.Approval);
+        Add(AiModelRole.BrowserAgent, "Config.ModelRole.Browser", "Automatic browser", Config.AiModels.BrowserAgent);
+        Add(AiModelRole.SubAgent, "Config.ModelRole.SubAgent", "Sub-agent", Config.AiModels.SubAgent);
+        Add(AiModelRole.KnowledgeMaintenance, "Config.ModelRole.Maintenance", "Knowledge maintenance", Config.AiModels.KnowledgeMaintenance);
+        if (!EmbeddingModelOptions.Contains(Config.AiModels.Embedding.Model))
+            EmbeddingModelOptions.Add(Config.AiModels.Embedding.Model);
+        foreach (var role in AiModelRoles)
+            if (!role.ModelOptions.Contains(role.Settings.Model)) role.ModelOptions.Add(role.Settings.Model);
     }
 
     /// <summary>深度订阅 McpServers 集合及其每个条目的变更 → 触发自动保存。</summary>
@@ -343,17 +366,19 @@ public partial class ConfigTabViewModel : ViewModelBase
         foreach (var server in config.McpServers)
             HookMcpServer(server);
 
-        config.McpServers.CollectionChanged += (_, e) =>
+        NotifyCollectionChangedEventHandler serversChanged = (_, e) =>
         {
             if (e.NewItems != null)
                 foreach (McpServerConfig s in e.NewItems) HookMcpServer(s);
             RequestAutoSave();
         };
+        config.McpServers.CollectionChanged += serversChanged;
+        _configUnsubscribers.Add(() => config.McpServers.CollectionChanged -= serversChanged);
     }
 
     private void HookMcpServer(McpServerConfig server)
     {
-        server.PropertyChanged += (_, e) =>
+        PropertyChangedEventHandler serverChanged = (_, e) =>
         {
             // 运行期状态字段由连接过程回填，不应触发保存（否则连接→状态变→保存→重连 死循环）。
             // IsExpanded 是纯 UI 折叠状态，同样不落盘、不触发重连。
@@ -364,30 +389,56 @@ public partial class ConfigTabViewModel : ViewModelBase
                 return;
             RequestAutoSave();
         };
+        server.PropertyChanged += serverChanged;
+        _configUnsubscribers.Add(() => server.PropertyChanged -= serverChanged);
 
-        server.Arguments.CollectionChanged += (_, e) =>
+        void HookArgument(McpArgEntry argument)
+        {
+            PropertyChangedEventHandler changed = (_, _) => RequestAutoSave();
+            argument.PropertyChanged += changed;
+            _configUnsubscribers.Add(() => argument.PropertyChanged -= changed);
+        }
+        NotifyCollectionChangedEventHandler argumentsChanged = (_, e) =>
         {
             if (e.NewItems != null)
-                foreach (McpArgEntry a in e.NewItems) a.PropertyChanged += (_, _) => RequestAutoSave();
+                foreach (McpArgEntry a in e.NewItems) HookArgument(a);
             RequestAutoSave();
         };
-        foreach (var a in server.Arguments) a.PropertyChanged += (_, _) => RequestAutoSave();
+        server.Arguments.CollectionChanged += argumentsChanged;
+        _configUnsubscribers.Add(() => server.Arguments.CollectionChanged -= argumentsChanged);
+        foreach (var a in server.Arguments) HookArgument(a);
 
-        server.Environment.CollectionChanged += (_, e) =>
+        void HookEnvironment(McpEnvEntry environment)
+        {
+            PropertyChangedEventHandler changed = (_, _) => RequestAutoSave();
+            environment.PropertyChanged += changed;
+            _configUnsubscribers.Add(() => environment.PropertyChanged -= changed);
+        }
+        NotifyCollectionChangedEventHandler environmentChanged = (_, e) =>
         {
             if (e.NewItems != null)
-                foreach (McpEnvEntry en in e.NewItems) en.PropertyChanged += (_, _) => RequestAutoSave();
+                foreach (McpEnvEntry en in e.NewItems) HookEnvironment(en);
             RequestAutoSave();
         };
-        foreach (var en in server.Environment) en.PropertyChanged += (_, _) => RequestAutoSave();
+        server.Environment.CollectionChanged += environmentChanged;
+        _configUnsubscribers.Add(() => server.Environment.CollectionChanged -= environmentChanged);
+        foreach (var en in server.Environment) HookEnvironment(en);
 
-        server.Headers.CollectionChanged += (_, e) =>
+        void HookHeader(McpEnvEntry header)
+        {
+            PropertyChangedEventHandler changed = (_, _) => RequestAutoSave();
+            header.PropertyChanged += changed;
+            _configUnsubscribers.Add(() => header.PropertyChanged -= changed);
+        }
+        NotifyCollectionChangedEventHandler headersChanged = (_, e) =>
         {
             if (e.NewItems != null)
-                foreach (McpEnvEntry h in e.NewItems) h.PropertyChanged += (_, _) => RequestAutoSave();
+                foreach (McpEnvEntry h in e.NewItems) HookHeader(h);
             RequestAutoSave();
         };
-        foreach (var h in server.Headers) h.PropertyChanged += (_, _) => RequestAutoSave();
+        server.Headers.CollectionChanged += headersChanged;
+        _configUnsubscribers.Add(() => server.Headers.CollectionChanged -= headersChanged);
+        foreach (var h in server.Headers) HookHeader(h);
     }
 
     private void RequestAutoSave()
@@ -449,8 +500,6 @@ public partial class ConfigTabViewModel : ViewModelBase
                             }
                         }
                     }
-                    if (_historyService is ConversationHistoryService historyService) historyService.UpdateSecondaryConfig(Config);
-                    
                     if (ChatTabViewModel != null)
                     {
                         await ChatTabViewModel.RefreshSettingsAsync();
@@ -470,11 +519,17 @@ public partial class ConfigTabViewModel : ViewModelBase
 
     /// <summary>汇总影响向量空间的 embedding 配置。任一变化都意味着旧向量与新查询不可比，需重建索引。</summary>
     private static string ComputeEmbeddingIdentity(AppConfig config)
-        => string.Join('|',
-            config.EmbeddingCredentialSource,
-            config.EmbeddingProvider ?? string.Empty,
-            config.EmbeddingBaseUrl ?? string.Empty,
-            config.EmbeddingModel ?? string.Empty);
+    {
+        try
+        {
+            var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.Embedding);
+            return string.Join('|', effective.ProviderPreset, effective.BaseUrl, effective.Model);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 
     private async Task LoadConfigAsync()
     {
@@ -483,6 +538,7 @@ public partial class ConfigTabViewModel : ViewModelBase
             Config = await _configService.LoadAsync();
             AppConfigNormalizer.NormalizeAudio(Config);
             _appliedEmbeddingIdentity = ComputeEmbeddingIdentity(Config);
+            await LoadModelOptionsAsync(showStatus: false);
             if (TokenService != null) TokenService.MaxTokens = Config.MaxContextTokens;
 
             if (_localizationService != null)
@@ -497,11 +553,101 @@ public partial class ConfigTabViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanRefreshModelOptions))]
+    private Task RefreshModelOptionsAsync() => LoadModelOptionsAsync(showStatus: true);
+
+    private bool CanRefreshModelOptions => !IsRefreshingModelOptions;
+
+    private async Task LoadModelOptionsAsync(bool showStatus)
+    {
+        if (_modelCatalogService == null) return;
+
+        IsRefreshingModelOptions = true;
+        if (showStatus) ModelOptionsStatus = GetString("Status.LoadingModels", "Loading model list…");
+        try
+        {
+            var provider = AiProvider;
+            var textResult = await _modelCatalogService.GetTextModelsAsync(provider.BaseUrl, provider.ApiKey);
+            if (!textResult.Success)
+            {
+                if (showStatus)
+                    ModelOptionsStatus = string.Format(
+                        GetString("Status.LoadModelsFailed", "Failed to load model list: {0}"),
+                        textResult.ErrorMessage);
+                return;
+            }
+
+            var selectedRoleModels = AiModelRoles.ToDictionary(
+                role => role.Role,
+                role => role.Settings.Model);
+            foreach (var role in AiModelRoles)
+            {
+                var selectedModel = selectedRoleModels[role.Role];
+                role.ModelOptions.Clear();
+                foreach (var model in textResult.Models) role.ModelOptions.Add(model);
+                if (!string.IsNullOrWhiteSpace(selectedModel) && !role.ModelOptions.Contains(selectedModel))
+                    role.ModelOptions.Add(selectedModel);
+                role.Settings.Model = selectedModel;
+            }
+
+            var embeddingBaseUrl = IsEmbeddingCustomConnection ? Config.EmbeddingBaseUrl : provider.BaseUrl;
+            var embeddingApiKey = IsEmbeddingCustomConnection ? Config.EmbeddingApiKey : provider.ApiKey;
+            var embeddingIsOpenRouter = IsOpenRouter(embeddingBaseUrl);
+            var embeddingResult = await _modelCatalogService.GetEmbeddingModelsAsync(embeddingBaseUrl, embeddingApiKey);
+            if (embeddingResult.Success)
+            {
+                var selectedEmbeddingModel = Config.AiModels.Embedding.Model;
+                var embeddingModels = embeddingIsOpenRouter
+                    ? embeddingResult.Models
+                    : embeddingResult.Models.Where(IsEmbeddingModel).ToList();
+                EmbeddingModelOptions.Clear();
+                foreach (var model in embeddingModels) EmbeddingModelOptions.Add(model);
+                if (!string.IsNullOrWhiteSpace(selectedEmbeddingModel) && !EmbeddingModelOptions.Contains(selectedEmbeddingModel))
+                    EmbeddingModelOptions.Add(selectedEmbeddingModel);
+                Config.AiModels.Embedding.Model = selectedEmbeddingModel;
+            }
+
+            if (showStatus)
+            {
+                ModelOptionsStatus = embeddingResult.Success
+                    ? string.Format(
+                        GetString("Status.TextAndEmbeddingModelsLoaded", "Loaded {0} text model(s) and {1} embedding model(s)"),
+                        textResult.Models.Count,
+                        EmbeddingModelOptions.Count)
+                    : string.Format(
+                        GetString("Status.TextModelsLoadedEmbeddingFailed", "Loaded {0} text model(s); embedding models failed: {1}"),
+                        textResult.Models.Count,
+                        embeddingResult.ErrorMessage);
+            }
+        }
+        finally
+        {
+            IsRefreshingModelOptions = false;
+        }
+    }
+
+    private static bool IsEmbeddingModel(string model) =>
+        new[] { "embedding", "embed", "gte", "bge" }
+            .Any(keyword => model.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsOpenRouter(string? baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+        && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase));
+
     [RelayCommand(CanExecute = nameof(CanTestConnection))]
     private async Task TestConnectionAsync()
     {
         if (_chatService == null) { ConnectionStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
-        if (string.IsNullOrWhiteSpace(Config.ApiKey)) { ConnectionStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key first"; return; }
+        try
+        {
+            OpenAiModelRuntimeFactory.Resolve(Config, AiModelRole.MainConversation).ValidateChatRole(AiModelRole.MainConversation);
+        }
+        catch
+        {
+            ConnectionStatus = _localizationService?.GetString("Status.EnterApiKeyFirst") ?? "Please enter API Key and model first";
+            return;
+        }
         IsTestingConnection = true;
         ConnectionStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
         try
@@ -513,39 +659,49 @@ public partial class ConfigTabViewModel : ViewModelBase
         finally { IsTestingConnection = false; }
     }
 
-    [RelayCommand(CanExecute = nameof(CanTestSecondary))]
-    private async Task TestSecondaryAsync()
+    [RelayCommand(CanExecute = nameof(CanTestBrowserRuntime))]
+    private async Task TestBrowserRuntimeAsync()
     {
-        if (_historyService == null) { SecondaryTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (_browserService == null) { BrowserRuntimeStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
+        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
 
-        IsTestingSecondary = true;
-        SecondaryTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
+        IsTestingBrowserRuntime = true;
+        BrowserRuntimeStatus = GetString("Status.TestingConnection", "Testing...");
         try
         {
-            _historyService.UpdateSecondaryConfig(Config);
-            var (success, message) = await _historyService.TestSecondaryConnectionAsync();
-            SecondaryTestStatus = message;
+            var status = await _browserService.GetRuntimeStatusAsync();
+            BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
         }
-        finally { IsTestingSecondary = false; }
+        finally { IsTestingBrowserRuntime = false; }
     }
 
-    [RelayCommand(CanExecute = nameof(CanTestEmbedding))]
-    private async Task TestEmbeddingAsync()
+    [RelayCommand(CanExecute = nameof(CanInstallBrowserRuntime))]
+    private async Task InstallBrowserRuntimeAsync()
     {
-        if (_embeddingService == null) { EmbeddingTestStatus = _localizationService?.GetString("Status.ServiceNotInitialized") ?? "Service not initialized"; return; }
+        if (_browserService == null) { BrowserRuntimeStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
+        if (!Config.BrowserEnabled) { BrowserRuntimeStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
 
-        IsTestingEmbedding = true;
-        EmbeddingTestStatus = _localizationService?.GetString("Status.TestingConnection") ?? "Testing...";
+        IsInstallingBrowserRuntime = true;
+        BrowserRuntimeStatus = GetString("Status.InstallingBrowserRuntime", "Installing browser runtime...");
+        try { BrowserRuntimeStatus = (await _browserService.InstallRuntimeAsync()).Message; }
+        finally { IsInstallingBrowserRuntime = false; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTestBrowserAgent))]
+    private async Task TestBrowserAgentAsync()
+    {
+        if (_browserVisionService == null) { BrowserAgentTestStatus = GetString("Status.ServiceNotInitialized", "Service not initialized"); return; }
+        if (!Config.BrowserEnabled) { BrowserAgentTestStatus = GetString("Status.EnableBrowserFirst", "Please enable Browser first"); return; }
+
+        IsTestingBrowserAgent = true;
+        BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
         try
         {
-            if (_embeddingService is OpenAIEmbeddingService oes)
-            {
-                oes.UpdateConfig(Config);
-            }
-            var (success, message) = await _embeddingService.TestConnectionAsync();
-            EmbeddingTestStatus = message;
+            AppConfigNormalizer.NormalizeBrowser(Config);
+            if (_configService != null) await _configService.SaveAsync(Config);
+            BrowserAgentTestStatus = (await _browserVisionService.TestConnectionAsync()).Message;
         }
-        finally { IsTestingEmbedding = false; }
+        finally { IsTestingBrowserAgent = false; }
     }
 
     [RelayCommand(CanExecute = nameof(CanRunMaintenance))]
@@ -602,6 +758,37 @@ public partial class ConfigTabViewModel : ViewModelBase
         MaintenanceStatus = $"{time} · {conclusion}";
     }
 
+    [RelayCommand(CanExecute = nameof(CanRebuildVectorIndex))]
+    private async Task RebuildVectorIndexAsync()
+    {
+        if (_knowledgeBaseService == null)
+        {
+            VectorIndexStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            return;
+        }
+
+        IsRebuildingVectorIndex = true;
+        VectorIndexStatus = GetString("Config.VectorIndexRebuilding", "Rebuilding vector index…");
+        try
+        {
+            // 确保刚编辑的 Embedding 配置先保存并应用，再据此生成新向量。
+            _autoSaveCts?.Cancel();
+            await ExecuteAutoSaveAsync();
+            await _knowledgeBaseService.RebuildVectorIndexAsync();
+            VectorIndexStatus = GetString("Config.VectorIndexRebuilt", "Vector index rebuilt");
+        }
+        catch (Exception ex)
+        {
+            VectorIndexStatus = string.Format(
+                GetString("Config.VectorIndexRebuildFailed", "Failed to rebuild vector index: {0}"),
+                ex.Message);
+        }
+        finally
+        {
+            IsRebuildingVectorIndex = false;
+        }
+    }
+
     [RelayCommand]
     private async Task CompressContextAsync()
     {
@@ -642,113 +829,4 @@ public partial class ConfigTabViewModel : ViewModelBase
         return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
     }
 
-    #region 模型列表拉取（可编辑下拉框）
-
-    /// <summary>主模型可选列表（通过 /v1/models 拉取，可手动输入覆盖）。</summary>
-    public ObservableCollection<string> PrimaryModelOptions { get; } = new();
-    public ObservableCollection<string> SecondaryModelOptions { get; } = new();
-    public ObservableCollection<string> EmbeddingModelOptions { get; } = new();
-
-    [ObservableProperty]
-    private bool _isLoadingPrimaryModels;
-    [ObservableProperty]
-    private bool _isLoadingSecondaryModels;
-    [ObservableProperty]
-    private bool _isLoadingEmbeddingModels;
-
-    [ObservableProperty]
-    private string _primaryModelsStatus = string.Empty;
-    [ObservableProperty]
-    private string _secondaryModelsStatus = string.Empty;
-    [ObservableProperty]
-    private string _embeddingModelsStatus = string.Empty;
-
-    [RelayCommand]
-    private Task LoadModelsAsync(string? target) => LoadModelsCoreAsync(target);
-
-    private async Task LoadModelsCoreAsync(string? target)
-    {
-        // 解析目标字段：各自的 BaseUrl/Key，次要/嵌入为空时回退到主配置。
-        ObservableCollection<string> options;
-        string? baseUrl;
-        string? apiKey;
-        Action<bool> setLoading;
-        Action<string> setStatus;
-        bool alreadyLoading;
-        Func<string, bool>? filter = null;
-        Func<IModelCatalogService, string?, string?, Task<ModelCatalogResult>>? fetch = null;
-
-        switch (target)
-        {
-            case "Primary":
-                options = PrimaryModelOptions;
-                baseUrl = Config.BaseUrl;
-                apiKey = Config.ApiKey;
-                alreadyLoading = IsLoadingPrimaryModels;
-                setLoading = v => IsLoadingPrimaryModels = v;
-                setStatus = v => PrimaryModelsStatus = v;
-                break;
-            case "Secondary":
-                options = SecondaryModelOptions;
-                baseUrl = FirstNonBlank(Config.SecondaryBaseUrl, Config.BaseUrl);
-                apiKey = FirstNonBlank(Config.SecondaryApiKey, Config.ApiKey);
-                alreadyLoading = IsLoadingSecondaryModels;
-                setLoading = v => IsLoadingSecondaryModels = v;
-                setStatus = v => SecondaryModelsStatus = v;
-                break;
-            case "Embedding":
-                options = EmbeddingModelOptions;
-                baseUrl = FirstNonBlank(Config.EmbeddingBaseUrl, Config.BaseUrl);
-                apiKey = FirstNonBlank(Config.EmbeddingApiKey, Config.ApiKey);
-                alreadyLoading = IsLoadingEmbeddingModels;
-                setLoading = v => IsLoadingEmbeddingModels = v;
-                setStatus = v => EmbeddingModelsStatus = v;
-                if (IsOpenRouterUrl(baseUrl))
-                {
-                    // OpenRouter 支持服务端按 embeddings 精确过滤，无需本地关键字兜底。
-                    fetch = (c, b, k) => c.GetEmbeddingModelsAsync(b, k);
-                }
-                else
-                {
-                    filter = IsEmbeddingModelId;
-                }
-                break;
-            default:
-                return;
-        }
-
-        if (alreadyLoading) return; // 防重入
-
-        setLoading(true);
-        try
-        {
-            await ModelOptionsLoader.LoadAsync(_modelCatalogService, baseUrl, apiKey, options, setStatus, GetString, filter, fetch);
-        }
-        finally
-        {
-            setLoading(false);
-        }
-    }
-
-    private static string? FirstNonBlank(string? primary, string? fallback)
-        => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
-
-    /// <summary>
-    /// OpenAI 兼容的 /models 接口不区分模型类别，只能按 ID 命名启发式过滤出嵌入模型。
-    /// 覆盖常见命名：embedding / embed（OpenAI、通义等）、GTE（阿里 general text embedding）、bge（BAAI）。
-    /// </summary>
-    private static readonly string[] EmbeddingModelKeywords = { "embedding", "embed", "gte", "bge" };
-
-    private static bool IsEmbeddingModelId(string? modelId)
-        => !string.IsNullOrWhiteSpace(modelId)
-           && EmbeddingModelKeywords.Any(k => modelId.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
-
-    /// <summary>端点是否为 OpenRouter：其 /models 接口支持 output_modalities 服务端过滤。</summary>
-    private static bool IsOpenRouterUrl(string? baseUrl)
-        => !string.IsNullOrWhiteSpace(baseUrl)
-           && Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri)
-           && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
-               || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase));
-
-    #endregion
 }

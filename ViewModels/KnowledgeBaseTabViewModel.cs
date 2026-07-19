@@ -1,8 +1,5 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -26,6 +23,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     private readonly IPlatformPathService? _pathService;
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
     private readonly ILocalizationService? _localizationService;
+    private readonly IUserInteractionService? _userInteractionService;
     private readonly ILogger _logger = Log.ForContext<KnowledgeBaseTabViewModel>();
 
     public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
@@ -34,7 +32,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SelectedFileDisplayPath))]
     private KnowledgeFileNode? _selectedFile;
 
-    public string SelectedFileDisplayPath => SelectedFile?.FullPath ?? "Select a file to view";
+    public string SelectedFileDisplayPath => SelectedFile?.FullPath ?? GetString("Knowledge.SelectFile", "Select a file to view");
 
     [ObservableProperty]
     private string _editingFileContent = string.Empty;
@@ -50,18 +48,20 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
 
     private string _rootPath = string.Empty;
 
-    public KnowledgeBaseTabViewModel() : this(null, null, null, null) { }
+    public KnowledgeBaseTabViewModel() : this(null, null, null, null, null) { }
 
     public KnowledgeBaseTabViewModel(
         IFileSystemService? fileSystemService, 
         IPlatformPathService? pathService,
         IKnowledgeBaseService? knowledgeBaseService,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        IUserInteractionService? userInteractionService = null)
     {
         _fileSystemService = fileSystemService;
         _pathService = pathService;
         _knowledgeBaseService = knowledgeBaseService;
         _localizationService = localizationService;
+        _userInteractionService = userInteractionService;
         
         if (_pathService != null)
         {
@@ -108,7 +108,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.Error(ex, "加载文件失败: {File}", absolutePath);
-            EditingFileContent = $"加载失败: {ex.Message}";
+            EditingFileContent = string.Format(GetString("Knowledge.LoadFailed", "Failed to load: {0}"), ex.Message);
         }
     }
 
@@ -296,16 +296,10 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task ImportAsync()
     {
-        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
-        var storageProvider = desktop.MainWindow?.StorageProvider;
-        if (storageProvider == null || _fileSystemService == null) return;
-        
-        var files = await storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择要导入的 Markdown 文件",
-            AllowMultiple = true,
-            FileTypeFilter = new[] { new FilePickerFileType("Markdown Files") { Patterns = new[] { "*.md" } } }
-        });
+        if (_userInteractionService == null || _fileSystemService == null) return;
+        var files = await _userInteractionService.PickFilesAsync(
+            GetString("Knowledge.ImportPickerTitle", "Select Markdown files to import"),
+            "Markdown Files", ["*.md"], true);
         
         if (files.Count == 0) return;
         
@@ -315,10 +309,10 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
         {
             try 
             { 
-                var content = await File.ReadAllTextAsync(file.Path.LocalPath); 
-                await _fileSystemService.WriteFileAsync(Path.Combine(baseDir, file.Name), content); 
+                var content = await File.ReadAllTextAsync(file);
+                await _fileSystemService.WriteFileAsync(Path.Combine(baseDir, Path.GetFileName(file)), content);
             }
-            catch (Exception ex) { _logger.Error(ex, "导入失败: {File}", file.Name); }
+            catch (Exception ex) { _logger.Error(ex, "导入失败: {File}", file); }
         }
         await RefreshFilesAsync();
     }
@@ -326,14 +320,9 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task ExportAsync()
     {
-        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
-        var storageProvider = desktop.MainWindow?.StorageProvider;
-        if (storageProvider == null) return;
-        
-        var folder = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择导出目录" });
-        if (folder.Count == 0) return;
-        
-        var targetPath = folder[0].Path.LocalPath;
+        if (_userInteractionService == null) return;
+        var targetPath = await _userInteractionService.PickFolderAsync(GetString("Knowledge.ExportPickerTitle", "Select export folder"));
+        if (string.IsNullOrWhiteSpace(targetPath)) return;
         try
         {
             // 简单实现：将 KnowledgeBase 整个复制过去
@@ -361,4 +350,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
             CopyDirectory(subDir.FullName, newDestinationDir);
         }
     }
+
+    private string GetString(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
 }

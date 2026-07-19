@@ -9,8 +9,16 @@ A per-conversation continuity record for image generation that tracks the curren
 _Avoid_: image chat, image thread, image conversation
 
 **Main Conversation**:
-The primary user-visible chat session that contains normal assistant replies, tool use, and zero or more image generation sessions.
+The primary user-visible chat session. Its model can converse and delegate execution to the Tool Agent, but does not directly carry the full built-in/MCP tool catalog.
 _Avoid_: image session, render session
+
+**Provider Profile**:
+One reusable OpenAI SDK-compatible connection (display name, Base URL, and API key) selected by one or more model roles. TTS and image generation connections are extension-specific and are not Provider Profiles.
+_Avoid_: secondary credential, inherited API key
+
+**Tool Agent**:
+An isolated, main-conversation-controlled execution agent that owns the built-in and MCP tool catalog. Its direct calls are projected into the active assistant bubble as execution trace cards, while its private messages stay out of the Main Conversation context.
+_Avoid_: direct main-model tool call, browser agent
 
 ## Example Dialogue
 

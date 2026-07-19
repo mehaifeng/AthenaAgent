@@ -23,12 +23,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private AppConfig _config;
     private OpenAIClient? _client;
     private EmbeddingClient? _embeddingClient;
+    private string? _effectiveModelId;
 
     public bool IsConfigured => _embeddingClient != null;
 
-    public string? ModelId => _embeddingClient != null && !string.IsNullOrWhiteSpace(_config.EmbeddingModel)
-        ? _config.EmbeddingModel
-        : null;
+    public string? ModelId => _embeddingClient != null ? _effectiveModelId : null;
 
     public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null)
     {
@@ -52,13 +51,8 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     private void InitializeClient()
     {
-        // 统一继承树：凭据解析集中在 ModelCredentialResolver（Custom 模式下留空字段仍逐字段回退主配置）。
-        var effective = ModelCredentialResolver.Resolve(
-            _config.EmbeddingCredentialSource, _config,
-            _config.EmbeddingProvider == "Inherit" ? string.Empty : _config.EmbeddingProvider,
-            _config.EmbeddingBaseUrl, _config.EmbeddingApiKey,
-            _config.EmbeddingModel);
-        var provider = effective.Provider;
+        var effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.Embedding);
+        var provider = effective.ProviderDisplayName;
         var apiKey = effective.ApiKey;
         var baseUrl = effective.BaseUrl;
 
@@ -66,6 +60,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
         {
             _client = null;
             _embeddingClient = null;
+            _effectiveModelId = null;
             _logger.Warning("Embedding API Key 为空，服务未初始化");
             return;
         }
@@ -81,14 +76,16 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
             _client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
             
-            if (!string.IsNullOrWhiteSpace(_config.EmbeddingModel))
+            if (!string.IsNullOrWhiteSpace(effective.Model))
             {
-                _embeddingClient = _client.GetEmbeddingClient(_config.EmbeddingModel);
-                _logger.Information("Embedding 客户端初始化成功，提供商: {Provider}, 模型: {Model}", provider, _config.EmbeddingModel);
+                _embeddingClient = _client.GetEmbeddingClient(effective.Model);
+                _effectiveModelId = effective.Model;
+                _logger.Information("Embedding 客户端初始化成功，提供商: {Provider}, 模型: {Model}", provider, effective.Model);
             }
             else
             {
                 _embeddingClient = null;
+                _effectiveModelId = null;
                 _logger.Warning("Embedding 模型未配置");
             }
         }
@@ -97,6 +94,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             _logger.Error(ex, "Embedding 客户端初始化失败");
             _client = null;
             _embeddingClient = null;
+            _effectiveModelId = null;
         }
     }
 

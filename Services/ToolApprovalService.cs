@@ -18,6 +18,7 @@ public class ToolApprovalService : IToolApprovalService
     private readonly IConfigService _configService;
     private readonly IToolApprovalPrompter? _prompter;
     private readonly IConversationSessionAccessor? _sessionAccessor;
+    private readonly IAiToolApprovalEvaluator? _aiEvaluator;
     private readonly ILogger _logger;
 
     // 会话内「始终允许」的去重键（AllowForSession）。键含当前对话 ID，做到每个对话独立——
@@ -29,11 +30,13 @@ public class ToolApprovalService : IToolApprovalService
         IConfigService configService,
         IToolApprovalPrompter? prompter,
         ILogger logger,
-        IConversationSessionAccessor? sessionAccessor = null)
+        IConversationSessionAccessor? sessionAccessor = null,
+        IAiToolApprovalEvaluator? aiEvaluator = null)
     {
         _configService = configService;
         _prompter = prompter;
         _sessionAccessor = sessionAccessor;
+        _aiEvaluator = aiEvaluator;
         _logger = logger.ForContext<ToolApprovalService>();
     }
 
@@ -59,6 +62,17 @@ public class ToolApprovalService : IToolApprovalService
             return decision;
         }
 
+        var request = BuildRequest(functionName, argumentsJson, risk, riskReason, isTerminal, commandName, approvalKey);
+
+        if (mode == ToolApprovalMode.Automatic)
+        {
+            var automatic = _aiEvaluator == null
+                ? ToolApprovalDecision.Deny("自动审批模型不可用")
+                : await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+            Audit(functionName, risk, execMode, automatic);
+            return automatic;
+        }
+
         // —— 需要人工确认，但非交互式路径不能弹窗 ——
         if (execMode != ToolApprovalContext.ExecutionMode.Interactive || _prompter == null)
         {
@@ -66,8 +80,6 @@ public class ToolApprovalService : IToolApprovalService
             Audit(functionName, risk, execMode, nonInteractive);
             return nonInteractive;
         }
-
-        var request = BuildRequest(functionName, argumentsJson, risk, riskReason, isTerminal, commandName, approvalKey);
 
         ToolApprovalScope scope;
         try

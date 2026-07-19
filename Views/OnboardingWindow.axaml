@@ -182,22 +182,34 @@
         
         <!-- Step 1：主凭据 -->
         <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep1}" Margin="0,20,0,0">
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Onboarding.Provider}" VerticalAlignment="Center" Opacity="0.8"/>
                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}"
-                          SelectedItem="{Binding Config.Provider}" HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                          SelectedItem="{Binding PrimaryProvider.ProviderPreset}" HorizontalAlignment="Stretch" Margin="0,0,0,8"
                           SelectionChanged="OnProviderSelectionChanged"/>
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Opacity="0.8"/>
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Config.BaseUrl}"
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PrimaryProvider.BaseUrl}"
                          FontFamily="Consolas, Menlo, monospace" FontSize="12" Margin="0,0,0,8"/>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Opacity="0.8"/>
-                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Config.ApiKey}" PasswordChar="*"
-                         FontFamily="Consolas, Menlo, monospace" FontSize="12" Margin="0,0,0,8"/>
+                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+                    <TextBox Text="{Binding PrimaryProvider.ApiKey}" PasswordChar="*"
+                             FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
+                    <Button Grid.Column="1" Command="{Binding LoadModelOptionsCommand}" Content="{loc:Loc Config.RefreshModelList}"/>
+                </Grid>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Onboarding.Model}" VerticalAlignment="Center" Opacity="0.8"/>
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Config.Model}" Margin="0,0,0,8"/>
+                <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.MainConversation.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Title}" VerticalAlignment="Center" Opacity="0.8"/>
+                <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Compression}" VerticalAlignment="Center" Opacity="0.8"/>
+                <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
+
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Approval}" VerticalAlignment="Center" Opacity="0.8"/>
+                <ComboBox Grid.Row="6" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
             </Grid>
 
             <StackPanel Orientation="Horizontal" Spacing="12">
@@ -206,7 +218,7 @@
                 <TextBlock Classes="mono" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
             </StackPanel>
 
-            <!-- 一把钥匙点亮全部角色（统一凭据继承树） -->
+            <!-- 同一供应商连接可承载多个独立角色；生图与 TTS 仍在扩展页单独配置。 -->
             <Border Classes="card" Margin="0,4,0,0">
                 <StackPanel Spacing="8">
                     <TextBlock Text="{loc:Loc Onboarding.RolesHint}" FontSize="12" Opacity="0.65"/>
@@ -214,8 +226,7 @@
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="Embedding"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Image}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Audio}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Config.ModelRole.Approval}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.SubAgents}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Browser}"/></Border>
                     </WrapPanel>

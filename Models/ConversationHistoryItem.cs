@@ -83,4 +83,9 @@ public class ConversationHistoryItem
 
     [JsonIgnore]
     public bool AreActionsEnabled => !IsArchivePlaceholder;
+
+    /// <summary>
+    /// 所属工作区 ID（null 表示未绑定工作区）
+    /// </summary>
+    public string? WorkspaceId { get; set; }
 }

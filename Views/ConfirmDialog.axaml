@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="200"
@@ -21,7 +22,7 @@
 
         <!-- 不再询问开关 -->
         <CheckBox Grid.Row="1"
-                  Content="下次不再提示"
+                  Content="{loc:Loc Dialog.DontAskAgain}"
                   IsChecked="{Binding DontAskAgain}"
                   Margin="0,16,0,0"/>
 

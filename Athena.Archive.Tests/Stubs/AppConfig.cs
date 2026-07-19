@@ -8,11 +8,4 @@ public class AppConfig
 
     public string BaseUrl { get; set; } = string.Empty;
 
-    public string SecondaryProvider { get; set; } = "OpenAI";
-
-    public string SecondaryApiKey { get; set; } = string.Empty;
-
-    public string SecondaryBaseUrl { get; set; } = string.Empty;
-
-    public string SecondaryModel { get; set; } = "gpt-4o-mini";
 }

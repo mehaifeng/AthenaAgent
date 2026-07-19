@@ -7,10 +7,10 @@
 
   <ItemGroup>
     <Compile Remove="Stubs/AppConfig.cs" />
-    <PackageReference Include="Avalonia" Version="12.0.5" />
+    <PackageReference Include="Avalonia" Version="12.1.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="OpenAI" Version="2.11.0" />
-    <PackageReference Include="Serilog" Version="4.4.0-dev-02437" />
+    <PackageReference Include="OpenAI" Version="2.12.0" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,8 +20,13 @@
     <Compile Include="../Models/DocumentParserMode.cs" Link="Source/Models/DocumentParserMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/AiModelConfiguration.cs" Link="Source/Models/AiModelConfiguration.cs" />
+    <Compile Include="../Models/EmbeddingConnectionSource.cs" Link="Source/Models/EmbeddingConnectionSource.cs" />
     <Compile Include="../Models/ModelCredentialSource.cs" Link="Source/Models/ModelCredentialSource.cs" />
     <Compile Include="../Services/ModelCredentialResolver.cs" Link="Source/Services/ModelCredentialResolver.cs" />
+    <Compile Include="../Services/ConfigService.cs" Link="Source/Services/ConfigService.cs" />
+    <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
+    <Compile Include="../Services/Interfaces/IModelCatalogService.cs" Link="Source/Services/Interfaces/IModelCatalogService.cs" />
     <Compile Include="../Models/ToolApproval.cs" Link="Source/Models/ToolApproval.cs" />
     <Compile Include="../Services/ToolRiskClassifier.cs" Link="Source/Services/ToolRiskClassifier.cs" />
     <Compile Include="../Services/ToolApprovalContext.cs" Link="Source/Services/ToolApprovalContext.cs" />
@@ -42,6 +47,7 @@
     <Compile Include="../Models/CompressionResult.cs" Link="Source/Models/CompressionResult.cs" />
     <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
     <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
+    <Compile Include="../Models/WorkspaceProfile.cs" Link="Source/Models/WorkspaceProfile.cs" />
     <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />
     <Compile Include="../Models/FileSystemPolicyConfig.cs" Link="Source/Models/FileSystemPolicyConfig.cs" />
     <Compile Include="../Models/FileOperationModels.cs" Link="Source/Models/FileOperationModels.cs" />
@@ -53,7 +59,10 @@
     <Compile Include="../Models/ScheduledTask.cs" Link="Source/Models/ScheduledTask.cs" />
     <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
     <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
-    <Compile Include="../Services/ConversationHistoryService.cs" Link="Source/Services/ConversationHistoryService.cs" />
+    <Compile Include="../Services/ConversationArchiveStore.cs" Link="Source/Services/ConversationArchiveStore.cs" />
+    <Compile Include="../Services/ConversationTitleGenerator.cs" Link="Source/Services/ConversationTitleGenerator.cs" />
+    <Compile Include="../Services/OpenAiModelRuntimeFactory.cs" Link="Source/Services/OpenAiModelRuntimeFactory.cs" />
+    <Compile Include="../Services/WorkspaceService.cs" Link="Source/Services/WorkspaceService.cs" />
     <Compile Include="../Services/AudioConfigResolver.cs" Link="Source/Services/AudioConfigResolver.cs" />
     <Compile Include="../Services/ImageGenerationSessionService.cs" Link="Source/Services/ImageGenerationSessionService.cs" />
     <Compile Include="../Services/OpenAIImageGenerationService.cs" Link="Source/Services/OpenAIImageGenerationService.cs" />
@@ -64,13 +73,15 @@
     <Compile Include="../Services/Interfaces/IAttachmentStoreService.cs" Link="Source/Services/Interfaces/IAttachmentStoreService.cs" />
     <Compile Include="../Services/Interfaces/IConfigService.cs" Link="Source/Services/Interfaces/IConfigService.cs" />
     <Compile Include="../Services/Interfaces/IConversationArchiveService.cs" Link="Source/Services/Interfaces/IConversationArchiveService.cs" />
-    <Compile Include="../Services/Interfaces/IConversationHistoryService.cs" Link="Source/Services/Interfaces/IConversationHistoryService.cs" />
+    <Compile Include="../Services/Interfaces/IConversationArchiveStore.cs" Link="Source/Services/Interfaces/IConversationArchiveStore.cs" />
+    <Compile Include="../Services/Interfaces/IConversationModelTasks.cs" Link="Source/Services/Interfaces/IConversationModelTasks.cs" />
     <Compile Include="../Services/Interfaces/IFunctionRegistry.cs" Link="Source/Services/Interfaces/IFunctionRegistry.cs" />
     <Compile Include="../Services/Interfaces/IConversationSessionAccessor.cs" Link="Source/Services/Interfaces/IConversationSessionAccessor.cs" />
     <Compile Include="../Services/Interfaces/IImageGenerationService.cs" Link="Source/Services/Interfaces/IImageGenerationService.cs" />
     <Compile Include="../Services/Interfaces/IImageGenerationSessionService.cs" Link="Source/Services/Interfaces/IImageGenerationSessionService.cs" />
     <Compile Include="../Services/Interfaces/ILocalizationService.cs" Link="Source/Services/Interfaces/ILocalizationService.cs" />
     <Compile Include="../Services/Interfaces/IPlatformPathService.cs" Link="Source/Services/Interfaces/IPlatformPathService.cs" />
+    <Compile Include="../Services/Interfaces/IWorkspaceService.cs" Link="Source/Services/Interfaces/IWorkspaceService.cs" />
     <Compile Include="../Services/Interfaces/IPromptService.cs" Link="Source/Services/Interfaces/IPromptService.cs" />
     <Compile Include="../Services/Interfaces/IRecurrenceService.cs" Link="Source/Services/Interfaces/IRecurrenceService.cs" />
     <Compile Include="../Services/Interfaces/ITaskScheduler.cs" Link="Source/Services/Interfaces/ITaskScheduler.cs" />

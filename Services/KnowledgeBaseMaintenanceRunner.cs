@@ -27,9 +27,6 @@ public sealed class KnowledgeBaseMaintenanceRunner
         => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     private const int MaxIterations = 30;
-    private const int MaxOutputTokens = 4000;
-    private const float Temperature = 0.2f;
-
     // 整理只需读/搜/改/删 —— 明确不含 create_new_memory（整理阶段不应新建）与 dispatch_subagents。
     private static readonly string[] AllowedTools =
     {
@@ -101,8 +98,8 @@ public sealed class KnowledgeBaseMaintenanceRunner
 
         var options = new ChatCompletionOptions
         {
-            Temperature = Temperature,
-            MaxOutputTokenCount = MaxOutputTokens
+            Temperature = (float)effective.Temperature,
+            MaxOutputTokenCount = effective.MaxOutputTokens
         };
         foreach (var tool in tools)
         {

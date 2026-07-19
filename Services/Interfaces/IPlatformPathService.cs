@@ -54,4 +54,14 @@ public interface IPlatformPathService
     /// 获取向量数据库文件路径
     /// </summary>
     string GetVectorStoreFilePath();
+
+    /// <summary>
+    /// 获取工作区配置存储目录
+    /// </summary>
+    string GetWorkspacesDirectory();
+
+    /// <summary>
+    /// 获取指定工作区的知识文件目录
+    /// </summary>
+    string GetWorkspaceKnowledgeDirectory(string workspaceId);
 }

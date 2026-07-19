@@ -235,7 +235,7 @@ public class AttachmentStoreService : IAttachmentStoreService
     {
         cancellationToken.ThrowIfCancellationRequested();
         var attachment = CreateAttachment(fileName, ".png", "image/png", AttachmentKind.Image);
-        bitmap.Save(attachment.StoredPath);
+        bitmap.Save(attachment.StoredPath, PngBitmapEncoderOptions.Default);
         attachment.SizeBytes = new FileInfo(attachment.StoredPath).Length;
         if (attachment.SizeBytes > MaxImageBytes)
         {

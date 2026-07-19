@@ -16,6 +16,15 @@ public class ConversationContext
 
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
 
+    /// <summary>当前工作区 ID（null 表示未绑定工作区）</summary>
+    public string? WorkspaceId { get; set; }
+
+    /// <summary>当前工作区目录路径（注入 system prompt）</summary>
+    public string? WorkspaceDirectoryPath { get; set; }
+
+    /// <summary>系统管理的工作区知识文件绝对路径（注入 system prompt）</summary>
+    public string? WorkspaceKnowledgeFilePath { get; set; }
+
     public int ToolsDeclarationTokenCount { get; set; } = 0;
 
     public ConversationContext(int maxTokens = 8000)
@@ -96,7 +105,10 @@ public class ConversationContext
         var clone = new ConversationContext(_maxTokens)
         {
             ToolsDeclarationTokenCount = ToolsDeclarationTokenCount,
-            ConversationId = ConversationId
+            ConversationId = ConversationId,
+            WorkspaceId = WorkspaceId,
+            WorkspaceDirectoryPath = WorkspaceDirectoryPath,
+            WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath
         };
 
         clone.SetMainPersona(_mainPersona);

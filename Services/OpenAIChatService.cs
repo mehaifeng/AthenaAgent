@@ -25,35 +25,42 @@ namespace Athena.UI.Services;
 /// </summary>
 public class OpenAIChatService : IChatService
 {
-    private readonly IFunctionRegistry _functionRegistry;
     private readonly IPromptService _promptService;
-    private readonly IConversationHistoryService? _historyService;
+    private readonly IContextCompressionService? _contextCompressionService;
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IConversationSessionAccessor? _conversationSessionAccessor;
     private readonly ISystemAudioService? _systemAudioService;
+    private readonly IWorkspaceService? _workspaceService;
+    private readonly IConfigService? _configService;
+    private readonly IFunctionRegistry? _functionRegistry;
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
+    private EffectiveOpenAiModel? _mainModel;
 
     public OpenAIChatService(
         AppConfig config,
         IPromptService promptService,
-        IFunctionRegistry functionRegistry,
-        IConversationHistoryService? historyService = null,
+        IContextCompressionService? contextCompressionService = null,
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
-        ISystemAudioService? systemAudioService = null)
+        ISystemAudioService? systemAudioService = null,
+        IWorkspaceService? workspaceService = null,
+        IConfigService? configService = null,
+        IFunctionRegistry? functionRegistry = null)
     {
         _config = config;
         _promptService = promptService;
-        _functionRegistry = functionRegistry;
-        _historyService = historyService;
+        _contextCompressionService = contextCompressionService;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
         _conversationSessionAccessor = conversationSessionAccessor;
         _systemAudioService = systemAudioService;
+        _workspaceService = workspaceService;
+        _configService = configService;
+        _functionRegistry = functionRegistry;
         InitializeClient();
     }
 
@@ -65,32 +72,28 @@ public class OpenAIChatService : IChatService
 
     private void InitializeClient()
     {
-        if (string.IsNullOrWhiteSpace(_config.ApiKey))
-        {
-            _client = null;
-            _chatClient = null;
-            Log.Warning("API Key 为空，客户端未初始化");
-            return;
-        }
-
         try
         {
+            var effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.MainConversation);
+            effective.ValidateChatRole(AiModelRole.MainConversation);
             var options = new OpenAIClientOptions();
-            if (!string.IsNullOrWhiteSpace(_config.BaseUrl))
+            if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
             {
-                options.Endpoint = new Uri(_config.BaseUrl);
-                Log.Information("使用自定义 Base URL: {BaseUrl}", _config.BaseUrl);
+                options.Endpoint = new Uri(effective.BaseUrl);
+                Log.Information("主对话使用供应商 {Provider}: {BaseUrl}", effective.ProviderDisplayName, effective.BaseUrl);
             }
 
-            _client = new OpenAIClient(new ApiKeyCredential(_config.ApiKey), options);
-            _chatClient = _client.GetChatClient(_config.Model);
-            Log.Information("OpenAI 客户端初始化成功，模型: {Model}", _config.Model);
+            _client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
+            _chatClient = _client.GetChatClient(effective.Model);
+            _mainModel = effective;
+            Log.Information("主对话客户端初始化成功，模型: {Model}", effective.Model);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "OpenAI 客户端初始化失败");
             _client = null;
             _chatClient = null;
+            _mainModel = null;
         }
     }
 
@@ -128,7 +131,7 @@ public class OpenAIChatService : IChatService
 
         var contentBuilder = new StringBuilder();
         using var conversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
-        // 注意：工具审批的交互作用域在 ProcessStreamAsync 的工具调用点进入，而非此处——
+        using var workspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported))
@@ -161,7 +164,7 @@ public class OpenAIChatService : IChatService
 
             // [核心改进]：在每一轮迭代开始前检查 Token，确保工具调用链中也能自动压缩。
             // 优先用上一轮真实 InputTokenCount（供应商权威值），首轮无真实值时才退回估算。
-            if (_historyService != null && _config.AutoCompress)
+            if (_contextCompressionService != null && _config.AutoCompress)
             {
                 var currentTokens = lastRealInputTokens ?? context.EstimatedTokenCount;
                 if (currentTokens > _config.CompressionThreshold)
@@ -181,7 +184,11 @@ public class OpenAIChatService : IChatService
                     }).ToList();
 
                     // 把当前摘要一并传入，做"旧摘要 ⊕ 旧消息"的滚动合并，避免多次压缩丢史
-                    var result = await _historyService.CompressContextAsync(tempMessages, context.Summary, _config.KeepRecentRounds);
+                    var result = await _contextCompressionService.CompressAsync(
+                        tempMessages,
+                        context.Summary,
+                        _config.KeepRecentRounds,
+                        cancellationToken);
 
                     if (result.Summary != null && result.CompressedCount > 0)
                     {
@@ -307,7 +314,7 @@ public class OpenAIChatService : IChatService
                 var reasoning = usage.OutputTokenDetails?.ReasoningTokenCount ?? 0;
                 Log.Information(
                     "用量 {Model}: 输入 {Input} (缓存 {Cached}), 输出 {Output} (推理 {Reasoning}), 合计 {Total} tokens (第 {Iteration} 轮)",
-                    _config.Model,
+                    _mainModel?.Model ?? "(unconfigured)",
                     usage.InputTokenCount, cached,
                     usage.OutputTokenCount, reasoning,
                     usage.TotalTokenCount, iteration);
@@ -421,13 +428,16 @@ public class OpenAIChatService : IChatService
                 cancellationToken.ThrowIfCancellationRequested();
                 Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
                 using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
+                using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
                 // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
                 using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
                 // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
                 // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
                 // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
                 using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
-                var result = await ExecuteToolCallAsync(toolCall.FunctionName, toolCall.Arguments);
+                var result = _functionRegistry == null
+                    ? FunctionResult.FailureResult("Function registry is not available.")
+                    : await _functionRegistry.ExecuteAsync(toolCall.FunctionName, toolCall.Arguments);
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 var resultJson = result.ToJson();
@@ -510,27 +520,17 @@ public class OpenAIChatService : IChatService
 
     private record ToolCallInfo(string Id, string FunctionName, string Arguments);
 
-    private async Task<FunctionResult> ExecuteToolCallAsync(string functionName, string arguments)
-    {
-        if (_functionRegistry == null)
-        {
-            return FunctionResult.FailureResult("Function registry not available");
-        }
-
-        return await _functionRegistry.ExecuteAsync(functionName, arguments);
-    }
-
     private ChatCompletionOptions CreateChatOptions()
     {
         var options = new ChatCompletionOptions
         {
-            Temperature = (float)_config.Temperature,
-            MaxOutputTokenCount = _config.MaxTokens,
+            Temperature = (float)(_mainModel?.Temperature ?? 0.7),
+            MaxOutputTokenCount = _mainModel is { MaxOutputTokens: > 0 } model ? model.MaxOutputTokens : 16000,
             TopP = (float)_config.TopP
         };
 
         Log.Debug("API 参数: Temperature={Temp}, MaxTokens={MaxTokens}, TopP={TopP}",
-            _config.Temperature, _config.MaxTokens, _config.TopP);
+            options.Temperature, options.MaxOutputTokenCount, _config.TopP);
 
         ApplyToolOptions(options);
 
@@ -539,7 +539,7 @@ public class OpenAIChatService : IChatService
 
     private bool IsFunctionCallingEnabled()
     {
-        return _config.EnableFunctionCalling && _functionRegistry?.HasFunctions == true;
+        return _functionRegistry?.HasFunctions == true;
     }
 
     // 校验流式累积出来的工具参数是否为完整 JSON。截断的工具调用（如被 MaxTokens 切断）会得到
@@ -567,14 +567,9 @@ public class OpenAIChatService : IChatService
     {
         if (IsFunctionCallingEnabled())
         {
-            foreach (var tool in _functionRegistry.GetToolDefinitions())
-            {
-                if (tool is ChatTool chatTool)
-                {
-                    options.Tools.Add(chatTool);
-                }
-            }
-            Log.Debug("携带 {Count} 个工具", options.Tools.Count);
+            foreach (var tool in _functionRegistry!.GetToolDefinitions().OfType<ChatTool>())
+                options.Tools.Add(tool);
+            Log.Debug("主对话携带已注册工具定义");
             return;
         }
 
@@ -598,10 +593,38 @@ public class OpenAIChatService : IChatService
         var baseSystemParts = new List<string>();
         if (IsFunctionCallingEnabled())
         {
-            baseSystemParts.Add(_promptService.GetPrompt(PromptType.ToolCallingPolicy));
+            baseSystemParts.Add("""
+                # Tool Calling Policy
+
+                Use the registered tools directly when they are needed. Do not invent tool results and do not render tool calls as text.
+                """);
         }
         baseSystemParts.Add(persona);
         baseSystemParts.Add(GetPlatformContextMessage(IsFunctionCallingEnabled()));
+
+        // 工作区上下文注入
+        if (!string.IsNullOrEmpty(context.WorkspaceDirectoryPath))
+        {
+            var workspacePrompt = $"## Current Workspace\nProject Directory: {context.WorkspaceDirectoryPath}";
+            if (!string.IsNullOrEmpty(context.WorkspaceKnowledgeFilePath))
+            {
+                workspacePrompt += $"\nWorkspace Knowledge File: {context.WorkspaceKnowledgeFilePath}\nUse modify_system_file to update this system-managed file. Do not create additional workspace knowledge files.";
+            }
+            baseSystemParts.Add(workspacePrompt);
+
+            // 工作区知识文件全量注入（受 token 预算限制）
+            if (_workspaceService != null && !string.IsNullOrEmpty(context.WorkspaceId))
+            {
+                var budget = _configService?.Load().WorkspaceKnowledgeTokenBudget
+                             ?? _config.WorkspaceKnowledgeTokenBudget;
+                var knowledge = _workspaceService.BuildWorkspaceKnowledgeContext(context.WorkspaceId, context.WorkspaceKnowledgeFilePath, budget);
+                if (!string.IsNullOrEmpty(knowledge))
+                {
+                    baseSystemParts.Add($"## Workspace Knowledge\n{knowledge}");
+                }
+            }
+        }
+
         context.SetMainPersona(string.Join("\n\n---\n\n", baseSystemParts.Where(s => !string.IsNullOrEmpty(s))));
 
         var systemParts = new List<string>(baseSystemParts);
@@ -1033,8 +1056,8 @@ public class OpenAIChatService : IChatService
 
             var options = new ChatCompletionOptions
             {
-                Temperature = (float)_config.Temperature,
-                MaxOutputTokenCount = Math.Min(_config.MaxTokens, 10),
+                Temperature = (float)(_mainModel?.Temperature ?? 0.7),
+                MaxOutputTokenCount = Math.Min(_mainModel is { MaxOutputTokens: > 0 } model ? model.MaxOutputTokens : 16000, 10),
                 TopP = (float)_config.TopP
             };
 

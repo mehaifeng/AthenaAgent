@@ -27,4 +27,9 @@ public class ConversationArchiveSnapshot
     public DateTime CapturedAt { get; init; } = DateTime.Now;
 
     public bool ForceGenerateSummary { get; init; }
+
+    /// <summary>
+    /// 所属工作区 ID（null 表示未绑定工作区）
+    /// </summary>
+    public string? WorkspaceId { get; init; }
 }

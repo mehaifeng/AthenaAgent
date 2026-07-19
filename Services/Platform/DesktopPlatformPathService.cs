@@ -42,4 +42,9 @@ public class DesktopPlatformPathService : IPlatformPathService
     public string GetTaskSchedulerFilePath() => Path.Combine(_baseDirectory, "scheduled_tasks.json");
 
     public string GetVectorStoreFilePath() => Path.Combine(GetKnowledgeBaseDirectory(), "vectors.db");
+
+    public string GetWorkspacesDirectory() => Path.Combine(_baseDirectory, "Workspaces");
+
+    public string GetWorkspaceKnowledgeDirectory(string workspaceId) =>
+        Path.Combine(GetWorkspacesDirectory(), workspaceId, "knowledge");
 }

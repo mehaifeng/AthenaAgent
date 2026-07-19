@@ -222,7 +222,7 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
     {
         if (result.Content is null || result.Content.Count == 0)
         {
-            return result.StructuredContent?.ToJsonString() ?? string.Empty;
+            return result.StructuredContent?.GetRawText() ?? string.Empty;
         }
 
         var sb = new StringBuilder();

@@ -8,8 +8,8 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 ## ✨ Key Features
 
-- **🧠 Multi-Model Intelligence**: Utilizes a tiered architecture with configurable specialized models for reasoning, context management, semantic search, and image generation.
-- **🛠️ Direct Tool Calling**: Seamlessly interacts with your local system via secure file operations, web search, terminal execution, and application configuration, with tool calls surfaced as grouped, expandable cards.
+- **🧠 Unified Provider and Model Roles**: One OpenAI SDK-compatible provider owns shared connection details; main chat, titles, compression, automatic approval, embeddings, browser work, and sub-agents select independent models. TTS and image generation keep their own Extension connections.
+- **🛠️ Isolated Tool Agent**: The main conversation delegates through one controlled execution agent, which invokes built-in and MCP tools and returns evidence; every real call remains visible in grouped, expandable cards.
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
 - **🌐 Browser Automation**: Runs vision-guided, isolated browser sessions (Playwright + Set-of-Marks) to inspect web pages, click visible controls, fill simple forms, upload local files, and extract page evidence.
 - **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and background self-maintenance, ensuring privacy and instant retrieval.

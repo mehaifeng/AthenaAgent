@@ -19,7 +19,10 @@ public class ConversationArchiveService : IConversationArchiveService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private readonly IConversationHistoryService _historyService;
+    private readonly IConversationArchiveStore _store;
+    private readonly IConversationDraftStore _draftStore;
+    private readonly IConversationTitleGenerator _titleGenerator;
+    private readonly IImageGenerationSessionService? _imageSessionService;
     private readonly string _pendingArchiveDirectory;
     private readonly ILogger _logger;
     private readonly Channel<string> _channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
@@ -30,11 +33,17 @@ public class ConversationArchiveService : IConversationArchiveService
     private readonly CancellationTokenSource _processingCts = new();
 
     public ConversationArchiveService(
-        IConversationHistoryService historyService,
+        IConversationArchiveStore store,
+        IConversationDraftStore draftStore,
+        IConversationTitleGenerator titleGenerator,
         IPlatformPathService platformPathService,
-        ILogger logger)
+        ILogger logger,
+        IImageGenerationSessionService? imageSessionService = null)
     {
-        _historyService = historyService;
+        _store = store;
+        _draftStore = draftStore;
+        _titleGenerator = titleGenerator;
+        _imageSessionService = imageSessionService;
         _pendingArchiveDirectory = platformPathService.GetPendingArchiveDirectory();
         _logger = logger;
 
@@ -49,6 +58,26 @@ public class ConversationArchiveService : IConversationArchiveService
 
     public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveStaged;
 
+    public Task<System.Collections.Generic.List<ConversationHistoryItem>> LoadAllAsync() => _store.LoadAllAsync();
+
+    public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => _store.LoadByIdAsync(id);
+
+    public void SaveDraft(ConversationDraftSnapshot snapshot) => _draftStore.Save(snapshot);
+
+    public ConversationDraftSnapshot? LoadDraft() => _draftStore.Load();
+
+    public void DeleteDraft() => _draftStore.Delete();
+
+    public async Task DeleteAsync(string id)
+    {
+        var item = await _store.LoadByIdAsync(id);
+        await _store.DeleteAsync(id);
+        if (!string.IsNullOrWhiteSpace(item?.ConversationId) && _imageSessionService != null)
+        {
+            await _imageSessionService.DeleteAsync(item.ConversationId);
+        }
+    }
+
     public async Task StageArchiveAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -61,6 +90,7 @@ public class ConversationArchiveService : IConversationArchiveService
             ForkedFromConversationId = snapshot.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
             ForkedAtMessageId = snapshot.ForkedAtMessageId,
+            WorkspaceId = snapshot.WorkspaceId,
             Messages = ConversationPersistenceHelper.CloneMessages(snapshot.Messages),
             ImageSession = snapshot.ImageSession == null
                 ? null
@@ -125,7 +155,7 @@ public class ConversationArchiveService : IConversationArchiveService
                 throw new InvalidOperationException("Archived snapshot payload is empty.");
             }
 
-            var historyItem = await _historyService.UpsertFromSnapshotAsync(snapshot, ct);
+            var historyItem = await UpsertFromSnapshotAsync(snapshot, ct);
             File.Delete(stagedFilePath);
             ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, stagedFilePath, historyItem));
             _logger.Information("后台归档完成: {HistoryId}", historyItem.Id);
@@ -142,6 +172,46 @@ public class ConversationArchiveService : IConversationArchiveService
             }
             _logger.Error(ex, "后台归档失败，待重试文件已保留: {Path}", stagedFilePath);
         }
+    }
+
+    internal async Task<ConversationHistoryItem> UpsertFromSnapshotAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
+    {
+        var messages = ConversationPersistenceHelper.CloneMessages(snapshot.Messages);
+        var title = await _titleGenerator.GenerateAsync(messages, snapshot.ForceGenerateSummary, ct);
+        var historyId = string.IsNullOrWhiteSpace(snapshot.HistoryId) ? Guid.NewGuid().ToString() : snapshot.HistoryId!;
+        var existing = await _store.LoadByIdAsync(historyId);
+        var item = new ConversationHistoryItem
+        {
+            ConversationId = string.IsNullOrWhiteSpace(snapshot.ConversationId)
+                ? existing?.ConversationId ?? Guid.NewGuid().ToString("N")
+                : snapshot.ConversationId,
+            Id = historyId,
+            Summary = title,
+            ContextSummary = snapshot.ContextSummary,
+            ForkedFromConversationId = snapshot.ForkedFromConversationId ?? existing?.ForkedFromConversationId,
+            ForkedFromHistoryId = snapshot.ForkedFromHistoryId ?? existing?.ForkedFromHistoryId,
+            ForkedAtMessageId = snapshot.ForkedAtMessageId ?? existing?.ForkedAtMessageId,
+            WorkspaceId = snapshot.WorkspaceId ?? existing?.WorkspaceId,
+            MessageCount = messages.Count(ConversationArchiveStore.IsCountableMessage),
+            Messages = messages,
+            CreatedAt = existing?.CreatedAt ?? messages.FirstOrDefault()?.Timestamp ?? snapshot.CapturedAt,
+            UpdatedAt = snapshot.CapturedAt
+        };
+        await _store.SaveAsync(item);
+
+        if (snapshot.ImageSession != null && _imageSessionService != null)
+        {
+            await _imageSessionService.PersistSnapshotAsync(new ImageGenerationSessionSnapshot
+            {
+                ConversationId = item.ConversationId,
+                HistoryId = item.Id,
+                ActiveLineageId = snapshot.ImageSession.ActiveLineageId,
+                CreatedAt = snapshot.ImageSession.CreatedAt,
+                UpdatedAt = snapshot.ImageSession.UpdatedAt,
+                Turns = snapshot.ImageSession.Turns.Select(CloneTurn).ToList()
+            }, ct);
+        }
+        return item;
     }
 
     private static ConversationArchiveSnapshot? SafeReadSnapshot(string stagedFilePath)
