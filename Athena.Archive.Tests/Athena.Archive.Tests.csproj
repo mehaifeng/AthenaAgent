@@ -62,6 +62,7 @@
     <Compile Include="../Services/ConversationArchiveStore.cs" Link="Source/Services/ConversationArchiveStore.cs" />
     <Compile Include="../Services/ConversationTitleGenerator.cs" Link="Source/Services/ConversationTitleGenerator.cs" />
     <Compile Include="../Services/OpenAiModelRuntimeFactory.cs" Link="Source/Services/OpenAiModelRuntimeFactory.cs" />
+    <Compile Include="../Services/OpenAiClientOptionsFactory.cs" Link="Source/Services/OpenAiClientOptionsFactory.cs" />
     <Compile Include="../Services/WorkspaceService.cs" Link="Source/Services/WorkspaceService.cs" />
     <Compile Include="../Services/AudioConfigResolver.cs" Link="Source/Services/AudioConfigResolver.cs" />
     <Compile Include="../Services/ImageGenerationSessionService.cs" Link="Source/Services/ImageGenerationSessionService.cs" />

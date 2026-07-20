@@ -38,11 +38,7 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
 
         try
         {
-            var clientOptions = new OpenAIClientOptions();
-            if (!string.IsNullOrWhiteSpace(effectiveConfig.BaseUrl))
-            {
-                clientOptions.Endpoint = new Uri(effectiveConfig.BaseUrl);
-            }
+            var clientOptions = OpenAiClientOptionsFactory.Create(effectiveConfig.BaseUrl, config.Timeout);
 
             var client = new OpenAIClient(new ApiKeyCredential(effectiveConfig.ApiKey), clientOptions);
             var chatClient = client.GetChatClient(effectiveConfig.Model);

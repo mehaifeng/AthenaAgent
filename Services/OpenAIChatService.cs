@@ -2,6 +2,7 @@
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.SubAgents;
 using OpenAI;
+using OpenAI.Audio;
 using OpenAI.Chat;
 using Serilog;
 using System;
@@ -9,9 +10,6 @@ using System.ClientModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text.Json.Nodes;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -76,10 +74,9 @@ public class OpenAIChatService : IChatService
         {
             var effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.MainConversation);
             effective.ValidateChatRole(AiModelRole.MainConversation);
-            var options = new OpenAIClientOptions();
+            var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, _config.Timeout);
             if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
             {
-                options.Endpoint = new Uri(effective.BaseUrl);
                 Log.Information("主对话使用供应商 {Provider}: {BaseUrl}", effective.ProviderDisplayName, effective.BaseUrl);
             }
 
@@ -1160,39 +1157,44 @@ public class OpenAIChatService : IChatService
 
         try
         {
-            using var httpClient = new HttpClient
+            var sdkBaseUrl = AudioConfigResolver.GetSdkBaseUrl(audioConfig.BaseUrl);
+            var clientOptions = OpenAiClientOptionsFactory.Create(sdkBaseUrl, _config.Timeout);
+            var audioClient = new OpenAIClient(
+                    new ApiKeyCredential(audioConfig.ApiKey),
+                    clientOptions)
+                .GetAudioClient(audioConfig.Model);
+
+            var speechOptions = new SpeechGenerationOptions
             {
-                Timeout = TimeSpan.FromSeconds(Math.Max(_config.Timeout, 30))
+                ResponseFormat = GeneratedSpeechFormat.Mp3
             };
+            GeneratedSpeechVoice voice = audioConfig.Voice;
+            var input = text.Length > 4096 ? text[..4096] : text;
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, audioConfig.BaseUrl);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", audioConfig.ApiKey);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("audio/mpeg"));
-
-            var payload = new JsonObject
-            {
-                ["model"] = audioConfig.Model,
-                ["input"] = text.Length > 4096 ? text[..4096] : text,
-                ["voice"] = audioConfig.Voice,
-                ["response_format"] = "mp3"
-            };
-
-            request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                return (null, string.Format(GetLocalized("Audio.RequestFailed", "Audio output request failed: {0}"), $"{(int)response.StatusCode} {response.ReasonPhrase}. {errorBody}".Trim()));
-            }
-
-            var audioBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            var response = await audioClient.GenerateSpeechAsync(
+                input,
+                voice,
+                speechOptions,
+                cancellationToken);
+            var audioBytes = response.Value.ToArray();
             if (audioBytes.Length == 0)
             {
                 return (null, GetLocalized("Audio.EmptyBody", "Audio output request returned an empty body."));
             }
 
             return await CreateAssistantAudioAttachmentAsync(audioBytes, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ClientResultException ex)
+        {
+            Log.Error(ex, "独立音频输出 SDK 请求失败，Provider={Provider}, Model={Model}, Status={Status}",
+                audioConfig.Provider, audioConfig.Model, ex.Status);
+            return (null, string.Format(
+                GetLocalized("Audio.RequestFailed", "Audio output request failed: {0}"),
+                $"HTTP {ex.Status}: {ex.Message}"));
         }
         catch (Exception ex)
         {

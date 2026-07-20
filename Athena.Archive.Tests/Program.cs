@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.ClientModel.Primitives;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -25,6 +26,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config uses dedicated credentials and provider default endpoint", TestAudioConfigInheritanceAsync),
+    ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
+    ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
@@ -270,6 +273,53 @@ static Task TestAudioConfigInheritanceAsync()
     config.ChatAudioApiKey = string.Empty;
     var resolvedWithoutKey = AudioConfigResolver.Resolve(config);
     AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio api key should not inherit primary key");
+    return Task.CompletedTask;
+}
+
+static Task TestAudioSdkBaseUrlAsync()
+{
+    AssertEqual(
+        "https://api.openai.com/v1",
+        AudioConfigResolver.GetSdkBaseUrl("https://api.openai.com/v1/audio/speech"),
+        "OpenAI speech endpoint should become the API root");
+    AssertEqual(
+        "https://openrouter.ai/api/v1",
+        AudioConfigResolver.GetSdkBaseUrl("https://openrouter.ai/api/v1/audio/speech/"),
+        "OpenRouter speech endpoint should become the API root");
+    AssertEqual(
+        "https://example.com/custom/v1",
+        AudioConfigResolver.GetSdkBaseUrl("https://example.com/custom/v1"),
+        "an existing API root should be preserved");
+    AssertEqual(
+        string.Empty,
+        AudioConfigResolver.GetSdkBaseUrl("  "),
+        "an empty URL should stay empty");
+
+    var invalidRejected = false;
+    try
+    {
+        AudioConfigResolver.GetSdkBaseUrl("not-a-url");
+    }
+    catch (UriFormatException)
+    {
+        invalidRejected = true;
+    }
+
+    AssertTrue(invalidRejected, "an invalid audio URL should be rejected before creating the SDK client");
+    return Task.CompletedTask;
+}
+
+static Task TestOpenAiClientOptionsFactoryAsync()
+{
+    var options = OpenAiClientOptionsFactory.Create(" https://example.com/v1 ", 20);
+
+    AssertEqual(new Uri("https://example.com/v1"), options.Endpoint, "SDK endpoint should be trimmed and parsed");
+    AssertEqual(TimeSpan.FromSeconds(20), options.NetworkTimeout, "configured timeout should reach the SDK pipeline");
+    AssertTrue(options.RetryPolicy is ClientRetryPolicy, "SDK retry policy should be explicit");
+    AssertEqual(3, OpenAiClientOptionsFactory.DefaultMaxRetries, "retry count should match the documented SDK default");
+    AssertEqual(60, OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(0), "non-positive timeout should use the default");
+    AssertEqual(10, OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(1), "small timeout should be clamped");
+    AssertEqual(600, OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(1000), "large timeout should be clamped");
     return Task.CompletedTask;
 }
 

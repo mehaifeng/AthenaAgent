@@ -81,12 +81,8 @@ public class OpenAIImageGenerationService : IImageGenerationService
 
         try
         {
-            var clientOptions = new OpenAIClientOptions();
             var baseUrl = GetEffectiveBaseUrl(config);
-            if (!string.IsNullOrWhiteSpace(baseUrl))
-            {
-                clientOptions.Endpoint = new Uri(baseUrl);
-            }
+            var clientOptions = OpenAiClientOptionsFactory.Create(baseUrl, config.Timeout);
 
             var referenceImages = request.ReferenceImages ?? [];
             var preparedReferenceImages = PrepareReferenceImages(referenceImages);

@@ -12,7 +12,7 @@ This file serves as foundational guidance for AI interactions within the AthenaA
 - **Runtime**: .NET 10
 - **Architectural Pattern**: MVVM (using `CommunityToolkit.Mvvm`)
 - **Dependency Injection**: `Microsoft.Extensions.DependencyInjection`
-- **AI Integration**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Tool Calling)
+- **AI Integration**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Audio/TTS, Tool Calling; shared retry and timeout policy)
 - **Markdown Rendering**: `LiveMarkdown.Avalonia` for streaming chat output with inline images.
 - **Browser Automation**: `Microsoft.Playwright` (Set-of-Marks visual grounding + vision-guided agent).
 - **Audio**: `LibVLCSharp` for TTS / audio playback.
@@ -35,7 +35,7 @@ Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README
 - **Knowledge Base Self-Maintenance**: Write-time duplicate-detection guardrails on `create_new_memory`, plus a periodic maintenance agent (`KnowledgeBaseMaintenanceService` / `KnowledgeBaseMaintenanceRunner`) that consolidates and prunes memory files in the background.
 - **Context Management**: Centralized `TokenService` provides UI-wide atomic tracking of context window pressure, with visual warnings as the threshold approaches; `ContextCompressionService` uses the independently configured compression role.
 - **Image Generation**: OpenAI-backed image generation with logical continuity across turns; generated images render inline within Markdown chat output.
-- **Audio Output**: TTS playback via `LibVlcAudioPlaybackService` (toggle play/pause, stop), with audio config resolved per-model.
+- **Audio Output**: Remote speech generation uses the OpenAI SDK `AudioClient`; playback runs through `LibVlcAudioPlaybackService` (toggle play/pause, stop), with audio config resolved per-model.
 - **Browser Automation**: Vision-guided agent (`Services/Browser/`) using Playwright + Set-of-Marks annotation to plan and execute multi-step web tasks via the `run_browser_task` tool; its model is selected by the unified Browser Agent role.
 - **Document Parsing**: MinerU-based document parser (`Services/Parsers/`) exposed via `DocumentParserFunctions` (`get_document_outline`, `parse_office_document`) for extracting outlines/content from attachments (see `Docs/MinerU_API.md`).
 - **Screenshot Capture**: In-app screenshot tool with option to hide or retain the window during capture.

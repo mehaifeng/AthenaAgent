@@ -67,10 +67,9 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
         try
         {
-            var options = new OpenAIClientOptions();
+            var options = OpenAiClientOptionsFactory.Create(baseUrl, _config.Timeout);
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
-                options.Endpoint = new Uri(baseUrl);
                 _logger.Information("Embedding 使用自定义 Base URL: {BaseUrl}", baseUrl);
             }
 

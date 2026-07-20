@@ -66,26 +66,25 @@ public sealed class OpenAiModelRuntimeFactory
 
     public ChatClient CreateChatClient(AiModelRole role)
     {
-        var effective = Resolve(role);
-        effective.ValidateChatRole(role);
-        return CreateClient(effective).GetChatClient(effective.Model);
+        return CreateChatClient(_configService.Load(), role);
     }
 
     public ChatClient CreateChatClient(AppConfig config, AiModelRole role)
     {
         var effective = Resolve(config, role);
         effective.ValidateChatRole(role);
-        return CreateClient(effective).GetChatClient(effective.Model);
+        return CreateClient(effective, config.Timeout).GetChatClient(effective.Model);
     }
 
     public EmbeddingClient CreateEmbeddingClient()
     {
-        var effective = Resolve(AiModelRole.Embedding);
+        var config = _configService.Load();
+        var effective = Resolve(config, AiModelRole.Embedding);
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {
             throw new InvalidOperationException("Embedding model is not configured.");
         }
-        return CreateClient(effective).GetEmbeddingClient(effective.Model);
+        return CreateClient(effective, config.Timeout).GetEmbeddingClient(effective.Model);
     }
 
     public async Task<(bool Success, string Message)> TestChatAsync(
@@ -114,13 +113,9 @@ public sealed class OpenAiModelRuntimeFactory
         }
     }
 
-    private static OpenAIClient CreateClient(EffectiveOpenAiModel effective)
+    private static OpenAIClient CreateClient(EffectiveOpenAiModel effective, int timeoutSeconds)
     {
-        var options = new OpenAIClientOptions();
-        if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
-        {
-            options.Endpoint = new Uri(effective.BaseUrl);
-        }
+        var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, timeoutSeconds);
         return new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
     }
 }

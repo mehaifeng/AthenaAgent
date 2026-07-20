@@ -49,11 +49,7 @@ public sealed class SubAgentRunner
         ChatClient chatClient;
         try
         {
-            var clientOptions = new OpenAIClientOptions();
-            if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
-            {
-                clientOptions.Endpoint = new Uri(effective.BaseUrl);
-            }
+            var clientOptions = OpenAiClientOptionsFactory.Create(effective.BaseUrl, config.Timeout);
 
             var client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), clientOptions);
             chatClient = client.GetChatClient(effective.Model);

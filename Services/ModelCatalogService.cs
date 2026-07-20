@@ -44,11 +44,7 @@ public sealed class ModelCatalogService : IModelCatalogService
         OpenAIModelClient client;
         try
         {
-            var options = new OpenAIClientOptions();
-            if (!string.IsNullOrWhiteSpace(baseUrl))
-            {
-                options.Endpoint = new Uri(baseUrl.Trim());
-            }
+            var options = OpenAiClientOptionsFactory.Create(baseUrl, (int)RequestTimeout.TotalSeconds);
 
             client = new OpenAIModelClient(new ApiKeyCredential(apiKey.Trim()), options);
         }

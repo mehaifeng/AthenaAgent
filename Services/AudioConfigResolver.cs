@@ -59,6 +59,36 @@ public static class AudioConfigResolver
             ? url
             : AudioProviderUrls["OpenAI"];
     }
+
+    /// <summary>
+    /// Converts the configured speech endpoint to the API root expected by OpenAIClientOptions.
+    /// Existing Athena configurations store the full /audio/speech URL, while AudioClient appends that route itself.
+    /// A value that is already an API root is returned unchanged.
+    /// </summary>
+    public static string GetSdkBaseUrl(string configuredUrl)
+    {
+        if (string.IsNullOrWhiteSpace(configuredUrl))
+        {
+            return string.Empty;
+        }
+
+        if (!Uri.TryCreate(configuredUrl.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new UriFormatException($"Invalid audio Base URL: {configuredUrl}");
+        }
+
+        var builder = new UriBuilder(uri);
+        var path = builder.Path.TrimEnd('/');
+        const string speechSuffix = "/audio/speech";
+        if (path.EndsWith(speechSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            path = path[..^speechSuffix.Length].TrimEnd('/');
+        }
+
+        builder.Path = string.IsNullOrEmpty(path) ? "/" : path;
+        return builder.Uri.AbsoluteUri.TrimEnd('/');
+    }
 }
 
 public sealed record ResolvedAudioConfig(

@@ -57,7 +57,7 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **框架**：Avalonia UI 12.0
 - **运行时**：.NET 10
 - **UI 主题**：Semi.Avalonia、Irihi.Ursa.Themes.Semi
-- **AI SDK**：OpenAI SDK 2.x（对话、嵌入、图像生成、工具调用）
+- **AI SDK**：OpenAI SDK 2.x（对话、嵌入、图像生成、Audio/TTS、工具调用；统一重试与超时策略）
 - **Markdown**：LiveMarkdown.Avalonia（流式输出、内联图片）
 - **浏览器自动化**：Microsoft.Playwright
 - **音频**：LibVLCSharp
