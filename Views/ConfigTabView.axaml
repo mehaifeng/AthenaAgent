@@ -124,22 +124,10 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Knowledge base maintenance and embedding -->
+                <!-- Embedding and knowledge base maintenance -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="14">
-                        <TextBlock Text="{loc:Loc Config.KnowledgeMaintenance}" FontWeight="Bold" FontSize="15"/>
-                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" ColumnSpacing="20" RowSpacing="10">
-                            <TextBlock Text="{loc:Loc Config.KbMaintenanceEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.KnowledgeMaintenanceEnabled}" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="1" Text="{loc:Loc Config.KbMaintenanceInterval}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                                <NumericUpDown Value="{Binding Config.KnowledgeMaintenanceIntervalDays}" Minimum="1" Maximum="365" Width="120"/>
-                                <u:IconButton Command="{Binding RunKnowledgeMaintenanceCommand}" IsLoading="{Binding IsRunningMaintenance}" Content="{loc:Loc Config.KbMaintenanceRunNow}"/>
-                                <TextBlock Text="{Binding MaintenanceStatus}" VerticalAlignment="Center" FontSize="11" Opacity="0.7"/>
-                            </StackPanel>
-                        </Grid>
-                        <Separator/>
-                        <TextBlock Text="{loc:Loc Config.EmbeddingModel}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{loc:Loc Config.EmbeddingModel}" FontWeight="Bold" FontSize="15"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="14">
                             <TextBlock Text="{loc:Loc Config.EmbeddingConnection}" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,0,8"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding EmbeddingCredentialSources}" SelectedItem="{Binding Config.EmbeddingCredentialSource}" Margin="0,0,0,8">
@@ -153,11 +141,32 @@
                             <TextBox Grid.Row="3" Margin="0,0,0,8" Grid.Column="1" Text="{Binding Config.EmbeddingBaseUrl}" IsVisible="{Binding IsEmbeddingCustomConnection}"/>
                             <TextBlock Grid.Row="4" Margin="0,0,0,8" Text="{loc:Loc Config.AuthToken}" VerticalAlignment="Center" Opacity="0.75" IsVisible="{Binding IsEmbeddingCustomConnection}"/>
                             <TextBox Grid.Row="4" Margin="0,0,0,8" Grid.Column="1" Text="{Binding Config.EmbeddingApiKey}" PasswordChar="*" IsVisible="{Binding IsEmbeddingCustomConnection}"/>
-                            <StackPanel Grid.Row="5" Margin="0,0,0,8" Grid.ColumnSpan="2" Orientation="Horizontal">
+                            <StackPanel Grid.Row="5" Margin="0,0,0,8" Grid.ColumnSpan="2" Spacing="10" Orientation="Horizontal">
                                 <u:IconButton Command="{Binding RebuildVectorIndexCommand}"
                                               IsLoading="{Binding IsRebuildingVectorIndex}"
                                               Content="{loc:Loc Config.RebuildVectorIndex}"/>
                                 <TextBlock Text="{Binding VectorIndexStatus}"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Opacity="0.7"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                        <Separator/>
+                        <TextBlock Text="{loc:Loc Config.KnowledgeMaintenance}" FontWeight="Bold" FontSize="15"/>
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
+                            <TextBlock Text="{loc:Loc Config.KbMaintenanceEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.KnowledgeMaintenanceEnabled}" HorizontalAlignment="Left"/>
+                            <TextBlock Grid.Row="1" Text="{loc:Loc Config.KbMaintenanceInterval}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                           Value="{Binding Config.KnowledgeMaintenanceIntervalDays}"
+                                           Minimum="1" Maximum="365" Width="120"
+                                           HorizontalAlignment="Left"/>
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="10">
+                                <u:IconButton Command="{Binding RunKnowledgeMaintenanceCommand}"
+                                              IsLoading="{Binding IsRunningMaintenance}"
+                                              Content="{loc:Loc Config.KbMaintenanceRunNow}"/>
+                                <TextBlock Text="{Binding MaintenanceStatus}"
                                            VerticalAlignment="Center"
                                            FontSize="11"
                                            Opacity="0.7"

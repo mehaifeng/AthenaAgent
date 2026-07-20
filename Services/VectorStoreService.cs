@@ -64,9 +64,19 @@ public interface IVectorStoreService
     Task<Dictionary<string, FileStatus>> GetFileStatusesAsync();
 
     /// <summary>
-    /// 保存向量（批量）
+    /// 获取已完整生成向量的文件状态。与全文索引状态分离，允许 FTS 独立工作。
     /// </summary>
-    Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)> vectors);
+    Task<Dictionary<string, FileStatus>> GetVectorFileStatusesAsync();
+
+    /// <summary>
+    /// 保存文本分块并重建该文件的本地 FTS 索引。
+    /// </summary>
+    Task SaveChunksAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath)> chunks);
+
+    /// <summary>
+    /// 为已经写入本地文本索引的分块补充向量。只有全部分块均成功时才记录向量状态。
+    /// </summary>
+    Task SaveEmbeddingsAsync(string filePath, string fileHash, List<(int Index, float[] Embedding)> embeddings);
 
     /// <summary>
     /// 读取向量库的嵌入模型指纹（模型标识 + 维度）。无记录返回 null。
@@ -79,14 +89,14 @@ public interface IVectorStoreService
     Task SetEmbeddingFingerprintAsync(string model, int dimension);
 
     /// <summary>
-    /// 删除文件的向量
+    /// 删除文件的文本、FTS 和向量索引。
     /// </summary>
-    Task DeleteFileVectorsAsync(string filePath);
+    Task DeleteFileIndexAsync(string filePath);
 
     /// <summary>
-    /// 清除所有向量
+    /// 仅清除向量层，保留文本分块和 FTS 索引。
     /// </summary>
-    Task ClearAllAsync();
+    Task ClearEmbeddingsAsync();
 
     /// <summary>
     /// 获取统计信息
@@ -107,7 +117,7 @@ public class VectorStoreService : IVectorStoreService
     /// <summary>
     /// 存储层 schema 版本。结构变更时递增；启动检测到旧版本会丢弃并重建（向量为派生数据，可从 .md 安全重建）。
     /// </summary>
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
 
     public VectorStoreService(ILogger logger, IPlatformPathService? pathService = null)
     {
@@ -160,6 +170,7 @@ public class VectorStoreService : IVectorStoreService
                 using var dropCmd = new SqliteCommand(
                     @"DROP TABLE IF EXISTS document_vectors;
                       DROP TABLE IF EXISTS file_status;
+                      DROP TABLE IF EXISTS vector_status;
                       DROP TABLE IF EXISTS fts_index;
                       DROP TABLE IF EXISTS embed_meta;", connection);
                 await dropCmd.ExecuteNonQueryAsync();
@@ -180,13 +191,20 @@ public class VectorStoreService : IVectorStoreService
                     last_updated TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS vector_status (
+                    file_path TEXT PRIMARY KEY,
+                    file_hash TEXT NOT NULL,
+                    chunk_count INTEGER NOT NULL,
+                    last_updated TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS document_vectors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_path TEXT NOT NULL,
                     chunk_index INTEGER NOT NULL,
                     chunk_text TEXT NOT NULL,
                     heading_path TEXT NOT NULL DEFAULT '',
-                    embedding BLOB NOT NULL,
+                    embedding BLOB NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(file_path, chunk_index)
                 );
@@ -200,6 +218,7 @@ public class VectorStoreService : IVectorStoreService
 
                 CREATE INDEX IF NOT EXISTS IX_document_vectors_file_path ON document_vectors(file_path);
                 CREATE INDEX IF NOT EXISTS IX_file_status_file_hash ON file_status(file_hash);
+                CREATE INDEX IF NOT EXISTS IX_vector_status_file_hash ON vector_status(file_hash);
             ";
 
             using (var command = new SqliteCommand(createTableSql, connection))
@@ -241,8 +260,7 @@ public class VectorStoreService : IVectorStoreService
 
             while (await reader.ReadAsync())
             {
-                var embeddingBlob = (byte[])reader[4];
-                var embedding = BytesToFloats(embeddingBlob);
+                var embedding = reader.IsDBNull(4) ? null : BytesToFloats((byte[])reader[4]);
 
                 vectors.Add(new DocumentVector
                 {
@@ -274,10 +292,9 @@ public class VectorStoreService : IVectorStoreService
     /// </summary>
     public async Task<List<(string FilePath, int ChunkIndex, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10)
     {
-        var results = new List<(string FilePath, int ChunkIndex, string Content, double Score)>();
-
-        var matchExpr = BuildFtsMatchExpression(query);
-        if (matchExpr == null) return results;
+        var spec = BuildFtsQuerySpec(query);
+        if (spec.MatchExpression == null && spec.ShortTerms.Count == 0)
+            return new List<(string FilePath, int ChunkIndex, string Content, double Score)>();
 
         await _lock.WaitAsync();
         try
@@ -285,65 +302,128 @@ public class VectorStoreService : IVectorStoreService
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync();
 
-            // 使用 FTS5 的 rank 进行评分（BM25，越小越相关，这里取负值转为正向分）
-            var sql = @"
-                SELECT file_path, chunk_index, content, rank
-                FROM fts_index
-                WHERE content MATCH @query
-                ORDER BY rank
-                LIMIT @limit";
+            var candidates = new Dictionary<(string FilePath, int ChunkIndex), FtsCandidate>();
 
-            using var command = new SqliteCommand(sql, connection);
-            command.Parameters.AddWithValue("@query", matchExpr);
-            command.Parameters.AddWithValue("@limit", maxResults);
-
-            using var reader = await command.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            if (spec.MatchExpression != null)
             {
-                results.Add((
-                    reader.GetString(0),
-                    reader.GetInt32(1),
-                    reader.GetString(2),
-                    -reader.GetDouble(3) // 转换为正数
-                ));
+                using var command = new SqliteCommand(@"
+                    SELECT file_path, chunk_index, content, rank
+                    FROM fts_index
+                    WHERE content MATCH @query
+                    ORDER BY rank
+                    LIMIT @limit", connection);
+                command.Parameters.AddWithValue("@query", spec.MatchExpression);
+                command.Parameters.AddWithValue("@limit", Math.Max(maxResults * 4, maxResults));
+
+                using var reader = await command.ExecuteReaderAsync();
+                var rank = 0;
+                while (await reader.ReadAsync())
+                {
+                    var key = (reader.GetString(0), reader.GetInt32(1));
+                    candidates[key] = new FtsCandidate(reader.GetString(2), rank++, 0, -reader.GetDouble(3));
+                }
             }
+
+            if (spec.ShortTerms.Count > 0)
+            {
+                var hitParts = spec.ShortTerms.Select((_, i) =>
+                    $"CASE WHEN content LIKE @short{i} ESCAPE '\\' THEN 1 ELSE 0 END").ToList();
+                var hitExpression = string.Join(" + ", hitParts);
+                var likeWhere = string.Join(" OR ", spec.ShortTerms.Select((_, i) =>
+                    $"content LIKE @short{i} ESCAPE '\\'"));
+                var sql = $@"
+                    SELECT file_path, chunk_index, content, ({hitExpression}) AS short_hits
+                    FROM fts_index
+                    WHERE {likeWhere}
+                    ORDER BY short_hits DESC, length(content)
+                    LIMIT @limit";
+
+                using var command = new SqliteCommand(sql, connection);
+                for (var i = 0; i < spec.ShortTerms.Count; i++)
+                    command.Parameters.AddWithValue($"@short{i}", $"%{EscapeLike(spec.ShortTerms[i])}%");
+                command.Parameters.AddWithValue("@limit", Math.Max(maxResults * 4, maxResults));
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var key = (reader.GetString(0), reader.GetInt32(1));
+                    var shortHits = reader.GetInt32(3);
+                    if (candidates.TryGetValue(key, out var existing))
+                        candidates[key] = existing with { ShortHits = shortHits };
+                    else
+                        candidates[key] = new FtsCandidate(reader.GetString(2), null, shortHits, shortHits);
+                }
+            }
+
+            return candidates
+                .OrderByDescending(item => item.Value.ShortHits)
+                .ThenBy(item => item.Value.MatchRank ?? int.MaxValue)
+                .ThenByDescending(item => item.Value.Score)
+                .Take(maxResults)
+                .Select(item => (
+                    item.Key.FilePath,
+                    item.Key.ChunkIndex,
+                    item.Value.Content,
+                    item.Value.Score))
+                .ToList();
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "FTS 搜索失败 (Query: {Query})", query);
+            return new List<(string FilePath, int ChunkIndex, string Content, double Score)>();
         }
         finally
         {
             _lock.Release();
         }
-
-        return results;
     }
 
     /// <summary>
-    /// 构造 FTS5 MATCH 表达式：按空白切词，各词加引号后用 OR 连接，实现“命中任一关键词”。
-    /// trigram 分词下每个查询词需 ≥3 字符才能命中，过短词被过滤；全部过滤后回退整串。
-    /// 返回 null 表示无可用查询。
+    /// 为 trigram FTS 构造高召回查询。长词进入 MATCH；两字符中文词使用 LIKE 补召回，
+    /// 避免“渲染 / 界面 / 更新”这类常见关键词因不足三个字符而完全失效。
     /// </summary>
-    private static string? BuildFtsMatchExpression(string query)
+    private static FtsQuerySpec BuildFtsQuerySpec(string query)
     {
-        if (string.IsNullOrWhiteSpace(query)) return null;
+        if (string.IsNullOrWhiteSpace(query)) return new FtsQuerySpec(null, new List<string>());
 
         static string Quote(string term) => "\"" + term.Replace("\"", " ").Trim() + "\"";
 
         var terms = query
             .Split(new[] { ' ', '\t', '\r', '\n', '，', '、', ',', ';', '；' }, StringSplitOptions.RemoveEmptyEntries)
-            .Where(t => t.Length >= 3)
-            .Distinct()
+            .Select(term => term.Trim())
+            .Where(term => term.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (terms.Count > 0)
-            return string.Join(" OR ", terms.Select(Quote));
+        var matchTerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var shortTerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var term in terms)
+        {
+            if (term.Length == 2)
+                shortTerms.Add(term);
 
-        // 无满足长度的词（如纯短词查询）：用整串做子串匹配
-        var whole = query.Trim();
-        return whole.Length >= 3 ? Quote(whole) : null;
+            if (term.Length >= 3)
+                matchTerms.Add(term);
+
+            // 对无空格的长复合查询增加滑动 trigram，容忍中英文间空格和局部措辞差异。
+            if (term.Length >= 6)
+            {
+                for (var i = 0; i <= term.Length - 3; i++)
+                    matchTerms.Add(term.Substring(i, 3));
+            }
+        }
+
+        var matchExpression = matchTerms.Count == 0
+            ? null
+            : string.Join(" OR ", matchTerms.Select(Quote));
+        return new FtsQuerySpec(matchExpression, shortTerms.ToList());
     }
+
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    private sealed record FtsQuerySpec(string? MatchExpression, List<string> ShortTerms);
+    private sealed record FtsCandidate(string Content, int? MatchRank, int ShortHits, double Score);
 
     public async Task<Dictionary<string, FileStatus>> GetFileStatusesAsync()
     {
@@ -380,10 +460,44 @@ public class VectorStoreService : IVectorStoreService
         return statuses;
     }
 
-    public async Task SaveVectorsAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)> vectors)
+    public async Task<Dictionary<string, FileStatus>> GetVectorFileStatusesAsync()
     {
-        if (vectors.Count == 0) return;
+        var statuses = new Dictionary<string, FileStatus>();
 
+        await _lock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            await connection.OpenAsync();
+
+            using var command = new SqliteCommand(
+                "SELECT file_path, file_hash, chunk_count, last_updated FROM vector_status", connection);
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var filePath = reader.GetString(0);
+                statuses[filePath] = new FileStatus
+                {
+                    FilePath = filePath,
+                    FileHash = reader.GetString(1),
+                    ChunkCount = reader.GetInt32(2),
+                    LastUpdated = DateTime.Parse(reader.GetString(3))
+                };
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return statuses;
+    }
+
+    public async Task SaveChunksAsync(
+        string filePath,
+        string fileHash,
+        List<(int Index, string ChunkText, string HeadingPath)> chunks)
+    {
         await _lock.WaitAsync();
         try
         {
@@ -394,7 +508,7 @@ public class VectorStoreService : IVectorStoreService
 
             try
             {
-                // 删除旧向量
+                // 文本发生变化后，旧分块、FTS 和向量都失效；新的 FTS 不依赖 Embedding。
                 using (var deleteCommand = new SqliteCommand(
                     "DELETE FROM document_vectors WHERE file_path = @filePath", connection, transaction))
                 {
@@ -410,23 +524,27 @@ public class VectorStoreService : IVectorStoreService
                     await deleteFtsCommand.ExecuteNonQueryAsync();
                 }
 
-                // 插入新向量和 FTS 索引
-                foreach (var (index, chunkText, headingPath, embedding) in vectors)
+                using (var deleteVectorStatusCommand = new SqliteCommand(
+                    "DELETE FROM vector_status WHERE file_path = @filePath", connection, transaction))
                 {
-                    using var insertCommand = new SqliteCommand(
+                    deleteVectorStatusCommand.Parameters.AddWithValue("@filePath", filePath);
+                    await deleteVectorStatusCommand.ExecuteNonQueryAsync();
+                }
+
+                foreach (var (index, chunkText, headingPath) in chunks)
+                {
+                    using (var insertCommand = new SqliteCommand(
                         @"INSERT INTO document_vectors (file_path, chunk_index, chunk_text, heading_path, embedding)
-                          VALUES (@filePath, @chunkIndex, @chunkText, @headingPath, @embedding)",
-                        connection, transaction);
+                          VALUES (@filePath, @chunkIndex, @chunkText, @headingPath, NULL)",
+                        connection, transaction))
+                    {
+                        insertCommand.Parameters.AddWithValue("@filePath", filePath);
+                        insertCommand.Parameters.AddWithValue("@chunkIndex", index);
+                        insertCommand.Parameters.AddWithValue("@chunkText", chunkText);
+                        insertCommand.Parameters.AddWithValue("@headingPath", headingPath ?? string.Empty);
+                        await insertCommand.ExecuteNonQueryAsync();
+                    }
 
-                    insertCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
-                    insertCommand.Parameters.Add(new SqliteParameter("@chunkIndex", index));
-                    insertCommand.Parameters.Add(new SqliteParameter("@chunkText", chunkText));
-                    insertCommand.Parameters.Add(new SqliteParameter("@headingPath", headingPath ?? string.Empty));
-                    insertCommand.Parameters.Add(new SqliteParameter("@embedding", FloatsToBytes(embedding)));
-
-                    await insertCommand.ExecuteNonQueryAsync();
-
-                    // FTS 索引
                     using var insertFtsCommand = new SqliteCommand(
                         @"INSERT INTO fts_index (file_path, chunk_index, content)
                           VALUES (@filePath, @chunkIndex, @content)",
@@ -439,7 +557,6 @@ public class VectorStoreService : IVectorStoreService
                     await insertFtsCommand.ExecuteNonQueryAsync();
                 }
 
-                // 更新文件状态
                 using (var statusCommand = new SqliteCommand(
                     @"INSERT OR REPLACE INTO file_status (file_path, file_hash, chunk_count, last_updated)
                       VALUES (@filePath, @fileHash, @chunkCount, @lastUpdated)",
@@ -447,14 +564,14 @@ public class VectorStoreService : IVectorStoreService
                 {
                     statusCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
                     statusCommand.Parameters.Add(new SqliteParameter("@fileHash", fileHash));
-                    statusCommand.Parameters.Add(new SqliteParameter("@chunkCount", vectors.Count));
+                    statusCommand.Parameters.Add(new SqliteParameter("@chunkCount", chunks.Count));
                     statusCommand.Parameters.Add(new SqliteParameter("@lastUpdated", DateTime.UtcNow.ToString("O")));
 
                     await statusCommand.ExecuteNonQueryAsync();
                 }
 
                 transaction.Commit();
-                _logger.Debug("保存 {Count} 个向量及全文本索引: {FilePath}", vectors.Count, filePath);
+                _logger.Debug("保存 {Count} 个本地文本分块及 FTS 索引: {FilePath}", chunks.Count, filePath);
             }
             catch
             {
@@ -468,7 +585,80 @@ public class VectorStoreService : IVectorStoreService
         }
     }
 
-    public async Task DeleteFileVectorsAsync(string filePath)
+    public async Task SaveEmbeddingsAsync(
+        string filePath,
+        string fileHash,
+        List<(int Index, float[] Embedding)> embeddings)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction();
+
+            try
+            {
+                using (var clearCommand = new SqliteCommand(
+                    "UPDATE document_vectors SET embedding = NULL WHERE file_path = @filePath", connection, transaction))
+                {
+                    clearCommand.Parameters.AddWithValue("@filePath", filePath);
+                    await clearCommand.ExecuteNonQueryAsync();
+                }
+
+                foreach (var (index, embedding) in embeddings)
+                {
+                    using var updateCommand = new SqliteCommand(
+                        @"UPDATE document_vectors SET embedding = @embedding
+                          WHERE file_path = @filePath AND chunk_index = @chunkIndex", connection, transaction);
+                    updateCommand.Parameters.AddWithValue("@filePath", filePath);
+                    updateCommand.Parameters.AddWithValue("@chunkIndex", index);
+                    updateCommand.Parameters.AddWithValue("@embedding", FloatsToBytes(embedding));
+                    await updateCommand.ExecuteNonQueryAsync();
+                }
+
+                int chunkCount;
+                using (var countCommand = new SqliteCommand(
+                    "SELECT chunk_count FROM file_status WHERE file_path = @filePath", connection, transaction))
+                {
+                    countCommand.Parameters.AddWithValue("@filePath", filePath);
+                    chunkCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
+                }
+
+                if (embeddings.Count == chunkCount)
+                {
+                    using var statusCommand = new SqliteCommand(
+                        @"INSERT OR REPLACE INTO vector_status (file_path, file_hash, chunk_count, last_updated)
+                          VALUES (@filePath, @fileHash, @chunkCount, @lastUpdated)", connection, transaction);
+                    statusCommand.Parameters.AddWithValue("@filePath", filePath);
+                    statusCommand.Parameters.AddWithValue("@fileHash", fileHash);
+                    statusCommand.Parameters.AddWithValue("@chunkCount", chunkCount);
+                    statusCommand.Parameters.AddWithValue("@lastUpdated", DateTime.UtcNow.ToString("O"));
+                    await statusCommand.ExecuteNonQueryAsync();
+                }
+                else
+                {
+                    using var clearStatusCommand = new SqliteCommand(
+                        "DELETE FROM vector_status WHERE file_path = @filePath", connection, transaction);
+                    clearStatusCommand.Parameters.AddWithValue("@filePath", filePath);
+                    await clearStatusCommand.ExecuteNonQueryAsync();
+                }
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task DeleteFileIndexAsync(string filePath)
     {
         await _lock.WaitAsync();
         try
@@ -501,6 +691,13 @@ public class VectorStoreService : IVectorStoreService
                     await command.ExecuteNonQueryAsync();
                 }
 
+                using (var command = new SqliteCommand(
+                    "DELETE FROM vector_status WHERE file_path = @filePath", connection, transaction))
+                {
+                    command.Parameters.AddWithValue("@filePath", filePath);
+                    await command.ExecuteNonQueryAsync();
+                }
+
                 transaction.Commit();
                 _logger.Debug("删除文件向量及全文本索引: {FilePath}", filePath);
             }
@@ -516,7 +713,7 @@ public class VectorStoreService : IVectorStoreService
         }
     }
 
-    public async Task ClearAllAsync()
+    public async Task ClearEmbeddingsAsync()
     {
         await _lock.WaitAsync();
         try
@@ -525,11 +722,11 @@ public class VectorStoreService : IVectorStoreService
             await connection.OpenAsync();
 
             using var command = new SqliteCommand(
-                "DELETE FROM document_vectors; DELETE FROM fts_index; DELETE FROM file_status;",
+                "UPDATE document_vectors SET embedding = NULL; DELETE FROM vector_status; DELETE FROM embed_meta;",
                 connection);
             await command.ExecuteNonQueryAsync();
 
-            _logger.Information("已清除所有向量及全文本索引数据");
+            _logger.Information("已清除所有向量数据，保留本地分块及 FTS 索引");
         }
         finally
         {
@@ -553,7 +750,8 @@ public class VectorStoreService : IVectorStoreService
                 fileCount = Convert.ToInt32(await command.ExecuteScalarAsync());
             }
 
-            using (var command = new SqliteCommand("SELECT COUNT(*) FROM document_vectors", connection))
+            using (var command = new SqliteCommand(
+                "SELECT COUNT(*) FROM document_vectors WHERE embedding IS NOT NULL", connection))
             {
                 vectorCount = Convert.ToInt32(await command.ExecuteScalarAsync());
             }

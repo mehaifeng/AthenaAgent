@@ -128,7 +128,8 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
-            "Searches GLOBAL knowledge only using hybrid semantic + keyword vector search. It never searches workspace knowledge. Results are aggregated per file: each hit is a distinct global memory file with its heading path and matchCount. " +
+            "Searches GLOBAL knowledge only. Local FTS/BM25 keyword retrieval is always available; configured embeddings add semantic retrieval and RRF fusion. Results are aggregated per file: each hit is a distinct global memory file with its heading path and matchCount. " +
+            "Put likely Chinese/English aliases into one query; keyword terms are expanded for recall. Keyword-only results do not carry a confidence probability, so do not interpret their ranking as a percentage. " +
             "Call it before creating or changing GLOBAL knowledge. Do NOT call it for workspace knowledge: the system-managed workspace file is already supplied in the current system context and must remain isolated from global memories. " +
             "Also call this whenever the user asks something that may rely on past context.",
             new

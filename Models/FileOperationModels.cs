@@ -11,6 +11,9 @@ public class KnowledgeSearchResult
     public string Snippet { get; set; } = string.Empty;
     public double RelevanceScore { get; set; }
 
+    /// <summary>hybrid 表示 RelevanceScore 为余弦相似度；keyword 表示仅按词面排名，不提供置信度。</summary>
+    public string RetrievalMode { get; set; } = "keyword";
+
     /// <summary>命中分块所属的标题路径面包屑（如「文档标题 &gt; 二级标题」），便于模型精确定位后修改。</summary>
     public string HeadingPath { get; set; } = string.Empty;
 

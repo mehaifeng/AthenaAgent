@@ -98,7 +98,7 @@
     <system:String x:Key="Config.SectionAppearance">外观</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">主对话模型</system:String>
     <system:String x:Key="Config.UnifiedModels.Header">供应商与业务模型</system:String>
-    <system:String x:Key="Config.UnifiedModels.Hint">所有业务模型均使用 OpenAI SDK 兼容协议。供应商统一保存连接信息，各角色只选择供应商和模型；TTS 与生图继续在扩展页独立配置。</system:String>
+    <system:String x:Key="Config.UnifiedModels.Hint">所有业务模型均使用 OpenAI SDK 兼容协议,供应商统一保存连接信息</system:String>
     <system:String x:Key="Config.UnifiedModels.Providers">唯一供应商连接</system:String>
     <system:String x:Key="Config.UnifiedModels.AddProvider">添加供应商</system:String>
     <system:String x:Key="Config.UnifiedModels.ProviderName">显示名称</system:String>

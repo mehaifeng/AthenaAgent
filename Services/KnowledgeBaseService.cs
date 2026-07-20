@@ -202,7 +202,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             if (_pendingUpdates.TryRemove(relativePath, out _))
             {
                 _logger.Information("检测到外部文件变更，正在后台更新索引: {File}", relativePath);
-                await UpdateFileVectorsAsync(relativePath);
+                await UpdateFileIndexAsync(relativePath);
             }
         }
     }
@@ -212,12 +212,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     /// </summary>
     public async Task InitializeAsync()
     {
-        await _vectorStoreService.InitializeAsync();
-
-        if (_embeddingService?.IsConfigured == true)
-        {
-            await LoadOrRefreshVectorsAsync();
-        }
+        // 本地分块与 FTS 索引始终初始化；Embedding 只是可选的语义增强层。
+        await LoadOrRefreshVectorsAsync();
     }
 
     public async Task CreateFileAsync(string relativePath, string content, string[]? tags = null)
@@ -248,10 +244,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, finalContent);
 
-            // 同步更新向量，保证立刻可被搜索
+            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
             try
             {
-                await UpdateFileVectorsAsync(relativePath);
+                await UpdateFileIndexAsync(relativePath);
             }
             catch (Exception ex)
             {
@@ -293,10 +289,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, newContent);
 
-            // 同步更新向量，保证立刻可被搜索
+            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
             try
             {
-                await UpdateFileVectorsAsync(relativePath);
+                await UpdateFileIndexAsync(relativePath);
             }
             catch (Exception ex)
             {
@@ -329,10 +325,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
             await File.WriteAllTextAsync(fullPath, content);
 
-            // 同步更新向量，保证立刻可被搜索
+            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
             try
             {
-                await UpdateFileVectorsAsync(relativePath);
+                await UpdateFileIndexAsync(relativePath);
             }
             catch (Exception ex)
             {
@@ -389,11 +385,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             {
                 try
                 {
-                    await UpdateFileVectorsAsync(relativePath);
+                    await UpdateFileIndexAsync(relativePath);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning(ex, "删除文件向量失败");
+                    _logger.Warning(ex, "删除文件索引失败");
                 }
             });
 
@@ -432,7 +428,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                 {
                     foreach (var file in filesToDelete)
                     {
-                        await UpdateFileVectorsAsync(file);
+                        await UpdateFileIndexAsync(file);
                     }
                 }
                 catch (Exception ex)
@@ -459,13 +455,14 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
         try
         {
+            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
+
             var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
 
             // 查询向量：稠密召回 + 余弦门控共用
             float[]? queryEmbedding = null;
             if (embeddingsOn)
             {
-                if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
                 queryEmbedding = await _embeddingService!.GenerateEmbeddingAsync(query);
             }
 
@@ -488,6 +485,9 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             // 3) RRF 融合：score(d) = Σ 1/(k + rank)，按排名合并两路，规避分数量纲不一致
             var rrf = new Dictionary<(string, int), double>();
             var snippet = new Dictionary<(string, int), (string FilePath, string Text, string Heading)>();
+            var indexedByKey = _vectorCache.ToDictionary(
+                document => (document.FilePath, document.ChunkIndex),
+                document => document);
 
             for (int i = 0; i < denseDocs.Count; i++)
             {
@@ -499,7 +499,13 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             {
                 var key = (sparseHits[i].FilePath, sparseHits[i].ChunkIndex);
                 rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
-                if (!snippet.ContainsKey(key)) snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content, string.Empty);
+                if (!snippet.ContainsKey(key))
+                {
+                    var heading = indexedByKey.TryGetValue(key, out var indexed)
+                        ? indexed.HeadingPath
+                        : string.Empty;
+                    snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content, heading);
+                }
             }
 
             if (rrf.Count == 0) return new List<KnowledgeSearchResult>();
@@ -552,6 +558,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                         Snippet = a.Text,
                         HeadingPath = a.Heading,
                         MatchCount = a.Count,
+                        RetrievalMode = queryEmbedding != null ? "hybrid" : "keyword",
                         // 展示可解释的余弦相似度；纯词面模式下退回 RRF 分
                         RelevanceScore = queryEmbedding != null ? Math.Round(a.Sim, 4) : Math.Round(a.Rrf, 4)
                     };
@@ -687,8 +694,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>
-    /// 加载或增量刷新向量缓存
-    /// 从 SQLite 加载已有向量，仅对新增/修改的文件调用 API
+    /// 加载或增量刷新知识库索引。本地分块与 FTS 始终构建，向量层按配置选建。
     /// </summary>
     public async Task LoadOrRefreshVectorsAsync()
     {
@@ -697,116 +703,93 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         {
             if (_vectorCacheInitialized) return;
 
-            // 初始化数据库
             await _vectorStoreService.InitializeAsync();
+            var indexedDocuments = await _vectorStoreService.LoadAllVectorsAsync();
+            var textStatuses = await _vectorStoreService.GetFileStatusesAsync();
+            var vectorStatuses = await _vectorStoreService.GetVectorFileStatusesAsync();
+            var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
 
-        // 从数据库加载已有向量
-        var existingVectors = await _vectorStoreService.LoadAllVectorsAsync();
-        var fileStatuses = await _vectorStoreService.GetFileStatusesAsync();
-
-        _logger.Information("从数据库加载 {VectorCount} 个向量，{FileCount} 个文件状态",
-            existingVectors.Count, fileStatuses.Count);
-
-        // 模型指纹校验：模型标识或维度变化即全量重建，根治“同维度换模型”导致的新旧向量空间不一致。
-        if (_embeddingService != null && _embeddingService.IsConfigured)
-        {
-            var probe = await _embeddingService.GenerateEmbeddingAsync("test");
-            var currentModel = _embeddingService.ModelId ?? string.Empty;
-            var currentDim = probe?.Length ?? 0;
-            var stored = await _vectorStoreService.GetEmbeddingFingerprintAsync();
-
-            bool mismatch = currentDim > 0 &&
-                (stored == null || stored.Value.Model != currentModel || stored.Value.Dimension != currentDim);
-
-            if (mismatch && existingVectors.Count > 0)
+            // Embedding 模型变化只使向量失效，不应影响本地 FTS 可用性。
+            if (embeddingsOn)
             {
-                _logger.Warning("嵌入模型指纹变化（{OldModel}/{OldDim} -> {NewModel}/{NewDim}），清空并全量重建索引",
-                    stored?.Model ?? "(无)", stored?.Dimension ?? 0, currentModel, currentDim);
-                await _vectorStoreService.ClearAllAsync();
-                existingVectors.Clear();
-                fileStatuses.Clear();
+                var probe = await _embeddingService!.GenerateEmbeddingAsync("test");
+                var currentModel = _embeddingService.ModelId ?? string.Empty;
+                var currentDim = probe?.Length ?? 0;
+                var stored = await _vectorStoreService.GetEmbeddingFingerprintAsync();
+                var mismatch = currentDim > 0 &&
+                    (stored == null || stored.Value.Model != currentModel || stored.Value.Dimension != currentDim);
+
+                if (mismatch)
+                {
+                    await _vectorStoreService.ClearEmbeddingsAsync();
+                    foreach (var document in indexedDocuments) document.Embedding = null;
+                    vectorStatuses.Clear();
+                    _logger.Information(
+                        "Embedding 指纹变化（{OldModel}/{OldDim} -> {NewModel}/{NewDim}），保留 FTS 并重建向量",
+                        stored?.Model ?? "(none)", stored?.Dimension ?? 0, currentModel, currentDim);
+                }
+
+                if (currentDim > 0)
+                    await _vectorStoreService.SetEmbeddingFingerprintAsync(currentModel, currentDim);
             }
 
-            if (currentDim > 0)
-                await _vectorStoreService.SetEmbeddingFingerprintAsync(currentModel, currentDim);
-        }
-
-            // 获取当前文件列表
-            var currentFiles = Directory.GetFiles(_knowledgeBasePath, "*.md", SearchOption.AllDirectories)
-                .Select(GetRelativePath)
-                .ToHashSet();
-
-            // 找出需要处理的文件
-            var filesToProcess = new List<string>();
-            var filesToDelete = new List<string>();
-
-            foreach (var filePath in currentFiles)
+            var currentFiles = new Dictionary<string, (string Content, string Hash)>();
+            foreach (var fullPath in Directory.GetFiles(_knowledgeBasePath, "*.md", SearchOption.AllDirectories))
             {
-                var fullPath = GetFullPathSecure(filePath);
+                var relativePath = GetRelativePath(fullPath);
                 var content = await File.ReadAllTextAsync(fullPath);
-                var hash = VectorStoreService.ComputeFileHash(content);
+                currentFiles[relativePath] = (content, VectorStoreService.ComputeFileHash(content));
+            }
 
-                if (!fileStatuses.TryGetValue(filePath, out var status) || status.FileHash != hash)
+            foreach (var deletedPath in textStatuses.Keys.Union(vectorStatuses.Keys)
+                         .Where(path => !currentFiles.ContainsKey(path)).Distinct())
+            {
+                await _vectorStoreService.DeleteFileIndexAsync(deletedPath);
+                indexedDocuments.RemoveAll(document => document.FilePath == deletedPath);
+            }
+
+            var chunksByFile = new Dictionary<string, List<Chunk>>();
+            foreach (var (filePath, file) in currentFiles)
+            {
+                if (textStatuses.TryGetValue(filePath, out var status) && status.FileHash == file.Hash)
+                    continue;
+
+                var chunks = SplitIntoChunks(CleanForIndex(file.Content));
+                chunksByFile[filePath] = chunks;
+                await SaveTextIndexAsync(filePath, file.Hash, chunks);
+
+                indexedDocuments.RemoveAll(document => document.FilePath == filePath);
+                indexedDocuments.AddRange(CreateDocuments(filePath, file.Hash, chunks));
+                vectorStatuses.Remove(filePath);
+            }
+
+            if (embeddingsOn)
+            {
+                foreach (var (filePath, file) in currentFiles)
                 {
-                    filesToProcess.Add(filePath);
+                    if (vectorStatuses.TryGetValue(filePath, out var status) && status.FileHash == file.Hash)
+                        continue;
+
+                    var chunks = chunksByFile.TryGetValue(filePath, out var changedChunks)
+                        ? changedChunks
+                        : SplitIntoChunks(CleanForIndex(file.Content));
+
+                    indexedDocuments.RemoveAll(document => document.FilePath == filePath);
+                    indexedDocuments.AddRange(await GenerateAndSaveEmbeddingsAsync(filePath, file.Hash, chunks));
                 }
             }
-
-            // 找出已删除的文件
-            foreach (var filePath in fileStatuses.Keys)
-            {
-                if (!currentFiles.Contains(filePath))
-                {
-                    filesToDelete.Add(filePath);
-                }
-            }
-
-            // 删除已删除文件的向量
-            foreach (var filePath in filesToDelete)
-            {
-                await _vectorStoreService.DeleteFileVectorsAsync(filePath);
-                _logger.Debug("删除已删除文件的向量: {FilePath}", filePath);
-            }
-
-            // 过滤掉已删除文件的向量
-            var validVectors = existingVectors
-                .Where(v => currentFiles.Contains(v.FilePath) && !filesToProcess.Contains(v.FilePath))
-                .ToList();
 
             _vectorCache.Clear();
-            _vectorCache.AddRange(validVectors);
-
-            // 处理需要更新的文件
-            if (filesToProcess.Count > 0)
-            {
-                _logger.Information("需要处理 {Count} 个新增/修改的文件", filesToProcess.Count);
-
-                foreach (var filePath in filesToProcess)
-                {
-                    try
-                    {
-                        var fullPath = GetFullPathSecure(filePath);
-                        var content = await File.ReadAllTextAsync(fullPath);
-                        var hash = VectorStoreService.ComputeFileHash(content);
-
-                        var count = await IndexFileAsync(filePath, content, hash);
-                        _logger.Debug("处理文件 {FilePath}: {Count} 个向量", filePath, count);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error(ex, "处理文件失败: {FilePath}", filePath);
-                    }
-                }
-            }
+            _vectorCache.AddRange(indexedDocuments);
 
             _vectorCacheInitialized = true;
             var stats = await _vectorStoreService.GetStatisticsAsync();
-            _logger.Information("向量缓存初始化完成，{FileCount} 个文件，{VectorCount} 个向量",
-                stats.FileCount, stats.VectorCount);
+            _logger.Information("知识库索引初始化完成：{FileCount} 个文件，{VectorCount} 个向量，Embedding={Enabled}",
+                stats.FileCount, stats.VectorCount, embeddingsOn);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载向量缓存失败");
+            _logger.Error(ex, "加载知识库索引失败");
             _vectorCacheInitialized = false;
         }
         finally
@@ -816,7 +799,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>
-    /// 刷新向量缓存（在文件变更后调用）- 增量更新
+    /// 使知识库索引缓存失效；下次初始化或检索时增量刷新。
     /// </summary>
     public async Task RefreshVectorCacheAsync()
     {
@@ -824,17 +807,17 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         _vectorCacheInitialized = false;
     }
 
-    /// <summary>清空派生向量数据，并使用当前 Embedding 配置立即全量重建。</summary>
+    /// <summary>清空派生向量数据并立即重建；本地 FTS 始终保留。</summary>
     public async Task RebuildVectorIndexAsync()
     {
         await _initLock.WaitAsync();
         try
         {
             await _vectorStoreService.InitializeAsync();
-            await _vectorStoreService.ClearAllAsync();
+            await _vectorStoreService.ClearEmbeddingsAsync();
             _vectorCache.Clear();
             _vectorCacheInitialized = false;
-            _logger.Information("已清空全局知识库向量索引，开始使用当前 Embedding 配置全量重建");
+            _logger.Information("已清空向量层并保留本地 FTS，开始使用当前 Embedding 配置重建向量");
         }
         finally
         {
@@ -845,44 +828,19 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>
-    /// 增量更新单个文件的向量
+    /// 增量更新本地 FTS，并在可用时同步更新向量。
     /// </summary>
-    private async Task UpdateFileVectorsAsync(string relativePath)
+    private async Task UpdateFileIndexAsync(string relativePath)
     {
-        if (_embeddingService == null || !_embeddingService.IsConfigured) return;
-
         try
         {
-            var fullPath = GetFullPathSecure(relativePath);
-
-            if (!File.Exists(fullPath))
-            {
-                // 文件已删除，移除向量
-                await _vectorStoreService.DeleteFileVectorsAsync(relativePath);
-                _vectorCache.RemoveAll(v => v.FilePath == relativePath);
-                _logger.Debug("删除文件向量: {FilePath}", relativePath);
-                return;
-            }
-
-            var content = await File.ReadAllTextAsync(fullPath);
-            var hash = VectorStoreService.ComputeFileHash(content);
-
-            // 检查是否需要更新
-            var statuses = await _vectorStoreService.GetFileStatusesAsync();
-            if (statuses.TryGetValue(relativePath, out var status) && status.FileHash == hash)
-            {
-                return; // 文件未变更
-            }
-
-            // 移除旧向量后重建
-            _vectorCache.RemoveAll(v => v.FilePath == relativePath);
-
-            var count = await IndexFileAsync(relativePath, content, hash);
-            _logger.Debug("增量更新文件向量: {FilePath}, {Count} 个向量", relativePath, count);
+            await RefreshVectorCacheAsync();
+            await LoadOrRefreshVectorsAsync();
+            _logger.Debug("已更新本地 FTS 及可选向量索引: {FilePath}", relativePath);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "增量更新文件向量失败: {FilePath}", relativePath);
+            _logger.Error(ex, "增量更新知识库索引失败: {FilePath}", relativePath);
         }
     }
 
@@ -903,35 +861,44 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         string.IsNullOrEmpty(c.HeadingPath) ? c.DisplayText : c.HeadingPath + "\n" + c.DisplayText;
 
     /// <summary>
-    /// 对单个文件做：清洗 → 分块 → 批量嵌入 → 写库 → 更新内存缓存。返回成功写入的向量数。
-    /// 供首次全量与增量更新共用。
+    /// 将文本分块写入本地 chunk 存储和 FTS；不依赖 Embedding。
     /// </summary>
-    private async Task<int> IndexFileAsync(string relativePath, string content, string hash)
+    private async Task SaveTextIndexAsync(string relativePath, string hash, List<Chunk> chunks)
     {
-        var chunks = SplitIntoChunks(CleanForIndex(content));
-        if (chunks.Count == 0) return 0;
+        await _vectorStoreService.SaveChunksAsync(
+            relativePath,
+            hash,
+            chunks.Select((chunk, index) => (index, chunk.DisplayText, chunk.HeadingPath)).ToList());
+    }
 
-        var embeddings = await _embeddingService!.GenerateEmbeddingsAsync(chunks.Select(c => BuildEmbedText(c)));
-
-        var vectors = new List<(int Index, string ChunkText, string HeadingPath, float[] Embedding)>();
-        for (int i = 0; i < chunks.Count && i < embeddings.Count; i++)
+    private static List<DocumentVector> CreateDocuments(string relativePath, string hash, List<Chunk> chunks) =>
+        chunks.Select((chunk, index) => new DocumentVector
         {
-            if (embeddings[i] == null) continue;
+            FilePath = relativePath,
+            ChunkIndex = index,
+            ChunkText = chunk.DisplayText,
+            HeadingPath = chunk.HeadingPath,
+            FileHash = hash
+        }).ToList();
 
-            vectors.Add((i, chunks[i].DisplayText, chunks[i].HeadingPath, embeddings[i]!));
-            _vectorCache.Add(new DocumentVector
-            {
-                FilePath = relativePath,
-                ChunkIndex = i,
-                ChunkText = chunks[i].DisplayText,
-                HeadingPath = chunks[i].HeadingPath,
-                Embedding = embeddings[i]!,
-                FileHash = hash
-            });
+    private async Task<List<DocumentVector>> GenerateAndSaveEmbeddingsAsync(
+        string relativePath, string hash, List<Chunk> chunks)
+    {
+        var documents = CreateDocuments(relativePath, hash, chunks);
+        if (_embeddingService == null || !_embeddingService.IsConfigured || chunks.Count == 0)
+            return documents;
+
+        var generated = await _embeddingService.GenerateEmbeddingsAsync(chunks.Select(c => BuildEmbedText(c)));
+        var embeddings = new List<(int Index, float[] Embedding)>();
+        for (var i = 0; i < chunks.Count && i < generated.Count; i++)
+        {
+            if (generated[i] == null) continue;
+            documents[i].Embedding = generated[i];
+            embeddings.Add((i, generated[i]!));
         }
 
-        await _vectorStoreService.SaveVectorsAsync(relativePath, hash, vectors);
-        return vectors.Count;
+        await _vectorStoreService.SaveEmbeddingsAsync(relativePath, hash, embeddings);
+        return documents;
     }
 
     /// <summary>
@@ -1194,10 +1161,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             _logger.Information("SEARCH/REPLACE 更新文件成功: {Path}, 应用 {Count} 个修改块",
                 relativePath, appliedCount);
 
-            // 同步更新向量，保证立刻可被搜索
+            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
             try
             {
-                await UpdateFileVectorsAsync(relativePath);
+                await UpdateFileIndexAsync(relativePath);
             }
             catch (Exception ex)
             {

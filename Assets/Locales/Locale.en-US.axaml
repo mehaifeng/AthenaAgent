@@ -98,7 +98,7 @@
     <system:String x:Key="Config.SectionAppearance">Appearance</system:String>
     <system:String x:Key="Config.SectionPrimaryAI">Primary model</system:String>
     <system:String x:Key="Config.UnifiedModels.Header">Providers and model roles</system:String>
-    <system:String x:Key="Config.UnifiedModels.Hint">All business models use the OpenAI SDK-compatible protocol. Providers own connection details; roles select only a provider and model. TTS and image generation remain independent in Extensions.</system:String>
+    <system:String x:Key="Config.UnifiedModels.Hint">All business models use the OpenAI SDK-compatible protocol. Providers own connection details</system:String>
     <system:String x:Key="Config.UnifiedModels.Providers">Provider connection</system:String>
     <system:String x:Key="Config.UnifiedModels.AddProvider">Add provider</system:String>
     <system:String x:Key="Config.UnifiedModels.ProviderName">Display name</system:String>

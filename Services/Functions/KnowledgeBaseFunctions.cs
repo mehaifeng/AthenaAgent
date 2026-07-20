@@ -121,7 +121,7 @@ public class KnowledgeBaseFunctions
     }
 
     /// <summary>
-    /// 搜索知识库（使用向量语义检索获取相关背景）
+    /// 搜索知识库（Embedding 可用时混合检索，否则使用本地 FTS/BM25）
     /// </summary>
     /// <param name="query">搜索关键词或自然语言问题</param>
     /// <param name="maxResults">最大返回结果数，默认 3</param>
@@ -145,10 +145,14 @@ public class KnowledgeBaseFunctions
                 headingPath = r.HeadingPath,
                 matchCount = r.MatchCount,
                 snippet = r.Snippet,
-                relevance = Math.Round(r.RelevanceScore, 2)
+                retrievalMode = r.RetrievalMode,
+                // RRF 的绝对值不是概率或可信度；仅在混合检索时输出可解释的余弦相似度。
+                semanticSimilarity = r.RetrievalMode == "hybrid"
+                    ? Math.Round(r.RelevanceScore, 2)
+                    : (double?)null
             }).ToList();
 
-            _logger.Information("Function: 语义检索 '{Query}' 找到 {Count} 个结果",
+            _logger.Information("Function: 知识库检索 '{Query}' 找到 {Count} 个结果",
                 query, results.Count);
 
             return FunctionResult.SuccessResult(
