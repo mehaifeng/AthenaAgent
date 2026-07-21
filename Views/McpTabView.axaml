@@ -59,7 +59,7 @@
                                            VerticalAlignment="Center"/>
                                 <HyperlinkButton Margin="5,0,0,0"
                                                  Content="{loc:Loc Config.Mcp.ExampleLink}"
-                                                 NavigateUri="https://www.modelscope.ai/mcp"
+                                                 NavigateUri="https://mcpservers.org"
                                                  FontSize="11"
                                                  Padding="0"
                                                  MinHeight="0"

@@ -63,6 +63,7 @@
                 <TabStripItem Content="{loc:Loc Tab.ChatLink}"/>
                 <TabStripItem Content="{loc:Loc Tab.SysConfig}"/>
                 <TabStripItem Content="{loc:Loc Tab.Extensions}"/>
+                <TabStripItem Content="{loc:Loc Tab.Skills}"/>
                 <TabStripItem Content="{loc:Loc Tab.McpServer}"/>
                 <TabStripItem Content="{loc:Loc Tab.Scheduler}"/>
                 <TabStripItem Content="{loc:Loc Tab.Archives}"/>
@@ -82,21 +83,24 @@
                     <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=3}">
-                    <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
+                    <views:SkillsTabView DataContext="{Binding SkillsTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=4}">
-                    <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
+                    <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=5}">
-                    <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
+                    <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=6}">
-                    <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
+                    <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=7}">
-                    <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
+                    <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
                 </Border>
                 <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=8}">
+                    <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
+                </Border>
+                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=9}">
                     <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
                 </Border>
             </Grid>

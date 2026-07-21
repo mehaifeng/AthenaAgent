@@ -14,6 +14,7 @@ using Athena.UI.Services.Functions;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
+using Athena.UI.Services.Skills;
 using Athena.UI.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -837,6 +838,19 @@ public partial class App : Application
                 sp.GetRequiredService<IConfigService>(),
                 Log.ForContext<Athena.UI.Services.Mcp.McpLifecycleService>()));
 
+        // --- Agent Skills ---
+        services.AddSingleton<ISkillCatalogService>(sp =>
+            new SkillCatalogService(
+                sp.GetRequiredService<IPlatformPathService>(),
+                sp.GetRequiredService<IConfigService>(),
+                Log.ForContext<SkillCatalogService>(),
+                sp.GetService<IWorkspaceService>()));
+        services.AddSingleton<SkillFunctions>(sp =>
+            new SkillFunctions(
+                sp.GetRequiredService<ISkillCatalogService>(),
+                Log.ForContext<SkillFunctions>(),
+                sp.GetService<IConversationSessionAccessor>()));
+
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
             var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
@@ -853,9 +867,10 @@ public partial class App : Application
             var approvalService = sp.GetService<IToolApprovalService>();
             var mcpDiscoveryFunctions = sp.GetService<Athena.UI.Services.Mcp.McpDiscoveryFunctions>();
             var mcpManagementFunctions = sp.GetService<Athena.UI.Services.Mcp.McpManagementFunctions>();
+            var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）
@@ -899,12 +914,14 @@ public partial class App : Application
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var workspaceService = sp.GetService<IWorkspaceService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
+            var mcpToolHost = sp.GetService<Athena.UI.Services.Mcp.IMcpToolHost>();
+            var skillCatalog = sp.GetService<ISkillCatalogService>();
             var config = configService.Load();
             Log.Information("AI 服务初始化，供应商配置: {ProviderId}, 模型: {Model}, FunctionCalling: {Enabled}",
                 config.AiModels.Provider.ProviderPreset,
                 config.AiModels.MainConversation.Model,
                 true);
-            return new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry);
+            return new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
         });
 
         services.AddSingleton<IConversationArchiveService>(sp =>
@@ -949,6 +966,7 @@ public partial class App : Application
             var knowledgeMaintenanceService = sp.GetService<IKnowledgeBaseMaintenanceService>();
             var workspaceService = sp.GetService<IWorkspaceService>();
             var conversationSessionAccessor = sp.GetService<IConversationSessionAccessor>();
+            var skillCatalog = sp.GetService<ISkillCatalogService>();
             var modelRuntimeFactory = sp.GetService<OpenAiModelRuntimeFactory>();
             var userInteractionService = sp.GetService<IUserInteractionService>();
 
@@ -981,6 +999,7 @@ public partial class App : Application
                 knowledgeMaintenanceService,
                 workspaceService,
                 conversationSessionAccessor,
+                skillCatalog,
                 modelRuntimeFactory,
                 userInteractionService);
         });

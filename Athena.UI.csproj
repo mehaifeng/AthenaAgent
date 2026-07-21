@@ -87,6 +87,7 @@
 
     <!-- MCP (Model Context Protocol) 客户端 -->
     <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
 
     <!-- SQLite -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.6.26359.118" />

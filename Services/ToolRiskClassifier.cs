@@ -20,7 +20,7 @@ public static class ToolRiskClassifier
         "get_document_outline", "recall_from_memory", "view_self_configuration",
         "web_search", "list_tasks",
         // MCP 元工具：仅返回快照/schema，无副作用。真正的调用 mcp_call_tool 仍走 fail-safe Sensitive。
-        "mcp_list_tools", "mcp_get_tool_schema"
+        "mcp_list_tools", "mcp_get_tool_schema", "activate_skill", "read_skill_resource"
     };
 
     // 破坏性且不可逆：始终高危对待（终端命令单独走命令级评估）。

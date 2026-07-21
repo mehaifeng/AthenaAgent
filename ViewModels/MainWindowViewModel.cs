@@ -26,6 +26,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private ExtensionsTabViewModel _extensionsTabViewModel;
 
     [ObservableProperty]
+    private SkillsTabViewModel _skillsTabViewModel;
+
+    [ObservableProperty]
     private McpTabViewModel _mcpTabViewModel;
 
     [ObservableProperty]
@@ -52,11 +55,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedTabIndexChanged(int value)
     {
-        if (value == 5) // HISTORY
+        if (value == 6) // HISTORY
         {
             _ = HistoryTabViewModel?.LoadHistoryAsync();
         }
-        else if (value == 7) // LOGS
+        else if (value == 8) // LOGS
         {
             _ = LogsTabViewModel.RefreshLogsAsync();
         }
@@ -80,6 +83,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _configTabViewModel = new ConfigTabViewModel();
         _extensionsTabViewModel = new ExtensionsTabViewModel();
         _extensionsTabViewModel.Initialize(_configTabViewModel);
+        _skillsTabViewModel = new SkillsTabViewModel();
+        _skillsTabViewModel.Initialize(_configTabViewModel);
         _mcpTabViewModel = new McpTabViewModel();
         _mcpTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel();
@@ -120,6 +125,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IKnowledgeBaseMaintenanceService? knowledgeMaintenanceService = null,
         IWorkspaceService? workspaceService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
+        ISkillCatalogService? skillCatalog = null,
         OpenAiModelRuntimeFactory? modelRuntimeFactory = null,
         IUserInteractionService? userInteractionService = null)
     {
@@ -132,6 +138,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, systemAudioService);
         _extensionsTabViewModel.Initialize(_configTabViewModel);
+        _skillsTabViewModel = new SkillsTabViewModel(skillCatalog, configService, workspaceService, localizationService, userInteractionService);
+        _skillsTabViewModel.Initialize(_configTabViewModel);
         _mcpTabViewModel = new McpTabViewModel(configService, localizationService);
         _mcpTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
@@ -147,7 +155,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         // Wire up events
-        _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 4;
+        _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 5;
 
         if (taskScheduler != null)
         {

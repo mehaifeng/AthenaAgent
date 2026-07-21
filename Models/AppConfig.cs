@@ -291,6 +291,14 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private ObservableCollection<McpServerConfig> _mcpServers = new();
 
+    // Agent Skills — local, progressively disclosed workflow instructions.
+    [ObservableProperty]
+    private bool _enableSkills = false;
+
+    // Source scope + canonical directory. This avoids disabling a same-named Skill from another scope.
+    [ObservableProperty]
+    private ObservableCollection<string> _disabledSkillKeys = new();
+
     // 用户偏好设置
     [ObservableProperty]
     private bool _skipRewindConfirm;
