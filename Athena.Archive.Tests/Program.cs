@@ -29,6 +29,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
+    ("vector index rebuild requires every chunk to be embedded", TestVectorIndexRebuildResultAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
@@ -105,6 +106,31 @@ foreach (var (name, run) in tests)
 }
 
 return failures.Count == 0 ? 0 : 1;
+
+static Task TestVectorIndexRebuildResultAsync()
+{
+    var complete = new VectorIndexRebuildResult
+    {
+        EmbeddingConfigured = true,
+        FileCount = 2,
+        ChunkCount = 5,
+        VectorCount = 5,
+        FullyIndexedFileCount = 2
+    };
+    AssertTrue(complete.IsFullyIndexed, "all chunks and files should be required for a successful vector rebuild");
+
+    var incomplete = new VectorIndexRebuildResult
+    {
+        EmbeddingConfigured = true,
+        FileCount = 2,
+        ChunkCount = 5,
+        VectorCount = 3,
+        FullyIndexedFileCount = 1
+    };
+    AssertTrue(!incomplete.IsFullyIndexed, "partial embedding output must not be reported as a successful vector rebuild");
+
+    return Task.CompletedTask;
+}
 
 static Task TestBulkCollectionReplaceAllAsync()
 {

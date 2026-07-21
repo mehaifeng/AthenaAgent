@@ -647,5 +647,6 @@
     <system:String x:Key="Config.RebuildVectorIndex">重新生成索引</system:String>
     <system:String x:Key="Config.VectorIndexRebuilding">正在重新生成向量索引…</system:String>
     <system:String x:Key="Config.VectorIndexRebuilt">向量索引已重新生成</system:String>
+    <system:String x:Key="Config.VectorIndexRebuildIncomplete">向量索引不完整：已生成 {0}/{1} 个分块。请检查 Embedding 模型或服务商响应。</system:String>
     <system:String x:Key="Config.VectorIndexRebuildFailed">重新生成向量索引失败：{0}</system:String>
 </ResourceDictionary>

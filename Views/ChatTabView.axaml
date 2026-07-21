@@ -227,14 +227,13 @@
                                FontSize="14"/>
 
                     <!-- 调试：切换原始上下文(raw)视图，仅在对话流完成时可用 -->
-                    <u:IconToggleButton
-                      IsChecked="{Binding IsRawContextView}"
-                      IsEnabled="{Binding CanToggleRawContext}"
-                      Icon="{StaticResource SemiIconBrackets}"
-                      VerticalAlignment="Center"
-                      Padding="6,2"
-                      FontSize="11"
-                      ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
+                    <ToggleButton Content="RAW"
+                                  IsChecked="{Binding IsRawContextView}"
+                                  IsEnabled="{Binding CanToggleRawContext}"
+                                  VerticalAlignment="Center"
+                                  Padding="6,2"
+                                  FontSize="11"
+                                  ToolTip.Tip="{loc:Loc Chat.Raw.Toggle}"/>
 
                     <!-- 子代理入口：始终可用，居中弹出"猫头鹰小镇"。
                          整体包在 Panel 里：底层涟漪光环（运行时循环）+ 按钮 + 右下角数量角标；
@@ -252,12 +251,8 @@
                                 Padding="2,2"
                                 FontSize="11"
                                 Command="{Binding ToggleSubAgentPopupCommand}"
-                                ToolTip.Tip="{loc:Loc Chat.SubAgents.Toggle}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <Image Source="/Assets/owl.webp"
-                                       VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                                ToolTip.Tip="{loc:Loc Chat.SubAgents.Toggle}"
+                                Content="SubAgents"/>
                         <Border Classes="subagents-badge"
                                 Classes.running="{Binding HasRunningSubAgents}"
                                 IsVisible="{Binding HasSubAgents}">

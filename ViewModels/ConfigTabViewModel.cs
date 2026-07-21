@@ -774,8 +774,13 @@ public partial class ConfigTabViewModel : ViewModelBase
             // 确保刚编辑的 Embedding 配置先保存并应用，再据此生成新向量。
             _autoSaveCts?.Cancel();
             await ExecuteAutoSaveAsync();
-            await _knowledgeBaseService.RebuildVectorIndexAsync();
-            VectorIndexStatus = GetString("Config.VectorIndexRebuilt", "Vector index rebuilt");
+            var result = await _knowledgeBaseService.RebuildVectorIndexAsync();
+            VectorIndexStatus = result.IsFullyIndexed
+                ? GetString("Config.VectorIndexRebuilt", "Vector index rebuilt")
+                : string.Format(
+                    GetString("Config.VectorIndexRebuildIncomplete", "Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response."),
+                    result.VectorCount,
+                    result.ChunkCount);
         }
         catch (Exception ex)
         {

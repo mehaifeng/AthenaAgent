@@ -647,5 +647,6 @@
     <system:String x:Key="Config.RebuildVectorIndex">Rebuild vector index</system:String>
     <system:String x:Key="Config.VectorIndexRebuilding">Rebuilding vector index…</system:String>
     <system:String x:Key="Config.VectorIndexRebuilt">Vector index rebuilt</system:String>
+    <system:String x:Key="Config.VectorIndexRebuildIncomplete">Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response.</system:String>
     <system:String x:Key="Config.VectorIndexRebuildFailed">Failed to rebuild vector index: {0}</system:String>
 </ResourceDictionary>

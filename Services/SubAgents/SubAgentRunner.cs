@@ -173,17 +173,21 @@ public sealed class SubAgentRunner
         }
         catch (OperationCanceledException)
         {
+            var timedOut = !vm.WasCancelledByUser
+                && vm.TimeoutAt != default
+                && DateTime.UtcNow >= vm.TimeoutAt;
             uiPost(() =>
             {
-                vm.State = SubAgentState.Cancelled;
-                vm.CurrentAction = "cancelled";
+                vm.State = timedOut ? SubAgentState.Error : SubAgentState.Cancelled;
+                vm.CurrentAction = timedOut ? "timeout" : "cancelled";
+                vm.ErrorMessage = timedOut ? "Sub-agent execution timed out." : string.Empty;
             });
             return new SubAgentResult
             {
                 Title = task.Title,
                 AgentType = task.AgentType,
                 Success = false,
-                Summary = "Cancelled."
+                Summary = timedOut ? "Timed out." : "Cancelled."
             };
         }
         catch (Exception ex)
@@ -199,7 +203,10 @@ public sealed class SubAgentRunner
         uiPost(() =>
         {
             vm.State = success ? SubAgentState.Done : SubAgentState.Error;
-            vm.RequestZone(SubAgentZone.Perch);
+            if (success)
+            {
+                vm.RequestZone(SubAgentZone.Perch);
+            }
             vm.CurrentAction = success ? "done" : "incomplete";
             vm.ResultSummary = text;
             vm.Log.Add(new SubAgentLogEntry { Kind = "assistant", Text = text });

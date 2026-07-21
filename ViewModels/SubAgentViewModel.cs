@@ -1,4 +1,6 @@
 using Athena.UI.Models;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -24,6 +26,20 @@ public sealed class SubAgentLogEntry
 /// </summary>
 public partial class SubAgentViewModel : ObservableObject
 {
+    private enum OwlMotion
+    {
+        Idle,
+        Walking,
+        Flying,
+        Landing
+    }
+
+    private const int TravelDurationMilliseconds = 700;
+    private static readonly Bitmap[] IdleFrames = LoadFrames("owl-idle", 4);
+    private static readonly Bitmap[] WalkingFrames = LoadFrames("owl-walk", 4);
+    private static readonly Bitmap[] FlyingFrames = LoadFrames("owl-fly", 4);
+    private static readonly Bitmap[] LandingFrames = LoadFrames("owl-land", 4);
+
     public string Id { get; } = Guid.NewGuid().ToString("N");
 
     [ObservableProperty]
@@ -60,8 +76,17 @@ public partial class SubAgentViewModel : ObservableObject
     /// <summary>每只猫头鹰独立的取消源（与批次令牌联动）。由编排器赋值。</summary>
     public CancellationTokenSource? Cts { get; set; }
 
+    /// <summary>由编排器设置的单代理超时截止点，用于区分超时与用户手动取消。</summary>
+    public DateTime TimeoutAt { get; set; }
+
+    public bool WasCancelledByUser { get; private set; }
+
     [RelayCommand]
-    private void Cancel() => Cts?.Cancel();
+    private void Cancel()
+    {
+        WasCancelledByUser = true;
+        Cts?.Cancel();
+    }
 
     // ===== 小镇画布定位 =====
     // 与 OwlVillageView 中的画布/猫头鹰尺寸保持同步：左上角 = 场所中心 - 半个身位 + 漂移。
@@ -96,6 +121,12 @@ public partial class SubAgentViewModel : ObservableObject
     private double _wanderX;
     private double _wanderY;
 
+    private OwlMotion _owlMotion = OwlMotion.Idle;
+    private DateTime _motionStartedAt = DateTime.UtcNow;
+    private DateTime _motionEndsAt = DateTime.MinValue;
+    private int _owlFrameIndex;
+    private bool _owlFacingLeft;
+
     public SubAgentViewModel()
     {
         var h = Math.Abs(Id.GetHashCode());
@@ -112,6 +143,8 @@ public partial class SubAgentViewModel : ObservableObject
     /// <summary>设置区域内漂移偏移并刷新位置绑定（配合 TransformOperationsTransition 产生平滑游走）。</summary>
     public void SetWander(double x, double y)
     {
+        var nextCanvasX = ZoneCenters[Zone].X - OwlSize / 2 + x;
+        BeginMotion(OwlMotion.Walking, nextCanvasX < CanvasX);
         _wanderX = x;
         _wanderY = y;
         OnPropertyChanged(nameof(CanvasX));
@@ -180,17 +213,84 @@ public partial class SubAgentViewModel : ObservableObject
     public string OwlTransform =>
         $"translate({CanvasX.ToString(CultureInfo.InvariantCulture)}px, {CanvasY.ToString(CultureInfo.InvariantCulture)}px)";
 
+    /// <summary>当前展示帧；图片在 ViewModel 中缓存一次，避免每次动画节拍重新解码资源。</summary>
+    public Bitmap OwlFrame => FramesFor(_owlMotion)[_owlFrameIndex];
+
+    /// <summary>向左移动时复用右向精灵图，避免维护一套镜像资源。</summary>
+    public double OwlSpriteScaleX => _owlFacingLeft ? -1 : 1;
+
+    /// <summary>新精灵图没有旧 owl.webp 的大透明边距；按动作微调显示盒，防止飞翼被头像环裁掉。</summary>
+    public double OwlSpriteSize => _owlMotion switch
+    {
+        OwlMotion.Flying => 64,
+        OwlMotion.Walking => 58,
+        OwlMotion.Landing => 56,
+        _ => 58
+    };
+
+    /// <summary>由小镇视图的短周期计时器调用，推进显示帧并在移动完成后切回待机。</summary>
+    public void AdvanceSprite(DateTime now)
+    {
+        if (_owlMotion != OwlMotion.Idle && now >= _motionEndsAt)
+        {
+            BeginMotion(_owlMotion == OwlMotion.Flying && Zone == SubAgentZone.Perch
+                ? OwlMotion.Landing
+                : OwlMotion.Idle, now: now);
+            return;
+        }
+
+        var frameDuration = _owlMotion switch
+        {
+            OwlMotion.Idle => 300,
+            OwlMotion.Walking => 140,
+            OwlMotion.Flying => 120,
+            OwlMotion.Landing => 90,
+            _ => 300
+        };
+        var nextFrame = (int)((now - _motionStartedAt).TotalMilliseconds / frameDuration)
+            % FramesFor(_owlMotion).Length;
+        if (nextFrame != _owlFrameIndex)
+        {
+            _owlFrameIndex = nextFrame;
+            OnPropertyChanged(nameof(OwlFrame));
+        }
+    }
+
     public bool IsRunning => State == SubAgentState.Running;
     public bool IsDone => State == SubAgentState.Done;
     public bool IsError => State == SubAgentState.Error;
     public bool IsCancelled => State == SubAgentState.Cancelled;
+
+    /// <summary>小镇中展示在猫头鹰头部的业务状态；成功后不再显示，避免干扰归巢画面。</summary>
+    public string StatusLabel => State switch
+    {
+        SubAgentState.Pending => "等待执行",
+        SubAgentState.Running => RunningStatusLabel(),
+        SubAgentState.Error => CurrentAction switch
+        {
+            "timeout" => "执行超时",
+            "incomplete" => "超过最大步数",
+            _ => "执行失败"
+        },
+        SubAgentState.Cancelled => "已取消",
+        _ => string.Empty
+    };
+
+    public bool HasStatusLabel => !string.IsNullOrWhiteSpace(StatusLabel);
 
     partial void OnZoneChanged(SubAgentZone value)
     {
         OnPropertyChanged(nameof(CanvasX));
         OnPropertyChanged(nameof(CanvasY));
         OnPropertyChanged(nameof(OwlTransform));
+        RefreshStatusLabel();
     }
+
+    partial void OnCurrentActionChanged(string value) => RefreshStatusLabel();
+
+    partial void OnResultSummaryChanged(string value) => RefreshStatusLabel();
+
+    partial void OnErrorMessageChanged(string value) => RefreshStatusLabel();
 
     // ===== 最小停留（min-dwell）=====
     // 快工具会让 Zone 频繁跳变导致闪烁；这里节流：每个场所至少停留 MinDwellSeconds，
@@ -234,7 +334,93 @@ public partial class SubAgentViewModel : ObservableObject
     private void ApplyZone(SubAgentZone zone, DateTime now)
     {
         _lastZoneAppliedAt = now;
+        if (Zone != zone)
+        {
+            var nextCanvasX = ZoneCenters[zone].X - OwlSize / 2 + _wanderX;
+            BeginMotion(OwlMotion.Flying, nextCanvasX < CanvasX, now);
+        }
         Zone = zone; // 相等时 SetProperty 自动不触发；不同则 OnZoneChanged 刷新位置
+    }
+
+    private void BeginMotion(OwlMotion motion, bool? facingLeft = null, DateTime? now = null)
+    {
+        var startedAt = now ?? DateTime.UtcNow;
+        _owlMotion = motion;
+        _motionStartedAt = startedAt;
+        _motionEndsAt = motion switch
+        {
+            OwlMotion.Walking or OwlMotion.Flying => startedAt.AddMilliseconds(TravelDurationMilliseconds),
+            OwlMotion.Landing => startedAt.AddMilliseconds(360),
+            _ => DateTime.MaxValue
+        };
+        _owlFrameIndex = 0;
+        if (facingLeft.HasValue && _owlFacingLeft != facingLeft.Value)
+        {
+            _owlFacingLeft = facingLeft.Value;
+            OnPropertyChanged(nameof(OwlSpriteScaleX));
+        }
+        OnPropertyChanged(nameof(OwlFrame));
+        OnPropertyChanged(nameof(OwlSpriteSize));
+    }
+
+    private static Bitmap[] FramesFor(OwlMotion motion) => motion switch
+    {
+        OwlMotion.Walking => WalkingFrames,
+        OwlMotion.Flying => FlyingFrames,
+        OwlMotion.Landing => LandingFrames,
+        _ => IdleFrames
+    };
+
+    private static Bitmap[] LoadFrames(string prefix, int count)
+    {
+        var frames = new Bitmap[count];
+        for (var i = 0; i < count; i++)
+        {
+            using var stream = AssetLoader.Open(new Uri($"avares://Athena.UI/Assets/SubAgents/{prefix}-{i + 1:D2}.png"));
+            frames[i] = new Bitmap(stream);
+        }
+        return frames;
+    }
+
+    private string RunningStatusLabel()
+    {
+        if (CurrentAction.StartsWith("run_browser_task", StringComparison.Ordinal)) return "浏览器任务中";
+        if (CurrentAction.StartsWith("web_search", StringComparison.Ordinal)) return "网页搜索中";
+        if (CurrentAction.StartsWith("recall_from_memory", StringComparison.Ordinal)) return "记忆检索中";
+        if (CurrentAction.StartsWith("create_new_memory", StringComparison.Ordinal)) return "记忆写入中";
+        if (CurrentAction.StartsWith("execute_terminal_command", StringComparison.Ordinal)) return "终端执行中";
+        if (CurrentAction.StartsWith("generate_image", StringComparison.Ordinal)) return "图像生成中";
+        if (CurrentAction.StartsWith("view_self_configuration", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("modify_self_configuration", StringComparison.Ordinal)) return "配置处理中";
+        if (CurrentAction.StartsWith("create_task", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("list_tasks", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("cancel_task", StringComparison.Ordinal)) return "任务处理中";
+        if (CurrentAction.StartsWith("get_file_info", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("search_in_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("get_document_outline", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("read_system_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("write_system_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("modify_system_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("delete_system_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("list_system_directory", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("create_directory", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("move_system_file", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("copy_system_file", StringComparison.Ordinal)) return "文件处理中";
+
+        return Zone switch
+        {
+            SubAgentZone.Files => "文件处理中",
+            SubAgentZone.Web => "网页任务中",
+            SubAgentZone.Library => "记忆处理中",
+            SubAgentZone.Workshop => "任务处理中",
+            _ => "思考中"
+        };
+    }
+
+    private void RefreshStatusLabel()
+    {
+        OnPropertyChanged(nameof(StatusLabel));
+        OnPropertyChanged(nameof(HasStatusLabel));
     }
 
     partial void OnStateChanged(SubAgentState value)
@@ -243,5 +429,6 @@ public partial class SubAgentViewModel : ObservableObject
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsError));
         OnPropertyChanged(nameof(IsCancelled));
+        RefreshStatusLabel();
     }
 }

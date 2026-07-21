@@ -8,12 +8,12 @@
 
     <UserControl.Styles>
         <!-- 运行中的猫头鹰轻微"呼吸"；归巢/出错后静止。 -->
-        <Style Selector="Border.owl">
+        <Style Selector="Panel.owl">
             <Setter Property="RenderTransform">
                 <ScaleTransform/>
             </Setter>
         </Style>
-        <Style Selector="Border.owl.running">
+        <Style Selector="Panel.owl.running">
             <Style.Animations>
                 <Animation Duration="0:0:2.6" IterationCount="Infinite" Easing="SineEaseInOut">
                     <KeyFrame Cue="0%">
@@ -33,7 +33,7 @@
         </Style>
 
         <!-- 整批结束的谢幕：淡出并缩小，播完由编排器移除。 -->
-        <Style Selector="Border.owl.vanishing">
+        <Style Selector="Panel.owl.vanishing">
             <Style.Animations>
                 <Animation Duration="0:0:0.45" IterationCount="1" FillMode="Forward" Easing="CubicEaseIn">
                     <KeyFrame Cue="0%">
@@ -134,28 +134,37 @@
                                     <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.7" Easing="CubicEaseInOut"/>
                                 </Transitions>
                             </Panel.Transitions>
-                            <!-- 内层：呼吸缩放（运行中）/ 谢幕淡出。圆形头像 + 状态色描边环。
-                                 owl.webp 图案四周有大片透明边距：光圈缩到 62 并把图放大到 106 居中裁切，
-                                 让状态环恰好贴着猫头鹰图案外缘一圈。 -->
-                            <Border Classes="owl" Width="62" Height="62"
-                                    Classes.running="{Binding IsRunning}"
-                                    Classes.vanishing="{Binding IsVanishing}"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    RenderTransformOrigin="50%,50%"
-                                    CornerRadius="31" ClipToBounds="True"
-                                    BorderThickness="3"
-                                    BorderBrush="{Binding State, Converter={StaticResource SubAgentStateToBrushConverter}}"
-                                    Background="#1A000000">
+                            <!-- 内层：呼吸缩放（运行中）/ 谢幕淡出。状态以头部短文案表达，
+                                 成功后隐藏，保持角色翅膀和足部完整可见。 -->
+                            <Panel Width="80" Height="80"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <ToolTip.Tip>
                                     <StackPanel>
                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
                                         <TextBlock Text="{Binding CurrentAction}" Opacity="0.8"/>
                                     </StackPanel>
                                 </ToolTip.Tip>
-                                <Image Source="/Assets/owl.webp" Width="106" Height="106"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       Stretch="Uniform"/>
-                            </Border>
+                                <Panel Classes="owl" Width="80" Height="80"
+                                       Classes.running="{Binding IsRunning}"
+                                       Classes.vanishing="{Binding IsVanishing}"
+                                       RenderTransformOrigin="50%,50%">
+                                    <Image Source="{Binding OwlFrame}" Width="{Binding OwlSpriteSize}" Height="{Binding OwlSpriteSize}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Stretch="Uniform" RenderTransformOrigin="50%,50%">
+                                        <Image.RenderTransform>
+                                            <ScaleTransform ScaleX="{Binding OwlSpriteScaleX}"/>
+                                        </Image.RenderTransform>
+                                    </Image>
+                                </Panel>
+                                <Border IsVisible="{Binding HasStatusLabel}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Top"
+                                        Margin="0,-3,0,0" Padding="3,1" CornerRadius="5"
+                                        BorderThickness="1" BorderBrush="#33000000"
+                                        Background="White" Opacity="0.96">
+                                    <TextBlock Text="{Binding StatusLabel}" FontSize="8" FontWeight="Normal"
+                                               Foreground="#1A1A1A" TextWrapping="NoWrap"/>
+                                </Border>
+                            </Panel>
                         </Panel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

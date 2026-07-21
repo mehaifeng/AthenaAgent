@@ -114,5 +114,5 @@ public interface IKnowledgeBaseService
     Task RefreshVectorCacheAsync();
 
     /// <summary>清空派生向量数据，并使用当前 Embedding 配置立即全量重建全局知识库索引。</summary>
-    Task RebuildVectorIndexAsync();
+    Task<VectorIndexRebuildResult> RebuildVectorIndexAsync();
 }

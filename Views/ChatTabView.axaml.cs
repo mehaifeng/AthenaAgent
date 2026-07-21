@@ -33,8 +33,7 @@ public partial class ChatTabView : UserControl
     // 在途猫头鹰数：既作编队序号（错开每只的轨迹），也用于最后一只落地时才触发按钮脉冲。
     private int _activeOwlFlights;
     private static readonly Random _flightRng = new();
-    private static Bitmap? _owlBitmap;
-    private static Bitmap OwlBitmap => _owlBitmap ??= new Bitmap(AssetLoader.Open(new Uri("avares://Athena.UI/Assets/owl.webp")));
+    private static readonly Bitmap[] OwlFlightFrames = LoadOwlFlightFrames();
 
     public ChatTabView()
     {
@@ -225,16 +224,25 @@ public partial class ChatTabView : UserControl
             var start = GetOwlFlightStartPoint(overlay)
                         ?? new Point(overlay.Bounds.Width / 2, overlay.Bounds.Height / 2);
 
-            const double size = 32;
+            const double size = 26;
             var translate = new TranslateTransform(start.X - size / 2, start.Y - size / 2);
+            var facesLeft = end.Value.X < start.X;
             owl = new Image
             {
-                Source = OwlBitmap,
+                Source = OwlFlightFrames[0],
                 Width = size,
                 Height = size,
                 Opacity = 0,
                 IsHitTestVisible = false,
-                RenderTransform = translate
+                RenderTransformOrigin = RelativePoint.Center,
+                RenderTransform = new TransformGroup
+                {
+                    Children =
+                    {
+                        new ScaleTransform(facesLeft ? -1 : 1, 1),
+                        translate
+                    }
+                }
             };
             overlay.Children.Add(owl);
 
@@ -256,6 +264,7 @@ public partial class ChatTabView : UserControl
                 var y = inv * inv * start.Y + 2 * inv * p * control.Y + p * p * end.Value.Y;
                 translate.X = x - size / 2;
                 translate.Y = y - size / 2;
+                owl.Source = OwlFlightFrames[(int)(sw.Elapsed.TotalMilliseconds / 95) % OwlFlightFrames.Length];
                 // 前 15% 淡入、末 18% 淡出。
                 owl.Opacity = t < 0.15 ? t / 0.15 : t > 0.82 ? Math.Max(0, (1 - t) / 0.18) : 1.0;
 
@@ -278,6 +287,17 @@ public partial class ChatTabView : UserControl
 
     private static double EaseInOutCubic(double t)
         => t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;
+
+    private static Bitmap[] LoadOwlFlightFrames()
+    {
+        var frames = new Bitmap[4];
+        for (var i = 0; i < frames.Length; i++)
+        {
+            using var stream = AssetLoader.Open(new Uri($"avares://Athena.UI/Assets/SubAgents/owl-fly-{i + 1:D2}.png"));
+            frames[i] = new Bitmap(stream);
+        }
+        return frames;
+    }
 
     /// <summary>起点：最后一条助手气泡内靠左下（流式输出/工具调用的视觉位置附近）。</summary>
     private Point? GetOwlFlightStartPoint(Canvas overlay)

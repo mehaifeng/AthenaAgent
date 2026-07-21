@@ -716,6 +716,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService
                 var currentModel = _embeddingService.ModelId ?? string.Empty;
                 var currentDim = probe?.Length ?? 0;
                 var stored = await _vectorStoreService.GetEmbeddingFingerprintAsync();
+
+                if (currentDim == 0)
+                {
+                    embeddingsOn = false;
+                    _logger.Warning(
+                        "Embedding 探测失败，跳过本次向量生成并保留 FTS：{Model}",
+                        currentModel);
+                }
+
                 var mismatch = currentDim > 0 &&
                     (stored == null || stored.Value.Model != currentModel || stored.Value.Dimension != currentDim);
 
@@ -808,7 +817,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     /// <summary>清空派生向量数据并立即重建；本地 FTS 始终保留。</summary>
-    public async Task RebuildVectorIndexAsync()
+    public async Task<VectorIndexRebuildResult> RebuildVectorIndexAsync()
     {
         await _initLock.WaitAsync();
         try
@@ -825,6 +834,26 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         }
 
         await LoadOrRefreshVectorsAsync();
+
+        var stats = await _vectorStoreService.GetStatisticsAsync();
+        var fullyIndexedFiles = await _vectorStoreService.GetVectorFileStatusesAsync();
+        var result = new VectorIndexRebuildResult
+        {
+            EmbeddingConfigured = _embeddingService?.IsConfigured ?? false,
+            FileCount = stats.FileCount,
+            ChunkCount = _vectorCache.Count,
+            VectorCount = stats.VectorCount,
+            FullyIndexedFileCount = fullyIndexedFiles.Count
+        };
+
+        if (!result.IsFullyIndexed)
+        {
+            _logger.Warning(
+                "向量索引重建不完整：EmbeddingConfigured={Configured}, Files={Files}, Chunks={Chunks}, Vectors={Vectors}, FullyIndexedFiles={FullyIndexedFiles}",
+                result.EmbeddingConfigured, result.FileCount, result.ChunkCount, result.VectorCount, result.FullyIndexedFileCount);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -888,7 +917,23 @@ public class KnowledgeBaseService : IKnowledgeBaseService
         if (_embeddingService == null || !_embeddingService.IsConfigured || chunks.Count == 0)
             return documents;
 
-        var generated = await _embeddingService.GenerateEmbeddingsAsync(chunks.Select(c => BuildEmbedText(c)));
+        var embedTexts = chunks.Select(chunk => BuildEmbedText(chunk)).ToList();
+        var generated = await _embeddingService.GenerateEmbeddingsAsync(embedTexts);
+
+        // 部分 OpenAI-compatible 路由会接受批量请求却返回空/不完整集合。
+        // 不能按不明的返回顺序写入错误的分块，因此整批逐条重试。
+        if (generated.Count != chunks.Count || generated.Any(embedding => embedding == null))
+        {
+            _logger.Warning(
+                "Embedding 批量响应不完整：{FilePath} 返回 {Returned}/{Expected}，将逐条重试",
+                relativePath, generated.Count, chunks.Count);
+            generated = new List<float[]?>();
+            foreach (var text in embedTexts)
+            {
+                generated.Add(await _embeddingService.GenerateEmbeddingAsync(text));
+            }
+        }
+
         var embeddings = new List<(int Index, float[] Embedding)>();
         for (var i = 0; i < chunks.Count && i < generated.Count; i++)
         {

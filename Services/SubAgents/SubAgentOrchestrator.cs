@@ -72,7 +72,8 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator
                 AgentType = SubAgentTypes.Resolve(task.AgentType).Name,
                 State = SubAgentState.Pending,
                 CurrentAction = "queued…",
-                Cts = cts
+                Cts = cts,
+                TimeoutAt = DateTime.UtcNow.AddSeconds(timeoutSeconds)
             };
             runs.Add((vm, task));
             Post(() => ActiveAgents.Add(vm));
