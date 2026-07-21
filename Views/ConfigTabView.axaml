@@ -217,7 +217,7 @@
                             <ComboBox Grid.Column="1" ItemsSource="{Binding BrowserStructuredOutputModes}" SelectedItem="{Binding Config.BrowserStructuredOutputMode}"/>
                         </Grid>
                         <Grid ColumnDefinitions="120,*" ColumnSpacing="20">
-                            <u:IconButton Command="{Binding TestBrowserRuntimeCommand}" IsLoading="{Binding IsTestingBrowserRuntime}" Content="{loc:Loc Config.BrowserTestRuntime}"/>
+                            <u:IconButton HorizontalAlignment="Left" Command="{Binding TestBrowserRuntimeCommand}" IsLoading="{Binding IsTestingBrowserRuntime}" Content="{loc:Loc Config.BrowserTestRuntime}"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
                                 <u:IconButton Command="{Binding InstallBrowserRuntimeCommand}" IsLoading="{Binding IsInstallingBrowserRuntime}" Content="{loc:Loc Config.BrowserInstallRuntime}"/>
                                 <u:IconButton Command="{Binding TestBrowserAgentCommand}" IsLoading="{Binding IsTestingBrowserAgent}" Content="{loc:Loc Config.BtnRunDiagnostics}"/>
@@ -247,11 +247,13 @@
                             <TextBlock Grid.Row="4" Text="{loc:Loc Config.MemAutoComp}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding Config.AutoCompress}"/>
                         </Grid>
-                        <Border Background="{DynamicResource App.AssistantBubbleBg}" CornerRadius="4" Padding="12">
+                        <Border Background="{DynamicResource App.AssistantBubbleBg}" CornerRadius="4">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="{loc:Loc Config.CompressionPreview}" FontSize="12" FontWeight="SemiBold" Opacity="0.7"/>
                                 <Border BorderThickness="1" BorderBrush="LightGray" CornerRadius="5">
-                                    <ScrollViewer MinHeight="50" MaxHeight="300"><lmd:MarkdownRenderer loc:MarkdownHelper.Text="{Binding TokenService.CompressionPreview}"/></ScrollViewer>
+                                    <ScrollViewer MinHeight="50" MaxHeight="300">
+                                        <lmd:MarkdownRenderer loc:MarkdownHelper.Text="{Binding TokenService.CompressionPreview}"/>
+                                    </ScrollViewer>
                                 </Border>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <u:IconButton Command="{Binding CompressContextCommand}" IsLoading="{Binding IsCompressing}" Content="{loc:Loc Config.BtnExecCompression}"/>

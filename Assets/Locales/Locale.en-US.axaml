@@ -28,7 +28,7 @@
     <system:String x:Key="Skills.Source">Source:</system:String>
     <system:String x:Key="Skills.Compatibility">Compatibility:</system:String>
     <system:String x:Key="Skills.MarketHint">Find Skills at</system:String>
-    <system:String x:Key="Skills.MarketLink">mcpservers.org/agent-skills</system:String>
+    <system:String x:Key="Skills.MarketLink">AgentSkills</system:String>
     <system:String x:Key="Skills.ImportArchivePicker">Select one Skill ZIP archive</system:String>
     <system:String x:Key="Skills.ImportFolderPicker">Select one Skill folder</system:String>
     <system:String x:Key="Skills.Delete">Remove</system:String>
@@ -166,7 +166,7 @@
     <system:String x:Key="Config.Mcp.Enable">Enable MCP:</system:String>
     <system:String x:Key="Config.Mcp.DiscoveryHint">MCP (Model Context Protocol) lets the assistant connect to external servers and use the tools and data they provide on demand, extending its capabilities.</system:String>
     <system:String x:Key="Config.Mcp.ExampleHint">Discover more MCP servers here:</system:String>
-    <system:String x:Key="Config.Mcp.ExampleLink">ModelScope MCP Marketplace</system:String>
+    <system:String x:Key="Config.Mcp.ExampleLink">MCPServer</system:String>
     <system:String x:Key="Config.Mcp.AddServer">Add server</system:String>
     <system:String x:Key="Config.Mcp.Remove">Remove</system:String>
     <system:String x:Key="Config.Mcp.Enabled">Enabled</system:String>

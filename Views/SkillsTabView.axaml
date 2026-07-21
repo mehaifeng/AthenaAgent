@@ -18,8 +18,9 @@
         <Border Grid.Row="0" CornerRadius="0,0,5,5" Background="{DynamicResource App.SectionBg}" Padding="12,8">
             <TextBlock Text="{loc:Loc Skills.Title}" FontWeight="SemiBold" FontSize="14"/>
         </Border>
-        <ScrollViewer Grid.Row="1" Padding="0,5,0,5">
-            <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,60" Padding="16">
+        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
+            <Grid RowDefinitions="Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" HorizontalAlignment="Stretch">
+                <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,60" Padding="16">
                 <StackPanel Spacing="14">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
                         <TextBlock Grid.Column="0" Text="{loc:Loc Skills.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
@@ -49,7 +50,9 @@
                                                 </StackPanel>
                                             </Button>
                                             <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center"/>
-                                            <Button Grid.Column="3" Content="{loc:Loc Skills.Delete}" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}"/>
+                                            <Button Grid.Column="3" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}">
+                                                <PathIcon Data="{DynamicResource SemiIconDelete}" Height="15" Width="15"/>
+                                            </Button>
                                         </Grid>
                                         <StackPanel IsVisible="{Binding IsExpanded}" Spacing="7" Margin="30,4,0,0">
                                             <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
@@ -72,6 +75,7 @@
                     </ItemsControl>
                 </StackPanel>
             </Border>
+            </Grid>
         </ScrollViewer>
     </Grid>
 </UserControl>

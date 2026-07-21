@@ -113,9 +113,10 @@
                                                         Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).ReconnectMcpCommand}"/>
                                                 <ToggleSwitch Grid.Column="4" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
                                                 <Button Grid.Column="5"
-                                                        Content="{loc:Loc Config.Mcp.Remove}"
                                                         Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).RemoveMcpServerCommand}"
-                                                        CommandParameter="{Binding}"/>
+                                                        CommandParameter="{Binding}">
+                                                    <PathIcon Data="{DynamicResource SemiIconDelete}" Height="15" Width="15"/>
+                                                </Button>
                                             </Grid>
 
                                             <!-- 可编辑详情（默认折叠） -->

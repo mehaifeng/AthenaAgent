@@ -28,7 +28,7 @@
     <system:String x:Key="Skills.Source">来源：</system:String>
     <system:String x:Key="Skills.Compatibility">兼容性：</system:String>
     <system:String x:Key="Skills.MarketHint">可在此处发现 Skills：</system:String>
-    <system:String x:Key="Skills.MarketLink">mcpservers.org/agent-skills</system:String>
+    <system:String x:Key="Skills.MarketLink">AgentSkills</system:String>
     <system:String x:Key="Skills.ImportArchivePicker">选择一个 Skill ZIP 压缩包</system:String>
     <system:String x:Key="Skills.ImportFolderPicker">选择一个 Skill 目录</system:String>
     <system:String x:Key="Skills.Delete">移除</system:String>
@@ -166,7 +166,7 @@
     <system:String x:Key="Config.Mcp.Enable">启用 MCP 扩展：</system:String>
     <system:String x:Key="Config.Mcp.DiscoveryHint">MCP（模型上下文协议）让助手接入外部服务器，按需调用其提供的工具与数据，从而扩展可用能力。</system:String>
     <system:String x:Key="Config.Mcp.ExampleHint">可在此处发现更多 MCP 服务器：</system:String>
-    <system:String x:Key="Config.Mcp.ExampleLink">ModelScope MCP 广场</system:String>
+    <system:String x:Key="Config.Mcp.ExampleLink">MCPServer</system:String>
     <system:String x:Key="Config.Mcp.AddServer">添加服务器</system:String>
     <system:String x:Key="Config.Mcp.Remove">移除</system:String>
     <system:String x:Key="Config.Mcp.Enabled">已启用</system:String>
