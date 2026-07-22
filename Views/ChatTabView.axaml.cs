@@ -174,6 +174,33 @@ public partial class ChatTabView : UserControl
         }
     }
 
+    private void OnFilesDragOver(object? sender, DragEventArgs e)
+    {
+        var hasFiles = e.DataTransfer.TryGetFiles()?.OfType<IStorageFile>().Any() == true;
+        e.DragEffects = _viewModel?.CanAcceptAttachments == true && hasFiles
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnFilesDrop(object? sender, DragEventArgs e)
+    {
+        if (_viewModel?.CanAcceptAttachments != true)
+        {
+            e.DragEffects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        var files = e.DataTransfer.TryGetFiles()?.OfType<IStorageFile>().ToList();
+        if (files?.Count > 0)
+        {
+            e.DragEffects = DragDropEffects.Copy;
+            e.Handled = true;
+            await _viewModel.AddStorageFilesAsync(files);
+        }
+    }
+
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (_chatScrollViewer == null) return;

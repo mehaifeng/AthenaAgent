@@ -92,14 +92,10 @@ public static class ConversationPersistenceHelper
             Height = attachment.Height,
             AudioProvider = attachment.AudioProvider,
             CreatedAt = attachment.CreatedAt,
+            FileCreatedAt = attachment.FileCreatedAt,
+            FileModifiedAt = attachment.FileModifiedAt,
             PreviewImage = attachment.PreviewImage,
             Duration = attachment.Duration,
-            ParseState = attachment.ParseState,
-            ExtractedText = attachment.ExtractedText,
-            ParseError = attachment.ParseError,
-            RetrievalMode = attachment.RetrievalMode,
-            RetrievalPath = attachment.RetrievalPath,
-            EstimatedTokens = attachment.EstimatedTokens
         };
     }
 

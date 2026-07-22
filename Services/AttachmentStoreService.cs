@@ -14,120 +14,6 @@ namespace Athena.UI.Services;
 
 public class AttachmentStoreService : IAttachmentStoreService
 {
-    private static readonly Dictionary<string, string> ImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [".png"] = "image/png",
-        [".jpg"] = "image/jpeg",
-        [".jpeg"] = "image/jpeg",
-        [".webp"] = "image/webp",
-        [".gif"] = "image/gif"
-    };
-
-    // MinerU 支持的文档格式：PDF / Word / PowerPoint / Excel。
-    private static readonly Dictionary<string, string> DocumentMimeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [".pdf"] = "application/pdf",
-        [".doc"] = "application/msword",
-        [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        [".ppt"] = "application/vnd.ms-powerpoint",
-        [".pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        [".xls"] = "application/vnd.ms-excel",
-        [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    };
-
-    // 纯文本 / 代码文件：无需远端解析，直接读取内容作为上下文交给 AI。
-    private static readonly Dictionary<string, string> TextMimeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [".txt"] = "text/plain",
-        [".text"] = "text/plain",
-        [".log"] = "text/plain",
-        [".md"] = "text/markdown",
-        [".markdown"] = "text/markdown",
-        [".rst"] = "text/x-rst",
-        [".json"] = "application/json",
-        [".jsonc"] = "application/json",
-        [".json5"] = "application/json",
-        [".xml"] = "application/xml",
-        [".xaml"] = "application/xml",
-        [".axaml"] = "application/xml",
-        [".svg"] = "image/svg+xml",
-        [".html"] = "text/html",
-        [".htm"] = "text/html",
-        [".css"] = "text/css",
-        [".scss"] = "text/x-scss",
-        [".less"] = "text/x-less",
-        [".yaml"] = "application/x-yaml",
-        [".yml"] = "application/x-yaml",
-        [".toml"] = "application/toml",
-        [".ini"] = "text/plain",
-        [".config"] = "application/xml",
-        [".conf"] = "text/plain",
-        // 注意：.env 装的是密钥，且在 FileSystemPolicy.BlockedExtensions 中被读工具拒绝，
-        // 因此不纳入文本附件白名单（既避免密钥泄露，也避免“能传不能读”的割裂）。
-        [".properties"] = "text/plain",
-        [".csv"] = "text/csv",
-        [".tsv"] = "text/tab-separated-values",
-        // 代码
-        [".cs"] = "text/x-csharp",
-        [".csx"] = "text/x-csharp",
-        [".fs"] = "text/x-fsharp",
-        [".vb"] = "text/x-vb",
-        [".py"] = "text/x-python",
-        [".pyw"] = "text/x-python",
-        [".java"] = "text/x-java",
-        [".kt"] = "text/x-kotlin",
-        [".kts"] = "text/x-kotlin",
-        [".go"] = "text/x-go",
-        [".rs"] = "text/x-rust",
-        [".rb"] = "text/x-ruby",
-        [".php"] = "text/x-php",
-        [".swift"] = "text/x-swift",
-        [".c"] = "text/x-c",
-        [".h"] = "text/x-c",
-        [".cpp"] = "text/x-c++",
-        [".cc"] = "text/x-c++",
-        [".cxx"] = "text/x-c++",
-        [".hpp"] = "text/x-c++",
-        [".m"] = "text/x-objectivec",
-        [".mm"] = "text/x-objectivec",
-        [".js"] = "text/javascript",
-        [".jsx"] = "text/javascript",
-        [".mjs"] = "text/javascript",
-        [".cjs"] = "text/javascript",
-        [".ts"] = "text/x-typescript",
-        [".tsx"] = "text/x-typescript",
-        [".vue"] = "text/x-vue",
-        [".sql"] = "text/x-sql",
-        [".sh"] = "text/x-sh",
-        [".bash"] = "text/x-sh",
-        [".zsh"] = "text/x-sh",
-        [".ps1"] = "text/x-powershell",
-        // .bat / .cmd 在 BlockedExtensions 中，省略以保持导入白名单与读工具策略一致。
-        [".r"] = "text/x-r",
-        [".lua"] = "text/x-lua",
-        [".pl"] = "text/x-perl",
-        [".dart"] = "text/x-dart",
-        [".scala"] = "text/x-scala",
-        [".groovy"] = "text/x-groovy",
-        [".gradle"] = "text/x-groovy",
-        [".dockerfile"] = "text/plain",
-        [".makefile"] = "text/plain",
-        [".gitignore"] = "text/plain",
-        [".editorconfig"] = "text/plain"
-    };
-
-    private static readonly Dictionary<string, string> AudioMimeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [".mp3"] = "audio/mpeg",
-        [".wav"] = "audio/wav",
-        [".aac"] = "audio/aac",
-        [".aiff"] = "audio/aiff",
-        [".aif"] = "audio/aiff",
-        [".flac"] = "audio/flac",
-        [".opus"] = "audio/opus",
-        [".m4a"] = "audio/mp4"
-    };
-
     private readonly IPlatformPathService _pathService;
     private readonly ILogger _logger;
 
@@ -137,49 +23,32 @@ public class AttachmentStoreService : IAttachmentStoreService
         _logger = logger.ForContext<AttachmentStoreService>();
     }
 
-    public int MaxPendingAttachments => 10;
-
-    public long MaxImageBytes => 20 * 1024 * 1024;
-
-    // MinerU 精度解析单文件上限 200MB；此处按上限放行，超限交由远端报错。
-    public long MaxDocumentBytes => 200L * 1024 * 1024;
-
-    // 纯文本 / 代码文件直接读入上下文，限制 5MB 以避免一次性塞爆上下文窗口。
-    public long MaxTextBytes => 5L * 1024 * 1024;
-
-    public IReadOnlyCollection<string> SupportedDocumentExtensions => DocumentMimeTypes.Keys;
-
-    public IReadOnlyCollection<string> SupportedTextExtensions => TextMimeTypes.Keys;
-
     public async Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(
         IEnumerable<IStorageFile> files,
         CancellationToken cancellationToken = default)
     {
         var imported = new List<ChatAttachment>();
-        foreach (var file in files)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var extension = Path.GetExtension(file.Name);
+            foreach (var file in files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var extension = Path.GetExtension(file.Name);
+                var isImage = TryGetImageMimeType(extension, out var mimeType);
+                var kind = isImage ? AttachmentKind.Image : AttachmentKind.Unknown;
+                imported.Add(await ImportSingleAsync(file, extension, mimeType, kind, cancellationToken));
+            }
 
-            if (ImageMimeTypes.TryGetValue(extension, out var imageMime))
-            {
-                imported.Add(await ImportSingleAsync(file, extension, imageMime, AttachmentKind.Image, MaxImageBytes, "Image", cancellationToken));
-            }
-            else if (DocumentMimeTypes.TryGetValue(extension, out var docMime))
-            {
-                imported.Add(await ImportSingleAsync(file, extension, docMime, AttachmentKind.Document, MaxDocumentBytes, "Document", cancellationToken));
-            }
-            else if (TextMimeTypes.TryGetValue(extension, out var textMime))
-            {
-                imported.Add(await ImportSingleAsync(file, extension, textMime, AttachmentKind.Code, MaxTextBytes, "Text", cancellationToken));
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unsupported file type: {file.Name}");
-            }
+            return imported;
         }
-
-        return imported;
+        catch
+        {
+            foreach (var attachment in imported)
+            {
+                DeleteStoredAttachment(attachment);
+            }
+            throw;
+        }
     }
 
     private async Task<ChatAttachment> ImportSingleAsync(
@@ -187,45 +56,60 @@ public class AttachmentStoreService : IAttachmentStoreService
         string extension,
         string mimeType,
         AttachmentKind kind,
-        long maxBytes,
-        string label,
         CancellationToken cancellationToken)
     {
-        await using var input = await file.OpenReadAsync();
-        if (input.CanSeek && input.Length > maxBytes)
+        DateTimeOffset? fileCreatedAt = null;
+        DateTimeOffset? fileModifiedAt = null;
+        try
         {
-            throw new InvalidOperationException($"{label} is too large: {file.Name}");
+            var properties = await file.GetBasicPropertiesAsync();
+            fileCreatedAt = properties.DateCreated;
+            fileModifiedAt = properties.DateModified;
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug(ex, "Basic file metadata is unavailable for {FileName}", file.Name);
         }
 
         var attachment = CreateAttachment(file.Name, extension, mimeType, kind);
-        await using (var output = File.Create(attachment.StoredPath))
+        try
         {
-            await input.CopyToAsync(output, cancellationToken);
-        }
+            await using var input = await file.OpenReadAsync();
+            await using (var output = File.Create(attachment.StoredPath))
+            {
+                await input.CopyToAsync(output, cancellationToken);
+            }
 
-        var info = new FileInfo(attachment.StoredPath);
-        if (info.Length > maxBytes)
+            var info = new FileInfo(attachment.StoredPath);
+            attachment.SizeBytes = info.Length;
+            attachment.FileCreatedAt = fileCreatedAt;
+            attachment.FileModifiedAt = fileModifiedAt;
+            if (kind == AttachmentKind.Image)
+            {
+                await LoadPreviewAsync(attachment, cancellationToken);
+            }
+
+            return attachment;
+        }
+        catch
         {
             DeleteStoredAttachment(attachment);
-            throw new InvalidOperationException($"{label} is too large: {file.Name}");
+            throw;
         }
+    }
 
-        attachment.SizeBytes = info.Length;
-        if (kind == AttachmentKind.Image)
+    private static bool TryGetImageMimeType(string extension, out string mimeType)
+    {
+        mimeType = extension.ToLowerInvariant() switch
         {
-            await LoadPreviewAsync(attachment, cancellationToken);
-        }
-        else if (kind == AttachmentKind.Code)
-        {
-            // 文本/代码文件无需远端解析，直接读入内容并标记为已解析。
-            // 模型按需读取时直接复用原始文件，不再复制一份。
-            attachment.ExtractedText = await File.ReadAllTextAsync(attachment.StoredPath, cancellationToken);
-            attachment.ParseState = DocumentParseState.Parsed;
-            attachment.RetrievalPath = attachment.StoredPath;
-            attachment.EstimatedTokens = Models.ConversationContext.EstimateTokens(attachment.ExtractedText);
-        }
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => "application/octet-stream"
+        };
 
-        return attachment;
+        return mimeType != "application/octet-stream";
     }
 
     public async Task<ChatAttachment> ImportBitmapAsync(
@@ -237,12 +121,6 @@ public class AttachmentStoreService : IAttachmentStoreService
         var attachment = CreateAttachment(fileName, ".png", "image/png", AttachmentKind.Image);
         bitmap.Save(attachment.StoredPath, PngBitmapEncoderOptions.Default);
         attachment.SizeBytes = new FileInfo(attachment.StoredPath).Length;
-        if (attachment.SizeBytes > MaxImageBytes)
-        {
-            DeleteStoredAttachment(attachment);
-            throw new InvalidOperationException($"Image is too large: {fileName}");
-        }
-
         attachment.PreviewImage = bitmap;
         attachment.Width = (int)Math.Round(bitmap.Size.Width);
         attachment.Height = (int)Math.Round(bitmap.Size.Height);
@@ -379,26 +257,6 @@ public class AttachmentStoreService : IAttachmentStoreService
         }
     }
 
-    public async Task<string> WriteParsedSidecarAsync(
-        ChatAttachment attachment,
-        string markdown,
-        CancellationToken cancellationToken = default)
-    {
-        // 把解析出的 Markdown 落盘为与附件同生命周期的 sidecar，供模型按需读取。
-        var directory = Path.GetDirectoryName(attachment.StoredPath);
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            directory = Path.Combine(_pathService.GetAttachmentDirectory(), DateTime.Now.ToString("yyyyMMdd"));
-        }
-        Directory.CreateDirectory(directory);
-
-        var sidecarPath = Path.Combine(
-            directory,
-            $"{Path.GetFileNameWithoutExtension(attachment.StoredPath)}.parsed.md");
-        await File.WriteAllTextAsync(sidecarPath, markdown ?? string.Empty, cancellationToken);
-        return sidecarPath;
-    }
-
     public async Task<ChatAttachment> CloneStoredAttachmentAsync(ChatAttachment source, CancellationToken cancellationToken = default)
     {
         // 保留原 Id：消息 Segment 与图像会话按 AttachmentId 关联；仅物理文件换新路径。
@@ -413,23 +271,6 @@ public class AttachmentStoreService : IAttachmentStoreService
 
             await CopyFileAsync(source.StoredPath, newStoredPath, cancellationToken);
             clone.StoredPath = newStoredPath;
-
-            // 解析 sidecar（RetrievalPath 指向独立文件时）随附件一并复制
-            if (!string.IsNullOrWhiteSpace(source.RetrievalPath)
-                && !string.Equals(source.RetrievalPath, source.StoredPath, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(source.RetrievalPath))
-            {
-                var sidecarPath = Path.Combine(
-                    dayDirectory,
-                    $"{Path.GetFileNameWithoutExtension(newStoredPath)}.parsed.md");
-                await CopyFileAsync(source.RetrievalPath, sidecarPath, cancellationToken);
-                clone.RetrievalPath = sidecarPath;
-            }
-            else if (!string.IsNullOrWhiteSpace(source.RetrievalPath)
-                && string.Equals(source.RetrievalPath, source.StoredPath, StringComparison.OrdinalIgnoreCase))
-            {
-                clone.RetrievalPath = newStoredPath;
-            }
         }
 
         return clone;
@@ -445,13 +286,6 @@ public class AttachmentStoreService : IAttachmentStoreService
     public void DeleteStoredAttachment(ChatAttachment attachment)
     {
         DeleteFileQuietly(attachment.StoredPath);
-
-        // 同时清理解析 sidecar（若 RetrievalPath 指向独立文件而非原始附件）。
-        if (!string.IsNullOrWhiteSpace(attachment.RetrievalPath)
-            && !string.Equals(attachment.RetrievalPath, attachment.StoredPath, StringComparison.OrdinalIgnoreCase))
-        {
-            DeleteFileQuietly(attachment.RetrievalPath);
-        }
     }
 
     private void DeleteFileQuietly(string? path)
@@ -500,22 +334,20 @@ public class AttachmentStoreService : IAttachmentStoreService
             return currentExtension;
         }
 
-        foreach (var pair in ImageMimeTypes)
+        return mimeType.ToLowerInvariant() switch
         {
-            if (string.Equals(pair.Value, mimeType, StringComparison.OrdinalIgnoreCase))
-            {
-                return pair.Key;
-            }
-        }
-
-        foreach (var pair in AudioMimeTypes)
-        {
-            if (string.Equals(pair.Value, mimeType, StringComparison.OrdinalIgnoreCase))
-            {
-                return pair.Key;
-            }
-        }
-
-        return fallback;
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/webp" => ".webp",
+            "image/gif" => ".gif",
+            "audio/mpeg" => ".mp3",
+            "audio/wav" or "audio/x-wav" => ".wav",
+            "audio/aac" => ".aac",
+            "audio/aiff" or "audio/x-aiff" => ".aiff",
+            "audio/flac" => ".flac",
+            "audio/opus" => ".opus",
+            "audio/mp4" or "audio/x-m4a" => ".m4a",
+            _ => fallback
+        };
     }
 }

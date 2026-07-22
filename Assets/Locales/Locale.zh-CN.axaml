@@ -55,8 +55,10 @@
     <system:String x:Key="Chat.Buffer">思考: {0}</system:String>
     <system:String x:Key="Chat.BtnTheme">主题</system:String>
     <system:String x:Key="Chat.BtnReset">新对话</system:String>
+    <system:String x:Key="Chat.BtnDeleteConversation">删除当前对话</system:String>
     <system:String x:Key="Chat.BtnStats">统计</system:String>
     <system:String x:Key="Chat.ReceivingData">思考中</system:String>
+    <system:String x:Key="Chat.ComposingFileText">编写文本中</system:String>
     <system:String x:Key="Chat.BtnAbort">停止</system:String>
     <system:String x:Key="Chat.BtnRewind">回溯到这里</system:String>
     <system:String x:Key="Chat.BtnFork">从这里分支</system:String>

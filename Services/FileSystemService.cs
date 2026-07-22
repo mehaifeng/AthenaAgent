@@ -83,16 +83,13 @@ public class FileSystemService : IFileSystemService
         var platform = OperatingSystem.IsWindows() ? policy.Platforms.Windows : (OperatingSystem.IsMacOS() ? policy.Platforms.MacOS : policy.Platforms.Linux);
         var accessRules = isWriteOperation ? platform.WriteAccess : platform.ReadAccess;
 
-        if (!isDirectoryOperation && pathsToCheck.Any(p => policy.Global.BlockedExtensions.Any(ext => p.EndsWith(ext, StringComparison.OrdinalIgnoreCase))))
-            throw new UnauthorizedAccessException($"由于安全策略，禁止访问此类扩展名的文件。");
-
         var blockedDirs = accessRules.BlockedDirectories.Select(dir => Path.GetFullPath(ExpandPath(dir))).ToList();
         if (pathsToCheck.Any(p => blockedDirs.Any(dir => p.StartsWith(dir, comparison))))
             throw new UnauthorizedAccessException($"由于安全策略，系统关键目录受到保护，访问被拒绝。");
 
         // 附件库为“受信读取区”：解析后的大文档/大文本是有意落盘供模型按需分块读取的，
         // 整体大小限制对它们没有意义（实际返回的是 50KB 切片）。因此对该目录下的读取
-        // 豁免整文件大小护栏，仅保留扩展名/目录黑名单与分块约束。
+        // 豁免整文件大小护栏，仅保留目录边界与分块约束。
         bool trustedRead = !isWriteOperation && IsWithinAttachmentRoot(fullPath);
 
         long targetLimit = isWriteOperation ? policy.Global.MaxWriteSizeBytes : policy.Global.MaxReadSizeBytes;

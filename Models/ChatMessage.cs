@@ -68,6 +68,14 @@ public partial class ChatMessage : ObservableObject
     private bool _isLoading;
 
     /// <summary>
+    /// Whether the model is streaming text for a file-write tool call.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowDefaultThinkingText))]
+    [NotifyPropertyChangedFor(nameof(ShowComposingFileText))]
+    private bool _isComposingFileText;
+
+    /// <summary>
     /// 该气泡是否处于"回复进行中"。贯穿整个流式回复生命周期，与 IsLoading/内容解耦，
     /// 保证空气泡在 loading→内容 的切换缝隙里也不会塌缩消失。
     /// </summary>
@@ -192,6 +200,8 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasToolExecutionSummary))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowDefaultThinkingText))]
+    [NotifyPropertyChangedFor(nameof(ShowComposingFileText))]
     private string _toolExecutionSummary = string.Empty;
 
     /// <summary>
@@ -208,6 +218,10 @@ public partial class ChatMessage : ObservableObject
     /// 驱动合成器逐帧渲染（AvaloniaUI/Avalonia#17139）。
     /// </summary>
     public bool ShowThinkingIndicator => IsLoading && !HasToolExecutionSummary;
+
+    public bool ShowDefaultThinkingText => !HasToolExecutionSummary && !IsComposingFileText;
+
+    public bool ShowComposingFileText => !HasToolExecutionSummary && IsComposingFileText;
 
     public bool HasAudioError => !string.IsNullOrWhiteSpace(AudioErrorMessage);
 

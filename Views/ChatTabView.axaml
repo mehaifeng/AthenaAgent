@@ -13,7 +13,10 @@
              d:DesignWidth="720" 
              d:DesignHeight="1080"
              x:Class="Athena.UI.Views.ChatTabView"
-             x:DataType="vm:ChatTabViewModel">
+             x:DataType="vm:ChatTabViewModel"
+             DragDrop.AllowDrop="True"
+             DragDrop.DragOver="OnFilesDragOver"
+             DragDrop.Drop="OnFilesDrop">
 
     <Design.DataContext>
         <vm:ChatTabViewModel/>
@@ -284,13 +287,24 @@
                     </Panel>
                 </Button>
                 
-                <u:IconButton Grid.Column="3"
-                              VerticalAlignment="Center"
-                              Command="{Binding NewConversationCommand}"
-                              IsLoading="{Binding IsResetting}"
-                              Margin="0,0,8,0"
-                              Icon="{StaticResource SemiIconPlusCircle}"
-                              ToolTip.Tip="{loc:Loc Chat.BtnReset}"/>
+                <u:IconSplitButton Grid.Column="3"
+                                   VerticalAlignment="Center"
+                                   Icon="{StaticResource SemiIconPlusCircle}"
+                                   Command="{Binding NewConversationCommand}"
+                                   IsEnabled="{Binding !IsResetting}"
+                                   Margin="0,0,8,0"
+                                   ToolTip.Tip="{loc:Loc Chat.BtnReset}">
+                    <u:IconSplitButton.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="{loc:Loc Chat.BtnDeleteConversation}"
+                                      Command="{Binding DeleteCurrentConversationCommand}">
+                                <MenuItem.Icon>
+                                    <PathIcon Data="{StaticResource SemiIconDelete}"/>
+                                </MenuItem.Icon>
+                            </MenuItem>
+                        </MenuFlyout>
+                    </u:IconSplitButton.Flyout>
+                </u:IconSplitButton>
             </Grid>
         </Border>
 
@@ -429,14 +443,12 @@
                                                             <ContentControl.ContentTemplate>
                                                                 <DataTemplate x:DataType="models:ChatAttachment">
                                                                     <Border Classes="attachment-card">
-                                                                        <Grid RowDefinitions="56,Auto,Auto,Auto">
+                                                                        <Grid RowDefinitions="56,Auto,Auto">
                                                                             <Border Grid.Row="0" Background="{DynamicResource SemiGreyLowBrush}" CornerRadius="5">
                                                                                 <TextBlock Text="{Binding FileExtension}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold"/>
                                                                             </Border>
                                                                             <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,5,0,0"/>
                                                                             <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65"/>
-                                                                            <TextBlock Grid.Row="3" Text="{loc:Loc Chat.Attach.Parsed}" FontSize="10" Margin="0,3,0,0" Foreground="{DynamicResource SemiGreen6}" IsVisible="{Binding IsParsed}"/>
-                                                                            <TextBlock Grid.Row="3" Text="{loc:Loc Chat.Attach.ParseFailedShort}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ParseError}" Foreground="{DynamicResource SemiRed6}" IsVisible="{Binding IsParseFailed}"/>
                                                                         </Grid>
                                                                     </Border>
                                                                 </DataTemplate>
@@ -518,7 +530,11 @@
                                             <TextBlock Classes="thinking-text"
                                                        Classes.breathing="{Binding ShowThinkingIndicator}"
                                                        Text="{loc:Loc Chat.ReceivingData}"
-                                                       IsVisible="{Binding !HasToolExecutionSummary}"/>
+                                                       IsVisible="{Binding ShowDefaultThinkingText}"/>
+                                            <TextBlock Classes="thinking-text"
+                                                       Classes.breathing="{Binding ShowThinkingIndicator}"
+                                                       Text="{loc:Loc Chat.ComposingFileText}"
+                                                       IsVisible="{Binding ShowComposingFileText}"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -712,7 +728,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="models:ChatAttachment">
                             <Border Classes="attachment-card" Margin="0,0,8,8">
-                                <Grid RowDefinitions="56,Auto,Auto,Auto">
+                                <Grid RowDefinitions="56,Auto,Auto">
                                     <Border Grid.Row="0"
                                             CornerRadius="5"
                                             ClipToBounds="True"
@@ -748,25 +764,6 @@
                                                FontSize="10"
                                                Opacity="0.65"/>
 
-                                    <!-- 文档解析状态 -->
-                                    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="4" Margin="0,3,0,0" IsVisible="{Binding IsParsing}">
-                                        <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding IsParsing}" Width="10" Height="10" Opacity="0.7"/>
-                                        <TextBlock Text="{loc:Loc Chat.Attach.Parsing}" FontSize="10" Opacity="0.7"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Row="3"
-                                               Text="{loc:Loc Chat.Attach.Parsed}"
-                                               FontSize="10"
-                                               Margin="0,3,0,0"
-                                               Foreground="{DynamicResource SemiGreen6}"
-                                               IsVisible="{Binding IsParsed}"/>
-                                    <TextBlock Grid.Row="3"
-                                               Text="{loc:Loc Chat.Attach.ParseFailedShort}"
-                                               FontSize="10"
-                                               Margin="0,3,0,0"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTip.Tip="{Binding ParseError}"
-                                               Foreground="{DynamicResource SemiRed6}"
-                                               IsVisible="{Binding IsParseFailed}"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -832,7 +829,7 @@
                         <Button Command="{Binding AttachFileCommand}"
                                 BorderThickness="0"
                                 Padding="6"
-                                IsEnabled="{Binding !IsSending}"
+                                IsEnabled="{Binding CanAcceptAttachments}"
                                 ToolTip.Tip="{loc:Loc Chat.Attach.Add}">
                             <PathIcon Data="{StaticResource SemiIconPlus}" Width="18" Height="18"/>
                         </Button>

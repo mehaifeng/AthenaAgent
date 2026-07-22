@@ -142,7 +142,7 @@ public class ConversationContext
     }
 
     // 延迟载入的附件只在上下文里放一张“清单卡”（路径+元信息+预览），固定开销近似值。
-    public const int DeferredManifestTokenCost = 500;
+    public const int AttachmentManifestTokenCost = 180;
 
     // 文本 token 估算：CJK 字符约 1 token/字，拉丁/数字/标点约 1 token / 4 字符。
     // 旧实现统一 length/2 对中文低估 ~2-3 倍、对英文高估 ~2 倍，这里按脚本分别计。
@@ -202,14 +202,7 @@ public class ConversationContext
                 total += msg.Attachments
                     .Where(a => a.Kind == AttachmentKind.Image)
                     .Sum(a => EstimateImageTokens(a.Width, a.Height));
-                total += msg.Attachments.Count(a => a.Kind == AttachmentKind.Audio) * 300;
-                // 文档/文本/代码附件会被注入发往 AI 的消息：内联时计全文，延迟时仅计清单卡开销。
-                foreach (var doc in msg.Attachments.Where(a => a.Kind == AttachmentKind.Document || a.Kind == AttachmentKind.Code))
-                {
-                    total += doc.RetrievalMode == AttachmentRetrievalMode.Deferred
-                        ? DeferredManifestTokenCost
-                        : EstimateTokens(doc.ExtractedText);
-                }
+                total += msg.Attachments.Count * AttachmentManifestTokenCost;
             }
             return total;
         }
@@ -228,13 +221,9 @@ public class ConversationContext
             Width = attachment.Width,
             Height = attachment.Height,
             CreatedAt = attachment.CreatedAt,
+            FileCreatedAt = attachment.FileCreatedAt,
+            FileModifiedAt = attachment.FileModifiedAt,
             Duration = attachment.Duration,
-            ParseState = attachment.ParseState,
-            ExtractedText = attachment.ExtractedText,
-            ParseError = attachment.ParseError,
-            RetrievalMode = attachment.RetrievalMode,
-            RetrievalPath = attachment.RetrievalPath,
-            EstimatedTokens = attachment.EstimatedTokens
         };
     }
 }

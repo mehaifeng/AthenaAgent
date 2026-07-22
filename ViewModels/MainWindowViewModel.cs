@@ -118,7 +118,6 @@ public partial class MainWindowViewModel : ViewModelBase
         IImageGenerationSessionService? imageGenerationSessionService,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
-        IDocumentParserService? documentParserService = null,
         IModelCatalogService? modelCatalogService = null,
         IScreenCaptureService? screenCaptureService = null,
         ISubAgentOrchestrator? subAgentOrchestrator = null,
@@ -133,7 +132,7 @@ public partial class MainWindowViewModel : ViewModelBase
         Orchestrator = subAgentOrchestrator;
 
         // Initialize Tab ViewModels
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, documentParserService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService);
+        _chatTabViewModel = new ChatTabViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService);
         _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, localizationService, modelCatalogService, knowledgeMaintenanceService, knowledgeBaseService, browserService, browserVisionService);
         _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
         _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, systemAudioService);
@@ -152,6 +151,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _historyTabViewModel = new HistoryTabViewModel(archiveService, localizationService, workspaceService);
             _historyTabViewModel.LoadHistoryRequested += OnLoadHistoryRequested;
             _historyTabViewModel.HistoryDeleted += OnHistoryDeleted;
+            _chatTabViewModel.CurrentConversationDeleted += OnCurrentConversationDeleted;
         }
 
         // Wire up events
@@ -200,6 +200,14 @@ public partial class MainWindowViewModel : ViewModelBase
     private void OnHistoryDeleted(object? sender, string id)
     {
         ChatTabViewModel.NotifyHistoryDeleted(id);
+    }
+
+    private async void OnCurrentConversationDeleted(object? sender, string id)
+    {
+        if (HistoryTabViewModel != null)
+        {
+            await HistoryTabViewModel.LoadHistoryAsync();
+        }
     }
 
     private async void OnLoadHistoryRequested(object? sender, ConversationHistoryItem item)

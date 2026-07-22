@@ -2346,18 +2346,6 @@ sealed class TestConfigService(AppConfig config) : IConfigService
 
 sealed class TestAttachmentStoreService : IAttachmentStoreService
 {
-    public int MaxPendingAttachments => 10;
-
-    public long MaxImageBytes => 20 * 1024 * 1024;
-
-    public long MaxDocumentBytes => 200L * 1024 * 1024;
-
-    public long MaxTextBytes => 5L * 1024 * 1024;
-
-    public IReadOnlyCollection<string> SupportedDocumentExtensions => System.Array.Empty<string>();
-
-    public IReadOnlyCollection<string> SupportedTextExtensions => System.Array.Empty<string>();
-
     public Task<IReadOnlyList<ChatAttachment>> ImportFilesAsync(IEnumerable<Avalonia.Platform.Storage.IStorageFile> files, CancellationToken cancellationToken = default)
     {
         throw new NotSupportedException();
@@ -2377,8 +2365,6 @@ sealed class TestAttachmentStoreService : IAttachmentStoreService
     {
         throw new NotSupportedException();
     }
-
-    public Task<string> WriteParsedSidecarAsync(ChatAttachment attachment, string markdown, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
 
     public Task LoadPreviewAsync(ChatAttachment attachment, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

@@ -30,6 +30,7 @@ public interface IChatService
         Action<ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
         bool addToContext = true);
 
     /// <summary>

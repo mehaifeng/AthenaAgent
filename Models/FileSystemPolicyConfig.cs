@@ -6,19 +6,6 @@ namespace Athena.UI.Models;
 public partial class FileSystemGlobalConfig : ObservableObject
 {
     [ObservableProperty]
-    private List<string> _blockedExtensions = new()
-    {
-        ".exe", ".dll", ".so", ".dylib", ".sys", ".drv", ".ocx",
-        ".bat", ".cmd", ".com", ".msi", ".msix", ".deb", ".rpm", ".pkg", ".dmg", ".iso",
-        ".env", ".env.local", ".env.production", ".env.development",
-        ".pem", ".key", ".p12", ".pfx", ".cer", ".crt", ".csr",
-        ".keystore", ".jks", ".gpg", ".asc",
-        ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
-        ".db", ".sqlite", ".sqlite3", ".mdf", ".ldf",
-        ".bin", ".dat", ".img", ".vmdk", ".vhd"
-    };
-
-    [ObservableProperty]
     private long _maxReadSizeBytes = 10485760; // 10MB
 
     [ObservableProperty]

@@ -651,13 +651,15 @@ public class FunctionRegistry : IFunctionRegistry
 
     // 工具集在进程内固定，估算结果只取决于 FilterTools 的配置开关；按开关组合缓存序列化结果
     private int _cachedToolDeclarationTokens = -1;
-    private (bool ImageGen, bool SubAgents, bool DocParser, bool Mcp, bool Skills) _toolTokenCacheKey;
+    private (bool ImageGen, bool WebSearch, bool Browser, bool SubAgents, bool DocParser, bool Mcp, bool Skills) _toolTokenCacheKey;
 
     public int GetToolDeclarationTokenCount()
     {
         var config = _configService?.Load();
         var key = (
             config?.ImageGenerationEnabled == true,
+            config?.WebSearchEnabled == true,
+            config?.BrowserEnabled == true,
             config?.EnableSubAgents == true,
             config?.DocumentParserEnabled == true,
             config?.EnableMcp == true,
@@ -695,6 +697,18 @@ public class FunctionRegistry : IFunctionRegistry
 
             if (string.Equals(chatTool.FunctionName, "generate_image", StringComparison.OrdinalIgnoreCase)
                 && config?.ImageGenerationEnabled != true)
+            {
+                continue;
+            }
+
+            if (string.Equals(chatTool.FunctionName, "web_search", StringComparison.OrdinalIgnoreCase)
+                && config?.WebSearchEnabled != true)
+            {
+                continue;
+            }
+
+            if (string.Equals(chatTool.FunctionName, "run_browser_task", StringComparison.OrdinalIgnoreCase)
+                && config?.BrowserEnabled != true)
             {
                 continue;
             }

@@ -954,7 +954,6 @@ public partial class App : Application
             var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
-            var documentParserService = sp.GetService<IDocumentParserService>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
@@ -992,7 +991,6 @@ public partial class App : Application
                 imageGenerationSessionService,
                 browserService,
                 browserVisionService,
-                documentParserService,
                 modelCatalogService,
                 screenCaptureService,
                 subAgentOrchestrator,

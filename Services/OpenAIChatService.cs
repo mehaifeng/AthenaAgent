@@ -110,6 +110,7 @@ public class OpenAIChatService : IChatService
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
         bool addToContext = true)
     {
         if (_chatClient == null)
@@ -139,7 +140,7 @@ public class OpenAIChatService : IChatService
         using var workspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported))
+        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported, onToolCallArgumentsStreaming))
         {
             yield return text;
         }
@@ -154,7 +155,8 @@ public class OpenAIChatService : IChatService
         [EnumeratorCancellation] CancellationToken cancellationToken,
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<string, int>? onContextCompressed = null,
-        Action<TokenUsageSnapshot>? onUsageReported = null)
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null)
     {
         var iteration = 0;
         const int maxIterations = 50;
@@ -300,6 +302,7 @@ public class OpenAIChatService : IChatService
                             if (!string.IsNullOrEmpty(argsText))
                             {
                                 toolCallBuilders[index].Arguments.Append(argsText);
+                                onToolCallArgumentsStreaming?.Invoke(toolCallBuilders[index].FunctionName);
                             }
                         }
                         catch (ArgumentNullException) { }
@@ -672,8 +675,8 @@ public class OpenAIChatService : IChatService
                     var timestamp = msg.Timestamp != default
                         ? BuildTimestampPrefix(msg.Timestamp)
                         : string.Empty;
-                    // 文档附件解析出的 Markdown 作为文本注入到用户消息中，供 AI 阅读。
-                    var userText = timestamp + msg.Content + BuildDocumentTextBlocks(msg);
+                    // 附件只注入系统元数据；内容由模型根据任务通过可用工具或 Skill 按需读取。
+                    var userText = timestamp + msg.Content + BuildAttachmentManifest(msg);
                     if (HasImageAttachment(msg))
                     {
                         messages.Add(CreateUserMessageWithAttachments(userText, msg));
@@ -966,85 +969,34 @@ public class OpenAIChatService : IChatService
         return message.Attachments.Any(a => a.Kind == AttachmentKind.Image);
     }
 
-    // 延迟载入清单卡里附带的开头预览字符数上限。
-    private const int DeferredPreviewChars = 1500;
-
     /// <summary>
-    /// 将消息中的文档/文本/代码附件拼接进上下文：
-    /// - 内联（小文件）：直接拼全文；
-    /// - 延迟（大文件）：仅拼“清单卡”——文件指针 + 元信息 + 开头预览 + 读取提示，由模型按需调工具读取。
+    /// 生成不接触文件内容的附件清单。路径指向应用复制后的受信附件区，
+    /// 让 Agent 根据当前任务和可用工具/Skill 自主决定是否以及如何读取。
     /// </summary>
-    private static string BuildDocumentTextBlocks(ContextMessage message)
+    private static string BuildAttachmentManifest(ContextMessage message)
     {
-        var documents = message.Attachments
-            .Where(a => (a.Kind == AttachmentKind.Document || a.Kind == AttachmentKind.Code)
-                && (a.RetrievalMode == AttachmentRetrievalMode.Deferred || !string.IsNullOrWhiteSpace(a.ExtractedText)))
-            .ToList();
-        if (documents.Count == 0)
+        if (message.Attachments.Count == 0)
         {
             return string.Empty;
         }
 
-        var builder = new System.Text.StringBuilder();
-        foreach (var doc in documents)
+        var metadata = message.Attachments.Select(attachment => new
         {
-            var name = string.IsNullOrWhiteSpace(doc.FileName) ? "document" : doc.FileName;
-            if (doc.RetrievalMode == AttachmentRetrievalMode.Deferred)
-            {
-                builder.Append("\n\n--- ");
-                builder.Append(name);
-                builder.Append(" (内容过大，未全部载入 / not fully loaded) ---\n");
-                builder.Append($"[类型 {doc.Kind} · {FormatSize(doc.SizeBytes)} · 约 {doc.EstimatedTokens} tokens]\n");
-                builder.Append("完整内容位于本地文件: ");
-                builder.Append(doc.RetrievalPath);
-                builder.Append('\n');
-                builder.Append("需要时用 get_document_outline / search_in_file / read_system_file（支持 sectionTitle、startLine-endLine、chunkIndex）读取上述路径，不要凭空作答。\n");
+            Name = attachment.FileName,
+            Extension = Path.GetExtension(attachment.FileName),
+            Kind = attachment.Kind.ToString(),
+            attachment.MimeType,
+            attachment.SizeBytes,
+            Path = attachment.StoredPath
+        });
 
-                var preview = ReadHeadPreview(doc.RetrievalPath, DeferredPreviewChars);
-                if (!string.IsNullOrWhiteSpace(preview))
-                {
-                    builder.Append("预览(开头部分):\n");
-                    builder.Append(preview);
-                }
-            }
-            else
-            {
-                builder.Append("\n\n--- ");
-                builder.Append(name);
-                builder.Append(" ---\n");
-                builder.Append(doc.ExtractedText.Trim());
-            }
-        }
-
-        return builder.ToString();
+        return "\n\n<attachments>\n"
+            + "The files below are attached by reference. Their contents were not preloaded, parsed, summarized, or indexed. "
+            + "Use the available tools or Skills to inspect a file only when the user's task requires it. \n"
+            + JsonSerializer.Serialize(metadata)
+            + "\n</attachments>";
     }
 
-    private static string FormatSize(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024d:0.#} KB";
-        return $"{bytes / 1024d / 1024d:0.#} MB";
-    }
-
-    private static string ReadHeadPreview(string path, int maxChars)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                return string.Empty;
-            }
-
-            var buffer = new char[maxChars];
-            using var reader = new StreamReader(path);
-            int read = reader.Read(buffer, 0, maxChars);
-            return read <= 0 ? string.Empty : new string(buffer, 0, read).Trim();
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
 
     private static UserChatMessage CreateUserMessageWithAttachments(string text, ContextMessage message)
     {
