@@ -4,6 +4,7 @@
 This guide focuses on the following:
 - What the Chat home page does (including attachments, screenshots, and sub-agents).
 - What each major Settings section means and how to configure it.
+- How to enable and manage Extensions, Skills, and MCP servers.
 - How proactive messages work and how to set them up.
 - How the Knowledge Base page works, and how the LLM uses it to actively learn your preferences.
 
@@ -85,15 +86,53 @@ Recommendation:
 - Set `CompressionThreshold` to roughly 40% to 70% of `MaxContextTokens`.
 - For important projects, regularly verify that the summary still preserves key constraints.
 
-## 4. Proactive Messages
+## 4. Extensions
+
+![Extensions page](images/ExtensionsTabView.png)
+
+The Extensions page manages optional capabilities such as voice, image generation, and web search. Changes are saved automatically.
+
+- **Voice**: Enable voice, then configure the provider, API endpoint, API key, model name, and voice. Auto-play can be controlled separately; use **Diagnostics** to check the configuration.
+- **Image generation**: Enable it to let the assistant use `generate_image`; provide its API endpoint, API key, and model name.
+- **Web search**: Enable it to let the assistant use `web_search` for current information; configure the endpoint and credentials for the selected provider.
+
+Recommendation: enable only the extensions you use. Keep API keys in local configuration and never paste them into ordinary chats or Knowledge Base files.
+
+## 5. Skills
+
+![Skills page](images/SkillsTabView.png)
+
+Skills give Athena reusable, specialized workflows for particular kinds of work.
+
+1. Turn on the global **Enable Skills** switch.
+2. Use **Import ZIP** or **Import folder** to add one Skill, or use **Open folder** to manage the local Skills directory directly.
+3. Select **Refresh** to rescan; expand an item to review its source, compatibility, and description.
+4. Use the switch beside a Skill to disable it temporarily; use Delete only when it is no longer needed.
+
+Import a single Skill folder or ZIP archive that contains `SKILL.md`. Once imported, simply ask for a matching task in chat and Athena can select the Skill when appropriate.
+
+## 6. MCP Servers
+
+![MCP Servers page](images/McpTabView.png)
+
+MCP (Model Context Protocol) lets Athena connect to external servers and use the tools and data they provide on demand.
+
+1. Turn on the global **Enable MCP** switch.
+2. Select **Add server** to configure a local command-based or remote HTTP/SSE MCP server, or paste Claude Desktop-format JSON and select **Import**.
+3. After a successful connection, the list shows the number of discovered tools; expand a server for details.
+4. Use the switch beside a server to control its availability. Delete removes the server and stops its local process.
+
+Only add servers you trust. An MCP server may access local files, the network, or third-party services; review the requested action whenever an approval prompt appears.
+
+## 7. Proactive Messages
 Proactive messages are triggered by the system scheduling mechanism. At trigger time, Athena switches to Chat and injects a hidden trigger message so the assistant can initiate the interaction.
 
-### 4.1 Creation methods
+### 7.1 Creation methods
 You can create proactive messages in two ways:
 1. Manual creation: open the Tasks page, create a task, set trigger time, intent, and recurrence, then set task type to `Foreground / Proactive`.
 2. LLM-assisted creation: directly tell the LLM your reminder goal and schedule in chat, and it will create the proactive task through built-in system mechanisms.
 
-### 4.2 Intent writing template (recommended)
+### 7.2 Intent writing template (recommended)
 Write intent as an executable instruction, not a vague reminder:
 - Goal: what should be advanced.
 - Context: project/state anchor.
@@ -102,36 +141,36 @@ Write intent as an executable instruction, not a vague reminder:
 Example:
 - "Every day 09:30, review Athena doc progress and output: yesterday changes, today risks, next 3 actions."
 
-### 4.3 Usage notes
+### 7.3 Usage notes
 - Proactive is for interruptions you want to see and interact with.
 - Background is for silent execution without interrupting chat flow.
 
-## 5. Knowledge Base and Long-Term Memory
+## 8. Knowledge Base and Long-Term Memory
 
 ![Knowledge base page](images/KnowledgeTabView.png)
 
-### 5.1 The Knowledge Base page
+### 8.1 The Knowledge Base page
 - The left panel is the directory tree; create folders and Markdown files directly to organize long-term memory (for example `user_preferences`, `user_profiles`).
 - The right panel shows file content with a read-only mode; the full file path is displayed at the top.
 - The toolbar provides refresh, import, export, and delete operations.
 - Knowledge base content is synchronously indexed into the vector database: what you write is immediately searchable.
 
-### 5.2 Active memory behavior
+### 8.2 Active memory behavior
 - The LLM continuously learns your working style from both live conversations and knowledge base content — preferred structure, decision boundaries, and priority patterns — and actively reads/writes the knowledge base via `create_new_memory` / `recall_from_memory`.
 - During long sessions, context compression keeps critical summaries so user preferences and project constraints stay available.
 - With draft restore and continued sessions, the LLM builds a progressively more stable collaboration profile for you.
 
-### 5.3 Long-term memory vs short-term memory
+### 8.3 Long-term memory vs short-term memory
 - The knowledge base stores long-term stable facts: terminology, standards, architecture boundaries, historical decisions.
 - Live chat carries short-term dynamic facts: daily progress, temporary tactics, active risks.
 - The LLM combines both layers automatically: stable constraints first, then latest state updates.
 
-### 5.4 Minimal user effort
+### 8.4 Minimal user effort
 - You do not need to restate full constraints every turn; only provide updates when goals or boundaries change.
 - If answers drift, one correction like "continue with existing KB rules and current goal" is usually enough to recover focus.
 - Periodically promote newly stable rules into the knowledge base so the LLM can proactively reuse them next time.
 
-## 6. Reusable High-Quality Prompt Template
+## 9. Reusable High-Quality Prompt Template
 Use this structure repeatedly:
 
 ```text

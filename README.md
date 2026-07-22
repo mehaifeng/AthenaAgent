@@ -20,6 +20,16 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **🌍 Modern Cross-Platform UI**: Built with Avalonia UI and the Semi Design aesthetic, supporting both light/dark modes and multi-lingual interfaces (English & Chinese).
 - **🛡️ Security-First Design**: Implements strict data sandboxing, file system protection, and secure API management.
 
+## 🖼️ Interface Preview
+
+| Chat | Knowledge Base |
+| --- | --- |
+| <img src="Docs/images/ChatTabView.png" alt="Athena chat interface" width="280"> | <img src="Docs/images/KnowledgeTabView.png" alt="Athena knowledge base interface" width="280"> |
+| Configuration | Extensions |
+| <img src="Docs/images/ConfigTabView.png" alt="Athena configuration interface" width="280"> | <img src="Docs/images/ExtensionsTabView.png" alt="Athena extensions interface" width="280"> |
+| MCP Servers | Skills |
+| <img src="Docs/images/McpTabView.png" alt="Athena MCP server management interface" width="280"> | <img src="Docs/images/SkillsTabView.png" alt="Athena skills management interface" width="280"> |
+
 ## 🚀 Getting Started
 
 ### Prerequisites
