@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Athena.UI.Models;
 
 namespace Athena.UI.Services;
@@ -20,14 +21,15 @@ public static class AudioConfigResolver
 
     public static ResolvedAudioConfig Resolve(AppConfig config)
     {
-        // 语音播报使用独立凭据，不继承主对话模型；BaseUrl 留空时按音频 provider 的默认端点解析。
-        var provider = string.IsNullOrWhiteSpace(config.ChatAudioProvider)
-            ? "OpenAI"
-            : config.ChatAudioProvider;
-        var baseUrl = !string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl)
-            ? config.ChatAudioBaseUrl
-            : GetDefaultBaseUrl(provider);
-        var apiKey = config.ChatAudioApiKey;
+        // 系统 TTS 无凭据；远程语音只引用“供应商模型”中已配置的连接。
+        var providerConfig = config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ChatAudioProviderId);
+        var useSystem = string.Equals(config.ChatAudioProvider, "System", StringComparison.OrdinalIgnoreCase);
+        var provider = useSystem ? "System" : providerConfig?.DisplayName ?? string.Empty;
+        var endpointPath = string.IsNullOrWhiteSpace(config.ChatAudioEndpointPath) ? "/audio/speech" : config.ChatAudioEndpointPath;
+        var baseUrl = useSystem || providerConfig == null
+            ? string.Empty
+            : providerConfig.BaseUrl.TrimEnd('/') + "/" + endpointPath.TrimStart('/');
+        var apiKey = useSystem ? string.Empty : providerConfig?.ApiKey ?? string.Empty;
         var model = string.IsNullOrWhiteSpace(config.ChatAudioModel)
             ? "gpt-4o-mini-tts"
             : config.ChatAudioModel;

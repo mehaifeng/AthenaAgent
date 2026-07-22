@@ -270,20 +270,14 @@ public partial class App : Application
                     Services.GetService<IModelCatalogService>()));
                 desktop.MainWindow = onboarding;
 
-                // 标记引导完成并返回最新主题（幂等的公共尾巴）。
+                // 返回引导页当前主题。OnboardingViewModel 只有在最小配置校验通过后才会发起交接。
                 // 重新读一次配置：引导页里若切换过主题，initialTheme 已经过期，
                 // 直接传下去会让 ShowThemeSplashAsync 把 Avalonia 变体反向回滚，
                 // 导致主题按钮/下拉与实际配色失同步。
                 var handoffDone = false;
-                string MarkOnboardingCompleted()
+                string GetCurrentOnboardingTheme()
                 {
-                    var cfg = configService.Load();
-                    if (!cfg.OnboardingCompleted)
-                    {
-                        cfg.OnboardingCompleted = true;
-                        _ = configService.SaveAsync(cfg);
-                    }
-                    return cfg.Theme;
+                    return configService.Load().Theme;
                 }
 
                 // 正常完成路径（版画揭幕）：
@@ -295,7 +289,7 @@ public partial class App : Application
                 {
                     if (handoffDone) return;
                     handoffDone = true;
-                    var theme = MarkOnboardingCompleted();
+                    var theme = GetCurrentOnboardingTheme();
 
                     var mainWindow = CreateMainWindow(desktop, theme, onboardingHandoff: true);
                     await onboarding.PlayHandoffExitAsync(mainWindow.Width, mainWindow.Height);
@@ -311,12 +305,18 @@ public partial class App : Application
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
                 };
 
-                // 关窗即跳过的安全网：标题栏直接关窗等路径也要拉起主窗口并标记完成。
+                // 标题栏关闭不能绕过最小配置；完成状态只由向导校验成功后写入。
                 onboarding.Closed += (_, _) =>
                 {
                     if (handoffDone) return;
                     handoffDone = true;
-                    ShowMainWindow(desktop, MarkOnboardingCompleted(), onboardingHandoff: true);
+                    var current = configService.Load();
+                    if (!current.OnboardingCompleted)
+                    {
+                        desktop.Shutdown();
+                        return;
+                    }
+                    ShowMainWindow(desktop, current.Theme, onboardingHandoff: true);
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
                 };
                 onboarding.Show();
@@ -333,7 +333,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 创建并显示主窗口（正常启动与引导跳过安全网共用）。
+    /// 创建并显示主窗口。
     /// </summary>
     private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme, bool onboardingHandoff = false)
     {
@@ -514,6 +514,13 @@ public partial class App : Application
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
+        services.AddSingleton<ConversationExecutionCoordinator>();
+        services.AddSingleton<ChatSessionFactory>();
+        services.AddSingleton<WorkspaceOperationCoordinator>();
+        services.AddSingleton<WorkspaceWorkbenchViewModel>();
+        services.AddSingleton<AppSettingsViewModel>();
+        services.AddSingleton<ExtensionsConfigurationViewModel>();
+        services.AddTransient<ProviderModelsViewModel>();
 
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
@@ -789,11 +796,11 @@ public partial class App : Application
 
         // Function Registry（单例）
         // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
-        services.AddSingleton<IToolApprovalPrompter>(sp =>
-        {
-            var localizationService = sp.GetService<ILocalizationService>();
-            return new Athena.UI.ViewModels.ToolApprovalPrompter(localizationService, Log.ForContext<Athena.UI.ViewModels.ToolApprovalPrompter>());
-        });
+        services.AddSingleton<ApprovalQueueViewModel>(sp =>
+            new ApprovalQueueViewModel(
+                sp.GetService<IConversationSessionAccessor>(),
+                Log.ForContext<ApprovalQueueViewModel>()));
+        services.AddSingleton<IToolApprovalPrompter>(sp => sp.GetRequiredService<ApprovalQueueViewModel>());
 
         // 工具审批服务（策略大脑 + 审计）。被 FunctionRegistry 这个唯一 chokepoint 调用。
         services.AddSingleton<IAiToolApprovalEvaluator>(sp =>
@@ -808,7 +815,7 @@ public partial class App : Application
             var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
             var aiEvaluator = sp.GetService<IAiToolApprovalEvaluator>();
             var localizationService = sp.GetService<ILocalizationService>();
-            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator, localizationService);
+            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator, localizationService, sp.GetRequiredService<ConversationExecutionCoordinator>());
         });
 
         // --- MCP 扩展（Model Context Protocol）---
@@ -922,7 +929,9 @@ public partial class App : Application
                 config.AiModels.Provider.ProviderPreset,
                 config.AiModels.MainConversation.Model,
                 true);
-            return new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
+            var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
+            configService.ConfigChanged += (_, next) => service.UpdateConfig(next);
+            return service;
         });
 
         services.AddSingleton<IConversationArchiveService>(sp =>
@@ -969,6 +978,13 @@ public partial class App : Application
             var skillCatalog = sp.GetService<ISkillCatalogService>();
             var modelRuntimeFactory = sp.GetService<OpenAiModelRuntimeFactory>();
             var userInteractionService = sp.GetService<IUserInteractionService>();
+            var executionCoordinator = sp.GetRequiredService<ConversationExecutionCoordinator>();
+            var chatSessionFactory = sp.GetRequiredService<ChatSessionFactory>();
+            var conversationStore = sp.GetRequiredService<IConversationArchiveStore>();
+            var workbench = sp.GetRequiredService<WorkspaceWorkbenchViewModel>();
+            var appSettings = sp.GetRequiredService<AppSettingsViewModel>();
+            var extensionSettings = sp.GetRequiredService<ExtensionsConfigurationViewModel>();
+            var approvalQueue = sp.GetRequiredService<ApprovalQueueViewModel>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -1000,7 +1016,14 @@ public partial class App : Application
                 conversationSessionAccessor,
                 skillCatalog,
                 modelRuntimeFactory,
-                userInteractionService);
+                userInteractionService,
+                executionCoordinator,
+                chatSessionFactory,
+                conversationStore,
+                workbench,
+                appSettings,
+                extensionSettings,
+                approvalQueue);
         });
 
         Log.Debug("依赖注入服务配置完成");

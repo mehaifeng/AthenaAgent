@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
@@ -141,13 +142,27 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
     }
 
-    // 图像生成使用独立凭据，不继承主对话模型；BaseUrl 留空时使用 OpenAI 默认端点。
-    private static EffectiveModelConfig GetEffective(AppConfig config) =>
-        new(
-            string.Empty,
-            ModelCredentialResolver.FirstNonEmpty(config.ImageGenerationBaseUrl, "https://api.openai.com/v1"),
-            config.ImageGenerationApiKey,
-            ModelCredentialResolver.FirstNonEmpty(config.ImageGenerationModel, "gpt-image-1"));
+    // 图像生成引用统一供应商连接，不再保存重复 API Key。
+    private static EffectiveModelConfig GetEffective(AppConfig config)
+    {
+        var provider = config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ImageGenerationProviderId);
+        var baseUrl = provider?.BaseUrl ?? string.Empty;
+        var endpointPath = config.ImageGenerationEndpointPath?.Trim();
+        if (!string.IsNullOrWhiteSpace(endpointPath)
+            && !endpointPath.Equals("/images/generations", StringComparison.OrdinalIgnoreCase))
+        {
+            var combined = baseUrl.TrimEnd('/') + "/" + endpointPath.TrimStart('/');
+            const string suffix = "/images/generations";
+            baseUrl = combined.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                ? combined[..^suffix.Length]
+                : baseUrl;
+        }
+        return new EffectiveModelConfig(
+            provider?.ProviderPreset ?? string.Empty,
+            baseUrl,
+            provider?.ApiKey ?? string.Empty,
+            config.ImageGenerationModel);
+    }
 
     private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
 

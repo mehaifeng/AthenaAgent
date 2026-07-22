@@ -115,18 +115,8 @@ public class ConfigService : IConfigService
     private static AppConfig DeserializeConfig(string json)
     {
         var root = JsonNode.Parse(json) as JsonObject;
-        var aiModels = root?["aiModels"] as JsonObject;
-        if (aiModels != null && aiModels["provider"] == null
-            && aiModels["providers"] is JsonArray { Count: > 0 } providers
-            && providers[0] is JsonObject firstProvider)
-        {
-            var provider = firstProvider.DeepClone().AsObject();
-            provider.Remove("id");
-            aiModels["provider"] = provider;
-            aiModels.Remove("providers");
-            root!["configSchemaVersion"] = 3;
-        }
-
+        // v4 是一次明确的 greenfield 切换：旧配置不做字段猜测或凭据迁移。
+        if (root?["configSchemaVersion"]?.GetValue<int>() is not >= 4) return new AppConfig();
         return root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
     }
 }

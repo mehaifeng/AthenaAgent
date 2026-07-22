@@ -248,10 +248,30 @@
                         <TextBlock Text="{loc:Loc Config.SectionMemory}" FontWeight="Bold" FontSize="15"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="12">
                             <TextBlock Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Opacity="0.8"/>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="{Binding TokenService.TokenInfoText}" FontWeight="SemiBold"/>
-                                <TextBlock Text="{loc:Loc Config.WarnHigh}" IsVisible="{Binding TokenService.IsNearLimit}" Foreground="{DynamicResource SemiRed6}" FontWeight="Bold"/>
-                            </StackPanel>
+                            <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <Grid
+                                      VerticalAlignment="Center"
+                                      ToolTip.Tip="{Binding TokenService.TokenInfoText}">
+                                    <ProgressBar Minimum="0"
+                                                 HorizontalAlignment="Stretch"
+                                                 Maximum="{Binding TokenService.MaxTokens}"
+                                                 Value="{Binding TokenService.CurrentTokens}"
+                                                 Height="22"
+                                                 CornerRadius="4"/>
+                                    <TextBlock Text="{Binding TokenService.TokenInfoText}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           Text="{loc:Loc Config.WarnHigh}"
+                                           IsVisible="{Binding TokenService.IsNearLimit}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource SemiRed6}"
+                                           FontWeight="Bold"/>
+                            </Grid>
                             <TextBlock Grid.Row="1" Text="{loc:Loc Config.MemMaxCtx}" VerticalAlignment="Center" Opacity="0.8"/>
                             <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Config.MaxContextTokens}" Minimum="1000" Maximum="99999999999" Increment="1000"/>
                             <TextBlock Grid.Row="2" Text="{loc:Loc Config.WorkspaceKnowledgeBudget}" VerticalAlignment="Center" Opacity="0.8"/>

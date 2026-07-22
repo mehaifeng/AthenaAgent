@@ -88,4 +88,12 @@ public class ConversationHistoryItem
     /// 所属工作区 ID（null 表示未绑定工作区）
     /// </summary>
     public string? WorkspaceId { get; set; }
+
+    /// <summary>持续保存的输入草稿。</summary>
+    public string Draft { get; set; } = string.Empty;
+
+    public bool IsPinned { get; set; }
+
+    /// <summary>退出时仍在运行的会话会以 interrupted 恢复，绝不自动重放。</summary>
+    public string RuntimeStatus { get; set; } = "idle";
 }

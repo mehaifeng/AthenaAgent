@@ -7,6 +7,7 @@ using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
 using Serilog;
+using Serilog.Context;
 using System;
 using System.ClientModel;
 using System.Collections.Generic;
@@ -119,6 +120,8 @@ public class OpenAIChatService : IChatService
             yield return "[错误] 请先在设置中配置 API Key";
             yield break;
         }
+        // 本轮固定客户端快照；供应商/模型修改只影响下一轮，不切断正在流式运行的请求。
+        var requestChatClient = _chatClient;
 
         // 仅在明确要求时才加入上下文，防止 Regenerate 或 Edit 流程中重复添加
         if ((attachments?.Count > 0 || !string.IsNullOrWhiteSpace(userMessage)) && addToContext)
@@ -140,15 +143,48 @@ public class OpenAIChatService : IChatService
         using var workspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
-        await foreach (var text in ProcessStreamAsync(messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported, onToolCallArgumentsStreaming))
+        Exception? imageFailure = null;
+        await using (var enumerator = ProcessStreamAsync(requestChatClient, messages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported, onToolCallArgumentsStreaming)
+                         .GetAsyncEnumerator(cancellationToken))
         {
-            yield return text;
+            while (true)
+            {
+                bool moved;
+                try
+                {
+                    moved = await enumerator.MoveNextAsync();
+                }
+                catch (Exception ex) when (context.Messages.Any(HasImageAttachment) && IsLikelyImageInputFailure(ex))
+                {
+                    imageFailure = ex;
+                    break;
+                }
+
+                if (!moved) break;
+                yield return enumerator.Current;
+            }
+        }
+
+        if (imageFailure != null)
+        {
+            Log.Warning(imageFailure, "主对话模型明确拒绝图像输入，开始图像识别降级链");
+            var description = await TryDescribeImagesAsync(context, cancellationToken);
+            var fallbackMessages = await Task.Run(() => BuildMessages(context, includeImageBinary: false), cancellationToken);
+            fallbackMessages.Add(new UserChatMessage(string.IsNullOrWhiteSpace(description)
+                ? "[Image fallback] The image bytes could not be sent. Continue using only the attachment metadata already present in the conversation. Clearly state any limitation when visual details are required."
+                : "[Image recognition fallback] A separately configured vision model described the attached images as follows. Use this description together with the original request:\n\n" + description));
+
+            await foreach (var text in ProcessStreamAsync(requestChatClient, fallbackMessages, contentBuilder, context, cancellationToken, onMessageAdded, onContextCompressed, onUsageReported, onToolCallArgumentsStreaming))
+            {
+                yield return text;
+            }
         }
 
         Log.Debug("StreamMessageAsync 迭代处理完成");
     }
 
     private async IAsyncEnumerable<string> ProcessStreamAsync(
+        ChatClient requestChatClient,
         List<OpenAI.Chat.ChatMessage> messages,
         StringBuilder contentBuilder,
         ConversationContext context,
@@ -158,6 +194,8 @@ public class OpenAIChatService : IChatService
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null)
     {
+        using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
+        using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
         var iteration = 0;
         const int maxIterations = 50;
         var disabledToolCallRetries = 0;
@@ -222,7 +260,7 @@ public class OpenAIChatService : IChatService
 
             try
             {
-                stream = _chatClient!.CompleteChatStreamingAsync(messages, options, cancellationToken);
+                stream = requestChatClient.CompleteChatStreamingAsync(messages, options, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -435,7 +473,7 @@ public class OpenAIChatService : IChatService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
-                using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
+                using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
                 using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
                 // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
                 using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
@@ -593,7 +631,7 @@ public class OpenAIChatService : IChatService
     private static string BuildTimestampPrefix(DateTime timestamp)
         => $"[消息元数据] 发送时间：{timestamp.ToString(TimestampFormat)}\n";
 
-    private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context)
+    private List<OpenAI.Chat.ChatMessage> BuildMessages(ConversationContext context, bool includeImageBinary = true)
     {
         var persona = _promptService.GetPrompt(PromptType.MainPersona);
 
@@ -677,7 +715,7 @@ public class OpenAIChatService : IChatService
                         : string.Empty;
                     // 附件只注入系统元数据；内容由模型根据任务通过可用工具或 Skill 按需读取。
                     var userText = timestamp + msg.Content + BuildAttachmentManifest(msg);
-                    if (HasImageAttachment(msg))
+                    if (includeImageBinary && HasImageAttachment(msg))
                     {
                         messages.Add(CreateUserMessageWithAttachments(userText, msg));
                     }
@@ -1038,17 +1076,77 @@ public class OpenAIChatService : IChatService
 
     private static bool IsLikelyImageInputFailure(Exception exception)
     {
-        if (exception is ClientResultException clientException
-            && clientException.Status is 400 or 415 or 422)
+        if (exception is ClientResultException clientException)
         {
-            return true;
+            if (clientException.Status is 401 or 403 or 408 or 429 or >= 500) return false;
+            if (clientException.Status is 415 or 422) return true;
+            if (clientException.Status != 400) return false;
         }
 
         var message = exception.Message;
-        return message.Contains("image", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("vision", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("modal", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
+        var mentionsImage = message.Contains("image", StringComparison.OrdinalIgnoreCase)
+                            || message.Contains("vision", StringComparison.OrdinalIgnoreCase)
+                            || message.Contains("modality", StringComparison.OrdinalIgnoreCase)
+                            || message.Contains("modalities", StringComparison.OrdinalIgnoreCase);
+        var indicatesUnsupported = message.Contains("unsupported", StringComparison.OrdinalIgnoreCase)
+                                   || message.Contains("not support", StringComparison.OrdinalIgnoreCase)
+                                   || message.Contains("invalid content type", StringComparison.OrdinalIgnoreCase)
+                                   || message.Contains("text-only", StringComparison.OrdinalIgnoreCase);
+        return mentionsImage && indicatesUnsupported;
+    }
+
+    private async Task<string?> TryDescribeImagesAsync(ConversationContext context, CancellationToken cancellationToken)
+    {
+        EffectiveOpenAiModel effective;
+        try
+        {
+            effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.ImageRecognition);
+            effective.ValidateChatRole(AiModelRole.ImageRecognition);
+        }
+        catch (Exception ex)
+        {
+            Log.Information(ex, "未配置可用的图像识别模型，降级为仅发送附件元数据");
+            return null;
+        }
+
+        try
+        {
+            var parts = new List<ChatMessageContentPart>
+            {
+                ChatMessageContentPart.CreateTextPart("Describe every attached image accurately and concisely for another assistant. Include visible text, layout, objects, and details relevant to the user's request.")
+            };
+            foreach (var attachment in context.Messages.SelectMany(message => message.Attachments).Where(attachment => attachment.Kind == AttachmentKind.Image))
+            {
+                if (string.IsNullOrWhiteSpace(attachment.StoredPath) || !File.Exists(attachment.StoredPath)) continue;
+                parts.Add(ChatMessageContentPart.CreateImagePart(
+                    BinaryData.FromBytes(await File.ReadAllBytesAsync(attachment.StoredPath, cancellationToken)),
+                    attachment.MimeType,
+                    ChatImageDetailLevel.Auto));
+            }
+            if (parts.Count == 1) return null;
+
+            var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, _config.Timeout);
+            var client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options).GetChatClient(effective.Model);
+            var completion = await client.CompleteChatAsync(
+                new OpenAI.Chat.ChatMessage[]
+                {
+                    new SystemChatMessage("You are an image recognition fallback. Return factual visual observations only."),
+                    new UserChatMessage(parts)
+                },
+                new ChatCompletionOptions
+                {
+                    Temperature = (float)effective.Temperature,
+                    MaxOutputTokenCount = effective.MaxOutputTokens
+                },
+                cancellationToken);
+            var description = string.Concat(completion.Value.Content.Select(part => part.Text));
+            return string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "图像识别模型降级失败，继续仅发送附件元数据");
+            return null;
+        }
     }
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);

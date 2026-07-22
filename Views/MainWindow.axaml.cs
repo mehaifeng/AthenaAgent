@@ -9,6 +9,9 @@ using Avalonia.Styling;
 using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
+using System.ComponentModel;
+using Athena.UI.ViewModels;
+using Athena.UI.Services.Interfaces;
 
 namespace Athena.UI.Views;
 
@@ -17,6 +20,11 @@ public partial class MainWindow : Window
     private Image? _themeSplashImage;
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
+    private ColumnDefinition? _leftShellColumn;
+    private ColumnDefinition? _rightShellColumn;
+    private RowDefinition? _rightTopRow;
+    private RowDefinition? _rightLogRow;
+    private MainWindowViewModel? _viewModel;
 
     public MainWindow()
     {
@@ -24,6 +32,13 @@ public partial class MainWindow : Window
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
+        var shellGrid = this.FindControl<Grid>("MainShellGrid");
+        _leftShellColumn = shellGrid?.ColumnDefinitions[0];
+        _rightShellColumn = shellGrid?.ColumnDefinitions[4];
+        var rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
+        _rightTopRow = rightPanelGrid?.RowDefinitions[0];
+        _rightLogRow = rightPanelGrid?.RowDefinitions[2];
+        DataContextChanged += OnMainDataContextChanged;
         // 窗口显示之前就设置好 Splash 图片的初始状态：
         // Opacity=1 让窗口打开时图片立即覆盖在 UI 上，
         // ShowThemeSplashAsync 根据 IsLoaded 决定是否需要从 0 渐入
@@ -33,6 +48,61 @@ public partial class MainWindow : Window
             _themeSplashImage.IsHitTestVisible = false;
             _themeSplashImage.Opacity = 1;
         }
+    }
+
+    private void OnMainDataContextChanged(object? sender, EventArgs e)
+    {
+        if (_viewModel != null) _viewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
+        _viewModel = DataContext as MainWindowViewModel;
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+            ApplySavedLayout();
+        }
+    }
+
+    private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
+    }
+
+    private void ApplySavedLayout()
+    {
+        var layout = _viewModel?.AppSettings?.Config.MainLayout;
+        if (layout == null || _leftShellColumn == null || _rightShellColumn == null) return;
+        var leftSemanticWidth = Math.Max(260, layout.LeftWidth);
+        var rightSemanticWidth = Math.Max(360, layout.RightWidth);
+        _leftShellColumn.Width = new GridLength(layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth);
+        _rightShellColumn.Width = new GridLength(layout.SidePanelsSwapped ? leftSemanticWidth : rightSemanticWidth);
+        if (_rightTopRow != null && layout.RightTopHeight > 0) _rightTopRow.Height = new GridLength(layout.RightTopHeight);
+        if (_rightLogRow != null) _rightLogRow.Height = new GridLength(Math.Max(120, 900 - layout.RightTopHeight));
+    }
+
+    private async void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+    {
+        var layout = _viewModel?.AppSettings?.Config.MainLayout;
+        var configService = App.Services?.GetService(typeof(IConfigService)) as IConfigService;
+        if (layout == null || configService == null || _leftShellColumn == null || _rightShellColumn == null) return;
+        if (layout.SidePanelsSwapped)
+        {
+            layout.RightWidth = _leftShellColumn.ActualWidth;
+            layout.LeftWidth = _rightShellColumn.ActualWidth;
+        }
+        else
+        {
+            layout.LeftWidth = _leftShellColumn.ActualWidth;
+            layout.RightWidth = _rightShellColumn.ActualWidth;
+        }
+        await configService.SaveAsync(_viewModel!.AppSettings!.Config);
+    }
+
+    private async void OnRightRowSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+    {
+        var layout = _viewModel?.AppSettings?.Config.MainLayout;
+        var configService = App.Services?.GetService(typeof(IConfigService)) as IConfigService;
+        if (layout == null || configService == null || _rightTopRow == null) return;
+        layout.RightTopHeight = _rightTopRow.ActualHeight;
+        await configService.SaveAsync(_viewModel!.AppSettings!.Config);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

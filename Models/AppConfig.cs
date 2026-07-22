@@ -9,12 +9,18 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class AppConfig : ObservableObject
 {
-    // 配置结构版本。v3 将供应商集合收敛为全局唯一供应商。
+    // v4 是三栏、多供应商、多活动会话的全新配置，不迁移旧数据。
     [ObservableProperty]
-    private int _configSchemaVersion = 3;
+    private int _configSchemaVersion = 4;
 
     [ObservableProperty]
     private AiModelConfiguration _aiModels = new();
+
+    [ObservableProperty]
+    private int _mainConversationMaxParallel = 4;
+
+    [ObservableProperty]
+    private MainLayoutSettings _mainLayout = new();
 
     // 外观设置
     [ObservableProperty]
@@ -315,4 +321,40 @@ public partial class AppConfig : ObservableObject
     // 工作区知识文件全量注入 system prompt 时的 token 预算上限。
     [ObservableProperty]
     private int _workspaceKnowledgeTokenBudget = 2000;
+
+    [ObservableProperty]
+    private string _chatAudioProviderId = string.Empty;
+
+    [ObservableProperty]
+    private string _chatAudioEndpointPath = "/audio/speech";
+
+    [ObservableProperty]
+    private string _imageGenerationProviderId = string.Empty;
+
+    [ObservableProperty]
+    private string _imageGenerationEndpointPath = "/images/generations";
+
+    [ObservableProperty]
+    private string _browserProviderId = string.Empty;
+
+    [ObservableProperty]
+    private string _browserEndpointPath = string.Empty;
+}
+
+public partial class MainLayoutSettings : ObservableObject
+{
+    [ObservableProperty]
+    private double _leftWidth = 292;
+
+    [ObservableProperty]
+    private double _rightWidth = 470;
+
+    [ObservableProperty]
+    private double _rightTopHeight = 560;
+
+    [ObservableProperty]
+    private double _editorWidth = 280;
+
+    [ObservableProperty]
+    private bool _sidePanelsSwapped;
 }

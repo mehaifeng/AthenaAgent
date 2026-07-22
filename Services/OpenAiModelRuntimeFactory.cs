@@ -37,10 +37,9 @@ public sealed class OpenAiModelRuntimeFactory
             AiModelRole.BrowserAgent => config.AiModels.BrowserAgent,
             AiModelRole.SubAgent => config.AiModels.SubAgent,
             AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
+            AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
         };
-
-        var provider = config.AiModels.Provider;
 
         if (role == AiModelRole.Embedding && config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom)
         {
@@ -50,8 +49,15 @@ public sealed class OpenAiModelRuntimeFactory
                 config.EmbeddingBaseUrl,
                 config.EmbeddingApiKey,
                 settings.Model,
-                settings.Temperature,
-                settings.MaxOutputTokens);
+                GetInternalTemperature(role),
+                GetInternalMaxOutputTokens(role));
+        }
+
+        var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, settings.ProviderId, StringComparison.Ordinal));
+        if (provider == null)
+        {
+            throw new InvalidOperationException($"Provider for model role '{role}' is not configured.");
         }
 
         return new EffectiveOpenAiModel(
@@ -60,9 +66,32 @@ public sealed class OpenAiModelRuntimeFactory
             provider.BaseUrl,
             provider.ApiKey,
             settings.Model,
-            settings.Temperature,
-            settings.MaxOutputTokens);
+            GetInternalTemperature(role),
+            GetInternalMaxOutputTokens(role));
     }
+
+    private static double GetInternalTemperature(AiModelRole role) => role switch
+    {
+        AiModelRole.MainConversation => 0.7,
+        AiModelRole.TitleGeneration => 0.2,
+        AiModelRole.ContextCompression => 0.2,
+        AiModelRole.Approval => 0,
+        AiModelRole.Embedding => 0,
+        AiModelRole.BrowserAgent => 0.2,
+        AiModelRole.SubAgent => 0.3,
+        AiModelRole.KnowledgeMaintenance => 0.1,
+        AiModelRole.ImageRecognition => 0.1,
+        _ => 0.3
+    };
+
+    private static int GetInternalMaxOutputTokens(AiModelRole role) => role switch
+    {
+        AiModelRole.Approval => 256,
+        AiModelRole.Embedding => 0,
+        AiModelRole.KnowledgeMaintenance => 4096,
+        AiModelRole.ImageRecognition => 4096,
+        _ => 16000
+    };
 
     public ChatClient CreateChatClient(AiModelRole role)
     {

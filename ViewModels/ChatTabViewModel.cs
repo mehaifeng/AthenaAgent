@@ -63,6 +63,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IWorkspaceService? _workspaceService;
     private readonly IConversationSessionAccessor? _sessionAccessor;
     private readonly IUserInteractionService? _userInteractionService;
+    private readonly ConversationExecutionCoordinator? _executionCoordinator;
     private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
 
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
@@ -84,7 +85,22 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(DeleteCurrentConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
+    [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
     private bool _isSending;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
+    private bool _isQueued;
+
+    public string ActivityStatusText => IsQueued
+        ? "排队中"
+        : IsSending
+            ? "运行中"
+            : "就绪";
+
+    public string ConversationId => _conversationId;
+
+    public string? CurrentHistoryId => _currentHistoryId;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
@@ -156,6 +172,9 @@ public partial class ChatTabViewModel : ViewModelBase
     public string ContextTokensInfo => _tokenService?.TokenInfoText ?? "0 / 0 tokens";
 
     public ITokenService? TokenService => _tokenService;
+
+    [ObservableProperty]
+    private string _currentModelName = string.Empty;
 
     public string InputPlaceholder => "Chat.InputPlaceholder";
 
@@ -342,6 +361,9 @@ public partial class ChatTabViewModel : ViewModelBase
         UpdateContextTokensDisplay();
     }
 
+    /// <summary>由三栏会话宿主在创建/恢复会话时设置固定工作区归属。</summary>
+    public void AssignWorkspace(WorkspaceProfile? workspace) => CurrentWorkspace = workspace;
+
     /// <summary>加载工作区列表并恢复上次活跃工作区</summary>
     public async Task InitializeWorkspacesAsync()
     {
@@ -485,7 +507,7 @@ public partial class ChatTabViewModel : ViewModelBase
 
     #endregion
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public ChatTabViewModel(
         IChatService? chatService,
@@ -504,7 +526,8 @@ public partial class ChatTabViewModel : ViewModelBase
         ISubAgentOrchestrator? subAgentOrchestrator = null,
         IWorkspaceService? workspaceService = null,
         IConversationSessionAccessor? sessionAccessor = null,
-        IUserInteractionService? userInteractionService = null)
+        IUserInteractionService? userInteractionService = null,
+        ConversationExecutionCoordinator? executionCoordinator = null)
     {
         Orchestrator = subAgentOrchestrator;
         if (Orchestrator != null)
@@ -532,12 +555,14 @@ public partial class ChatTabViewModel : ViewModelBase
         _workspaceService = workspaceService;
         _sessionAccessor = sessionAccessor;
         _userInteractionService = userInteractionService;
+        _executionCoordinator = executionCoordinator;
 
         // Initialize from config
         if (_configService != null)
         {
             var config = _configService.Load();
             if (_tokenService != null) _tokenService.MaxTokens = config.MaxContextTokens;
+            CurrentModelName = config.AiModels.MainConversation.Model;
             CurrentTheme = config.Theme;
             ThemeIcon = config.Theme == "Dark" ? "Moon" : "Sun";
         }
@@ -563,10 +588,11 @@ public partial class ChatTabViewModel : ViewModelBase
         // 监听配置变更（如在扩展页开启/关闭语音合成）：刷新各气泡「生成语音」按钮显隐。
         if (_configService != null)
         {
-            _configService.ConfigChanged += (_, _) =>
+            _configService.ConfigChanged += (_, config) =>
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
+                    CurrentModelName = config.AiModels.MainConversation.Model;
                     UpdateBubbleButtonVisibility();
                     UpdateContextTokensDisplay();
                 });
@@ -1465,12 +1491,16 @@ public partial class ChatTabViewModel : ViewModelBase
         var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
+        ConversationExecutionCoordinator.Lease? executionLease = null;
         _forceNewAssistantTextSegment = false;
+        var modelSettings = _configService?.Load().AiModels.MainConversation;
         var assistantMsg = new ChatMessage
         {
             Role = "assistant",
             Content = string.Empty,
             Timestamp = DateTime.Now,
+            ProviderId = modelSettings?.ProviderId,
+            ModelId = modelSettings?.Model,
             IsLoading = true,
             IsStreaming = true
         };
@@ -1478,6 +1508,19 @@ public partial class ChatTabViewModel : ViewModelBase
 
         try
         {
+            if (_executionCoordinator != null)
+            {
+                IsQueued = true;
+                try
+                {
+                    executionLease = await _executionCoordinator.AcquireAsync(_conversationId, cancellationToken);
+                }
+                finally
+                {
+                    IsQueued = false;
+                }
+            }
+
             await foreach (var contentDelta in _chatService.StreamMessageAsync(
                 input,
                 requestContext,
@@ -1682,6 +1725,7 @@ public partial class ChatTabViewModel : ViewModelBase
         }
         finally
         {
+            executionLease?.Dispose();
             if (ReferenceEquals(_responseCts, responseCts))
             {
                 _responseCts = null;

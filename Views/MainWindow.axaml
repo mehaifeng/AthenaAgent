@@ -1,109 +1,189 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:models="using:Athena.UI.Models"
         xmlns:views="using:Athena.UI.Views"
         xmlns:loc="using:Athena.UI.Markup"
-        mc:Ignorable="d" 
-        d:DesignWidth="700" 
-        d:DesignHeight="900"
         x:Class="Athena.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{loc:Loc App.Title}"
-        Width="700" 
-        Height="900"
+        Width="1440" Height="900"
+        MinWidth="1180" MinHeight="720"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/Athena.ico"
         FontFamily="{DynamicResource MainFontFamily}">
+    <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+    <Window.Styles>
+        <Style Selector="Border.shell-panel">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground0}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+        <Style Selector="Button.launcher">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="11,9"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Button.session-row">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="8,7"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+    </Window.Styles>
 
+    <Grid>
+        <Image x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
+        <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
+        <Border Background="{DynamicResource App.BackgroundOverlay}" Opacity="0.72" IsHitTestVisible="False"/>
+        <Image x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
 
-    <Grid RowDefinitions="*,Auto">
-        <!-- 背景图片 -->
-        <Image x:Name="BaseBackgroundImage"
-               Source="{DynamicResource App.BackgroundImage}"
-               Grid.Row="0"
-               Grid.RowSpan="2"
-               Stretch="UniformToFill"
-               IsHitTestVisible="False" />
-        <!-- 主题切换过渡层：持有旧主题背景做"失焦淡出"，平时隐藏；
-             位于底图之上、蒙版之下，效果只发生在真正的底层背景上 -->
-        <Image x:Name="ThemeTransitionImage"
-               Grid.Row="0"
-               Grid.RowSpan="2"
-               Stretch="UniformToFill"
-               Opacity="0"
-               IsHitTestVisible="False" />
-        <!-- 背景蒙版 -->
-        <Border Grid.Row="0"
-                Grid.RowSpan="2"
-                Background="{DynamicResource App.BackgroundOverlay}"
-                IsHitTestVisible="False" />
+        <Grid x:Name="MainShellGrid" Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="292" MinWidth="260"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*" MinWidth="540"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="470" MinWidth="360"/>
+            </Grid.ColumnDefinitions>
+            <!-- 左侧：入口 + 工作区会话树。语义区域可与右侧整体对调。 -->
+            <Border Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftPanel}"
+                    Classes="shell-panel" MinWidth="260">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <Grid Margin="10" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="7" RowSpacing="7">
+                        <Button Classes="launcher" Content="供应商模型" Command="{Binding OpenProviderModelsCommand}"/>
+                        <Button Grid.Column="1" Classes="launcher" Content="知识库" Command="{Binding OpenKnowledgeBaseCommand}"/>
+                        <Button Grid.Row="1" Classes="launcher" Content="定时消息" Command="{Binding OpenScheduledMessagesCommand}"/>
+                        <Button Grid.Row="1" Grid.Column="1" Classes="launcher" Content="技能与连接器" Command="{Binding OpenSkillsConnectorsCommand}"/>
+                    </Grid>
 
-        <!-- 主题过渡动画图片覆盖层 -->
-        <Image x:Name="ThemeSplashImage"
-               Grid.Row="0"
-               Stretch="UniformToFill"
-               Opacity="0"
-               IsHitTestVisible="True"
-               ZIndex="100"/>
+                    <Grid Grid.Row="1" Margin="10,0,10,7" ColumnDefinitions="*,Auto">
+                        <TextBox PlaceholderText="搜索工作区、标题或摘要" Text="{Binding ConversationSearchText}"/>
+                        <Button Grid.Column="1" Content="＋" ToolTip.Tip="添加工作区" Command="{Binding AddWorkspaceCommand}"/>
+                    </Grid>
 
-        <!-- 主页面始终留在视觉树中，仅切换 IsVisible。这样 Chat 消息控件不会在每次切页时重建。 -->
-        <Grid Grid.Row="0" Margin="5" RowDefinitions="Auto,*">
-            <TabStrip Grid.Row="0"
-                      Name="MainTabControl"
-                      SelectedIndex="{Binding SelectedTabIndex, UpdateSourceTrigger=PropertyChanged}"
-                      FontSize="15"
-                      FontWeight="Medium">
-                <TabStripItem Content="{loc:Loc Tab.ChatLink}"/>
-                <TabStripItem Content="{loc:Loc Tab.SysConfig}"/>
-                <TabStripItem Content="{loc:Loc Tab.Extensions}"/>
-                <TabStripItem Content="{loc:Loc Tab.Skills}"/>
-                <TabStripItem Content="{loc:Loc Tab.McpServer}"/>
-                <TabStripItem Content="{loc:Loc Tab.Scheduler}"/>
-                <TabStripItem Content="{loc:Loc Tab.Archives}"/>
-                <TabStripItem Content="{loc:Loc Tab.Files}"/>
-                <TabStripItem Content="{loc:Loc Tab.SysLogs}"/>
-                <TabStripItem Content="{loc:Loc Tab.Diagnostic}"/>
-            </TabStrip>
+                    <ScrollViewer Grid.Row="2" Margin="5,0">
+                        <ItemsControl ItemsSource="{Binding ConversationGroups}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkspaceConversationGroupViewModel">
+                                    <Expander IsExpanded="{Binding IsExpanded}" IsVisible="{Binding IsSearchMatch}" Margin="0,2">
+                                        <Expander.Header>
+                                            <Grid ColumnDefinitions="*,Auto" Margin="5,4">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding DirectoryPath}" FontSize="10" Opacity="0.52" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Content="＋"
+                                                        Padding="5,0"
+                                                        ToolTip.Tip="在此工作区新建对话"
+                                                        Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                        </Expander.Header>
+                                        <ItemsControl ItemsSource="{Binding Conversations}" Margin="8,0,0,5">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ConversationSessionItemViewModel">
+                                                    <Grid IsVisible="{Binding IsSearchMatch}">
+                                                        <Button Classes="session-row"
+                                                                Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                IsVisible="{Binding !IsRenaming}">
+                                                            <Button.ContextFlyout>
+                                                                <MenuFlyout>
+                                                                    <MenuItem Header="重命名" Command="{Binding StartRenameCommand}"/>
+                                                                    <MenuItem Header="置顶 / 取消置顶" Command="{Binding TogglePinnedCommand}"/>
+                                                                    <MenuItem Header="创建分支" Command="{Binding RequestForkCommand}"/>
+                                                                    <MenuItem Header="停止" Command="{Binding StopCommand}" IsEnabled="{Binding IsRunning}"/>
+                                                                    <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}"/>
+                                                                </MenuFlyout>
+                                                            </Button.ContextFlyout>
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                                                                <TextBlock Text="◆" FontSize="9" VerticalAlignment="Center" IsVisible="{Binding IsPinned}"/>
+                                                                <StackPanel Grid.Column="1">
+                                                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                                                    <TextBlock Text="{Binding StatusText}" FontSize="10" Opacity="0.65"/>
+                                                                </StackPanel>
+                                                                <TextBlock Grid.Column="2" Text="{Binding StatusGlyph}" VerticalAlignment="Center"/>
+                                                            </Grid>
+                                                        </Button>
+                                                        <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="3">
+                                                            <TextBox Text="{Binding RenameText}"/>
+                                                            <Button Grid.Column="1" Content="✓" Command="{Binding CommitRenameCommand}"/>
+                                                        </Grid>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Grid Grid.Row="3" Margin="10,7" ColumnDefinitions="*,Auto">
+                        <Button Content="＋ 全局对话" Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}"/>
+                        <Button Grid.Column="1" Content="⇄" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}"/>
+                    </Grid>
+                </Grid>
+            </Border>
 
-            <Grid Grid.Row="1">
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=0}">
-                    <views:ChatTabView x:Name="ChatTabView" DataContext="{Binding ChatTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=1}">
-                    <views:ConfigTabView DataContext="{Binding ConfigTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=2}">
-                    <views:ExtensionsTabView DataContext="{Binding ExtensionsTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=3}">
-                    <views:SkillsTabView DataContext="{Binding SkillsTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=4}">
-                    <views:McpTabView DataContext="{Binding McpTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=5}">
-                    <views:TasksTabView DataContext="{Binding TasksTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=6}">
-                    <views:HistoryTabView DataContext="{Binding HistoryTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=7}">
-                    <views:KnowledgeBaseTabView DataContext="{Binding KnowledgeBaseTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=8}">
-                    <views:LogsTabView DataContext="{Binding LogsTabViewModel}"/>
-                </Border>
-                <Border IsVisible="{Binding SelectedTabIndex, Converter={StaticResource IntEqualsConverter}, ConverterParameter=9}">
-                    <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
-                </Border>
-            </Grid>
+            <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
+                          Width="5" MinWidth="5" Background="Transparent" DragCompleted="OnSideSplitterDragCompleted"/>
+
+            <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。 -->
+            <Border Grid.Column="2" MinWidth="540" Margin="5,0" Classes="shell-panel">
+                <views:ChatTabView x:Name="ChatTabView" DataContext="{Binding ChatTabViewModel}"/>
+            </Border>
+
+            <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
+                          Width="5" MinWidth="5" Background="Transparent" DragCompleted="OnSideSplitterDragCompleted"/>
+
+            <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。 -->
+            <Border Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"
+                    Classes="shell-panel" MinWidth="360">
+                <Grid x:Name="RightPanelGrid" Margin="7">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" MinHeight="280"/>
+                        <RowDefinition Height="5"/>
+                        <RowDefinition Height="190" MinHeight="120"/>
+                    </Grid.RowDefinitions>
+                    <views:WorkspaceWorkbenchView DataContext="{Binding Workbench}"/>
+                    <GridSplitter Grid.Row="1" Height="5" Background="Transparent" DragCompleted="OnRightRowSplitterDragCompleted"/>
+                    <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid Margin="8,5" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="日志" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding GlobalErrorCount}" Foreground="{DynamicResource SemiRed5}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <ComboBox Grid.Column="1" SelectedItem="{Binding SelectedLogScope}" HorizontalAlignment="Left" Width="132">
+                                    <x:String>全部</x:String>
+                                    <x:String>当前工作区</x:String>
+                                    <x:String>当前对话</x:String>
+                                </ComboBox>
+                                <ToggleButton Grid.Column="2" Content="暂停" IsChecked="{Binding CompactLogsPaused}"/>
+                                <Button Grid.Column="3" Content="↻" Command="{Binding RefreshCompactLogsCommand}"/>
+                                <Button Grid.Column="4" Content="详细" Command="{Binding OpenDetailedLogsCommand}"/>
+                            </Grid>
+                            <ListBox Grid.Row="1" ItemsSource="{Binding CompactLogEntries}" Margin="5">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LogEntryViewModel">
+                                        <Grid ColumnDefinitions="64,48,*" Margin="2">
+                                            <TextBlock Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" FontSize="10" Opacity="0.55"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Level}" FontSize="10"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Message}" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Button Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" ZIndex="20"
+                    Content="⚙" ToolTip.Tip="应用设置" Command="{Binding OpenAppSettingsCommand}"/>
         </Grid>
     </Grid>
 </Window>

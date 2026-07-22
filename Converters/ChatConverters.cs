@@ -43,6 +43,51 @@ public class IntEqualsConverter : IValueConverter
         => throw new NotImplementedException();
 }
 
+public class EnumEqualsConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => string.Equals(value?.ToString(), parameter?.ToString(), StringComparison.OrdinalIgnoreCase);
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+public class SidePanelColumnConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var swapped = value is true;
+        return parameter?.ToString() switch
+        {
+            "LeftPanel" => swapped ? 4 : 0,
+            "LeftSplitter" => swapped ? 3 : 1,
+            "RightSplitter" => swapped ? 1 : 3,
+            "RightPanel" => swapped ? 0 : 4,
+            _ => 0
+        };
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public class EditorPaneGridConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var visible = value is true;
+        return parameter?.ToString() switch
+        {
+            "BrowserColumn" => visible ? 2 : 0,
+            "BrowserSpan" => visible ? 1 : 3,
+            _ => 0
+        };
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 // 移除 RoleToBrushConverter 和 RoleToBgConverter 的复杂逻辑，改为简单的占位符或删除（如果不再使用）
 public class RoleToBrushConverter : IValueConverter
 {

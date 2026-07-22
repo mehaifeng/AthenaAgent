@@ -52,6 +52,11 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(TimestampText))]
     private DateTime _timestamp = DateTime.Now;
 
+    /// <summary>该助手消息实际使用的供应商/模型快照；后续配置变化不回写历史。</summary>
+    public string? ProviderId { get; set; }
+
+    public string? ModelId { get; set; }
+
     /// <summary>
     /// 是否为心跳消息（AI 主动发起）
     /// </summary>

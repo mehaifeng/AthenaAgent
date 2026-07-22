@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:models="using:Athena.UI.Models"
+        x:Class="Athena.UI.Views.ProviderModelsWindow"
+        x:DataType="vm:ProviderModelsViewModel"
+        Title="供应商模型"
+        Width="1050" Height="760"
+        MinWidth="850" MinHeight="620"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="18" ColumnDefinitions="360,16,*" RowDefinitions="Auto,*,Auto">
+        <Grid Grid.ColumnSpan="3" ColumnDefinitions="*,Auto">
+            <StackPanel>
+                <TextBlock Text="供应商模型" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="连接信息只在供应商保存一次；各业务分工引用供应商和模型。修改即时保存。" Opacity="0.65"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="＋ 添加供应商" Command="{Binding AddProviderCommand}"/>
+        </Grid>
+
+        <ListBox Grid.Row="1" Margin="0,16,0,0" ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:OpenAiProviderConfiguration">
+                    <Border Padding="12" Margin="0,0,0,8" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding BaseUrl}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <ScrollViewer Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
+            <StackPanel Spacing="16">
+                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="连接" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Text="显示名称"/>
+                        <TextBox Text="{Binding SelectedProvider.DisplayName, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="预设"/>
+                        <TextBox Text="{Binding SelectedProvider.ProviderPreset, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="OpenAI / OpenRouter / Custom"/>
+                        <TextBlock Text="API Root"/>
+                        <TextBox Text="{Binding SelectedProvider.BaseUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="API Key"/>
+                        <TextBox Text="{Binding SelectedProvider.ApiKey, UpdateSourceTrigger=PropertyChanged}" PasswordChar="●"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="刷新模型" Command="{Binding RefreshModelsCommand}" CommandParameter="{Binding SelectedProvider}"/>
+                            <Button Content="删除供应商" Command="{Binding DeleteProviderCommand}" CommandParameter="{Binding SelectedProvider}"/>
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox PlaceholderText="手动模型 ID" Text="{Binding ManualModelId}"/>
+                            <Button Grid.Column="1" Content="添加" Command="{Binding AddManualModelCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="模型分工" FontSize="17" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{Binding Roles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ProviderRoleSelectionViewModel">
+                                    <Grid ColumnDefinitions="140,180,*" Margin="0,4">
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate><TextBlock Text="{Binding DisplayName}"/></DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate><TextBlock Text="{Binding Id}"/></DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+        <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="{Binding StatusText}" Foreground="{DynamicResource SemiOrange5}" Margin="0,10,0,0"/>
+    </Grid>
+</Window>

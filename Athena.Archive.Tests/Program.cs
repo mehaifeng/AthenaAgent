@@ -25,7 +25,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
-    ("audio config uses dedicated credentials and provider default endpoint", TestAudioConfigInheritanceAsync),
+    ("audio config reuses a referenced provider credential", TestAudioConfigInheritanceAsync),
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
@@ -50,6 +50,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("scheduler serializes foreground work and skips recurring collisions", TestSchedulerForegroundSerialPolicyAsync),
     ("scheduler advances long-running recurring task to next future slot", TestSchedulerLongRunningRecurringAsync),
     ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync),
+    ("conversation queue releases its model slot while awaiting approval", TestConversationExecutionPauseAsync),
+    ("workspace mutations serialize per workspace and parallelize across workspaces", TestWorkspaceOperationCoordinatorAsync),
     ("diff: exact single-block apply", TestDiffExactApplyAsync),
     ("diff: trailing-whitespace tolerance", TestDiffTrailingWhitespaceAsync),
     ("diff: indentation-tolerant match reindents replacement", TestDiffReindentAsync),
@@ -275,31 +277,95 @@ static Task TestAudioPersistenceCloneAsync()
 
 static Task TestAudioConfigInheritanceAsync()
 {
+    var provider = new OpenAiProviderConfiguration
+    {
+        DisplayName = "OpenAI",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1",
+        ApiKey = "shared-key"
+    };
     var config = new AppConfig
     {
-        Provider = "OpenAI",
-        BaseUrl = "https://api.openai.com/v1",
-        ApiKey = "primary-key",
-        Model = "gpt-5-mini",
         ChatAudioEnabled = true,
-        ChatAudioApiKey = "audio-key",
+        ChatAudioProviderId = provider.Id,
         ChatAudioVoice = "alloy"
     };
+    config.AiModels.Providers.Add(provider);
 
     var resolved = AudioConfigResolver.Resolve(config);
 
-    AssertEqual("OpenAI", resolved.Provider, "audio provider should default independently");
+    AssertEqual("OpenAI", resolved.Provider, "audio provider should resolve by stable provider id");
     AssertEqual("https://api.openai.com/v1/audio/speech", resolved.BaseUrl, "audio base url should use dedicated audio endpoint");
-    AssertEqual("audio-key", resolved.ApiKey, "audio api key should use dedicated credential");
+    AssertEqual("shared-key", resolved.ApiKey, "audio should reuse the configured provider credential");
     AssertEqual("gpt-4o-mini-tts", resolved.Model, "audio model should use dedicated default");
     AssertEqual("alloy", resolved.Voice, "audio voice should use explicit audio voice");
     AssertFalse(resolved.AutoPlay, "auto play should default to false");
 
-    // 语音播报使用独立凭据：主对话模型的 ApiKey 不再被继承。
-    config.ChatAudioApiKey = string.Empty;
+    config.ChatAudioProviderId = string.Empty;
     var resolvedWithoutKey = AudioConfigResolver.Resolve(config);
-    AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio api key should not inherit primary key");
+    AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio should not silently fall back to another provider");
     return Task.CompletedTask;
+}
+
+static async Task TestConversationExecutionPauseAsync()
+{
+    var config = new AppConfig { MainConversationMaxParallel = 1 };
+    var coordinator = new ConversationExecutionCoordinator(new TestConfigService(config));
+    using var first = await coordinator.AcquireAsync("conversation-1", CancellationToken.None);
+
+    var secondAcquired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var secondRun = Task.Run(async () =>
+    {
+        using var second = await coordinator.AcquireAsync("conversation-2", CancellationToken.None);
+        secondAcquired.TrySetResult();
+        await releaseSecond.Task;
+    });
+    await Task.Delay(30);
+    AssertFalse(secondAcquired.Task.IsCompleted, "second conversation must queue while the only model slot is held");
+
+    var releaseApproval = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var approvalWait = coordinator.RunWithoutModelSlotAsync("conversation-1", () => releaseApproval.Task, CancellationToken.None);
+    await secondAcquired.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    releaseApproval.TrySetResult();
+    await Task.Delay(30);
+    AssertFalse(approvalWait.IsCompleted, "the paused conversation must fairly reacquire the model slot");
+
+    releaseSecond.TrySetResult();
+    await secondRun;
+    await approvalWait.WaitAsync(TimeSpan.FromSeconds(2));
+}
+
+static async Task TestWorkspaceOperationCoordinatorAsync()
+{
+    var coordinator = new WorkspaceOperationCoordinator();
+    var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var otherEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    var first = coordinator.RunAsync("workspace-a", async _ =>
+    {
+        firstEntered.TrySetResult();
+        await releaseFirst.Task;
+    });
+    await firstEntered.Task;
+    var second = coordinator.RunAsync("workspace-a", _ =>
+    {
+        secondEntered.TrySetResult();
+        return Task.CompletedTask;
+    });
+    var other = coordinator.RunAsync("workspace-b", _ =>
+    {
+        otherEntered.TrySetResult();
+        return Task.CompletedTask;
+    });
+
+    await otherEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    AssertFalse(secondEntered.Task.IsCompleted, "a second mutation in the same workspace must wait");
+    releaseFirst.TrySetResult();
+    await Task.WhenAll(first, second, other).WaitAsync(TimeSpan.FromSeconds(2));
+    AssertTrue(secondEntered.Task.IsCompleted, "queued mutation should run after the first mutation completes");
 }
 
 static Task TestAudioSdkBaseUrlAsync()
@@ -534,7 +600,8 @@ static async Task TestFallbackSummaryAsync()
     var item = await service.UpsertFromSnapshotAsync(snapshot);
     AssertEqual("This is a deliberat…", item.Summary, "summary should fall back to first user message clamped to the 20-char title limit");
     AssertTrue(item.Summary.Length <= ConversationTitleGenerator.TitleMaxChars, "fallback title must respect the 20-char cap");
-    AssertTrue(File.Exists(Path.Combine(harness.PathService.GetHistoryDirectory(), $"{item.Id}.json")), "history file should still be written");
+    var persisted = await new ConversationArchiveStore(harness.PathService, Log.ForContext<ConversationArchiveStore>()).LoadByIdAsync(item.Id);
+    AssertTrue(persisted != null, "history should still be written to SQLite");
 }
 
 static async Task TestImageSessionUpsertAsync()
@@ -880,13 +947,20 @@ static Task TestPromptOnlyPayloadAsync()
 
 static async Task TestMissingReferenceImageAsync()
 {
+    var provider = new OpenAiProviderConfiguration
+    {
+        BaseUrl = "https://api.openai.com/v1",
+        ApiKey = "test-key"
+    };
+    var config = new AppConfig
+    {
+        ImageGenerationEnabled = true,
+        ImageGenerationProviderId = provider.Id,
+        ImageGenerationModel = "gpt-image-1"
+    };
+    config.AiModels.Providers.Add(provider);
     var service = new OpenAIImageGenerationService(
-        new TestConfigService(new AppConfig
-        {
-            ImageGenerationEnabled = true,
-            ImageGenerationApiKey = "test-key",
-            ImageGenerationModel = "gpt-image-1"
-        }),
+        new TestConfigService(config),
         new TestAttachmentStoreService(),
         Log.ForContext<OpenAIImageGenerationService>());
 

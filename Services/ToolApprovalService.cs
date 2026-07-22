@@ -21,6 +21,7 @@ public class ToolApprovalService : IToolApprovalService
     private readonly IAiToolApprovalEvaluator? _aiEvaluator;
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
+    private readonly ConversationExecutionCoordinator? _executionCoordinator;
 
     // 会话内「始终允许」的去重键（AllowForSession）。键含当前对话 ID，做到每个对话独立——
     // 新开对话不会继承上一对话的会话放行。终端命令按命令名聚合。
@@ -33,7 +34,8 @@ public class ToolApprovalService : IToolApprovalService
         ILogger logger,
         IConversationSessionAccessor? sessionAccessor = null,
         IAiToolApprovalEvaluator? aiEvaluator = null,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        ConversationExecutionCoordinator? executionCoordinator = null)
     {
         _configService = configService;
         _prompter = prompter;
@@ -41,6 +43,7 @@ public class ToolApprovalService : IToolApprovalService
         _aiEvaluator = aiEvaluator;
         _localizationService = localizationService;
         _logger = logger.ForContext<ToolApprovalService>();
+        _executionCoordinator = executionCoordinator;
     }
 
     public async Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken)
@@ -87,7 +90,12 @@ public class ToolApprovalService : IToolApprovalService
         ToolApprovalScope scope;
         try
         {
-            scope = await _prompter.PromptAsync(request, cancellationToken);
+            scope = _executionCoordinator == null
+                ? await _prompter.PromptAsync(request, cancellationToken)
+                : await _executionCoordinator.RunWithoutModelSlotAsync(
+                    _sessionAccessor?.CurrentConversationId,
+                    () => _prompter.PromptAsync(request, cancellationToken),
+                    cancellationToken);
         }
         catch (OperationCanceledException)
         {

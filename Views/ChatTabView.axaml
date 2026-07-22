@@ -90,6 +90,7 @@
             <Setter Property="Padding" Value="12,10"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="MaxWidth" Value="{DynamicResource App.ContentMaxWidth}"/>
         </Style>
 
         <!-- 用户消息气泡 -->
@@ -268,12 +269,22 @@
                     </Panel>
                 </StackPanel>
 
-                <TextBlock Grid.Column="1"
-                           Text="{Binding ContextTokensInfo}"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource Chat.TimestampFg}"
-                           FontSize="12" />
+                <Grid Grid.Column="1"
+                      Width="150"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      ToolTip.Tip="{Binding ContextTokensInfo}">
+                    <ProgressBar Minimum="0"
+                                 Maximum="{Binding TokenService.MaxTokens}"
+                                 Value="{Binding TokenService.CurrentTokens}"
+                                 Height="18"
+                                 CornerRadius="4"/>
+                    <TextBlock Text="{Binding ContextTokensInfo}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="10"
+                               TextTrimming="CharacterEllipsis"/>
+                </Grid>
 
                 <Button Grid.Column="2"
                         VerticalAlignment="Center"
@@ -311,7 +322,10 @@
         <!-- 聊天消息列表 -->
         <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12"
                       IsVisible="{Binding !IsRawContextView}">
-            <ItemsControl x:Name="MessagesItemsControl" ItemsSource="{Binding Messages}">
+            <ItemsControl x:Name="MessagesItemsControl"
+                          ItemsSource="{Binding Messages}"
+                          MaxWidth="{DynamicResource App.ContentMaxWidth}"
+                          HorizontalAlignment="Stretch">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
                         <Grid Classes="message-row" Margin="0,0,0,40" IsVisible="{Binding IsBubbleVisible}" Background="Transparent">
@@ -608,7 +622,9 @@
         </ScrollViewer>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->
-        <Border Grid.Row="2">
+        <Border Grid.Row="2"
+                MaxWidth="{DynamicResource App.ContentMaxWidth}"
+                HorizontalAlignment="Stretch">
             <Border CornerRadius="5"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
@@ -803,8 +819,7 @@
                          Background="Transparent"
                          BorderThickness="0"
                          Padding="4,2"
-                         MaxHeight="150"
-                         IsEnabled="{Binding !IsSending}">
+                         MaxHeight="150">
                     <!-- 覆盖 Semi 主题驱动悬停/聚焦高亮的画刷，使输入框完全融入外层卡片 -->
                     <TextBox.Resources>
                         <SolidColorBrush x:Key="TextBoxDefaultBackground" Color="Transparent"/>
@@ -820,8 +835,8 @@
                     </TextBox.KeyBindings>
                 </TextBox>
 
-                <!-- 底部功能工具栏：左侧功能按钮，右侧发送/停止 -->
-                <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                <!-- 底部功能工具栏：左侧功能按钮，右侧模型和发送/停止 -->
+                <Grid Grid.Row="5" ColumnDefinitions="*,100,50" ColumnSpacing="10" Margin="0,6,0,0">
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 Spacing="2"
@@ -848,19 +863,27 @@
                         </u:IconSplitButton>
                     </StackPanel>
 
-                    <Button Grid.Column="1"
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding CurrentModelName}"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Chat.TimestampFg}"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding CurrentModelName}"/>
+
+                    <Button Grid.Column="2"
+                            HorizontalAlignment="Stretch"
                             Command="{Binding SendMessageCommand}"
                             Theme="{StaticResource AccentButtonTheme}"
-                            Padding="20,6"
                             IsVisible="{Binding !IsSending}"
                             ToolTip.Tip="{loc:Loc Chat.BtnExecute}">
                         <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
                     </Button>
 
-                    <Button Grid.Column="1"
+                    <Button Grid.Column="2"
+                            HorizontalAlignment="Stretch"
                             Command="{Binding StopResponseCommand}"
                             Theme="{StaticResource AccentButtonTheme}"
-                            Padding="20,6"
                             IsVisible="{Binding IsSending}"
                             ToolTip.Tip="{loc:Loc Chat.BtnStop}">
                         <PathIcon Data="{StaticResource SemiIconStop}"

@@ -182,7 +182,7 @@
         
         <!-- Step 1：主凭据 -->
         <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep1}" Margin="0,20,0,0">
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Onboarding.Provider}" VerticalAlignment="Center" Opacity="0.8"/>
                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}"
                           SelectedItem="{Binding PrimaryProvider.ProviderPreset}" HorizontalAlignment="Stretch" Margin="0,0,0,8"
@@ -202,14 +202,6 @@
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Onboarding.Model}" VerticalAlignment="Center" Opacity="0.8"/>
                 <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.MainConversation.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
 
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Title}" VerticalAlignment="Center" Opacity="0.8"/>
-                <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
-
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Compression}" VerticalAlignment="Center" Opacity="0.8"/>
-                <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
-
-                <TextBlock Grid.Row="6" Grid.Column="0" Text="{loc:Loc Config.ModelRole.Approval}" VerticalAlignment="Center" Opacity="0.8"/>
-                <ComboBox Grid.Row="6" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True" MinWidth="260" Margin="0,0,0,8"/>
             </Grid>
 
             <StackPanel Orientation="Horizontal" Spacing="12">
@@ -218,10 +210,10 @@
                 <TextBlock Classes="mono" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
             </StackPanel>
 
-            <!-- 同一供应商连接可承载多个独立角色；生图与 TTS 仍在扩展页单独配置。 -->
+            <!-- 最小化配置：只要求首个供应商和主对话模型。 -->
             <Border Classes="card" Margin="0,4,0,0">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="{loc:Loc Onboarding.RolesHint}" FontSize="12" Opacity="0.65"/>
+                    <TextBlock Text="其他模型分工默认复用主模型，可在下一步展开调整；Embedding 与图像识别均为可选。" FontSize="12" Opacity="0.65"/>
                     <WrapPanel>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
@@ -234,59 +226,28 @@
             </Border>
         </StackPanel>
 
-        <!-- Step 2：能力开关 -->
-        <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
-            <Border Classes="card">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.SubAgents}" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.SubAgentsHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSubAgents}" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-            <Border Classes="card">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.Browser}" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.BrowserHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.BrowserEnabled}" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-            <Border Classes="card">
-                <StackPanel Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="{loc:Loc Onboarding.Toggle.WebSearch}" FontWeight="SemiBold" FontSize="13"/>
-                            <TextBlock Text="{loc:Loc Onboarding.Toggle.WebSearchHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.WebSearchEnabled}" VerticalAlignment="Center"/>
+        <!-- Step 2：可选模型分工，默认留空即在完成时复用主模型。 -->
+        <ScrollViewer Grid.Row="1" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
+            <StackPanel Spacing="12">
+                <TextBlock Text="模型分工（可选）" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock Text="留空的通用分工会自动复用主对话模型。Embedding 与图像识别留空即禁用。" Opacity="0.65"/>
+                <Expander Header="展开高级分工">
+                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" Margin="0,10,0,0">
+                        <TextBlock Text="标题生成"/><ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True"/>
+                        <TextBlock Grid.Row="1" Text="上下文压缩"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True"/>
+                        <TextBlock Grid.Row="2" Text="自动审批"/><ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True"/>
+                        <TextBlock Grid.Row="3" Text="子代理"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.SubAgent.Model}" IsEditable="True"/>
+                        <TextBlock Grid.Row="4" Text="知识整理"/><ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.KnowledgeMaintenance.Model}" IsEditable="True"/>
                     </Grid>
-                    <StackPanel Spacing="6" IsVisible="{Binding Config.WebSearchEnabled}">
-                        <ComboBox ItemsSource="{Binding WebSearchProviders}"
-                                  SelectedItem="{Binding Config.WebSearchProvider}"
-                                  HorizontalAlignment="Stretch"
-                                  SelectionChanged="OnWebSearchProviderSelectionChanged"/>
-                        <TextBox Text="{Binding Config.WebSearchApiKey}" PasswordChar="*"
-                                 PlaceholderText="API Key" FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
-                        <TextBox Text="{Binding Config.WebSearchAppId}"
-                                 PlaceholderText="Baidu App ID"
-                                 FontFamily="Consolas, Menlo, monospace" FontSize="12"
-                                 IsVisible="{Binding IsBaiduWebSearch}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-            <Border Classes="card">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.ImageGen}" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBlock Text="{loc:Loc Onboarding.Toggle.ImageGenHint}" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.ImageGenerationEnabled}" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-        </StackPanel>
+                </Expander>
+                <Border Classes="card">
+                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                        <TextBlock Text="Embedding（可选）"/><ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Embedding.Model}" IsEditable="True"/>
+                        <TextBlock Grid.Row="1" Text="图像识别（可选）"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ImageRecognition.Model}" IsEditable="True"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
 
         <!-- Step 3：神谕开场 -->
         <StackPanel Grid.Row="1" Spacing="14" IsVisible="{Binding IsStep3}" VerticalAlignment="Center">
@@ -323,7 +284,6 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                <Button Classes="plain" Command="{Binding FinishCommand}"><TextBlock Text="{loc:Loc Onboarding.Skip}"/></Button>
                 <Button Classes="plain" Command="{Binding BackCommand}" IsVisible="{Binding CanGoBack}"><TextBlock Text="{loc:Loc Onboarding.Back}"/></Button>
                 <Button Classes="oracle" Command="{Binding NextCommand}" IsVisible="{Binding IsNotLastStep}"><TextBlock Text="{loc:Loc Onboarding.Next}" Foreground="{DynamicResource SemiColorBackground0}"/></Button>
                 <Button Classes="oracle" Command="{Binding FinishCommand}" IsVisible="{Binding IsStep3}"><TextBlock Text="{loc:Loc Onboarding.Finish}" Foreground="{DynamicResource SemiColorBackground0}"/></Button>

@@ -13,9 +13,8 @@ using System.Threading;
 namespace Athena.UI.ViewModels;
 
 /// <summary>
-/// 首次启动引导向导（3 步：语言+主凭据 → 能力开关 → 起手语）。
-/// 依赖 Feature A 的统一凭据继承树：Step 1 只填一份主凭据即可点亮全部模型角色。
-/// 关窗即视为跳过（App.axaml.cs 的 Closed 处理是安全网），向导永不阻塞用户。
+/// 首次启动引导向导（3 步：语言/主题+首个供应商/主模型 → 可选模型分工 → 起手语）。
+/// 首个供应商、API Key 与主模型是进入主应用前的最小必填配置。
 /// </summary>
 public partial class OnboardingViewModel : ObservableObject
 {
@@ -43,7 +42,7 @@ public partial class OnboardingViewModel : ObservableObject
     public List<string> Providers { get; } = new(ProviderUrls.Keys);
     [ObservableProperty]
     private ObservableCollection<string> _modelOptions = new();
-    public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Provider;
+    public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Providers[0];
 
     /// <summary>Web Search 供应商默认 BaseUrl。</summary>
     private static readonly Dictionary<string, string> WebSearchProviderUrls = new()
@@ -115,6 +114,11 @@ public partial class OnboardingViewModel : ObservableObject
         _chatService = chatService;
         _modelCatalogService = modelCatalogService;
         Config = configService?.Load() ?? new AppConfig();
+        if (Config.AiModels.Providers.Count == 0)
+        {
+            Config.AiModels.Providers.Add(new OpenAiProviderConfiguration());
+        }
+        NormalizeRoleAssignments(reuseMainModel: false);
 
         // 向导语言跟随已保存配置（默认 zh-CN）。
         _localizationService?.SwitchLanguage(Config.Language);
@@ -159,6 +163,23 @@ public partial class OnboardingViewModel : ObservableObject
         if (cts.IsCancellationRequested || !ReferenceEquals(cts, _modelOptionsCts)) return;
         if (!result.Success) return;
 
+        var manual = PrimaryProvider.Models.Where(model => model.IsManual).ToList();
+        PrimaryProvider.Models.Clear();
+        foreach (var id in result.Models)
+        {
+            PrimaryProvider.Models.Add(new ProviderModelDescriptor
+            {
+                Id = id,
+                DisplayName = id,
+                Capability = id.Contains("embed", StringComparison.OrdinalIgnoreCase)
+                    ? ModelCapability.Embedding
+                    : ModelCapability.Text
+            });
+        }
+        foreach (var model in manual.Where(model => PrimaryProvider.Models.All(candidate => candidate.Id != model.Id)))
+            PrimaryProvider.Models.Add(model);
+        PrimaryProvider.ModelsRefreshedAt = DateTimeOffset.Now;
+
         var selected = new[]
         {
             Config.AiModels.MainConversation.Model,
@@ -200,6 +221,7 @@ public partial class OnboardingViewModel : ObservableObject
         ConnectionStatus = GetString("Onboarding.Testing", "> consulting the oracle...");
         try
         {
+            NormalizeRoleAssignments(reuseMainModel: true);
             await SaveAsync();
             _chatService.UpdateConfig(Config);
             var (success, message) = await _chatService.TestConnectionAsync();
@@ -221,6 +243,12 @@ public partial class OnboardingViewModel : ObservableObject
     [RelayCommand]
     private void Next()
     {
+        if (CurrentStep == 0 && (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey)
+                                 || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model)))
+        {
+            ConnectionStatus = "> 请先配置 API Key 和主对话模型";
+            return;
+        }
         if (CurrentStep < 2) CurrentStep++;
     }
 
@@ -230,10 +258,18 @@ public partial class OnboardingViewModel : ObservableObject
         if (CurrentStep > 0) CurrentStep--;
     }
 
-    /// <summary>跳过或完成：标记引导完成并关窗（App 侧 Closed 处理负责拉起主窗口）。</summary>
+    /// <summary>完成最小配置并请求切换到主窗口。</summary>
     [RelayCommand]
     private async Task FinishAsync()
     {
+        if (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey)
+            || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model))
+        {
+            CurrentStep = 0;
+            ConnectionStatus = "> 主对话供应商、API Key 和模型是必填项";
+            return;
+        }
+        NormalizeRoleAssignments(reuseMainModel: true);
         Config.OnboardingCompleted = true;
         await SaveAsync();
         RequestClose?.Invoke();
@@ -267,4 +303,26 @@ public partial class OnboardingViewModel : ObservableObject
 
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
+
+    private void NormalizeRoleAssignments(bool reuseMainModel)
+    {
+        var providerId = PrimaryProvider.Id;
+        var mainModel = Config.AiModels.MainConversation.Model;
+        var roles = new[]
+        {
+            Config.AiModels.MainConversation,
+            Config.AiModels.TitleGeneration,
+            Config.AiModels.ContextCompression,
+            Config.AiModels.Approval,
+            Config.AiModels.SubAgent,
+            Config.AiModels.KnowledgeMaintenance
+        };
+        foreach (var role in roles)
+        {
+            role.ProviderId = providerId;
+            if (reuseMainModel && string.IsNullOrWhiteSpace(role.Model)) role.Model = mainModel;
+        }
+        if (!string.IsNullOrWhiteSpace(Config.AiModels.Embedding.Model)) Config.AiModels.Embedding.ProviderId = providerId;
+        if (!string.IsNullOrWhiteSpace(Config.AiModels.ImageRecognition.Model)) Config.AiModels.ImageRecognition.ProviderId = providerId;
+    }
 }

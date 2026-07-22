@@ -30,6 +30,7 @@
     <AvaloniaResource Include="Assets/**" />
     <Compile Remove="Athena.Archive.Tests/**/*.cs" />
     <Compile Remove="Athena.Updater/**/*.cs" />
+    <Compile Remove="Athena.UI.HeadlessTests/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 

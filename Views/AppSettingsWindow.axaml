@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:views="using:Athena.UI.Views"
+        x:Class="Athena.UI.Views.AppSettingsWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="应用设置"
+        Width="900" Height="720" MinWidth="720" MinHeight="560"
+        WindowStartupLocation="CenterOwner">
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="16" MaxWidth="760">
+            <TextBlock Text="应用设置" FontSize="24" FontWeight="SemiBold"/>
+            <TextBlock Text="修改即时保存。" Opacity="0.65"/>
+            <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="外观与语言" FontSize="17" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Text="主题" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedItem="{Binding AppSettings.Config.Theme}">
+                            <x:String>Dark</x:String><x:String>Light</x:String>
+                        </ComboBox>
+                    </Grid>
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Text="语言" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedItem="{Binding AppSettings.Config.Language}">
+                            <x:String>zh-CN</x:String><x:String>en-US</x:String>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="运行与上下文" FontSize="17" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="260,*"><TextBlock Text="主对话全局并发上限"/><NumericUpDown Grid.Column="1" Minimum="1" Maximum="16" Value="{Binding AppSettings.Config.MainConversationMaxParallel}"/></Grid>
+                    <Grid ColumnDefinitions="260,*"><TextBlock Text="最大上下文 Token"/><NumericUpDown Grid.Column="1" Minimum="1000" Maximum="2000000" Value="{Binding AppSettings.Config.MaxContextTokens}"/></Grid>
+                    <Grid ColumnDefinitions="260,*"><TextBlock Text="自动压缩阈值"/><NumericUpDown Grid.Column="1" Minimum="1000" Maximum="2000000" Value="{Binding AppSettings.Config.CompressionThreshold}"/></Grid>
+                    <Grid ColumnDefinitions="260,*"><TextBlock Text="工作区知识预算"/><NumericUpDown Grid.Column="1" Minimum="0" Maximum="100000" Value="{Binding AppSettings.Config.WorkspaceKnowledgeTokenBudget}"/></Grid>
+                    <CheckBox Content="自动压缩上下文" IsChecked="{Binding AppSettings.Config.AutoCompress}"/>
+                </StackPanel>
+            </Border>
+            <Expander Header="关于、更新与诊断">
+                <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
