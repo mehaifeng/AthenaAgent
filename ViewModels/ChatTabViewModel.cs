@@ -520,6 +520,10 @@ public partial class ChatTabViewModel : ViewModelBase
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
         _localizationService = localizationService;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += (_, _) => RefreshToolCallSummaries();
+        }
         _attachmentStoreService = attachmentStoreService;
         _systemAudioService = systemAudioService;
         _archiveService = archiveService;
@@ -2795,7 +2799,7 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     // 为本轮工具调用追加「执行中」卡片（每个工具一张）。
-    private static void AddToolCallEntries(ChatMessage message, string? toolCallsJson)
+    private void AddToolCallEntries(ChatMessage message, string? toolCallsJson)
     {
         if (string.IsNullOrWhiteSpace(toolCallsJson))
         {
@@ -2828,7 +2832,7 @@ public partial class ChatTabViewModel : ViewModelBase
                 {
                     ToolCallId = id,
                     Name = name,
-                    Summary = ToolCallDisplay.Summarize(name, arguments),
+                    Summary = ToolCallDisplay.Summarize(name, arguments, _localizationService),
                     Arguments = ToolCallDisplay.PrettyArguments(arguments),
                     Status = ToolCallStatus.Running
                 });
@@ -2848,6 +2852,17 @@ public partial class ChatTabViewModel : ViewModelBase
         catch
         {
             // 工具调用 JSON 异常时跳过卡片渲染，不影响主流程
+        }
+    }
+
+    private void RefreshToolCallSummaries()
+    {
+        foreach (var entry in Messages
+                     .SelectMany(message => message.Segments)
+                     .Where(segment => segment.IsToolCallGroup)
+                     .SelectMany(segment => segment.ToolCalls))
+        {
+            entry.Summary = ToolCallDisplay.Summarize(entry.Name, entry.Arguments, _localizationService);
         }
     }
 

@@ -19,6 +19,7 @@ public class ToolApprovalService : IToolApprovalService
     private readonly IToolApprovalPrompter? _prompter;
     private readonly IConversationSessionAccessor? _sessionAccessor;
     private readonly IAiToolApprovalEvaluator? _aiEvaluator;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
 
     // 会话内「始终允许」的去重键（AllowForSession）。键含当前对话 ID，做到每个对话独立——
@@ -31,12 +32,14 @@ public class ToolApprovalService : IToolApprovalService
         IToolApprovalPrompter? prompter,
         ILogger logger,
         IConversationSessionAccessor? sessionAccessor = null,
-        IAiToolApprovalEvaluator? aiEvaluator = null)
+        IAiToolApprovalEvaluator? aiEvaluator = null,
+        ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _prompter = prompter;
         _sessionAccessor = sessionAccessor;
         _aiEvaluator = aiEvaluator;
+        _localizationService = localizationService;
         _logger = logger.ForContext<ToolApprovalService>();
     }
 
@@ -193,7 +196,7 @@ public class ToolApprovalService : IToolApprovalService
                 : "无审批交互通道，默认拒绝");
     }
 
-    private static ToolApprovalRequest BuildRequest(
+    private ToolApprovalRequest BuildRequest(
         string functionName, string argumentsJson, ToolRisk risk, string? riskReason,
         bool isTerminal, string? commandName, string approvalKey)
     {
@@ -201,7 +204,7 @@ public class ToolApprovalService : IToolApprovalService
         {
             FunctionName = functionName,
             Risk = risk,
-            Summary = ToolCallDisplay.Summarize(functionName, argumentsJson),
+            Summary = ToolCallDisplay.Summarize(functionName, argumentsJson, _localizationService),
             PrettyArguments = ToolCallDisplay.PrettyArguments(argumentsJson),
             CommandLine = isTerminal ? TerminalCommandRisk.BuildCommandLine(argumentsJson) : null,
             RiskReason = riskReason,

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Athena.UI.Services.Interfaces;
 
 namespace Athena.UI.Models;
 
@@ -48,7 +49,7 @@ public static class ToolCallDisplay
     /// <summary>
     /// 生成人类可读的一行摘要。<paramref name="argumentsJson"/> 为模型给出的参数 JSON。
     /// </summary>
-    public static string Summarize(string functionName, string? argumentsJson)
+    public static string Summarize(string functionName, string? argumentsJson, ILocalizationService? localizationService = null)
     {
         JsonObject? args = null;
         try
@@ -78,7 +79,7 @@ public static class ToolCallDisplay
             _ => FirstStringValue(args)
         };
 
-        var label = FriendlyName(functionName);
+        var label = FriendlyName(functionName, localizationService);
         return string.IsNullOrWhiteSpace(key)
             ? label
             : $"{label} · {Truncate(CollapseWhitespace(key), SummaryMaxLength)}";
@@ -158,32 +159,39 @@ public static class ToolCallDisplay
         return (true, Truncate(resultJson.Trim(), ResultPreviewMaxLength));
     }
 
-    private static string FriendlyName(string functionName) => functionName switch
+    private static string FriendlyName(string functionName, ILocalizationService? localizationService)
     {
-        "web_search" => "搜索",
-        "recall_from_memory" => "回忆记忆",
-        "create_new_memory" => "写入记忆",
-        "read_system_file" => "读取文件",
-        "get_file_info" => "查看文件信息",
-        "list_system_directory" => "列出目录",
-        "get_document_outline" => "解析文档",
-        "search_in_file" => "搜索文件内容",
-        "write_system_file" => "写入文件",
-        "modify_system_file" => "修改文件",
-        "create_directory" => "创建目录",
-        "move_system_file" => "移动文件",
-        "copy_system_file" => "复制文件",
-        "delete_system_file" => "删除文件",
-        "execute_terminal_command" => "执行命令",
-        "generate_image" => "生成图片",
-        "run_browser_task" => "浏览器任务",
-        "create_task" => "创建任务",
-        "list_tasks" => "查看任务",
-        "cancel_task" => "取消任务",
-        "view_self_configuration" => "查看配置",
-        "modify_self_configuration" => "修改配置",
-        _ => functionName
-    };
+        var (key, fallback) = functionName switch
+        {
+            "web_search" => ("Tool.Name.WebSearch", "Web search"),
+            "recall_from_memory" => ("Tool.Name.RecallMemory", "Recall memory"),
+            "create_new_memory" => ("Tool.Name.CreateMemory", "Save memory"),
+            "read_system_file" => ("Tool.Name.ReadFile", "Read file"),
+            "get_file_info" => ("Tool.Name.FileInfo", "Get file info"),
+            "list_system_directory" => ("Tool.Name.ListDirectory", "List directory"),
+            "get_document_outline" => ("Tool.Name.DocumentOutline", "Parse document"),
+            "search_in_file" => ("Tool.Name.SearchFile", "Search file contents"),
+            "write_system_file" => ("Tool.Name.WriteFile", "Write file"),
+            "modify_system_file" => ("Tool.Name.ModifyFile", "Modify file"),
+            "create_directory" => ("Tool.Name.CreateDirectory", "Create directory"),
+            "move_system_file" => ("Tool.Name.MoveFile", "Move file"),
+            "copy_system_file" => ("Tool.Name.CopyFile", "Copy file"),
+            "delete_system_file" => ("Tool.Name.DeleteFile", "Delete file"),
+            "execute_terminal_command" => ("Tool.Name.ExecuteCommand", "Run command"),
+            "generate_image" => ("Tool.Name.GenerateImage", "Generate image"),
+            "run_browser_task" => ("Tool.Name.BrowserTask", "Browser task"),
+            "create_task" => ("Tool.Name.CreateTask", "Create task"),
+            "list_tasks" => ("Tool.Name.ListTasks", "List tasks"),
+            "cancel_task" => ("Tool.Name.CancelTask", "Cancel task"),
+            "view_self_configuration" => ("Tool.Name.ViewConfiguration", "View configuration"),
+            "modify_self_configuration" => ("Tool.Name.ModifyConfiguration", "Modify configuration"),
+            _ => (string.Empty, functionName)
+        };
+
+        return string.IsNullOrEmpty(key)
+            ? fallback
+            : localizationService?.GetString(key, fallback) ?? fallback;
+    }
 
     private static string? Str(JsonObject? args, string key)
     {

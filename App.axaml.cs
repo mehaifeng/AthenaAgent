@@ -807,7 +807,8 @@ public partial class App : Application
             var prompter = sp.GetService<IToolApprovalPrompter>();
             var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
             var aiEvaluator = sp.GetService<IAiToolApprovalEvaluator>();
-            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator);
+            var localizationService = sp.GetService<ILocalizationService>();
+            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator, localizationService);
         });
 
         // --- MCP 扩展（Model Context Protocol）---

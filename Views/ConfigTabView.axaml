@@ -96,7 +96,14 @@
                                 <DataTemplate x:DataType="vm:ModelRoleAssignmentViewModel">
                                     <Grid ColumnDefinitions="120,*,90,110" ColumnSpacing="10" Margin="0,3">
                                         <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" Opacity="0.75"/>
-                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Settings.Model}" IsEditable="True"/>
+                                        <AutoCompleteBox Grid.Column="1"
+                                                         HorizontalAlignment="Stretch"
+                                                         VerticalAlignment="Center"
+                                                         ItemsSource="{Binding ModelOptions}"
+                                                         Text="{Binding Settings.Model, Mode=TwoWay}"
+                                                         FilterMode="ContainsOrdinal"
+                                                         MinimumPrefixLength="0"
+                                                         MinimumPopulateDelay="0"/>
                                         <NumericUpDown Grid.Column="2" Value="{Binding Settings.Temperature}" VerticalAlignment="Center" Minimum="0" Maximum="2" Increment="0.1"/>
                                         <NumericUpDown Grid.Column="3" Value="{Binding Settings.MaxOutputTokens}" VerticalAlignment="Center" Minimum="1" Maximum="1000000" Increment="256" IsVisible="{Binding SupportsOutputTokens}"/>
                                     </Grid>
@@ -134,7 +141,14 @@
                                 <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource EmbeddingCredentialSourceToDisplay}}"/></DataTemplate></ComboBox.ItemTemplate>
                             </ComboBox>
                             <TextBlock Grid.Row="1" Margin="0,0,0,8" Text="{loc:Loc Config.ModelId}" VerticalAlignment="Center" Opacity="0.75"/>
-                            <ComboBox Grid.Row="1" Margin="0,0,0,8" Grid.Column="1" ItemsSource="{Binding EmbeddingModelOptions}" SelectedItem="{Binding Config.AiModels.Embedding.Model}" IsEditable="True"/>
+                            <AutoCompleteBox Grid.Row="1"
+                                             Grid.Column="1"
+                                             Margin="0,0,0,8"
+                                             ItemsSource="{Binding EmbeddingModelOptions}"
+                                             Text="{Binding Config.AiModels.Embedding.Model, Mode=TwoWay}"
+                                             FilterMode="ContainsOrdinal"
+                                             MinimumPrefixLength="0"
+                                             MinimumPopulateDelay="0"/>
                             <TextBlock Grid.Row="2" Margin="0,0,0,8" Text="{loc:Loc Config.ApiProvider}" VerticalAlignment="Center" Opacity="0.75" IsVisible="{Binding IsEmbeddingCustomConnection}"/>
                             <ComboBox Grid.Row="2" Margin="0,0,0,8" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding Config.EmbeddingProvider}" IsVisible="{Binding IsEmbeddingCustomConnection}"/>
                             <TextBlock Grid.Row="3" Margin="0,0,0,8" Text="{loc:Loc Config.ApiEndpoint}" VerticalAlignment="Center" Opacity="0.75" IsVisible="{Binding IsEmbeddingCustomConnection}"/>

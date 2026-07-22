@@ -537,6 +537,28 @@
     <system:String x:Key="Tool.ResultLabel">Result</system:String>
     <system:String x:Key="Tool.GroupExpand">Expand all {0} calls</system:String>
     <system:String x:Key="Tool.GroupCollapse">Collapse</system:String>
+    <system:String x:Key="Tool.Name.WebSearch">Web search</system:String>
+    <system:String x:Key="Tool.Name.RecallMemory">Recall memory</system:String>
+    <system:String x:Key="Tool.Name.CreateMemory">Save memory</system:String>
+    <system:String x:Key="Tool.Name.ReadFile">Read file</system:String>
+    <system:String x:Key="Tool.Name.FileInfo">Get file info</system:String>
+    <system:String x:Key="Tool.Name.ListDirectory">List directory</system:String>
+    <system:String x:Key="Tool.Name.DocumentOutline">Parse document</system:String>
+    <system:String x:Key="Tool.Name.SearchFile">Search file contents</system:String>
+    <system:String x:Key="Tool.Name.WriteFile">Write file</system:String>
+    <system:String x:Key="Tool.Name.ModifyFile">Modify file</system:String>
+    <system:String x:Key="Tool.Name.CreateDirectory">Create directory</system:String>
+    <system:String x:Key="Tool.Name.MoveFile">Move file</system:String>
+    <system:String x:Key="Tool.Name.CopyFile">Copy file</system:String>
+    <system:String x:Key="Tool.Name.DeleteFile">Delete file</system:String>
+    <system:String x:Key="Tool.Name.ExecuteCommand">Run command</system:String>
+    <system:String x:Key="Tool.Name.GenerateImage">Generate image</system:String>
+    <system:String x:Key="Tool.Name.BrowserTask">Browser task</system:String>
+    <system:String x:Key="Tool.Name.CreateTask">Create task</system:String>
+    <system:String x:Key="Tool.Name.ListTasks">List tasks</system:String>
+    <system:String x:Key="Tool.Name.CancelTask">Cancel task</system:String>
+    <system:String x:Key="Tool.Name.ViewConfiguration">View configuration</system:String>
+    <system:String x:Key="Tool.Name.ModifyConfiguration">Modify configuration</system:String>
 
     <!-- Additional Recurrence Options -->
     <system:String x:Key="Recurrence.Every3Days">Every 3 days</system:String>

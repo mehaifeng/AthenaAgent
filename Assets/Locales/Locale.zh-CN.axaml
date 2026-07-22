@@ -537,6 +537,28 @@
     <system:String x:Key="Tool.ResultLabel">结果</system:String>
     <system:String x:Key="Tool.GroupExpand">展开全部 {0} 次调用</system:String>
     <system:String x:Key="Tool.GroupCollapse">收起</system:String>
+    <system:String x:Key="Tool.Name.WebSearch">搜索</system:String>
+    <system:String x:Key="Tool.Name.RecallMemory">回忆记忆</system:String>
+    <system:String x:Key="Tool.Name.CreateMemory">写入记忆</system:String>
+    <system:String x:Key="Tool.Name.ReadFile">读取文件</system:String>
+    <system:String x:Key="Tool.Name.FileInfo">查看文件信息</system:String>
+    <system:String x:Key="Tool.Name.ListDirectory">列出目录</system:String>
+    <system:String x:Key="Tool.Name.DocumentOutline">解析文档</system:String>
+    <system:String x:Key="Tool.Name.SearchFile">搜索文件内容</system:String>
+    <system:String x:Key="Tool.Name.WriteFile">写入文件</system:String>
+    <system:String x:Key="Tool.Name.ModifyFile">修改文件</system:String>
+    <system:String x:Key="Tool.Name.CreateDirectory">创建目录</system:String>
+    <system:String x:Key="Tool.Name.MoveFile">移动文件</system:String>
+    <system:String x:Key="Tool.Name.CopyFile">复制文件</system:String>
+    <system:String x:Key="Tool.Name.DeleteFile">删除文件</system:String>
+    <system:String x:Key="Tool.Name.ExecuteCommand">执行命令</system:String>
+    <system:String x:Key="Tool.Name.GenerateImage">生成图片</system:String>
+    <system:String x:Key="Tool.Name.BrowserTask">浏览器任务</system:String>
+    <system:String x:Key="Tool.Name.CreateTask">创建任务</system:String>
+    <system:String x:Key="Tool.Name.ListTasks">查看任务</system:String>
+    <system:String x:Key="Tool.Name.CancelTask">取消任务</system:String>
+    <system:String x:Key="Tool.Name.ViewConfiguration">查看配置</system:String>
+    <system:String x:Key="Tool.Name.ModifyConfiguration">修改配置</system:String>
 
     <!-- Additional Recurrence Options -->
     <system:String x:Key="Recurrence.Every3Days">每 3 天</system:String>

@@ -115,10 +115,7 @@ public partial class ConfigTabViewModel : ViewModelBase
     };
     public ObservableCollection<string> Themes { get; } = new() { "Dark", "Light" };
     public ObservableCollection<ModelRoleAssignmentViewModel> AiModelRoles { get; } = new();
-    public ObservableCollection<string> EmbeddingModelOptions { get; } = new()
-    {
-        "text-embedding-3-small", "text-embedding-3-large"
-    };
+    public ObservableCollection<string> EmbeddingModelOptions { get; } = new();
     public OpenAiProviderConfiguration AiProvider => Config.AiModels.Provider;
     public bool IsAutomaticApproval => Config.ToolApprovalMode == ToolApprovalMode.Automatic;
     public bool IsEmbeddingCustomConnection => Config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom;
