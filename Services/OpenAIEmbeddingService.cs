@@ -51,16 +51,27 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
     private void InitializeClient()
     {
-        var effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.Embedding);
+        _client = null;
+        _embeddingClient = null;
+        _effectiveModelId = null;
+
+        EffectiveOpenAiModel effective;
+        try
+        {
+            effective = OpenAiModelRuntimeFactory.Resolve(_config, AiModelRole.Embedding);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.Warning("Embedding 未完整配置，服务保持禁用: {Reason}", ex.Message);
+            return;
+        }
+
         var provider = effective.ProviderDisplayName;
         var apiKey = effective.ApiKey;
         var baseUrl = effective.BaseUrl;
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _client = null;
-            _embeddingClient = null;
-            _effectiveModelId = null;
             _logger.Warning("Embedding API Key 为空，服务未初始化");
             return;
         }

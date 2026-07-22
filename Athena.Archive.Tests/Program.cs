@@ -29,6 +29,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
+    ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
     ("vector index rebuild requires every chunk to be embedded", TestVectorIndexRebuildResultAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
@@ -304,6 +305,26 @@ static Task TestAudioConfigInheritanceAsync()
     config.ChatAudioProviderId = string.Empty;
     var resolvedWithoutKey = AudioConfigResolver.Resolve(config);
     AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio should not silently fall back to another provider");
+    return Task.CompletedTask;
+}
+
+static Task TestOptionalEmbeddingStartupAsync()
+{
+    var provider = new OpenAiProviderConfiguration
+    {
+        DisplayName = "Main provider",
+        BaseUrl = "https://api.openai.com/v1",
+        ApiKey = "main-key"
+    };
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "gpt-main";
+
+    var service = new OpenAIEmbeddingService(config, Log.ForContext<OpenAIEmbeddingService>());
+
+    AssertFalse(service.IsConfigured, "an omitted optional embedding role must produce a disabled service instead of aborting startup");
+    AssertEqual<string?>(null, service.ModelId, "disabled embedding service must not expose a model id");
     return Task.CompletedTask;
 }
 
