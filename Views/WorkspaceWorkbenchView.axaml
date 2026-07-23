@@ -21,15 +21,37 @@
             <Grid RowDefinitions="Auto,*,Auto">
                 <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,7">
                     <StackPanel Orientation="Horizontal" Spacing="5">
-                        <Button Content="编辑" Command="{Binding SetEditorModeCommand}" CommandParameter="Edit"/>
-                        <Button Content="预览" Command="{Binding SetEditorModeCommand}" CommandParameter="Preview"
-                                IsEnabled="{Binding SelectedEditorTab.CanPreview}"/>
-                        <Button Content="Diff" Command="{Binding SetEditorModeCommand}" CommandParameter="Diff"
-                                IsEnabled="{Binding SelectedEditorTab.CanDiff}"/>
-                        <Button Content="保存" Command="{Binding SaveFileCommand}" CommandParameter="{Binding SelectedEditorTab}"
-                                IsEnabled="{Binding SelectedEditorTab.IsDirty}"/>
+                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Edit">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="编辑"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Preview"
+                                IsEnabled="{Binding SelectedEditorTab.CanPreview}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Data="{StaticResource AthenaIconPreview}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="预览"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Diff"
+                                IsEnabled="{Binding SelectedEditorTab.CanDiff}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="Diff"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding SaveFileCommand}" CommandParameter="{Binding SelectedEditorTab}"
+                                IsEnabled="{Binding SelectedEditorTab.IsDirty}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Data="{StaticResource AthenaIconSave}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="保存"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="×" ToolTip.Tip="关闭编辑区" Command="{Binding CloseEditorPaneCommand}"/>
+                    <Button Grid.Column="1" ToolTip.Tip="关闭编辑区" Command="{Binding CloseEditorPaneCommand}">
+                        <PathIcon Data="{StaticResource AthenaIconClose}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
                 </Grid>
                 <TabControl Grid.Row="1"
                             ItemsSource="{Binding EditorTabs}"
@@ -39,10 +61,12 @@
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <TextBlock Text="{Binding FileName}"/>
                                 <TextBlock Text="●" Foreground="{DynamicResource SemiOrange5}" IsVisible="{Binding IsDirty}"/>
-                                <Button Content="×"
+                                <Button ToolTip.Tip="关闭文件"
                                         Padding="3,0"
                                         Command="{Binding $parent[UserControl].DataContext.CloseEditorTabCommand}"
-                                        CommandParameter="{Binding}"/>
+                                        CommandParameter="{Binding}">
+                                    <PathIcon Data="{StaticResource AthenaIconClose}" Width="11" Height="11" Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                </Button>
                             </StackPanel>
                         </DataTemplate>
                     </TabControl.ItemTemplate>
@@ -126,15 +150,30 @@
             <Grid RowDefinitions="Auto,Auto,*">
                 <Grid Margin="10,8" ColumnDefinitions="*,Auto,Auto">
                     <StackPanel>
-                        <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="15" Height="15" Foreground="{DynamicResource App.IconMutedForeground}"/>
+                            <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
+                        </StackPanel>
                         <TextBlock Text="工作区文件" FontSize="11" Opacity="0.6"/>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="↻" Command="{Binding RefreshFilesCommand}" ToolTip.Tip="刷新"/>
-                    <Button Grid.Column="2" Content="＋编辑区" Command="{Binding OpenFileCommand}" IsVisible="{Binding !IsEditorVisible}"/>
+                    <Button Grid.Column="1" Command="{Binding RefreshFilesCommand}" ToolTip.Tip="刷新">
+                        <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="15" Height="15" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                    <Button Grid.Column="2" Command="{Binding OpenFileCommand}" IsVisible="{Binding !IsEditorVisible}">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="编辑区"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="8,0,8,6" IsVisible="{Binding IsRenameVisible}" Background="{DynamicResource SemiColorBackground0}">
                     <TextBox Text="{Binding RenameName}"/>
-                    <Button Grid.Column="1" Content="重命名" Command="{Binding CommitRenameFileCommand}"/>
+                    <Button Grid.Column="1" Command="{Binding CommitRenameFileCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="重命名"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
                 <TreeView Grid.Row="2"
                           ItemsSource="{Binding Files}"
@@ -148,19 +187,29 @@
                                     <MenuFlyout>
                                         <MenuItem Header="打开"
                                                   Command="{Binding $parent[UserControl].DataContext.OpenFileCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  CommandParameter="{Binding}">
+                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconOpenFile}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="复制路径"
                                                   Command="{Binding $parent[UserControl].DataContext.CopyRelativePathCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  CommandParameter="{Binding}">
+                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="复制绝对路径"
                                                   Command="{Binding $parent[UserControl].DataContext.CopyAbsolutePathCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  CommandParameter="{Binding}">
+                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="重命名"
                                                   Command="{Binding $parent[UserControl].DataContext.BeginRenameFileCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  CommandParameter="{Binding}">
+                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                        </MenuItem>
                                         <MenuItem Header="删除"
                                                   Command="{Binding $parent[UserControl].DataContext.DeleteFileCommand}"
-                                                  CommandParameter="{Binding}"/>
+                                                  CommandParameter="{Binding}">
+                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+                                        </MenuItem>
                                     </MenuFlyout>
                                 </TextBlock.ContextFlyout>
                             </TextBlock>

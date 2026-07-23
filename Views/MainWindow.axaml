@@ -57,15 +57,39 @@
                     Classes="shell-panel" MinWidth="260">
                 <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Grid Margin="10" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="7" RowSpacing="7">
-                        <Button Classes="launcher" Content="供应商模型" Command="{Binding OpenProviderModelsCommand}"/>
-                        <Button Grid.Column="1" Classes="launcher" Content="知识库" Command="{Binding OpenKnowledgeBaseCommand}"/>
-                        <Button Grid.Row="1" Classes="launcher" Content="定时消息" Command="{Binding OpenScheduledMessagesCommand}"/>
-                        <Button Grid.Row="1" Grid.Column="1" Classes="launcher" Content="技能与连接器" Command="{Binding OpenSkillsConnectorsCommand}"/>
+                        <Button Classes="launcher" Command="{Binding OpenProviderModelsCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource AthenaIconModelProvider}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="供应商模型"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Classes="launcher" Command="{Binding OpenKnowledgeBaseCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource AthenaIconKnowledgeBase}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="知识库"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Row="1" Classes="launcher" Command="{Binding OpenScheduledMessagesCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource AthenaIconScheduledMessages}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="定时消息"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Row="1" Grid.Column="1" Classes="launcher" Command="{Binding OpenSkillsConnectorsCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource AthenaIconSkillsConnectors}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="技能与连接器"/>
+                            </StackPanel>
+                        </Button>
                     </Grid>
 
                     <Grid Grid.Row="1" Margin="10,0,10,7" ColumnDefinitions="*,Auto">
                         <TextBox PlaceholderText="搜索工作区、标题或摘要" Text="{Binding ConversationSearchText}"/>
-                        <Button Grid.Column="1" Content="＋" ToolTip.Tip="添加工作区" Command="{Binding AddWorkspaceCommand}"/>
+                        <Button Grid.Column="1" ToolTip.Tip="添加工作区" Command="{Binding AddWorkspaceCommand}">
+                            <Path Data="{StaticResource AthenaIconWorkspaceAdd}" Width="16" Height="16" Stretch="Uniform"
+                                  Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="2"
+                                  StrokeLineCap="Round" StrokeJoin="Round"/>
+                        </Button>
                     </Grid>
 
                     <ScrollViewer Grid.Row="2" Margin="5,0">
@@ -80,11 +104,12 @@
                                                     <TextBlock Text="{Binding DirectoryPath}" FontSize="10" Opacity="0.52" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
                                                 <Button Grid.Column="1"
-                                                        Content="＋"
                                                         Padding="5,0"
                                                         ToolTip.Tip="在此工作区新建对话"
                                                         Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
-                                                        CommandParameter="{Binding}"/>
+                                                        CommandParameter="{Binding}">
+                                                    <PathIcon Data="{StaticResource AthenaIconNewConversation}" Width="15" Height="15" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                </Button>
                                             </Grid>
                                         </Expander.Header>
                                         <ItemsControl ItemsSource="{Binding Conversations}" Margin="8,0,4,5">
@@ -97,11 +122,21 @@
                                                                 IsVisible="{Binding !IsRenaming}">
                                                             <Button.ContextFlyout>
                                                                 <MenuFlyout>
-                                                                    <MenuItem Header="重命名" Command="{Binding StartRenameCommand}"/>
-                                                                    <MenuItem Header="置顶 / 取消置顶" Command="{Binding TogglePinnedCommand}"/>
-                                                                    <MenuItem Header="创建分支" Command="{Binding RequestForkCommand}"/>
-                                                                    <MenuItem Header="停止" Command="{Binding StopCommand}" IsEnabled="{Binding IsRunning}"/>
-                                                                    <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}"/>
+                                                                    <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
+                                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="置顶 / 取消置顶" Command="{Binding TogglePinnedCommand}">
+                                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="创建分支" Command="{Binding RequestForkCommand}">
+                                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="停止" Command="{Binding StopCommand}" IsEnabled="{Binding IsRunning}">
+                                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconStop}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+                                                                    </MenuItem>
+                                                                    <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
+                                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+                                                                    </MenuItem>
                                                                 </MenuFlyout>
                                                             </Button.ContextFlyout>
                                                             <Grid ColumnDefinitions="16,18,*,54,14" ColumnSpacing="5">
@@ -117,8 +152,8 @@
                                                                     <TextBlock Text="✓" Foreground="{DynamicResource SemiGreen6}"
                                                                                HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
                                                                 </Grid>
-                                                                <PathIcon Grid.Column="1" Data="{StaticResource SemiIconBranch}" Width="13" Height="13"
-                                                                          Opacity="0.65" IsVisible="{Binding IsForked}" ToolTip.Tip="分支会话"/>
+                                                                <PathIcon Grid.Column="1" Data="{StaticResource AthenaIconBranch}" Width="13" Height="13"
+                                                                          Foreground="{DynamicResource App.IconMutedForeground}" Opacity="0.65" IsVisible="{Binding IsForked}" ToolTip.Tip="分支会话"/>
                                                                 <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                                                 <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="10" Opacity="0.58"
                                                                            TextAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
@@ -128,7 +163,9 @@
                                                         </Button>
                                                         <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="3">
                                                             <TextBox Text="{Binding RenameText}"/>
-                                                            <Button Grid.Column="1" Content="✓" Command="{Binding CommitRenameCommand}"/>
+                                                            <Button Grid.Column="1" ToolTip.Tip="确认重命名" Command="{Binding CommitRenameCommand}">
+                                                                <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                            </Button>
                                                         </Grid>
                                                     </Grid>
                                                 </DataTemplate>
@@ -140,8 +177,15 @@
                         </ItemsControl>
                     </ScrollViewer>
                     <Grid Grid.Row="3" Margin="10,7" ColumnDefinitions="*,Auto">
-                        <Button Content="＋ 全局对话" Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}"/>
-                        <Button Grid.Column="1" Content="⇄" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}"/>
+                        <Button Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <PathIcon Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="全局对话"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}">
+                            <PathIcon Data="{StaticResource AthenaIconPanelSwap}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        </Button>
                     </Grid>
                 </Grid>
             </Border>
@@ -171,7 +215,8 @@
                     <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                         <Grid RowDefinitions="Auto,*">
                             <Grid Margin="8,5" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <PathIcon Data="{StaticResource AthenaIconActivity}" Width="15" Height="15" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                     <TextBlock Text="日志" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock Text="{Binding GlobalErrorCount}" Foreground="{DynamicResource SemiRed5}" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -180,9 +225,21 @@
                                     <x:String>当前工作区</x:String>
                                     <x:String>当前对话</x:String>
                                 </ComboBox>
-                                <ToggleButton Grid.Column="2" Content="暂停" IsChecked="{Binding CompactLogsPaused}"/>
-                                <Button Grid.Column="3" Content="↻" Command="{Binding RefreshCompactLogsCommand}"/>
-                                <Button Grid.Column="4" Content="详细" Command="{Binding OpenDetailedLogsCommand}"/>
+                                <ToggleButton Grid.Column="2" IsChecked="{Binding CompactLogsPaused}">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <PathIcon Data="{StaticResource AthenaIconPause}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                        <TextBlock Text="暂停"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Button Grid.Column="3" ToolTip.Tip="刷新日志" Command="{Binding RefreshCompactLogsCommand}">
+                                    <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="15" Height="15" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                </Button>
+                                <Button Grid.Column="4" Command="{Binding OpenDetailedLogsCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <PathIcon Data="{StaticResource AthenaIconDetails}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                        <TextBlock Text="详细"/>
+                                    </StackPanel>
+                                </Button>
                             </Grid>
                             <ListBox Grid.Row="1" ItemsSource="{Binding CompactLogEntries}" Margin="5">
                                 <ListBox.ItemTemplate>
@@ -201,7 +258,9 @@
             </Border>
 
             <Button Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" ZIndex="20"
-                    Content="⚙" ToolTip.Tip="应用设置" Command="{Binding OpenAppSettingsCommand}"/>
+                    ToolTip.Tip="应用设置" Command="{Binding OpenAppSettingsCommand}">
+                <PathIcon Data="{StaticResource AthenaIconSettings}" Width="17" Height="17" Foreground="{DynamicResource App.IconAccentForeground}"/>
+            </Button>
         </Grid>
     </Grid>
 </Window>

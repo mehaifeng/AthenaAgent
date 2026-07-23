@@ -1,0 +1,68 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Application icon contract.
+        Keep UI code bound to AthenaIcon* and App.Icon* keys rather than to a
+        vendor icon name or a hard-coded colour.  Most geometries intentionally
+        alias the existing Semi vector set; the few product-specific concepts
+        live alongside them below.
+    -->
+    <StaticResource x:Key="AthenaIconModelProvider" ResourceKey="SemiIconServer"/>
+    <StaticResource x:Key="AthenaIconKnowledgeBase" ResourceKey="SemiIconBook"/>
+    <StaticResource x:Key="AthenaIconScheduledMessages" ResourceKey="SemiIconCalendarClock"/>
+    <StaticResource x:Key="AthenaIconSkillsConnectors" ResourceKey="SemiIconPuzzle"/>
+    <StaticResource x:Key="AthenaIconSearch" ResourceKey="SemiIconSearch"/>
+    <StaticResource x:Key="AthenaIconNewConversation" ResourceKey="SemiIconPlusCircle"/>
+    <StaticResource x:Key="AthenaIconEdit" ResourceKey="SemiIconEdit"/>
+    <StaticResource x:Key="AthenaIconPin" ResourceKey="SemiIconBookmark"/>
+    <StaticResource x:Key="AthenaIconBranch" ResourceKey="SemiIconBranch"/>
+    <StaticResource x:Key="AthenaIconStop" ResourceKey="SemiIconStop"/>
+    <StaticResource x:Key="AthenaIconDelete" ResourceKey="SemiIconDelete"/>
+    <StaticResource x:Key="AthenaIconConfirm" ResourceKey="SemiIconTick"/>
+    <StaticResource x:Key="AthenaIconActivity" ResourceKey="SemiIconActivity"/>
+    <StaticResource x:Key="AthenaIconPause" ResourceKey="SemiIconPause"/>
+    <StaticResource x:Key="AthenaIconRefresh" ResourceKey="SemiIconRefresh"/>
+    <StaticResource x:Key="AthenaIconDetails" ResourceKey="SemiIconExternalOpen"/>
+    <StaticResource x:Key="AthenaIconSettings" ResourceKey="SemiIconSetting"/>
+    <StaticResource x:Key="AthenaIconPreview" ResourceKey="SemiIconEyeOpened"/>
+    <StaticResource x:Key="AthenaIconSave" ResourceKey="SemiIconSave"/>
+    <StaticResource x:Key="AthenaIconClose" ResourceKey="SemiIconClose"/>
+    <StaticResource x:Key="AthenaIconOpenFile" ResourceKey="SemiIconFile"/>
+    <StaticResource x:Key="AthenaIconCopy" ResourceKey="SemiIconCopy"/>
+
+    <!-- Product-specific SVG path data supplied for the main shell controls. -->
+    <StreamGeometry x:Key="AthenaIconWorkspaceAdd">
+        M12 16V13M12 13V10M12 13H9M12 13H15M3 6V16.8C3 17.9201 3 18.4798 3.21799 18.9076C3.40973 19.2839 3.71547 19.5905 4.0918 19.7822C4.5192 20 5.07899 20 6.19691 20H17.8031C18.921 20 19.48 20 19.9074 19.7822C20.2837 19.5905 20.5905 19.2841 20.7822 18.9078C21.0002 18.48 21.0002 17.9199 21.0002 16.7998L21.0002 9.19978C21.0002 8.07967 21.0002 7.51962 20.7822 7.0918C20.5905 6.71547 20.2839 6.40973 19.9076 6.21799C19.4798 6 18.9201 6 17.8 6H12M3 6H12M3 6C3 4.89543 3.89543 4 5 4H8.67452C9.1637 4 9.40886 4 9.63904 4.05526C9.84311 4.10425 10.0379 4.18526 10.2168 4.29492C10.4186 4.41857 10.5918 4.59182 10.9375 4.9375L12 6
+    </StreamGeometry>
+    <StreamGeometry x:Key="AthenaIconPanelSwap">
+        M3 10.03L9 6v8zM11 6l6 4.03L11 14V6z
+    </StreamGeometry>
+    <StreamGeometry x:Key="AthenaIconRawJson">
+        M5 3H7V5H5v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5H7v2H5c-1.07-.27-2-.9-2-2V15a2 2 0 0 0-2-2H0V11H1A2 2 0 0 0 3 9V5A2 2 0 0 1 5 3M19 3a2 2 0 0 1 2 2V9a2 2 0 0 0 2 2h1v2H23a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2H17V19h2V14a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5H17V3h2M12 15a1 1 0 1 1-1 1 1 1 0 0 1 1-1M8 15a1 1 0 1 1-1 1 1 1 0 0 1 1-1m8 0a1 1 0 1 1-1 1A1 1 0 0 1 16 15Z
+    </StreamGeometry>
+    <StreamGeometry x:Key="AthenaIconSubAgentsOwl">
+        M114.216 431.529l-61.571 13.089c-13.208 2.81-21.645 15.787-18.829 28.995 2.438 11.492 12.591 19.37 23.874 19.37 1.69 0 3.409-.174 5.11-.541l117.686-25.027-50.783-27.92c-5.312-2.324-10.458-5.053-15.487-7.966Z
+        M459.167 383.165c-2.805-13.208-15.9-21.659-28.981-18.828l-76.122 16.187 1.578 49.643 84.697-18.008c13.206-2.806 21.644-15.786 18.828-28.994Z
+        M303.437 382.155c-12.932 0-25.573-5.164-35.055-14.921l-76.551-78.776c-6.267-6.452-6.123-16.766.317-23.042 6.461-6.265 16.791-6.138 23.046.332l7.382 7.592 69.167 71.177c4.772 4.908 11.968 6.357 18.255 3.685 6.318-2.683 10.248-8.841 10.043-15.69l-2.498-77.911-.082.017c-1.844-30.756-11.313-58.977-26.229-82.07-7.779-12.04-9.327-27.157-4.086-40.501 4.106-10.499 6.349-21.821 6.349-33.637C293.496 44.053 246.164 0 187.79 0 129.4 0 82.068 44.053 82.068 98.408c0 11.809 2.243 23.123 6.356 33.611 5.244 13.376 3.72 28.457-4.074 40.527-16.68 25.805-26.629 57.984-26.629 92.977 0 56.489 25.844 105.723 64.216 132.451l-.03.041.409.23c6.858 4.741 14.135 8.728 21.711 11.934l139.268 76.575c4.119 2.273 8.686 3.404 13.241 3.404 4.979 0 9.974-1.352 14.366-4.058 8.405-5.156 13.431-14.435 13.113-24.302l-2.61-83.184c-5.797 2.299-11.872 3.541-17.909 3.541ZM106.996 111.539c0-35.147 19.351-63.641 43.206-63.641 11.775 0 22.359 7.009 30.109 18.285 1.545 2.243 4.09 3.589 6.81 3.589 2.724 0 5.271-1.346 6.811-3.582 7.769-11.283 18.355-18.292 30.11-18.292 23.874 0 43.224 28.494 43.224 63.641 0 35.153-23.68 69.537-80.145 69.537-55.459 0-80.125-34.385-80.125-69.537Z
+        M226.653 91.852c-9.435 0-17.507 9.725-20.734 14.219-.953 1.336-.953 3.134 0 4.473 3.227 4.502 11.3 14.236 20.734 14.236 9.438 0 17.507-9.734 20.722-14.236.97-1.339.97-3.137 0-4.473-3.215-4.495-11.284-14.219-20.722-14.219Z
+        M147.592 91.845c-9.439 0-17.509 9.731-20.723 14.226-.971 1.336-.971 3.134 0 4.473 3.214 4.502 11.283 14.242 20.723 14.242 9.438 0 17.518-9.74 20.732-14.242.974-1.339.974-3.137 0-4.473-3.214-4.505-11.294-14.226-20.732-14.226Z
+        M189.178 118.413c-1.247-.795-2.836-.795-4.074 0-4.075 2.625-12.861 9.183-12.861 16.852 0 7.832 9.168 26.363 13.117 33.995.349.667 1.032 1.081 1.779 1.081.749 0 1.434-.414 1.784-1.081 3.94-7.623 13.094-26.163 13.094-33.995 0-7.669-8.784-14.22-12.839-16.852Z
+    </StreamGeometry>
+    <StreamGeometry x:Key="AthenaIconConversationAdd">
+        M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8l-4.6 3.45A1 1 0 0 1 5.8 19.7V17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm11 4.5a1.25 1.25 0 0 0-2.5 0V9h-1.5a1.25 1.25 0 0 0 0 2.5h1.5V13a1.25 1.25 0 0 0 2.5 0v-1.5H16a1.25 1.25 0 0 0 0-2.5h-1V7.5Z
+    </StreamGeometry>
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="App.IconForeground" Color="#F2F2F2"/>
+            <SolidColorBrush x:Key="App.IconMutedForeground" Color="#A8A8A8"/>
+            <SolidColorBrush x:Key="App.IconAccentForeground" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="App.IconDangerForeground" Color="#FF8C8C"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="App.IconForeground" Color="#202020"/>
+            <SolidColorBrush x:Key="App.IconMutedForeground" Color="#6B6B6B"/>
+            <SolidColorBrush x:Key="App.IconAccentForeground" Color="#111111"/>
+            <SolidColorBrush x:Key="App.IconDangerForeground" Color="#C92A2A"/>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>
