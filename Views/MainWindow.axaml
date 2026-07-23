@@ -211,10 +211,11 @@
                         <RowDefinition Height="190" MinHeight="120"/>
                     </Grid.RowDefinitions>
                     <views:WorkspaceWorkbenchView DataContext="{Binding Workbench}"/>
-                    <GridSplitter Grid.Row="1" Height="5" Background="Transparent" DragCompleted="OnRightRowSplitterDragCompleted"/>
+                    <GridSplitter Grid.Row="1" Height="5" Background="{DynamicResource SemiColorBorder}"
+                                  DragCompleted="OnRightRowSplitterDragCompleted"/>
                     <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                         <Grid RowDefinitions="Auto,*">
-                            <Grid Margin="8,5" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
+                            <Grid Margin="8,5" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                     <PathIcon Data="{StaticResource AthenaIconActivity}" Width="15" Height="15" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                     <TextBlock Text="日志" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -225,16 +226,7 @@
                                     <x:String>当前工作区</x:String>
                                     <x:String>当前对话</x:String>
                                 </ComboBox>
-                                <ToggleButton Grid.Column="2" IsChecked="{Binding CompactLogsPaused}">
-                                    <StackPanel Orientation="Horizontal" Spacing="5">
-                                        <PathIcon Data="{StaticResource AthenaIconPause}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                        <TextBlock Text="暂停"/>
-                                    </StackPanel>
-                                </ToggleButton>
-                                <Button Grid.Column="3" ToolTip.Tip="刷新日志" Command="{Binding RefreshCompactLogsCommand}">
-                                    <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="15" Height="15" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                </Button>
-                                <Button Grid.Column="4" Command="{Binding OpenDetailedLogsCommand}">
+                                <Button Grid.Column="2" Command="{Binding OpenDetailedLogsCommand}">
                                     <StackPanel Orientation="Horizontal" Spacing="5">
                                         <PathIcon Data="{StaticResource AthenaIconDetails}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                         <TextBlock Text="详细"/>

@@ -42,9 +42,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public bool IsSidePanelsSwapped => AppSettings?.Config.MainLayout.SidePanelsSwapped == true;
 
-    [ObservableProperty]
-    private bool _compactLogsPaused;
-
     public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
 
     [ObservableProperty]
@@ -514,10 +511,8 @@ public partial class MainWindowViewModel : ViewModelBase
         await _configService.SaveAsync(AppSettings.Config);
     }
 
-    [RelayCommand]
     private async Task RefreshCompactLogsAsync()
     {
-        if (CompactLogsPaused) return;
         await LogsTabViewModel.RefreshLogsAsync();
         RebuildCompactLogs();
     }

@@ -44,6 +44,7 @@ public enum WorkspaceEditorMode
 public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
 {
     private bool _suppressLocalEdit;
+    private string _savedText = string.Empty;
     private Bitmap? _image;
 
     public string FullPath { get; init; } = string.Empty;
@@ -68,7 +69,10 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     private int _diffRemovedCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditMode))]
     private WorkspaceEditorMode _mode;
+
+    public bool IsEditMode => Mode == WorkspaceEditorMode.Edit;
 
     [ObservableProperty]
     private bool _isDirty;
@@ -97,11 +101,24 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
         _suppressLocalEdit = true;
         Text = text;
         _suppressLocalEdit = false;
+        _savedText = text;
         LastExternalChangeAt = changedAt;
         IsDirty = false;
     }
 
-    public void MarkSaved() => IsDirty = false;
+    public void MarkSaved()
+    {
+        _savedText = Text;
+        IsDirty = false;
+    }
+
+    public void CancelEdits()
+    {
+        _suppressLocalEdit = true;
+        Text = _savedText;
+        _suppressLocalEdit = false;
+        IsDirty = false;
+    }
 
     public void SetDiff(IReadOnlyList<WorkspaceDiffLine> lines)
     {
@@ -277,6 +294,15 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             await RefreshDiffAsync(tab);
             tab.Mode = WorkspaceEditorMode.Diff;
         }
+    }
+
+    [RelayCommand]
+    private void CancelFileEdits(WorkspaceEditorTabViewModel? tab)
+    {
+        tab ??= SelectedEditorTab;
+        if (tab == null || !tab.IsEditMode || !tab.IsDirty) return;
+        tab.CancelEdits();
+        StatusText = "已取消对 " + tab.RelativePath + " 的修改";
     }
 
     [RelayCommand]

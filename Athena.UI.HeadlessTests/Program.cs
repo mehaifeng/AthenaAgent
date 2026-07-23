@@ -66,6 +66,8 @@ var visibleFixedFileCommands = window.GetVisualDescendants().OfType<Button>()
     .ToList();
 if (visibleFixedFileCommands.Count != 0)
     throw new InvalidOperationException("File path commands must only appear in the file-node context menu.");
+if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "暂停"))
+    throw new InvalidOperationException("The compact log toolbar must not expose a pause command.");
 
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
@@ -105,10 +107,22 @@ var workbench = new WorkspaceWorkbenchViewModel(
     new HeadlessPathService(),
     new HeadlessInteractionService());
 workbench.EditorTabs.Add(diffTab);
+for (var index = 1; index <= 8; index++)
+{
+    var extraTab = new WorkspaceEditorTabViewModel
+    {
+        FullPath = $"/tmp/long-workspace-file-{index}.md",
+        RelativePath = $"long-workspace-file-{index}.md",
+        Mode = WorkspaceEditorMode.Preview
+    };
+    extraTab.ReplaceFromDisk($"# File {index}", DateTime.UtcNow);
+    workbench.EditorTabs.Add(extraTab);
+}
 workbench.SelectedEditorTab = diffTab;
+var workbenchView = new WorkspaceWorkbenchView { DataContext = workbench };
 var diffWindow = new Window
 {
-    Content = new WorkspaceWorkbenchView { DataContext = workbench },
+    Content = workbenchView,
     Width = 900,
     Height = 600
 };
@@ -118,10 +132,50 @@ if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text
     throw new InvalidOperationException("Visual diff did not render the removed line.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"new\";"))
     throw new InvalidOperationException("Visual diff did not render the inserted line.");
+var editorTabs = workbenchView.FindControl<ListBox>("EditorTabsList")
+                 ?? throw new InvalidOperationException("Scrollable editor tab list was not created.");
+var tabItems = editorTabs.GetVisualDescendants().OfType<ListBoxItem>().ToList();
+if (tabItems.Count != workbench.EditorTabs.Count)
+    throw new InvalidOperationException("The horizontal editor tab list did not materialize every tab.");
+if (tabItems.Select(item => item.Bounds.Y).Distinct().Count() != 1)
+    throw new InvalidOperationException("Editor tabs wrapped vertically instead of remaining on one horizontal row.");
+var tabScroller = editorTabs.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()
+                  ?? throw new InvalidOperationException("Editor tabs do not have a horizontal scroll host.");
+if (tabScroller.Extent.Width <= tabScroller.Viewport.Width)
+    throw new InvalidOperationException("Overflowing editor tabs did not create a horizontal scroll range.");
+tabScroller.Offset = new Vector(120, 0);
+Dispatcher.UIThread.RunJobs();
+if (tabScroller.Offset.X <= 0)
+    throw new InvalidOperationException("The editor tab strip cannot scroll horizontally.");
+var saveButton = workbenchView.FindControl<Button>("SaveEditorButton")
+                 ?? throw new InvalidOperationException("Save editor command was not created.");
+var cancelButton = workbenchView.FindControl<Button>("CancelEditorButton")
+                   ?? throw new InvalidOperationException("Cancel editor command was not created.");
+if (saveButton.IsVisible || cancelButton.IsVisible)
+    throw new InvalidOperationException("Save and cancel commands must be hidden outside edit mode.");
 var diffPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-diff.png");
 using var diffFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Diff renderer returned no frame.");
 await using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] visual workspace diff rendered to {diffPath}");
+
+diffTab.Mode = WorkspaceEditorMode.Edit;
+diffTab.Text += "\n// unsaved";
+var workbenchGrid = workbenchView.FindControl<Grid>("WorkbenchGrid")
+                    ?? throw new InvalidOperationException("Workbench grid was not created.");
+workbenchGrid.ColumnDefinitions[0].Width = new GridLength(240);
+Dispatcher.UIThread.RunJobs();
+if (!saveButton.IsVisible || !cancelButton.IsVisible || !saveButton.IsEnabled || !cancelButton.IsEnabled)
+    throw new InvalidOperationException("Dirty edit mode must expose enabled save and cancel link commands.");
+if (saveButton.FontSize != 10 || saveButton.BorderThickness != default)
+    throw new InvalidOperationException("Editor commands must use the compact borderless link style.");
+var editPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-edit.png");
+using var editFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Edit renderer returned no frame.");
+await using (var output = File.Create(editPath)) editFrame.Save(output, PngBitmapEncoderOptions.Default);
+Console.WriteLine($"[PASS] minimum-width edit toolbar rendered to {editPath}");
+workbench.CancelFileEditsCommand.Execute(diffTab);
+if (diffTab.IsDirty || diffTab.Text.Contains("// unsaved", StringComparison.Ordinal))
+    throw new InvalidOperationException("Cancel must restore the latest disk/saved buffer.");
+Console.WriteLine("[PASS] edit-only save/cancel commands, cancel restore, compact link styling, and horizontal tabs");
 diffWindow.Close();
 workbench.Dispose();
 

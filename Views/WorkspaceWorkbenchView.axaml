@@ -6,11 +6,36 @@
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              x:Class="Athena.UI.Views.WorkspaceWorkbenchView"
              x:DataType="vm:WorkspaceWorkbenchViewModel">
+    <UserControl.Styles>
+        <Style Selector="Button.editor-command">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="2"/>
+            <Setter Property="MinHeight" Value="20"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+        <Style Selector="Button.editor-command:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey0}"/>
+        </Style>
+        <Style Selector="Button.editor-command:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
+        <Style Selector="ListBox.editor-tabs">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.editor-tabs ListBoxItem">
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Styles>
     <Grid x:Name="WorkbenchGrid">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280" MinWidth="180"/>
+            <ColumnDefinition Width="280" MinWidth="240"/>
             <ColumnDefinition Width="5"/>
-            <ColumnDefinition Width="*" MinWidth="180"/>
+            <ColumnDefinition Width="*" MinWidth="100"/>
         </Grid.ColumnDefinitions>
         <Border Grid.Column="0"
                 IsVisible="{Binding IsEditorVisible}"
@@ -19,44 +44,65 @@
                 CornerRadius="8"
                 Background="{DynamicResource SemiColorBackground0}">
             <Grid RowDefinitions="Auto,*,Auto">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,7">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Edit">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="6,5">
+                    <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
+                        <Button Classes="editor-command" Command="{Binding SetEditorModeCommand}" CommandParameter="Edit">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <PathIcon Data="{StaticResource AthenaIconEdit}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="编辑"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Preview"
+                        <Button Classes="editor-command" Command="{Binding SetEditorModeCommand}" CommandParameter="Preview"
                                 IsEnabled="{Binding SelectedEditorTab.CanPreview}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <PathIcon Data="{StaticResource AthenaIconPreview}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <PathIcon Data="{StaticResource AthenaIconPreview}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="预览"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding SetEditorModeCommand}" CommandParameter="Diff"
+                        <Button Classes="editor-command" Command="{Binding SetEditorModeCommand}" CommandParameter="Diff"
                                 IsEnabled="{Binding SelectedEditorTab.CanDiff}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <PathIcon Data="{StaticResource AthenaIconBranch}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="Diff"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding SaveFileCommand}" CommandParameter="{Binding SelectedEditorTab}"
+                        <Button x:Name="SaveEditorButton" Classes="editor-command"
+                                Command="{Binding SaveFileCommand}" CommandParameter="{Binding SelectedEditorTab}"
+                                IsVisible="{Binding SelectedEditorTab.IsEditMode}"
                                 IsEnabled="{Binding SelectedEditorTab.IsDirty}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <PathIcon Data="{StaticResource AthenaIconSave}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <PathIcon Data="{StaticResource AthenaIconSave}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="保存"/>
                             </StackPanel>
                         </Button>
+                        <Button x:Name="CancelEditorButton" Classes="editor-command"
+                                Command="{Binding CancelFileEditsCommand}" CommandParameter="{Binding SelectedEditorTab}"
+                                IsVisible="{Binding SelectedEditorTab.IsEditMode}"
+                                IsEnabled="{Binding SelectedEditorTab.IsDirty}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <PathIcon Data="{StaticResource AthenaIconCancel}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="取消"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
-                    <Button Grid.Column="1" ToolTip.Tip="关闭编辑区" Command="{Binding CloseEditorPaneCommand}">
-                        <PathIcon Data="{StaticResource AthenaIconClose}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    <Button Grid.Column="1" Classes="editor-command" ToolTip.Tip="关闭编辑区" Command="{Binding CloseEditorPaneCommand}">
+                        <PathIcon Data="{StaticResource AthenaIconClose}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
                 </Grid>
-                <TabControl Grid.Row="1"
-                            ItemsSource="{Binding EditorTabs}"
-                            SelectedItem="{Binding SelectedEditorTab}">
-                    <TabControl.ItemTemplate>
+                <Grid Grid.Row="1" RowDefinitions="Auto,*">
+                    <ListBox x:Name="EditorTabsList"
+                             Grid.Row="0"
+                             Classes="editor-tabs"
+                             ItemsSource="{Binding EditorTabs}"
+                             SelectedItem="{Binding SelectedEditorTab}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:WorkspaceEditorTabViewModel">
                             <StackPanel Orientation="Horizontal" Spacing="5">
                                 <TextBlock Text="{Binding FileName}"/>
@@ -69,8 +115,10 @@
                                 </Button>
                             </StackPanel>
                         </DataTemplate>
-                    </TabControl.ItemTemplate>
-                    <TabControl.ContentTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <ContentControl Grid.Row="1" Content="{Binding SelectedEditorTab}">
+                        <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:WorkspaceEditorTabViewModel">
                             <Grid>
                                 <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -133,13 +181,15 @@
                                 </ScrollViewer>
                             </Grid>
                         </DataTemplate>
-                    </TabControl.ContentTemplate>
-                </TabControl>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </Grid>
                 <TextBlock Grid.Row="2" Text="{Binding StatusText}" FontSize="11" Opacity="0.65" Margin="10,5" TextTrimming="CharacterEllipsis"/>
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1" Width="5" Background="Transparent" IsVisible="{Binding IsEditorVisible}" DragCompleted="OnEditorSplitterDragCompleted"/>
+        <GridSplitter Grid.Column="1" Width="5" Background="{DynamicResource SemiColorBorder}"
+                      IsVisible="{Binding IsEditorVisible}" DragCompleted="OnEditorSplitterDragCompleted"/>
 
         <Border Grid.Column="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserColumn}"
                 Grid.ColumnSpan="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserSpan}"

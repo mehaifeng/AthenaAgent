@@ -26,6 +26,7 @@
     <StaticResource x:Key="AthenaIconSettings" ResourceKey="SemiIconSetting"/>
     <StaticResource x:Key="AthenaIconPreview" ResourceKey="SemiIconEyeOpened"/>
     <StaticResource x:Key="AthenaIconSave" ResourceKey="SemiIconSave"/>
+    <StaticResource x:Key="AthenaIconCancel" ResourceKey="SemiIconUndo"/>
     <StaticResource x:Key="AthenaIconClose" ResourceKey="SemiIconClose"/>
     <StaticResource x:Key="AthenaIconOpenFile" ResourceKey="SemiIconFile"/>
     <StaticResource x:Key="AthenaIconCopy" ResourceKey="SemiIconCopy"/>
