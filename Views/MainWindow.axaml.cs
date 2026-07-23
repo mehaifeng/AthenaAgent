@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -64,6 +66,15 @@ public partial class MainWindow : Window
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
+    }
+
+    private void OnOverflowMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control control && control.ContextFlyout is FlyoutBase flyout)
+        {
+            flyout.ShowAt(control);
+            e.Handled = true;
+        }
     }
 
     private void ApplySavedLayout()

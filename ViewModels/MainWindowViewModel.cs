@@ -4,13 +4,17 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Views;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
@@ -54,6 +58,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<WorkspaceConversationGroupViewModel> ConversationGroups { get; } = new();
 
+    public ObservableCollection<ConversationSessionItemViewModel> PinnedConversations { get; } = new();
+
+    public bool HasPinnedConversations => PinnedConversations.Count > 0;
+
     [ObservableProperty]
     private ConversationSessionItemViewModel? _selectedConversation;
 
@@ -95,6 +103,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var oldGroup = ConversationGroups.FirstOrDefault(group => group.Conversations.Contains(oldValue));
             oldGroup?.Conversations.Remove(oldValue);
+            PinnedConversations.Remove(oldValue);
+            OnPropertyChanged(nameof(HasPinnedConversations));
             oldValue.Dispose();
             if (_conversationStore != null) _ = _conversationStore.DeleteAsync(oldValue.HistoryId);
         }
@@ -347,12 +357,15 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ConversationGroups.Clear();
             var globalGroup = new WorkspaceConversationGroupViewModel(null);
+            WireGroup(globalGroup);
             ConversationGroups.Add(globalGroup);
 
             var workspaces = _workspaceService == null ? [] : await _workspaceService.LoadAllAsync();
             foreach (var workspace in workspaces)
             {
-                ConversationGroups.Add(new WorkspaceConversationGroupViewModel(workspace));
+                var group = new WorkspaceConversationGroupViewModel(workspace);
+                WireGroup(group);
+                ConversationGroups.Add(group);
             }
 
             var histories = _conversationArchiveService == null ? [] : await _conversationArchiveService.LoadAllAsync();
@@ -376,6 +389,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 WireSession(session);
                 group.Conversations.Add(session);
             }
+            RefreshPinnedConversations();
 
             var initial = ConversationGroups.SelectMany(group => group.Conversations).OrderByDescending(session => session.UpdatedAt).FirstOrDefault();
             if (initial == null)
@@ -387,7 +401,12 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.Error(ex, "初始化多会话树失败");
-            if (ConversationGroups.Count == 0) ConversationGroups.Add(new WorkspaceConversationGroupViewModel(null));
+            if (ConversationGroups.Count == 0)
+            {
+                var globalGroup = new WorkspaceConversationGroupViewModel(null);
+                WireGroup(globalGroup);
+                ConversationGroups.Add(globalGroup);
+            }
             SelectedConversation = await CreateConversationCoreAsync(ConversationGroups[0]);
         }
         finally
@@ -438,6 +457,7 @@ public partial class MainWindowViewModel : ViewModelBase
             };
             if (existing == null) await _workspaceService.SaveAsync(workspace);
             group = new WorkspaceConversationGroupViewModel(workspace);
+            WireGroup(group);
             ConversationGroups.Add(group);
         }
         SelectedConversation = await CreateConversationCoreAsync(group);
@@ -450,6 +470,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (session.IsRunning) session.Chat.StopResponseCommand.Execute(null);
         var group = ConversationGroups.FirstOrDefault(candidate => candidate.Conversations.Contains(session));
         group?.Conversations.Remove(session);
+        RefreshPinnedConversations();
         if (_conversationStore != null) await _conversationStore.DeleteAsync(session.HistoryId);
         session.Dispose();
         if (ReferenceEquals(SelectedConversation, session))
@@ -546,8 +567,8 @@ public partial class MainWindowViewModel : ViewModelBase
             Summary = source.Title + " · 分支",
             CreatedAt = DateTime.Now,
             UpdatedAt = DateTime.Now,
-            MessageCount = original.MessageCount,
-            Messages = ConversationPersistenceHelper.CloneMessages(original.Messages),
+            MessageCount = 0,
+            Messages = [],
             WorkspaceId = original.WorkspaceId,
             ForkedFromConversationId = original.ConversationId,
             ForkedFromHistoryId = original.Id
@@ -566,7 +587,8 @@ public partial class MainWindowViewModel : ViewModelBase
             ForkedFromHistoryId = fork.ForkedFromHistoryId
         };
         WireSession(session);
-        group.Conversations.Insert(0, session);
+        var sourceIndex = group.Conversations.IndexOf(source);
+        group.Conversations.Insert(sourceIndex < 0 ? 0 : sourceIndex + 1, session);
         SelectedConversation = session;
     }
 
@@ -574,7 +596,125 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         session.DeleteRequested += async (_, _) => await DeleteConversationAsync(session);
         session.ForkRequested += async (_, _) => await ForkConversationAsync(session);
+        session.ExportRequested += async (_, _) => await ExportConversationAsync(session);
+        session.PinChanged += (_, _) => RefreshPinnedConversations();
         RefreshApprovalStates();
+    }
+
+    private void WireGroup(WorkspaceConversationGroupViewModel group)
+    {
+        group.RenameCommitted += async (_, _) =>
+        {
+            if (group.Workspace != null && _workspaceService != null)
+            {
+                await _workspaceService.SaveAsync(group.Workspace);
+            }
+        };
+        group.RevealRequested += (_, _) => RevealWorkspace(group);
+        group.CopyPathRequested += async (_, _) => await CopyWorkspacePathAsync(group);
+        group.DeleteRequested += async (_, _) => await DeleteWorkspaceAsync(group);
+    }
+
+    private void RefreshPinnedConversations()
+    {
+        var pinned = ConversationGroups
+            .SelectMany(group => group.Conversations)
+            .Where(session => session.IsPinned)
+            .OrderByDescending(session => session.UpdatedAt)
+            .ToList();
+        PinnedConversations.Clear();
+        foreach (var session in pinned) PinnedConversations.Add(session);
+        OnPropertyChanged(nameof(HasPinnedConversations));
+    }
+
+    private async Task CopyWorkspacePathAsync(WorkspaceConversationGroupViewModel group)
+    {
+        if (!group.IsWorkspace || string.IsNullOrWhiteSpace(group.DirectoryPath)) return;
+        var clipboard = MainOwner == null ? null : TopLevel.GetTopLevel(MainOwner)?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(group.DirectoryPath);
+    }
+
+    private void RevealWorkspace(WorkspaceConversationGroupViewModel group)
+    {
+        if (!group.IsWorkspace || !Directory.Exists(group.DirectoryPath)) return;
+        var start = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("explorer.exe", $"\"{group.DirectoryPath}\"") { UseShellExecute = true }
+            : OperatingSystem.IsMacOS()
+                ? new ProcessStartInfo("open", $"\"{group.DirectoryPath}\"") { UseShellExecute = true }
+                : new ProcessStartInfo("xdg-open", $"\"{group.DirectoryPath}\"") { UseShellExecute = true };
+        Process.Start(start);
+    }
+
+    private async Task DeleteWorkspaceAsync(WorkspaceConversationGroupViewModel group)
+    {
+        if (group.Workspace == null || _workspaceService == null) return;
+        if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
+                "删除工作区",
+                $"确定要删除“{group.Name}”吗？工作区知识文件将被删除，会话历史仍会保留。",
+                "删除",
+                "取消")) return;
+        if (!await _workspaceService.DeleteAsync(group.Workspace.Id)) return;
+
+        foreach (var session in group.Conversations)
+        {
+            if (session.IsRunning) session.Chat.StopResponseCommand.Execute(null);
+            PinnedConversations.Remove(session);
+        }
+
+        if (SelectedConversation != null && group.Conversations.Contains(SelectedConversation))
+        {
+            SelectedConversation = ConversationGroups
+                .Where(candidate => !ReferenceEquals(candidate, group))
+                .SelectMany(candidate => candidate.Conversations)
+                .OrderByDescending(session => session.UpdatedAt)
+                .FirstOrDefault()
+                ?? await CreateConversationCoreAsync(GlobalConversationGroup ?? ConversationGroups[0]);
+        }
+
+        ConversationGroups.Remove(group);
+        foreach (var session in group.Conversations) session.Dispose();
+        RefreshPinnedConversations();
+    }
+
+    private async Task ExportConversationAsync(ConversationSessionItemViewModel session)
+    {
+        if (_userInteractionService == null) return;
+        var safeTitle = string.Concat(session.Title.Select(character =>
+            Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+        var target = await _userInteractionService.PickSaveFileAsync(
+            "导出对话",
+            $"{safeTitle}.md",
+            "Markdown",
+            ["*.md"]);
+        if (string.IsNullOrWhiteSpace(target)) return;
+
+        var markdown = new StringBuilder()
+            .Append("# ").AppendLine(session.Title)
+            .AppendLine()
+            .Append("> 导出时间：").AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+            .AppendLine();
+        foreach (var message in session.Chat.Messages.Where(message => message.IsVisibleToUser))
+        {
+            var role = message.Role switch
+            {
+                "user" => "用户",
+                "assistant" => "Athena",
+                "system" => "系统",
+                _ => message.Role
+            };
+            markdown.Append("## ").Append(role).Append(" · ")
+                .AppendLine(message.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"))
+                .AppendLine()
+                .AppendLine(message.Content)
+                .AppendLine();
+            foreach (var attachment in message.Attachments)
+            {
+                markdown.Append("- 附件：").Append(attachment.DisplayName)
+                    .Append("（").Append(attachment.DisplayKind).AppendLine("）");
+            }
+            if (message.Attachments.Count > 0) markdown.AppendLine();
+        }
+        await File.WriteAllTextAsync(target, markdown.ToString());
     }
 
     private void RefreshApprovalStates()

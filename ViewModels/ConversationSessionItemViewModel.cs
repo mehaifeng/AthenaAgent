@@ -20,6 +20,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public event EventHandler? DeleteRequested;
     public event EventHandler? ForkRequested;
+    public event EventHandler? ExportRequested;
+    public event EventHandler? PinChanged;
 
     public ConversationSessionItemViewModel(
         ChatTabViewModel chat,
@@ -55,7 +57,10 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     private string _title = "新对话";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PinActionText))]
     private bool _isPinned;
+
+    public string PinActionText => IsPinned ? "取消置顶" : "置顶";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
@@ -119,7 +124,11 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public string StatusGlyph => IsWaitingForApproval ? "◆" : IsQueued || IsRunning ? "●" : WasInterrupted ? "!" : HasUnreadCompletion ? "✓" : string.Empty;
 
-    partial void OnIsPinnedChanged(bool value) => ScheduleSave();
+    partial void OnIsPinnedChanged(bool value)
+    {
+        ScheduleSave();
+        PinChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     partial void OnIsSelectedChanged(bool value)
     {
@@ -160,6 +169,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     [RelayCommand]
     private void RequestFork() => ForkRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private void RequestExport() => ExportRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -253,12 +265,16 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     public WorkspaceConversationGroupViewModel(WorkspaceProfile? workspace)
     {
         Workspace = workspace;
+        Name = workspace?.Name ?? "全局对话";
         IsExpanded = true;
     }
 
     public WorkspaceProfile? Workspace { get; }
 
-    public string Name => Workspace?.Name ?? "全局对话";
+    public bool IsWorkspace => Workspace != null;
+
+    [ObservableProperty]
+    private string _name;
 
     public string DirectoryPath => Workspace?.DirectoryPath ?? string.Empty;
 
@@ -269,4 +285,56 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isSearchMatch = true;
+
+    [ObservableProperty]
+    private bool _isRenaming;
+
+    [ObservableProperty]
+    private string _renameText = string.Empty;
+
+    public event EventHandler? RenameCommitted;
+    public event EventHandler? RevealRequested;
+    public event EventHandler? CopyPathRequested;
+    public event EventHandler? DeleteRequested;
+
+    [RelayCommand]
+    private void StartRename()
+    {
+        if (!IsWorkspace) return;
+        RenameText = Name;
+        IsRenaming = true;
+    }
+
+    [RelayCommand]
+    private void CommitRename()
+    {
+        if (!IsWorkspace || string.IsNullOrWhiteSpace(RenameText))
+        {
+            IsRenaming = false;
+            return;
+        }
+
+        Name = RenameText.Trim();
+        Workspace!.Name = Name;
+        IsRenaming = false;
+        RenameCommitted?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void RequestReveal()
+    {
+        if (IsWorkspace) RevealRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void RequestCopyPath()
+    {
+        if (IsWorkspace) CopyPathRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void RequestDelete()
+    {
+        if (IsWorkspace) DeleteRequested?.Invoke(this, EventArgs.Empty);
+    }
 }
