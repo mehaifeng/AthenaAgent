@@ -298,6 +298,9 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     public event EventHandler? DeleteRequested;
 
     [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
+
+    [RelayCommand]
     private void StartRename()
     {
         if (!IsWorkspace) return;

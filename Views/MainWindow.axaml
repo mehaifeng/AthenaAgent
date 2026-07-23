@@ -17,8 +17,9 @@
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
             <Border Classes="conversation-card"
                     IsVisible="{Binding IsSearchMatch}"
-                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                    BorderThickness="1"
+                    Background="{DynamicResource App.NavigationCardBackgroundBrush}"
+                    BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
+                    BorderThickness="1.2"
                     CornerRadius="6"
                     Margin="0,2">
                 <Grid>
@@ -119,6 +120,15 @@
             <Setter Property="MinWidth" Value="28"/>
             <Setter Property="MinHeight" Value="28"/>
         </Style>
+        <Style Selector="Button.workspace-header">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
     </Window.Styles>
 
     <Grid>
@@ -178,7 +188,9 @@
                     </Grid>
 
                     <Border Grid.Row="2" Margin="7,0,7,5" Padding="5"
-                            BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="1" CornerRadius="7"
+                            Background="{DynamicResource App.NavigationCardBackgroundBrush}"
+                            BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
+                            BorderThickness="1.2" CornerRadius="7"
                             IsVisible="{Binding HasPinnedConversations}" MaxHeight="180">
                         <Grid RowDefinitions="Auto,*">
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="5,2,5,3">
@@ -198,60 +210,65 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:WorkspaceConversationGroupViewModel">
                                     <Border Classes="workspace-card" IsVisible="{Binding IsSearchMatch}" Margin="1,3"
-                                            BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="1" CornerRadius="7">
-                                        <Expander IsExpanded="{Binding IsExpanded}">
-                                            <Expander.Header>
-                                                <Grid ColumnDefinitions="*,Auto,Auto" Height="34">
+                                            Background="{DynamicResource App.NavigationCardBackgroundBrush}"
+                                            BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
+                                            BorderThickness="1.2" CornerRadius="7">
+                                        <Grid RowDefinitions="Auto,Auto">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" Height="34">
+                                                <Button Classes="workspace-header"
+                                                        IsVisible="{Binding !IsRenaming}"
+                                                        Command="{Binding ToggleExpandedCommand}">
                                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12"
-                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                               IsVisible="{Binding !IsRenaming}"/>
-                                                    <TextBox Text="{Binding RenameText}" FontSize="11" VerticalAlignment="Center"
-                                                             IsVisible="{Binding IsRenaming}"/>
-                                                    <Button Grid.Column="1" Classes="icon-plain workspace-add-conversation"
-                                                            ToolTip.Tip="在此工作区新建对话"
-                                                            Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
-                                                            CommandParameter="{Binding}">
-                                                        <Path Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Stretch="Uniform"
-                                                              Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
-                                                              StrokeLineCap="Round" StrokeJoin="Round"/>
-                                                    </Button>
-                                                    <Button Grid.Column="2" Classes="icon-plain workspace-menu" ToolTip.Tip="工作区菜单"
-                                                            Click="OnOverflowMenuClick"
-                                                            IsVisible="{Binding IsWorkspace}">
-                                                        <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Stretch="Uniform"
-                                                              Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
-                                                              StrokeLineCap="Round" StrokeJoin="Round"/>
-                                                        <Button.ContextFlyout>
-                                                            <MenuFlyout>
-                                                                <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
-                                                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
-                                                                    <MenuItem.Icon>
-                                                                        <Path Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Stretch="Uniform"
-                                                                              Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
-                                                                              StrokeLineCap="Round" StrokeJoin="Round"/>
-                                                                    </MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
-                                                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                                <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
-                                                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
-                                                                </MenuItem>
-                                                            </MenuFlyout>
-                                                        </Button.ContextFlyout>
-                                                    </Button>
-                                                    <Button Grid.Column="2" Classes="icon-plain" ToolTip.Tip="确认重命名"
-                                                            IsVisible="{Binding IsRenaming}" Command="{Binding CommitRenameCommand}">
-                                                        <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                                    </Button>
-                                                </Grid>
-                                            </Expander.Header>
-                                            <ItemsControl ItemsSource="{Binding Conversations}"
+                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                </Button>
+                                                <TextBox Text="{Binding RenameText}" FontSize="11" VerticalAlignment="Center"
+                                                         Margin="6,2" IsVisible="{Binding IsRenaming}"/>
+                                                <Button Grid.Column="1" Classes="icon-plain workspace-add-conversation"
+                                                        ToolTip.Tip="在此工作区新建对话"
+                                                        Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <Path Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Stretch="Uniform"
+                                                          Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
+                                                          StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                </Button>
+                                                <Button Grid.Column="2" Classes="icon-plain workspace-menu" ToolTip.Tip="工作区菜单"
+                                                        Click="OnOverflowMenuClick"
+                                                        IsVisible="{Binding IsWorkspace}">
+                                                    <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Stretch="Uniform"
+                                                          Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
+                                                          StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                    <Button.ContextFlyout>
+                                                        <MenuFlyout>
+                                                            <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
+                                                                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                            </MenuItem>
+                                                            <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
+                                                                <MenuItem.Icon>
+                                                                    <Path Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Stretch="Uniform"
+                                                                          Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
+                                                                          StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                                </MenuItem.Icon>
+                                                            </MenuItem>
+                                                            <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
+                                                                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                            </MenuItem>
+                                                            <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
+                                                                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+                                                            </MenuItem>
+                                                        </MenuFlyout>
+                                                    </Button.ContextFlyout>
+                                                </Button>
+                                                <Button Grid.Column="2" Classes="icon-plain" ToolTip.Tip="确认重命名"
+                                                        IsVisible="{Binding IsRenaming}" Command="{Binding CommitRenameCommand}">
+                                                    <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                </Button>
+                                            </Grid>
+                                            <ItemsControl Grid.Row="1"
+                                                          ItemsSource="{Binding Conversations}"
                                                           ItemTemplate="{StaticResource ConversationSessionItemTemplate}"
+                                                          IsVisible="{Binding IsExpanded}"
                                                           Margin="7,0,5,5"/>
-                                        </Expander>
+                                        </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

@@ -100,8 +100,17 @@ if (addWorkspaceButton.Bounds.Left - searchBox.Bounds.Right < 5)
 var workspaceCards = window.GetVisualDescendants().OfType<Border>()
     .Where(border => border.Classes.Contains("workspace-card"))
     .ToList();
-if (workspaceCards.Count < 2 || workspaceCards.Any(border => border.BorderThickness == default))
+if (workspaceCards.Count < 2
+    || workspaceCards.Any(border => border.BorderThickness.Left < 1.1 || border.BorderBrush == null || border.Background == null))
     throw new InvalidOperationException("Workspace items must have a visible outline.");
+if (workspaceCards.SelectMany(card => card.GetVisualDescendants()).OfType<Expander>().Any())
+    throw new InvalidOperationException("Workspace cards must not contain the built-in expander dropdown icon.");
+var conversationCards = window.GetVisualDescendants().OfType<Border>()
+    .Where(border => border.Classes.Contains("conversation-card"))
+    .ToList();
+if (conversationCards.Count < 4
+    || conversationCards.Any(border => border.BorderThickness.Left < 1.1 || border.BorderBrush == null || border.Background == null))
+    throw new InvalidOperationException("Conversation items must have a visible outline.");
 if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == workspaceProfile.DirectoryPath))
     throw new InvalidOperationException("Workspace cards must not render directory paths.");
 var pinnedList = window.FindControl<ItemsControl>("PinnedConversationsList")
@@ -165,7 +174,13 @@ groupCommandChecks.CommitRenameCommand.Execute(null);
 groupCommandChecks.RequestRevealCommand.Execute(null);
 groupCommandChecks.RequestCopyPathCommand.Execute(null);
 groupCommandChecks.RequestDeleteCommand.Execute(null);
-if (workspaceProfile.Name != "Renamed workspace" || renameCount != 1 || revealCount != 1 || copyPathCount != 1 || deleteWorkspaceCount != 1)
+groupCommandChecks.ToggleExpandedCommand.Execute(null);
+if (workspaceProfile.Name != "Renamed workspace"
+    || groupCommandChecks.IsExpanded
+    || renameCount != 1
+    || revealCount != 1
+    || copyPathCount != 1
+    || deleteWorkspaceCount != 1)
     throw new InvalidOperationException("Workspace item commands are not fully wired.");
 var sessionCommandChecks = new ConversationSessionItemViewModel(new ChatTabViewModel(), workspaceProfile, null);
 var exportCount = 0;
