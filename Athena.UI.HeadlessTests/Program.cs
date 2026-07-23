@@ -68,6 +68,8 @@ if (visibleFixedFileCommands.Count != 0)
     throw new InvalidOperationException("File path commands must only appear in the file-node context menu.");
 if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "暂停"))
     throw new InvalidOperationException("The compact log toolbar must not expose a pause command.");
+if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text is "工作区文件" or "编辑区"))
+    throw new InvalidOperationException("The workspace file header must not expose redundant section labels or editor buttons.");
 
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
