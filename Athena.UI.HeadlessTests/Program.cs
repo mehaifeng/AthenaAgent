@@ -103,8 +103,8 @@ var workspaceCards = window.GetVisualDescendants().OfType<Border>()
 if (workspaceCards.Count < 2
     || workspaceCards.Any(border => border.BorderThickness.Left < 1.1 || border.BorderBrush == null || border.Background == null))
     throw new InvalidOperationException("Workspace items must have a visible outline.");
-if (workspaceCards.SelectMany(card => card.GetVisualDescendants()).OfType<Expander>().Any())
-    throw new InvalidOperationException("Workspace cards must not contain the built-in expander dropdown icon.");
+if (workspaceCards.Any(card => !card.GetVisualDescendants().OfType<Expander>().Any()))
+    throw new InvalidOperationException("Every workspace card must retain its native expander behavior.");
 var conversationCards = window.GetVisualDescendants().OfType<Border>()
     .Where(border => border.Classes.Contains("conversation-card"))
     .ToList();
@@ -174,9 +174,7 @@ groupCommandChecks.CommitRenameCommand.Execute(null);
 groupCommandChecks.RequestRevealCommand.Execute(null);
 groupCommandChecks.RequestCopyPathCommand.Execute(null);
 groupCommandChecks.RequestDeleteCommand.Execute(null);
-groupCommandChecks.ToggleExpandedCommand.Execute(null);
 if (workspaceProfile.Name != "Renamed workspace"
-    || groupCommandChecks.IsExpanded
     || renameCount != 1
     || revealCount != 1
     || copyPathCount != 1
