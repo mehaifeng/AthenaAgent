@@ -22,12 +22,17 @@
         </Style>
         <Style Selector="Button.launcher">
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Padding" Value="11,9"/>
             <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="40"/>
         </Style>
         <Style Selector="Button.session-row">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="8,7"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Margin" Value="0,2"/>
             <Setter Property="Background" Value="Transparent"/>
         </Style>
@@ -82,7 +87,7 @@
                                                         CommandParameter="{Binding}"/>
                                             </Grid>
                                         </Expander.Header>
-                                        <ItemsControl ItemsSource="{Binding Conversations}" Margin="8,0,0,5">
+                                        <ItemsControl ItemsSource="{Binding Conversations}" Margin="8,0,4,5">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:ConversationSessionItemViewModel">
                                                     <Grid IsVisible="{Binding IsSearchMatch}">
@@ -99,13 +104,26 @@
                                                                     <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}"/>
                                                                 </MenuFlyout>
                                                             </Button.ContextFlyout>
-                                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                                                                <TextBlock Text="◆" FontSize="9" VerticalAlignment="Center" IsVisible="{Binding IsPinned}"/>
-                                                                <StackPanel Grid.Column="1">
-                                                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
-                                                                    <TextBlock Text="{Binding StatusText}" FontSize="10" Opacity="0.65"/>
-                                                                </StackPanel>
-                                                                <TextBlock Grid.Column="2" Text="{Binding StatusGlyph}" VerticalAlignment="Center"/>
+                                                            <Grid ColumnDefinitions="16,18,*,54,14" ColumnSpacing="5">
+                                                                <Grid Width="16" ToolTip.Tip="{Binding StatusText}">
+                                                                    <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource SemiGreen6}"
+                                                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowRunningIndicator}"/>
+                                                                    <TextBlock Text="…" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                               IsVisible="{Binding ShowQueuedIndicator}"/>
+                                                                    <TextBlock Text="◆" FontSize="9" Foreground="{DynamicResource SemiOrange5}"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowWaitingIndicator}"/>
+                                                                    <TextBlock Text="!" FontWeight="Bold" Foreground="{DynamicResource SemiRed6}"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowInterruptedIndicator}"/>
+                                                                    <TextBlock Text="✓" Foreground="{DynamicResource SemiGreen6}"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
+                                                                </Grid>
+                                                                <PathIcon Grid.Column="1" Data="{StaticResource SemiIconBranch}" Width="13" Height="13"
+                                                                          Opacity="0.65" IsVisible="{Binding IsForked}" ToolTip.Tip="分支会话"/>
+                                                                <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="10" Opacity="0.58"
+                                                                           TextAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Grid.Column="4" Text="◆" FontSize="8" Opacity="0.7" VerticalAlignment="Center"
+                                                                           IsVisible="{Binding IsPinned}" ToolTip.Tip="已置顶"/>
                                                             </Grid>
                                                         </Button>
                                                         <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="3">

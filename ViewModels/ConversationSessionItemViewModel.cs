@@ -45,6 +45,12 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public string WorkspaceId => Workspace?.Id ?? string.Empty;
 
+    public string? ForkedFromConversationId { get; init; }
+
+    public string? ForkedFromHistoryId { get; init; }
+
+    public bool IsForked => !string.IsNullOrWhiteSpace(ForkedFromConversationId);
+
     [ObservableProperty]
     private string _title = "新对话";
 
@@ -54,6 +60,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _hasUnreadCompletion;
 
     [ObservableProperty]
@@ -62,11 +69,18 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _wasInterrupted;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(ShowWaitingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowQueuedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowRunningIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _isWaitingForApproval;
 
     [ObservableProperty]
@@ -84,6 +98,12 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public bool IsRunning => Chat.IsSending && !Chat.IsQueued;
 
     public bool IsQueued => Chat.IsQueued;
+
+    public bool ShowWaitingIndicator => IsWaitingForApproval;
+    public bool ShowQueuedIndicator => !IsWaitingForApproval && IsQueued;
+    public bool ShowRunningIndicator => !IsWaitingForApproval && !IsQueued && IsRunning;
+    public bool ShowInterruptedIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && WasInterrupted;
+    public bool ShowCompletionIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && !WasInterrupted && HasUnreadCompletion;
 
     public string StatusText => IsWaitingForApproval
         ? "等待审批"
@@ -153,6 +173,10 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             OnPropertyChanged(nameof(IsQueued));
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(StatusGlyph));
+            OnPropertyChanged(nameof(ShowQueuedIndicator));
+            OnPropertyChanged(nameof(ShowRunningIndicator));
+            OnPropertyChanged(nameof(ShowInterruptedIndicator));
+            OnPropertyChanged(nameof(ShowCompletionIndicator));
         }
 
         if (e.PropertyName == nameof(ChatTabViewModel.InputText)) ScheduleSave();
@@ -189,7 +213,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             WorkspaceId = Workspace?.Id,
             Draft = Chat.InputText,
             IsPinned = IsPinned,
-            RuntimeStatus = Chat.IsSending ? "interrupted" : "idle"
+            RuntimeStatus = Chat.IsSending ? "interrupted" : "idle",
+            ForkedFromConversationId = ForkedFromConversationId,
+            ForkedFromHistoryId = ForkedFromHistoryId
         };
         await _store.SaveAsync(item);
     }

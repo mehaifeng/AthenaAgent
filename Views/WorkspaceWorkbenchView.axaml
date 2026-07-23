@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:services="using:Athena.UI.Services"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              x:Class="Athena.UI.Views.WorkspaceWorkbenchView"
@@ -58,12 +59,51 @@
                                 <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Preview}">
                                     <lmd:MarkdownRenderer Margin="16" loc:MarkdownHelper.Text="{Binding Text}"/>
                                 </ScrollViewer>
-                                <TextBox Text="{Binding DiffText}"
-                                         IsReadOnly="True"
-                                         AcceptsReturn="True"
-                                         TextWrapping="NoWrap"
-                                         FontFamily="Menlo, Consolas, monospace"
-                                         IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Diff}"/>
+                                <Grid IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Diff}"
+                                      RowDefinitions="Auto,*">
+                                    <Border Padding="8,5" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SemiGreyLowBrush}">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                                            <TextBlock Text="HEAD  ↔  当前编辑缓冲区" FontSize="11" FontWeight="SemiBold"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding DiffAddedCount, StringFormat=+{0}}"
+                                                       Foreground="{DynamicResource SemiGreen6}" FontSize="11"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding DiffRemovedCount, StringFormat=−{0}}"
+                                                       Foreground="{DynamicResource SemiRed6}" FontSize="11"/>
+                                        </Grid>
+                                    </Border>
+                                    <ListBox Grid.Row="1" ItemsSource="{Binding DiffLines}" Background="Transparent">
+                                        <ListBox.Styles>
+                                            <Style Selector="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="MinHeight" Value="22"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            </Style>
+                                            <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                        </ListBox.Styles>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="services:WorkspaceDiffLine">
+                                                <Grid ColumnDefinitions="38,38,22,*" MinHeight="22">
+                                                    <Border Grid.ColumnSpan="4" Background="#1F2DA44E" IsVisible="{Binding IsAdded}"/>
+                                                    <Border Grid.ColumnSpan="4" Background="#1FF85149" IsVisible="{Binding IsRemoved}"/>
+                                                    <Border Grid.Column="0" Background="#0D808080"/>
+                                                    <Border Grid.Column="1" Background="#0D808080"/>
+                                                    <TextBlock Grid.Column="0" Text="{Binding OldLineNumberText}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontSize="10" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding NewLineNumberText}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontSize="10" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Prefix}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="3" Text="{Binding Text}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontSize="11" TextWrapping="NoWrap" Padding="4,3,8,2"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
                                 <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Image}">
                                     <Image Source="{Binding Image}" Stretch="Uniform" Margin="12"/>
                                 </ScrollViewer>
@@ -92,11 +132,6 @@
                     <Button Grid.Column="1" Content="↻" Command="{Binding RefreshFilesCommand}" ToolTip.Tip="刷新"/>
                     <Button Grid.Column="2" Content="＋编辑区" Command="{Binding OpenFileCommand}" IsVisible="{Binding !IsEditorVisible}"/>
                 </Grid>
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="8,0,8,6" Spacing="5">
-                    <Button Content="复制路径" Command="{Binding CopyRelativePathCommand}" CommandParameter="{Binding SelectedFile}"/>
-                    <Button Content="绝对路径" Command="{Binding CopyAbsolutePathCommand}" CommandParameter="{Binding SelectedFile}"/>
-                    <Button Content="删除" Command="{Binding DeleteFileCommand}" CommandParameter="{Binding SelectedFile}"/>
-                </StackPanel>
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="8,0,8,6" IsVisible="{Binding IsRenameVisible}" Background="{DynamicResource SemiColorBackground0}">
                     <TextBox Text="{Binding RenameName}"/>
                     <Button Grid.Column="1" Content="重命名" Command="{Binding CommitRenameFileCommand}"/>

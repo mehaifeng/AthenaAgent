@@ -9,6 +9,7 @@
     <Compile Remove="Stubs/AppConfig.cs" />
     <PackageReference Include="Avalonia" Version="12.1.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.6.26359.118" />
     <PackageReference Include="OpenAI" Version="2.12.0" />
     <PackageReference Include="Serilog" Version="4.4.0" />
@@ -33,6 +34,7 @@
     <Compile Include="../Services/ToolApprovalService.cs" Link="Source/Services/ToolApprovalService.cs" />
     <Compile Include="../Services/ConversationExecutionCoordinator.cs" Link="Source/Services/ConversationExecutionCoordinator.cs" />
     <Compile Include="../Services/WorkspaceOperationCoordinator.cs" Link="Source/Services/WorkspaceOperationCoordinator.cs" />
+    <Compile Include="../Services/WorkspaceDiffBuilder.cs" Link="Source/Services/WorkspaceDiffBuilder.cs" />
     <Compile Include="../Services/Interfaces/IToolApprovalService.cs" Link="Source/Services/Interfaces/IToolApprovalService.cs" />
     <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
     <Compile Include="../Models/SubAgentModels.cs" Link="Source/Models/SubAgentModels.cs" />

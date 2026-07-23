@@ -53,6 +53,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync),
     ("conversation queue releases its model slot while awaiting approval", TestConversationExecutionPauseAsync),
     ("workspace mutations serialize per workspace and parallelize across workspaces", TestWorkspaceOperationCoordinatorAsync),
+    ("workspace diff aligns inserted and removed lines with visual metadata", TestWorkspaceDiffBuilderAsync),
     ("diff: exact single-block apply", TestDiffExactApplyAsync),
     ("diff: trailing-whitespace tolerance", TestDiffTrailingWhitespaceAsync),
     ("diff: indentation-tolerant match reindents replacement", TestDiffReindentAsync),
@@ -387,6 +388,21 @@ static async Task TestWorkspaceOperationCoordinatorAsync()
     releaseFirst.TrySetResult();
     await Task.WhenAll(first, second, other).WaitAsync(TimeSpan.FromSeconds(2));
     AssertTrue(secondEntered.Task.IsCompleted, "queued mutation should run after the first mutation completes");
+}
+
+static Task TestWorkspaceDiffBuilderAsync()
+{
+    var lines = WorkspaceDiffBuilder.Build("alpha\nold value\nomega", "alpha\nnew value\nomega");
+    var removed = lines.Single(line => line.IsRemoved);
+    var added = lines.Single(line => line.IsAdded);
+
+    AssertEqual("old value", removed.Text, "removed content should be preserved");
+    AssertEqual(2, removed.OldLineNumber, "removed line should keep the HEAD line number");
+    AssertEqual<int?>(null, removed.NewLineNumber, "removed line has no current-buffer line number");
+    AssertEqual("new value", added.Text, "inserted content should be preserved");
+    AssertEqual<int?>(null, added.OldLineNumber, "inserted line has no HEAD line number");
+    AssertEqual(2, added.NewLineNumber, "inserted line should keep the current-buffer line number");
+    return Task.CompletedTask;
 }
 
 static Task TestAudioSdkBaseUrlAsync()

@@ -15,7 +15,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,8 +59,13 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _text = string.Empty;
 
+    public ObservableCollection<WorkspaceDiffLine> DiffLines { get; } = new();
+
     [ObservableProperty]
-    private string _diffText = string.Empty;
+    private int _diffAddedCount;
+
+    [ObservableProperty]
+    private int _diffRemovedCount;
 
     [ObservableProperty]
     private WorkspaceEditorMode _mode;
@@ -98,6 +102,14 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     }
 
     public void MarkSaved() => IsDirty = false;
+
+    public void SetDiff(IReadOnlyList<WorkspaceDiffLine> lines)
+    {
+        DiffLines.Clear();
+        foreach (var line in lines) DiffLines.Add(line);
+        DiffAddedCount = lines.Count(line => line.IsAdded);
+        DiffRemovedCount = lines.Count(line => line.IsRemoved);
+    }
 
     public void Dispose()
     {
@@ -273,7 +285,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         tab ??= SelectedEditorTab;
         if (tab == null || tab.IsImage || _workspace == null) return;
         var head = await ReadHeadVersionAsync(tab.RelativePath);
-        tab.DiffText = BuildInlineDiff(head, tab.Text);
+        tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, tab.Text));
         tab.CanDiff = head != null;
         if (tab.CanDiff) tab.Mode = WorkspaceEditorMode.Diff;
     }
@@ -512,29 +524,6 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         var output = await process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync();
         return (process.ExitCode, output);
-    }
-
-    private static string BuildInlineDiff(string? oldText, string newText)
-    {
-        if (oldText == null) return "此文件不在 Git 仓库中。";
-        var oldLines = oldText.Replace("\r\n", "\n").Split('\n');
-        var newLines = newText.Replace("\r\n", "\n").Split('\n');
-        var builder = new StringBuilder();
-        builder.AppendLine("--- HEAD");
-        builder.AppendLine("+++ 当前编辑缓冲区");
-        var count = Math.Max(oldLines.Length, newLines.Length);
-        for (var i = 0; i < count; i++)
-        {
-            var oldLine = i < oldLines.Length ? oldLines[i] : null;
-            var newLine = i < newLines.Length ? newLines[i] : null;
-            if (oldLine == newLine) builder.Append("  ").AppendLine(oldLine);
-            else
-            {
-                if (oldLine != null) builder.Append("- ").AppendLine(oldLine);
-                if (newLine != null) builder.Append("+ ").AppendLine(newLine);
-            }
-        }
-        return builder.ToString();
     }
 
     private async Task CopyToClipboardAsync(string? value)

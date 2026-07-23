@@ -372,7 +372,9 @@ public partial class MainWindowViewModel : ViewModelBase
                     Title = string.IsNullOrWhiteSpace(history.Summary) ? "新对话" : history.Summary,
                     IsPinned = history.IsPinned,
                     UpdatedAt = history.UpdatedAt,
-                    WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase)
+                    WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
+                    ForkedFromConversationId = history.ForkedFromConversationId,
+                    ForkedFromHistoryId = history.ForkedFromHistoryId
                 };
                 WireSession(session);
                 group.Conversations.Add(session);
@@ -564,7 +566,9 @@ public partial class MainWindowViewModel : ViewModelBase
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
         {
             Title = fork.Summary,
-            UpdatedAt = fork.UpdatedAt
+            UpdatedAt = fork.UpdatedAt,
+            ForkedFromConversationId = fork.ForkedFromConversationId,
+            ForkedFromHistoryId = fork.ForkedFromHistoryId
         };
         WireSession(session);
         group.Conversations.Insert(0, session);

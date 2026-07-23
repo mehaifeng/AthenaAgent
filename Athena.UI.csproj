@@ -62,6 +62,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
 
     <PackageReference Include="CliWrap" Version="3.10.2" />
+    <PackageReference Include="DiffPlex" Version="1.9.0" />
 
     <!-- MVVM -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
