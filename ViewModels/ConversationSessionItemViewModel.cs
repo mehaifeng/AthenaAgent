@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
@@ -65,6 +66,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _hasUnreadCompletion;
 
@@ -74,6 +76,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _wasInterrupted;
@@ -81,6 +84,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowWaitingIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowQueuedIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowRunningIndicator))]
@@ -103,6 +107,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public bool IsRunning => Chat.IsSending && !Chat.IsQueued;
 
     public bool IsQueued => Chat.IsQueued;
+
+    public bool HasStatusIndicator => IsWaitingForApproval || IsQueued || IsRunning || WasInterrupted || HasUnreadCompletion;
 
     public bool ShowWaitingIndicator => IsWaitingForApproval;
     public bool ShowQueuedIndicator => !IsWaitingForApproval && IsQueued;
@@ -185,6 +191,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             OnPropertyChanged(nameof(IsQueued));
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(StatusGlyph));
+            OnPropertyChanged(nameof(HasStatusIndicator));
             OnPropertyChanged(nameof(ShowQueuedIndicator));
             OnPropertyChanged(nameof(ShowRunningIndicator));
             OnPropertyChanged(nameof(ShowInterruptedIndicator));

@@ -15,79 +15,77 @@
 
     <Window.Resources>
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
-            <Border Classes="conversation-card"
-                    IsVisible="{Binding IsSearchMatch}"
-                    Background="{DynamicResource App.NavigationCardBackgroundBrush}"
-                    BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
-                    BorderThickness="1.2"
-                    CornerRadius="6"
-                    Margin="0,2">
-                <Grid>
-                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsRenaming}">
-                        <Button Classes="session-row"
-                                Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
-                                CommandParameter="{Binding}">
-                            <Grid ColumnDefinitions="16,16,*,48" ColumnSpacing="5">
-                                <Grid Width="16" ToolTip.Tip="{Binding StatusText}">
-                                    <Border Width="8" Height="8" CornerRadius="4" Background="{DynamicResource SemiGreen6}"
-                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowRunningIndicator}"/>
-                                    <TextBlock Text="…" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               IsVisible="{Binding ShowQueuedIndicator}"/>
-                                    <TextBlock Text="◆" FontSize="9" Foreground="{DynamicResource SemiOrange5}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowWaitingIndicator}"/>
-                                    <TextBlock Text="!" FontWeight="Bold" Foreground="{DynamicResource SemiRed6}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowInterruptedIndicator}"/>
-                                    <TextBlock Text="✓" Foreground="{DynamicResource SemiGreen6}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
-                                </Grid>
-                                <PathIcon Grid.Column="1" Data="{StaticResource AthenaIconBranch}" Width="12" Height="12"
-                                          Foreground="{DynamicResource App.IconMutedForeground}" Opacity="0.7"
-                                          IsVisible="{Binding IsForked}" ToolTip.Tip="分支会话"/>
-                                <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="12"
-                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="9" Opacity="0.58"
-                                           TextAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Grid Classes="conversation-row" IsVisible="{Binding IsSearchMatch}">
+                <Grid IsVisible="{Binding !IsRenaming}" ColumnDefinitions="*,Auto">
+                    <Button Classes="session-row"
+                            Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
+                            CommandParameter="{Binding}">
+                        <Grid ColumnDefinitions="12,*,48">
+                            <!-- 圆点 bullet，模仿参考图风格 -->
+                            <Ellipse Grid.Column="0" Width="5" Height="5"
+                                     Fill="{DynamicResource App.IconMutedForeground}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     IsVisible="{Binding !HasStatusIndicator}"/>
+                            <!-- 状态指示（运行/排队/等待/中断/完成）保留彩色状态视觉 -->
+                            <Grid Grid.Column="0" Width="12" ToolTip.Tip="{Binding StatusText}"
+                                  IsVisible="{Binding HasStatusIndicator}">
+                                <Border Width="7" Height="7" CornerRadius="3.5" Background="{DynamicResource SemiGreen6}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowRunningIndicator}"/>
+                                <TextBlock Text="…" FontWeight="Bold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           IsVisible="{Binding ShowQueuedIndicator}"/>
+                                <TextBlock Text="◆" FontSize="9" Foreground="{DynamicResource SemiOrange5}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowWaitingIndicator}"/>
+                                <TextBlock Text="!" FontWeight="Bold" Foreground="{DynamicResource SemiRed6}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowInterruptedIndicator}"/>
+                                <TextBlock Text="✓" Foreground="{DynamicResource SemiGreen6}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
                             </Grid>
-                        </Button>
-                        <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="会话菜单"
-                                Click="OnOverflowMenuClick">
-                            <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Stretch="Uniform"
-                                  Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
-                                  StrokeLineCap="Round" StrokeJoin="Round"/>
-                            <Button.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
-                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="{Binding PinActionText}" Command="{Binding TogglePinnedCommand}">
-                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="分支" Command="{Binding RequestForkCommand}">
-                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="导出" Command="{Binding RequestExportCommand}">
-                                        <MenuItem.Icon>
-                                            <Path Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Stretch="Uniform"
-                                                  Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
-                                                  StrokeLineCap="Round" StrokeJoin="Round"/>
-                                        </MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
-                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
-                                    </MenuItem>
-                                </MenuFlyout>
-                            </Button.ContextFlyout>
-                        </Button>
-                    </Grid>
-                    <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="4,2">
-                        <TextBox Text="{Binding RenameText}" FontSize="11" MinHeight="28"/>
-                        <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="确认重命名" Command="{Binding CommitRenameCommand}">
-                            <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                        </Button>
-                    </Grid>
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="9" Opacity="0.55"
+                                       TextAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       Margin="0,0,6,0"/>
+                        </Grid>
+                    </Button>
+                    <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="会话菜单"
+                            Click="OnOverflowMenuClick">
+                        <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Stretch="Uniform"
+                              Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
+                              StrokeLineCap="Round" StrokeJoin="Round"/>
+                        <Button.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
+                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="{Binding PinActionText}" Command="{Binding TogglePinnedCommand}">
+                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="分支" Command="{Binding RequestForkCommand}">
+                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="导出" Command="{Binding RequestExportCommand}">
+                                    <MenuItem.Icon>
+                                        <Path Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Stretch="Uniform"
+                                              Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
+                                              StrokeLineCap="Round" StrokeJoin="Round"/>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
+                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+                                </MenuItem>
+                            </MenuFlyout>
+                        </Button.ContextFlyout>
+                    </Button>
                 </Grid>
-            </Border>
+                <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="4,2">
+                    <TextBox Text="{Binding RenameText}" FontSize="11" MinHeight="28"/>
+                    <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="确认重命名" Command="{Binding CommitRenameCommand}">
+                        <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                </Grid>
+            </Grid>
         </DataTemplate>
+
     </Window.Resources>
 
     <Window.Styles>
@@ -119,6 +117,11 @@
             <Setter Property="Padding" Value="5"/>
             <Setter Property="MinWidth" Value="28"/>
             <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Expander.navigation">
+            <Setter Property="Padding" Value="0"/>
         </Style>
     </Window.Styles>
 
@@ -178,10 +181,10 @@
                         </Button>
                     </Grid>
 
-                    <Border Grid.Row="2" Margin="7,0,7,5" Padding="5"
+                    <Border x:Name="PinnedConversationsCard" Grid.Row="2" Margin="7,0,7,5" Padding="5"
                             Background="{DynamicResource App.NavigationCardBackgroundBrush}"
                             BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
-                            BorderThickness="1.2" CornerRadius="7"
+                            BorderThickness="0" CornerRadius="7"
                             IsVisible="{Binding HasPinnedConversations}" MaxHeight="180">
                         <Grid RowDefinitions="Auto,*">
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="5,2,5,3">
@@ -203,8 +206,8 @@
                                     <Border Classes="workspace-card" IsVisible="{Binding IsSearchMatch}" Margin="1,3"
                                             Background="{DynamicResource App.NavigationCardBackgroundBrush}"
                                             BorderBrush="{DynamicResource App.NavigationCardBorderBrush}"
-                                            BorderThickness="1.2" CornerRadius="7">
-                                        <Expander IsExpanded="{Binding IsExpanded}">
+                                            BorderThickness="0" CornerRadius="7">
+                                        <Expander Classes="navigation" IsExpanded="{Binding IsExpanded}">
                                             <Expander.Header>
                                                 <Grid ColumnDefinitions="*,Auto,Auto" Height="34">
                                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12"
@@ -255,7 +258,7 @@
                                             </Expander.Header>
                                             <ItemsControl ItemsSource="{Binding Conversations}"
                                                           ItemTemplate="{StaticResource ConversationSessionItemTemplate}"
-                                                          Margin="7,0,5,5"/>
+                                                          Margin="2,0,2,4"/>
                                         </Expander>
                                     </Border>
                                 </DataTemplate>

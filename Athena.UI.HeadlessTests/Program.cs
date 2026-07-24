@@ -101,16 +101,27 @@ var workspaceCards = window.GetVisualDescendants().OfType<Border>()
     .Where(border => border.Classes.Contains("workspace-card"))
     .ToList();
 if (workspaceCards.Count < 2
-    || workspaceCards.Any(border => border.BorderThickness.Left < 1.1 || border.BorderBrush == null || border.Background == null))
-    throw new InvalidOperationException("Workspace items must have a visible outline.");
+    || workspaceCards.Any(border => border.BorderThickness != default || border.Background == null))
+    throw new InvalidOperationException("Workspace items must retain their background without an outer border.");
 if (workspaceCards.Any(card => !card.GetVisualDescendants().OfType<Expander>().Any()))
     throw new InvalidOperationException("Every workspace card must retain its native expander behavior.");
-var conversationCards = window.GetVisualDescendants().OfType<Border>()
-    .Where(border => border.Classes.Contains("conversation-card"))
+var conversationCards = window.GetVisualDescendants().OfType<Grid>()
+    .Where(grid => grid.Classes.Contains("conversation-row"))
     .ToList();
 if (conversationCards.Count < 4
-    || conversationCards.Any(border => border.BorderThickness.Left < 1.1 || border.BorderBrush == null || border.Background == null))
-    throw new InvalidOperationException("Conversation items must have a visible outline.");
+    || conversationCards.Any(row => row.DataContext is not ConversationSessionItemViewModel))
+    throw new InvalidOperationException("Every session item must render as a conversation-row.");
+var pinnedConversationsCard = window.FindControl<Border>("PinnedConversationsCard")
+                              ?? throw new InvalidOperationException("Pinned conversation container was not created.");
+if (pinnedConversationsCard.BorderThickness != default || pinnedConversationsCard.Background == null)
+    throw new InvalidOperationException("Pinned conversation container must retain its background without an outer border.");
+var activeSessionTitle = conversationCards
+    .Where(row => ReferenceEquals(row.DataContext, activeSession))
+    .SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>())
+    .FirstOrDefault(text => text.Text == activeSession.Title)
+    ?? throw new InvalidOperationException("Active conversation title was not created.");
+if (activeSession.HasStatusIndicator || activeSession.IsForked || activeSessionTitle.Bounds.Left < 5)
+    throw new InvalidOperationException("Main conversation title must leave room for the leading bullet glyph.");
 if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == workspaceProfile.DirectoryPath))
     throw new InvalidOperationException("Workspace cards must not render directory paths.");
 var pinnedList = window.FindControl<ItemsControl>("PinnedConversationsList")

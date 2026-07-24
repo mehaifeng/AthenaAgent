@@ -69,6 +69,7 @@
             <SolidColorBrush x:Key="App.IconDangerForeground" Color="#FF8C8C"/>
             <SolidColorBrush x:Key="App.NavigationCardBorderBrush" Color="#596575"/>
             <SolidColorBrush x:Key="App.NavigationCardBackgroundBrush" Color="#20242B"/>
+            <SolidColorBrush x:Key="App.NavigationDividerBrush" Color="#3A4150"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="App.IconForeground" Color="#202020"/>
@@ -77,6 +78,7 @@
             <SolidColorBrush x:Key="App.IconDangerForeground" Color="#C92A2A"/>
             <SolidColorBrush x:Key="App.NavigationCardBorderBrush" Color="#AEB7C3"/>
             <SolidColorBrush x:Key="App.NavigationCardBackgroundBrush" Color="#F7F8FA"/>
+            <SolidColorBrush x:Key="App.NavigationDividerBrush" Color="#E1E4EA"/>
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>
