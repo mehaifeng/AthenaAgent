@@ -1,4 +1,3 @@
-using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -9,33 +8,27 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
+public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDisposable
 {
-    private readonly AppConfigurationSession _configurationSession;
     private readonly IHeadlessBrowserService? _browserService;
     private readonly IBrowserVisionService? _browserVisionService;
     private readonly ILocalizationService? _localizationService;
-    private CancellationTokenSource _windowOperations = new();
+    private readonly CancellationTokenSource _operations = new();
+    private bool _disposed;
 
-    public AppSettingsViewModel(
-        AppConfigurationSession configurationSession,
+    public RuntimeDiagnosticsViewModel(
+        AppSettingsState state,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
         ILocalizationService? localizationService = null)
     {
-        _configurationSession = configurationSession;
+        State = state;
         _browserService = browserService;
         _browserVisionService = browserVisionService;
         _localizationService = localizationService;
-        _config = configurationSession.Current;
-        _configurationSession.CurrentChanged += OnCurrentConfigChanged;
-
-        // 浏览器页已从常规设置中移除，能力默认可用；实际调用仍受模型配置与工具审批约束。
-        Config.BrowserEnabled = true;
     }
 
-    [ObservableProperty]
-    private AppConfig _config;
+    public AppSettingsState State { get; }
 
     [ObservableProperty]
     private string _browserRuntimeStatus = string.Empty;
@@ -66,45 +59,6 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
     partial void OnBrowserRuntimeStatusChanged(string value) => OnPropertyChanged(nameof(HasBrowserRuntimeStatus));
     partial void OnBrowserAgentTestStatusChanged(string value) => OnPropertyChanged(nameof(HasBrowserAgentTestStatus));
 
-    private void OnCurrentConfigChanged(object? sender, AppConfig config) => Config = config;
-
-    public void ActivateWindow()
-    {
-        if (!_windowOperations.IsCancellationRequested) return;
-        _windowOperations.Dispose();
-        _windowOperations = new CancellationTokenSource();
-        IsTestingBrowserRuntime = false;
-        IsInstallingBrowserRuntime = false;
-        IsTestingBrowserAgent = false;
-    }
-
-    public void DeactivateWindow()
-    {
-        if (!_windowOperations.IsCancellationRequested)
-            _windowOperations.Cancel();
-    }
-
-    [RelayCommand]
-    private void SetApprovalMode(string? mode)
-    {
-        if (System.Enum.TryParse<ToolApprovalMode>(mode, true, out var parsed))
-            Config.ToolApprovalMode = parsed;
-    }
-
-    [RelayCommand]
-    private async Task RevokeAutoAllowedToolAsync(string? tool)
-    {
-        if (!string.IsNullOrEmpty(tool) && Config.AutoAllowedTools.Remove(tool))
-            await _configurationSession.SaveNowAsync();
-    }
-
-    [RelayCommand]
-    private async Task RevokeTerminalAllowlistAsync(string? command)
-    {
-        if (!string.IsNullOrEmpty(command) && Config.TerminalAllowlist.Remove(command))
-            await _configurationSession.SaveNowAsync();
-    }
-
     [RelayCommand(CanExecute = nameof(CanTestBrowserRuntime))]
     private async Task TestBrowserRuntimeAsync()
     {
@@ -116,12 +70,12 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 
         IsTestingBrowserRuntime = true;
         BrowserRuntimeStatus = GetString("Status.TestingConnection", "Testing...");
-        var cancellationToken = _windowOperations.Token;
+        var cancellationToken = _operations.Token;
         try
         {
             var status = await _browserService.GetRuntimeStatusAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested) return;
-            BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
+            if (!cancellationToken.IsCancellationRequested)
+                BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -143,7 +97,7 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 
         IsInstallingBrowserRuntime = true;
         BrowserRuntimeStatus = GetString("Status.InstallingBrowserRuntime", "Installing browser runtime...");
-        var cancellationToken = _windowOperations.Token;
+        var cancellationToken = _operations.Token;
         try
         {
             var result = await _browserService.InstallRuntimeAsync(cancellationToken);
@@ -169,11 +123,11 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 
         IsTestingBrowserAgent = true;
         BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
-        var cancellationToken = _windowOperations.Token;
+        var cancellationToken = _operations.Token;
         try
         {
-            AppConfigNormalizer.NormalizeBrowser(Config);
-            await _configurationSession.SaveNowAsync();
+            AppConfigNormalizer.NormalizeBrowser(State.Config);
+            await State.SaveNowAsync();
             var result = await _browserVisionService.TestConnectionAsync(cancellationToken);
             if (!cancellationToken.IsCancellationRequested) BrowserAgentTestStatus = result.Message;
         }
@@ -191,8 +145,9 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        _windowOperations.Cancel();
-        _windowOperations.Dispose();
-        _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        if (_disposed) return;
+        _disposed = true;
+        _operations.Cancel();
+        _operations.Dispose();
     }
 }

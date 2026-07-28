@@ -29,7 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IConversationArchiveStore? _conversationStore;
     private readonly IWorkspaceService? _workspaceService;
     private readonly IUserInteractionService? _userInteractionService;
-    private readonly IConfigService? _configService;
+    private readonly AppConfigurationSession? _configurationSession;
     private readonly ITaskScheduler? _taskScheduler;
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly DispatcherTimer? _compactLogTimer;
@@ -39,10 +39,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
 
-    public AppSettingsViewModel? AppSettings { get; }
+    public AppConfig? Config => _configurationSession?.Current;
 
-
-    public bool IsSidePanelsSwapped => AppSettings?.Config.MainLayout.SidePanelsSwapped == true;
+    public bool IsSidePanelsSwapped => Config?.MainLayout.SidePanelsSwapped == true;
 
     public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
 
@@ -184,7 +183,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         ChatSessionFactory? chatSessionFactory = null,
         IConversationArchiveStore? conversationStore = null,
         WorkspaceWorkbenchViewModel? workbench = null,
-        AppSettingsViewModel? appSettings = null,
         ApprovalQueueViewModel? approvalQueue = null,
         AppConfigurationSession? configurationSession = null,
         Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
@@ -196,13 +194,14 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _conversationStore = conversationStore;
         _workspaceService = workspaceService;
         _userInteractionService = userInteractionService;
-        _configService = configService;
         _taskScheduler = taskScheduler;
         Workbench = workbench;
-        AppSettings = appSettings;
+        _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
         _skillsConnectorsFactory = skillsConnectorsFactory;
         _appSettingsFactory = appSettingsFactory;
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged += OnCurrentConfigChanged;
         if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += OnApprovalQueueChanged;
         Orchestrator = subAgentOrchestrator;
 
@@ -583,10 +582,19 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task ToggleSidePanelsAsync()
     {
-        if (AppSettings == null || _configService == null) return;
-        AppSettings.Config.MainLayout.SidePanelsSwapped = !AppSettings.Config.MainLayout.SidePanelsSwapped;
+        if (Config == null || _configurationSession == null) return;
+        Config.MainLayout.SidePanelsSwapped = !Config.MainLayout.SidePanelsSwapped;
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
-        await _configService.SaveAsync(AppSettings.Config);
+        await _configurationSession.SaveNowAsync();
+    }
+
+    public Task SaveConfigurationNowAsync() =>
+        _configurationSession?.SaveNowAsync() ?? Task.CompletedTask;
+
+    private void OnCurrentConfigChanged(object? sender, AppConfig config)
+    {
+        OnPropertyChanged(nameof(Config));
+        OnPropertyChanged(nameof(IsSidePanelsSwapped));
     }
 
     private async Task RefreshCompactLogsAsync()
@@ -797,6 +805,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         if (_taskScheduler != null)
             _taskScheduler.ProactiveMessageTriggered -= OnProactiveMessageTriggered;
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         if (_compactLogTimer != null)
         {
             _compactLogTimer.Stop();

@@ -602,7 +602,15 @@ static void TestConfigurationSession(string artifactDirectory)
 {
     var service = new HeadlessConfigService(new AppConfig());
     using var session = new AppConfigurationSession(service);
-    var appSettings = new AppSettingsViewModel(session);
+    var settingsLocalization = new LocalizationService();
+    settingsLocalization.SwitchLanguage("zh-CN");
+    var appSettings = new AppSettingsWindowViewModel(
+        session,
+        new AboutViewModel(),
+        localizationService: settingsLocalization);
+    var settingsState = appSettings.General.State;
+    var toolApprovalPage = appSettings.ToolApproval;
+    var diagnosticsPage = appSettings.RuntimeDiagnostics;
     var skillsPage = new SkillsViewModel();
     skillsPage.Initialize(session);
     var mcpPage = new McpConnectionsViewModel();
@@ -650,7 +658,7 @@ static void TestConfigurationSession(string artifactDirectory)
     session.Current.AutoAllowedTools.Add("characterization_tool");
     Thread.Sleep(650);
     service.ResetSaveCount();
-    appSettings.RevokeAutoAllowedToolCommand.ExecuteAsync("characterization_tool").GetAwaiter().GetResult();
+    toolApprovalPage.RevokeAutoAllowedToolCommand.ExecuteAsync("characterization_tool").GetAwaiter().GetResult();
     AssertSaveCount(service, 1, "revoking an always-allowed tool");
     if (session.Current.AutoAllowedTools.Contains("characterization_tool"))
         throw new InvalidOperationException("App Settings did not revoke the always-allowed tool.");
@@ -658,15 +666,15 @@ static void TestConfigurationSession(string artifactDirectory)
     session.Current.TerminalAllowlist.Add("characterization-command");
     Thread.Sleep(650);
     service.ResetSaveCount();
-    appSettings.RevokeTerminalAllowlistCommand.ExecuteAsync("characterization-command").GetAwaiter().GetResult();
+    toolApprovalPage.RevokeTerminalAllowlistCommand.ExecuteAsync("characterization-command").GetAwaiter().GetResult();
     AssertSaveCount(service, 1, "revoking a terminal allowlist entry");
     if (session.Current.TerminalAllowlist.Contains("characterization-command"))
         throw new InvalidOperationException("App Settings did not revoke the terminal allowlist entry.");
 
-    appSettings.TestBrowserRuntimeCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-    appSettings.TestBrowserAgentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-    if (string.IsNullOrWhiteSpace(appSettings.BrowserRuntimeStatus)
-        || string.IsNullOrWhiteSpace(appSettings.BrowserAgentTestStatus))
+    diagnosticsPage.TestBrowserRuntimeCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    diagnosticsPage.TestBrowserAgentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (string.IsNullOrWhiteSpace(diagnosticsPage.BrowserRuntimeStatus)
+        || string.IsNullOrWhiteSpace(diagnosticsPage.BrowserAgentTestStatus))
         throw new InvalidOperationException("App Settings browser diagnostics did not surface unavailable-service status.");
 
     documentPage.Config.DocumentParserEnabled = true;
@@ -726,7 +734,7 @@ static void TestConfigurationSession(string artifactDirectory)
     service.PublishExternal(replacement);
     Dispatcher.UIThread.RunJobs();
     if (!ReferenceEquals(session.Current, replacement)
-        || !ReferenceEquals(appSettings.Config, replacement)
+        || !ReferenceEquals(settingsState.Config, replacement)
         || !ReferenceEquals(skillsPage.Config, replacement)
         || !ReferenceEquals(mcpPage.Config, replacement)
         || !ReferenceEquals(providerPage.Config, replacement)
@@ -736,25 +744,82 @@ static void TestConfigurationSession(string artifactDirectory)
         || !ReferenceEquals(documentPage.Config, replacement))
         throw new InvalidOperationException("All settings pages must follow an externally replaced configuration instance.");
 
-    var appSettingsWindowViewModel = new AppSettingsWindowViewModel(appSettings, new AboutViewModel());
-    var appSettingsWindow = new AppSettingsWindow { DataContext = appSettingsWindowViewModel };
+    if (appSettings.Sections.Count != 6
+        || !ReferenceEquals(appSettings.General.State, appSettings.ConversationContext.State)
+        || !ReferenceEquals(appSettings.General.State, appSettings.ToolApproval.State)
+        || !ReferenceEquals(appSettings.General.State, appSettings.AgentRuntime.State)
+        || !ReferenceEquals(appSettings.General.State, appSettings.RuntimeDiagnostics.State))
+        throw new InvalidOperationException("App Settings pages must share one settings state and expose six semantic sections.");
+    settingsLocalization.SwitchLanguage("en-US");
+    if (appSettings.Sections[0].Title != "General"
+        || appSettings.ToolApproval.Modes[0].Title != "Balanced · Recommended")
+        throw new InvalidOperationException("App Settings semantic navigation and approval modes did not refresh after a language change.");
+    settingsLocalization.SwitchLanguage("zh-CN");
+    if (appSettings.Sections[0].Title != "通用"
+        || appSettings.ToolApproval.Modes[0].Title != "均衡 · 推荐")
+        throw new InvalidOperationException("App Settings semantic navigation and approval modes did not return to Chinese.");
+
+    var appSettingsWindow = new AppSettingsWindow { DataContext = appSettings };
     appSettingsWindow.Show();
     Dispatcher.UIThread.RunJobs();
-    var aboutExpander = appSettingsWindow.GetVisualDescendants().OfType<Expander>().Last();
-    aboutExpander.IsExpanded = true;
-    Dispatcher.UIThread.RunJobs();
     if (appSettingsWindow.DataContext is MainWindowViewModel
-        || !appSettingsWindow.GetVisualDescendants().OfType<AboutView>().Any())
-        throw new InvalidOperationException("App Settings must use its own window view model and semantic About view.");
+        || appSettingsWindow.FindControl<ListBox>("SettingsNavigation") == null
+        || appSettingsWindow.FindControl<ContentControl>("SettingsContentHost") == null
+        || appSettingsWindow.GetVisualDescendants().OfType<Expander>().Any()
+        || appSettingsWindow.Content is not Grid)
+        throw new InvalidOperationException("App Settings must use one navigation surface, one content host, and page-owned scrolling.");
+
+    var expectedViews = new[]
+    {
+        typeof(GeneralSettingsView),
+        typeof(ConversationContextSettingsView),
+        typeof(ToolApprovalSettingsView),
+        typeof(AgentRuntimeSettingsView),
+        typeof(RuntimeDiagnosticsView),
+        typeof(AboutView)
+    };
+    var settingsFrameNames = new[]
+    {
+        "general",
+        "conversation-context",
+        "tool-approval",
+        "agent-runtime",
+        "runtime-diagnostics",
+        "about"
+    };
+    for (var index = 0; index < appSettings.Sections.Count; index++)
+    {
+        appSettings.SelectedSection = appSettings.Sections[index];
+        Dispatcher.UIThread.RunJobs();
+        if (!appSettingsWindow.GetVisualDescendants().Any(view => view.GetType() == expectedViews[index]))
+            throw new InvalidOperationException($"App Settings section {index} did not render {expectedViews[index].Name}.");
+        SaveWindowFrame(
+            appSettingsWindow,
+            Path.Combine(artifactDirectory, $"app-settings-{settingsFrameNames[index]}.png"));
+    }
+    appSettings.SelectedSection = appSettings.Sections[0];
+    Dispatcher.UIThread.RunJobs();
     SaveWindowFrame(appSettingsWindow, Path.Combine(artifactDirectory, "app-settings-window.png"));
     appSettingsWindow.Close();
+    var closedSettingsConfig = settingsState.Config;
+    service.PublishExternal(new AppConfig());
+    Dispatcher.UIThread.RunJobs();
+    if (!ReferenceEquals(settingsState.Config, closedSettingsConfig))
+        throw new InvalidOperationException("Closed App Settings pages still observed configuration replacement.");
+    var closedSectionTitle = appSettings.Sections[0].Title;
+    settingsLocalization.SwitchLanguage("en-US");
+    if (appSettings.Sections[0].Title != closedSectionTitle)
+        throw new InvalidOperationException("Closed App Settings still observed localization changes.");
+    settingsLocalization.SwitchLanguage("zh-CN");
 
     Console.WriteLine("[PASS] one debounced owner saves root, MCP, and extension settings and detaches removed items");
     Console.WriteLine("[PASS] external configuration replacement reaches every settings page as one shared instance");
     Console.WriteLine("[PASS] document parser mode controls precision-token availability");
     Console.WriteLine("[PASS] Web Search and audio diagnostics expose success, failure, and playback cancellation");
-    Console.WriteLine("[PASS] App Settings owns approval-list revocation and browser diagnostics");
-    Console.WriteLine("[PASS] App Settings uses an independent window view model");
+    Console.WriteLine("[PASS] App Settings page VMs own approval-list revocation and browser diagnostics");
+    Console.WriteLine("[PASS] App Settings uses six semantic pages, shared state, and a single content host");
+    Console.WriteLine("[PASS] App Settings navigation follows live localization changes");
+    Console.WriteLine("[PASS] closing App Settings releases configuration and localization subscriptions");
 }
 
 static void SaveWindowFrame(Window window, string path)

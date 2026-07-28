@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.RuntimeDiagnosticsView"
+             x:DataType="vm:RuntimeDiagnosticsViewModel">
+    <ScrollViewer Padding="28">
+        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Loc Settings.Diagnostics.Title}"
+                           FontSize="{DynamicResource App.FontSize.PageTitle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Settings.Diagnostics.Description}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserRuntime}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserRuntimeHint}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                    <WrapPanel>
+                        <Button x:Name="TestBrowserRuntimeButton"
+                                Content="{loc:Loc Config.BrowserTestRuntime}"
+                                Command="{Binding TestBrowserRuntimeCommand}"
+                                Margin="0,0,8,0"/>
+                        <Button x:Name="InstallBrowserRuntimeButton"
+                                Content="{loc:Loc Config.BrowserInstallRuntime}"
+                                Command="{Binding InstallBrowserRuntimeCommand}"/>
+                    </WrapPanel>
+                    <Border Padding="12"
+                            Background="{DynamicResource App.AssistantBubbleBg}"
+                            CornerRadius="8"
+                            IsVisible="{Binding HasBrowserRuntimeStatus}">
+                        <TextBlock Text="{Binding BrowserRuntimeStatus}"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.78"/>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserAgent}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{loc:Loc Config.BrowserUnifiedModelHint}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                    <Button x:Name="TestBrowserAgentButton"
+                            Content="{loc:Loc Config.BtnRunDiagnostics}"
+                            Command="{Binding TestBrowserAgentCommand}"
+                            HorizontalAlignment="Left"/>
+                    <Border Padding="12"
+                            Background="{DynamicResource App.AssistantBubbleBg}"
+                            CornerRadius="8"
+                            IsVisible="{Binding HasBrowserAgentTestStatus}">
+                        <TextBlock Text="{Binding BrowserAgentTestStatus}"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.78"/>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

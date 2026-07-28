@@ -534,7 +534,6 @@ public partial class App : Application, IDisposable
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>();
-        services.AddSingleton<AppSettingsViewModel>();
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
@@ -1015,7 +1014,6 @@ public partial class App : Application, IDisposable
             var chatSessionFactory = sp.GetRequiredService<ChatSessionFactory>();
             var conversationStore = sp.GetRequiredService<IConversationArchiveStore>();
             var workbench = sp.GetRequiredService<WorkspaceWorkbenchViewModel>();
-            var appSettings = sp.GetRequiredService<AppSettingsViewModel>();
             var approvalQueue = sp.GetRequiredService<ApprovalQueueViewModel>();
             var configurationSession = sp.GetRequiredService<AppConfigurationSession>();
             _ = sp.GetRequiredService<AppConfigurationApplier>();
@@ -1051,7 +1049,6 @@ public partial class App : Application, IDisposable
                 chatSessionFactory,
                 conversationStore,
                 workbench,
-                appSettings,
                 approvalQueue,
                 configurationSession,
                 skillsConnectorsFactory,

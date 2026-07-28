@@ -13,7 +13,6 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.ComponentModel;
 using Athena.UI.ViewModels;
-using Athena.UI.Services.Interfaces;
 
 namespace Athena.UI.Views;
 
@@ -79,7 +78,7 @@ public partial class MainWindow : Window
 
     private void ApplySavedLayout()
     {
-        var layout = _viewModel?.AppSettings?.Config.MainLayout;
+        var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _leftShellColumn == null || _rightShellColumn == null) return;
         var leftSemanticWidth = Math.Max(260, layout.LeftWidth);
         var rightSemanticWidth = Math.Max(360, layout.RightWidth);
@@ -91,9 +90,8 @@ public partial class MainWindow : Window
 
     private async void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
     {
-        var layout = _viewModel?.AppSettings?.Config.MainLayout;
-        var configService = App.Services?.GetService(typeof(IConfigService)) as IConfigService;
-        if (layout == null || configService == null || _leftShellColumn == null || _rightShellColumn == null) return;
+        var layout = _viewModel?.Config?.MainLayout;
+        if (layout == null || _viewModel == null || _leftShellColumn == null || _rightShellColumn == null) return;
         if (layout.SidePanelsSwapped)
         {
             layout.RightWidth = _leftShellColumn.ActualWidth;
@@ -104,16 +102,15 @@ public partial class MainWindow : Window
             layout.LeftWidth = _leftShellColumn.ActualWidth;
             layout.RightWidth = _rightShellColumn.ActualWidth;
         }
-        await configService.SaveAsync(_viewModel!.AppSettings!.Config);
+        await _viewModel.SaveConfigurationNowAsync();
     }
 
     private async void OnRightRowSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
     {
-        var layout = _viewModel?.AppSettings?.Config.MainLayout;
-        var configService = App.Services?.GetService(typeof(IConfigService)) as IConfigService;
-        if (layout == null || configService == null || _rightTopRow == null) return;
+        var layout = _viewModel?.Config?.MainLayout;
+        if (layout == null || _viewModel == null || _rightTopRow == null) return;
         layout.RightTopHeight = _rightTopRow.ActualHeight;
-        await configService.SaveAsync(_viewModel!.AppSettings!.Config);
+        await _viewModel.SaveConfigurationNowAsync();
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

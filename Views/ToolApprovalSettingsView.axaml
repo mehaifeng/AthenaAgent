@@ -1,0 +1,140 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.ToolApprovalSettingsView"
+             x:Name="ApprovalRoot"
+             x:DataType="vm:ToolApprovalSettingsViewModel">
+    <UserControl.Styles>
+        <Style Selector="ListBox.approval-modes > ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="ListBox.approval-modes > ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.approval-modes > ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.mode-card">
+            <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="ListBox.approval-modes > ListBoxItem:pointerover Border.mode-card">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
+        <Style Selector="ListBox.approval-modes > ListBoxItem:selected Border.mode-card">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SelectedBorderBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <ScrollViewer Padding="28">
+        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Loc Settings.Approval.Title}"
+                           FontSize="{DynamicResource App.FontSize.PageTitle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Settings.Approval.Description}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock Text="{loc:Loc Config.ToolApproval.Mode}"
+                           FontSize="{DynamicResource App.FontSize.Title}"
+                           FontWeight="SemiBold"/>
+                <ListBox Classes="approval-modes"
+                         ItemsSource="{Binding Modes}"
+                         SelectedItem="{Binding SelectedMode}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ToolApprovalModeOption">
+                            <Border Classes="mode-card">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Description}"
+                                               TextWrapping="Wrap"
+                                               Opacity="0.62"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <CheckBox Content="{loc:Loc Config.ToolApproval.SubAgentsInherit}"
+                          IsChecked="{Binding State.Config.SubAgentsInheritApproval}"/>
+            </StackPanel>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.AutoAllowed}"
+                                   FontSize="{DynamicResource App.FontSize.Title}"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="{loc:Loc Settings.Approval.AutoAllowedHint}"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.58"/>
+                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding State.Config.AutoAllowedTools}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                    <TextBlock Text="{Binding}"
+                                               VerticalAlignment="Center"
+                                               FontFamily="Consolas, Menlo, monospace"/>
+                                    <Button Grid.Column="1"
+                                            Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                            Command="{Binding #ApprovalRoot.((vm:ToolApprovalSettingsViewModel)DataContext).RevokeAutoAllowedToolCommand}"
+                                            CommandParameter="{Binding}"
+                                            Padding="8,2"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.TerminalAllowlist}"
+                                   FontSize="{DynamicResource App.FontSize.Title}"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="{loc:Loc Settings.Approval.TerminalHint}"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.58"/>
+                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding State.Config.TerminalAllowlist}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                    <TextBlock Text="{Binding}"
+                                               VerticalAlignment="Center"
+                                               FontFamily="Consolas, Menlo, monospace"/>
+                                    <Button Grid.Column="1"
+                                            Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                            Command="{Binding #ApprovalRoot.((vm:ToolApprovalSettingsViewModel)DataContext).RevokeTerminalAllowlistCommand}"
+                                            CommandParameter="{Binding}"
+                                            Padding="8,2"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

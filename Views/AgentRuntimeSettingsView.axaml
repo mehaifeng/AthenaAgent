@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.AgentRuntimeSettingsView"
+             x:DataType="vm:AgentRuntimeSettingsViewModel">
+    <ScrollViewer Padding="28">
+        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Loc Settings.Agent.Title}"
+                           FontSize="{DynamicResource App.FontSize.PageTitle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Settings.Agent.Description}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc Settings.Agent.SubAgents}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <CheckBox Content="{loc:Loc Settings.Agent.Enabled}"
+                              IsChecked="{Binding State.Config.EnableSubAgents}"/>
+                    <TextBlock Text="{loc:Loc Settings.Agent.ModelHint}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.MaxParallel}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="16"
+                                       Value="{Binding State.Config.SubAgentMaxParallel}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.MaxIterations}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="100"
+                                       Value="{Binding State.Config.SubAgentMaxIterations}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.Timeout}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="30"
+                                       Maximum="3600"
+                                       Value="{Binding State.Config.SubAgentTimeoutSeconds}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

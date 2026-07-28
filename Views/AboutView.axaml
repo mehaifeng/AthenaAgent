@@ -6,7 +6,7 @@
              xmlns:loc="using:Athena.UI.Markup"
              mc:Ignorable="d"
              d:DesignWidth="720"
-             d:DesignHeight="1080"
+             d:DesignHeight="760"
              x:Class="Athena.UI.Views.AboutView"
              x:DataType="vm:AboutViewModel">
 
@@ -14,128 +14,114 @@
         <vm:AboutViewModel/>
     </Design.DataContext>
 
-    <Grid RowDefinitions="40,*">
-
-        <!-- HEADER BAR -->
-        <Border Grid.Row="0"
-                CornerRadius="0,0,5,5"
-                Background="{DynamicResource App.SectionBg}"
-                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                Padding="12,8">
-            <TextBlock Text="{loc:Loc About.Header}"
-                       FontWeight="SemiBold"
-                       FontSize="{DynamicResource App.FontSize.Heading}"/>
-        </Border>
-
-        <ScrollViewer Grid.Row="1" Padding="20">
-            <StackPanel Spacing="24" HorizontalAlignment="Center" MaxWidth="600">
-
-                <!-- 系统信息块 -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                        BorderThickness="1"
-                        CornerRadius="12"
-                        ClipToBounds="True">
-                    <Image Source="{DynamicResource About.LogoImage}"
-                           Stretch="Uniform"
-                           HorizontalAlignment="Stretch"/>
-                </Border>
-
-                <!-- 规格信息块 -->
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                        BorderThickness="1"
-                        CornerRadius="12"
-                        Padding="20"
-                        HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc About.Specs}"
-                                   FontWeight="Bold"
-                                   FontSize="{DynamicResource App.FontSize.Heading}"
-                                   Opacity="0.9"/>
-
-                        <Grid ColumnDefinitions="100,Auto" RowDefinitions="Auto,Auto,Auto,Auto" Margin="12,0,0,0">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc About.KernelVer}" Opacity="0.6" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentVersion}" FontWeight="Bold" VerticalAlignment="Center"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.Framework}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Avalonia UI / Irihi.Ursa.Themes.Semi" TextWrapping="Wrap" Margin="0,12,0,0" VerticalAlignment="Center"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.License}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT" Margin="0,12,0,0" VerticalAlignment="Center"/>
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc About.Author}" Opacity="0.6" Margin="0,12,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="@mehaifeng
-                            " Margin="0,12,0,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <!-- 名言块 -->
-                <Border Background="{DynamicResource App.AssistantBubbleBg}"
-                        CornerRadius="8"
-                        Padding="16">
-                    <TextBlock Text="{loc:Loc About.Quote}"
-                               FontStyle="Italic"
-                               FontSize="{DynamicResource App.FontSize.Subheading}"
-                               HorizontalAlignment="Center"
-                               Opacity="0.8"/>
-                </Border>
-
-                <!-- 按钮组 -->
-                <StackPanel Spacing="12"
-                            HorizontalAlignment="Center"
-                            Margin="0,8,0,0"
-                            Width="320">
-                    <StackPanel Orientation="Horizontal"
-                                Spacing="16"
-                                HorizontalAlignment="Center">
-                        <Button Command="{Binding CheckForUpdatesCommand}"
-                                IsEnabled="{Binding CanCheckForUpdates}"
-                                Theme="{StaticResource AccentButtonTheme}"
-                                Padding="20,8"
-                                ToolTip.Tip="{loc:Loc About.BtnChkUpdates}">
-                            <PathIcon Data="{StaticResource SemiIconSync}"
-                                      Width="16"
-                                      Height="16"
-                                      Classes.SlowSpin="{Binding IsCheckingUpdates}"/>
-                        </Button>
-                        <Button Command="{Binding OpenDocumentationCommand}"
-                                Padding="20,8"
-                                Theme="{StaticResource AccentButtonTheme}"
-                                ToolTip.Tip="{loc:Loc About.BtnViewDocs}">
-                            <PathIcon Data="{StaticResource SemiIconArticle}" Width="16" Height="16"/>
-                        </Button>
-                        <Button Command="{Binding OpenGitHubCommand}"
-                                Padding="20,8"
-                                Theme="{StaticResource AccentButtonTheme}"
-                                ToolTip.Tip="{loc:Loc About.BtnSourceRepo}">
-                            <PathIcon Data="{StaticResource SemiIconGithubLogo}" Width="16" Height="16"/>
-                        </Button>
-                    </StackPanel>
-
-                    <Border Background="{DynamicResource App.SectionBg}"
-                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                            BorderThickness="1"
-                            CornerRadius="10"
-                            Padding="12"
-                            IsVisible="{Binding IsUpdateProgressVisible}">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="{Binding UpdateProgressStatus}"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.8"
-                                       TextWrapping="Wrap"/>
-                            <ProgressBar Minimum="0"
-                                         Maximum="100"
-                                         Value="{Binding UpdateProgressValue}"
-                                         IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
-                                         Height="6"/>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
+    <ScrollViewer Padding="28">
+        <StackPanel Spacing="18" HorizontalAlignment="Center" MaxWidth="720">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Loc About.Header}"
+                           FontWeight="SemiBold"
+                           FontSize="{DynamicResource App.FontSize.PageTitle}"/>
+                <TextBlock Text="{loc:Loc About.Subtitle}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
             </StackPanel>
-        </ScrollViewer>
 
-    </Grid>
+            <Border Background="{DynamicResource App.SectionBg}"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    ClipToBounds="True">
+                <Image Source="{DynamicResource About.LogoImage}"
+                       Stretch="Uniform"
+                       HorizontalAlignment="Stretch"/>
+            </Border>
+
+            <Border Background="{DynamicResource App.SectionBg}"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="18"
+                    HorizontalAlignment="Stretch">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc About.Specs}"
+                               FontWeight="SemiBold"
+                               FontSize="{DynamicResource App.FontSize.Title}"/>
+
+                    <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <TextBlock Grid.Row="0" Text="{loc:Loc About.KernelVer}" Opacity="0.6"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentVersion}" FontWeight="SemiBold"/>
+
+                        <TextBlock Grid.Row="1" Text="{loc:Loc About.Framework}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                   Text="Avalonia UI / Irihi.Ursa.Themes.Semi"
+                                   TextWrapping="Wrap"
+                                   Margin="0,12,0,0"/>
+
+                        <TextBlock Grid.Row="2" Text="{loc:Loc About.License}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT" Margin="0,12,0,0"/>
+
+                        <TextBlock Grid.Row="3" Text="{loc:Loc About.Author}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="@mehaifeng" Margin="0,12,0,0"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource App.AssistantBubbleBg}"
+                    CornerRadius="8"
+                    Padding="14">
+                <TextBlock Text="{loc:Loc About.Quote}"
+                           FontStyle="Italic"
+                           FontSize="{DynamicResource App.FontSize.Subheading}"
+                           HorizontalAlignment="Center"
+                           Opacity="0.8"/>
+            </Border>
+
+            <WrapPanel HorizontalAlignment="Center">
+                <Button Command="{Binding CheckForUpdatesCommand}"
+                        IsEnabled="{Binding CanCheckForUpdates}"
+                        Theme="{StaticResource AccentButtonTheme}"
+                        Margin="0,0,8,8">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{StaticResource SemiIconSync}"
+                                  Width="16"
+                                  Height="16"
+                                  Classes.SlowSpin="{Binding IsCheckingUpdates}"/>
+                        <TextBlock Text="{loc:Loc About.BtnChkUpdates}"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding OpenDocumentationCommand}"
+                        Margin="0,0,8,8">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{StaticResource SemiIconArticle}" Width="16" Height="16"/>
+                        <TextBlock Text="{loc:Loc About.BtnViewDocs}"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding OpenGitHubCommand}"
+                        Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{StaticResource SemiIconGithubLogo}" Width="16" Height="16"/>
+                        <TextBlock Text="{loc:Loc About.BtnSourceRepo}"/>
+                    </StackPanel>
+                </Button>
+            </WrapPanel>
+
+            <Border Background="{DynamicResource App.SectionBg}"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="12"
+                    IsVisible="{Binding IsUpdateProgressVisible}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding UpdateProgressStatus}"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Opacity="0.8"
+                               TextWrapping="Wrap"/>
+                    <ProgressBar Minimum="0"
+                                 Maximum="100"
+                                 Value="{Binding UpdateProgressValue}"
+                                 IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                                 Height="6"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

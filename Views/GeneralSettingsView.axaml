@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.GeneralSettingsView"
+             x:DataType="vm:GeneralSettingsViewModel">
+    <ScrollViewer Padding="28">
+        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Loc Settings.General.Title}"
+                           FontSize="{DynamicResource App.FontSize.PageTitle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Settings.General.Description}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc Settings.General.Appearance}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="180,260,*">
+                        <TextBlock Text="{loc:Loc Settings.General.Theme}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedItem="{Binding State.Config.Theme}">
+                            <x:String>Dark</x:String>
+                            <x:String>Light</x:String>
+                        </ComboBox>
+                    </Grid>
+                    <Grid ColumnDefinitions="180,260,*">
+                        <TextBlock Text="{loc:Loc Settings.General.Language}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" SelectedItem="{Binding State.Config.Language}">
+                            <x:String>zh-CN</x:String>
+                            <x:String>en-US</x:String>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="{loc:Loc Settings.General.Interaction}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <CheckBox Content="{loc:Loc Config.SkipRewindConfirm}"
+                              IsChecked="{Binding State.Config.SkipRewindConfirm}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.RewindHint}"
+                               Margin="26,0,0,0"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
