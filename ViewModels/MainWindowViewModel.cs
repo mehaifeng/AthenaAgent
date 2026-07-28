@@ -811,5 +811,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         ConversationGroups.Clear();
         PinnedConversations.Clear();
+        KnowledgeBaseViewModel.Dispose();
+        LogsViewModel.Dispose();
     }
 }

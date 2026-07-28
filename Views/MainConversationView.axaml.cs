@@ -47,7 +47,6 @@ public partial class MainConversationView : UserControl
         {
             _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-            _viewModel.HistoryConversationLoaded -= OnHistoryConversationLoaded;
         }
         if (_subAgentsCollection != null)
         {
@@ -60,7 +59,6 @@ public partial class MainConversationView : UserControl
             _viewModel = viewModel;
             viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
-            viewModel.HistoryConversationLoaded += OnHistoryConversationLoaded;
 
             _subAgentsCollection = viewModel.Orchestrator?.ActiveAgents;
             if (_subAgentsCollection != null)
@@ -86,9 +84,6 @@ public partial class MainConversationView : UserControl
     {
         if (e.Action == NotifyCollectionChangedAction.Add && !_isUserScrolling) ScrollToBottom();
     }
-
-    private void OnHistoryConversationLoaded(object? sender, EventArgs e)
-        => ScrollToBottomIfHasMessages();
 
     public void ScrollToBottomIfHasMessages()
     {

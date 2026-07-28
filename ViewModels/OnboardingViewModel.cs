@@ -24,6 +24,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     private readonly IModelCatalogService? _modelCatalogService;
     private CancellationTokenSource? _modelOptionsCts;
     private string _modelOptionsSource = string.Empty;
+    private bool _disposed;
 
     /// <summary>请求关闭窗口（由 OnboardingWindow 注入）。</summary>
     public Action? RequestClose { get; set; }
@@ -140,11 +141,15 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
 
         // 主题按钮图标随已保存主题；订阅全局主题变更以同步（例如设置页也可能改）。
         ThemeIcon = Config.Theme == "Dark" ? "Moon" : "Sun";
-        App.ThemeChanged += theme =>
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                ThemeIcon = theme == "Dark" ? "Moon" : "Sun");
+        App.ThemeChanged += OnThemeChanged;
         _ = LoadModelOptionsAsync();
     }
+
+    private void OnThemeChanged(string theme) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed) ThemeIcon = theme == "Dark" ? "Moon" : "Sun";
+        });
 
     partial void OnCurrentStepChanged(int value) => _ = SaveAsync();
 
@@ -390,6 +395,9 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+        App.ThemeChanged -= OnThemeChanged;
         _modelOptionsCts?.Cancel();
         _modelOptionsCts?.Dispose();
         _modelOptionsCts = null;

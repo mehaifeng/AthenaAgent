@@ -51,7 +51,7 @@ public enum ModelCapability
     Speech
 }
 
-/// <summary>某个业务角色使用的模型，以及该角色自己的采样/输出参数。</summary>
+/// <summary>某个业务角色使用的 Provider 和模型。</summary>
 public partial class ModelRoleSettings : ObservableObject
 {
     [ObservableProperty]
@@ -59,12 +59,6 @@ public partial class ModelRoleSettings : ObservableObject
 
     [ObservableProperty]
     private string _model = string.Empty;
-
-    [ObservableProperty]
-    private double _temperature = 0.3;
-
-    [ObservableProperty]
-    private int _maxOutputTokens = 16000;
 }
 
 /// <summary>
@@ -76,67 +70,32 @@ public partial class AiModelConfiguration : ObservableObject
     [ObservableProperty]
     private ObservableCollection<OpenAiProviderConfiguration> _providers = new();
 
-    // 仅保留给旧页面的过渡绑定；新运行时和新窗口不再读取它。
     [ObservableProperty]
-    private OpenAiProviderConfiguration _provider = new();
+    private ModelRoleSettings _mainConversation = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _mainConversation = new()
-    {
-        Temperature = 0.7
-    };
+    private ModelRoleSettings _titleGeneration = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _titleGeneration = new()
-    {
-        Temperature = 0.2
-    };
+    private ModelRoleSettings _contextCompression = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _contextCompression = new()
-    {
-        Temperature = 0.2
-    };
+    private ModelRoleSettings _approval = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _approval = new()
-    {
-        Temperature = 0,
-        MaxOutputTokens = 256
-    };
+    private ModelRoleSettings _embedding = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _embedding = new()
-    {
-        Temperature = 0,
-        MaxOutputTokens = 0
-    };
+    private ModelRoleSettings _browserAgent = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _browserAgent = new()
-    {
-        Temperature = 0.2
-    };
+    private ModelRoleSettings _subAgent = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _subAgent = new()
-    {
-        Temperature = 0.3
-    };
+    private ModelRoleSettings _knowledgeMaintenance = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _knowledgeMaintenance = new()
-    {
-        Temperature = 0.1,
-        MaxOutputTokens = 4096
-    };
-
-    [ObservableProperty]
-    private ModelRoleSettings _imageRecognition = new()
-    {
-        Temperature = 0.1,
-        MaxOutputTokens = 4096
-    };
+    private ModelRoleSettings _imageRecognition = new();
 }
 
 public enum AiModelRole

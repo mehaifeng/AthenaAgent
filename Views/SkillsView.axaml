@@ -17,8 +17,8 @@
     </UserControl.Resources>
     <Grid RowDefinitions="40,*">
         <Border Grid.Row="0" CornerRadius="0,0,5,5" Background="{DynamicResource App.WorkspaceRightBackground}">
-            <Grid MinWidth="600" MaxWidth="800" HorizontalAlignment="Center" Margin="16,0">
-                <TextBlock Margin="16,8" Text="{loc:Loc Skills.Title}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Heading}"/>
+            <Grid MinWidth="600" MaxWidth="800" HorizontalAlignment="Center" Margin="0,18,0,0">
+                <TextBlock Text="{loc:Loc Skills.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             </Grid>
         </Border>
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">

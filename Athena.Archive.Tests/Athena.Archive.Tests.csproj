@@ -24,8 +24,6 @@
     <Compile Include="../Models/ExtensionProviderCatalog.cs" Link="Source/Models/ExtensionProviderCatalog.cs" />
     <Compile Include="../Models/AiModelConfiguration.cs" Link="Source/Models/AiModelConfiguration.cs" />
     <Compile Include="../Models/EmbeddingConnectionSource.cs" Link="Source/Models/EmbeddingConnectionSource.cs" />
-    <Compile Include="../Models/ModelCredentialSource.cs" Link="Source/Models/ModelCredentialSource.cs" />
-    <Compile Include="../Services/ModelCredentialResolver.cs" Link="Source/Services/ModelCredentialResolver.cs" />
     <Compile Include="../Services/ConfigService.cs" Link="Source/Services/ConfigService.cs" />
     <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
     <Compile Include="../Services/Interfaces/IModelCatalogService.cs" Link="Source/Services/Interfaces/IModelCatalogService.cs" />

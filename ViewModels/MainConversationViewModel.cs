@@ -178,9 +178,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public string InputPlaceholder => "Chat.InputPlaceholder";
 
-    /// <summary>历史会话完成替换后，请求聊天视图在下一轮布局完成时滚动到底部。</summary>
-    public event EventHandler? HistoryConversationLoaded;
-
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
     private CancellationTokenSource? _previewLoadCts;
@@ -1989,109 +1986,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         return true;
     }
 
-    public async Task LoadHistoryConversationAsync(ConversationHistoryItem item)
-    {
-        if (_archiveService == null || item.IsArchivePlaceholder) return;
-
-        await _conversationTransitionLock.WaitAsync();
-        try
-        {
-            IsResetting = true;
-            BeginConversationTransition();
-
-            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
-            if (stagedSnapshot == TransitionStageResult.Failed)
-            {
-                return;
-            }
-
-            var history = await _archiveService.LoadByIdAsync(item.Id);
-            if (history == null)
-            {
-                _logger.Warning("未找到要加载的历史对话: {Id}", item.Id);
-                return;
-            }
-
-            ResetConversationState(clearMessages: false);
-            _conversationId = string.IsNullOrWhiteSpace(history.ConversationId)
-                ? Guid.NewGuid().ToString("N")
-                : history.ConversationId;
-            _currentContext.ConversationId = _conversationId;
-            _currentHistoryId = history.Id;
-            _forkedFromConversationId = history.ForkedFromConversationId;
-            _forkedFromHistoryId = history.ForkedFromHistoryId;
-            _forkedAtMessageId = history.ForkedAtMessageId;
-
-            // 恢复工作区绑定
-            if (!string.IsNullOrEmpty(history.WorkspaceId) && _workspaceService != null)
-            {
-                var ws = AvailableWorkspaces.FirstOrDefault(w => w.Id == history.WorkspaceId);
-                if (ws != null)
-                {
-                    CurrentWorkspace = ws;
-                }
-                else
-                {
-                    // 工作区可能已删除，清理悬空引用
-                    CurrentWorkspace = null;
-                }
-            }
-            else
-            {
-                CurrentWorkspace = null;
-            }
-
-            _compressionHistory.Clear();
-            SetActiveContextSummary(history.ContextSummary);
-            UndoCompressionCommand.NotifyCanExecuteChanged();
-
-            var restoredMessages = history.Messages ?? [];
-            if (restoredMessages.Count > 0)
-            {
-                // 消息先全部上屏，预览图后台解码陆续回填（PreviewImage 是 ObservableProperty，绑定自动刷新）
-                _isBulkLoadingMessages = true;
-                try
-                {
-                    foreach (var msg in restoredMessages)
-                    {
-                        ConversationPersistenceHelper.PrepareRestoredMessage(msg);
-                    }
-
-                    Messages.ReplaceAll(restoredMessages);
-                }
-                finally
-                {
-                    _isBulkLoadingMessages = false;
-                }
-
-                LoadPreviewsInBackground(restoredMessages);
-            }
-            else
-            {
-                Messages.ReplaceAll([]);
-            }
-
-            await ReconcileImageGenerationSessionAsync();
-
-            _initialConversationSignature = CreateConversationSignature();
-            // 载入的是另一段会话：清空旧锚点，改由估算显示，其首次发送会重锚到真实 usage。
-            _tokenService?.ResetUsage();
-            UpdateConversationContext();
-            UpdateContextTokensDisplay();
-            UpdateBubbleButtonVisibility();
-            HistoryConversationLoaded?.Invoke(this, EventArgs.Empty);
-        }
-        finally
-        {
-            IsResetting = false;
-            _conversationTransitionLock.Release();
-        }
-    }
-
     /// <summary>
     /// Restores a persisted item into a newly-created conversation VM.
-    /// Unlike <see cref="LoadHistoryConversationAsync"/>, this does not stage or replace an
-    /// existing live conversation and is therefore the correct seam for the multi-session tree.
+    /// This does not stage or replace another live conversation; each tree item owns its own
+    /// conversation VM.
     /// </summary>
     public void RestorePersistedConversation(ConversationHistoryItem history)
     {

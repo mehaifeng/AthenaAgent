@@ -167,7 +167,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
     }
 
     // 图像生成引用统一供应商连接，不再保存重复 API Key。
-    private static EffectiveModelConfig GetEffective(AppConfig config)
+    private static ImageModelConfig GetEffective(AppConfig config)
     {
         var legacyProvider = !string.IsNullOrWhiteSpace(config.ImageGenerationProviderId)
             ? config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ImageGenerationProviderId)
@@ -175,13 +175,13 @@ public class OpenAIImageGenerationService : IImageGenerationService
         if (legacyProvider != null
             && config.ImageProviderSettings.All(item => item.ProviderId != config.ImageGenerationProvider))
         {
-            return new EffectiveModelConfig(
+            return new ImageModelConfig(
                 legacyProvider.ProviderPreset,
                 legacyProvider.BaseUrl,
                 legacyProvider.ApiKey,
                 config.ImageGenerationModel);
         }
-        return new EffectiveModelConfig(
+        return new ImageModelConfig(
             config.ImageGenerationProvider,
             config.ImageGenerationBaseUrl,
             config.ImageGenerationApiKey,
@@ -204,6 +204,12 @@ public class OpenAIImageGenerationService : IImageGenerationService
     private static string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
 
     private static string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
+
+    private readonly record struct ImageModelConfig(
+        string Provider,
+        string BaseUrl,
+        string ApiKey,
+        string Model);
 
     private async Task<byte[]> GenerateProviderSpecificAsync(
         string provider,

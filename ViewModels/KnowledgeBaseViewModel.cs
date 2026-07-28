@@ -14,10 +14,10 @@ using Ursa.Controls;
 namespace Athena.UI.ViewModels;
 
 /// <summary>
-/// 知识库 Tab 视图模型
+/// 知识库视图模型
 /// 管理 AthenaData/KnowledgeBase 目录下的 Markdown 文件
 /// </summary>
-public partial class KnowledgeBaseViewModel : ViewModelBase
+public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
 {
     private readonly IFileSystemService? _fileSystemService;
     private readonly IPlatformPathService? _pathService;
@@ -27,6 +27,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
     private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
     private readonly AppConfigurationSession? _configurationSession;
     private readonly ILogger _logger = Log.ForContext<KnowledgeBaseViewModel>();
+    private bool _disposed;
 
     public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
 
@@ -488,4 +489,14 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
 
     private string GetString(string key, string fallback)
         => _localizationService?.GetString(key, fallback) ?? fallback;
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        if (_maintenanceService != null)
+            _maintenanceService.StateChanged -= OnMaintenanceStateChanged;
+    }
 }

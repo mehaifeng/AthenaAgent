@@ -7,16 +7,6 @@
     <system:String x:Key="Notification.AssistantTitle">Athena 已回复</system:String>
     <system:String x:Key="Tray.Show">显示主窗口</system:String>
     <system:String x:Key="Tray.Quit">退出</system:String>
-    <system:String x:Key="Tab.ChatLink">对话</system:String>
-    <system:String x:Key="Tab.SysConfig">设置</system:String>
-    <system:String x:Key="Tab.Extensions">扩展</system:String>
-    <system:String x:Key="Tab.Skills">Skills</system:String>
-    <system:String x:Key="Tab.McpServer">MCP 服务</system:String>
-    <system:String x:Key="Tab.Scheduler">定时任务</system:String>
-    <system:String x:Key="Tab.Archives">历史</system:String>
-    <system:String x:Key="Tab.Files">知识库</system:String>
-    <system:String x:Key="Tab.SysLogs">日志</system:String>
-    <system:String x:Key="Tab.Diagnostic">关于</system:String>
     <system:String x:Key="Skills.Title">Skills</system:String>
     <system:String x:Key="Skills.Enable">启用 Skills：</system:String>
     <system:String x:Key="Skills.Description">Skills 能帮助 Athena 遵循可复用的专业工作流。</system:String>
@@ -128,7 +118,6 @@
     <system:String x:Key="Config.UnifiedModels.Role">角色</system:String>
     <system:String x:Key="Config.UnifiedModels.Provider">供应商</system:String>
     <system:String x:Key="Config.UnifiedModels.Model">模型</system:String>
-    <system:String x:Key="Config.UnifiedModels.Temperature">温度</system:String>
     <system:String x:Key="Config.UnifiedModels.MaxOutput">最大输出</system:String>
     <system:String x:Key="Config.UnifiedModels.Runtime">Agent 运行参数</system:String>
     <system:String x:Key="Config.UnifiedModels.TestMain">测试主对话</system:String>
@@ -260,14 +249,7 @@
     <system:String x:Key="Tasks.Rec">循环：</system:String>
     <system:String x:Key="Tasks.Type">类型：</system:String>
 
-    <!-- History Tab -->
-    <system:String x:Key="History.Header">历史对话</system:String>
-    <system:String x:Key="History.BtnRefreshDb">刷新</system:String>
-    <system:String x:Key="History.RecordsFound">找到：</system:String>
-    <system:String x:Key="History.Ready">就绪</system:String>
-    <system:String x:Key="History.Msgs">消息数：</system:String>
-    <system:String x:Key="History.ForkedBadge">分支</system:String>
-    <system:String x:Key="History.SearchPlaceholder">搜索历史对话（标题或内容）</system:String>
+    <!-- 共享时间与会话文案 -->
     <system:String x:Key="History.TimeAll">全部</system:String>
     <system:String x:Key="History.TimeToday">今天</system:String>
     <system:String x:Key="History.Time7Days">近 7 天</system:String>
@@ -276,15 +258,9 @@
     <system:String x:Key="History.TimeStartDate">起始日期</system:String>
     <system:String x:Key="History.TimeEndDate">结束日期</system:String>
     <system:String x:Key="History.TimeClear">清除时间筛选</system:String>
-    <system:String x:Key="History.NoMatches">没有匹配的对话</system:String>
     <system:String x:Key="History.Time">时间：</system:String>
-    <system:String x:Key="History.BtnRestore">恢复</system:String>
     <system:String x:Key="History.BtnDel">删除</system:String>
-    <system:String x:Key="History.PendingSummary">正在生成摘要……</system:String>
     <system:String x:Key="History.PendingStatus">生成摘要中</system:String>
-    <system:String x:Key="History.NoRecords">暂无历史记录</system:String>
-    <system:String x:Key="History.FooterHint">选择「恢复」可将历史对话载入当前会话。</system:String>
-    <system:String x:Key="History.Group.Ungrouped">未分组</system:String>
 
     <!-- Workspace -->
     <system:String x:Key="Chat.Workspace.SwitchTip">切换工作区</system:String>

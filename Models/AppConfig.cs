@@ -28,25 +28,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _language = "zh-CN";
 
-    // AI 配置
-    [ObservableProperty]
-    private string _provider = "OpenAI";
-
-    [ObservableProperty]
-    private string _baseUrl = "https://api.openai.com/v1";
-
-    [ObservableProperty]
-    private string _apiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _model = "gpt-5-mini";
-
-    [ObservableProperty]
-    private double _temperature = 0.7;
-
-    [ObservableProperty]
-    private int _maxTokens = 16000;
-
     [ObservableProperty]
     private double _topP = 1.0;
 

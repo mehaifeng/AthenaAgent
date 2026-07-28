@@ -13,6 +13,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
+using System.Reflection;
 
 var outputPath = args.Length > 0
     ? Path.GetFullPath(args[0])
@@ -26,6 +27,7 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestConcreteConfigServiceIdentity();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
 
@@ -770,6 +772,37 @@ static void TestLifecycle()
     var archiveService = new HeadlessArchiveService(archiveStore);
     var localizationService = new HeadlessLocalizationService();
 
+    var onboarding = new OnboardingViewModel(configService, localizationService, null, null);
+    if (CountThemeSubscriptions(onboarding) != 1)
+        throw new InvalidOperationException("Onboarding did not attach exactly one theme subscription.");
+    onboarding.Dispose();
+    onboarding.Dispose();
+    if (CountThemeSubscriptions(onboarding) != 0)
+        throw new InvalidOperationException("Disposed Onboarding still has a static theme subscription.");
+
+    var logs = new LogsViewModel();
+    if (CountThemeSubscriptions(logs) != 1)
+        throw new InvalidOperationException("Logs did not attach exactly one theme subscription.");
+    logs.Dispose();
+    logs.Dispose();
+    if (CountThemeSubscriptions(logs) != 0)
+        throw new InvalidOperationException("Disposed Logs still has a static theme subscription.");
+
+    var knowledgeConfigService = new HeadlessConfigService(new AppConfig());
+    using var knowledgeSession = new AppConfigurationSession(knowledgeConfigService);
+    var maintenance = new HeadlessKnowledgeMaintenanceService();
+    var knowledge = new KnowledgeBaseViewModel(
+        null, null, null, null, null, maintenance, knowledgeSession);
+    if (maintenance.SubscriberCount != 1)
+        throw new InvalidOperationException("Knowledge Base did not attach its maintenance subscription.");
+    var originalKnowledgeConfig = knowledge.Config;
+    knowledge.Dispose();
+    knowledge.Dispose();
+    knowledgeConfigService.PublishExternal(new AppConfig());
+    Dispatcher.UIThread.RunJobs();
+    if (maintenance.SubscriberCount != 0 || !ReferenceEquals(knowledge.Config, originalKnowledgeConfig))
+        throw new InvalidOperationException("Disposed Knowledge Base still observed a long-lived publisher.");
+
     for (var iteration = 0; iteration < 10; iteration++)
     {
         var conversation = new MainConversationViewModel(
@@ -866,6 +899,36 @@ static void TestLifecycle()
     Console.WriteLine("[PASS] repeated conversation disposal releases config, archive, localization, and background work");
     Console.WriteLine("[PASS] repeated Skills & Connectors close disposes every settings page");
     Console.WriteLine("[PASS] Provider Models disposal cancels refresh and detaches configuration subscription");
+    Console.WriteLine("[PASS] Onboarding, Logs, and Knowledge Base release their long-lived subscriptions");
+}
+
+static int CountThemeSubscriptions(object target)
+{
+    var eventField = typeof(App).GetField("ThemeChanged", BindingFlags.Static | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("Unable to inspect the App theme event.");
+    return (eventField.GetValue(null) as Delegate)?.GetInvocationList()
+        .Count(handler => ReferenceEquals(handler.Target, target)) ?? 0;
+}
+
+static void TestConcreteConfigServiceIdentity()
+{
+    var root = Path.Combine(Path.GetTempPath(), $"athena-config-identity-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+        var service = new ConfigService(new TemporaryPathService(root));
+        var first = service.Load();
+        var second = service.Load();
+        var third = service.LoadAsync().GetAwaiter().GetResult();
+        if (!ReferenceEquals(first, second) || !ReferenceEquals(first, third))
+            throw new InvalidOperationException("ConfigService returned multiple default instances before the first save.");
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+
+    Console.WriteLine("[PASS] ConfigService owns one default instance before the first save");
 }
 
 static void AssertSaveCount(HeadlessConfigService service, int expected, string scenario)
@@ -889,6 +952,22 @@ sealed class HeadlessPathService : IPlatformPathService
     public string GetVectorStoreFilePath() => Path.Combine(Root, "vectors.db");
     public string GetWorkspacesDirectory() => Path.Combine(Root, "workspaces");
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(Root, workspaceId);
+}
+
+sealed class TemporaryPathService(string root) : IPlatformPathService
+{
+    public string GetAppDataDirectory() => root;
+    public string GetConfigFilePath() => Path.Combine(root, "config.json");
+    public string GetLogDirectory() => Path.Combine(root, "logs");
+    public string GetKnowledgeBaseDirectory() => Path.Combine(root, "knowledge");
+    public string GetHistoryDirectory() => Path.Combine(root, "history");
+    public string GetPendingArchiveDirectory() => Path.Combine(root, "pending");
+    public string GetAttachmentDirectory() => Path.Combine(root, "attachments");
+    public string GetImageGenerationSessionDirectory() => Path.Combine(root, "images");
+    public string GetTaskSchedulerFilePath() => Path.Combine(root, "tasks.json");
+    public string GetVectorStoreFilePath() => Path.Combine(root, "vectors.db");
+    public string GetWorkspacesDirectory() => Path.Combine(root, "workspaces");
+    public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(root, workspaceId);
 }
 
 sealed class HeadlessConfigService(AppConfig initial) : IConfigService
@@ -931,6 +1010,36 @@ sealed class HeadlessConfigService(AppConfig initial) : IConfigService
     }
 
     public void ResetSaveCount() => SaveCount = 0;
+}
+
+sealed class HeadlessKnowledgeMaintenanceService : IKnowledgeBaseMaintenanceService
+{
+    public int SubscriberCount { get; private set; }
+    public KnowledgeMaintenanceState State { get; } = new();
+    public bool IsRunning => false;
+
+    public event EventHandler? StateChanged
+    {
+        add
+        {
+            SubscriberCount++;
+        }
+        remove
+        {
+            SubscriberCount--;
+        }
+    }
+
+    public void Start()
+    {
+    }
+
+    public void Stop()
+    {
+    }
+
+    public Task<KnowledgeMaintenanceState> RunNowAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(State);
 }
 
 sealed class HeadlessModelCatalogService : IModelCatalogService

@@ -14,12 +14,13 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class LogsViewModel : ViewModelBase
+public partial class LogsViewModel : ViewModelBase, IDisposable
 {
     private readonly ILogService? _logService;
     private readonly ILocalizationService? _localizationService;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly ILogger _logger = Log.ForContext<LogsViewModel>();
+    private bool _disposed;
 
     [ObservableProperty]
     private string _searchLogText = string.Empty;
@@ -90,10 +91,18 @@ public partial class LogsViewModel : ViewModelBase
 
     private void OnThemeChanged(string _)
     {
+        if (_disposed) return;
         foreach (var entry in LogEntries)
         {
             entry.RefreshTheme();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        App.ThemeChanged -= OnThemeChanged;
     }
 
     [RelayCommand]

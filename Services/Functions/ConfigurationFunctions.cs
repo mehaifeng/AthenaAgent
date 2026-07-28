@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using System;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -23,8 +24,7 @@ public class ConfigurationFunctions
     // 可修改的配置项白名单
     private static readonly string[] AllowedConfigKeys =
     {
-        "Temperature", "MaxTokens", "TopP",
-        "Theme", "FontSize", "ShowHeartbeatButton", "Language",
+        "TopP", "Theme", "Language",
         "MaxContextTokens", "CompressionThreshold", "AutoCompress"
     };
 
@@ -58,23 +58,12 @@ public class ConfigurationFunctions
             }
 
             var config = await _configService.LoadAsync();
-            if (key.Equals("Temperature", StringComparison.OrdinalIgnoreCase))
+            var property = typeof(AppConfig).GetProperty(key, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            if (property == null)
             {
-                config.AiModels.MainConversation.Temperature = double.Parse(value);
+                return FunctionResult.FailureResult($"未找到配置项: {key}");
             }
-            else if (key.Equals("MaxTokens", StringComparison.OrdinalIgnoreCase))
-            {
-                config.AiModels.MainConversation.MaxOutputTokens = int.Parse(value);
-            }
-            else
-            {
-                var property = typeof(AppConfig).GetProperty(key, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-                if (property == null)
-                {
-                    return FunctionResult.FailureResult($"未找到配置项: {key}");
-                }
-                property.SetValue(config, ConvertValue(value, property.PropertyType));
-            }
+            property.SetValue(config, ConvertValue(value, property.PropertyType));
 
             // 保存配置
             await _configService.SaveAsync(config);
@@ -120,7 +109,7 @@ public class ConfigurationFunctions
                     // AI 配置（不返回 API Key / BaseUrl）
                     AI = new
                     {
-                        Provider = new { config.AiModels.Provider.ProviderPreset, config.AiModels.Provider.DisplayName },
+                        Provider = GetMainProvider(config),
                         Roles = GetSanitizedRoles(config),
                         TopP = config.TopP,
                         Timeout = config.Timeout,
@@ -147,7 +136,7 @@ public class ConfigurationFunctions
                 {
                     "ai" => new
                     {
-                        Provider = new { config.AiModels.Provider.ProviderPreset, config.AiModels.Provider.DisplayName },
+                        Provider = GetMainProvider(config),
                         Roles = GetSanitizedRoles(config),
                         TopP = config.TopP,
                         Timeout = config.Timeout,
@@ -219,8 +208,15 @@ public class ConfigurationFunctions
 
     private static object Sanitize(ModelRoleSettings role) => new
     {
-        role.Model,
-        role.Temperature,
-        role.MaxOutputTokens
+        role.Model
     };
+
+    private static object? GetMainProvider(AppConfig config)
+    {
+        var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
+            candidate.Id == config.AiModels.MainConversation.ProviderId);
+        return provider == null
+            ? null
+            : new { provider.ProviderPreset, provider.DisplayName };
+    }
 }

@@ -7,16 +7,6 @@
     <system:String x:Key="Notification.AssistantTitle">Athena has replied</system:String>
     <system:String x:Key="Tray.Show">Show main window</system:String>
     <system:String x:Key="Tray.Quit">Quit</system:String>
-    <system:String x:Key="Tab.ChatLink">Chat</system:String>
-    <system:String x:Key="Tab.SysConfig">Settings</system:String>
-    <system:String x:Key="Tab.Extensions">Extensions</system:String>
-    <system:String x:Key="Tab.Skills">Skills</system:String>
-    <system:String x:Key="Tab.McpServer">MCP Servers</system:String>
-    <system:String x:Key="Tab.Scheduler">Tasks</system:String>
-    <system:String x:Key="Tab.Archives">History</system:String>
-    <system:String x:Key="Tab.Files">Knowledge</system:String>
-    <system:String x:Key="Tab.SysLogs">Logs</system:String>
-    <system:String x:Key="Tab.Diagnostic">About</system:String>
     <system:String x:Key="Skills.Title">Skills</system:String>
     <system:String x:Key="Skills.Enable">Enable Skills:</system:String>
     <system:String x:Key="Skills.Description">Skills help Athena follow reusable, specialized workflows.</system:String>
@@ -128,7 +118,6 @@
     <system:String x:Key="Config.UnifiedModels.Role">Role</system:String>
     <system:String x:Key="Config.UnifiedModels.Provider">Provider</system:String>
     <system:String x:Key="Config.UnifiedModels.Model">Model</system:String>
-    <system:String x:Key="Config.UnifiedModels.Temperature">Temperature</system:String>
     <system:String x:Key="Config.UnifiedModels.MaxOutput">Max output</system:String>
     <system:String x:Key="Config.UnifiedModels.Runtime">Agent runtime</system:String>
     <system:String x:Key="Config.UnifiedModels.TestMain">Test main</system:String>
@@ -260,14 +249,7 @@
     <system:String x:Key="Tasks.Rec">Repeat:</system:String>
     <system:String x:Key="Tasks.Type">Type:</system:String>
 
-    <!-- History Tab -->
-    <system:String x:Key="History.Header">Conversation history</system:String>
-    <system:String x:Key="History.BtnRefreshDb">Refresh</system:String>
-    <system:String x:Key="History.RecordsFound">Found:</system:String>
-    <system:String x:Key="History.Ready">Ready</system:String>
-    <system:String x:Key="History.Msgs">Messages:</system:String>
-    <system:String x:Key="History.ForkedBadge">Branch</system:String>
-    <system:String x:Key="History.SearchPlaceholder">Search history (title or content)</system:String>
+    <!-- Shared time and conversation labels -->
     <system:String x:Key="History.TimeAll">All</system:String>
     <system:String x:Key="History.TimeToday">Today</system:String>
     <system:String x:Key="History.Time7Days">Last 7 days</system:String>
@@ -276,15 +258,9 @@
     <system:String x:Key="History.TimeStartDate">Start date</system:String>
     <system:String x:Key="History.TimeEndDate">End date</system:String>
     <system:String x:Key="History.TimeClear">Clear time filter</system:String>
-    <system:String x:Key="History.NoMatches">No matching conversations</system:String>
     <system:String x:Key="History.Time">When:</system:String>
-    <system:String x:Key="History.BtnRestore">Restore</system:String>
     <system:String x:Key="History.BtnDel">Delete</system:String>
-    <system:String x:Key="History.PendingSummary">Generating summary…</system:String>
     <system:String x:Key="History.PendingStatus">Summarizing</system:String>
-    <system:String x:Key="History.NoRecords">No history yet</system:String>
-    <system:String x:Key="History.FooterHint">Select "Restore" to load a past conversation into the current session.</system:String>
-    <system:String x:Key="History.Group.Ungrouped">Ungrouped</system:String>
 
     <!-- Workspace -->
     <system:String x:Key="Chat.Workspace.SwitchTip">Switch workspace</system:String>

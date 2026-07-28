@@ -20,8 +20,6 @@ public static class AppConfigNormalizer
         config.BrowserScreenshotScale = Math.Clamp(config.BrowserScreenshotScale, 0.25, 2.0);
         config.BrowserImageQuality = Math.Clamp(config.BrowserImageQuality, 30, 100);
         config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
-        config.AiModels.BrowserAgent.MaxOutputTokens = Math.Clamp(config.AiModels.BrowserAgent.MaxOutputTokens, 100, 32000);
-        config.AiModels.BrowserAgent.Temperature = Math.Clamp(config.AiModels.BrowserAgent.Temperature, 0, 2);
     }
 
     /// <summary>补齐语音播报的缺省字段（与 <see cref="AudioConfigResolver"/> 的运行期回退保持一致）。</summary>

@@ -235,13 +235,13 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
-            "Modifies your own operational parameters (e.g., Temperature, Language, Theme) based on user mood or explicit requests.",
+            "Modifies supported application parameters (for example Language, Theme, or context limits) after an explicit user request.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    key = new { type = "string", description = "Parameter name (e.g., 'Temperature', 'Language', 'Theme')." },
+                    key = new { type = "string", description = "Parameter name (for example 'Language', 'Theme', or 'MaxContextTokens')." },
                     value = new { type = "string", description = "New value for the parameter." }
                 },
                 required = new[] { "key", "value" }

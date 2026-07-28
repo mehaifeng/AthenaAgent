@@ -159,16 +159,6 @@ public sealed class AppConfigurationSession : IDisposable
             TrackCollection(provider.Models, RequestSave);
         }
 
-        TrackPropertyChanges(models.Provider, (_, args) =>
-        {
-            if (args.PropertyName == nameof(OpenAiProviderConfiguration.ProviderPreset))
-            {
-                models.Provider.DisplayName = models.Provider.ProviderPreset;
-                if (ProviderCatalog.TryGetChatBaseUrl(models.Provider.ProviderPreset, out var url))
-                    models.Provider.BaseUrl = url;
-            }
-            RequestSave();
-        });
         foreach (var role in GetRoleSettings(models)) TrackObservable(role);
     }
 

@@ -34,8 +34,8 @@ public class ConfigService : IConfigService
 
     public async Task<AppConfig> LoadAsync()
     {
-        if (!File.Exists(ConfigFilePath)) return new AppConfig();
         if (TryGetCached(out var cached)) return cached;
+        if (!File.Exists(ConfigFilePath)) return GetOrCreateDefault();
 
         try
         {
@@ -46,14 +46,14 @@ public class ConfigService : IConfigService
         }
         catch
         {
-            return new AppConfig();
+            return GetOrCreateDefault();
         }
     }
 
     public AppConfig Load()
     {
-        if (!File.Exists(ConfigFilePath)) return new AppConfig();
         if (TryGetCached(out var cached)) return cached;
+        if (!File.Exists(ConfigFilePath)) return GetOrCreateDefault();
 
         try
         {
@@ -64,7 +64,7 @@ public class ConfigService : IConfigService
         }
         catch
         {
-            return new AppConfig();
+            return GetOrCreateDefault();
         }
     }
 
@@ -82,6 +82,12 @@ public class ConfigService : IConfigService
         {
             if (_cachedConfig != null)
             {
+                if (!File.Exists(ConfigFilePath))
+                {
+                    config = _cachedConfig;
+                    return true;
+                }
+
                 try
                 {
                     if (File.GetLastWriteTimeUtc(ConfigFilePath) == _cachedWriteTimeUtc)
@@ -96,6 +102,14 @@ public class ConfigService : IConfigService
 
         config = null!;
         return false;
+    }
+
+    private AppConfig GetOrCreateDefault()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedConfig ??= new AppConfig();
+        }
     }
 
     private void StoreCache(AppConfig config, DateTime writeTimeUtc)

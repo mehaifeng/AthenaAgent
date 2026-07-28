@@ -965,8 +965,10 @@ public partial class App : Application, IDisposable
             var mcpToolHost = sp.GetService<Athena.UI.Services.Mcp.IMcpToolHost>();
             var skillCatalog = sp.GetService<ISkillCatalogService>();
             var config = configService.Load();
+            var mainProvider = config.AiModels.Providers.FirstOrDefault(provider =>
+                provider.Id == config.AiModels.MainConversation.ProviderId);
             Log.Information("AI 服务初始化，供应商配置: {ProviderId}, 模型: {Model}, FunctionCalling: {Enabled}",
-                config.AiModels.Provider.ProviderPreset,
+                mainProvider?.ProviderPreset ?? "(not configured)",
                 config.AiModels.MainConversation.Model,
                 true);
             var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
