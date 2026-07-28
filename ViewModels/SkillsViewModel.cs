@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Models.Skills;
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,22 +14,23 @@ using CommunityToolkit.Mvvm.Input;
 namespace Athena.UI.ViewModels;
 
 /// <summary>Skill catalogue page. It manages disclosure state, not the contents of external Skills.</summary>
-public partial class SkillsTabViewModel : ViewModelBase
+public partial class SkillsViewModel : ViewModelBase, IDisposable
 {
     private readonly ISkillCatalogService? _catalog;
     private readonly IConfigService? _configService;
     private readonly IWorkspaceService? _workspaceService;
     private readonly ILocalizationService? _localization;
     private readonly IUserInteractionService? _userInteraction;
+    private AppConfigurationSession? _configurationSession;
 
     [ObservableProperty] private AppConfig _config = new();
     [ObservableProperty] private ObservableCollection<SkillItemViewModel> _skills = new();
     [ObservableProperty] private string _status = string.Empty;
     [ObservableProperty] private string _applicationSkillsDirectory = string.Empty;
 
-    public SkillsTabViewModel() : this(null, null, null, null, null) { }
+    public SkillsViewModel() : this(null, null, null, null, null) { }
 
-    public SkillsTabViewModel(
+    public SkillsViewModel(
         ISkillCatalogService? catalog,
         IConfigService? configService,
         IWorkspaceService? workspaceService,
@@ -43,23 +45,19 @@ public partial class SkillsTabViewModel : ViewModelBase
         ApplicationSkillsDirectory = catalog?.ApplicationSkillsDirectory ?? string.Empty;
     }
 
-    public void Initialize(ConfigTabViewModel configOwner)
+    public void Initialize(AppConfigurationSession configurationSession)
     {
-        Config = configOwner.Config;
-        configOwner.PropertyChanged += (_, eventArgs) =>
-        {
-            if (eventArgs.PropertyName == nameof(ConfigTabViewModel.Config))
-            {
-                Config = configOwner.Config;
-                RefreshSkills();
-            }
-        };
+        _configurationSession = configurationSession;
+        Config = configurationSession.Current;
+        configurationSession.CurrentChanged += OnCurrentConfigChanged;
         if (_workspaceService != null)
         {
-            _workspaceService.ActiveWorkspaceChanged += (_, _) => RefreshSkills();
+            _workspaceService.ActiveWorkspaceChanged += OnActiveWorkspaceChanged;
         }
         RefreshSkills();
     }
+
+    private void OnActiveWorkspaceChanged(object? sender, WorkspaceProfile? workspace) => RefreshSkills();
 
     [RelayCommand]
     private void RefreshSkills()
@@ -88,8 +86,8 @@ public partial class SkillsTabViewModel : ViewModelBase
         {
             Config.DisabledSkillKeys.Add(key);
         }
-        await _configService.SaveAsync(Config);
         RefreshSkills();
+        await Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -141,7 +139,6 @@ public partial class SkillsTabViewModel : ViewModelBase
             if (_configService != null)
             {
                 while (Config.DisabledSkillKeys.Remove(item.Skill.StableKey)) { }
-                await _configService.SaveAsync(Config);
             }
             RefreshSkills();
         }
@@ -181,6 +178,20 @@ public partial class SkillsTabViewModel : ViewModelBase
     }
 
     private string GetString(string key, string fallback) => _localization?.GetString(key, fallback) ?? fallback;
+
+    private void OnCurrentConfigChanged(object? sender, AppConfig config)
+    {
+        Config = config;
+        RefreshSkills();
+    }
+
+    public void Dispose()
+    {
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        if (_workspaceService != null)
+            _workspaceService.ActiveWorkspaceChanged -= OnActiveWorkspaceChanged;
+    }
 }
 
 public partial class SkillItemViewModel : ViewModelBase

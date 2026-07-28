@@ -1,0 +1,21 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.ImageGenerationSettingsView"
+             x:DataType="vm:ImageGenerationSettingsViewModel">
+    <ScrollViewer>
+        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+            <TextBlock Text="{loc:Loc Connectors.Image.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+            <CheckBox Content="{loc:Loc Connectors.Image.Enabled}" IsChecked="{Binding Config.ImageGenerationEnabled}"/>
+            <ItemsControl ItemsSource="{Binding ProviderCards}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
+                        <views:ExtensionProviderCardView/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

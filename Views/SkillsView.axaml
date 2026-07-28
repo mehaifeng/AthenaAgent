@@ -6,11 +6,12 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:appconv="using:Athena.UI.Converters"
              mc:Ignorable="d"
+             x:Name="SkillsRoot"
              d:DesignWidth="720"
              d:DesignHeight="1200"
-             x:Class="Athena.UI.Views.SkillsTabView"
-             x:DataType="vm:SkillsTabViewModel">
-    <Design.DataContext><vm:SkillsTabViewModel/></Design.DataContext>
+             x:Class="Athena.UI.Views.SkillsView"
+             x:DataType="vm:SkillsViewModel">
+    <Design.DataContext><vm:SkillsViewModel/></Design.DataContext>
     <UserControl.Resources>
         <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
     </UserControl.Resources>
@@ -51,15 +52,15 @@
                                 <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
                                     <StackPanel Spacing="7">
                                         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                            <Button Grid.Column="0" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).ToggleExpandedCommand}" CommandParameter="{Binding}" Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0" Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
-                                            <Button Grid.Column="1" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).ToggleExpandedCommand}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                            <Button Grid.Column="0" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0" Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
+                                            <Button Grid.Column="1" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Skill.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding Skill.Description}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7" TextTrimming="CharacterEllipsis" MaxWidth="450"/>
                                                 </StackPanel>
                                             </Button>
                                             <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center"/>
-                                            <Button Grid.Column="3" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}">
+                                            <Button Grid.Column="3" Command="{Binding #SkillsRoot.DataContext.DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}">
                                                 <PathIcon Data="{DynamicResource SemiIconDelete}" Height="15" Width="15"/>
                                             </Button>
                                         </Grid>
@@ -75,7 +76,7 @@
                                             <TextBlock Text="{Binding Resources}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
                                             <TextBlock Text="{Binding Diagnostics}" IsVisible="{Binding Skill.HasDiagnostics}" FontSize="{DynamicResource App.FontSize.Body}" Foreground="Orange" TextWrapping="Wrap"/>
                                             <TextBlock Text="{Binding Skill.InstructionsPreview}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap" MaxHeight="150"/>
-                                            <Button Content="{loc:Loc Skills.OpenFile}" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).OpenSkillFileCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left"/>
+                                            <Button Content="{loc:Loc Skills.OpenFile}" Command="{Binding #SkillsRoot.DataContext.OpenSkillFileCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>

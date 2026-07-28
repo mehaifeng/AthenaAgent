@@ -470,7 +470,7 @@ public partial class App : Application
         }
         Log.Information("主题已切换为: {Theme}", theme);
 
-        // 广播给所有订阅者（ConfigTabViewModel / ChatTabViewModel 同步按钮状态）
+        // 广播给所有订阅者（配置会话 / 对话视图模型同步按钮状态）
         ThemeChanged?.Invoke(themeName ?? "Dark");
     }
 
@@ -514,13 +514,38 @@ public partial class App : Application
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
+        services.AddSingleton<AppConfigurationSession>();
+        services.AddSingleton<AppConfigurationApplier>();
         services.AddSingleton<ConversationExecutionCoordinator>();
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>();
         services.AddSingleton<AppSettingsViewModel>();
-        services.AddSingleton<ExtensionsConfigurationViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
+        services.AddTransient<SkillsViewModel>(sp =>
+        {
+            var viewModel = new SkillsViewModel(
+                sp.GetService<ISkillCatalogService>(),
+                sp.GetService<IConfigService>(),
+                sp.GetService<IWorkspaceService>(),
+                sp.GetService<ILocalizationService>(),
+                sp.GetService<IUserInteractionService>());
+            viewModel.Initialize(sp.GetRequiredService<AppConfigurationSession>());
+            return viewModel;
+        });
+        services.AddTransient<McpConnectionsViewModel>(sp =>
+        {
+            var viewModel = new McpConnectionsViewModel(
+                sp.GetService<IConfigService>(),
+                sp.GetService<ILocalizationService>());
+            viewModel.Initialize(sp.GetRequiredService<AppConfigurationSession>());
+            return viewModel;
+        });
+        services.AddTransient<SpeechSettingsViewModel>();
+        services.AddTransient<ImageGenerationSettingsViewModel>();
+        services.AddTransient<WebSearchSettingsViewModel>();
+        services.AddTransient<DocumentParserSettingsViewModel>();
+        services.AddTransient<SkillsConnectorsWindowViewModel>();
 
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
@@ -929,7 +954,6 @@ public partial class App : Application
                 config.AiModels.MainConversation.Model,
                 true);
             var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
-            configService.ConfigChanged += (_, next) => service.UpdateConfig(next);
             return service;
         });
 
@@ -954,36 +978,32 @@ public partial class App : Application
             var promptService = sp.GetService<IPromptService>();
             var logService = sp.GetService<ILogService>();
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
-            var embeddingService = sp.GetService<IEmbeddingService>();
             var localizationService = sp.GetService<ILocalizationService>();
             var fileSystemService = sp.GetService<IFileSystemService>();
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
-            var webSearchService = sp.GetService<IWebSearchService>();
             var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
             var imageGenerationSessionService = sp.GetService<IImageGenerationSessionService>();
-            var browserService = sp.GetService<IHeadlessBrowserService>();
-            var browserVisionService = sp.GetService<IBrowserVisionService>();
-            var modelCatalogService = sp.GetService<IModelCatalogService>();
             var screenCaptureService = sp.GetService<IScreenCaptureService>();
             var subAgentOrchestrator = sp.GetService<ISubAgentOrchestrator>();
             var knowledgeMaintenanceService = sp.GetService<IKnowledgeBaseMaintenanceService>();
             var workspaceService = sp.GetService<IWorkspaceService>();
             var conversationSessionAccessor = sp.GetService<IConversationSessionAccessor>();
-            var skillCatalog = sp.GetService<ISkillCatalogService>();
-            var modelRuntimeFactory = sp.GetService<OpenAiModelRuntimeFactory>();
             var userInteractionService = sp.GetService<IUserInteractionService>();
             var executionCoordinator = sp.GetRequiredService<ConversationExecutionCoordinator>();
             var chatSessionFactory = sp.GetRequiredService<ChatSessionFactory>();
             var conversationStore = sp.GetRequiredService<IConversationArchiveStore>();
             var workbench = sp.GetRequiredService<WorkspaceWorkbenchViewModel>();
             var appSettings = sp.GetRequiredService<AppSettingsViewModel>();
-            var extensionSettings = sp.GetRequiredService<ExtensionsConfigurationViewModel>();
             var approvalQueue = sp.GetRequiredService<ApprovalQueueViewModel>();
+            var configurationSession = sp.GetRequiredService<AppConfigurationSession>();
+            _ = sp.GetRequiredService<AppConfigurationApplier>();
+            Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
+                () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -993,36 +1013,30 @@ public partial class App : Application
                 promptService,
                 logService,
                 knowledgeBaseService,
-                embeddingService,
                 localizationService,
                 fileSystemService,
                 platformPathService,
                 functionRegistry,
                 tokenService,
-                webSearchService,
                 updateService,
                 attachmentStoreService,
                 systemAudioService,
                 archiveService,
                 imageGenerationSessionService,
-                browserService,
-                browserVisionService,
-                modelCatalogService,
                 screenCaptureService,
                 subAgentOrchestrator,
                 knowledgeMaintenanceService,
                 workspaceService,
                 conversationSessionAccessor,
-                skillCatalog,
-                modelRuntimeFactory,
                 userInteractionService,
                 executionCoordinator,
                 chatSessionFactory,
                 conversationStore,
                 workbench,
                 appSettings,
-                extensionSettings,
-                approvalQueue);
+                approvalQueue,
+                configurationSession,
+                skillsConnectorsFactory);
         });
 
         Log.Debug("依赖注入服务配置完成");

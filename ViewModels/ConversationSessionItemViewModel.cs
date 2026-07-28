@@ -85,9 +85,35 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(StatusGlyph))]
     [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchivePendingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchiveFailedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
+    private bool _isArchivePending;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchivePendingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchiveFailedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
+    private bool _isArchiveFailed;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    private string _archiveStatusText = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowWaitingIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowQueuedIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowRunningIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchivePendingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowArchiveFailedIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
     [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
     private bool _isWaitingForApproval;
@@ -108,27 +134,65 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public bool IsQueued => Chat.IsQueued;
 
-    public bool HasStatusIndicator => IsWaitingForApproval || IsQueued || IsRunning || WasInterrupted || HasUnreadCompletion;
+    public bool HasStatusIndicator =>
+        IsWaitingForApproval || IsQueued || IsRunning || IsArchivePending || IsArchiveFailed || WasInterrupted || HasUnreadCompletion;
 
     public bool ShowWaitingIndicator => IsWaitingForApproval;
     public bool ShowQueuedIndicator => !IsWaitingForApproval && IsQueued;
     public bool ShowRunningIndicator => !IsWaitingForApproval && !IsQueued && IsRunning;
-    public bool ShowInterruptedIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && WasInterrupted;
-    public bool ShowCompletionIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && !WasInterrupted && HasUnreadCompletion;
+    public bool ShowArchivePendingIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && IsArchivePending;
+    public bool ShowArchiveFailedIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && IsArchiveFailed;
+    public bool ShowInterruptedIndicator =>
+        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && WasInterrupted;
+    public bool ShowCompletionIndicator =>
+        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && !WasInterrupted && HasUnreadCompletion;
 
     public string StatusText => IsWaitingForApproval
         ? "等待审批"
         : IsQueued
-        ? "排队中"
-        : IsRunning
-            ? "运行中"
-            : WasInterrupted
-                ? "已中断"
+            ? "排队中"
+            : IsRunning
+                ? "运行中"
+                : IsArchivePending
+                    ? string.IsNullOrWhiteSpace(ArchiveStatusText) ? "正在归档" : ArchiveStatusText
+                    : IsArchiveFailed
+                        ? string.IsNullOrWhiteSpace(ArchiveStatusText) ? "归档失败，等待重试" : ArchiveStatusText
+                        : WasInterrupted
+                            ? "已中断"
+                            : HasUnreadCompletion
+                                ? "已完成"
+                                : string.Empty;
+
+    public string StatusGlyph => IsWaitingForApproval
+        ? "◆"
+        : IsQueued || IsRunning || IsArchivePending
+            ? "●"
+            : IsArchiveFailed || WasInterrupted
+                ? "!"
                 : HasUnreadCompletion
-                    ? "已完成"
+                    ? "✓"
                     : string.Empty;
 
-    public string StatusGlyph => IsWaitingForApproval ? "◆" : IsQueued || IsRunning ? "●" : WasInterrupted ? "!" : HasUnreadCompletion ? "✓" : string.Empty;
+    public void SetArchivePending(string statusText)
+    {
+        ArchiveStatusText = statusText;
+        IsArchiveFailed = false;
+        IsArchivePending = true;
+    }
+
+    public void SetArchiveCompleted()
+    {
+        IsArchivePending = false;
+        IsArchiveFailed = false;
+        ArchiveStatusText = string.Empty;
+    }
+
+    public void SetArchiveFailed(string statusText)
+    {
+        ArchiveStatusText = statusText;
+        IsArchivePending = false;
+        IsArchiveFailed = true;
+    }
 
     partial void OnIsPinnedChanged(bool value)
     {
@@ -194,6 +258,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             OnPropertyChanged(nameof(HasStatusIndicator));
             OnPropertyChanged(nameof(ShowQueuedIndicator));
             OnPropertyChanged(nameof(ShowRunningIndicator));
+            OnPropertyChanged(nameof(ShowArchivePendingIndicator));
+            OnPropertyChanged(nameof(ShowArchiveFailedIndicator));
             OnPropertyChanged(nameof(ShowInterruptedIndicator));
             OnPropertyChanged(nameof(ShowCompletionIndicator));
         }

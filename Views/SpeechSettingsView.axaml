@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.SpeechSettingsView"
+             x:DataType="vm:SpeechSettingsViewModel">
+    <ScrollViewer>
+        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+            <TextBlock Text="{loc:Loc Connectors.Speech.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+            <StackPanel Orientation="Horizontal" Spacing="18">
+                <CheckBox Content="{loc:Loc Connectors.Speech.Enabled}" IsChecked="{Binding Config.ChatAudioEnabled}"/>
+                <CheckBox Content="{loc:Loc Connectors.Speech.AutoPlay}" IsChecked="{Binding Config.ChatAudioAutoPlay}"/>
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding ProviderCards}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
+                        <views:ExtensionProviderCardView/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                <Button Grid.Column="0" Content="{loc:Loc Connectors.Test}" Command="{Binding TestOutputCommand}"/>
+                <Button Grid.Column="1"
+                        Content="{Binding PlaybackGlyph}"
+                        Command="{Binding TogglePlaybackCommand}"
+                        IsVisible="{Binding TestAttachment, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Grid.Column="2" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

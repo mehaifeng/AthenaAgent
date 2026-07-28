@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.DocumentParserSettingsView"
+             x:DataType="vm:DocumentParserSettingsViewModel">
+    <ScrollViewer>
+        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+            <TextBlock Text="{loc:Loc Connectors.Document.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+            <CheckBox Content="{loc:Loc Config.DocumentParserEnabled}" IsChecked="{Binding Config.DocumentParserEnabled}"/>
+            <TextBlock Text="{loc:Loc Config.DocumentParserMode}"/>
+            <ComboBox ItemsSource="{Binding Modes}"
+                      SelectedItem="{Binding Config.DocumentParserMode}"
+                      IsEnabled="{Binding Config.DocumentParserEnabled}"/>
+            <TextBlock Text="{loc:Loc Config.DocumentParserToken}"/>
+            <TextBox Text="{Binding Config.DocumentParserToken}"
+                     PasswordChar="●"
+                     IsEnabled="{Binding CanEditToken}"/>
+            <TextBlock Opacity="0.66" FontSize="12" TextWrapping="Wrap" Text="{loc:Loc Config.DocumentParserTokenHint}"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

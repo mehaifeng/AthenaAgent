@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.WebSearchSettingsView"
+             x:DataType="vm:WebSearchSettingsViewModel">
+    <ScrollViewer>
+        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+            <TextBlock Text="{loc:Loc Connectors.WebSearch.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+            <CheckBox Content="{loc:Loc Connectors.WebSearch.Enabled}" IsChecked="{Binding Config.WebSearchEnabled}"/>
+            <ItemsControl ItemsSource="{Binding ProviderCards}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
+                        <views:ExtensionProviderCardView/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <Button Grid.Column="0" Content="{loc:Loc Connectors.Test}" Command="{Binding TestConnectionCommand}"/>
+                <TextBlock Grid.Column="1" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

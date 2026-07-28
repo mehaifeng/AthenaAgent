@@ -36,6 +36,10 @@
                                            IsVisible="{Binding ShowQueuedIndicator}"/>
                                 <TextBlock Text="◆" FontSize="{DynamicResource App.FontSize.Micro}" Foreground="{DynamicResource SemiOrange5}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowWaitingIndicator}"/>
+                                <TextBlock Text="↻" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiOrange5}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowArchivePendingIndicator}"/>
+                                <TextBlock Text="!" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiRed6}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowArchiveFailedIndicator}"/>
                                 <TextBlock Text="!" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiRed6}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowInterruptedIndicator}"/>
                                 <TextBlock Text="✓" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiGreen6}"

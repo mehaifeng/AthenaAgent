@@ -151,6 +151,31 @@
                         </ItemsControl>
                     </StackPanel>
                 </Border>
+
+                <Border Padding="16"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                        Background="{DynamicResource App.SectionBg}"
+                        CornerRadius="8">
+                    <StackPanel Spacing="9">
+                        <TextBlock Text="Embedding 兼容连接"
+                                   FontSize="{DynamicResource App.FontSize.Title}"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="通常由上方 Embedding 分工选择供应商；仅旧式独立凭据需要启用此项。"
+                                   Opacity="0.65"
+                                   TextWrapping="Wrap"/>
+                        <CheckBox Content="使用独立 Embedding 连接"
+                                  IsChecked="{Binding UseCustomEmbeddingConnection}"/>
+                        <StackPanel Spacing="8"
+                                    IsVisible="{Binding UseCustomEmbeddingConnection}">
+                            <TextBlock Text="API Root"/>
+                            <TextBox Text="{Binding Config.EmbeddingBaseUrl}"/>
+                            <TextBlock Text="API Key"/>
+                            <TextBox Text="{Binding Config.EmbeddingApiKey}"
+                                     PasswordChar="●"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
                     </StackPanel>
                 </ScrollViewer>
 

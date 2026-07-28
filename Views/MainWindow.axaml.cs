@@ -159,7 +159,7 @@ public partial class MainWindow : Window
     /// </param>
     public async Task ShowThemeSplashAsync(string theme, bool force = false)
     {
-        // 如果主题与当前 Avalonia 主题相同，跳过动画（避免 ConfigTabView auto-save 重复触发）。
+        // 如果主题与当前 Avalonia 主题相同，跳过动画（避免配置自动保存重复触发）。
         // 引导交接（force）除外——该路径的意义正是同主题下的揭幕动画。
         var isTargetDark = theme?.ToLower() != "light";
         var currentVariant = Application.Current?.RequestedThemeVariant;

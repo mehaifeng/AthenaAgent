@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -24,6 +25,8 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
     private readonly ILocalizationService? _localizationService;
     private readonly IUserInteractionService? _userInteractionService;
+    private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
+    private readonly AppConfigurationSession? _configurationSession;
     private readonly ILogger _logger = Log.ForContext<KnowledgeBaseTabViewModel>();
 
     public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
@@ -46,26 +49,159 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     [ObservableProperty]
     private string _newFileName = string.Empty;
 
+    [ObservableProperty]
+    private AppConfig _config = new();
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunKnowledgeMaintenanceCommand))]
+    private bool _isRunningMaintenance;
+
+    [ObservableProperty]
+    private string _maintenanceStatus = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RebuildVectorIndexCommand))]
+    private bool _isRebuildingVectorIndex;
+
+    [ObservableProperty]
+    private string _vectorIndexStatus = string.Empty;
+
+    private bool CanRunKnowledgeMaintenance => !IsRunningMaintenance;
+    private bool CanRebuildVectorIndex => !IsRebuildingVectorIndex;
+
     private string _rootPath = string.Empty;
 
-    public KnowledgeBaseTabViewModel() : this(null, null, null, null, null) { }
+    public KnowledgeBaseTabViewModel() : this(null, null, null, null, null, null, null) { }
 
     public KnowledgeBaseTabViewModel(
         IFileSystemService? fileSystemService, 
         IPlatformPathService? pathService,
         IKnowledgeBaseService? knowledgeBaseService,
         ILocalizationService? localizationService = null,
-        IUserInteractionService? userInteractionService = null)
+        IUserInteractionService? userInteractionService = null,
+        IKnowledgeBaseMaintenanceService? maintenanceService = null,
+        AppConfigurationSession? configurationSession = null)
     {
         _fileSystemService = fileSystemService;
         _pathService = pathService;
         _knowledgeBaseService = knowledgeBaseService;
         _localizationService = localizationService;
         _userInteractionService = userInteractionService;
+        _maintenanceService = maintenanceService;
+        _configurationSession = configurationSession;
+
+        if (_configurationSession != null)
+        {
+            Config = _configurationSession.Current;
+            _configurationSession.CurrentChanged += OnCurrentConfigChanged;
+        }
+
+        if (_maintenanceService != null)
+        {
+            _maintenanceService.StateChanged += OnMaintenanceStateChanged;
+            IsRunningMaintenance = _maintenanceService.IsRunning;
+            UpdateMaintenanceStatus();
+        }
         
         if (_pathService != null)
         {
             _rootPath = _pathService.GetKnowledgeBaseDirectory();
+        }
+    }
+
+    private void OnCurrentConfigChanged(object? sender, AppConfig config) => Config = config;
+
+    [RelayCommand(CanExecute = nameof(CanRunKnowledgeMaintenance))]
+    private async Task RunKnowledgeMaintenanceAsync()
+    {
+        if (_maintenanceService == null)
+        {
+            MaintenanceStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            return;
+        }
+
+        IsRunningMaintenance = true;
+        MaintenanceStatus = GetString("Config.KbMaintenanceRunning", "Organizing knowledge base…");
+        try
+        {
+            await _maintenanceService.RunNowAsync();
+            UpdateMaintenanceStatus();
+        }
+        catch (Exception ex)
+        {
+            MaintenanceStatus = ex.Message;
+        }
+        finally
+        {
+            IsRunningMaintenance = false;
+        }
+    }
+
+    private void OnMaintenanceStateChanged(object? sender, EventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            IsRunningMaintenance = _maintenanceService?.IsRunning ?? false;
+            UpdateMaintenanceStatus();
+        });
+    }
+
+    private void UpdateMaintenanceStatus()
+    {
+        var state = _maintenanceService?.State;
+        if (state?.LastRunUtc == null)
+        {
+            MaintenanceStatus = GetString("Config.KbMaintenanceNeverRun", "Never organized");
+            return;
+        }
+
+        var time = state.LastRunUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        var conclusion = state.LastOutcome switch
+        {
+            "Succeeded" => string.Format(
+                GetString("Config.KbMaintenanceDoneMerged", "Processed {0} potential duplicate group(s)"),
+                state.LastMergedGroups),
+            "NoDuplicates" => GetString("Config.KbMaintenanceNoDup", "No duplicate files found"),
+            "Failed" => GetString("Config.KbMaintenanceFailed", "Organization failed; see logs"),
+            "Skipped" => GetString("Config.KbMaintenanceSkipped", "Skipped because Embedding is not configured"),
+            _ => state.LastOutcome ?? string.Empty
+        };
+        MaintenanceStatus = $"{time} · {conclusion}";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRebuildVectorIndex))]
+    private async Task RebuildVectorIndexAsync()
+    {
+        if (_knowledgeBaseService == null)
+        {
+            VectorIndexStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            return;
+        }
+
+        IsRebuildingVectorIndex = true;
+        VectorIndexStatus = GetString("Config.VectorIndexRebuilding", "Rebuilding vector index…");
+        try
+        {
+            if (_configurationSession != null) await _configurationSession.SaveNowAsync();
+            var result = await _knowledgeBaseService.RebuildVectorIndexAsync();
+            VectorIndexStatus = result.IsFullyIndexed
+                ? GetString("Config.VectorIndexRebuilt", "Vector index rebuilt")
+                : string.Format(
+                    GetString(
+                        "Config.VectorIndexRebuildIncomplete",
+                        "Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response."),
+                    result.VectorCount,
+                    result.ChunkCount);
+        }
+        catch (Exception ex)
+        {
+            VectorIndexStatus = string.Format(
+                GetString("Config.VectorIndexRebuildFailed", "Failed to rebuild vector index: {0}"),
+                ex.Message);
+        }
+        finally
+        {
+            IsRebuildingVectorIndex = false;
         }
     }
 

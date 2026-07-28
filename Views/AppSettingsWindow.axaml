@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
         xmlns:views="using:Athena.UI.Views"
+        xmlns:loc="using:Athena.UI.Markup"
         x:Class="Athena.UI.Views.AppSettingsWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="应用设置"
@@ -26,6 +27,8 @@
                             <x:String>zh-CN</x:String><x:String>en-US</x:String>
                         </ComboBox>
                     </Grid>
+                    <CheckBox Content="{loc:Loc Config.SkipRewindConfirm}"
+                              IsChecked="{Binding AppSettings.Config.SkipRewindConfirm}"/>
                 </StackPanel>
             </Border>
             <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
@@ -67,6 +70,73 @@
                     </WrapPanel>
                     <CheckBox Content="子代理继承永久放行清单"
                               IsChecked="{Binding AppSettings.Config.SubAgentsInheritApproval}"/>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.AutoAllowed}" Opacity="0.8"/>
+                        <ItemsControl ItemsSource="{Binding AppSettings.Config.AutoAllowedTools}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                        <TextBlock Text="{Binding}"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="Consolas, Menlo, monospace"/>
+                                        <Button Grid.Column="1"
+                                                Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AppSettings.RevokeAutoAllowedToolCommand}"
+                                                CommandParameter="{Binding}"
+                                                Padding="8,2"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.TerminalAllowlist}" Opacity="0.8"/>
+                        <ItemsControl ItemsSource="{Binding AppSettings.Config.TerminalAllowlist}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                        <TextBlock Text="{Binding}"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="Consolas, Menlo, monospace"/>
+                                        <Button Grid.Column="1"
+                                                Content="{loc:Loc Config.ToolApproval.Revoke}"
+                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AppSettings.RevokeTerminalAllowlistCommand}"
+                                                CommandParameter="{Binding}"
+                                                Padding="8,2"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="{loc:Loc Config.BrowserDiagnostics}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{loc:Loc Config.BrowserUnifiedModelHint}" Opacity="0.65"/>
+                    <WrapPanel>
+                        <Button x:Name="TestBrowserRuntimeButton"
+                                Content="{loc:Loc Config.BrowserTestRuntime}"
+                                Command="{Binding AppSettings.TestBrowserRuntimeCommand}"
+                                Margin="0,0,6,0"/>
+                        <Button x:Name="InstallBrowserRuntimeButton"
+                                Content="{loc:Loc Config.BrowserInstallRuntime}"
+                                Command="{Binding AppSettings.InstallBrowserRuntimeCommand}"
+                                Margin="0,0,6,0"/>
+                        <Button x:Name="TestBrowserAgentButton"
+                                Content="{loc:Loc Config.BtnRunDiagnostics}"
+                                Command="{Binding AppSettings.TestBrowserAgentCommand}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding AppSettings.BrowserRuntimeStatus}"
+                               IsVisible="{Binding AppSettings.HasBrowserRuntimeStatus}"
+                               TextWrapping="Wrap"
+                               Opacity="0.7"/>
+                    <TextBlock Text="{Binding AppSettings.BrowserAgentTestStatus}"
+                               IsVisible="{Binding AppSettings.HasBrowserAgentTestStatus}"
+                               TextWrapping="Wrap"
+                               Opacity="0.7"/>
                 </StackPanel>
             </Border>
             <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">

@@ -300,24 +300,14 @@
                     </Panel>
                 </Button>
                 
-                <u:IconSplitButton Grid.Column="3"
-                                   VerticalAlignment="Center"
-                                   Icon="{StaticResource SemiIconPlusCircle}"
-                                   Command="{Binding NewConversationCommand}"
-                                   IsEnabled="{Binding !IsResetting}"
-                                   Margin="0,0,8,0"
-                                   ToolTip.Tip="{loc:Loc Chat.BtnReset}">
-                    <u:IconSplitButton.Flyout>
-                        <MenuFlyout>
-                            <MenuItem Header="{loc:Loc Chat.BtnDeleteConversation}"
-                                      Command="{Binding DeleteCurrentConversationCommand}">
-                                <MenuItem.Icon>
-                                    <PathIcon Data="{StaticResource SemiIconDelete}"/>
-                                </MenuItem.Icon>
-                            </MenuItem>
-                        </MenuFlyout>
-                    </u:IconSplitButton.Flyout>
-                </u:IconSplitButton>
+                <Button Grid.Column="3"
+                        VerticalAlignment="Center"
+                        Command="{Binding NewConversationCommand}"
+                        IsEnabled="{Binding !IsResetting}"
+                        Margin="0,0,8,0"
+                        ToolTip.Tip="{loc:Loc Chat.BtnReset}">
+                    <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconPlusCircle}"/>
+                </Button>
             </Grid>
         </Border>
 

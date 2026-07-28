@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,24 +11,24 @@ namespace Athena.UI.ViewModels;
 
 /// <summary>
 /// MCP 服务页 ViewModel：MCP 服务器的增删改、重连与 JSON 导入。
-/// 与 ConfigTabViewModel 共享同一个 AppConfig 实例——配置的加载、监听与防抖
-/// 自动保存仍由 ConfigTabViewModel（配置属主）负责：属主对 McpServers 及其
-/// 条目做了深度订阅，本页的任何增删改都会经由该订阅触发防抖保存并广播
+/// 与其他设置页面共享 AppConfigurationSession 中的同一个 AppConfig 实例。
+/// 配置会话对 McpServers 及其条目做了深度订阅，本页的任何增删改都会触发防抖保存并广播
 /// ConfigChanged（进而驱动 MCP 生命周期按差异重连），因此本页命令只改状态、
 /// 不直接落盘。唯一例外是「重连」——配置未变时需要显式重存一次来触发广播。
 /// </summary>
-public partial class McpTabViewModel : ViewModelBase
+public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
 {
     private readonly IConfigService? _configService;
     private readonly ILocalizationService? _localizationService;
+    private AppConfigurationSession? _configurationSession;
 
-    /// <summary>与 ConfigTabViewModel 共享的配置实例（由 Initialize 注入并跟随其替换）。</summary>
+    /// <summary>配置会话提供的共享配置实例（由 Initialize 注入并跟随其替换）。</summary>
     [ObservableProperty]
     private AppConfig _config = new();
 
-    public McpTabViewModel() : this(null, null) { }
+    public McpConnectionsViewModel() : this(null, null) { }
 
-    public McpTabViewModel(IConfigService? configService, ILocalizationService? localizationService)
+    public McpConnectionsViewModel(IConfigService? configService, ILocalizationService? localizationService)
     {
         _configService = configService;
         _localizationService = localizationService;
@@ -39,18 +40,13 @@ public partial class McpTabViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 绑定到配置属主：镜像其 Config 实例，并在属主因外部变更整体替换 Config 时跟随。
+    /// 绑定配置会话，并在外部变更整体替换 Config 时跟随。
     /// </summary>
-    public void Initialize(ConfigTabViewModel configOwner)
+    public void Initialize(AppConfigurationSession configurationSession)
     {
-        Config = configOwner.Config;
-        configOwner.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(ConfigTabViewModel.Config))
-            {
-                Config = configOwner.Config;
-            }
-        };
+        _configurationSession = configurationSession;
+        Config = configurationSession.Current;
+        configurationSession.CurrentChanged += OnCurrentConfigChanged;
     }
 
     /// <summary>新增一个空 MCP 服务器条目，等待用户填入命令。</summary>
@@ -140,7 +136,16 @@ public partial class McpTabViewModel : ViewModelBase
     [RelayCommand]
     private async Task ReconnectMcpAsync()
     {
-        if (_configService != null) await _configService.SaveAsync(Config);
+        if (_configurationSession != null) await _configurationSession.SaveNowAsync();
+        else if (_configService != null) await _configService.SaveAsync(Config);
+    }
+
+    private void OnCurrentConfigChanged(object? sender, AppConfig config) => Config = config;
+
+    public void Dispose()
+    {
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
     }
 
     /// <summary>粘贴的 MCP JSON（Claude Desktop 格式），供导入命令读取。</summary>

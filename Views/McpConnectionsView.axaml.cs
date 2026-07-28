@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace Athena.UI.Views;
 
-public partial class McpTabView : UserControl
+public partial class McpConnectionsView : UserControl
 {
-    public McpTabView()
+    public McpConnectionsView()
     {
         InitializeComponent();
     }

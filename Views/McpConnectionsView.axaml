@@ -6,13 +6,14 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:appconv="using:Athena.UI.Converters"
              mc:Ignorable="d"
+             x:Name="McpRoot"
              d:DesignWidth="720"
              d:DesignHeight="1200"
-             x:Class="Athena.UI.Views.McpTabView"
-             x:DataType="vm:McpTabViewModel">
+             x:Class="Athena.UI.Views.McpConnectionsView"
+             x:DataType="vm:McpConnectionsViewModel">
 
     <Design.DataContext>
-        <vm:McpTabViewModel/>
+        <vm:McpConnectionsViewModel/>
     </Design.DataContext>
 
     <UserControl.Resources>
@@ -85,7 +86,7 @@
                                             <!-- 折叠标题栏（始终可见）：展开箭头 · 名称 · 状态 · 重连(仅失败) · 开关 · 删除 -->
                                             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
                                                 <Button Grid.Column="0"
-                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).ToggleMcpExpandedCommand}"
+                                                        Command="{Binding #McpRoot.DataContext.ToggleMcpExpandedCommand}"
                                                         CommandParameter="{Binding}"
                                                         Padding="4,0"
                                                         MinWidth="0"
@@ -95,7 +96,7 @@
                                                         Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
                                                 <!-- 名称：点击也可展开/折叠 -->
                                                 <Button Grid.Column="1"
-                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).ToggleMcpExpandedCommand}"
+                                                        Command="{Binding #McpRoot.DataContext.ToggleMcpExpandedCommand}"
                                                         CommandParameter="{Binding}"
                                                         Background="Transparent"
                                                         BorderThickness="0"
@@ -115,10 +116,10 @@
                                                 <Button Grid.Column="3"
                                                         Content="{loc:Loc Config.Mcp.Reconnect}"
                                                         IsVisible="{Binding Status, Converter={StaticResource McpStatusIsFailed}}"
-                                                        Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).ReconnectMcpCommand}"/>
+                                                        Command="{Binding #McpRoot.DataContext.ReconnectMcpCommand}"/>
                                                 <ToggleSwitch Grid.Column="4" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
                                                 <Button Grid.Column="5"
-                                                        Command="{Binding $parent[ItemsControl].((vm:McpTabViewModel)DataContext).RemoveMcpServerCommand}"
+                                                        Command="{Binding #McpRoot.DataContext.RemoveMcpServerCommand}"
                                                         CommandParameter="{Binding}">
                                                     <PathIcon Data="{DynamicResource SemiIconDelete}" Height="15" Width="15"/>
                                                 </Button>
@@ -149,7 +150,7 @@
                                                 <Grid ColumnDefinitions="*,Auto">
                                                     <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Args}" VerticalAlignment="Center" Opacity="0.8"/>
                                                     <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).AddMcpArgCommand}"
+                                                            Command="{Binding #McpRoot.DataContext.AddMcpArgCommand}"
                                                             CommandParameter="{Binding}"/>
                                                 </Grid>
                                                 <ItemsControl ItemsSource="{Binding Arguments}">
@@ -158,7 +159,7 @@
                                                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
                                                                 <TextBox Grid.Column="0" Text="{Binding Value}"/>
                                                                 <Button Grid.Column="1" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).RemoveMcpArgCommand}"
+                                                                        Command="{Binding #McpRoot.DataContext.RemoveMcpArgCommand}"
                                                                         CommandParameter="{Binding}"/>
                                                             </Grid>
                                                         </DataTemplate>
@@ -169,7 +170,7 @@
                                                 <Grid ColumnDefinitions="*,Auto">
                                                     <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Env}" VerticalAlignment="Center" Opacity="0.8"/>
                                                     <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).AddMcpEnvCommand}"
+                                                            Command="{Binding #McpRoot.DataContext.AddMcpEnvCommand}"
                                                             CommandParameter="{Binding}"/>
                                                 </Grid>
                                                 <ItemsControl ItemsSource="{Binding Environment}">
@@ -179,7 +180,7 @@
                                                                 <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="KEY"/>
                                                                 <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="value"/>
                                                                 <Button Grid.Column="2" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).RemoveMcpEnvCommand}"
+                                                                        Command="{Binding #McpRoot.DataContext.RemoveMcpEnvCommand}"
                                                                         CommandParameter="{Binding}"/>
                                                             </Grid>
                                                         </DataTemplate>
@@ -198,7 +199,7 @@
                                                 <Grid ColumnDefinitions="*,Auto">
                                                     <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Headers}" VerticalAlignment="Center" Opacity="0.8"/>
                                                     <Button Grid.Column="1" Content="+"
-                                                            Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).AddMcpHeaderCommand}"
+                                                            Command="{Binding #McpRoot.DataContext.AddMcpHeaderCommand}"
                                                             CommandParameter="{Binding}"/>
                                                 </Grid>
                                                 <ItemsControl ItemsSource="{Binding Headers}">
@@ -208,7 +209,7 @@
                                                                 <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="Authorization"/>
                                                                 <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="Bearer …"/>
                                                                 <Button Grid.Column="2" Content="✕"
-                                                                        Command="{Binding $parent[UserControl].((vm:McpTabViewModel)DataContext).RemoveMcpHeaderCommand}"
+                                                                        Command="{Binding #McpRoot.DataContext.RemoveMcpHeaderCommand}"
                                                                         CommandParameter="{Binding}"/>
                                                             </Grid>
                                                         </DataTemplate>

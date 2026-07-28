@@ -24,6 +24,8 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestConfigurationSession();
+
 var mainViewModel = new MainWindowViewModel();
 var globalConversationGroup = new WorkspaceConversationGroupViewModel(null);
 globalConversationGroup.Conversations.Add(new ConversationSessionItemViewModel(new ChatTabViewModel(), null, null)
@@ -173,6 +175,88 @@ Console.WriteLine("[PASS] launcher sizing and file context-command placement");
 Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, footer settings, and search spacing");
 window.Close();
 
+{
+    var connectorConfigService = new HeadlessConfigService(new AppConfig());
+    using var connectorSession = new AppConfigurationSession(connectorConfigService);
+    var skillsPage = new SkillsViewModel();
+    skillsPage.Initialize(connectorSession);
+    var mcpPage = new McpConnectionsViewModel();
+    mcpPage.Initialize(connectorSession);
+    var speechPage = new SpeechSettingsViewModel(connectorSession);
+    var imagePage = new ImageGenerationSettingsViewModel(connectorSession);
+    var webPage = new WebSearchSettingsViewModel(connectorSession);
+    var documentPage = new DocumentParserSettingsViewModel(connectorSession);
+    var connectorViewModel = new SkillsConnectorsWindowViewModel(
+        skillsPage,
+        mcpPage,
+        speechPage,
+        imagePage,
+        webPage,
+        documentPage);
+    var skillsWindow = new SkillsConnectorsWindow
+    {
+        DataContext = connectorViewModel,
+        Width = 1160,
+        Height = 800
+    };
+    skillsWindow.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    var connectorNavigation = skillsWindow.FindControl<ListBox>("ConnectorNavigation")
+        ?? throw new InvalidOperationException("Skills/Connectors navigation host was not created.");
+    var connectorContentHost = skillsWindow.FindControl<ContentControl>("ConnectorContentHost")
+        ?? throw new InvalidOperationException("Skills/Connectors must use one ContentControl host.");
+    if (connectorNavigation.ItemCount != 6
+        || skillsWindow.GetVisualDescendants().OfType<ContentControl>().Count(control => control.Name == "ConnectorContentHost") != 1)
+        throw new InvalidOperationException("Skills/Connectors must expose six navigation items and one content host.");
+
+    var expectedViews = new[]
+    {
+        typeof(SkillsView),
+        typeof(McpConnectionsView),
+        typeof(SpeechSettingsView),
+        typeof(ImageGenerationSettingsView),
+        typeof(WebSearchSettingsView),
+        typeof(DocumentParserSettingsView)
+    };
+    skillsPage.Status = "unsaved-characterization";
+    for (var section = 0; section < connectorViewModel.Sections.Count; section++)
+    {
+        connectorViewModel.SelectedSection = connectorViewModel.Sections[section];
+        Dispatcher.UIThread.RunJobs();
+        if (!ReferenceEquals(connectorContentHost.Content, connectorViewModel.Sections[section].Content)
+            || !connectorContentHost.GetVisualDescendants().Any(control => control.GetType() == expectedViews[section]))
+            throw new InvalidOperationException($"Connector section {section} did not render its matching page type and data context.");
+    }
+    connectorViewModel.SelectedSection = connectorViewModel.Sections[0];
+    Dispatcher.UIThread.RunJobs();
+    if (!ReferenceEquals(connectorContentHost.Content, skillsPage)
+        || skillsPage.Status != "unsaved-characterization")
+        throw new InvalidOperationException("Switching connector sections recreated a view model or reset page state.");
+    Console.WriteLine("[PASS] six connector page types share one content host and preserve page view models and state");
+    skillsWindow.Close();
+}
+
+{
+    var knowledgeView = new KnowledgeBaseTabView
+    {
+        DataContext = new KnowledgeBaseTabViewModel()
+    };
+    var knowledgeWindow = new Window
+    {
+        Content = knowledgeView,
+        Width = 1120,
+        Height = 780
+    };
+    knowledgeWindow.Show();
+    Dispatcher.UIThread.RunJobs();
+    if (knowledgeView.FindControl<Button>("RunKnowledgeMaintenanceButton") == null
+        || knowledgeView.FindControl<Button>("RebuildVectorIndexButton") == null)
+        throw new InvalidOperationException("Knowledge Base must expose maintenance and vector-index rebuild commands.");
+    Console.WriteLine("[PASS] Knowledge Base owns maintenance and vector-index rebuild controls");
+    knowledgeWindow.Close();
+}
+
 var groupCommandChecks = new WorkspaceConversationGroupViewModel(workspaceProfile);
 var renameCount = 0;
 var revealCount = 0;
@@ -213,13 +297,11 @@ var forkViewModel = new MainWindowViewModel(
     promptService: null,
     logService: null,
     knowledgeBaseService: null,
-    embeddingService: null,
     localizationService: null,
     fileSystemService: null,
     platformPathService: null,
     functionRegistry: null,
     tokenService: null,
-    webSearchService: null,
     updateService: null,
     attachmentStoreService: null,
     systemAudioService: null,
@@ -256,6 +338,139 @@ if (forkChild == null
 forkSource.Dispose();
 forkChild.Dispose();
 Console.WriteLine("[PASS] pinned-session branch placement, empty content, persistence, and selection");
+
+var archiveTreeStore = new HeadlessConversationStore();
+var archiveWorkspace = new WorkspaceProfile
+{
+    Id = "archive-workspace",
+    Name = "Archive workspace",
+    DirectoryPath = "/tmp/archive-workspace"
+};
+var archivedHistory = new ConversationHistoryItem
+{
+    Id = "archive-existing",
+    ConversationId = "archive-conversation-existing",
+    Summary = "Existing archived conversation",
+    WorkspaceId = archiveWorkspace.Id,
+    UpdatedAt = DateTime.Now.AddMinutes(-5),
+    Messages = [new ChatMessage { Role = "user", Content = "existing archive body" }]
+};
+await archiveTreeStore.SaveAsync(archivedHistory);
+var archiveServiceChecks = new HeadlessArchiveService(archiveTreeStore);
+var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace]);
+var archiveTreeViewModel = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    updateService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: archiveServiceChecks,
+    imageGenerationSessionService: null,
+    workspaceService: archiveWorkspaceService,
+    conversationStore: archiveTreeStore);
+while (archiveTreeViewModel.IsConversationTreeLoading)
+{
+    await Task.Delay(10);
+    Dispatcher.UIThread.RunJobs();
+}
+
+var archiveGroup = archiveTreeViewModel.ConversationGroups
+    .Single(group => group.Workspace?.Id == archiveWorkspace.Id);
+var archiveSession = archiveGroup.Conversations
+    .Single(session => session.HistoryId == archivedHistory.Id);
+var archiveSnapshot = new ConversationArchiveSnapshot
+{
+    HistoryId = archivedHistory.Id,
+    ConversationId = archivedHistory.ConversationId,
+    WorkspaceId = archiveWorkspace.Id,
+    CapturedAt = DateTime.Now,
+    Messages = ConversationPersistenceHelper.CloneMessages(archivedHistory.Messages)
+};
+archiveServiceChecks.PublishStaged(archiveSnapshot);
+Dispatcher.UIThread.RunJobs();
+if (!archiveSession.IsArchivePending || !archiveSession.ShowArchivePendingIndicator)
+    throw new InvalidOperationException("Conversation tree did not surface a staged archive.");
+
+archiveServiceChecks.PublishFailed(archiveSnapshot);
+Dispatcher.UIThread.RunJobs();
+if (!archiveSession.IsArchiveFailed || !archiveSession.ShowArchiveFailedIndicator)
+    throw new InvalidOperationException("Conversation tree did not surface a failed archive retained for retry.");
+
+archivedHistory.Summary = "Archive title refreshed";
+archivedHistory.UpdatedAt = DateTime.Now;
+await archiveTreeStore.SaveAsync(archivedHistory);
+archiveServiceChecks.PublishStaged(archiveSnapshot);
+archiveServiceChecks.PublishCompleted(archiveSnapshot, archivedHistory);
+for (var attempt = 0; attempt < 50; attempt++)
+{
+    Dispatcher.UIThread.RunJobs();
+    if (!archiveSession.IsArchivePending
+        && !archiveSession.IsArchiveFailed
+        && archiveSession.Title == archivedHistory.Summary)
+        break;
+    await Task.Delay(10);
+}
+if (archiveSession.IsArchivePending
+    || archiveSession.IsArchiveFailed
+    || archiveSession.Title != archivedHistory.Summary)
+    throw new InvalidOperationException("Conversation tree did not refresh the completed archive metadata.");
+
+var externalHistory = new ConversationHistoryItem
+{
+    Id = "archive-external",
+    ConversationId = "archive-conversation-external",
+    Summary = "External archive",
+    WorkspaceId = archiveWorkspace.Id,
+    UpdatedAt = DateTime.Now.AddMinutes(1),
+    Messages = [new ChatMessage { Role = "assistant", Content = "externally completed body" }]
+};
+await archiveTreeStore.SaveAsync(externalHistory);
+var externalSnapshot = new ConversationArchiveSnapshot
+{
+    HistoryId = externalHistory.Id,
+    ConversationId = externalHistory.ConversationId,
+    WorkspaceId = externalHistory.WorkspaceId,
+    CapturedAt = externalHistory.UpdatedAt,
+    Messages = ConversationPersistenceHelper.CloneMessages(externalHistory.Messages)
+};
+archiveServiceChecks.PublishCompleted(externalSnapshot, externalHistory);
+ConversationSessionItemViewModel? externalSession =
+    archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
+for (var attempt = 0; attempt < 50 && externalSession == null; attempt++)
+{
+    Dispatcher.UIThread.RunJobs();
+    externalSession = archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
+    await Task.Delay(10);
+}
+if (externalSession == null)
+    throw new InvalidOperationException("Externally completed archive was not inserted into its workspace group.");
+
+archiveTreeViewModel.ConversationSearchText = "externally completed body";
+if (!externalSession.IsSearchMatch || archiveSession.IsSearchMatch)
+    throw new InvalidOperationException("Conversation-tree search did not replace the legacy History keyword filter.");
+
+archiveTreeViewModel.SelectedConversation = externalSession;
+await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(archiveSession);
+if (archiveGroup.Conversations.Contains(archiveSession)
+    || archiveTreeStore.Items.ContainsKey(archivedHistory.Id))
+    throw new InvalidOperationException("Deleting a non-current conversation did not update both tree and store.");
+
+await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(externalSession);
+if (archiveGroup.Conversations.Contains(externalSession)
+    || archiveTreeStore.Items.ContainsKey(externalHistory.Id)
+    || ReferenceEquals(archiveTreeViewModel.SelectedConversation, externalSession))
+    throw new InvalidOperationException("Deleting the current conversation did not select a surviving/new session.");
+Console.WriteLine("[PASS] conversation tree owns archive status, external completion, grouping, search, and current/non-current deletion");
 
 var onboardingPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-onboarding.png");
 var onboarding = new OnboardingWindow(new OnboardingViewModel())
@@ -359,6 +574,157 @@ Console.WriteLine("[PASS] edit-only save/cancel commands, cancel restore, compac
 diffWindow.Close();
 workbench.Dispose();
 
+static void TestConfigurationSession()
+{
+    var service = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(service);
+    var appSettings = new AppSettingsViewModel(session);
+    var skillsPage = new SkillsViewModel();
+    skillsPage.Initialize(session);
+    var mcpPage = new McpConnectionsViewModel();
+    mcpPage.Initialize(session);
+    var providerPage = new ProviderModelsViewModel(session, new HeadlessModelCatalogService());
+    var chat = new HeadlessChatService();
+    var webSearch = new HeadlessWebSearchService();
+    var audio = new HeadlessSystemAudioService();
+    var speechPage = new SpeechSettingsViewModel(session, chat, audio);
+    var imagePage = new ImageGenerationSettingsViewModel(session);
+    var webSearchPage = new WebSearchSettingsViewModel(session, webSearch);
+    var documentPage = new DocumentParserSettingsViewModel(session);
+
+    Thread.Sleep(650);
+    service.ResetSaveCount();
+
+    session.Current.Theme = "Light";
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "root configuration edit");
+
+    service.ResetSaveCount();
+    var server = new McpServerConfig { Name = "characterization" };
+    session.Current.McpServers.Add(server);
+    server.Command = "node";
+    server.Arguments.Add(new McpArgEntry("--stdio"));
+    server.Arguments[0].Value = "--stdio-updated";
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "MCP nested edit burst");
+
+    service.ResetSaveCount();
+    session.Current.McpServers.Remove(server);
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "MCP removal");
+    service.ResetSaveCount();
+    server.Command = "must-not-be-observed";
+    server.Arguments[0].Value = "must-not-be-observed";
+    Thread.Sleep(650);
+    AssertSaveCount(service, 0, "removed MCP item edit");
+
+    service.ResetSaveCount();
+    speechPage.ProviderCards[0].Settings.Voice = "characterization-voice";
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "extension provider setting edit");
+
+    session.Current.AutoAllowedTools.Add("characterization_tool");
+    Thread.Sleep(650);
+    service.ResetSaveCount();
+    appSettings.RevokeAutoAllowedToolCommand.ExecuteAsync("characterization_tool").GetAwaiter().GetResult();
+    AssertSaveCount(service, 1, "revoking an always-allowed tool");
+    if (session.Current.AutoAllowedTools.Contains("characterization_tool"))
+        throw new InvalidOperationException("App Settings did not revoke the always-allowed tool.");
+
+    session.Current.TerminalAllowlist.Add("characterization-command");
+    Thread.Sleep(650);
+    service.ResetSaveCount();
+    appSettings.RevokeTerminalAllowlistCommand.ExecuteAsync("characterization-command").GetAwaiter().GetResult();
+    AssertSaveCount(service, 1, "revoking a terminal allowlist entry");
+    if (session.Current.TerminalAllowlist.Contains("characterization-command"))
+        throw new InvalidOperationException("App Settings did not revoke the terminal allowlist entry.");
+
+    appSettings.TestBrowserRuntimeCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    appSettings.TestBrowserAgentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (string.IsNullOrWhiteSpace(appSettings.BrowserRuntimeStatus)
+        || string.IsNullOrWhiteSpace(appSettings.BrowserAgentTestStatus))
+        throw new InvalidOperationException("App Settings browser diagnostics did not surface unavailable-service status.");
+
+    documentPage.Config.DocumentParserEnabled = true;
+    documentPage.Config.DocumentParserMode = DocumentParserMode.AgentLightweight;
+    if (documentPage.CanEditToken)
+        throw new InvalidOperationException("AgentLightweight parser mode must not enable the precision token field.");
+    documentPage.Config.DocumentParserMode = DocumentParserMode.Precision;
+    if (!documentPage.CanEditToken)
+        throw new InvalidOperationException("Precision parser mode must enable the token field when parsing is enabled.");
+
+    providerPage.UseCustomEmbeddingConnection = true;
+    if (session.Current.EmbeddingCredentialSource != EmbeddingConnectionSource.Custom)
+        throw new InvalidOperationException("Provider Models did not preserve the legacy custom Embedding connection option.");
+
+    service.ResetSaveCount();
+    session.Current.Language = "en-US";
+    service.SaveAsync(session.Current).GetAwaiter().GetResult();
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "explicit same-instance persistence");
+
+    session.Current.WebSearchEnabled = true;
+    webSearch.Result = (true, "web-ok");
+    webSearchPage.TestConnectionCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (webSearchPage.IsTesting || webSearchPage.TestStatus != "web-ok")
+        throw new InvalidOperationException("Web Search success state was not surfaced.");
+    webSearch.Result = (false, "web-failed");
+    webSearchPage.TestConnectionCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (webSearchPage.IsTesting || webSearchPage.TestStatus != "web-failed")
+        throw new InvalidOperationException("Web Search failure state was not surfaced.");
+
+    session.Current.ChatAudioEnabled = true;
+    chat.AudioResult = new AudioOutputTestResult
+    {
+        Success = true,
+        Message = "audio-ok",
+        Attachment = new ChatAttachment { Kind = AttachmentKind.Audio, StoredPath = "/tmp/test.wav" }
+    };
+    speechPage.TestOutputCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (speechPage.IsTesting
+        || speechPage.TestStatus != "audio-ok"
+        || speechPage.TestAttachment == null)
+        throw new InvalidOperationException("Audio success state and test attachment were not surfaced.");
+    speechPage.TogglePlaybackCommand.Execute(null);
+    Thread.Sleep(20);
+    speechPage.TogglePlaybackCommand.Execute(null);
+    Thread.Sleep(20);
+    if (!audio.WasCancelled || speechPage.TestAttachment.IsPlaying)
+        throw new InvalidOperationException("Stopping test audio did not cancel playback and clear its playing state.");
+    chat.AudioResult = new AudioOutputTestResult { Success = false, Message = "audio-failed" };
+    speechPage.TestOutputCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+    if (speechPage.IsTesting
+        || speechPage.TestStatus != "audio-failed"
+        || speechPage.TestAttachment != null)
+        throw new InvalidOperationException("Audio failure state was not surfaced.");
+
+    var replacement = new AppConfig { Theme = "Dark" };
+    service.PublishExternal(replacement);
+    Dispatcher.UIThread.RunJobs();
+    if (!ReferenceEquals(session.Current, replacement)
+        || !ReferenceEquals(appSettings.Config, replacement)
+        || !ReferenceEquals(skillsPage.Config, replacement)
+        || !ReferenceEquals(mcpPage.Config, replacement)
+        || !ReferenceEquals(providerPage.Config, replacement)
+        || !ReferenceEquals(speechPage.Config, replacement)
+        || !ReferenceEquals(imagePage.Config, replacement)
+        || !ReferenceEquals(webSearchPage.Config, replacement)
+        || !ReferenceEquals(documentPage.Config, replacement))
+        throw new InvalidOperationException("All settings pages must follow an externally replaced configuration instance.");
+
+    Console.WriteLine("[PASS] one debounced owner saves root, MCP, and extension settings and detaches removed items");
+    Console.WriteLine("[PASS] external configuration replacement reaches every settings page as one shared instance");
+    Console.WriteLine("[PASS] document parser mode controls precision-token availability");
+    Console.WriteLine("[PASS] Web Search and audio diagnostics expose success, failure, and playback cancellation");
+    Console.WriteLine("[PASS] App Settings owns approval-list revocation and browser diagnostics");
+}
+
+static void AssertSaveCount(HeadlessConfigService service, int expected, string scenario)
+{
+    if (service.SaveCount != expected)
+        throw new InvalidOperationException($"{scenario} expected {expected} save(s), got {service.SaveCount}.");
+}
+
 sealed class HeadlessPathService : IPlatformPathService
 {
     private static string Root => Path.Combine(Path.GetTempPath(), "athena-headless");
@@ -374,6 +740,98 @@ sealed class HeadlessPathService : IPlatformPathService
     public string GetVectorStoreFilePath() => Path.Combine(Root, "vectors.db");
     public string GetWorkspacesDirectory() => Path.Combine(Root, "workspaces");
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(Root, workspaceId);
+}
+
+sealed class HeadlessConfigService(AppConfig initial) : IConfigService
+{
+    private AppConfig _current = initial;
+
+    public int SaveCount { get; private set; }
+    public string ConfigFilePath => "/tmp/athena-headless-config.json";
+    public event EventHandler<AppConfig>? ConfigChanged;
+
+    public Task<AppConfig> LoadAsync() => Task.FromResult(_current);
+    public AppConfig Load() => _current;
+
+    public Task SaveAsync(AppConfig config)
+    {
+        _current = config;
+        SaveCount++;
+        ConfigChanged?.Invoke(this, config);
+        return Task.CompletedTask;
+    }
+
+    public void PublishExternal(AppConfig config)
+    {
+        _current = config;
+        ConfigChanged?.Invoke(this, config);
+    }
+
+    public void ResetSaveCount() => SaveCount = 0;
+}
+
+sealed class HeadlessModelCatalogService : IModelCatalogService
+{
+    private static readonly ModelCatalogResult Empty = ModelCatalogResult.Ok([]);
+    public Task<ModelCatalogResult> GetModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default) => Task.FromResult(Empty);
+    public Task<ModelCatalogResult> GetTextModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default) => Task.FromResult(Empty);
+    public Task<ModelCatalogResult> GetEmbeddingModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default) => Task.FromResult(Empty);
+}
+
+sealed class HeadlessWebSearchService : IWebSearchService
+{
+    public (bool Success, string Message) Result { get; set; } = (true, "ok");
+    public bool IsConfigured => true;
+    public Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new List<WebSearchResult>());
+    public Task<(bool Success, string Message)> TestConnectionAsync() => Task.FromResult(Result);
+}
+
+sealed class HeadlessSystemAudioService : ISystemAudioService
+{
+    public bool IsSupported => true;
+    public bool WasCancelled { get; private set; }
+
+    public async Task<SystemAudioResult> PlayFileAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return new SystemAudioResult { Success = true };
+        }
+        catch (OperationCanceledException)
+        {
+            WasCancelled = true;
+            throw;
+        }
+    }
+}
+
+sealed class HeadlessChatService : IChatService
+{
+    public AudioOutputTestResult AudioResult { get; set; } = new() { Success = true, Message = "ok" };
+
+    public async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<string, int>? onContextCompressed = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        bool addToContext = true)
+    {
+        await Task.CompletedTask;
+        yield break;
+    }
+
+    public Task<(bool Success, string? Message)> TestConnectionAsync() => Task.FromResult<(bool, string?)>((true, "ok"));
+    public IReadOnlyList<RawContextEntry> BuildRawContext(ConversationContext context) => [];
+    public void UpdateConfig(AppConfig config) { }
+    public Task<AudioOutputTestResult> TestAudioOutputAsync(CancellationToken cancellationToken = default) => Task.FromResult(AudioResult);
+    public Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateAssistantSpeechAsync(string text, CancellationToken cancellationToken = default) =>
+        Task.FromResult<(ChatAttachment?, string)>((null, string.Empty));
 }
 
 sealed class HeadlessInteractionService : IUserInteractionService
@@ -407,4 +865,69 @@ sealed class HeadlessConversationStore : IConversationArchiveStore
         Items.Remove(id);
         return Task.CompletedTask;
     }
+}
+
+sealed class HeadlessArchiveService(HeadlessConversationStore store) : IConversationArchiveService
+{
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveStaged;
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveCompleted;
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveFailed;
+
+    public Task<List<ConversationHistoryItem>> LoadAllAsync() => store.LoadAllAsync();
+    public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => store.LoadByIdAsync(id);
+    public Task DeleteAsync(string id) => store.DeleteAsync(id);
+    public void SaveDraft(ConversationDraftSnapshot snapshot) { }
+    public ConversationDraftSnapshot? LoadDraft() => null;
+    public void DeleteDraft() { }
+
+    public Task StageArchiveAsync(ConversationArchiveSnapshot snapshot, CancellationToken ct = default)
+    {
+        PublishStaged(snapshot);
+        return Task.CompletedTask;
+    }
+
+    public void PublishStaged(ConversationArchiveSnapshot snapshot) =>
+        ArchiveStaged?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json"));
+
+    public void PublishCompleted(ConversationArchiveSnapshot snapshot, ConversationHistoryItem history) =>
+        ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json", history));
+
+    public void PublishFailed(ConversationArchiveSnapshot snapshot) =>
+        ArchiveFailed?.Invoke(
+            this,
+            new ConversationArchiveResultEventArgs(
+                snapshot,
+                "/tmp/archive-staged.json",
+                exception: new InvalidOperationException("characterized failure")));
+}
+
+sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWorkspaceService
+{
+    public WorkspaceProfile? ActiveWorkspace { get; private set; }
+    public event EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged;
+
+    public Task<List<WorkspaceProfile>> LoadAllAsync() => Task.FromResult(workspaces.ToList());
+    public Task<WorkspaceProfile?> LoadByIdAsync(string id) =>
+        Task.FromResult(workspaces.FirstOrDefault(workspace => workspace.Id == id));
+    public Task SaveAsync(WorkspaceProfile workspace)
+    {
+        var existing = workspaces.FindIndex(candidate => candidate.Id == workspace.Id);
+        if (existing >= 0) workspaces[existing] = workspace;
+        else workspaces.Add(workspace);
+        return Task.CompletedTask;
+    }
+    public Task<bool> DeleteAsync(string id) =>
+        Task.FromResult(workspaces.RemoveAll(workspace => workspace.Id == id) > 0);
+    public Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath) =>
+        Task.FromResult(workspaces.FirstOrDefault(workspace => workspace.DirectoryPath == directoryPath));
+    public void SetActiveWorkspace(WorkspaceProfile? workspace)
+    {
+        ActiveWorkspace = workspace;
+        ActiveWorkspaceChanged?.Invoke(this, workspace);
+    }
+    public string GetKnowledgeFilePath(WorkspaceProfile workspace) => $"/tmp/{workspace.Id}/workspace.md";
+    public Task<string?> GetKnowledgeFilePathAsync(string workspaceId) =>
+        Task.FromResult<string?>($"/tmp/{workspaceId}/workspace.md");
+    public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget) => null;
+    public Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default) => Task.CompletedTask;
 }

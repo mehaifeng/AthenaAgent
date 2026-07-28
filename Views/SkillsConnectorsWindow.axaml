@@ -1,52 +1,31 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
-        xmlns:views="using:Athena.UI.Views"
-        xmlns:appconv="using:Athena.UI.Converters"
+        xmlns:loc="using:Athena.UI.Markup"
         x:Class="Athena.UI.Views.SkillsConnectorsWindow"
-        x:DataType="vm:MainWindowViewModel"
-        Title="技能与连接器"
-        Width="1160" Height="800" MinWidth="1000" MinHeight="640"
+        x:DataType="vm:SkillsConnectorsWindowViewModel"
+        Title="{loc:Loc Connectors.Window.Title}"
+        Width="1160"
+        Height="800"
+        MinWidth="1000"
+        MinHeight="640"
         WindowStartupLocation="CenterOwner">
-    <Window.Resources>
-        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
-    </Window.Resources>
-    <Window.Styles>
-        <Style Selector="StackPanel.centered-settings">
-            <Setter Property="MinWidth" Value="600"/>
-            <Setter Property="MaxWidth" Value="820"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="18"/>
-        </Style>
-        <Style Selector="TextBlock.field-help">
-            <Setter Property="Opacity" Value="0.66"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="TextWrapping" Value="Wrap"/>
-        </Style>
-        <Style Selector="Border.provider-card">
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Margin" Value="0,0,0,8"/>
-            <Setter Property="Padding" Value="4"/>
-        </Style>
-    </Window.Styles>
-
     <Grid Margin="14" ColumnDefinitions="3*,12,7*">
         <Border Padding="8"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
                 BorderThickness="1"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 CornerRadius="8">
-            <ListBox SelectedIndex="{Binding SelectedConnectorSection}"
+            <ListBox x:Name="ConnectorNavigation"
+                     ItemsSource="{Binding Sections}"
+                     SelectedItem="{Binding SelectedSection}"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                <ListBoxItem Content="Skills"/>
-                <ListBoxItem Content="MCP"/>
-                <ListBoxItem Content="语音"/>
-                <ListBoxItem Content="图像生成"/>
-                <ListBoxItem Content="Web Search"/>
-                <ListBoxItem Content="文档解析"/>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SkillsConnectorSection">
+                        <TextBlock Text="{Binding Title}"/>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
             </ListBox>
         </Border>
 
@@ -55,173 +34,8 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 CornerRadius="8">
-            <Grid>
-                <views:SkillsTabView DataContext="{Binding SkillsTabViewModel}"
-                                     IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=0}"/>
-                <views:McpTabView DataContext="{Binding McpTabViewModel}"
-                                  IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=1}"/>
-
-                <ScrollViewer DataContext="{Binding ExtensionSettings}"
-                              IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=2}">
-                    <StackPanel Classes="centered-settings" Spacing="10">
-                        <TextBlock Text="语音合成" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-                        <StackPanel Orientation="Horizontal" Spacing="18">
-                            <CheckBox Content="启用助手语音" IsChecked="{Binding Config.ChatAudioEnabled}"/>
-                            <CheckBox Content="生成后自动播放" IsChecked="{Binding Config.ChatAudioAutoPlay}"/>
-                        </StackPanel>
-                        <ItemsControl ItemsSource="{Binding AudioProviderCards}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
-                                    <Border Classes="provider-card">
-                                        <StackPanel>
-                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="6,4">
-                                                <Button Grid.Column="0" Command="{Binding ToggleExpandedCommand}"
-                                                        Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0"
-                                                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
-                                                    <RadioButton Grid.Column="1"
-                                                                 GroupName="AudioProviderSelection"
-                                                                 IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                                 VerticalAlignment="Center"/>
-                                                <Button Grid.Column="2" Command="{Binding ToggleExpandedCommand}"
-                                                        Background="Transparent" BorderThickness="0" Padding="0"
-                                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <TextBlock Grid.Column="3" Text="当前使用" Opacity="0.72" IsVisible="{Binding IsSelected}" VerticalAlignment="Center"/>
-                                            </Grid>
-                                            <StackPanel Margin="34,4,12,12" Spacing="7" IsVisible="{Binding IsExpanded}">
-                                                <TextBlock Classes="field-help" Text="{Binding Description}"/>
-                                                <TextBlock Text="{Binding ApiKeyLabel}" IsVisible="{Binding UsesApiKey}"/>
-                                                <TextBox Text="{Binding Settings.ApiKey}" PasswordChar="●" IsVisible="{Binding UsesApiKey}"/>
-                                                <TextBlock Text="{Binding BaseUrlLabel}" IsVisible="{Binding UsesBaseUrl}"/>
-                                                <TextBox Text="{Binding Settings.BaseUrl}" IsVisible="{Binding UsesBaseUrl}"/>
-                                                <TextBlock Text="模型" IsVisible="{Binding UsesModel}"/>
-                                                <TextBox Text="{Binding Settings.Model}" IsVisible="{Binding UsesModel}"/>
-                                                <TextBlock Text="{Binding VoiceLabel}" IsVisible="{Binding UsesVoice}"/>
-                                                <TextBox Text="{Binding Settings.Voice}" IsVisible="{Binding UsesVoice}"/>
-                                                <TextBlock Text="语言" IsVisible="{Binding UsesLanguage}"/>
-                                                <TextBox Text="{Binding Settings.Language}" IsVisible="{Binding UsesLanguage}"/>
-                                                <TextBlock Text="语速" IsVisible="{Binding UsesSpeed}"/>
-                                                <NumericUpDown Value="{Binding Settings.Speed}" Minimum="0.5" Maximum="2" Increment="0.1" IsVisible="{Binding UsesSpeed}"/>
-                                                <TextBlock Text="本地可执行文件 / Python" IsVisible="{Binding UsesLocalRuntime}"/>
-                                                <TextBox Text="{Binding Settings.LocalExecutable}"
-                                                         PlaceholderText="留空时使用 PATH 中的默认命令"
-                                                         IsVisible="{Binding UsesLocalRuntime}"/>
-                                                <TextBlock Text="Piper .onnx 模型文件" IsVisible="{Binding UsesLocalModelPath}"/>
-                                                <TextBox Text="{Binding Settings.LocalModelPath}" IsVisible="{Binding UsesLocalModelPath}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ScrollViewer DataContext="{Binding ExtensionSettings}"
-                              IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=3}">
-                    <StackPanel Classes="centered-settings" Spacing="10">
-                        <TextBlock Text="图像生成" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-                        <CheckBox Content="启用图像生成" IsChecked="{Binding Config.ImageGenerationEnabled}"/>
-                        <ItemsControl ItemsSource="{Binding ImageProviderCards}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
-                                    <Border Classes="provider-card">
-                                        <StackPanel>
-                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="6,4">
-                                                <Button Grid.Column="0" Command="{Binding ToggleExpandedCommand}"
-                                                        Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0"
-                                                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
-                                                    <RadioButton Grid.Column="1"
-                                                                 GroupName="ImageProviderSelection"
-                                                                 IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                                 VerticalAlignment="Center"/>
-                                                <Button Grid.Column="2" Command="{Binding ToggleExpandedCommand}"
-                                                        Background="Transparent" BorderThickness="0" Padding="0"
-                                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <TextBlock Grid.Column="3" Text="当前使用" Opacity="0.72" IsVisible="{Binding IsSelected}" VerticalAlignment="Center"/>
-                                            </Grid>
-                                            <StackPanel Margin="34,4,12,12" Spacing="7" IsVisible="{Binding IsExpanded}">
-                                                <TextBlock Classes="field-help" Text="{Binding Description}"/>
-                                                <TextBlock Text="{Binding ApiKeyLabel}"/>
-                                                <TextBox Text="{Binding Settings.ApiKey}" PasswordChar="●"/>
-                                                <TextBlock Text="{Binding BaseUrlLabel}"/>
-                                                <TextBox Text="{Binding Settings.BaseUrl}"/>
-                                                <TextBlock Text="模型"/>
-                                                <TextBox Text="{Binding Settings.Model}"/>
-                                                <TextBlock Text="宽高比"/>
-                                                <ComboBox ItemsSource="{Binding $parent[ItemsControl].((vm:ExtensionsConfigurationViewModel)DataContext).ImageAspectRatios}"
-                                                          SelectedItem="{Binding Settings.AspectRatio}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ScrollViewer DataContext="{Binding ExtensionSettings}"
-                              IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=4}">
-                    <StackPanel Classes="centered-settings" Spacing="10">
-                        <TextBlock Text="Web Search" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-                        <CheckBox Content="启用 Web Search" IsChecked="{Binding Config.WebSearchEnabled}"/>
-                        <ItemsControl ItemsSource="{Binding WebSearchProviderCards}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ExtensionProviderCardViewModel">
-                                    <Border Classes="provider-card">
-                                        <StackPanel>
-                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="6,4">
-                                                <Button Grid.Column="0" Command="{Binding ToggleExpandedCommand}"
-                                                        Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0"
-                                                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
-                                                    <RadioButton Grid.Column="1"
-                                                                 GroupName="WebSearchProviderSelection"
-                                                                 IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                                 VerticalAlignment="Center"/>
-                                                <Button Grid.Column="2" Command="{Binding ToggleExpandedCommand}"
-                                                        Background="Transparent" BorderThickness="0" Padding="0"
-                                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                </Button>
-                                                <TextBlock Grid.Column="3" Text="当前使用" Opacity="0.72" IsVisible="{Binding IsSelected}" VerticalAlignment="Center"/>
-                                            </Grid>
-                                            <StackPanel Margin="34,4,12,12" Spacing="7" IsVisible="{Binding IsExpanded}">
-                                                <TextBlock Classes="field-help" Text="{Binding Description}"/>
-                                                <TextBlock Text="{Binding ApiKeyLabel}" IsVisible="{Binding UsesApiKey}"/>
-                                                <TextBox Text="{Binding Settings.ApiKey}" PasswordChar="●" IsVisible="{Binding UsesApiKey}"/>
-                                                <TextBlock Text="{Binding BaseUrlLabel}" IsVisible="{Binding UsesBaseUrl}"/>
-                                                <TextBox Text="{Binding Settings.BaseUrl}" IsVisible="{Binding UsesBaseUrl}"/>
-                                                <TextBlock Text="模型" IsVisible="{Binding UsesModel}"/>
-                                                <TextBox Text="{Binding Settings.Model}" IsVisible="{Binding UsesModel}"/>
-                                                <TextBlock Text="搜索模式" IsVisible="{Binding UsesMode}"/>
-                                                <ComboBox ItemsSource="{Binding $parent[ItemsControl].((vm:ExtensionsConfigurationViewModel)DataContext).SearchModes}"
-                                                          SelectedItem="{Binding Settings.Mode}"
-                                                          IsVisible="{Binding UsesMode}"/>
-                                                <TextBlock Text="App ID" IsVisible="{Binding UsesAppId}"/>
-                                                <TextBox Text="{Binding Settings.AppId}" IsVisible="{Binding UsesAppId}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ScrollViewer DataContext="{Binding ExtensionSettings}"
-                              IsVisible="{Binding $parent[Window].DataContext.SelectedConnectorSection, Converter={StaticResource IntEqualsConverter}, ConverterParameter=5}">
-                    <StackPanel Classes="centered-settings" Spacing="10">
-                        <TextBlock Text="文档解析" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-                        <CheckBox Content="启用 MinerU 文档解析" IsChecked="{Binding Config.DocumentParserEnabled}"/>
-                        <TextBlock Text="MinerU Token"/>
-                        <TextBox Text="{Binding Config.DocumentParserToken}" PasswordChar="●"/>
-                        <TextBlock Classes="field-help" Text="凭据只用于专用文档解析服务，不与模型供应商混用。"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Grid>
+            <ContentControl x:Name="ConnectorContentHost"
+                            Content="{Binding SelectedSection.Content}"/>
         </Border>
     </Grid>
 </Window>

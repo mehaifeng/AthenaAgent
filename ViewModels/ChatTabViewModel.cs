@@ -82,7 +82,6 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(ForkFromMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopResponseCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteCurrentConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
@@ -104,7 +103,6 @@ public partial class ChatTabViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteCurrentConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     private bool _isResetting;
@@ -114,7 +112,6 @@ public partial class ChatTabViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(RewindToMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForkFromMessageCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DeleteCurrentConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     private bool _isCompressing;
@@ -178,11 +175,8 @@ public partial class ChatTabViewModel : ViewModelBase
 
     public string InputPlaceholder => "Chat.InputPlaceholder";
 
-    public event EventHandler? SwitchToTasksTabRequested;
-
     /// <summary>历史会话完成替换后，请求聊天视图在下一轮布局完成时滚动到底部。</summary>
     public event EventHandler? HistoryConversationLoaded;
-    public event EventHandler<string>? CurrentConversationDeleted;
 
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
@@ -567,7 +561,7 @@ public partial class ChatTabViewModel : ViewModelBase
             ThemeIcon = config.Theme == "Dark" ? "Moon" : "Sun";
         }
 
-        // 监听全局主题变更（来自 ConfigTabView 或其他入口），同步按钮状态
+        // 监听全局主题变更（来自应用设置或其他入口），同步按钮状态
         App.ThemeChanged += theme =>
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -747,60 +741,6 @@ public partial class ChatTabViewModel : ViewModelBase
             IsResetting = false;
             _conversationTransitionLock.Release();
         }
-    }
-
-    private bool CanDeleteCurrentConversation() => !IsResetting && !IsSending && !IsCompressing;
-
-    [RelayCommand(CanExecute = nameof(CanDeleteCurrentConversation))]
-    private async Task DeleteCurrentConversationAsync()
-    {
-        await _conversationTransitionLock.WaitAsync();
-        try
-        {
-            IsResetting = true;
-            BeginConversationTransition();
-
-            var historyId = _currentHistoryId;
-            if (!string.IsNullOrWhiteSpace(historyId))
-            {
-                if (_archiveService == null)
-                {
-                    _logger.Warning("Cannot delete the current archived conversation because the archive service is unavailable. {HistoryId}", historyId);
-                    return;
-                }
-
-                await _archiveService.DeleteAsync(historyId);
-            }
-
-            foreach (var message in Messages)
-            {
-                DeleteMessageAttachments(message);
-            }
-
-            ResetConversationState();
-
-            if (!string.IsNullOrWhiteSpace(historyId))
-            {
-                CurrentConversationDeleted?.Invoke(this, historyId);
-            }
-
-            _logger.Information("Deleted the current conversation. {HistoryId}", historyId ?? "unsaved conversation");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "Failed to delete the current conversation. {HistoryId}", _currentHistoryId);
-        }
-        finally
-        {
-            IsResetting = false;
-            _conversationTransitionLock.Release();
-        }
-    }
-
-    [RelayCommand]
-    private void SwitchToTasksTab()
-    {
-        SwitchToTasksTabRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -2131,6 +2071,48 @@ public partial class ChatTabViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Restores a persisted item into a newly-created conversation VM.
+    /// Unlike <see cref="LoadHistoryConversationAsync"/>, this does not stage or replace an
+    /// existing live conversation and is therefore the correct seam for the multi-session tree.
+    /// </summary>
+    public void RestorePersistedConversation(ConversationHistoryItem history)
+    {
+        BeginConversationTransition();
+        ResetConversationState(clearMessages: false);
+        _conversationId = string.IsNullOrWhiteSpace(history.ConversationId)
+            ? Guid.NewGuid().ToString("N")
+            : history.ConversationId;
+        _currentContext.ConversationId = _conversationId;
+        _currentHistoryId = history.Id;
+        _forkedFromConversationId = history.ForkedFromConversationId;
+        _forkedFromHistoryId = history.ForkedFromHistoryId;
+        _forkedAtMessageId = history.ForkedAtMessageId;
+
+        CurrentWorkspace = !string.IsNullOrEmpty(history.WorkspaceId)
+            ? AvailableWorkspaces.FirstOrDefault(workspace => workspace.Id == history.WorkspaceId)
+            : null;
+
+        _compressionHistory.Clear();
+        SetActiveContextSummary(history.ContextSummary);
+        UndoCompressionCommand.NotifyCanExecuteChanged();
+
+        var restoredMessages = ConversationPersistenceHelper.CloneMessages(history.Messages ?? []);
+        foreach (var message in restoredMessages)
+        {
+            ConversationPersistenceHelper.PrepareRestoredMessage(message);
+        }
+        Messages.ReplaceAll(restoredMessages);
+        LoadPreviewsInBackground(restoredMessages);
+
+        _ = ReconcileImageGenerationSessionAsync();
+        _initialConversationSignature = CreateConversationSignature();
+        _tokenService?.ResetUsage();
+        UpdateConversationContext();
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+    }
+
+    /// <summary>
     /// 后台逐张解码附件预览图（PreviewImage 绑定 UI，赋值在 UI 线程完成），
     /// 全部完成后再刷一次 token 显示——此时才拿到真实图像尺寸。
     /// </summary>
@@ -2216,15 +2198,6 @@ public partial class ChatTabViewModel : ViewModelBase
                     ex.Message),
                 isError: true);
             return TransitionStageResult.Failed;
-        }
-    }
-
-    public void NotifyHistoryDeleted(string id)
-    {
-        if (string.Equals(_currentHistoryId, id, StringComparison.Ordinal))
-        {
-            _currentHistoryId = null;
-            _initialConversationSignature = null;
         }
     }
 

@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             xmlns:appconv="using:Athena.UI.Converters"
+             x:Class="Athena.UI.Views.ExtensionProviderCardView"
+             x:DataType="vm:ExtensionProviderCardViewModel">
+    <UserControl.Resources>
+        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
+    </UserControl.Resources>
+    <Border BorderThickness="1"
+            BorderBrush="{DynamicResource SemiColorBorder}"
+            CornerRadius="6"
+            Margin="0,0,0,8"
+            Padding="4">
+        <StackPanel>
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="6,4">
+                <Button Grid.Column="0"
+                        Command="{Binding ToggleExpandedCommand}"
+                        Padding="4,0"
+                        MinWidth="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
+                <RadioButton Grid.Column="1"
+                             GroupName="ExtensionProviderSelection"
+                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                             VerticalAlignment="Center"/>
+                <Button Grid.Column="2"
+                        Command="{Binding ToggleExpandedCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="0"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left">
+                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </Button>
+                <TextBlock Grid.Column="3"
+                           Text="{loc:Loc Connectors.Provider.Current}"
+                           Opacity="0.72"
+                           IsVisible="{Binding IsSelected}"
+                           VerticalAlignment="Center"/>
+            </Grid>
+
+            <StackPanel Margin="34,4,12,12" Spacing="7" IsVisible="{Binding IsExpanded}">
+                <TextBlock Opacity="0.66" FontSize="12" TextWrapping="Wrap" Text="{Binding Description}"/>
+                <TextBlock Text="{Binding ApiKeyLabel}" IsVisible="{Binding UsesApiKey}"/>
+                <TextBox Text="{Binding Settings.ApiKey}" PasswordChar="●" IsVisible="{Binding UsesApiKey}"/>
+                <TextBlock Text="{Binding BaseUrlLabel}" IsVisible="{Binding UsesBaseUrl}"/>
+                <TextBox Text="{Binding Settings.BaseUrl}" IsVisible="{Binding UsesBaseUrl}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.Model}" IsVisible="{Binding UsesModel}"/>
+                <TextBox Text="{Binding Settings.Model}" IsVisible="{Binding UsesModel}"/>
+                <TextBlock Text="{Binding VoiceLabel}" IsVisible="{Binding UsesVoice}"/>
+                <TextBox Text="{Binding Settings.Voice}" IsVisible="{Binding UsesVoice}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.Language}" IsVisible="{Binding UsesLanguage}"/>
+                <TextBox Text="{Binding Settings.Language}" IsVisible="{Binding UsesLanguage}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.Speed}" IsVisible="{Binding UsesSpeed}"/>
+                <NumericUpDown Value="{Binding Settings.Speed}" Minimum="0.5" Maximum="2" Increment="0.1" IsVisible="{Binding UsesSpeed}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.LocalRuntime}" IsVisible="{Binding UsesLocalRuntime}"/>
+                <TextBox Text="{Binding Settings.LocalExecutable}"
+                         PlaceholderText="{loc:Loc Connectors.Provider.LocalRuntimeHint}"
+                         IsVisible="{Binding UsesLocalRuntime}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.LocalModel}" IsVisible="{Binding UsesLocalModelPath}"/>
+                <TextBox Text="{Binding Settings.LocalModelPath}" IsVisible="{Binding UsesLocalModelPath}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.AspectRatio}" IsVisible="{Binding UsesAspectRatio}"/>
+                <ComboBox ItemsSource="{Binding AspectRatioOptions}"
+                          SelectedItem="{Binding Settings.AspectRatio}"
+                          IsVisible="{Binding UsesAspectRatio}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.SearchMode}" IsVisible="{Binding UsesMode}"/>
+                <ComboBox ItemsSource="{Binding SearchModeOptions}"
+                          SelectedItem="{Binding Settings.Mode}"
+                          IsVisible="{Binding UsesMode}"/>
+                <TextBlock Text="{loc:Loc Connectors.Provider.AppId}" IsVisible="{Binding UsesAppId}"/>
+                <TextBox Text="{Binding Settings.AppId}" IsVisible="{Binding UsesAppId}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

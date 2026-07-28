@@ -1,10 +1,10 @@
 using Athena.UI.Models;
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -12,19 +12,21 @@ namespace Athena.UI.ViewModels;
 
 public partial class ProviderModelsViewModel : ViewModelBase
 {
-    private readonly IConfigService _configService;
+    private readonly AppConfigurationSession _configurationSession;
     private readonly IModelCatalogService _catalogService;
 
-    public ProviderModelsViewModel(IConfigService configService, IModelCatalogService catalogService)
+    public ProviderModelsViewModel(AppConfigurationSession configurationSession, IModelCatalogService catalogService)
     {
-        _configService = configService;
+        _configurationSession = configurationSession;
         _catalogService = catalogService;
-        Config = configService.Load();
-        foreach (var provider in Config.AiModels.Providers) Observe(provider);
+        _config = configurationSession.Current;
         RebuildRoles();
+        _configurationSession.CurrentChanged += OnCurrentConfigChanged;
     }
 
-    public AppConfig Config { get; }
+    [ObservableProperty]
+    private AppConfig _config;
+
     public ObservableCollection<OpenAiProviderConfiguration> Providers => Config.AiModels.Providers;
     public ObservableCollection<ProviderRoleSelectionViewModel> Roles { get; } = new();
 
@@ -40,8 +42,20 @@ public partial class ProviderModelsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isRefreshing;
 
+    public bool UseCustomEmbeddingConnection
+    {
+        get => Config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom;
+        set
+        {
+            var source = value ? EmbeddingConnectionSource.Custom : EmbeddingConnectionSource.Provider;
+            if (Config.EmbeddingCredentialSource == source) return;
+            Config.EmbeddingCredentialSource = source;
+            OnPropertyChanged();
+        }
+    }
+
     [RelayCommand]
-    private async Task AddProviderAsync()
+    private void AddProvider()
     {
         var provider = new OpenAiProviderConfiguration
         {
@@ -50,14 +64,12 @@ public partial class ProviderModelsViewModel : ViewModelBase
             BaseUrl = "https://api.openai.com/v1"
         };
         Providers.Add(provider);
-        Observe(provider);
         SelectedProvider = provider;
         RebuildRoles();
-        await SaveAsync();
     }
 
     [RelayCommand]
-    private async Task DeleteProviderAsync(OpenAiProviderConfiguration? provider)
+    private void DeleteProvider(OpenAiProviderConfiguration? provider)
     {
         provider ??= SelectedProvider;
         if (provider == null) return;
@@ -69,11 +81,9 @@ public partial class ProviderModelsViewModel : ViewModelBase
             StatusText = "无法删除：仍被这些分工引用：" + string.Join("、", references);
             return;
         }
-        provider.PropertyChanged -= OnProviderChanged;
         Providers.Remove(provider);
         SelectedProvider = Providers.FirstOrDefault();
         RebuildRoles();
-        await SaveAsync();
     }
 
     [RelayCommand]
@@ -105,7 +115,6 @@ public partial class ProviderModelsViewModel : ViewModelBase
             provider.ModelsRefreshedAt = DateTimeOffset.Now;
             StatusText = $"已发现 {provider.Models.Count} 个模型";
             RebuildRoles();
-            await SaveAsync();
         }
         finally
         {
@@ -114,7 +123,7 @@ public partial class ProviderModelsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task AddManualModelAsync()
+    private void AddManualModel()
     {
         if (SelectedProvider == null || string.IsNullOrWhiteSpace(ManualModelId)) return;
         var id = ManualModelId.Trim();
@@ -130,7 +139,6 @@ public partial class ProviderModelsViewModel : ViewModelBase
         }
         ManualModelId = string.Empty;
         RebuildRoles();
-        await SaveAsync();
     }
 
     private void RebuildRoles()
@@ -149,15 +157,18 @@ public partial class ProviderModelsViewModel : ViewModelBase
 
     private void AddRole(string name, ModelRoleSettings settings)
     {
-        var role = new ProviderRoleSelectionViewModel(name, settings, Providers, SaveAsync);
+        var role = new ProviderRoleSelectionViewModel(name, settings, Providers);
         Roles.Add(role);
     }
 
-    private void Observe(OpenAiProviderConfiguration provider) => provider.PropertyChanged += OnProviderChanged;
-
-    private void OnProviderChanged(object? sender, PropertyChangedEventArgs e) => _ = SaveAsync();
-
-    private Task SaveAsync() => _configService.SaveAsync(Config);
+    private void OnCurrentConfigChanged(object? sender, AppConfig config)
+    {
+        Config = config;
+        OnPropertyChanged(nameof(Providers));
+        OnPropertyChanged(nameof(UseCustomEmbeddingConnection));
+        SelectedProvider = null;
+        RebuildRoles();
+    }
 
     private static ModelCapability Classify(string id)
     {
@@ -170,19 +181,16 @@ public partial class ProviderModelsViewModel : ViewModelBase
 
 public partial class ProviderRoleSelectionViewModel : ViewModelBase
 {
-    private readonly Func<Task> _save;
     private readonly ObservableCollection<OpenAiProviderConfiguration> _providers;
 
     public ProviderRoleSelectionViewModel(
         string name,
         ModelRoleSettings settings,
-        ObservableCollection<OpenAiProviderConfiguration> providers,
-        Func<Task> save)
+        ObservableCollection<OpenAiProviderConfiguration> providers)
     {
         Name = name;
         Settings = settings;
         _providers = providers;
-        _save = save;
         _selectedProvider = providers.FirstOrDefault(provider => provider.Id == settings.ProviderId);
         if (_selectedProvider == null && providers.Count == 1)
         {
@@ -190,7 +198,6 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase
             Settings.ProviderId = providers[0].Id;
         }
         _selectedModel = _selectedProvider?.Models.FirstOrDefault(model => model.Id == settings.Model);
-        Settings.PropertyChanged += (_, _) => _ = _save();
     }
 
     public string Name { get; }
@@ -210,12 +217,10 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase
         Settings.ProviderId = value?.Id ?? string.Empty;
         if (value != null && value.Models.All(model => model.Id != Settings.Model)) Settings.Model = value.Models.FirstOrDefault()?.Id ?? string.Empty;
         SelectedModel = value?.Models.FirstOrDefault(model => model.Id == Settings.Model);
-        _ = _save();
     }
 
     partial void OnSelectedModelChanged(ProviderModelDescriptor? value)
     {
         Settings.Model = value?.Id ?? string.Empty;
-        _ = _save();
     }
 }

@@ -31,18 +31,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IConfigService? _configService;
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly DispatcherTimer? _compactLogTimer;
+    private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
 
     public AppSettingsViewModel? AppSettings { get; }
 
-    public ExtensionsConfigurationViewModel? ExtensionSettings { get; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsExtensionConnectorSection))]
-    private int _selectedConnectorSection;
-
-    public bool IsExtensionConnectorSection => SelectedConnectorSection >= 2;
 
     public bool IsSidePanelsSwapped => AppSettings?.Config.MainLayout.SidePanelsSwapped == true;
 
@@ -115,28 +109,13 @@ public partial class MainWindowViewModel : ViewModelBase
         RebuildCompactLogs();
     }
 
-    #region Tab ViewModels
+    #region Feature ViewModels
 
     [ObservableProperty]
     private ChatTabViewModel _chatTabViewModel;
 
     [ObservableProperty]
-    private ConfigTabViewModel _configTabViewModel;
-
-    [ObservableProperty]
-    private ExtensionsTabViewModel _extensionsTabViewModel;
-
-    [ObservableProperty]
-    private SkillsTabViewModel _skillsTabViewModel;
-
-    [ObservableProperty]
-    private McpTabViewModel _mcpTabViewModel;
-
-    [ObservableProperty]
     private TasksTabViewModel _tasksTabViewModel;
-
-    [ObservableProperty]
-    private HistoryTabViewModel? _historyTabViewModel;
 
     [ObservableProperty]
     private KnowledgeBaseTabViewModel _knowledgeBaseTabViewModel;
@@ -146,25 +125,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private AboutTabViewModel _aboutTabViewModel;
-
-    #endregion
-
-    #region Tab Navigation Properties
-
-    [ObservableProperty]
-    private int _selectedTabIndex;
-
-    partial void OnSelectedTabIndexChanged(int value)
-    {
-        if (value == 6) // HISTORY
-        {
-            _ = HistoryTabViewModel?.LoadHistoryAsync();
-        }
-        else if (value == 8) // LOGS
-        {
-            _ = LogsTabViewModel.RefreshLogsAsync();
-        }
-    }
 
     #endregion
 
@@ -181,13 +141,6 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel()
     {
         _chatTabViewModel = new ChatTabViewModel();
-        _configTabViewModel = new ConfigTabViewModel();
-        _extensionsTabViewModel = new ExtensionsTabViewModel();
-        _extensionsTabViewModel.Initialize(_configTabViewModel);
-        _skillsTabViewModel = new SkillsTabViewModel();
-        _skillsTabViewModel.Initialize(_configTabViewModel);
-        _mcpTabViewModel = new McpTabViewModel();
-        _mcpTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel();
         _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
         _logsTabViewModel = new LogsTabViewModel();
@@ -205,36 +158,30 @@ public partial class MainWindowViewModel : ViewModelBase
         IPromptService? promptService,
         ILogService? logService,
         IKnowledgeBaseService? knowledgeBaseService,
-        IEmbeddingService? embeddingService,
         ILocalizationService? localizationService,
         IFileSystemService? fileSystemService,
         IPlatformPathService? platformPathService,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
-        IWebSearchService? webSearchService,
         IUpdateService? updateService,
         IAttachmentStoreService? attachmentStoreService,
         ISystemAudioService? systemAudioService,
         IConversationArchiveService? archiveService,
         IImageGenerationSessionService? imageGenerationSessionService,
-        IHeadlessBrowserService? browserService = null,
-        IBrowserVisionService? browserVisionService = null,
-        IModelCatalogService? modelCatalogService = null,
         IScreenCaptureService? screenCaptureService = null,
         ISubAgentOrchestrator? subAgentOrchestrator = null,
         IKnowledgeBaseMaintenanceService? knowledgeMaintenanceService = null,
         IWorkspaceService? workspaceService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
-        ISkillCatalogService? skillCatalog = null,
-        OpenAiModelRuntimeFactory? modelRuntimeFactory = null,
         IUserInteractionService? userInteractionService = null,
         ConversationExecutionCoordinator? executionCoordinator = null,
         ChatSessionFactory? chatSessionFactory = null,
         IConversationArchiveStore? conversationStore = null,
         WorkspaceWorkbenchViewModel? workbench = null,
         AppSettingsViewModel? appSettings = null,
-        ExtensionsConfigurationViewModel? extensionSettings = null,
-        ApprovalQueueViewModel? approvalQueue = null)
+        ApprovalQueueViewModel? approvalQueue = null,
+        AppConfigurationSession? configurationSession = null,
+        Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null)
     {
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
@@ -245,36 +192,31 @@ public partial class MainWindowViewModel : ViewModelBase
         _configService = configService;
         Workbench = workbench;
         AppSettings = appSettings;
-        ExtensionSettings = extensionSettings;
         _approvalQueue = approvalQueue;
+        _skillsConnectorsFactory = skillsConnectorsFactory;
         if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += (_, _) => RefreshApprovalStates();
         Orchestrator = subAgentOrchestrator;
 
-        // Initialize Tab ViewModels
+        // Initialize the live feature view models.
         _chatTabViewModel = new ChatTabViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator);
-        _configTabViewModel = new ConfigTabViewModel(configService, chatService, embeddingService, localizationService, modelCatalogService, knowledgeMaintenanceService, knowledgeBaseService, browserService, browserVisionService);
-        _configTabViewModel.Initialize(_chatTabViewModel, tokenService);
-        _extensionsTabViewModel = new ExtensionsTabViewModel(configService, chatService, localizationService, webSearchService, systemAudioService);
-        _extensionsTabViewModel.Initialize(_configTabViewModel);
-        _skillsTabViewModel = new SkillsTabViewModel(skillCatalog, configService, workspaceService, localizationService, userInteractionService);
-        _skillsTabViewModel.Initialize(_configTabViewModel);
-        _mcpTabViewModel = new McpTabViewModel(configService, localizationService);
-        _mcpTabViewModel.Initialize(_configTabViewModel);
         _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
-        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(fileSystemService, platformPathService, knowledgeBaseService, localizationService, userInteractionService);
+        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(
+            fileSystemService,
+            platformPathService,
+            knowledgeBaseService,
+            localizationService,
+            userInteractionService,
+            knowledgeMaintenanceService,
+            configurationSession);
         _logsTabViewModel = new LogsTabViewModel(logService, localizationService, userInteractionService);
         _aboutTabViewModel = new AboutTabViewModel(localizationService, updateService);
 
         if (archiveService != null)
         {
-            _historyTabViewModel = new HistoryTabViewModel(archiveService, localizationService, workspaceService);
-            _historyTabViewModel.LoadHistoryRequested += OnLoadHistoryRequested;
-            _historyTabViewModel.HistoryDeleted += OnHistoryDeleted;
-            _chatTabViewModel.CurrentConversationDeleted += OnCurrentConversationDeleted;
+            archiveService.ArchiveStaged += OnArchiveStaged;
+            archiveService.ArchiveCompleted += OnArchiveCompleted;
+            archiveService.ArchiveFailed += OnArchiveFailed;
         }
-
-        // Wire up events
-        _chatTabViewModel.SwitchToTasksTabRequested += (s, e) => SelectedTabIndex = 5;
 
         if (taskScheduler != null)
         {
@@ -295,7 +237,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)
     {
-        // 必须在 UI 线程处理，因为涉及切换 Tab 和修改 ObservableCollection
+        // 必须在 UI 线程处理，因为会更新当前会话与 ObservableCollection。
         Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
         {
             var executionResult = TaskExecutionResult.Failed("Proactive task did not start.");
@@ -304,7 +246,6 @@ public partial class MainWindowViewModel : ViewModelBase
             try
             {
                 App.StartTrayFlashing();
-                SelectedTabIndex = 0;
                 executionResult = await ChatTabViewModel.ProcessProactiveMessageAsync(e.Intent);
             }
             catch (Exception ex)
@@ -322,25 +263,127 @@ public partial class MainWindowViewModel : ViewModelBase
         });
     }
 
-    private void OnHistoryDeleted(object? sender, string id)
+    private void OnArchiveStaged(object? sender, ConversationArchiveResultEventArgs e)
     {
-        ChatTabViewModel.NotifyHistoryDeleted(id);
+        RunOnUiThread(() =>
+        {
+            FindConversation(e.Snapshot)?.SetArchivePending(
+                _localizationService?.GetString("History.PendingStatus", "正在总结中") ?? "正在总结中");
+        });
     }
 
-    private async void OnCurrentConversationDeleted(object? sender, string id)
+    private void OnArchiveCompleted(object? sender, ConversationArchiveResultEventArgs e)
     {
-        if (HistoryTabViewModel != null)
+        RunOnUiThread(() => _ = HandleArchiveCompletedAsync(e));
+    }
+
+    private async Task HandleArchiveCompletedAsync(ConversationArchiveResultEventArgs e)
+    {
+        var historyId = e.HistoryItem?.Id ?? e.Snapshot.HistoryId;
+        try
         {
-            await HistoryTabViewModel.LoadHistoryAsync();
+            var history = e.HistoryItem
+                          ?? (!string.IsNullOrWhiteSpace(e.Snapshot.HistoryId) && _conversationArchiveService != null
+                              ? await _conversationArchiveService.LoadByIdAsync(e.Snapshot.HistoryId)
+                              : null);
+            if (history == null) return;
+            await UpsertConversationTreeItemAsync(history, e.Snapshot);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "会话树同步归档完成事件失败: {HistoryId}", historyId);
         }
     }
 
-    private async void OnLoadHistoryRequested(object? sender, ConversationHistoryItem item)
+    private void OnArchiveFailed(object? sender, ConversationArchiveResultEventArgs e)
     {
-        _logger.Information("请求加载历史对话: {Id}", item.Id);
-        await ChatTabViewModel.LoadHistoryConversationAsync(item);
-        SelectedTabIndex = 0; // Switch to CHAT
+        RunOnUiThread(() =>
+        {
+            FindConversation(e.Snapshot)?.SetArchiveFailed(
+                _localizationService?.GetString("Chat.Archive.RetryLater", "归档失败，已保留并等待重试")
+                ?? "归档失败，已保留并等待重试");
+        });
     }
+
+    private static void RunOnUiThread(Action action)
+    {
+        if (Dispatcher.UIThread.CheckAccess()) action();
+        else Dispatcher.UIThread.Post(action);
+    }
+
+    private ConversationSessionItemViewModel? FindConversation(ConversationArchiveSnapshot snapshot) =>
+        ConversationGroups
+            .SelectMany(group => group.Conversations)
+            .FirstOrDefault(session =>
+                (!string.IsNullOrWhiteSpace(snapshot.HistoryId)
+                 && string.Equals(session.HistoryId, snapshot.HistoryId, StringComparison.Ordinal))
+                || (!string.IsNullOrWhiteSpace(snapshot.ConversationId)
+                    && string.Equals(session.ConversationId, snapshot.ConversationId, StringComparison.Ordinal)));
+
+    private async Task UpsertConversationTreeItemAsync(
+        ConversationHistoryItem history,
+        ConversationArchiveSnapshot? snapshot = null)
+    {
+        var session = ConversationGroups
+            .SelectMany(group => group.Conversations)
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.HistoryId, history.Id, StringComparison.Ordinal)
+                || (!string.IsNullOrWhiteSpace(history.ConversationId)
+                    && string.Equals(candidate.ConversationId, history.ConversationId, StringComparison.Ordinal)))
+            ?? (snapshot == null ? null : FindConversation(snapshot));
+
+        if (session != null)
+        {
+            session.Title = string.IsNullOrWhiteSpace(history.Summary) ? session.Title : history.Summary;
+            session.UpdatedAt = history.UpdatedAt;
+            session.IsPinned = history.IsPinned;
+            session.WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase);
+            session.SetArchiveCompleted();
+            RefreshPinnedConversations();
+            return;
+        }
+
+        var group = ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == history.WorkspaceId)
+                    ?? GlobalConversationGroup;
+        if (group == null) return;
+
+        _logger.Information("会话树正在插入外部归档: {HistoryId}", history.Id);
+        var chat = CreateChatSession();
+        await chat.InitializeWorkspacesAsync();
+        chat.RestorePersistedConversation(history);
+        chat.AssignWorkspace(group.Workspace);
+        chat.InputText = history.Draft;
+        session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id)
+        {
+            Title = string.IsNullOrWhiteSpace(history.Summary) ? "新对话" : history.Summary,
+            IsPinned = history.IsPinned,
+            UpdatedAt = history.UpdatedAt,
+            WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
+            ForkedFromConversationId = history.ForkedFromConversationId,
+            ForkedFromHistoryId = history.ForkedFromHistoryId
+        };
+        session.SetArchiveCompleted();
+        WireSession(session);
+        group.Conversations.Insert(0, session);
+        RefreshPinnedConversations();
+        OnConversationSearchTextChanged(ConversationSearchText);
+        _logger.Information("会话树已插入外部归档: {HistoryId}", history.Id);
+    }
+
+    private ChatTabViewModel CreateChatSession() =>
+        _chatSessionFactory?.Create()
+        ?? new ChatTabViewModel(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new TokenService(),
+            _localizationService,
+            archiveService: _conversationArchiveService,
+            workspaceService: _workspaceService,
+            userInteractionService: _userInteractionService);
 
     public void PersistSessionState()
     {
@@ -372,9 +415,9 @@ public partial class MainWindowViewModel : ViewModelBase
             foreach (var history in histories.OrderByDescending(item => item.IsPinned).ThenByDescending(item => item.UpdatedAt))
             {
                 var group = ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == history.WorkspaceId) ?? globalGroup;
-                var chat = _chatSessionFactory?.Create() ?? ChatTabViewModel;
+                var chat = CreateChatSession();
                 await chat.InitializeWorkspacesAsync();
-                await chat.LoadHistoryConversationAsync(history);
+                chat.RestorePersistedConversation(history);
                 chat.AssignWorkspace(group.Workspace);
                 chat.InputText = history.Draft;
                 var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id)
@@ -425,7 +468,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task<ConversationSessionItemViewModel> CreateConversationCoreAsync(WorkspaceConversationGroupViewModel group)
     {
-        var chat = _chatSessionFactory?.Create() ?? ChatTabViewModel;
+        var chat = CreateChatSession();
         await chat.InitializeWorkspacesAsync();
         chat.AssignWorkspace(group.Workspace);
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore);
@@ -507,7 +550,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task OpenSkillsConnectorsAsync()
     {
-        if (MainOwner is { } owner) await new SkillsConnectorsWindow { DataContext = this }.ShowDialog(owner);
+        if (MainOwner is { } owner && _skillsConnectorsFactory?.Invoke() is { } viewModel)
+            await new SkillsConnectorsWindow { DataContext = viewModel }.ShowDialog(owner);
     }
 
     [RelayCommand]
@@ -575,9 +619,9 @@ public partial class MainWindowViewModel : ViewModelBase
         };
         await _conversationStore.SaveAsync(fork);
         var group = ConversationGroups.First(candidate => candidate.Conversations.Contains(source));
-        var chat = _chatSessionFactory?.Create() ?? ChatTabViewModel;
+        var chat = CreateChatSession();
         await chat.InitializeWorkspacesAsync();
-        await chat.LoadHistoryConversationAsync(fork);
+        chat.RestorePersistedConversation(fork);
         chat.AssignWorkspace(group.Workspace);
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
         {
