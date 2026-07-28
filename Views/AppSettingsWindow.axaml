@@ -4,7 +4,7 @@
         xmlns:views="using:Athena.UI.Views"
         xmlns:loc="using:Athena.UI.Markup"
         x:Class="Athena.UI.Views.AppSettingsWindow"
-        x:DataType="vm:MainWindowViewModel"
+        x:DataType="vm:AppSettingsWindowViewModel"
         Title="应用设置"
         Width="900" Height="720" MinWidth="720" MinHeight="560"
         WindowStartupLocation="CenterOwner">
@@ -81,7 +81,7 @@
                                                    FontFamily="Consolas, Menlo, monospace"/>
                                         <Button Grid.Column="1"
                                                 Content="{loc:Loc Config.ToolApproval.Revoke}"
-                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AppSettings.RevokeAutoAllowedToolCommand}"
+                                                Command="{Binding $parent[Window].((vm:AppSettingsWindowViewModel)DataContext).AppSettings.RevokeAutoAllowedToolCommand}"
                                                 CommandParameter="{Binding}"
                                                 Padding="8,2"/>
                                     </Grid>
@@ -100,7 +100,7 @@
                                                    FontFamily="Consolas, Menlo, monospace"/>
                                         <Button Grid.Column="1"
                                                 Content="{loc:Loc Config.ToolApproval.Revoke}"
-                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AppSettings.RevokeTerminalAllowlistCommand}"
+                                                Command="{Binding $parent[Window].((vm:AppSettingsWindowViewModel)DataContext).AppSettings.RevokeTerminalAllowlistCommand}"
                                                 CommandParameter="{Binding}"
                                                 Padding="8,2"/>
                                     </Grid>
@@ -166,7 +166,7 @@
                 </StackPanel>
             </Border>
             <Expander Header="关于、更新与诊断">
-                <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
+                <views:AboutView DataContext="{Binding About}"/>
             </Expander>
         </StackPanel>
     </ScrollViewer>

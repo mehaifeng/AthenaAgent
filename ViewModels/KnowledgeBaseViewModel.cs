@@ -18,7 +18,7 @@ namespace Athena.UI.ViewModels;
 /// 知识库 Tab 视图模型
 /// 管理 AthenaData/KnowledgeBase 目录下的 Markdown 文件
 /// </summary>
-public partial class KnowledgeBaseTabViewModel : ViewModelBase
+public partial class KnowledgeBaseViewModel : ViewModelBase
 {
     private readonly IFileSystemService? _fileSystemService;
     private readonly IPlatformPathService? _pathService;
@@ -27,7 +27,7 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
     private readonly IUserInteractionService? _userInteractionService;
     private readonly IKnowledgeBaseMaintenanceService? _maintenanceService;
     private readonly AppConfigurationSession? _configurationSession;
-    private readonly ILogger _logger = Log.ForContext<KnowledgeBaseTabViewModel>();
+    private readonly ILogger _logger = Log.ForContext<KnowledgeBaseViewModel>();
 
     public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
 
@@ -71,9 +71,9 @@ public partial class KnowledgeBaseTabViewModel : ViewModelBase
 
     private string _rootPath = string.Empty;
 
-    public KnowledgeBaseTabViewModel() : this(null, null, null, null, null, null, null) { }
+    public KnowledgeBaseViewModel() : this(null, null, null, null, null, null, null) { }
 
-    public KnowledgeBaseTabViewModel(
+    public KnowledgeBaseViewModel(
         IFileSystemService? fileSystemService, 
         IPlatformPathService? pathService,
         IKnowledgeBaseService? knowledgeBaseService,

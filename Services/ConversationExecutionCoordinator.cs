@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
 
-/// <summary>跨会话的公平模型并发队列；同一会话的串行由 ChatTabViewModel 保证。</summary>
+/// <summary>跨会话的公平模型并发队列；同一会话的串行由 MainConversationViewModel 保证。</summary>
 public sealed class ConversationExecutionCoordinator
 {
     private readonly object _sync = new();

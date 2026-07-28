@@ -4,13 +4,13 @@ using Athena.UI.ViewModels;
 
 namespace Athena.UI.Views;
 
-public partial class KnowledgeBaseTabView : UserControl
+public partial class KnowledgeBaseView : UserControl
 {
-    public KnowledgeBaseTabView() { InitializeComponent(); }
+    public KnowledgeBaseView() { InitializeComponent(); }
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is KnowledgeBaseTabViewModel vm)
+        if (DataContext is KnowledgeBaseViewModel vm)
         {
             await vm.InitializeAsync();
         }

@@ -16,7 +16,7 @@
 - [x] 阶段 2：已完成 Skills/Connectors 独立窗口 VM、六页面 View/VM、单一内容宿主、共享 Provider Card 和本地化。
 - [x] 阶段 3：已迁移旧 Config/Extensions 能力并删除孤儿 View/VM。
 - [x] 阶段 4：已删除旧 History 投影和 Tab 导航，归档状态、搜索与删除统一由会话树持有。
-- [ ] 阶段 5：待实施。
+- [x] 阶段 5：已完成仍在使用的 View/VM、功能窗口和 App Settings 窗口所有权重命名。
 - [ ] 阶段 6：待实施。
 - [ ] 阶段 7：待实施。
 
@@ -515,7 +515,7 @@ ViewModels/
 
 - `MainWindowViewModel` 直接订阅 `ArchiveStaged`、`ArchiveCompleted` 和 `ArchiveFailed`，将暂存、失败以及完成后的元数据投影到对应会话节点。
 - 外部产生的归档完成事件会按 `WorkspaceId` 插入现有工作区组；已有会话按 History/Conversation 标识就地更新。
-- `ChatTabViewModel.RestorePersistedConversation` 作为新会话 VM 的纯恢复入口，避免构建会话树时触发旧单会话切换流程。
+- `MainConversationViewModel.RestorePersistedConversation` 作为新会话 VM 的纯恢复入口，避免构建会话树时触发旧单会话切换流程。
 - 删除 `HistoryTabView`、code-behind、`HistoryTabViewModel`、三个 History/Chat 删除桥接、Tab 索引状态和切换 Tasks 的无入口事件/命令。
 - Headless 测试覆盖归档暂存、失败、完成、外部插入、工作区归组、消息关键词搜索，以及当前/非当前会话删除。
 
@@ -535,14 +535,56 @@ ViewModels/
 
 按第 6 节逐组重命名，每组完成后构建：
 
-1. Skills/MCP。
-2. Knowledge Base/Tasks/Logs/About。
-3. Main Conversation。
-4. 对应的 Headless 测试、注释和日志类别。
-5. 将 `SimpleFeatureWindows.cs` 拆成有明确类型的独立窗口文件；不再接受 `object dataContext`。
-6. 为 App Settings 建立自己的窗口 VM，停止使用整个 `MainWindowViewModel` 作为 DataContext。
+1. [x] Skills/MCP。
+2. [x] Knowledge Base/Tasks/Logs/About。
+3. [x] Main Conversation。
+4. [x] 对应的 Headless 测试、注释和日志类别。
+5. [x] 将 `SimpleFeatureWindows.cs` 拆成有明确类型的独立窗口文件；不再接受 `object dataContext`。
+6. [x] 为 App Settings 建立自己的窗口 VM，停止使用整个 `MainWindowViewModel` 作为 DataContext。
 
 Main Conversation 重命名改动面最大，应最后执行，避免与功能迁移混在同一提交。
+
+阶段完成条件：
+
+- [x] 生产代码不再引用仍存活类型的 `*TabView` / `*TabViewModel` 名称。
+- [x] ViewLocator 可继续通过 `FooViewModel -> FooView` 约定定位语义化 View。
+- [x] Knowledge Base、Tasks、Logs 窗口构造函数只接受各自的强类型 VM。
+- [x] App Settings 使用 `AppSettingsWindowViewModel`，不再以 `MainWindowViewModel` 为 DataContext。
+- [x] 重命名后构建、Archive Tests 和 Headless Tests 全部通过。
+
+#### 阶段 5 实施记录（2026-07-28）
+
+命名迁移：
+
+| 旧名称 | 当前名称 |
+|---|---|
+| `ChatTabView` / `ChatTabViewModel` | `MainConversationView` / `MainConversationViewModel` |
+| `KnowledgeBaseTabView` / `KnowledgeBaseTabViewModel` | `KnowledgeBaseView` / `KnowledgeBaseViewModel` |
+| `TasksTabView` / `TasksTabViewModel` | `TasksView` / `TasksViewModel` |
+| `LogsTabView` / `LogsTabViewModel` | `LogsView` / `LogsViewModel` |
+| `AboutTabView` / `AboutTabViewModel` | `AboutView` / `AboutViewModel` |
+| `ScheduledMessagesWindow` | `TasksWindow` |
+
+结构清理：
+
+- Skills/MCP 的语义化名称已在阶段 2 完成，本阶段核对后保留，不重复移动。
+- `SimpleFeatureWindows.cs` 已拆分为 `KnowledgeBaseWindow.cs`、`TasksWindow.cs` 和 `DetailedLogsWindow.cs`；三个构造函数分别接受 `KnowledgeBaseViewModel`、`TasksViewModel` 和 `LogsViewModel`。
+- 新增 `AppSettingsWindowViewModel`，只暴露 `AppSettingsViewModel` 与 `AboutViewModel`；App Settings XAML 的编译绑定和祖先命令绑定均改为该窗口 VM。
+- `MainWindowViewModel` 的功能属性、会话创建路径、主窗口绑定、Owl Village、Chat Session Factory、注释和 Serilog 类别已同步到新名称。
+- Headless 测试改用新类型，并新增强类型功能窗口与 App Settings 独立 DataContext 的约束。
+
+与计划的偏差及有意延期：
+
+- 阶段 1–4 先按要求提交为 `e16a6a5`，阶段 5 的大范围重命名与旧页面删除没有混入同一提交。
+- Skills/MCP 重命名已由阶段 2 提前完成，因此本阶段仅扫描确认。
+- Knowledge Base/Tasks/Logs/About 与 Main Conversation 的符号迁移完成后统一进行编译验证，没有在两组之间留下不可编译的中间状态；最终分组和完整方案构建均通过。
+- 未更新 AGENTS/README/用户指南、截图文件名或全局样式；这些仍按计划属于阶段 7。未实施阶段 6 的事件退订与释放。
+
+验证结果：
+
+- [x] `dotnet build Athena.UI.sln --no-restore`：0 warning，0 error。
+- [x] `dotnet run --project Athena.Archive.Tests --no-build`：全部通过。
+- [x] `dotnet run --project Athena.UI.HeadlessTests --no-build`：全部通过。
 
 ### 阶段 6：生命周期清理
 

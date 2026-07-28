@@ -157,7 +157,7 @@
 
             <!-- 呈现层设置：主题切换 + 语言切换 -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Spacing="10">
-                <!-- 主题切换：Moon=当前 Dark，Sun=当前 Light。参考 ChatTabView 的两 PathIcon 互斥可见方案。 -->
+                <!-- 主题切换：Moon=当前 Dark，Sun=当前 Light。参考 MainConversationView 的两 PathIcon 互斥可见方案。 -->
                 <Button Command="{Binding ToggleThemeCommand}"
                         Tag="{Binding ThemeIcon}"
                         ToolTip.Tip="{loc:Loc Chat.BtnTheme}"

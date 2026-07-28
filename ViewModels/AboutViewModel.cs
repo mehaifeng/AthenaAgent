@@ -13,14 +13,14 @@ using Athena.UI.Models;
 
 namespace Athena.UI.ViewModels;
 
-public partial class AboutTabViewModel : ViewModelBase
+public partial class AboutViewModel : ViewModelBase
 {
     private const string RepositoryUrl = "https://github.com/mehaifeng/AthenaAgent";
     private const string EnglishGuideUrl = "https://github.com/mehaifeng/AthenaAgent/blob/main/Docs/Athena_User_Guide_EN.md";
     private const string ChineseGuideUrl = "https://github.com/mehaifeng/AthenaAgent/blob/main/Docs/Athena_User_Guide_CN.md";
     private readonly ILocalizationService? _localizationService;
     private readonly IUpdateService? _updateService;
-    private readonly ILogger _logger = Log.ForContext<AboutTabViewModel>();
+    private readonly ILogger _logger = Log.ForContext<AboutViewModel>();
 
     [ObservableProperty]
     private bool _isCheckingUpdates;
@@ -42,9 +42,9 @@ public partial class AboutTabViewModel : ViewModelBase
 
     public bool CanCheckForUpdates => !IsCheckingUpdates;
 
-    public AboutTabViewModel() : this(null, null) { }
+    public AboutViewModel() : this(null, null) { }
 
-    public AboutTabViewModel(ILocalizationService? localizationService, IUpdateService? updateService = null)
+    public AboutViewModel(ILocalizationService? localizationService, IUpdateService? updateService = null)
     {
         _localizationService = localizationService;
         _updateService = updateService;

@@ -92,7 +92,7 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     private string _themeIcon = "Sun";
 
-    /// <summary>主题切换：Light↔Dark，立即生效并写入配置。参考 ChatTabViewModel.ToggleTheme。</summary>
+    /// <summary>主题切换：Light↔Dark，立即生效并写入配置。参考 MainConversationViewModel.ToggleTheme。</summary>
     [RelayCommand]
     private void ToggleTheme()
     {

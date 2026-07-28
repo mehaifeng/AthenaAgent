@@ -3,7 +3,7 @@
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.OwlVillageView"
-             x:DataType="vm:ChatTabViewModel"
+             x:DataType="vm:MainConversationViewModel"
              Width="560">
 
     <UserControl.Styles>

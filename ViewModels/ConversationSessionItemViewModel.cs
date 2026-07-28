@@ -25,7 +25,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public event EventHandler? PinChanged;
 
     public ConversationSessionItemViewModel(
-        ChatTabViewModel chat,
+        MainConversationViewModel chat,
         WorkspaceProfile? workspace,
         IConversationArchiveStore? store,
         string? historyId = null)
@@ -38,7 +38,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.Messages.CollectionChanged += OnMessagesChanged;
     }
 
-    public ChatTabViewModel Chat { get; }
+    public MainConversationViewModel Chat { get; }
 
     public WorkspaceProfile? Workspace { get; }
 
@@ -245,9 +245,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ChatTabViewModel.IsSending) or nameof(ChatTabViewModel.IsQueued))
+        if (e.PropertyName is nameof(MainConversationViewModel.IsSending) or nameof(MainConversationViewModel.IsQueued))
         {
-            if (e.PropertyName == nameof(ChatTabViewModel.IsSending) && !Chat.IsSending && !IsSelected)
+            if (e.PropertyName == nameof(MainConversationViewModel.IsSending) && !Chat.IsSending && !IsSelected)
             {
                 HasUnreadCompletion = true;
             }
@@ -264,7 +264,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             OnPropertyChanged(nameof(ShowCompletionIndicator));
         }
 
-        if (e.PropertyName == nameof(ChatTabViewModel.InputText)) ScheduleSave();
+        if (e.PropertyName == nameof(MainConversationViewModel.InputText)) ScheduleSave();
     }
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)

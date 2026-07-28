@@ -166,7 +166,7 @@
                                 <TextBlock Text="知识库"/>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Row="1" Classes="launcher" Command="{Binding OpenScheduledMessagesCommand}">
+                        <Button Grid.Row="1" Classes="launcher" Command="{Binding OpenTasksCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource AthenaIconScheduledMessages}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="定时消息"/>
@@ -290,7 +290,7 @@
 
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。 -->
             <Border Grid.Column="2" MinWidth="540" Margin="5,0" Classes="shell-panel">
-                <views:ChatTabView x:Name="ChatTabView" DataContext="{Binding ChatTabViewModel}"/>
+                <views:MainConversationView x:Name="MainConversationView" DataContext="{Binding MainConversationViewModel}"/>
             </Border>
 
             <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"

@@ -61,10 +61,10 @@ public sealed class ChatSessionFactory
         _executionCoordinator = executionCoordinator;
     }
 
-    public ChatTabViewModel Create()
+    public MainConversationViewModel Create()
     {
         var tokenService = new TokenService();
-        return new ChatTabViewModel(
+        return new MainConversationViewModel(
             _chatService,
             _configService,
             _compressionService,

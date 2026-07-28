@@ -38,7 +38,7 @@ public partial class OwlVillageView : UserControl
 
     private void Wander()
     {
-        if (DataContext is ChatTabViewModel vm && vm.Orchestrator is { } orchestrator)
+        if (DataContext is MainConversationViewModel vm && vm.Orchestrator is { } orchestrator)
         {
             SubAgentViewModel.RepositionWander(orchestrator.ActiveAgents.ToList());
         }
@@ -46,7 +46,7 @@ public partial class OwlVillageView : UserControl
 
     private void AdvanceSprites()
     {
-        if (DataContext is ChatTabViewModel vm && vm.Orchestrator is { } orchestrator)
+        if (DataContext is MainConversationViewModel vm && vm.Orchestrator is { } orchestrator)
         {
             var now = DateTime.UtcNow;
             foreach (var owl in orchestrator.ActiveAgents)

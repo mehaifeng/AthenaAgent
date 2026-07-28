@@ -20,11 +20,11 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.Views;
 
-public partial class ChatTabView : UserControl
+public partial class MainConversationView : UserControl
 {
     private ScrollViewer? _chatScrollViewer;
     private TextBox? _messageInputTextBox;
-    private ChatTabViewModel? _viewModel;
+    private MainConversationViewModel? _viewModel;
     private bool _isUserScrolling;
     private double _lastScrollOffset;
 
@@ -35,7 +35,7 @@ public partial class ChatTabView : UserControl
     private static readonly Random _flightRng = new();
     private static readonly Bitmap[] OwlFlightFrames = LoadOwlFlightFrames();
 
-    public ChatTabView()
+    public MainConversationView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
@@ -55,7 +55,7 @@ public partial class ChatTabView : UserControl
             _subAgentsCollection = null;
         }
 
-        if (DataContext is ChatTabViewModel viewModel)
+        if (DataContext is MainConversationViewModel viewModel)
         {
             _viewModel = viewModel;
             viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
@@ -76,7 +76,7 @@ public partial class ChatTabView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ChatTabViewModel.IsSending))
+        if (e.PropertyName == nameof(MainConversationViewModel.IsSending))
         {
             if (_viewModel?.IsSending == true) _isUserScrolling = false;
         }

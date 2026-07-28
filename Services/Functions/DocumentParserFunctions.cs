@@ -11,7 +11,7 @@ namespace Athena.UI.Services.Functions;
 
 /// <summary>
 /// parse_office_document 工具的实现：把本地 Office/PDF 文档通过 MinerU 解析为 Markdown 文本，
-/// 供模型直接读取内容。解析流程与 ChatTabView 底部附件插入 Office 文件的处理完全一致
+/// 供模型直接读取内容。解析流程与 MainConversationView 底部附件插入 Office 文件的处理完全一致
 /// （上传 -> 轮询 -> 下载 Markdown），只是入口从 UI 附件改为工具调用。
 /// </summary>
 public class DocumentParserFunctions

@@ -8,12 +8,12 @@
              mc:Ignorable="d"
              d:DesignWidth="1080"
              d:DesignHeight="760"
-             x:Class="Athena.UI.Views.KnowledgeBaseTabView"
-             x:DataType="vm:KnowledgeBaseTabViewModel"
+             x:Class="Athena.UI.Views.KnowledgeBaseView"
+             x:DataType="vm:KnowledgeBaseViewModel"
              Loaded="OnLoaded">
 
     <Design.DataContext>
-        <vm:KnowledgeBaseTabViewModel/>
+        <vm:KnowledgeBaseViewModel/>
     </Design.DataContext>
 
     <Grid Margin="14" ColumnDefinitions="3*,12,7*">

@@ -32,6 +32,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly DispatcherTimer? _compactLogTimer;
     private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
+    private readonly Func<AppSettingsWindowViewModel>? _appSettingsFactory;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
 
@@ -103,7 +104,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_conversationStore != null) _ = _conversationStore.DeleteAsync(oldValue.HistoryId);
         }
         newValue.IsSelected = true;
-        ChatTabViewModel = newValue.Chat;
+        MainConversationViewModel = newValue.Chat;
         _workspaceService?.SetActiveWorkspace(newValue.Workspace);
         if (Workbench != null) _ = Workbench.SetWorkspaceAsync(newValue.Workspace);
         RebuildCompactLogs();
@@ -112,25 +113,22 @@ public partial class MainWindowViewModel : ViewModelBase
     #region Feature ViewModels
 
     [ObservableProperty]
-    private ChatTabViewModel _chatTabViewModel;
+    private MainConversationViewModel _mainConversationViewModel;
 
     [ObservableProperty]
-    private TasksTabViewModel _tasksTabViewModel;
+    private TasksViewModel _tasksViewModel;
 
     [ObservableProperty]
-    private KnowledgeBaseTabViewModel _knowledgeBaseTabViewModel;
+    private KnowledgeBaseViewModel _knowledgeBaseViewModel;
 
     [ObservableProperty]
-    private LogsTabViewModel _logsTabViewModel;
-
-    [ObservableProperty]
-    private AboutTabViewModel _aboutTabViewModel;
+    private LogsViewModel _logsViewModel;
 
     #endregion
 
     #region Sub-Agents
 
-    /// <summary>子代理编排器（下传给 ChatTabViewModel，供 Sub-Agents 弹出小镇绑定）。</summary>
+    /// <summary>子代理编排器（下传给 MainConversationViewModel，供 Sub-Agents 弹出小镇绑定）。</summary>
     public ISubAgentOrchestrator? Orchestrator { get; private set; }
 
     #endregion
@@ -140,11 +138,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public MainWindowViewModel()
     {
-        _chatTabViewModel = new ChatTabViewModel();
-        _tasksTabViewModel = new TasksTabViewModel();
-        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel();
-        _logsTabViewModel = new LogsTabViewModel();
-        _aboutTabViewModel = new AboutTabViewModel(_localizationService, null);
+        _mainConversationViewModel = new MainConversationViewModel();
+        _tasksViewModel = new TasksViewModel();
+        _knowledgeBaseViewModel = new KnowledgeBaseViewModel();
+        _logsViewModel = new LogsViewModel();
     }
 
     /// <summary>
@@ -163,7 +160,6 @@ public partial class MainWindowViewModel : ViewModelBase
         IPlatformPathService? platformPathService,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
-        IUpdateService? updateService,
         IAttachmentStoreService? attachmentStoreService,
         ISystemAudioService? systemAudioService,
         IConversationArchiveService? archiveService,
@@ -181,7 +177,8 @@ public partial class MainWindowViewModel : ViewModelBase
         AppSettingsViewModel? appSettings = null,
         ApprovalQueueViewModel? approvalQueue = null,
         AppConfigurationSession? configurationSession = null,
-        Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null)
+        Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
+        Func<AppSettingsWindowViewModel>? appSettingsFactory = null)
     {
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
@@ -194,13 +191,14 @@ public partial class MainWindowViewModel : ViewModelBase
         AppSettings = appSettings;
         _approvalQueue = approvalQueue;
         _skillsConnectorsFactory = skillsConnectorsFactory;
+        _appSettingsFactory = appSettingsFactory;
         if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += (_, _) => RefreshApprovalStates();
         Orchestrator = subAgentOrchestrator;
 
         // Initialize the live feature view models.
-        _chatTabViewModel = new ChatTabViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator);
-        _tasksTabViewModel = new TasksTabViewModel(taskScheduler, localizationService);
-        _knowledgeBaseTabViewModel = new KnowledgeBaseTabViewModel(
+        _mainConversationViewModel = new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator);
+        _tasksViewModel = new TasksViewModel(taskScheduler, localizationService);
+        _knowledgeBaseViewModel = new KnowledgeBaseViewModel(
             fileSystemService,
             platformPathService,
             knowledgeBaseService,
@@ -208,8 +206,7 @@ public partial class MainWindowViewModel : ViewModelBase
             userInteractionService,
             knowledgeMaintenanceService,
             configurationSession);
-        _logsTabViewModel = new LogsTabViewModel(logService, localizationService, userInteractionService);
-        _aboutTabViewModel = new AboutTabViewModel(localizationService, updateService);
+        _logsViewModel = new LogsViewModel(logService, localizationService, userInteractionService);
 
         if (archiveService != null)
         {
@@ -246,7 +243,7 @@ public partial class MainWindowViewModel : ViewModelBase
             try
             {
                 App.StartTrayFlashing();
-                executionResult = await ChatTabViewModel.ProcessProactiveMessageAsync(e.Intent);
+                executionResult = await MainConversationViewModel.ProcessProactiveMessageAsync(e.Intent);
             }
             catch (Exception ex)
             {
@@ -370,9 +367,9 @@ public partial class MainWindowViewModel : ViewModelBase
         _logger.Information("会话树已插入外部归档: {HistoryId}", history.Id);
     }
 
-    private ChatTabViewModel CreateChatSession() =>
+    private MainConversationViewModel CreateChatSession() =>
         _chatSessionFactory?.Create()
-        ?? new ChatTabViewModel(
+        ?? new MainConversationViewModel(
             null,
             null,
             null,
@@ -538,13 +535,13 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task OpenKnowledgeBaseAsync()
     {
-        if (MainOwner is { } owner) await new KnowledgeBaseWindow(KnowledgeBaseTabViewModel).ShowDialog(owner);
+        if (MainOwner is { } owner) await new KnowledgeBaseWindow(KnowledgeBaseViewModel).ShowDialog(owner);
     }
 
     [RelayCommand]
-    private async Task OpenScheduledMessagesAsync()
+    private async Task OpenTasksAsync()
     {
-        if (MainOwner is { } owner) await new ScheduledMessagesWindow(TasksTabViewModel).ShowDialog(owner);
+        if (MainOwner is { } owner) await new TasksWindow(TasksViewModel).ShowDialog(owner);
     }
 
     [RelayCommand]
@@ -557,14 +554,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task OpenAppSettingsAsync()
     {
-        if (MainOwner is { } owner) await new AppSettingsWindow { DataContext = this }.ShowDialog(owner);
+        if (MainOwner is { } owner && _appSettingsFactory?.Invoke() is { } viewModel)
+            await new AppSettingsWindow { DataContext = viewModel }.ShowDialog(owner);
     }
 
     [RelayCommand]
     private async Task OpenDetailedLogsAsync()
     {
-        await LogsTabViewModel.RefreshLogsAsync();
-        if (MainOwner is { } owner) await new DetailedLogsWindow(LogsTabViewModel).ShowDialog(owner);
+        await LogsViewModel.RefreshLogsAsync();
+        if (MainOwner is { } owner) await new DetailedLogsWindow(LogsViewModel).ShowDialog(owner);
     }
 
     [RelayCommand]
@@ -578,16 +576,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task RefreshCompactLogsAsync()
     {
-        await LogsTabViewModel.RefreshLogsAsync();
+        await LogsViewModel.RefreshLogsAsync();
         RebuildCompactLogs();
     }
 
     private void RebuildCompactLogs()
     {
-        GlobalErrorCount = LogsTabViewModel.LogEntries.Count(entry => entry.Level is "ERROR" or "FATAL");
+        GlobalErrorCount = LogsViewModel.LogEntries.Count(entry => entry.Level is "ERROR" or "FATAL");
         var workspaceId = SelectedConversation?.Workspace?.Id;
         var conversationId = SelectedConversation?.ConversationId;
-        var filtered = LogsTabViewModel.LogEntries.Where(entry => SelectedLogScope switch
+        var filtered = LogsViewModel.LogEntries.Where(entry => SelectedLogScope switch
         {
             "当前工作区" => !string.IsNullOrWhiteSpace(workspaceId) && entry.Properties?.Contains(workspaceId, StringComparison.Ordinal) == true,
             "当前对话" => !string.IsNullOrWhiteSpace(conversationId) && entry.Properties?.Contains(conversationId, StringComparison.Ordinal) == true,

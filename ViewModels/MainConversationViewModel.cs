@@ -22,7 +22,7 @@ using System.Collections.Specialized;
 
 namespace Athena.UI.ViewModels;
 
-public partial class ChatTabViewModel : ViewModelBase
+public partial class MainConversationViewModel : ViewModelBase
 {
     private enum TransitionStageResult
     {
@@ -64,7 +64,7 @@ public partial class ChatTabViewModel : ViewModelBase
     private readonly IConversationSessionAccessor? _sessionAccessor;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly ConversationExecutionCoordinator? _executionCoordinator;
-    private readonly ILogger _logger = Log.ForContext<ChatTabViewModel>();
+    private readonly ILogger _logger = Log.ForContext<MainConversationViewModel>();
 
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
@@ -501,9 +501,9 @@ public partial class ChatTabViewModel : ViewModelBase
 
     #endregion
 
-    public ChatTabViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
-    public ChatTabViewModel(
+    public MainConversationViewModel(
         IChatService? chatService,
         IConfigService? configService,
         IContextCompressionService? contextCompressionService,

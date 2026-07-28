@@ -12,14 +12,14 @@
              mc:Ignorable="d" 
              d:DesignWidth="720" 
              d:DesignHeight="1080"
-             x:Class="Athena.UI.Views.ChatTabView"
-             x:DataType="vm:ChatTabViewModel"
+             x:Class="Athena.UI.Views.MainConversationView"
+             x:DataType="vm:MainConversationViewModel"
              DragDrop.AllowDrop="True"
              DragDrop.DragOver="OnFilesDragOver"
              DragDrop.Drop="OnFilesDrop">
 
     <Design.DataContext>
-        <vm:ChatTabViewModel/>
+        <vm:MainConversationViewModel/>
     </Design.DataContext>
 
     <UserControl.Styles>
@@ -383,7 +383,7 @@
                                                         <ContentControl Content="{Binding GeneratedImageContent}">
                                                             <ContentControl.ContentTemplate>
                                                                 <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                                    <Button Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                    <Button Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenImageAttachmentCommand}"
                                                                             CommandParameter="{Binding Attachment}"
                                                                             Padding="0"
                                                                             Background="Transparent"
@@ -424,7 +424,7 @@
                                                         <ContentControl Content="{Binding ImageContent}">
                                                             <ContentControl.ContentTemplate>
                                                                 <DataTemplate x:DataType="models:ChatAttachment">
-                                                                    <Button Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                    <Button Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenImageAttachmentCommand}"
                                                                             CommandParameter="{Binding}"
                                                                             Padding="0"
                                                                             Background="Transparent"
@@ -467,10 +467,10 @@
                                                                     <Border Classes="audio-attachment-card">
                                                                         <Grid ColumnDefinitions="Auto,*,Auto">
                                                                             <Panel Grid.Column="0" VerticalAlignment="Center">
-                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding !IsPlaying}" Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
+                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding !IsPlaying}" Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Play}">
                                                                                     <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
                                                                                 </Button>
-                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding IsPlaying}" Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
+                                                                                <Button Width="32" Height="32" Padding="0" IsVisible="{Binding IsPlaying}" Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Stop}">
                                                                                     <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
                                                                                 </Button>
                                                                             </Panel>
@@ -509,7 +509,7 @@
                                                 Padding="8,4"
                                                 FontSize="{DynamicResource App.FontSize.Body}"
                                                 IsVisible="{Binding CanGenerateAudio}"
-                                                Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).GenerateMessageAudioCommand}"
+                                                Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).GenerateMessageAudioCommand}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="{loc:Loc Chat.Audio.Generate}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -549,14 +549,14 @@
                                 <StackPanel Classes="bubble-actions" Orientation="Horizontal" Spacing="8"
                                             HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
                                             IsVisible="{Binding !IsLoading}">
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}"
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CopyMessageCommand}"
                                             CommandParameter="{Binding}"
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnCopy}">
                                         <PathIcon Data="{StaticResource SemiIconCopy}" Width="14" Height="14"/>
                                     </Button>
 
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RewindToMessageCommand}"
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).RewindToMessageCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding CanShowRewind}"
                                             FontSize="{DynamicResource App.FontSize.Body}"
@@ -564,7 +564,7 @@
                                         <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
                                     </Button>
 
-                                    <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ForkFromMessageCommand}"
+                                    <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).ForkFromMessageCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding CanShowRewind}"
                                             FontSize="{DynamicResource App.FontSize.Body}"
@@ -757,7 +757,7 @@
                                     </Border>
                                     <Button Grid.Row="0"
                                             Classes="attachment-remove-button"
-                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RemovePendingAttachmentCommand}"
+                                            Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).RemovePendingAttachmentCommand}"
                                             CommandParameter="{Binding}"
                                             ToolTip.Tip="{loc:Loc Chat.Attach.Remove}">
                                         <PathIcon Data="{StaticResource SemiIconClose}" Width="12" Height="12"/>

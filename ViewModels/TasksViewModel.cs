@@ -8,7 +8,7 @@ using Ursa.Controls;
 
 namespace Athena.UI.ViewModels;
 
-public partial class TasksTabViewModel : ViewModelBase
+public partial class TasksViewModel : ViewModelBase
 {
     private readonly ITaskScheduler? _taskScheduler;
     private readonly ILocalizationService? _localizationService;
@@ -19,9 +19,9 @@ public partial class TasksTabViewModel : ViewModelBase
     [ObservableProperty]
     private CreateTaskDialogViewModel _taskDraft;
 
-    public TasksTabViewModel() : this(null, null) { }
+    public TasksViewModel() : this(null, null) { }
 
-    public TasksTabViewModel(ITaskScheduler? taskScheduler, ILocalizationService? localizationService = null)
+    public TasksViewModel(ITaskScheduler? taskScheduler, ILocalizationService? localizationService = null)
     {
         _taskScheduler = taskScheduler;
         _localizationService = localizationService;

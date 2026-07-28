@@ -8,11 +8,11 @@
              mc:Ignorable="d"
              d:DesignWidth="1100"
              d:DesignHeight="760"
-             x:Class="Athena.UI.Views.TasksTabView"
-             x:DataType="vm:TasksTabViewModel">
+             x:Class="Athena.UI.Views.TasksView"
+             x:DataType="vm:TasksViewModel">
 
     <Design.DataContext>
-        <vm:TasksTabViewModel/>
+        <vm:TasksViewModel/>
     </Design.DataContext>
 
     <UserControl.Styles>
@@ -215,7 +215,7 @@
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,1,0,0"
                         Padding="12">
-                    <Button Command="{Binding $parent[UserControl].((vm:TasksTabViewModel)DataContext).CreateTaskCommand}"
+                    <Button Command="{Binding $parent[UserControl].((vm:TasksViewModel)DataContext).CreateTaskCommand}"
                             Theme="{StaticResource AccentButtonTheme}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
@@ -310,7 +310,7 @@
                                     </StackPanel>
 
                                     <Button Grid.Column="1"
-                                            Command="{Binding $parent[ListBox].((vm:TasksTabViewModel)DataContext).DeleteTaskCommand}"
+                                            Command="{Binding $parent[ListBox].((vm:TasksViewModel)DataContext).DeleteTaskCommand}"
                                             CommandParameter="{Binding}"
                                             Classes="danger"
                                             Theme="{StaticResource BorderlessButtonTheme}"

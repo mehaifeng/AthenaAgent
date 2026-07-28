@@ -362,7 +362,7 @@ public partial class App : Application
         // 引导页选择的起手 prompt：预填聊天输入框（一次性）。
         if (!string.IsNullOrEmpty(PendingStarterPrompt))
         {
-            mainViewModel.ChatTabViewModel.InputText = PendingStarterPrompt;
+            mainViewModel.MainConversationViewModel.InputText = PendingStarterPrompt;
             PendingStarterPrompt = null;
         }
 
@@ -521,6 +521,8 @@ public partial class App : Application
         services.AddSingleton<WorkspaceOperationCoordinator>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>();
         services.AddSingleton<AppSettingsViewModel>();
+        services.AddSingleton<AboutViewModel>();
+        services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
         services.AddTransient<SkillsViewModel>(sp =>
         {
@@ -983,7 +985,6 @@ public partial class App : Application
             var platformPathService = sp.GetRequiredService<IPlatformPathService>();
             var functionRegistry = sp.GetService<IFunctionRegistry>();
             var tokenService = sp.GetService<ITokenService>();
-            var updateService = sp.GetService<IUpdateService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var systemAudioService = sp.GetService<ISystemAudioService>();
             var archiveService = sp.GetService<IConversationArchiveService>();
@@ -1004,6 +1005,8 @@ public partial class App : Application
             _ = sp.GetRequiredService<AppConfigurationApplier>();
             Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
                 () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
+            Func<AppSettingsWindowViewModel> appSettingsFactory =
+                () => sp.GetRequiredService<AppSettingsWindowViewModel>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -1018,7 +1021,6 @@ public partial class App : Application
                 platformPathService,
                 functionRegistry,
                 tokenService,
-                updateService,
                 attachmentStoreService,
                 systemAudioService,
                 archiveService,
@@ -1036,7 +1038,8 @@ public partial class App : Application
                 appSettings,
                 approvalQueue,
                 configurationSession,
-                skillsConnectorsFactory);
+                skillsConnectorsFactory,
+                appSettingsFactory);
         });
 
         Log.Debug("依赖注入服务配置完成");

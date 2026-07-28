@@ -28,7 +28,7 @@ TestConfigurationSession();
 
 var mainViewModel = new MainWindowViewModel();
 var globalConversationGroup = new WorkspaceConversationGroupViewModel(null);
-globalConversationGroup.Conversations.Add(new ConversationSessionItemViewModel(new ChatTabViewModel(), null, null)
+globalConversationGroup.Conversations.Add(new ConversationSessionItemViewModel(new MainConversationViewModel(), null, null)
 {
     Title = "全局产品讨论"
 });
@@ -39,12 +39,12 @@ var workspaceProfile = new WorkspaceProfile
     DirectoryPath = "/Users/example/AthenaAgent"
 };
 var conversationGroup = new WorkspaceConversationGroupViewModel(workspaceProfile);
-var activeSession = new ConversationSessionItemViewModel(new ChatTabViewModel(), workspaceProfile, null)
+var activeSession = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspaceProfile, null)
 {
     Title = "正在整理发布说明"
 };
 conversationGroup.Conversations.Add(activeSession);
-var pinnedSession = new ConversationSessionItemViewModel(new ChatTabViewModel(), workspaceProfile, null)
+var pinnedSession = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspaceProfile, null)
 {
     Title = "比较两套工作区方案",
     ForkedFromConversationId = "parent-conversation",
@@ -69,7 +69,7 @@ var shell = window.FindControl<Grid>("MainShellGrid") ?? throw new InvalidOperat
 if (shell.ColumnDefinitions.Count != 5) throw new InvalidOperationException("Main shell must contain five grid columns including splitters.");
 if (shell.ColumnDefinitions[0].MinWidth < 260 || shell.ColumnDefinitions[4].MinWidth < 360)
     throw new InvalidOperationException("Side panel minimum widths are not applied.");
-if (window.FindControl<ChatTabView>("ChatTabView") == null)
+if (window.FindControl<MainConversationView>("MainConversationView") == null)
     throw new InvalidOperationException("Chat view is not permanently mounted in the center column.");
 if (window.GetVisualDescendants().OfType<TabStrip>().Any())
     throw new InvalidOperationException("The main window must not contain a TabStrip.");
@@ -238,22 +238,37 @@ window.Close();
 }
 
 {
-    var knowledgeView = new KnowledgeBaseTabView
-    {
-        DataContext = new KnowledgeBaseTabViewModel()
-    };
-    var knowledgeWindow = new Window
-    {
-        Content = knowledgeView,
-        Width = 1120,
-        Height = 780
-    };
+    var knowledgeViewModel = new KnowledgeBaseViewModel();
+    var knowledgeWindow = new KnowledgeBaseWindow(knowledgeViewModel);
     knowledgeWindow.Show();
     Dispatcher.UIThread.RunJobs();
+    var knowledgeView = knowledgeWindow.Content as KnowledgeBaseView
+        ?? throw new InvalidOperationException("Knowledge Base window did not host the semantic KnowledgeBaseView.");
     if (knowledgeView.FindControl<Button>("RunKnowledgeMaintenanceButton") == null
-        || knowledgeView.FindControl<Button>("RebuildVectorIndexButton") == null)
+        || knowledgeView.FindControl<Button>("RebuildVectorIndexButton") == null
+        || !ReferenceEquals(knowledgeView.DataContext, knowledgeViewModel))
         throw new InvalidOperationException("Knowledge Base must expose maintenance and vector-index rebuild commands.");
-    Console.WriteLine("[PASS] Knowledge Base owns maintenance and vector-index rebuild controls");
+    var featureWindowTypes = new[]
+    {
+        (Window: typeof(KnowledgeBaseWindow), ViewModel: typeof(KnowledgeBaseViewModel)),
+        (Window: typeof(TasksWindow), ViewModel: typeof(TasksViewModel)),
+        (Window: typeof(DetailedLogsWindow), ViewModel: typeof(LogsViewModel))
+    };
+    if (featureWindowTypes.Any(pair =>
+            pair.Window.GetConstructors().Single().GetParameters().Single().ParameterType != pair.ViewModel))
+        throw new InvalidOperationException("Feature windows must expose one strongly typed view-model constructor.");
+    var semanticViewMappings = new (ViewModelBase ViewModel, Type View)[]
+    {
+        (new MainConversationViewModel(), typeof(MainConversationView)),
+        (new KnowledgeBaseViewModel(), typeof(KnowledgeBaseView)),
+        (new TasksViewModel(), typeof(TasksView)),
+        (new LogsViewModel(), typeof(LogsView)),
+        (new AboutViewModel(), typeof(AboutView))
+    };
+    var viewLocator = new ViewLocator();
+    if (semanticViewMappings.Any(pair => viewLocator.Build(pair.ViewModel)?.GetType() != pair.View))
+        throw new InvalidOperationException("Semantic view names no longer satisfy the ViewLocator naming convention.");
+    Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and strongly typed feature windows own their content");
     knowledgeWindow.Close();
 }
 
@@ -278,7 +293,7 @@ if (workspaceProfile.Name != "Renamed workspace"
     || copyPathCount != 1
     || deleteWorkspaceCount != 1)
     throw new InvalidOperationException("Workspace item commands are not fully wired.");
-var sessionCommandChecks = new ConversationSessionItemViewModel(new ChatTabViewModel(), workspaceProfile, null);
+var sessionCommandChecks = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspaceProfile, null);
 var exportCount = 0;
 sessionCommandChecks.ExportRequested += (_, _) => exportCount++;
 sessionCommandChecks.TogglePinnedCommand.Execute(null);
@@ -302,7 +317,6 @@ var forkViewModel = new MainWindowViewModel(
     platformPathService: null,
     functionRegistry: null,
     tokenService: null,
-    updateService: null,
     attachmentStoreService: null,
     systemAudioService: null,
     archiveService: null,
@@ -316,7 +330,7 @@ while (forkViewModel.IsConversationTreeLoading)
 forkViewModel.ConversationGroups.Clear();
 var forkWorkspace = new WorkspaceProfile { Name = "Fork workspace", DirectoryPath = "/tmp/fork-workspace" };
 var forkGroup = new WorkspaceConversationGroupViewModel(forkWorkspace);
-var forkSource = new ConversationSessionItemViewModel(forkViewModel.ChatTabViewModel, forkWorkspace, forkStore)
+var forkSource = new ConversationSessionItemViewModel(forkViewModel.MainConversationViewModel, forkWorkspace, forkStore)
 {
     Title = "Pinned parent",
     IsPinned = true
@@ -325,7 +339,7 @@ forkSource.Chat.Messages.Add(new ChatMessage { Role = "user", Content = "Parent 
 forkGroup.Conversations.Add(forkSource);
 forkViewModel.ConversationGroups.Add(forkGroup);
 forkViewModel.SelectedConversation = forkSource;
-forkViewModel.ChatTabViewModel = new ChatTabViewModel();
+forkViewModel.MainConversationViewModel = new MainConversationViewModel();
 await forkViewModel.ForkConversationCommand.ExecuteAsync(forkSource);
 var forkChild = forkGroup.Conversations.ElementAtOrDefault(1);
 if (forkChild == null
@@ -371,7 +385,6 @@ var archiveTreeViewModel = new MainWindowViewModel(
     platformPathService: null,
     functionRegistry: null,
     tokenService: null,
-    updateService: null,
     attachmentStoreService: null,
     systemAudioService: null,
     archiveService: archiveServiceChecks,
@@ -712,11 +725,24 @@ static void TestConfigurationSession()
         || !ReferenceEquals(documentPage.Config, replacement))
         throw new InvalidOperationException("All settings pages must follow an externally replaced configuration instance.");
 
+    var appSettingsWindowViewModel = new AppSettingsWindowViewModel(appSettings, new AboutViewModel());
+    var appSettingsWindow = new AppSettingsWindow { DataContext = appSettingsWindowViewModel };
+    appSettingsWindow.Show();
+    Dispatcher.UIThread.RunJobs();
+    var aboutExpander = appSettingsWindow.GetVisualDescendants().OfType<Expander>().Last();
+    aboutExpander.IsExpanded = true;
+    Dispatcher.UIThread.RunJobs();
+    if (appSettingsWindow.DataContext is MainWindowViewModel
+        || !appSettingsWindow.GetVisualDescendants().OfType<AboutView>().Any())
+        throw new InvalidOperationException("App Settings must use its own window view model and semantic About view.");
+    appSettingsWindow.Close();
+
     Console.WriteLine("[PASS] one debounced owner saves root, MCP, and extension settings and detaches removed items");
     Console.WriteLine("[PASS] external configuration replacement reaches every settings page as one shared instance");
     Console.WriteLine("[PASS] document parser mode controls precision-token availability");
     Console.WriteLine("[PASS] Web Search and audio diagnostics expose success, failure, and playback cancellation");
     Console.WriteLine("[PASS] App Settings owns approval-list revocation and browser diagnostics");
+    Console.WriteLine("[PASS] App Settings uses an independent window view model");
 }
 
 static void AssertSaveCount(HeadlessConfigService service, int expected, string scenario)

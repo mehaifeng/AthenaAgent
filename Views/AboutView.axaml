@@ -7,11 +7,11 @@
              mc:Ignorable="d"
              d:DesignWidth="720"
              d:DesignHeight="1080"
-             x:Class="Athena.UI.Views.AboutTabView"
-             x:DataType="vm:AboutTabViewModel">
+             x:Class="Athena.UI.Views.AboutView"
+             x:DataType="vm:AboutViewModel">
 
     <Design.DataContext>
-        <vm:AboutTabViewModel/>
+        <vm:AboutViewModel/>
     </Design.DataContext>
 
     <Grid RowDefinitions="40,*">
