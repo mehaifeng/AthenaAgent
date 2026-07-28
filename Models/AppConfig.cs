@@ -76,6 +76,19 @@ public partial class AppConfig : ObservableObject
     private bool _chatAudioAutoPlay;
 
     [ObservableProperty]
+    private string _chatAudioLanguage = "en-US";
+
+    [ObservableProperty]
+    private double _chatAudioSpeed = 1.0;
+
+    // Edge/KittenTTS/Piper use a locally installed executable or Python runtime.
+    [ObservableProperty]
+    private string _chatAudioLocalExecutable = string.Empty;
+
+    [ObservableProperty]
+    private string _chatAudioLocalModelPath = string.Empty;
+
+    [ObservableProperty]
     private bool _imageGenerationEnabled = true;
 
     [ObservableProperty]
@@ -86,6 +99,12 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private string _imageGenerationApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _imageGenerationProvider = "OpenAI";
+
+    [ObservableProperty]
+    private string _imageGenerationAspectRatio = "1:1";
 
     // Embedding 模型配置（用于向量检索）
     [ObservableProperty]
@@ -159,9 +178,25 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _webSearchAppId = string.Empty;
 
-    // Headless Browser 配置
     [ObservableProperty]
-    private bool _browserEnabled = false;
+    private string _webSearchModel = "grok-4-fast";
+
+    [ObservableProperty]
+    private string _webSearchMode = "fast";
+
+    // Each extension provider keeps its own credentials and protocol-specific options.
+    [ObservableProperty]
+    private ObservableCollection<ExtensionProviderSettings> _webSearchProviderSettings = [];
+
+    [ObservableProperty]
+    private ObservableCollection<ExtensionProviderSettings> _imageProviderSettings = [];
+
+    [ObservableProperty]
+    private ObservableCollection<ExtensionProviderSettings> _audioProviderSettings = [];
+
+    // 自动化浏览器采用内置的安全默认参数；常规 UI 不暴露这些实现细节。
+    [ObservableProperty]
+    private bool _browserEnabled = true;
 
     [ObservableProperty]
     private bool _browserHeadless = true;

@@ -7,10 +7,10 @@ public sealed class KnowledgeBaseWindow : Window
     public KnowledgeBaseWindow(object dataContext)
     {
         Title = "知识库";
-        Width = 1080;
-        Height = 760;
-        MinWidth = 820;
-        MinHeight = 600;
+        Width = 1120;
+        Height = 780;
+        MinWidth = 900;
+        MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = new KnowledgeBaseTabView { DataContext = dataContext };
     }
@@ -21,10 +21,10 @@ public sealed class ScheduledMessagesWindow : Window
     public ScheduledMessagesWindow(object dataContext)
     {
         Title = "定时消息";
-        Width = 980;
-        Height = 720;
-        MinWidth = 760;
-        MinHeight = 560;
+        Width = 1160;
+        Height = 780;
+        MinWidth = 1000;
+        MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = new TasksTabView { DataContext = dataContext };
     }

@@ -1,8 +1,5 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
-using Athena.UI.Views;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
@@ -19,33 +16,30 @@ public partial class TasksTabViewModel : ViewModelBase
 
     public ObservableCollection<ScheduledTask> ScheduledTasks => _taskScheduler?.Tasks ?? _localTasks;
 
+    [ObservableProperty]
+    private CreateTaskDialogViewModel _taskDraft;
+
     public TasksTabViewModel() : this(null, null) { }
 
     public TasksTabViewModel(ITaskScheduler? taskScheduler, ILocalizationService? localizationService = null)
     {
         _taskScheduler = taskScheduler;
         _localizationService = localizationService;
+        _taskDraft = CreateTaskDraft();
     }
 
     [RelayCommand]
     private async Task CreateTaskAsync()
     {
-        var viewModel = new CreateTaskDialogViewModel(_localizationService);
-        var dialog = new CreateTaskDialog(viewModel);
-
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        if (!TaskDraft.TryCreateResult(out var task) || task == null)
         {
-            var activeWindow = desktop.MainWindow;
-            if (activeWindow != null) await dialog.ShowDialog(activeWindow);
-            else dialog.Show();
+            return;
         }
-        else dialog.Show();
 
-        if (viewModel.IsConfirmed && viewModel.Result != null)
-        {
-            if (_taskScheduler != null) await _taskScheduler.ScheduleAsync(viewModel.Result);
-            else _localTasks.Add(viewModel.Result);
-        }
+        if (_taskScheduler != null) await _taskScheduler.ScheduleAsync(task);
+        else _localTasks.Add(task);
+
+        TaskDraft = CreateTaskDraft();
     }
 
     [RelayCommand]
@@ -78,4 +72,7 @@ public partial class TasksTabViewModel : ViewModelBase
             _localTasks.Remove(task);
         }
     }
+
+    private CreateTaskDialogViewModel CreateTaskDraft()
+        => new(_localizationService);
 }

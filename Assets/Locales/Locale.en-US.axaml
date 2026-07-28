@@ -615,6 +615,8 @@
     <system:String x:Key="Onboarding.TestSuccess">Connected ✓</system:String>
     <system:String x:Key="Onboarding.TestFailed">Connection failed</system:String>
     <system:String x:Key="Onboarding.EnterApiKeyFirst">Please enter the API Key first</system:String>
+    <system:String x:Key="Onboarding.LoadModelsFailed">Failed to load model list</system:String>
+    <system:String x:Key="Onboarding.ModelRolesHint">Choose a model for any role below, or leave it blank to reuse the primary model.</system:String>
     <system:String x:Key="Onboarding.RolesHint">One API Key can be used for all the following roles. You can override each later in Settings.</system:String>
     <system:String x:Key="Onboarding.Role.Primary">Primary model</system:String>
     <system:String x:Key="Onboarding.Role.Background">Background tasks</system:String>

@@ -13,6 +13,10 @@ using System.ClientModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Diagnostics;
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -31,7 +35,6 @@ public class OpenAIChatService : IChatService
     private readonly ILocalizationService? _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly IConversationSessionAccessor? _conversationSessionAccessor;
-    private readonly ISystemAudioService? _systemAudioService;
     private readonly IWorkspaceService? _workspaceService;
     private readonly IConfigService? _configService;
     private readonly IFunctionRegistry? _functionRegistry;
@@ -49,7 +52,6 @@ public class OpenAIChatService : IChatService
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
-        ISystemAudioService? systemAudioService = null,
         IWorkspaceService? workspaceService = null,
         IConfigService? configService = null,
         IFunctionRegistry? functionRegistry = null,
@@ -62,7 +64,6 @@ public class OpenAIChatService : IChatService
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
         _conversationSessionAccessor = conversationSessionAccessor;
-        _systemAudioService = systemAudioService;
         _workspaceService = workspaceService;
         _configService = configService;
         _functionRegistry = functionRegistry;
@@ -1162,12 +1163,6 @@ public class OpenAIChatService : IChatService
             cancellationToken);
     }
 
-    private static string GetSystemSpeechTempPath()
-    {
-        var extension = OperatingSystem.IsMacOS() ? ".aiff" : ".wav";
-        return Path.Combine(Path.GetTempPath(), $"athena-tts-{Guid.NewGuid():N}{extension}");
-    }
-
     private static void TryDeleteTempFile(string path)
     {
         try
@@ -1240,7 +1235,7 @@ public class OpenAIChatService : IChatService
         }
 
         var audioConfig = AudioConfigResolver.Resolve(_config);
-        if (!string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase)
+        if (!IsLocalAudioProvider(audioConfig.Provider)
             && (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl)))
         {
             return new AudioOutputTestResult
@@ -1294,9 +1289,9 @@ public class OpenAIChatService : IChatService
     private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSpeechAttachmentAsync(string text, CancellationToken cancellationToken)
     {
         var audioConfig = AudioConfigResolver.Resolve(_config);
-        if (string.Equals(audioConfig.Provider, "System", StringComparison.OrdinalIgnoreCase))
+        if (IsLocalAudioProvider(audioConfig.Provider))
         {
-            return await GenerateSystemSpeechAttachmentAsync(text, audioConfig, cancellationToken);
+            return await GenerateLocalProviderSpeechAsync(text, audioConfig, cancellationToken);
         }
 
         if (string.IsNullOrWhiteSpace(audioConfig.ApiKey) || string.IsNullOrWhiteSpace(audioConfig.BaseUrl))
@@ -1306,6 +1301,16 @@ public class OpenAIChatService : IChatService
 
         try
         {
+            if (audioConfig.Provider is "ElevenLabs" or "xAI" or "Mistral" or "Gemini")
+            {
+                var remote = await GenerateProviderSpeechBytesAsync(text, audioConfig, cancellationToken);
+                return await CreateAssistantAudioAttachmentAsync(
+                    remote.Bytes,
+                    $"assistant-{DateTime.Now:yyyyMMdd-HHmmss}.{remote.Extension}",
+                    remote.MimeType,
+                    cancellationToken);
+            }
+
             var sdkBaseUrl = AudioConfigResolver.GetSdkBaseUrl(audioConfig.BaseUrl);
             var clientOptions = OpenAiClientOptionsFactory.Create(sdkBaseUrl, _config.Timeout);
             var audioClient = new OpenAIClient(
@@ -1352,51 +1357,251 @@ public class OpenAIChatService : IChatService
         }
     }
 
-    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateSystemSpeechAttachmentAsync(
+    private static bool IsLocalAudioProvider(string provider)
+        => provider is "Edge" or "KittenTTS" or "Piper";
+
+    private static readonly HttpClient AudioHttpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(90)
+    };
+
+    private async Task<GeneratedAudioBytes> GenerateProviderSpeechBytesAsync(
         string text,
-        ResolvedAudioConfig audioConfig,
+        ResolvedAudioConfig config,
         CancellationToken cancellationToken)
     {
-        if (_systemAudioService == null || !_systemAudioService.IsSupported)
+        var input = text.Length > 15000 ? text[..15000] : text;
+        using var request = config.Provider switch
         {
-            return (null, GetLocalized("Audio.SystemUnavailable", "System audio output is unavailable on this device."));
+            "ElevenLabs" => BuildAudioJsonRequest(
+                $"{config.BaseUrl.TrimEnd('/')}/text-to-speech/{Uri.EscapeDataString(config.Voice)}?output_format=mp3_44100_128",
+                new { text = input, model_id = config.Model },
+                config.ApiKey,
+                "xi-api-key"),
+            "xAI" => BuildAudioJsonRequest(
+                NormalizeAudioEndpoint(config.BaseUrl, "/tts"),
+                new
+                {
+                    text = input,
+                    voice_id = config.Voice,
+                    language = config.Language,
+                    speed = Math.Clamp(config.Speed, 0.7, 1.5)
+                },
+                config.ApiKey),
+            "Mistral" => BuildAudioJsonRequest(
+                NormalizeAudioEndpoint(config.BaseUrl, "/audio/speech"),
+                new { model = config.Model, input, voice_id = config.Voice, response_format = "mp3" },
+                config.ApiKey),
+            "Gemini" => BuildGeminiAudioRequest(input, config),
+            _ => throw new NotSupportedException($"Unsupported TTS provider: {config.Provider}")
+        };
+
+        using var response = await AudioHttpClient.SendAsync(request, cancellationToken);
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {Encoding.UTF8.GetString(bytes)}");
+
+        if (config.Provider == "Mistral" && response.Content.Headers.ContentType?.MediaType?.Contains("json") == true)
+        {
+            using var json = JsonDocument.Parse(bytes);
+            var encoded = FindAudioData(json.RootElement)
+                ?? throw new InvalidOperationException("Mistral returned no audio_data.");
+            bytes = Convert.FromBase64String(encoded);
         }
+        if (config.Provider == "Gemini")
+        {
+            using var json = JsonDocument.Parse(bytes);
+            var encoded = FindAudioData(json.RootElement)
+                ?? throw new InvalidOperationException("Gemini returned no inline audio data.");
+            bytes = WrapPcmAsWav(Convert.FromBase64String(encoded), 24000, 1, 16);
+            return new GeneratedAudioBytes(bytes, "wav", "audio/wav");
+        }
+        return new GeneratedAudioBytes(bytes, "mp3", "audio/mpeg");
+    }
 
-        var input = text.Length > 4096 ? text[..4096] : text;
-        var tempFile = GetSystemSpeechTempPath();
+    private static HttpRequestMessage BuildAudioJsonRequest(
+        string url,
+        object payload,
+        string apiKey,
+        string? keyHeader = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload)
+        };
+        if (string.IsNullOrWhiteSpace(keyHeader))
+            request.Headers.Authorization = new("Bearer", apiKey);
+        else
+            request.Headers.Add(keyHeader, apiKey);
+        return request;
+    }
 
+    private static HttpRequestMessage BuildGeminiAudioRequest(string text, ResolvedAudioConfig config)
+    {
+        var endpoint =
+            $"{config.BaseUrl.TrimEnd('/')}/models/{Uri.EscapeDataString(config.Model)}:generateContent?key={Uri.EscapeDataString(config.ApiKey)}";
+        return new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(new
+            {
+                contents = new[] { new { parts = new[] { new { text } } } },
+                generationConfig = new
+                {
+                    responseModalities = new[] { "AUDIO" },
+                    speechConfig = new
+                    {
+                        voiceConfig = new
+                        {
+                            prebuiltVoiceConfig = new { voiceName = config.Voice }
+                        }
+                    }
+                }
+            })
+        };
+    }
+
+    private static string NormalizeAudioEndpoint(string configured, string suffix)
+    {
+        var value = configured.TrimEnd('/');
+        return value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? value
+            : value + suffix;
+    }
+
+    private async Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateLocalProviderSpeechAsync(
+        string text,
+        ResolvedAudioConfig config,
+        CancellationToken cancellationToken)
+    {
+        var extension = config.Provider == "Edge" ? "mp3" : "wav";
+        var tempFile = Path.Combine(Path.GetTempPath(), $"athena-tts-{Guid.NewGuid():N}.{extension}");
         try
         {
-            var mimeType = OperatingSystem.IsMacOS() ? "audio/aiff" : "audio/wav";
-            var result = await _systemAudioService.SynthesizeToFileAsync(input, audioConfig.Voice, tempFile, cancellationToken);
-            if (!result.Success)
+            var executable = config.LocalExecutable;
+            if (string.IsNullOrWhiteSpace(executable))
+                executable = config.Provider switch
+                {
+                    "Edge" => "edge-tts",
+                    "Piper" => "piper",
+                    _ => "python"
+                };
+            var start = new ProcessStartInfo(executable)
             {
-                return (null, string.Format(GetLocalized("Audio.SystemFailed", "System audio output failed: {0}"), result.Message ?? string.Empty).Trim());
+                UseShellExecute = false,
+                RedirectStandardInput = config.Provider is "Piper" or "KittenTTS",
+                RedirectStandardOutput = false,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            if (config.Provider == "Edge")
+            {
+                start.ArgumentList.Add("--voice");
+                start.ArgumentList.Add(string.IsNullOrWhiteSpace(config.Voice) ? "en-US-AriaNeural" : config.Voice.Trim());
+                start.ArgumentList.Add("--rate");
+                start.ArgumentList.Add($"{(int)Math.Round((config.Speed - 1) * 100):+0;-0;0}%");
+                start.ArgumentList.Add("--text");
+                start.ArgumentList.Add(text.Length > 4096 ? text[..4096] : text);
+                start.ArgumentList.Add("--write-media");
+                start.ArgumentList.Add(tempFile);
+            }
+            else if (config.Provider == "Piper")
+            {
+                if (string.IsNullOrWhiteSpace(config.LocalModelPath))
+                    return (null, "Piper model file is not configured.");
+                start.ArgumentList.Add("--model");
+                start.ArgumentList.Add(config.LocalModelPath);
+                start.ArgumentList.Add("--output_file");
+                start.ArgumentList.Add(tempFile);
+            }
+            else
+            {
+                const string script =
+                    "import sys,soundfile as sf;from kittentts import KittenTTS;"
+                    + "m=KittenTTS(sys.argv[1]);a=m.generate(sys.stdin.read(),voice=sys.argv[2],speed=float(sys.argv[3]));sf.write(sys.argv[4],a,24000)";
+                start.ArgumentList.Add("-c");
+                start.ArgumentList.Add(script);
+                start.ArgumentList.Add(config.Model);
+                start.ArgumentList.Add(config.Voice);
+                start.ArgumentList.Add(config.Speed.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                start.ArgumentList.Add(tempFile);
             }
 
+            using var process = Process.Start(start)
+                ?? throw new InvalidOperationException($"Could not start {executable}.");
+            if (start.RedirectStandardInput)
+            {
+                await process.StandardInput.WriteAsync(text.AsMemory(), cancellationToken);
+                process.StandardInput.Close();
+            }
+            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            var stderr = await stderrTask;
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException($"{config.Provider} exited with code {process.ExitCode}: {stderr}");
             if (!File.Exists(tempFile))
-            {
-                return (null, GetLocalized("Audio.SystemNoFile", "System audio output did not produce an audio file."));
-            }
-
+                throw new InvalidOperationException($"{config.Provider} did not produce an audio file.");
             var bytes = await File.ReadAllBytesAsync(tempFile, cancellationToken);
-            if (bytes.Length == 0)
-            {
-                return (null, GetLocalized("Audio.SystemEmptyFile", "System audio output produced an empty audio file."));
-            }
-
-            return await CreateAssistantAudioAttachmentAsync(bytes, Path.GetFileName(tempFile), mimeType, cancellationToken);
+            return await CreateAssistantAudioAttachmentAsync(
+                bytes,
+                Path.GetFileName(tempFile),
+                extension == "mp3" ? "audio/mpeg" : "audio/wav",
+                cancellationToken);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "系统音频输出生成失败");
-            return (null, string.Format(GetLocalized("Audio.SystemGenerationFailed", "System audio output generation failed: {0}"), ex.Message));
+            Log.Error(ex, "Local TTS provider failed: {Provider}", config.Provider);
+            return (null, $"{config.Provider} TTS failed: {ex.Message}");
         }
         finally
         {
             TryDeleteTempFile(tempFile);
         }
     }
+
+    private static string? FindAudioData(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if ((property.NameEquals("audio_data") || property.NameEquals("data"))
+                    && property.Value.ValueKind == JsonValueKind.String)
+                    return property.Value.GetString();
+                var nested = FindAudioData(property.Value);
+                if (nested != null) return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindAudioData(item);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static byte[] WrapPcmAsWav(byte[] pcm, int sampleRate, short channels, short bits)
+    {
+        var result = new byte[44 + pcm.Length];
+        Encoding.ASCII.GetBytes("RIFF").CopyTo(result, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(4), 36 + pcm.Length);
+        Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(result, 8);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(16), 16);
+        BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(20), 1);
+        BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(22), channels);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(24), sampleRate);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(28), sampleRate * channels * bits / 8);
+        BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(32), (short)(channels * bits / 8));
+        BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(34), bits);
+        Encoding.ASCII.GetBytes("data").CopyTo(result, 36);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(40), pcm.Length);
+        pcm.CopyTo(result, 44);
+        return result;
+    }
+
+    private sealed record GeneratedAudioBytes(byte[] Bytes, string Extension, string MimeType);
 
     private async Task<(ChatAttachment? Attachment, string ErrorMessage)> CreateAssistantAudioAttachmentAsync(
         byte[] audioBytes,

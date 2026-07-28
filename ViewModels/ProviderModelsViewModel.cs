@@ -62,7 +62,6 @@ public partial class ProviderModelsViewModel : ViewModelBase
         provider ??= SelectedProvider;
         if (provider == null) return;
         var references = Roles.Where(role => role.Settings.ProviderId == provider.Id).Select(role => role.Name).ToList();
-        if (Config.BrowserProviderId == provider.Id) references.Add("浏览器自动化");
         if (Config.ChatAudioProviderId == provider.Id) references.Add("语音");
         if (Config.ImageGenerationProviderId == provider.Id) references.Add("图像生成");
         if (references.Count > 0)
@@ -142,6 +141,7 @@ public partial class ProviderModelsViewModel : ViewModelBase
         AddRole("上下文压缩", Config.AiModels.ContextCompression);
         AddRole("自动审批", Config.AiModels.Approval);
         AddRole("Embedding", Config.AiModels.Embedding);
+        AddRole("自动化浏览器", Config.AiModels.BrowserAgent);
         AddRole("子代理", Config.AiModels.SubAgent);
         AddRole("知识整理", Config.AiModels.KnowledgeMaintenance);
         AddRole("图像识别", Config.AiModels.ImageRecognition);

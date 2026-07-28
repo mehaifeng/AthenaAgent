@@ -1,7 +1,7 @@
+using Athena.UI.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Athena.UI.Models;
 
 namespace Athena.UI.Services;
 
@@ -9,85 +9,75 @@ public static class AudioConfigResolver
 {
     private static readonly Dictionary<string, string> AudioProviderUrls = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["Edge"] = "",
         ["OpenAI"] = "https://api.openai.com/v1/audio/speech",
-        ["OpenRouter"] = "https://openrouter.ai/api/v1/audio/speech",
-        ["System"] = string.Empty,
-        ["Custom"] = string.Empty
+        ["xAI"] = "https://api.x.ai/v1/tts",
+        ["ElevenLabs"] = "https://api.elevenlabs.io/v1",
+        ["Mistral"] = "https://api.mistral.ai/v1/audio/speech",
+        ["Gemini"] = "https://generativelanguage.googleapis.com/v1beta",
+        ["KittenTTS"] = "",
+        ["Piper"] = "",
+        ["DeepInfra"] = "https://api.deepinfra.com/v1/openai/audio/speech"
     };
 
-    /// <summary>音频供应商候选（配置 UI 下拉框数据源，顺序即展示顺序）。</summary>
     public static IReadOnlyList<string> ProviderNames { get; } =
-        new[] { "OpenAI", "OpenRouter", "System", "Custom" };
+        ["Edge", "OpenAI", "xAI", "ElevenLabs", "Mistral", "Gemini", "KittenTTS", "Piper", "DeepInfra"];
 
     public static ResolvedAudioConfig Resolve(AppConfig config)
     {
-        // 系统 TTS 无凭据；远程语音只引用“供应商模型”中已配置的连接。
-        var providerConfig = config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ChatAudioProviderId);
-        var useSystem = string.Equals(config.ChatAudioProvider, "System", StringComparison.OrdinalIgnoreCase);
-        var provider = useSystem ? "System" : providerConfig?.DisplayName ?? string.Empty;
-        var endpointPath = string.IsNullOrWhiteSpace(config.ChatAudioEndpointPath) ? "/audio/speech" : config.ChatAudioEndpointPath;
-        var baseUrl = useSystem || providerConfig == null
-            ? string.Empty
-            : providerConfig.BaseUrl.TrimEnd('/') + "/" + endpointPath.TrimStart('/');
-        var apiKey = useSystem ? string.Empty : providerConfig?.ApiKey ?? string.Empty;
-        var model = string.IsNullOrWhiteSpace(config.ChatAudioModel)
-            ? "gpt-4o-mini-tts"
-            : config.ChatAudioModel;
-        var voice = string.IsNullOrWhiteSpace(config.ChatAudioVoice)
-            ? "alloy"
-            : config.ChatAudioVoice;
-
+        var provider = string.IsNullOrWhiteSpace(config.ChatAudioProvider) ? "OpenAI" : config.ChatAudioProvider;
+        var settings = config.AudioProviderSettings.FirstOrDefault(
+            item => item.ProviderId.Equals(provider, StringComparison.OrdinalIgnoreCase));
+        var legacyProvider = settings == null && !string.IsNullOrWhiteSpace(config.ChatAudioProviderId)
+            ? config.AiModels.Providers.FirstOrDefault(item => item.Id == config.ChatAudioProviderId)
+            : null;
+        var legacyBaseUrl = legacyProvider == null
+            ? config.ChatAudioBaseUrl
+            : legacyProvider.BaseUrl.TrimEnd('/') + "/audio/speech";
+        var defaultOption = ExtensionProviderCatalog.AudioProviders.FirstOrDefault(
+            item => item.Id.Equals(provider, StringComparison.OrdinalIgnoreCase));
+        var model = settings?.Model;
+        if (string.IsNullOrWhiteSpace(model)) model = config.ChatAudioModel;
+        if (string.IsNullOrWhiteSpace(model)) model = defaultOption?.DefaultModel ?? string.Empty;
+        var voice = settings?.Voice;
+        if (string.IsNullOrWhiteSpace(voice)) voice = config.ChatAudioVoice;
+        if (string.IsNullOrWhiteSpace(voice)
+            || (provider == "Edge" && voice.Equals("alloy", StringComparison.OrdinalIgnoreCase)))
+            voice = defaultOption?.DefaultVoice ?? string.Empty;
         return new ResolvedAudioConfig(
-            provider,
-            baseUrl,
-            apiKey,
+            legacyProvider?.DisplayName ?? provider,
+            settings?.BaseUrl ?? legacyBaseUrl,
+            settings?.ApiKey ?? legacyProvider?.ApiKey ?? config.ChatAudioApiKey,
             model,
             voice,
-            config.ChatAudioAutoPlay);
+            config.ChatAudioAutoPlay,
+            settings?.Language ?? config.ChatAudioLanguage,
+            Math.Clamp(settings?.Speed ?? config.ChatAudioSpeed, 0.5, 2.0),
+            settings?.LocalExecutable ?? config.ChatAudioLocalExecutable,
+            settings?.LocalModelPath ?? config.ChatAudioLocalModelPath);
     }
 
-    /// <summary>按供应商取默认端点（仅精确匹配，供应商切换回填用；未知供应商返回 false 不动原值）。</summary>
     public static bool TryGetDefaultBaseUrl(string? provider, out string url)
         => AudioProviderUrls.TryGetValue(provider ?? string.Empty, out url!);
 
     public static string GetDefaultBaseUrl(string? provider)
-    {
-        if (string.IsNullOrWhiteSpace(provider))
-        {
-            return AudioProviderUrls["OpenAI"];
-        }
-
-        return AudioProviderUrls.TryGetValue(provider, out var url)
+        => AudioProviderUrls.TryGetValue(provider ?? "OpenAI", out var url)
             ? url
             : AudioProviderUrls["OpenAI"];
-    }
 
-    /// <summary>
-    /// Converts the configured speech endpoint to the API root expected by OpenAIClientOptions.
-    /// Existing Athena configurations store the full /audio/speech URL, while AudioClient appends that route itself.
-    /// A value that is already an API root is returned unchanged.
-    /// </summary>
     public static string GetSdkBaseUrl(string configuredUrl)
     {
         if (string.IsNullOrWhiteSpace(configuredUrl))
-        {
             return string.Empty;
-        }
-
         if (!Uri.TryCreate(configuredUrl.Trim(), UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
             throw new UriFormatException($"Invalid audio Base URL: {configuredUrl}");
-        }
 
         var builder = new UriBuilder(uri);
         var path = builder.Path.TrimEnd('/');
-        const string speechSuffix = "/audio/speech";
-        if (path.EndsWith(speechSuffix, StringComparison.OrdinalIgnoreCase))
-        {
-            path = path[..^speechSuffix.Length].TrimEnd('/');
-        }
-
+        const string suffix = "/audio/speech";
+        if (path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            path = path[..^suffix.Length].TrimEnd('/');
         builder.Path = string.IsNullOrEmpty(path) ? "/" : path;
         return builder.Uri.AbsoluteUri.TrimEnd('/');
     }
@@ -99,4 +89,8 @@ public sealed record ResolvedAudioConfig(
     string ApiKey,
     string Model,
     string Voice,
-    bool AutoPlay);
+    bool AutoPlay,
+    string Language,
+    double Speed,
+    string LocalExecutable,
+    string LocalModelPath);

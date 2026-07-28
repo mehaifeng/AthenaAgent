@@ -183,12 +183,26 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanConfirm))]
     private void Confirm()
     {
-        if (!_previewTriggerTime.HasValue)
+        if (!TryCreateResult(out var result))
         {
             return;
         }
 
-        Result = new ScheduledTask
+        Result = result;
+        IsConfirmed = true;
+        RequestClose?.Invoke();
+    }
+
+    public bool TryCreateResult(out ScheduledTask? result)
+    {
+        RecalculatePreview();
+        if (!CanConfirm || !_previewTriggerTime.HasValue)
+        {
+            result = null;
+            return false;
+        }
+
+        result = new ScheduledTask
         {
             Id = Guid.NewGuid().ToString(),
             TriggerTime = _previewTriggerTime.Value,
@@ -198,9 +212,7 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             CreatedAt = DateTime.Now,
             TaskType = TaskType
         };
-
-        IsConfirmed = true;
-        RequestClose?.Invoke();
+        return true;
     }
 
     [RelayCommand]

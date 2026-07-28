@@ -615,6 +615,8 @@
     <system:String x:Key="Onboarding.TestSuccess">连接成功 ✓</system:String>
     <system:String x:Key="Onboarding.TestFailed">连接失败</system:String>
     <system:String x:Key="Onboarding.EnterApiKeyFirst">请先填写 API Key</system:String>
+    <system:String x:Key="Onboarding.LoadModelsFailed">模型列表加载失败</system:String>
+    <system:String x:Key="Onboarding.ModelRolesHint">以下分工可单独选择模型；留空时自动复用主对话模型。</system:String>
     <system:String x:Key="Onboarding.RolesHint">一个 API Key 可同时用于以下角色，日后可在设置中分别覆盖。</system:String>
     <system:String x:Key="Onboarding.Role.Primary">主对话模型</system:String>
     <system:String x:Key="Onboarding.Role.Background">后台任务</system:String>

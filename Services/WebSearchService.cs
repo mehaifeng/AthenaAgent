@@ -1,446 +1,425 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Serilog;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
 
 /// <summary>
-/// 网络搜索服务实现
-/// 支持 Tavily、WebSearchAPI、智谱 AI、百度四个供应商
+/// Dedicated web-search adapters. Provider credentials are intentionally not
+/// borrowed from the chat-model connection.
 /// </summary>
-public class WebSearchService : IWebSearchService
+public sealed class WebSearchService : IWebSearchService
 {
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
-    private readonly HttpClient _httpClient;
+    private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly ILocalizationService? _localizationService;
-
-    private string GetLocalized(string key, string defaultValue)
-        => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
-
-    public bool IsConfigured
-    {
-        get
-        {
-            var config = GetConfig();
-            return config.WebSearchEnabled && !string.IsNullOrWhiteSpace(config.WebSearchApiKey);
-        }
-    }
 
     public WebSearchService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _logger = logger.ForContext<WebSearchService>();
         _localizationService = localizationService;
-        _httpClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
     }
 
-    /// <summary>
-    /// 刷新配置（保留接口兼容性，现每次调用都会重新读取配置）
-    /// </summary>
+    public bool IsConfigured
+    {
+        get
+        {
+            var config = _configService.Load();
+            ApplyActiveProviderSettings(config);
+            return HasRequiredConfiguration(config);
+        }
+    }
+
     public void RefreshConfig()
     {
-        // 不再需要缓存清除，每次 GetConfig() 都会重新加载
     }
 
-    private AppConfig GetConfig()
+    public async Task<List<WebSearchResult>> SearchAsync(
+        string query,
+        int maxResults = 5,
+        CancellationToken cancellationToken = default)
     {
-        // 每次都重新加载，确保获取最新配置
-        return _configService.Load();
-    }
-
-    public async Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5, CancellationToken cancellationToken = default)
-    {
-        var config = GetConfig();
-
-        if (!config.WebSearchEnabled)
+        var config = _configService.Load();
+        ApplyActiveProviderSettings(config);
+        if (!HasRequiredConfiguration(config))
         {
-            _logger.Warning("Web Search 未启用");
-            return new List<WebSearchResult>();
+            _logger.Warning("Web Search provider configuration is incomplete");
+            return [];
         }
 
-        if (string.IsNullOrWhiteSpace(config.WebSearchApiKey))
-        {
-            _logger.Warning("Web Search API Key 未配置");
-            return new List<WebSearchResult>();
-        }
-
+        maxResults = Math.Clamp(maxResults, 1, 20);
         try
         {
-            return config.WebSearchProvider.ToLower() switch
+            return config.WebSearchProvider.ToLowerInvariant() switch
             {
+                "brave" => await SearchBraveAsync(query, maxResults, config, cancellationToken),
+                "duckduckgo" => await SearchDuckDuckGoAsync(query, maxResults, cancellationToken),
+                "exa" => await SearchExaAsync(query, maxResults, config, cancellationToken),
+                "firecrawl" or "firecrawlselfhosted" => await SearchFirecrawlAsync(query, maxResults, config, cancellationToken),
+                "parallel" => await SearchParallelAsync(query, maxResults, config, cancellationToken),
+                "searxng" => await SearchSearXngAsync(query, maxResults, config, cancellationToken),
                 "tavily" => await SearchTavilyAsync(query, maxResults, config, cancellationToken),
+                "xai" => await SearchXaiAsync(query, maxResults, config, cancellationToken),
                 "websearchapi" => await SearchWebSearchApiAsync(query, maxResults, config, cancellationToken),
-                "zhipu" or "智谱" => await SearchZhipuAsync(query, maxResults, config, cancellationToken),
-                "baidu" or "百度" => await SearchBaiduAsync(query, maxResults, config, cancellationToken),
-                _ => throw new NotSupportedException($"不支持的 Web Search 供应商: {config.WebSearchProvider}")
+                "zhipu" => await SearchZhipuAsync(query, maxResults, config, cancellationToken),
+                "baidu" => await SearchBaiduAsync(query, maxResults, config, cancellationToken),
+                _ => throw new NotSupportedException($"Unsupported Web Search provider: {config.WebSearchProvider}")
             };
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Web Search 执行失败: {Query}", query);
+            _logger.Error(ex, "Web Search failed. Provider={Provider}, Query={Query}", config.WebSearchProvider, query);
             throw;
         }
     }
 
-    #region Tavily
-
-    /// <summary>
-    /// Tavily API 搜索
-    /// 文档: https://docs.tavily.com/documentation/api-reference/endpoint/search
-    /// </summary>
-    private async Task<List<WebSearchResult>> SearchTavilyAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
+    public async Task<(bool Success, string Message)> TestConnectionAsync()
     {
-        var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
-            ? "https://api.tavily.com"
-            : config.WebSearchBaseUrl;
+        var config = _configService.Load();
+        ApplyActiveProviderSettings(config);
+        if (!config.WebSearchEnabled)
+            return (false, Localize("WebSearch.NotEnabled", "Web Search is not enabled"));
+        if (!HasRequiredConfiguration(config))
+            return (false, Localize("WebSearch.ApiKeyMissing", "Web Search provider configuration is incomplete"));
 
-        var request = new
+        try
+        {
+            var results = await SearchAsync("Athena Agent", 1);
+            return (true, $"Connection succeeded — {results.Count} result(s)");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Connection failed: {ex.Message}");
+        }
+    }
+
+    private string Localize(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
+
+    private static bool HasRequiredConfiguration(AppConfig config)
+    {
+        if (!config.WebSearchEnabled) return false;
+        return config.WebSearchProvider.ToLowerInvariant() switch
+        {
+            "duckduckgo" => true,
+            "searxng" or "firecrawlselfhosted" => !string.IsNullOrWhiteSpace(config.WebSearchBaseUrl),
+            _ => !string.IsNullOrWhiteSpace(config.WebSearchApiKey)
+        };
+    }
+
+    private static void ApplyActiveProviderSettings(AppConfig config)
+    {
+        var settings = config.WebSearchProviderSettings.FirstOrDefault(
+            item => item.ProviderId.Equals(config.WebSearchProvider, StringComparison.OrdinalIgnoreCase));
+        if (settings == null) return;
+        config.WebSearchBaseUrl = settings.BaseUrl;
+        config.WebSearchApiKey = settings.ApiKey;
+        config.WebSearchModel = settings.Model;
+        config.WebSearchAppId = settings.AppId;
+        config.WebSearchMode = settings.Mode;
+    }
+
+    private static HttpRequestMessage JsonRequest(HttpMethod method, string url, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, url);
+        if (body != null) request.Content = JsonContent.Create(body);
+        return request;
+    }
+
+    private async Task<List<WebSearchResult>> SearchBraveAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        var endpoint = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+            ? "https://api.search.brave.com/res/v1/web/search"
+            : config.WebSearchBaseUrl.TrimEnd('/');
+        using var request = JsonRequest(HttpMethod.Get,
+            $"{endpoint}?q={Uri.EscapeDataString(query)}&count={limit}");
+        request.Headers.Add("X-Subscription-Token", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("web").GetProperty("results"), "Brave", limit);
+    }
+
+    private async Task<List<WebSearchResult>> SearchDuckDuckGoAsync(
+        string query, int limit, CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://html.duckduckgo.com/html/?q={Uri.EscapeDataString(query)}");
+        request.Headers.UserAgent.ParseAdd("Mozilla/5.0 AthenaAgent/1.0");
+        using var response = await _httpClient.SendAsync(request, token);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync(token);
+        var links = Regex.Matches(
+            html,
+            "<a[^>]+class=\"result__a\"[^>]+href=\"(?<url>[^\"]+)\"[^>]*>(?<title>.*?)</a>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        var snippets = Regex.Matches(
+            html,
+            "<a[^>]+class=\"result__snippet\"[^>]*>(?<snippet>.*?)</a>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        var results = new List<WebSearchResult>();
+        for (var index = 0; index < Math.Min(limit, links.Count); index++)
+        {
+            var url = WebUtility.HtmlDecode(links[index].Groups["url"].Value);
+            var redirectMatch = Regex.Match(url, @"[?&]uddg=([^&]+)", RegexOptions.IgnoreCase);
+            if (redirectMatch.Success) url = Uri.UnescapeDataString(redirectMatch.Groups[1].Value);
+            results.Add(new WebSearchResult
+            {
+                Title = StripHtml(links[index].Groups["title"].Value),
+                Url = url,
+                Snippet = index < snippets.Count ? StripHtml(snippets[index].Groups["snippet"].Value) : string.Empty,
+                Source = "DuckDuckGo"
+            });
+        }
+        return results;
+    }
+
+    private async Task<List<WebSearchResult>> SearchExaAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        using var request = JsonRequest(HttpMethod.Post, "https://api.exa.ai/search", new
+        {
+            query,
+            numResults = limit,
+            contents = new { highlights = new { numSentences = 3 } }
+        });
+        request.Headers.Add("x-api-key", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("results"), "Exa", limit);
+    }
+
+    private async Task<List<WebSearchResult>> SearchFirecrawlAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+            ? "https://api.firecrawl.dev/v1"
+            : config.WebSearchBaseUrl.TrimEnd('/');
+        using var request = JsonRequest(HttpMethod.Post, $"{root}/search", new { query, limit });
+        if (!string.IsNullOrWhiteSpace(config.WebSearchApiKey))
+            request.Headers.Authorization = new("Bearer", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("data"), "Firecrawl", limit);
+    }
+
+    private async Task<List<WebSearchResult>> SearchParallelAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        using var request = JsonRequest(HttpMethod.Post, "https://api.parallel.ai/v1beta/search", new
+        {
+            search_queries = new[] { query },
+            objective = query,
+            mode = string.IsNullOrWhiteSpace(config.WebSearchMode) ? "fast" : config.WebSearchMode,
+            max_results = limit
+        });
+        request.Headers.Add("x-api-key", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("results"), "Parallel", limit);
+    }
+
+    private async Task<List<WebSearchResult>> SearchSearXngAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{config.WebSearchBaseUrl.TrimEnd('/')}/search?q={Uri.EscapeDataString(query)}&format=json");
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("results"), "SearXNG", limit);
+    }
+
+    private async Task<List<WebSearchResult>> SearchTavilyAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+            ? "https://api.tavily.com"
+            : config.WebSearchBaseUrl.TrimEnd('/');
+        using var request = JsonRequest(HttpMethod.Post, $"{root}/search", new
         {
             api_key = config.WebSearchApiKey,
-            query = query,
-            max_results = maxResults,
+            query,
+            max_results = limit,
             search_depth = "basic",
             include_answer = false,
             include_raw_content = false
-        };
+        });
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("results"), "Tavily", limit);
+    }
 
-        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/search", request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var tavilyResponse = JsonSerializer.Deserialize<TavilyResponse>(json);
-
-        var results = new List<WebSearchResult>();
-        if (tavilyResponse?.Results != null)
+    private async Task<List<WebSearchResult>> SearchXaiAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
+    {
+        var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+            ? "https://api.x.ai/v1"
+            : config.WebSearchBaseUrl.TrimEnd('/');
+        using var request = JsonRequest(HttpMethod.Post, $"{root}/responses", new
         {
-            foreach (var item in tavilyResponse.Results)
+            model = string.IsNullOrWhiteSpace(config.WebSearchModel) ? "grok-4-fast" : config.WebSearchModel,
+            input = new[]
             {
-                results.Add(new WebSearchResult
+                new
                 {
-                    Title = item.Title ?? string.Empty,
-                    Url = item.Url ?? string.Empty,
-                    Snippet = item.Content ?? string.Empty,
-                    Score = item.Score,
-                    Source = "Tavily"
-                });
-            }
-        }
-
-        _logger.Information("Tavily 搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
-        return results;
+                    role = "user",
+                    content = $"Search the web for: {query}. Return only a JSON array of at most {limit} objects with title, url, and snippet."
+                }
+            },
+            tools = new[] { new { type = "web_search" } },
+            include = new[] { "no_inline_citations" }
+        });
+        request.Headers.Authorization = new("Bearer", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        var text = FindString(json.RootElement, "output_text") ?? FindString(json.RootElement, "text") ?? string.Empty;
+        var first = text.IndexOf('[');
+        var last = text.LastIndexOf(']');
+        if (first < 0 || last <= first) return [];
+        using var output = JsonDocument.Parse(text[first..(last + 1)]);
+        return ReadResultArray(output.RootElement, "xAI", limit);
     }
 
-    private class TavilyResponse
+    private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
     {
-        [JsonPropertyName("results")]
-        public List<TavilyResult>? Results { get; set; }
-    }
-
-    private class TavilyResult
-    {
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("url")]
-        public string? Url { get; set; }
-
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
-
-        [JsonPropertyName("score")]
-        public double? Score { get; set; }
-    }
-
-    #endregion
-
-    #region WebSearchAPI
-
-    /// <summary>
-    /// WebSearchAPI 搜索
-    /// 文档: https://websearchapi.ai
-    /// </summary>
-    private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+        var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.websearchapi.ai"
             : config.WebSearchBaseUrl.TrimEnd('/');
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/ai-search")
+        using var request = JsonRequest(HttpMethod.Post, $"{root}/ai-search", new
         {
-            Content = JsonContent.Create(new
-            {
-                query,
-                maxResults,
-                includeContent = true,
-                contentLength = "medium",
-                includeAnswer = false,
-                safeSearch = true
-            })
-        };
-        request.Headers.Add("Authorization", $"Bearer {config.WebSearchApiKey}");
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var parsed = JsonSerializer.Deserialize<WebSearchApiResponse>(json);
-
-        var results = new List<WebSearchResult>();
-        if (parsed?.Organic != null)
-        {
-            foreach (var item in parsed.Organic)
-            {
-                results.Add(new WebSearchResult
-                {
-                    Title = item.Title ?? string.Empty,
-                    Url = item.Url ?? string.Empty,
-                    Snippet = !string.IsNullOrWhiteSpace(item.Content) ? item.Content! : (item.Description ?? string.Empty),
-                    Score = item.Score,
-                    Source = "WebSearchAPI"
-                });
-            }
-        }
-
-        _logger.Information("WebSearchAPI 搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
-        return results;
+            query,
+            maxResults = limit,
+            includeContent = true,
+            includeAnswer = false
+        });
+        request.Headers.Authorization = new("Bearer", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        var array = json.RootElement.TryGetProperty("organic", out var organic) ? organic : default;
+        return ReadResultArray(array, "WebSearchAPI", limit);
     }
 
-    private class WebSearchApiResponse
+    private async Task<List<WebSearchResult>> SearchZhipuAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
     {
-        [JsonPropertyName("answer")]
-        public string? Answer { get; set; }
-
-        [JsonPropertyName("organic")]
-        public List<WebSearchApiItem>? Organic { get; set; }
-    }
-
-    private class WebSearchApiItem
-    {
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("url")]
-        public string? Url { get; set; }
-
-        [JsonPropertyName("description")]
-        public string? Description { get; set; }
-
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
-
-        [JsonPropertyName("position")]
-        public int? Position { get; set; }
-
-        [JsonPropertyName("score")]
-        public double? Score { get; set; }
-    }
-
-    #endregion
-
-    #region 智谱 AI
-
-    /// <summary>
-    /// 智谱 AI Web Search
-    /// 文档: https://bigmodel.cn/dev/api/search-tool/web-search
-    /// </summary>
-    private async Task<List<WebSearchResult>> SearchZhipuAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+        var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://open.bigmodel.cn/api/paas/v4"
-            : config.WebSearchBaseUrl;
-
-        _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.WebSearchApiKey}");
-
-        var request = new
+            : config.WebSearchBaseUrl.TrimEnd('/');
+        using var request = JsonRequest(HttpMethod.Post, $"{root}/web_search", new
         {
             search_query = query,
-            search_result_count = maxResults
-        };
-
-        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/web_search", request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        var zhipuResponse = JsonSerializer.Deserialize<ZhipuWebResponse>(json);
-
-        var results = new List<WebSearchResult>();
-        if (zhipuResponse?.Data != null)
-        {
-            foreach (var item in zhipuResponse.Data)
-            {
-                results.Add(new WebSearchResult
-                {
-                    Title = item.Title ?? string.Empty,
-                    Url = item.Link ?? string.Empty,
-                    Snippet = item.Content ?? item.Snippet ?? string.Empty,
-                    Source = "Zhipu"
-                });
-            }
-        }
-
-        _logger.Information("智谱 AI 搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
-        return results;
+            search_result_count = limit
+        });
+        request.Headers.Authorization = new("Bearer", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("data"), "Zhipu", limit);
     }
 
-    private class ZhipuWebResponse
+    private async Task<List<WebSearchResult>> SearchBaiduAsync(
+        string query, int limit, AppConfig config, CancellationToken token)
     {
-        [JsonPropertyName("data")]
-        public List<ZhipuWebItem>? Data { get; set; }
-    }
-
-    private class ZhipuWebItem
-    {
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("link")]
-        public string? Link { get; set; }
-
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
-
-        [JsonPropertyName("snippet")]
-        public string? Snippet { get; set; }
-    }
-
-    #endregion
-
-    #region 百度
-
-    /// <summary>
-    /// 百度智能云 Web Search
-    /// 文档: https://ai.baidu.com/ai-doc/AppBuilder/pmaxd1hvy
-    /// API 示例: https://qianfan.baidubce.com/v2/ai_search/web_search
-    /// </summary>
-    private async Task<List<WebSearchResult>> SearchBaiduAsync(string query, int maxResults, AppConfig config, CancellationToken cancellationToken)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
+        var endpoint = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://qianfan.baidubce.com/v2/ai_search/web_search"
             : config.WebSearchBaseUrl;
-
-        _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.WebSearchApiKey}");
-
-        var request = new
+        using var request = JsonRequest(HttpMethod.Post, endpoint, new
         {
             app_id = config.WebSearchAppId,
-            messages = new[]
-            {
-                new { role = "user", content = query }
-            },
+            messages = new[] { new { role = "user", content = query } },
             edition = "standard",
             search_source = "baidu_search_v2"
-        };
+        });
+        request.Headers.Authorization = new("Bearer", config.WebSearchApiKey);
+        using var json = await SendJsonAsync(request, token);
+        return ReadResultArray(json.RootElement.GetProperty("references"), "Baidu", limit);
+    }
 
-        var requestJson = JsonSerializer.Serialize(request);
-        _logger.Debug("百度搜索请求: {RequestJson}", requestJson);
-
-        var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync(baseUrl, content, cancellationToken);
-
-        var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-        _logger.Debug("百度搜索响应: {ResponseJson}", responseJson);
-
+    private async Task<JsonDocument> SendJsonAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        using var response = await _httpClient.SendAsync(request, token);
+        var body = await response.Content.ReadAsStringAsync(token);
         if (!response.IsSuccessStatusCode)
-        {
-            _logger.Error("百度搜索失败: Status={Status}, Response={Response}", response.StatusCode, responseJson);
-            throw new HttpRequestException($"百度搜索请求失败: {response.StatusCode}, {responseJson}");
-        }
+            throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {body}");
+        return JsonDocument.Parse(body);
+    }
 
-        var baiduResponse = JsonSerializer.Deserialize<BaiduWebResponse>(responseJson);
-
+    private static List<WebSearchResult> ReadResultArray(JsonElement array, string source, int limit)
+    {
         var results = new List<WebSearchResult>();
-        if (baiduResponse?.References != null)
+        if (array.ValueKind != JsonValueKind.Array) return results;
+        foreach (var item in array.EnumerateArray().Take(limit))
         {
-            foreach (var reference in baiduResponse.References.Take(maxResults))
+            var snippet = FindString(item, "description")
+                ?? FindString(item, "snippet")
+                ?? FindString(item, "content")
+                ?? FindString(item, "text")
+                ?? JoinStringArray(item, "highlights")
+                ?? JoinStringArray(item, "excerpts")
+                ?? string.Empty;
+            results.Add(new WebSearchResult
             {
-                results.Add(new WebSearchResult
-                {
-                    Title = reference.Title ?? string.Empty,
-                    Url = reference.Url ?? string.Empty,
-                    Snippet = reference.Snippet ?? reference.Content ?? string.Empty,
-                    Source = "Baidu"
-                });
-            }
+                Title = FindString(item, "title") ?? string.Empty,
+                Url = FindString(item, "url") ?? FindString(item, "link") ?? string.Empty,
+                Snippet = snippet,
+                Source = source,
+                Score = FindDouble(item, "score")
+            });
         }
-
-        _logger.Information("百度搜索 '{Query}' 返回 {Count} 条结果", query, results.Count);
         return results;
     }
 
-    private class BaiduWebResponse
+    private static string? FindString(JsonElement element, string name)
     {
-        [JsonPropertyName("request_id")]
-        public string? RequestId { get; set; }
-
-        [JsonPropertyName("references")]
-        public List<BaiduReference>? References { get; set; }
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals(name) && property.Value.ValueKind == JsonValueKind.String)
+                    return property.Value.GetString();
+                var nested = FindString(property.Value, name);
+                if (nested != null) return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindString(item, name);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
     }
 
-    private class BaiduReference
+    private static double? FindDouble(JsonElement element, string name)
     {
-        [JsonPropertyName("id")]
-        public int Id { get; set; }
-
-        [JsonPropertyName("url")]
-        public string? Url { get; set; }
-
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("content")]
-        public string? Content { get; set; }
-
-        [JsonPropertyName("snippet")]
-        public string? Snippet { get; set; }
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetDouble(out var number))
+            return number;
+        return null;
     }
 
-    #endregion
-
-    /// <summary>
-    /// 测试连接
-    /// </summary>
-    public async Task<(bool Success, string Message)> TestConnectionAsync()
+    private static string? JoinStringArray(JsonElement element, string name)
     {
-        var config = GetConfig();
-
-        if (!config.WebSearchEnabled)
-        {
-            return (false, GetLocalized("WebSearch.NotEnabled", "Web Search is not enabled"));
-        }
-
-        if (string.IsNullOrWhiteSpace(config.WebSearchApiKey))
-        {
-            return (false, GetLocalized("WebSearch.ApiKeyMissing", "Web Search API Key is not configured"));
-        }
-
-        try
-        {
-            var results = await SearchAsync("test", 1);
-            return (true, string.Format(GetLocalized("WebSearch.TestSuccess", "Connection succeeded — {0} result(s)"), results.Count));
-        }
-        catch (Exception ex)
-        {
-            return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
-        }
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(name, out var array)
+            || array.ValueKind != JsonValueKind.Array)
+            return null;
+        return string.Join(" ", array.EnumerateArray().Select(item => item.ToString()));
     }
+
+    private static string StripHtml(string value)
+        => WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")).Trim();
 }

@@ -3,7 +3,6 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Serilog;
 using System;
 using System.Collections.ObjectModel;
 using System.Threading;
@@ -26,7 +25,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     private readonly ISystemAudioService? _systemAudioService;
     // Cancels in-flight system playback so Stop can kill the external process.
     private CancellationTokenSource? _audioTestCts;
-    private readonly ILogger _logger = Log.ForContext<ExtensionsTabViewModel>();
 
     /// <summary>与 ConfigTabViewModel 共享的配置实例（由 Initialize 注入并跟随其替换）。</summary>
     [ObservableProperty]
@@ -46,8 +44,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         _localizationService = localizationService;
         _webSearchService = webSearchService;
         _systemAudioService = systemAudioService;
-
-        _ = LoadSystemVoicesAsync();
     }
 
     /// <summary>
@@ -71,7 +67,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
         // Config 实例被整体替换后，刷新依赖其值的计算属性
         RefreshAudioVoices();
-        OnPropertyChanged(nameof(IsRemoteAudioProvider));
         OnPropertyChanged(nameof(CanEditRemoteAudioFields));
         OnPropertyChanged(nameof(IsBaiduProvider));
         OnPropertyChanged(nameof(CanEditParserToken));
@@ -83,11 +78,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
             {
                 case nameof(AppConfig.WebSearchProvider):
                     OnPropertyChanged(nameof(IsBaiduProvider));
-                    break;
-                case nameof(AppConfig.ChatAudioProvider):
-                    OnPropertyChanged(nameof(IsRemoteAudioProvider));
-                    OnPropertyChanged(nameof(CanEditRemoteAudioFields));
-                    RefreshAudioVoices();
                     break;
                 case nameof(AppConfig.ChatAudioEnabled):
                     OnPropertyChanged(nameof(CanEditRemoteAudioFields));
@@ -116,8 +106,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
 
     public ObservableCollection<string> AudioProviders { get; } = new(AudioConfigResolver.ProviderNames);
 
-    // 音色下拉建议：provider=System 时为本机已安装语音（Windows SAPI / macOS say / Linux espeak-ng），
-    // 远端 provider 时为 OpenAI 官方预置音色（服务端没有"列出音色"API，兼容服务商可手输自定义音色名）。
+    // 旧扩展页保留 OpenAI 预置音色建议；新供应商卡片支持直接填写各自 Voice。
     public ObservableCollection<string> AudioVoices { get; } = new();
 
     private static readonly string[] OpenAiPresetVoices =
@@ -125,13 +114,10 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         "alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"
     };
 
-    private System.Collections.Generic.IReadOnlyList<string> _systemVoices = Array.Empty<string>();
-
     private void RefreshAudioVoices()
     {
         AudioVoices.Clear();
-        var source = IsRemoteAudioProvider ? OpenAiPresetVoices : _systemVoices;
-        foreach (var v in source) AudioVoices.Add(v);
+        foreach (var voice in OpenAiPresetVoices) AudioVoices.Add(voice);
     }
 
     public ObservableCollection<DocumentParserMode> DocumentParserModes { get; } = new()
@@ -143,8 +129,7 @@ public partial class ExtensionsTabViewModel : ViewModelBase
     // 仅精度解析方式需要 Token；极速解析无需登录。
     public bool CanEditParserToken => Config.DocumentParserEnabled && Config.DocumentParserMode == DocumentParserMode.Precision;
 
-    public bool IsRemoteAudioProvider => Config.ChatAudioProvider != "System";
-    public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled && IsRemoteAudioProvider;
+    public bool CanEditRemoteAudioFields => Config.ChatAudioEnabled;
 
     #endregion
 
@@ -291,28 +276,6 @@ public partial class ExtensionsTabViewModel : ViewModelBase
         if (AudioTestAttachment != null)
         {
             AudioTestAttachment.IsPlaying = false;
-        }
-    }
-
-    private async Task LoadSystemVoicesAsync()
-    {
-        // 远端 provider 的预置音色先就位，系统语音异步补充。
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RefreshAudioVoices);
-
-        if (_systemAudioService is not { IsSupported: true }) return;
-        try
-        {
-            var voices = await _systemAudioService.GetInstalledVoicesAsync();
-            if (voices.Count == 0) return;
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                _systemVoices = voices;
-                RefreshAudioVoices();
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Failed to load system voices for extensions UI");
         }
     }
 

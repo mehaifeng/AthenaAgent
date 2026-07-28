@@ -5,6 +5,7 @@ using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -41,6 +42,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
         get
         {
             var config = _configService.Load();
+            ApplyActiveProviderSettings(config);
             return config.ImageGenerationEnabled
                 && !string.IsNullOrWhiteSpace(GetEffectiveApiKey(config))
                 && !string.IsNullOrWhiteSpace(GetEffectiveModel(config));
@@ -60,6 +62,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
 
         var config = _configService.Load();
+        ApplyActiveProviderSettings(config);
         if (!config.ImageGenerationEnabled)
         {
             return new ImageGenerationResult
@@ -83,6 +86,28 @@ public class OpenAIImageGenerationService : IImageGenerationService
         try
         {
             var baseUrl = GetEffectiveBaseUrl(config);
+            if (config.ImageGenerationProvider is "Fal" or "Krea" or "OpenRouter" or "OpenAICodex")
+            {
+                var specialBytes = await GenerateProviderSpecificAsync(
+                    config.ImageGenerationProvider,
+                    prompt,
+                    request.ReferenceImages ?? [],
+                    config,
+                    cancellationToken);
+                var specialAttachment = await _attachmentStoreService.CreateGeneratedImageAsync(
+                    specialBytes,
+                    $"generated-{DateTime.Now:yyyyMMdd-HHmmss}.png",
+                    "image/png",
+                    cancellationToken);
+                return new ImageGenerationResult
+                {
+                    Success = true,
+                    Message = "Image generated successfully.",
+                    Attachment = specialAttachment,
+                    UsedPixelContinuity = request.ReferenceImages?.Count > 0
+                };
+            }
+
             var clientOptions = OpenAiClientOptionsFactory.Create(baseUrl, config.Timeout);
 
             var referenceImages = request.ReferenceImages ?? [];
@@ -145,23 +170,34 @@ public class OpenAIImageGenerationService : IImageGenerationService
     // 图像生成引用统一供应商连接，不再保存重复 API Key。
     private static EffectiveModelConfig GetEffective(AppConfig config)
     {
-        var provider = config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ImageGenerationProviderId);
-        var baseUrl = provider?.BaseUrl ?? string.Empty;
-        var endpointPath = config.ImageGenerationEndpointPath?.Trim();
-        if (!string.IsNullOrWhiteSpace(endpointPath)
-            && !endpointPath.Equals("/images/generations", StringComparison.OrdinalIgnoreCase))
+        var legacyProvider = !string.IsNullOrWhiteSpace(config.ImageGenerationProviderId)
+            ? config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ImageGenerationProviderId)
+            : null;
+        if (legacyProvider != null
+            && config.ImageProviderSettings.All(item => item.ProviderId != config.ImageGenerationProvider))
         {
-            var combined = baseUrl.TrimEnd('/') + "/" + endpointPath.TrimStart('/');
-            const string suffix = "/images/generations";
-            baseUrl = combined.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-                ? combined[..^suffix.Length]
-                : baseUrl;
+            return new EffectiveModelConfig(
+                legacyProvider.ProviderPreset,
+                legacyProvider.BaseUrl,
+                legacyProvider.ApiKey,
+                config.ImageGenerationModel);
         }
         return new EffectiveModelConfig(
-            provider?.ProviderPreset ?? string.Empty,
-            baseUrl,
-            provider?.ApiKey ?? string.Empty,
+            config.ImageGenerationProvider,
+            config.ImageGenerationBaseUrl,
+            config.ImageGenerationApiKey,
             config.ImageGenerationModel);
+    }
+
+    private static void ApplyActiveProviderSettings(AppConfig config)
+    {
+        var settings = config.ImageProviderSettings.FirstOrDefault(
+            item => item.ProviderId.Equals(config.ImageGenerationProvider, StringComparison.OrdinalIgnoreCase));
+        if (settings == null) return;
+        config.ImageGenerationBaseUrl = settings.BaseUrl;
+        config.ImageGenerationApiKey = settings.ApiKey;
+        config.ImageGenerationModel = settings.Model;
+        config.ImageGenerationAspectRatio = settings.AspectRatio;
     }
 
     private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
@@ -169,6 +205,237 @@ public class OpenAIImageGenerationService : IImageGenerationService
     private static string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
 
     private static string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
+
+    private async Task<byte[]> GenerateProviderSpecificAsync(
+        string provider,
+        string prompt,
+        IReadOnlyList<ImageGenerationReferenceImage> references,
+        AppConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (provider == "Krea")
+            return await GenerateKreaAsync(prompt, config, cancellationToken);
+
+        using var request = provider switch
+        {
+            "Fal" => BuildJsonRequest(
+                $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/{config.ImageGenerationModel.TrimStart('/')}",
+                config.ImageGenerationApiKey,
+                new
+                {
+                    prompt,
+                    image_size = AspectToFalSize(config.ImageGenerationAspectRatio),
+                    num_images = 1,
+                    output_format = "png"
+                },
+                "Key"),
+            "OpenRouter" => BuildOpenRouterRequest(prompt, references, config),
+            "OpenAICodex" => BuildCodexRequest(prompt, references, config),
+            _ => throw new NotSupportedException($"Unsupported image provider: {provider}")
+        };
+        using var response = await SharedHttpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {body}");
+        return await ExtractImageBytesAsync(body, cancellationToken);
+    }
+
+    private static HttpRequestMessage BuildJsonRequest(
+        string url,
+        string token,
+        object payload,
+        string scheme = "Bearer")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload)
+        };
+        request.Headers.Authorization = new(scheme, token);
+        return request;
+    }
+
+    private static HttpRequestMessage BuildOpenRouterRequest(
+        string prompt,
+        IReadOnlyList<ImageGenerationReferenceImage> references,
+        AppConfig config)
+    {
+        var content = new List<object> { new { type = "text", text = prompt } };
+        foreach (var image in PrepareReferenceImages(references))
+            content.Add(new { type = "image_url", image_url = new { url = image.DataUri } });
+        return BuildJsonRequest(
+            $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/chat/completions",
+            config.ImageGenerationApiKey,
+            new
+            {
+                model = config.ImageGenerationModel,
+                modalities = new[] { "image", "text" },
+                messages = new[] { new { role = "user", content } },
+                image_config = new { aspect_ratio = config.ImageGenerationAspectRatio }
+            });
+    }
+
+    private static HttpRequestMessage BuildCodexRequest(
+        string prompt,
+        IReadOnlyList<ImageGenerationReferenceImage> references,
+        AppConfig config)
+    {
+        var content = new List<object> { new { type = "input_text", text = prompt } };
+        foreach (var image in PrepareReferenceImages(references))
+            content.Add(new { type = "input_image", image_url = image.DataUri });
+        var size = config.ImageGenerationAspectRatio switch
+        {
+            "16:9" or "4:3" => "1536x1024",
+            "9:16" or "3:4" => "1024x1536",
+            _ => "1024x1024"
+        };
+        return BuildJsonRequest(
+            $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/codex/responses",
+            config.ImageGenerationApiKey,
+            new
+            {
+                model = string.IsNullOrWhiteSpace(config.ImageGenerationModel) ? "gpt-5" : config.ImageGenerationModel,
+                store = false,
+                instructions = "Use the image_generation tool to create the requested image and return its result.",
+                input = new[] { new { type = "message", role = "user", content } },
+                tools = new[]
+                {
+                    new
+                    {
+                        type = "image_generation",
+                        model = "gpt-image-1",
+                        size,
+                        quality = "high",
+                        output_format = "png",
+                        background = "opaque",
+                        partial_images = 1
+                    }
+                },
+                stream = true
+            });
+    }
+
+    private async Task<byte[]> GenerateKreaAsync(
+        string prompt,
+        AppConfig config,
+        CancellationToken cancellationToken)
+    {
+        var root = config.ImageGenerationBaseUrl.TrimEnd('/');
+        var path = config.ImageGenerationModel.Contains("turbo", StringComparison.OrdinalIgnoreCase)
+            ? "medium-turbo"
+            : "medium";
+        using var submit = BuildJsonRequest(
+            $"{root}/generate/image/krea/krea-2/{path}",
+            config.ImageGenerationApiKey,
+            new
+            {
+                prompt,
+                aspect_ratio = config.ImageGenerationAspectRatio,
+                resolution = "1K",
+                creativity = "medium"
+            });
+        using var submitResponse = await SharedHttpClient.SendAsync(submit, cancellationToken);
+        var submitBody = await submitResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!submitResponse.IsSuccessStatusCode)
+            throw new HttpRequestException($"Krea submit HTTP {(int)submitResponse.StatusCode}: {submitBody}");
+        using var submitJson = JsonDocument.Parse(submitBody);
+        var jobId = submitJson.RootElement.GetProperty("job_id").GetString()
+            ?? throw new InvalidOperationException("Krea response did not contain job_id.");
+
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            using var poll = new HttpRequestMessage(HttpMethod.Get, $"{root}/jobs/{jobId}");
+            poll.Headers.Authorization = new("Bearer", config.ImageGenerationApiKey);
+            using var pollResponse = await SharedHttpClient.SendAsync(poll, cancellationToken);
+            var body = await pollResponse.Content.ReadAsStringAsync(cancellationToken);
+            if (!pollResponse.IsSuccessStatusCode)
+                throw new HttpRequestException($"Krea poll HTTP {(int)pollResponse.StatusCode}: {body}");
+            using var json = JsonDocument.Parse(body);
+            var status = FindJsonString(json.RootElement, "status") ?? string.Empty;
+            if (status is "failed" or "cancelled")
+                throw new InvalidOperationException($"Krea job ended with status {status}.");
+            var url = FindJsonString(json.RootElement, "url");
+            if (!string.IsNullOrWhiteSpace(url))
+                return await SharedHttpClient.GetByteArrayAsync(url, cancellationToken);
+        }
+        throw new TimeoutException("Krea image generation did not complete within 3 minutes.");
+    }
+
+    private async Task<byte[]> ExtractImageBytesAsync(string body, CancellationToken cancellationToken)
+    {
+        if (body.Contains("\ndata:", StringComparison.Ordinal) || body.StartsWith("data:", StringComparison.Ordinal))
+        {
+            string? newest = null;
+            foreach (var line in body.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (!trimmed.StartsWith("data:", StringComparison.Ordinal)) continue;
+                var payload = trimmed[5..].Trim();
+                if (payload.Length == 0 || payload == "[DONE]") continue;
+                try
+                {
+                    using var eventJson = JsonDocument.Parse(payload);
+                    newest = FindJsonString(eventJson.RootElement, "result")
+                        ?? FindJsonString(eventJson.RootElement, "partial_image_b64")
+                        ?? newest;
+                }
+                catch (JsonException)
+                {
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(newest))
+                return Convert.FromBase64String(newest);
+        }
+        using var json = JsonDocument.Parse(body);
+        var base64 = FindJsonString(json.RootElement, "b64_json")
+            ?? FindJsonString(json.RootElement, "result")
+            ?? FindJsonString(json.RootElement, "partial_image_b64");
+        if (!string.IsNullOrWhiteSpace(base64) && !base64.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = base64.IndexOf(',');
+            return Convert.FromBase64String(comma >= 0 ? base64[(comma + 1)..] : base64);
+        }
+        var url = FindJsonString(json.RootElement, "url")
+            ?? FindJsonString(json.RootElement, "image_url");
+        if (string.IsNullOrWhiteSpace(url))
+            throw new InvalidOperationException("Image provider returned no image data.");
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return Convert.FromBase64String(url[(url.IndexOf(',') + 1)..]);
+        return await SharedHttpClient.GetByteArrayAsync(url, cancellationToken);
+    }
+
+    private static string? FindJsonString(JsonElement element, string name)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals(name) && property.Value.ValueKind == JsonValueKind.String)
+                    return property.Value.GetString();
+                var nested = FindJsonString(property.Value, name);
+                if (nested != null) return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindJsonString(item, name);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static object AspectToFalSize(string aspectRatio) => aspectRatio switch
+    {
+        "16:9" => new { width = 1344, height = 768 },
+        "9:16" => new { width = 768, height = 1344 },
+        "4:3" => new { width = 1152, height = 864 },
+        "3:4" => new { width = 864, height = 1152 },
+        _ => new { width = 1024, height = 1024 }
+    };
 
     private async Task<GeneratedImage> GenerateImageWithReferencesAsync(
         ImageClient client,

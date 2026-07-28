@@ -80,9 +80,6 @@ public partial class ChatAttachment : ObservableObject
     public bool IsAudio => Kind == AttachmentKind.Audio;
 
     [JsonIgnore]
-    public bool UsesSystemAudioPlayback => string.Equals(AudioProvider, "System", StringComparison.OrdinalIgnoreCase);
-
-    [JsonIgnore]
     public bool IsGenericFile => !IsImage && !IsAudio;
 
     [JsonIgnore]

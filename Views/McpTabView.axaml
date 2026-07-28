@@ -27,11 +27,13 @@
         <!-- HEADER -->
         <Border Grid.Row="0"
                 CornerRadius="0,0,5,5"
-                Background="{DynamicResource App.SectionBg}"
-                Padding="12,8">
-            <TextBlock Text="{loc:Loc Config.Mcp}"
-                       FontWeight="SemiBold"
-                       FontSize="{DynamicResource App.FontSize.Heading}"/>
+                Background="{DynamicResource App.WorkspaceRightBackground}">
+            <Grid MinWidth="600" MaxWidth="800" HorizontalAlignment="Center" Margin="16,0">
+                <TextBlock Margin="16,8"
+                           Text="{loc:Loc Config.Mcp}"
+                           FontWeight="SemiBold"
+                           FontSize="{DynamicResource App.FontSize.Heading}"/>
+            </Grid>
         </Border>
 
         <!-- SCROLLABLE CONTENT -->
@@ -42,8 +44,11 @@
                     Background="{DynamicResource App.SectionBg}"
                     BorderThickness="1"
                     CornerRadius="8"
-                    Margin="0,0,0,60"
-                    Padding="16">
+                    Margin="16,0,16,60"
+                    Padding="16"
+                    MinWidth="600"
+                    MaxWidth="800"
+                    HorizontalAlignment="Center">
                     <StackPanel Spacing="16">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
                             <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center" Opacity="0.8"/>

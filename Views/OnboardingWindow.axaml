@@ -3,6 +3,7 @@
         xmlns:vm="using:Athena.UI.ViewModels"
         xmlns:loc="using:Athena.UI.Markup"
         xmlns:conv="using:Athena.UI.Converters"
+        xmlns:u="https://irihi.tech/ursa"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="720" d:DesignHeight="560"
@@ -193,10 +194,22 @@
                          FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}" Margin="0,0,0,8"/>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Opacity="0.8"/>
-                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
-                    <TextBox Text="{Binding PrimaryProvider.ApiKey}" PasswordChar="*"
+                <Grid Grid.Row="2" Grid.Column="1"
+                      ColumnDefinitions="*,Auto" RowDefinitions="Auto,18"
+                      ColumnSpacing="8" Margin="0,0,0,8">
+                    <TextBox Grid.Row="0" Text="{Binding PrimaryProvider.ApiKey}" PasswordChar="*"
                              FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}"/>
-                    <Button Grid.Column="1" Command="{Binding LoadModelOptionsCommand}" Content="{loc:Loc Config.RefreshModelList}"/>
+                    <u:IconButton Grid.Row="0" Grid.Column="1"
+                                  Command="{Binding LoadModelOptionsCommand}"
+                                  IsLoading="{Binding IsRefreshingModelOptions}"
+                                  Content="{loc:Loc Config.RefreshModelList}"/>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                               Classes="mono"
+                               Text="{Binding ModelOptionsStatus}"
+                               ToolTip.Tip="{Binding ModelOptionsStatusDetails}"
+                               TextTrimming="CharacterEllipsis"
+                               TextWrapping="NoWrap"
+                               VerticalAlignment="Center"/>
                 </Grid>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc Onboarding.Model}" VerticalAlignment="Center" Opacity="0.8"/>
@@ -204,23 +217,30 @@
 
             </Grid>
 
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Classes="plain" Command="{Binding TestConnectionCommand}">
-                    <TextBlock Text="{loc:Loc Onboarding.TestConnection}"/></Button>
-                <TextBlock Classes="mono" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
-            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" MinHeight="34">
+                <u:IconButton Classes="plain"
+                              Command="{Binding TestConnectionCommand}"
+                              IsLoading="{Binding IsTestingConnection}"
+                              Content="{loc:Loc Onboarding.TestConnection}"/>
+                <TextBlock Grid.Column="1"
+                           Classes="mono"
+                           Text="{Binding ConnectionStatus}"
+                           ToolTip.Tip="{Binding ConnectionStatusDetails}"
+                           VerticalAlignment="Center"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"/>
+            </Grid>
 
             <!-- 最小化配置：只要求首个供应商和主对话模型。 -->
             <Border Classes="card" Margin="0,4,0,0">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="其他模型分工默认复用主模型，可在下一步展开调整；Embedding 与图像识别均为可选。" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65"/>
+                    <TextBlock Text="{loc:Loc Onboarding.RolesHint}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65"/>
                     <WrapPanel>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="Embedding"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Config.ModelRole.Approval}"/></Border>
                         <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.SubAgents}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Browser}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Config.ModelRole.Maintenance}"/></Border>
                     </WrapPanel>
                 </StackPanel>
             </Border>
@@ -229,23 +249,19 @@
         <!-- Step 2：可选模型分工，默认留空即在完成时复用主模型。 -->
         <ScrollViewer Grid.Row="1" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
             <StackPanel Spacing="12">
-                <TextBlock Text="模型分工（可选）" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
-                <TextBlock Text="留空的通用分工会自动复用主对话模型。Embedding 与图像识别留空即禁用。" Opacity="0.65"/>
-                <Expander Header="展开高级分工">
-                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" Margin="0,10,0,0">
-                        <TextBlock Text="标题生成"/><ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True"/>
-                        <TextBlock Grid.Row="1" Text="上下文压缩"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True"/>
-                        <TextBlock Grid.Row="2" Text="自动审批"/><ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True"/>
-                        <TextBlock Grid.Row="3" Text="子代理"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.SubAgent.Model}" IsEditable="True"/>
-                        <TextBlock Grid.Row="4" Text="知识整理"/><ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.KnowledgeMaintenance.Model}" IsEditable="True"/>
-                    </Grid>
-                </Expander>
-                <Border Classes="card">
-                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto" RowSpacing="8">
-                        <TextBlock Text="Embedding（可选）"/><ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Embedding.Model}" IsEditable="True"/>
-                        <TextBlock Grid.Row="1" Text="图像识别（可选）"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ImageRecognition.Model}" IsEditable="True"/>
-                    </Grid>
-                </Border>
+                <TextBlock Text="{loc:Loc Onboarding.ModelRolesHint}" Opacity="0.65"/>
+                <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <TextBlock Text="{loc:Loc Config.ModelRole.Title}" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True"/>
+                    <TextBlock Grid.Row="1" Text="{loc:Loc Config.ModelRole.Compression}" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True"/>
+                    <TextBlock Grid.Row="2" Text="{loc:Loc Config.ModelRole.Approval}" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True"/>
+                    <TextBlock Grid.Row="3" Text="{loc:Loc Config.ModelRole.SubAgent}" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.SubAgent.Model}" IsEditable="True"/>
+                    <TextBlock Grid.Row="4" Text="{loc:Loc Config.ModelRole.Maintenance}" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.KnowledgeMaintenance.Model}" IsEditable="True"/>
+                </Grid>
             </StackPanel>
         </ScrollViewer>
 

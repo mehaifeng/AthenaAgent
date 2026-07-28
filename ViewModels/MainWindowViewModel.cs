@@ -42,7 +42,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsExtensionConnectorSection))]
     private int _selectedConnectorSection;
 
-    public bool IsExtensionConnectorSection => SelectedConnectorSection >= 3;
+    public bool IsExtensionConnectorSection => SelectedConnectorSection >= 2;
 
     public bool IsSidePanelsSwapped => AppSettings?.Config.MainLayout.SidePanelsSwapped == true;
 

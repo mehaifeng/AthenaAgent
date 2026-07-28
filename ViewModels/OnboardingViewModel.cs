@@ -23,6 +23,7 @@ public partial class OnboardingViewModel : ObservableObject
     private readonly IChatService? _chatService;
     private readonly IModelCatalogService? _modelCatalogService;
     private CancellationTokenSource? _modelOptionsCts;
+    private string _modelOptionsSource = string.Empty;
 
     /// <summary>请求关闭窗口（由 OnboardingWindow 注入）。</summary>
     public Action? RequestClose { get; set; }
@@ -72,7 +73,20 @@ public partial class OnboardingViewModel : ObservableObject
     private bool _isTestingConnection;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LoadModelOptionsCommand))]
+    private bool _isRefreshingModelOptions;
+
+    [ObservableProperty]
+    private string _modelOptionsStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _modelOptionsStatusDetails = string.Empty;
+
+    [ObservableProperty]
     private string _connectionStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _connectionStatusDetails = string.Empty;
 
     /// <summary>主题按钮当前应显示的图标标记："Moon"=当前 Dark，"Sun"=当前 Light。</summary>
     [ObservableProperty]
@@ -118,6 +132,7 @@ public partial class OnboardingViewModel : ObservableObject
         {
             Config.AiModels.Providers.Add(new OpenAiProviderConfiguration());
         }
+        _modelOptionsSource = GetModelOptionsSource();
         NormalizeRoleAssignments(reuseMainModel: false);
 
         // 向导语言跟随已保存配置（默认 zh-CN）。
@@ -144,54 +159,95 @@ public partial class OnboardingViewModel : ObservableObject
         _ = LoadModelOptionsAsync();
     }
 
-    [RelayCommand]
+    private bool CanLoadModelOptions => !IsRefreshingModelOptions;
+
+    [RelayCommand(CanExecute = nameof(CanLoadModelOptions))]
     private async Task LoadModelOptionsAsync()
     {
         if (_modelCatalogService == null) return;
+
         _modelOptionsCts?.Cancel();
         _modelOptionsCts?.Dispose();
         var cts = _modelOptionsCts = new CancellationTokenSource();
-        ModelCatalogResult result;
+        var requestedSource = GetModelOptionsSource();
+        if (!string.Equals(requestedSource, _modelOptionsSource, StringComparison.Ordinal))
+        {
+            ModelOptions = new ObservableCollection<string>();
+            foreach (var role in GetOnboardingTextRoles())
+                role.Model = string.Empty;
+            ConnectionStatus = string.Empty;
+            ConnectionStatusDetails = string.Empty;
+        }
+        IsRefreshingModelOptions = true;
+        ModelOptionsStatus = GetString("Status.LoadingModels", "Loading model list…");
+        ModelOptionsStatusDetails = string.Empty;
+
         try
         {
-            result = await _modelCatalogService.GetModelsAsync(PrimaryProvider.BaseUrl, PrimaryProvider.ApiKey, cts.Token);
+            var result = await _modelCatalogService.GetTextModelsAsync(
+                PrimaryProvider.BaseUrl,
+                PrimaryProvider.ApiKey,
+                cts.Token);
+            if (cts.IsCancellationRequested || !ReferenceEquals(cts, _modelOptionsCts)) return;
+
+            if (!result.Success)
+            {
+                ModelOptionsStatus = GetString("Onboarding.LoadModelsFailed", "Failed to load model list");
+                ModelOptionsStatusDetails = result.ErrorMessage ?? ModelOptionsStatus;
+                return;
+            }
+
+            var manual = PrimaryProvider.Models.Where(model => model.IsManual).ToList();
+            PrimaryProvider.Models.Clear();
+            foreach (var id in result.Models)
+            {
+                PrimaryProvider.Models.Add(new ProviderModelDescriptor
+                {
+                    Id = id,
+                    DisplayName = id,
+                    Capability = ModelCapability.Text
+                });
+            }
+            foreach (var model in manual.Where(model => PrimaryProvider.Models.All(candidate => candidate.Id != model.Id)))
+                PrimaryProvider.Models.Add(model);
+            PrimaryProvider.ModelsRefreshedAt = DateTimeOffset.Now;
+
+            // 刷新后的服务端目录是下拉框的唯一候选源。旧供应商中选过、但新目录中
+            // 不存在的模型需要同时清空，否则可编辑 ComboBox 仍会显示陈旧值。
+            var options = new ObservableCollection<string>(result.Models);
+            foreach (var role in GetOnboardingTextRoles())
+            {
+                if (!string.IsNullOrWhiteSpace(role.Model) && !options.Contains(role.Model))
+                    role.Model = string.Empty;
+            }
+            ModelOptions = options;
+            _modelOptionsSource = requestedSource;
+            ModelOptionsStatus = string.Format(
+                GetString("Status.ModelsLoaded", "Loaded {0} model(s)"),
+                options.Count);
         }
         catch (OperationCanceledException)
         {
             return;
         }
-        if (cts.IsCancellationRequested || !ReferenceEquals(cts, _modelOptionsCts)) return;
-        if (!result.Success) return;
-
-        var manual = PrimaryProvider.Models.Where(model => model.IsManual).ToList();
-        PrimaryProvider.Models.Clear();
-        foreach (var id in result.Models)
+        catch (Exception ex)
         {
-            PrimaryProvider.Models.Add(new ProviderModelDescriptor
+            if (ReferenceEquals(cts, _modelOptionsCts))
             {
-                Id = id,
-                DisplayName = id,
-                Capability = id.Contains("embed", StringComparison.OrdinalIgnoreCase)
-                    ? ModelCapability.Embedding
-                    : ModelCapability.Text
-            });
+                Log.Error(ex, "引导页刷新模型列表失败");
+                ModelOptionsStatus = GetString("Onboarding.LoadModelsFailed", "Failed to load model list");
+                ModelOptionsStatusDetails = ex.Message;
+            }
         }
-        foreach (var model in manual.Where(model => PrimaryProvider.Models.All(candidate => candidate.Id != model.Id)))
-            PrimaryProvider.Models.Add(model);
-        PrimaryProvider.ModelsRefreshedAt = DateTimeOffset.Now;
-
-        var selected = new[]
+        finally
         {
-            Config.AiModels.MainConversation.Model,
-            Config.AiModels.TitleGeneration.Model,
-            Config.AiModels.ContextCompression.Model,
-            Config.AiModels.Approval.Model
-        };
-        // 整体替换 ItemsSource，避免 Clear() 的集合变更让四个下拉框依次丢失当前选择。
-        var options = new ObservableCollection<string>(result.Models);
-        foreach (var model in selected.Where(model => !string.IsNullOrWhiteSpace(model) && !options.Contains(model)))
-            options.Add(model);
-        ModelOptions = options;
+            if (ReferenceEquals(cts, _modelOptionsCts))
+            {
+                _modelOptionsCts = null;
+                IsRefreshingModelOptions = false;
+            }
+            cts.Dispose();
+        }
     }
 
     /// <summary>Web Search 供应商变化时带出默认 BaseUrl（Custom 保留用户填的端点）。</summary>
@@ -214,11 +270,13 @@ public partial class OnboardingViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey))
         {
             ConnectionStatus = GetString("Onboarding.EnterApiKeyFirst", "> enter api key first");
+            ConnectionStatusDetails = string.Empty;
             return;
         }
 
         IsTestingConnection = true;
         ConnectionStatus = GetString("Onboarding.Testing", "> consulting the oracle...");
+        ConnectionStatusDetails = string.Empty;
         try
         {
             NormalizeRoleAssignments(reuseMainModel: true);
@@ -227,12 +285,14 @@ public partial class OnboardingViewModel : ObservableObject
             var (success, message) = await _chatService.TestConnectionAsync();
             ConnectionStatus = success
                 ? GetString("Onboarding.TestSuccess", "> oracle connected ✓")
-                : "> " + (message ?? GetString("Onboarding.TestFailed", "connection failed"));
+                : GetString("Onboarding.TestFailed", "Connection failed");
+            ConnectionStatusDetails = success ? string.Empty : message ?? ConnectionStatus;
         }
         catch (Exception ex)
         {
             Log.Error(ex, "引导页测试连接失败");
-            ConnectionStatus = "> " + ex.Message;
+            ConnectionStatus = GetString("Onboarding.TestFailed", "Connection failed");
+            ConnectionStatusDetails = ex.Message;
         }
         finally
         {
@@ -304,25 +364,27 @@ public partial class OnboardingViewModel : ObservableObject
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
 
+    private string GetModelOptionsSource() =>
+        $"{PrimaryProvider.ProviderPreset}\n{PrimaryProvider.BaseUrl?.Trim()}";
+
+    private IEnumerable<ModelRoleSettings> GetOnboardingTextRoles()
+    {
+        yield return Config.AiModels.MainConversation;
+        yield return Config.AiModels.TitleGeneration;
+        yield return Config.AiModels.ContextCompression;
+        yield return Config.AiModels.Approval;
+        yield return Config.AiModels.SubAgent;
+        yield return Config.AiModels.KnowledgeMaintenance;
+    }
+
     private void NormalizeRoleAssignments(bool reuseMainModel)
     {
         var providerId = PrimaryProvider.Id;
         var mainModel = Config.AiModels.MainConversation.Model;
-        var roles = new[]
-        {
-            Config.AiModels.MainConversation,
-            Config.AiModels.TitleGeneration,
-            Config.AiModels.ContextCompression,
-            Config.AiModels.Approval,
-            Config.AiModels.SubAgent,
-            Config.AiModels.KnowledgeMaintenance
-        };
-        foreach (var role in roles)
+        foreach (var role in GetOnboardingTextRoles())
         {
             role.ProviderId = providerId;
             if (reuseMainModel && string.IsNullOrWhiteSpace(role.Model)) role.Model = mainModel;
         }
-        if (!string.IsNullOrWhiteSpace(Config.AiModels.Embedding.Model)) Config.AiModels.Embedding.ProviderId = providerId;
-        if (!string.IsNullOrWhiteSpace(Config.AiModels.ImageRecognition.Model)) Config.AiModels.ImageRecognition.ProviderId = providerId;
     }
 }

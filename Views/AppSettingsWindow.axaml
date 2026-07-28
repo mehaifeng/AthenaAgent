@@ -38,6 +38,63 @@
                     <CheckBox Content="自动压缩上下文" IsChecked="{Binding AppSettings.Config.AutoCompress}"/>
                 </StackPanel>
             </Border>
+            <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="工具审批" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="180,*">
+                        <TextBlock Text="当前模式" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding AppSettings.Config.ToolApprovalMode}"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                    <WrapPanel>
+                        <Button Content="均衡"
+                                Command="{Binding AppSettings.SetApprovalModeCommand}"
+                                CommandParameter="Balanced"
+                                Margin="0,0,6,0"/>
+                        <Button Content="严格"
+                                Command="{Binding AppSettings.SetApprovalModeCommand}"
+                                CommandParameter="Strict"
+                                Margin="0,0,6,0"/>
+                        <Button Content="自动"
+                                Command="{Binding AppSettings.SetApprovalModeCommand}"
+                                CommandParameter="Automatic"
+                                Margin="0,0,6,0"/>
+                        <Button Content="关闭"
+                                Command="{Binding AppSettings.SetApprovalModeCommand}"
+                                CommandParameter="Off"/>
+                    </WrapPanel>
+                    <CheckBox Content="子代理继承永久放行清单"
+                              IsChecked="{Binding AppSettings.Config.SubAgentsInheritApproval}"/>
+                </StackPanel>
+            </Border>
+            <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="子代理" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
+                    <CheckBox Content="启用子代理"
+                              IsChecked="{Binding AppSettings.Config.EnableSubAgents}"/>
+                    <TextBlock Text="模型在“供应商模型 / 子代理”分工中选择。" Opacity="0.65"/>
+                    <Grid ColumnDefinitions="260,*">
+                        <TextBlock Text="最大并行数" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1" Maximum="16"
+                                       Value="{Binding AppSettings.Config.SubAgentMaxParallel}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="260,*">
+                        <TextBlock Text="单代理最大工具轮数" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1" Maximum="100"
+                                       Value="{Binding AppSettings.Config.SubAgentMaxIterations}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="260,*">
+                        <TextBlock Text="超时（秒）" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="30" Maximum="3600"
+                                       Value="{Binding AppSettings.Config.SubAgentTimeoutSeconds}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
             <Expander Header="关于、更新与诊断">
                 <views:AboutTabView DataContext="{Binding AboutTabViewModel}"/>
             </Expander>

@@ -919,7 +919,6 @@ public partial class App : Application
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
-            var systemAudioService = sp.GetService<ISystemAudioService>();
             var workspaceService = sp.GetService<IWorkspaceService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var mcpToolHost = sp.GetService<Athena.UI.Services.Mcp.IMcpToolHost>();
@@ -929,7 +928,7 @@ public partial class App : Application
                 config.AiModels.Provider.ProviderPreset,
                 config.AiModels.MainConversation.Model,
                 true);
-            var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, systemAudioService, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
+            var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
             configService.ConfigChanged += (_, next) => service.UpdateConfig(next);
             return service;
         });
