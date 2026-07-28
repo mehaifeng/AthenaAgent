@@ -70,7 +70,7 @@
              （AvaloniaUI/Avalonia#17139），静态挂类会让聊天页闲置时也全程重绘。 -->
         <Style Selector="TextBlock.thinking-text">
             <Setter Property="FontFamily" Value="Georgia, Times New Roman, Songti SC, SimSun, serif"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
             <Setter Property="LetterSpacing" Value="3"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
@@ -107,7 +107,7 @@
 
         <!-- 角色标题颜色 -->
         <Style Selector="TextBlock.role-title">
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
         <Style Selector="TextBlock.user-title">
@@ -228,7 +228,7 @@
                     <TextBlock Text="{loc:Loc Chat.Header}"
                                FontWeight="Bold"
                                VerticalAlignment="Center"
-                               FontSize="14"/>
+                               FontSize="{DynamicResource App.FontSize.Heading}"/>
 
                     <!-- 调试：切换原始上下文(raw)视图，仅在对话流完成时可用 -->
                     <ToggleButton IsChecked="{Binding IsRawContextView}"
@@ -263,7 +263,7 @@
                                 Classes.running="{Binding HasRunningSubAgents}"
                                 IsVisible="{Binding HasSubAgents}">
                             <TextBlock Text="{Binding SubAgentCount}"
-                                       FontSize="9" FontWeight="Bold"
+                                       FontSize="{DynamicResource App.FontSize.Tiny}" FontWeight="Bold"
                                        Foreground="White"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
@@ -284,7 +284,7 @@
                     <TextBlock Text="{Binding ContextTokensInfo}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
-                               FontSize="10"
+                               FontSize="{DynamicResource App.FontSize.Caption}"
                                TextTrimming="CharacterEllipsis"/>
                 </Grid>
 
@@ -350,13 +350,13 @@
                                     
                                     <TextBlock Text="{Binding TimestampText}"
                                                Foreground="{DynamicResource Chat.TimestampFg}" 
-                                               FontSize="10" 
+                                               FontSize="{DynamicResource App.FontSize.Caption}" 
                                                VerticalAlignment="Center"/>
                                     
                                     <TextBlock Text="{loc:Loc Chat.Archived}" 
                                                IsVisible="{Binding IsCompressed}" 
                                                Foreground="{DynamicResource Chat.ArchivedFg}" 
-                                               FontSize="10" 
+                                               FontSize="{DynamicResource App.FontSize.Caption}" 
                                                VerticalAlignment="Center" 
                                                FontWeight="Bold"/>
                                 </StackPanel>
@@ -446,8 +446,8 @@
                                                                                 <Border Grid.Row="0" CornerRadius="5" ClipToBounds="True" Background="{DynamicResource SemiGreyLowBrush}">
                                                                                     <Image Source="{Binding PreviewImage}" Stretch="UniformToFill"/>
                                                                                 </Border>
-                                                                                <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,5,0,0"/>
-                                                                                <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65"/>
+                                                                                <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="{DynamicResource App.FontSize.Body}" Margin="0,5,0,0"/>
+                                                                                <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.65"/>
                                                                             </Grid>
                                                                         </Border>
                                                                     </Button>
@@ -461,10 +461,10 @@
                                                                     <Border Classes="attachment-card">
                                                                         <Grid RowDefinitions="56,Auto,Auto">
                                                                             <Border Grid.Row="0" Background="{DynamicResource SemiGreyLowBrush}" CornerRadius="5">
-                                                                                <TextBlock Text="{Binding FileExtension}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold"/>
+                                                                                <TextBlock Text="{Binding FileExtension}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="{DynamicResource App.FontSize.Subheading}" FontWeight="Bold"/>
                                                                             </Border>
-                                                                            <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,5,0,0"/>
-                                                                            <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65"/>
+                                                                            <TextBlock Grid.Row="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="{DynamicResource App.FontSize.Body}" Margin="0,5,0,0"/>
+                                                                            <TextBlock Grid.Row="2" Text="{Binding DisplaySize}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.65"/>
                                                                         </Grid>
                                                                     </Border>
                                                                 </DataTemplate>
@@ -485,7 +485,7 @@
                                                                                 </Button>
                                                                             </Panel>
                                                                             <TextBlock Grid.Column="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,8,0"/>
-                                                                            <TextBlock Grid.Column="2" Text="{Binding DisplaySize}" FontSize="10" Opacity="0.65" VerticalAlignment="Center"/>
+                                                                            <TextBlock Grid.Column="2" Text="{Binding DisplaySize}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.65" VerticalAlignment="Center"/>
                                                                         </Grid>
                                                                     </Border>
                                                                 </DataTemplate>
@@ -505,19 +505,19 @@
                                             <TextBlock Text="{Binding AudioErrorMessage}"
                                                        Foreground="{DynamicResource SemiRed6}"
                                                        TextWrapping="Wrap"
-                                                       FontSize="12"/>
+                                                       FontSize="{DynamicResource App.FontSize.Body}"/>
                                         </Border>
 
                                         <!-- 后台语音生成中提示（不阻塞任何交互） -->
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsGeneratingAudio}">
                                             <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
-                                            <TextBlock Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"/>
                                         </StackPanel>
 
                                         <!-- 手动生成语音：语音开启但该消息尚无音频时出现（补生成被挤掉的/历史消息的语音） -->
                                         <Button HorizontalAlignment="Left"
                                                 Padding="8,4"
-                                                FontSize="12"
+                                                FontSize="{DynamicResource App.FontSize.Body}"
                                                 IsVisible="{Binding CanGenerateAudio}"
                                                 Command="{Binding $parent[UserControl].((vm:ChatTabViewModel)DataContext).GenerateMessageAudioCommand}"
                                                 CommandParameter="{Binding}"
@@ -530,7 +530,7 @@
 
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
                                             <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
-                                            <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="13" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
                                         </StackPanel>
 
                                         <StackPanel IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
@@ -561,7 +561,7 @@
                                             IsVisible="{Binding !IsLoading}">
                                     <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).CopyMessageCommand}"
                                             CommandParameter="{Binding}"
-                                            FontSize="11"
+                                            FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnCopy}">
                                         <PathIcon Data="{StaticResource SemiIconCopy}" Width="14" Height="14"/>
                                     </Button>
@@ -569,7 +569,7 @@
                                     <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RewindToMessageCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding CanShowRewind}"
-                                            FontSize="11"
+                                            FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnRewind}">
                                         <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
                                     </Button>
@@ -577,7 +577,7 @@
                                     <Button Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ForkFromMessageCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding CanShowRewind}"
-                                            FontSize="11"
+                                            FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnFork}">
                                         <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="14" Height="14"/>
                                     </Button>
@@ -608,13 +608,13 @@
                                 <Expander.Header>
                                     <TextBlock Text="{Binding Header}"
                                                FontWeight="Bold"
-                                               FontSize="12"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                FontFamily="Cascadia Code,Consolas,Menlo,monospace"
                                                Foreground="{Binding Role, Converter={StaticResource RawRoleToBrushConverter}}"/>
                                 </Expander.Header>
                                 <SelectableTextBlock Text="{Binding Text}"
                                                      FontFamily="Cascadia Code,Consolas,Menlo,monospace"
-                                                     FontSize="12"
+                                                     FontSize="{DynamicResource App.FontSize.Body}"
                                                      TextWrapping="Wrap"/>
                             </Expander>
                         </DataTemplate>
@@ -646,7 +646,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <PathIcon Data="{StaticResource SemiIconFolder}" Width="12" Height="12" Opacity="0.6"/>
                             <TextBlock Text="{Binding CurrentWorkspaceDisplayName}"
-                                       FontSize="12"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
                                        Opacity="0.8"
                                        VerticalAlignment="Center"/>
                             <PathIcon Data="{StaticResource SemiIconChevronDown}" Width="9" Height="9" Opacity="0.4"/>
@@ -670,7 +670,7 @@
                         BoxShadow="0 4 12 0 #40000000">
                     <StackPanel Spacing="4" MinWidth="240" MaxWidth="360">
                         <TextBlock Text="{loc:Loc Chat.Workspace.SelectExisting}"
-                                   FontSize="11" Opacity="0.6" Margin="0,0,0,4"/>
+                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6" Margin="0,0,0,4"/>
                         <Button Background="Transparent"
                                 BorderThickness="0"
                                 HorizontalAlignment="Stretch"
@@ -680,7 +680,7 @@
                                 CommandParameter="{x:Null}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <PathIcon Data="{StaticResource SemiIconComment}" Width="12" Height="12" Opacity="0.6"/>
-                                <TextBlock Text="{loc:Loc Chat.Workspace.Global}" FontSize="12"/>
+                                <TextBlock Text="{loc:Loc Chat.Workspace.Global}" FontSize="{DynamicResource App.FontSize.Body}"/>
                             </StackPanel>
                         </Button>
                         <ItemsControl ItemsSource="{Binding AvailableWorkspaces}">
@@ -698,8 +698,8 @@
                                             <Grid ColumnDefinitions="Auto,*">
                                                 <PathIcon Grid.Column="0" Data="{StaticResource SemiIconFolder}" Width="12" Height="12" Opacity="0.5" VerticalAlignment="Center"/>
                                                 <StackPanel Grid.Column="1" Spacing="1" Margin="8,0,0,0">
-                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="{Binding DirectoryPath}" FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding Name}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding DirectoryPath}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
                                             </Grid>
                                         </Button>
@@ -727,7 +727,7 @@
                                 Command="{Binding AddWorkspaceCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <PathIcon Data="{StaticResource SemiIconPlus}" Width="12" Height="12" Opacity="0.6"/>
-                                <TextBlock Text="{loc:Loc Chat.Workspace.Add}" FontSize="12"/>
+                                <TextBlock Text="{loc:Loc Chat.Workspace.Add}" FontSize="{DynamicResource App.FontSize.Body}"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -762,7 +762,7 @@
                                         <TextBlock Text="{Binding FileExtension}"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   FontSize="13"
+                                                   FontSize="{DynamicResource App.FontSize.Subheading}"
                                                    FontWeight="Bold"/>
                                     </Border>
                                     <Button Grid.Row="0"
@@ -775,11 +775,11 @@
                                     <TextBlock Grid.Row="1"
                                                Text="{Binding DisplayName}"
                                                TextTrimming="CharacterEllipsis"
-                                               FontSize="11"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                Margin="0,5,0,0"/>
                                     <TextBlock Grid.Row="2"
                                                Text="{Binding DisplaySize}"
-                                               FontSize="10"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"
                                                Opacity="0.65"/>
 
                                 </Grid>
@@ -791,7 +791,7 @@
                 <TextBlock Grid.Row="2"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource Chat.TimestampFg}"
-                           FontSize="12"
+                           FontSize="{DynamicResource App.FontSize.Body}"
                            Margin="0,0,0,8"
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasBackgroundArchiveNeutralStatus}"/>
@@ -799,7 +799,7 @@
                 <TextBlock Grid.Row="2"
                            Text="{Binding BackgroundArchiveStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
-                           FontSize="12"
+                           FontSize="{DynamicResource App.FontSize.Body}"
                            Margin="0,0,0,8"
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasBackgroundArchiveErrorStatus}"/>
@@ -808,7 +808,7 @@
                            Text="{Binding AttachmentStatusMessage}"
                            IsVisible="{Binding HasAttachmentStatusMessage}"
                            Foreground="{DynamicResource SemiRed6}"
-                           FontSize="12"
+                           FontSize="{DynamicResource App.FontSize.Body}"
                            Margin="0,0,0,8"/>
 
                 <!-- 文本输入：无边框，融入外层卡片 -->
@@ -869,7 +869,7 @@
                                Text="{Binding CurrentModelName}"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource Chat.TimestampFg}"
-                               FontSize="12"
+                               FontSize="{DynamicResource App.FontSize.Body}"
                                TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding CurrentModelName}"/>
 

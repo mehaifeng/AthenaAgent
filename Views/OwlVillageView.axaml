@@ -53,7 +53,7 @@
 
     <Grid RowDefinitions="Auto,Auto,Auto,Auto" Margin="14">
         <!-- 标题栏 -->
-        <TextBlock Grid.Row="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="16" FontWeight="SemiBold"
+        <TextBlock Grid.Row="0" Text="{loc:Loc SubAgent.Village.Title}" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"
                    VerticalAlignment="Center" Margin="0,0,0,12"/>
 
         <!-- 小镇画布：场所背景 + 猫头鹰图层。整体用 LayoutTransform 等比缩小，
@@ -70,7 +70,7 @@
                         <ImageBrush Source="/Assets/FileArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Files}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Files}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
                 <Border Canvas.Left="336" Canvas.Top="12" Width="300" Height="158" CornerRadius="8" ClipToBounds="True">
@@ -78,7 +78,7 @@
                         <ImageBrush Source="/Assets/ComputerArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Web}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Web}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
                 <!-- 中排：Hesychia(冥想，家) | Mnemosyne(书房) -->
@@ -87,7 +87,7 @@
                         <ImageBrush Source="/Assets/MeditationArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Meditation}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Meditation}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
                 <Border Canvas.Left="336" Canvas.Top="182" Width="300" Height="158" CornerRadius="8" ClipToBounds="True">
@@ -95,7 +95,7 @@
                         <ImageBrush Source="/Assets/StudyArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Library}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Library}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
                 <!-- 下排：Hephaistos(工坊) | Nostos(归巢) -->
@@ -104,7 +104,7 @@
                         <ImageBrush Source="/Assets/WorkshopArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Workshop}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Workshop}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
                 <Border Canvas.Left="336" Canvas.Top="352" Width="300" Height="158" CornerRadius="8" ClipToBounds="True">
@@ -112,7 +112,7 @@
                         <ImageBrush Source="/Assets/NestingArea.webp" Stretch="UniformToFill"/>
                     </Border.Background>
                     <Border Background="#66FFFFFF" CornerRadius="6" Padding="6,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
-                        <TextBlock Text="{loc:Loc SubAgent.Zone.Perch}" FontSize="12" FontWeight="SemiBold" Foreground="#1A1A1A"/>
+                        <TextBlock Text="{loc:Loc SubAgent.Zone.Perch}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Foreground="#1A1A1A"/>
                     </Border>
                 </Border>
             </Canvas>
@@ -161,7 +161,7 @@
                                         Margin="0,-3,0,0" Padding="3,1" CornerRadius="5"
                                         BorderThickness="1" BorderBrush="#33000000"
                                         Background="White" Opacity="0.96">
-                                    <TextBlock Text="{Binding StatusLabel}" FontSize="8" FontWeight="Normal"
+                                    <TextBlock Text="{Binding StatusLabel}" FontSize="{DynamicResource App.FontSize.Micro}" FontWeight="Normal"
                                                Foreground="#1A1A1A" TextWrapping="NoWrap"/>
                                 </Border>
                             </Panel>
@@ -172,7 +172,7 @@
         </Grid>
         </LayoutTransformControl>
 
-        <TextBlock Grid.Row="2" Text="{loc:Loc SubAgent.ListHeader}" FontSize="12" Opacity="0.6" Margin="0,0,0,6"/>
+        <TextBlock Grid.Row="2" Text="{loc:Loc SubAgent.ListHeader}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6" Margin="0,0,0,6"/>
 
         <!-- 详情列表 -->
         <ScrollViewer Grid.Row="3" MaxHeight="260" VerticalScrollBarVisibility="Auto">
@@ -184,10 +184,10 @@
                                 <Ellipse Grid.Column="0" Width="11" Height="11" VerticalAlignment="Center" Margin="0,0,10,0"
                                          Fill="{Binding State, Converter={StaticResource SubAgentStateToBrushConverter}}"/>
                                 <StackPanel Grid.Column="1">
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13"/>
-                                    <TextBlock Text="{Binding CurrentAction}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Subheading}"/>
+                                    <TextBlock Text="{Binding CurrentAction}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
-                                <Button Grid.Column="2" Content="{loc:Loc SubAgent.Cancel}" FontSize="11" Padding="8,3" VerticalAlignment="Center"
+                                <Button Grid.Column="2" Content="{loc:Loc SubAgent.Cancel}" FontSize="{DynamicResource App.FontSize.Body}" Padding="8,3" VerticalAlignment="Center"
                                         Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}"/>
                             </Grid>
                         </Border>

@@ -344,4 +344,7 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     {
         if (IsWorkspace) DeleteRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
 }

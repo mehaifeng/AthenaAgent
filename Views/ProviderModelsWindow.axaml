@@ -11,7 +11,7 @@
     <Grid Margin="18" ColumnDefinitions="360,16,*" RowDefinitions="Auto,*,Auto">
         <Grid Grid.ColumnSpan="3" ColumnDefinitions="*,Auto">
             <StackPanel>
-                <TextBlock Text="供应商模型" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="供应商模型" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
                 <TextBlock Text="连接信息只在供应商保存一次；各业务分工引用供应商和模型。修改即时保存。" Opacity="0.65"/>
             </StackPanel>
             <Button Grid.Column="1" Content="＋ 添加供应商" Command="{Binding AddProviderCommand}"/>
@@ -23,8 +23,8 @@
                     <Border Padding="12" Margin="0,0,0,8" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                         <StackPanel Spacing="4">
                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding BaseUrl}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}" FontSize="11"/>
+                            <TextBlock Text="{Binding BaseUrl}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}" FontSize="{DynamicResource App.FontSize.Body}"/>
                         </StackPanel>
                     </Border>
                 </DataTemplate>
@@ -35,7 +35,7 @@
             <StackPanel Spacing="16">
                 <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="连接" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Text="连接" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                         <TextBlock Text="显示名称"/>
                         <TextBox Text="{Binding SelectedProvider.DisplayName, UpdateSourceTrigger=PropertyChanged}"/>
                         <TextBlock Text="预设"/>
@@ -57,7 +57,7 @@
 
                 <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="模型分工" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Text="模型分工" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                         <ItemsControl ItemsSource="{Binding Roles}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProviderRoleSelectionViewModel">

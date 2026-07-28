@@ -20,11 +20,11 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel Spacing="2">
                     <TextBlock Text="{Binding DisplayName}"
-                               FontSize="14"
+                               FontSize="{DynamicResource App.FontSize.Heading}"
                                FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis"/>
                     <TextBlock Text="{Binding DisplaySize}"
-                               FontSize="11"
+                               FontSize="{DynamicResource App.FontSize.Body}"
                                Opacity="0.7"/>
                 </StackPanel>
 

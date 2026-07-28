@@ -16,12 +16,12 @@
 
         <!-- 标题行：图标 + 工具名 + 风险徽章 -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-            <TextBlock Text="🛡" FontSize="20" VerticalAlignment="Center"/>
+            <TextBlock Text="🛡" FontSize="{DynamicResource App.FontSize.Symbol}" VerticalAlignment="Center"/>
             <TextBlock Text="{loc:Loc Dialog.ToolApproval.Heading}"
-                       FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                       FontSize="{DynamicResource App.FontSize.Heading}" FontWeight="SemiBold" VerticalAlignment="Center"/>
             <Border CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
                     Background="{DynamicResource SemiGrey1}">
-                <TextBlock Text="{Binding RiskLabel}" FontSize="12"
+                <TextBlock Text="{Binding RiskLabel}" FontSize="{DynamicResource App.FontSize.Body}"
                            Foreground="{DynamicResource SemiColorText1}"/>
             </Border>
         </StackPanel>
@@ -31,11 +31,11 @@
                 Background="{DynamicResource SemiGrey0}">
             <StackPanel Spacing="6">
                 <!-- 非终端工具：一行摘要 -->
-                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="13"
+                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Subheading}"
                            IsVisible="{Binding !IsTerminal}"/>
                 <!-- 终端工具：完整命令行（等宽） -->
                 <SelectableTextBlock Text="{Binding CommandLine}" TextWrapping="Wrap"
-                           FontFamily="Consolas, Menlo, monospace" FontSize="13"
+                           FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Subheading}"
                            IsVisible="{Binding IsTerminal}"/>
             </StackPanel>
         </Border>
@@ -45,7 +45,7 @@
                       IsVisible="{Binding HasArguments}">
             <Expander Header="{loc:Loc Dialog.ToolApproval.Details}" IsExpanded="False">
                 <SelectableTextBlock Text="{Binding PrettyArguments}" TextWrapping="Wrap"
-                           FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
+                           FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}"/>
             </Expander>
         </ScrollViewer>
 
@@ -56,7 +56,7 @@
                 IsVisible="{Binding HasRiskReason}">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="⚠" Foreground="{DynamicResource SemiRed6}" VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding RiskReason}" TextWrapping="Wrap" FontSize="12"
+                <TextBlock Text="{Binding RiskReason}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"
                            Foreground="{DynamicResource SemiRed6}" VerticalAlignment="Center"/>
             </StackPanel>
         </Border>

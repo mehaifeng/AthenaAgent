@@ -10,7 +10,7 @@
         ShowInTaskbar="False">
     <Grid Margin="14" RowDefinitions="Auto,*">
         <StackPanel>
-            <TextBlock Text="待审批工具" FontSize="21" FontWeight="SemiBold"/>
+            <TextBlock Text="待审批工具" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             <TextBlock Text="会话会停在工具调用处；你可以按任意顺序处理，其他会话不受影响。" Opacity="0.65" TextWrapping="Wrap"/>
         </StackPanel>
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
@@ -23,8 +23,8 @@
                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                     <TextBlock Grid.Column="1" Text="{Binding RiskText}" Foreground="{DynamicResource SemiOrange5}"/>
                                 </Grid>
-                                <TextBlock Text="{Binding ConversationId, StringFormat=会话：{0}}" FontSize="10" Opacity="0.55"/>
-                                <TextBlock Text="{Binding Request.PrettyArguments}" FontFamily="Menlo, Consolas, monospace" FontSize="11" MaxHeight="100" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ConversationId, StringFormat=会话：{0}}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
+                                <TextBlock Text="{Binding Request.PrettyArguments}" FontFamily="Menlo, Consolas, monospace" FontSize="{DynamicResource App.FontSize.Body}" MaxHeight="100" TextWrapping="Wrap"/>
                                 <WrapPanel>
                                     <Button Content="允许一次" Command="{Binding AllowOnceCommand}" Margin="0,0,6,0"/>
                                     <Button Content="本会话允许" Command="{Binding AllowSessionCommand}" Margin="0,0,6,0"/>

@@ -12,7 +12,7 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="2"/>
             <Setter Property="MinHeight" Value="20"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Caption}"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
         </Style>
         <Style Selector="Button.editor-command:pointerover /template/ ContentPresenter">
@@ -135,11 +135,11 @@
                                       RowDefinitions="Auto,*">
                                     <Border Padding="8,5" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SemiGreyLowBrush}">
                                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                                            <TextBlock Text="HEAD  ↔  当前编辑缓冲区" FontSize="11" FontWeight="SemiBold"/>
+                                            <TextBlock Text="HEAD  ↔  当前编辑缓冲区" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold"/>
                                             <TextBlock Grid.Column="1" Text="{Binding DiffAddedCount, StringFormat=+{0}}"
-                                                       Foreground="{DynamicResource SemiGreen6}" FontSize="11"/>
+                                                       Foreground="{DynamicResource SemiGreen6}" FontSize="{DynamicResource App.FontSize.Body}"/>
                                             <TextBlock Grid.Column="2" Text="{Binding DiffRemovedCount, StringFormat=−{0}}"
-                                                       Foreground="{DynamicResource SemiRed6}" FontSize="11"/>
+                                                       Foreground="{DynamicResource SemiRed6}" FontSize="{DynamicResource App.FontSize.Body}"/>
                                         </Grid>
                                     </Border>
                                     <ListBox Grid.Row="1" ItemsSource="{Binding DiffLines}" Background="Transparent">
@@ -164,13 +164,13 @@
                                                     <Border Grid.Column="0" Background="#0D808080"/>
                                                     <Border Grid.Column="1" Background="#0D808080"/>
                                                     <TextBlock Grid.Column="0" Text="{Binding OldLineNumberText}" FontFamily="Menlo, Consolas, monospace"
-                                                               FontSize="10" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                               FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding NewLineNumberText}" FontFamily="Menlo, Consolas, monospace"
-                                                               FontSize="10" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                               FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
                                                     <TextBlock Grid.Column="2" Text="{Binding Prefix}" FontFamily="Menlo, Consolas, monospace"
                                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <TextBlock Grid.Column="3" Text="{Binding Text}" FontFamily="Menlo, Consolas, monospace"
-                                                               FontSize="11" TextWrapping="NoWrap" Padding="4,3,8,2"/>
+                                                               FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="NoWrap" Padding="4,3,8,2"/>
                                                 </Grid>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
@@ -184,7 +184,7 @@
                         </ContentControl.ContentTemplate>
                     </ContentControl>
                 </Grid>
-                <TextBlock Grid.Row="2" Text="{Binding StatusText}" FontSize="11" Opacity="0.65" Margin="10,5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="2" Text="{Binding StatusText}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65" Margin="10,5" TextTrimming="CharacterEllipsis"/>
             </Grid>
         </Border>
 

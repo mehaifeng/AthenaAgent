@@ -17,7 +17,7 @@
         <ScrollViewer Grid.Row="0">
             <TextBlock Text="{Binding Message}"
                       TextWrapping="Wrap"
-                      FontSize="14"/>
+                      FontSize="{DynamicResource App.FontSize.Heading}"/>
         </ScrollViewer>
 
         <!-- 不再询问开关 -->

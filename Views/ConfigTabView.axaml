@@ -33,7 +33,7 @@
                 CornerRadius="0,0,5,5"
                 Background="{DynamicResource App.SectionBg}"
                 Padding="12,8">
-            <TextBlock Text="{loc:Loc Config.Header}" FontWeight="SemiBold" FontSize="14"/>
+            <TextBlock Text="{loc:Loc Config.Header}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Heading}"/>
         </Border>
 
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5">
@@ -41,7 +41,7 @@
                 <!-- Appearance -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.SectionAppearance}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.SectionAppearance}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="12">
                             <TextBlock Text="{loc:Loc Config.DispTheme}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Config.Theme}"/>
@@ -57,8 +57,8 @@
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="18">
                         <StackPanel Spacing="4">
-                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Header}" FontWeight="Bold" FontSize="15"/>
-                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Hint}" FontSize="12" Opacity="0.65"/>
+                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Header}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
+                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Hint}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65"/>
                         </StackPanel>
 
                         <TextBlock Text="{loc:Loc Config.UnifiedModels.Providers}" FontWeight="SemiBold"/>
@@ -78,7 +78,7 @@
                                               ToolTip.Tip="{loc:Loc Config.LoadModelsHint}"/>
                                 <TextBlock Text="{Binding ModelOptionsStatus}"
                                            VerticalAlignment="Center"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
                                            Opacity="0.7"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
@@ -86,10 +86,10 @@
 
                         <TextBlock Text="{loc:Loc Config.UnifiedModels.Roles}" FontWeight="SemiBold"/>
                         <Grid ColumnDefinitions="120,*,90,110" ColumnSpacing="10">
-                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Role}" FontSize="11" Opacity="0.6"/>
-                            <TextBlock Grid.Column="1" Text="{loc:Loc Config.UnifiedModels.Model}" FontSize="11" Opacity="0.6"/>
-                            <TextBlock Grid.Column="2" Text="{loc:Loc Config.UnifiedModels.Temperature}" FontSize="11" Opacity="0.6"/>
-                            <TextBlock Grid.Column="3" Text="{loc:Loc Config.UnifiedModels.MaxOutput}" FontSize="11" Opacity="0.6"/>
+                            <TextBlock Text="{loc:Loc Config.UnifiedModels.Role}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                            <TextBlock Grid.Column="1" Text="{loc:Loc Config.UnifiedModels.Model}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                            <TextBlock Grid.Column="2" Text="{loc:Loc Config.UnifiedModels.Temperature}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                            <TextBlock Grid.Column="3" Text="{loc:Loc Config.UnifiedModels.MaxOutput}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
                         </Grid>
                         <ItemsControl ItemsSource="{Binding AiModelRoles}">
                             <ItemsControl.ItemTemplate>
@@ -113,7 +113,7 @@
 
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                             <u:IconButton Command="{Binding TestConnectionCommand}" IsLoading="{Binding IsTestingConnection}" Content="{loc:Loc Config.TestConnection}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" FontSize="11" Opacity="0.7"/>
+                            <TextBlock Grid.Column="1" Text="{Binding ConnectionStatus}" VerticalAlignment="Center" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
                         </Grid>
 
                         <Separator/>
@@ -134,7 +134,7 @@
                 <!-- Embedding and knowledge base maintenance -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="14">
-                        <TextBlock Text="{loc:Loc Config.EmbeddingModel}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.EmbeddingModel}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="14">
                             <TextBlock Text="{loc:Loc Config.EmbeddingConnection}" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,0,8"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding EmbeddingCredentialSources}" SelectedItem="{Binding Config.EmbeddingCredentialSource}" Margin="0,0,0,8">
@@ -161,13 +161,13 @@
                                               Content="{loc:Loc Config.RebuildVectorIndex}"/>
                                 <TextBlock Text="{Binding VectorIndexStatus}"
                                            VerticalAlignment="Center"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
                                            Opacity="0.7"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
                         </Grid>
                         <Separator/>
-                        <TextBlock Text="{loc:Loc Config.KnowledgeMaintenance}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.KnowledgeMaintenance}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
                             <TextBlock Text="{loc:Loc Config.KbMaintenanceEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.KnowledgeMaintenanceEnabled}" HorizontalAlignment="Left"/>
@@ -182,7 +182,7 @@
                                               Content="{loc:Loc Config.KbMaintenanceRunNow}"/>
                                 <TextBlock Text="{Binding MaintenanceStatus}"
                                            VerticalAlignment="Center"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
                                            Opacity="0.7"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
@@ -193,7 +193,7 @@
                 <!-- Browser automation belongs with its Browser Agent model role. -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="14">
-                        <TextBlock Text="{loc:Loc Config.Browser}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.Browser}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="8">
                             <TextBlock Text="{loc:Loc Config.BrowserEnabled}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.BrowserEnabled}" HorizontalAlignment="Left"/>
@@ -237,15 +237,15 @@
                                 <u:IconButton Command="{Binding TestBrowserAgentCommand}" IsLoading="{Binding IsTestingBrowserAgent}" Content="{loc:Loc Config.BtnRunDiagnostics}"/>
                             </StackPanel>
                         </Grid>
-                        <TextBlock Text="{Binding BrowserRuntimeStatus}" IsVisible="{Binding HasBrowserRuntimeStatus}" FontSize="11" Opacity="0.7"/>
-                        <TextBlock Text="{Binding BrowserAgentTestStatus}" IsVisible="{Binding HasBrowserAgentTestStatus}" FontSize="11" Opacity="0.7"/>
+                        <TextBlock Text="{Binding BrowserRuntimeStatus}" IsVisible="{Binding HasBrowserRuntimeStatus}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
+                        <TextBlock Text="{Binding BrowserAgentTestStatus}" IsVisible="{Binding HasBrowserAgentTestStatus}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
                     </StackPanel>
                 </Border>
 
                 <!-- Context management -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.SectionMemory}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.SectionMemory}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="12">
                             <TextBlock Text="{loc:Loc Config.CtxUsage}" VerticalAlignment="Center" Opacity="0.8"/>
                             <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -261,7 +261,7 @@
                                     <TextBlock Text="{Binding TokenService.TokenInfoText}"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
-                                               FontSize="11"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis"/>
                                 </Grid>
@@ -283,7 +283,7 @@
                         </Grid>
                         <Border Background="{DynamicResource App.AssistantBubbleBg}" CornerRadius="4">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="{loc:Loc Config.CompressionPreview}" FontSize="12" FontWeight="SemiBold" Opacity="0.7"/>
+                                <TextBlock Text="{loc:Loc Config.CompressionPreview}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold" Opacity="0.7"/>
                                 <Border BorderThickness="1" BorderBrush="LightGray" CornerRadius="5">
                                     <ScrollViewer MinHeight="50" MaxHeight="300">
                                         <lmd:MarkdownRenderer loc:MarkdownHelper.Text="{Binding TokenService.CompressionPreview}"/>
@@ -301,7 +301,7 @@
                 <!-- Tool approval -->
                 <Border Background="{DynamicResource App.SectionBg}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,60" Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.ToolApproval.Header}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.Header}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20">
                             <TextBlock Text="{loc:Loc Config.ToolApproval.Mode}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ComboBox Grid.Column="1" ItemsSource="{Binding ToolApprovalModes}" SelectedItem="{Binding Config.ToolApprovalMode}">
@@ -309,8 +309,8 @@
                                     <DataTemplate><TextBlock Text="{Binding Converter={StaticResource ToolApprovalModeToDisplay}}"/></DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{loc:Loc Config.ToolApproval.ModeHint}" IsVisible="{Binding !IsAutomaticApproval}" FontSize="12" Opacity="0.6" Margin="0,8"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{loc:Loc Config.ToolApproval.AutomaticHint}" IsVisible="{Binding IsAutomaticApproval}" FontSize="12" Opacity="0.8" Margin="0,8"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{loc:Loc Config.ToolApproval.ModeHint}" IsVisible="{Binding !IsAutomaticApproval}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6" Margin="0,8"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{loc:Loc Config.ToolApproval.AutomaticHint}" IsVisible="{Binding IsAutomaticApproval}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.8" Margin="0,8"/>
                             <TextBlock Grid.Row="2" Text="{loc:Loc Config.ToolApproval.SubAgentsInherit}" VerticalAlignment="Center" Opacity="0.8"/>
                             <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding Config.SubAgentsInheritApproval}" HorizontalAlignment="Left"/>
                         </Grid>
@@ -321,10 +321,10 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid ColumnDefinitions="120,*" Margin="0,2">
-                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="13"/>
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Subheading}"/>
                                             <Button Grid.Column="1" Content="{loc:Loc Config.ToolApproval.Revoke}"
                                                     Command="{Binding $parent[ItemsControl].((vm:ConfigTabViewModel)DataContext).RevokeAutoAllowedToolCommand}"
-                                                    CommandParameter="{Binding}" FontSize="12" Padding="8,2"/>
+                                                    CommandParameter="{Binding}" FontSize="{DynamicResource App.FontSize.Body}" Padding="8,2"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -337,10 +337,10 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid ColumnDefinitions="120,*" Margin="0,2">
-                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="13"/>
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Subheading}"/>
                                             <Button Grid.Column="1" Content="{loc:Loc Config.ToolApproval.Revoke}"
                                                     Command="{Binding $parent[ItemsControl].((vm:ConfigTabViewModel)DataContext).RevokeTerminalAllowlistCommand}"
-                                                    CommandParameter="{Binding}" FontSize="12" Padding="8,2"/>
+                                                    CommandParameter="{Binding}" FontSize="{DynamicResource App.FontSize.Body}" Padding="8,2"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>

@@ -28,7 +28,7 @@
                 Padding="12,8">
             <TextBlock Text="{loc:Loc Logs.Header}"
                        FontWeight="SemiBold"
-                       FontSize="14"/>
+                       FontSize="{DynamicResource App.FontSize.Heading}"/>
         </Border>
 
         <!-- SEARCH & FILTER BAR：与历史页同款布局；选"自定义范围"时展开日期行 -->
@@ -138,7 +138,7 @@
                                     <!-- Timestamp -->
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Timestamp, StringFormat='{}{0:MM-dd HH:mm:ss}'}"
-                                               FontSize="11"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                Opacity="0.6"
                                                VerticalAlignment="Center"/>
                                     <!-- Level Indicator -->
@@ -152,7 +152,7 @@
                                         <TextBlock Text="{Binding Level}"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                  FontSize="10"
+                                                  FontSize="{DynamicResource App.FontSize.Caption}"
                                                   FontWeight="Bold"
                                                   Foreground="{Binding LevelForeground}"/>
                                     </Border>
@@ -163,7 +163,7 @@
                                               TextWrapping="Wrap"
                                               MaxHeight="72"
                                               TextTrimming="CharacterEllipsis"
-                                              FontSize="12"
+                                              FontSize="{DynamicResource App.FontSize.Body}"
                                               VerticalAlignment="Center"
                                               LineHeight="18"/>
                                 </Grid>
@@ -191,20 +191,20 @@
 
                 <!-- Total Count -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <TextBlock Text="{loc:Loc Logs.TotalEvents}" FontSize="12" Opacity="0.6"/>
-                    <TextBlock Text="{Binding TotalLogCount}" FontWeight="Bold" FontSize="12"/>
+                    <TextBlock Text="{loc:Loc Logs.TotalEvents}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                    <TextBlock Text="{Binding TotalLogCount}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Body}"/>
                 </StackPanel>
 
                 <!-- Page Size -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,24,0">
-                    <TextBlock Text="{loc:Loc Logs.Limit}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"/>
+                    <TextBlock Text="{loc:Loc Logs.Limit}" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center" Opacity="0.6"/>
                     <ComboBox ItemsSource="{Binding LogPageSizes}" SelectedItem="{Binding SelectedLogPageSize}" MinWidth="80" Padding="4,2"/>
                 </StackPanel>
 
                 <!-- Pagination Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <Button Content="&lt;" Command="{Binding PrevPageCommand}" IsEnabled="{Binding HasPrevPage}" Padding="12,4"/>
-                    <TextBlock Text="{Binding CurrentPageInfo}" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" TextAlignment="Center" MinWidth="80"/>
+                    <TextBlock Text="{Binding CurrentPageInfo}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center" TextAlignment="Center" MinWidth="80"/>
                     <Button Content="&gt;" Command="{Binding NextPageCommand}" IsEnabled="{Binding HasNextPage}" Padding="12,4"/>
                 </StackPanel>
 

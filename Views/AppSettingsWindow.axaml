@@ -9,11 +9,11 @@
         WindowStartupLocation="CenterOwner">
     <ScrollViewer>
         <StackPanel Margin="24" Spacing="16" MaxWidth="760">
-            <TextBlock Text="应用设置" FontSize="24" FontWeight="SemiBold"/>
+            <TextBlock Text="应用设置" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             <TextBlock Text="修改即时保存。" Opacity="0.65"/>
             <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                 <StackPanel Spacing="10">
-                    <TextBlock Text="外观与语言" FontSize="17" FontWeight="SemiBold"/>
+                    <TextBlock Text="外观与语言" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="180,*">
                         <TextBlock Text="主题" VerticalAlignment="Center"/>
                         <ComboBox Grid.Column="1" SelectedItem="{Binding AppSettings.Config.Theme}">
@@ -30,7 +30,7 @@
             </Border>
             <Border Padding="16" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                 <StackPanel Spacing="10">
-                    <TextBlock Text="运行与上下文" FontSize="17" FontWeight="SemiBold"/>
+                    <TextBlock Text="运行与上下文" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="260,*"><TextBlock Text="主对话全局并发上限"/><NumericUpDown Grid.Column="1" Minimum="1" Maximum="16" Value="{Binding AppSettings.Config.MainConversationMaxParallel}"/></Grid>
                     <Grid ColumnDefinitions="260,*"><TextBlock Text="最大上下文 Token"/><NumericUpDown Grid.Column="1" Minimum="1000" Maximum="2000000" Value="{Binding AppSettings.Config.MaxContextTokens}"/></Grid>
                     <Grid ColumnDefinitions="260,*"><TextBlock Text="自动压缩阈值"/><NumericUpDown Grid.Column="1" Minimum="1000" Maximum="2000000" Value="{Binding AppSettings.Config.CompressionThreshold}"/></Grid>

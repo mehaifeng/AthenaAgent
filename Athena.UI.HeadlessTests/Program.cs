@@ -97,24 +97,27 @@ var addWorkspaceButton = window.FindControl<Button>("AddWorkspaceButton")
                          ?? throw new InvalidOperationException("Add-workspace command was not created.");
 if (addWorkspaceButton.Bounds.Left - searchBox.Bounds.Right < 5)
     throw new InvalidOperationException("Workspace search and add controls need a visible gap.");
-var workspaceCards = window.GetVisualDescendants().OfType<Border>()
-    .Where(border => border.Classes.Contains("workspace-card"))
+var workspaceCards = window.GetVisualDescendants().OfType<StackPanel>()
+    .Where(panel => panel.Classes.Contains("nav-group"))
     .ToList();
 if (workspaceCards.Count < 2
-    || workspaceCards.Any(border => border.BorderThickness != default || border.Background == null))
-    throw new InvalidOperationException("Workspace items must retain their background without an outer border.");
-if (workspaceCards.Any(card => !card.GetVisualDescendants().OfType<Expander>().Any()))
-    throw new InvalidOperationException("Every workspace card must retain its native expander behavior.");
+    || workspaceCards.Any(panel => panel.GetVisualDescendants().OfType<Expander>().Any()))
+    throw new InvalidOperationException("Conversation groups must use stacked nav-group layout without card expanders.");
+var expandButtons = window.GetVisualDescendants().OfType<Button>()
+    .Where(button => button.Classes.Contains("nav-expand"))
+    .ToList();
+if (expandButtons.Count < 2)
+    throw new InvalidOperationException("Every conversation group header must expose a dedicated expand toggle.");
 var conversationCards = window.GetVisualDescendants().OfType<Grid>()
     .Where(grid => grid.Classes.Contains("conversation-row"))
     .ToList();
 if (conversationCards.Count < 4
     || conversationCards.Any(row => row.DataContext is not ConversationSessionItemViewModel))
     throw new InvalidOperationException("Every session item must render as a conversation-row.");
-var pinnedConversationsCard = window.FindControl<Border>("PinnedConversationsCard")
-                              ?? throw new InvalidOperationException("Pinned conversation container was not created.");
-if (pinnedConversationsCard.BorderThickness != default || pinnedConversationsCard.Background == null)
-    throw new InvalidOperationException("Pinned conversation container must retain its background without an outer border.");
+var pinnedConversationsSection = window.FindControl<StackPanel>("PinnedConversationsSection")
+                                   ?? throw new InvalidOperationException("Pinned conversation container was not created.");
+if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "已完成"))
+    throw new InvalidOperationException("Session rows must not render status text on the right.");
 var activeSessionTitle = conversationCards
     .Where(row => ReferenceEquals(row.DataContext, activeSession))
     .SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>())
@@ -167,7 +170,7 @@ await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapE
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
 Console.WriteLine("[PASS] three semantic columns, two splitters, side minimum widths, permanent chat, no main TabStrip");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
-Console.WriteLine("[PASS] workspace cards, pinned conversations, overflow menus, footer settings, and search spacing");
+Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, footer settings, and search spacing");
 window.Close();
 
 var groupCommandChecks = new WorkspaceConversationGroupViewModel(workspaceProfile);

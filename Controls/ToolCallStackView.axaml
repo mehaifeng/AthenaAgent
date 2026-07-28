@@ -61,7 +61,7 @@
 
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding Summary}"
-                                               FontSize="11"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                MaxLines="1"
                                                TextWrapping="NoWrap"
                                                TextTrimming="CharacterEllipsis"
@@ -88,24 +88,24 @@
                                         Spacing="4">
                                 <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
                                            IsVisible="{Binding HasArguments}"
-                                           FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                           FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
                                 <Border IsVisible="{Binding HasArguments}"
                                         Background="{DynamicResource App.SelectedBackground}"
                                         CornerRadius="4" Padding="6">
                                     <SelectableTextBlock Text="{Binding Arguments}"
                                                          FontFamily="{StaticResource MonospaceFontFamily}"
-                                                         FontSize="11"
+                                                         FontSize="{DynamicResource App.FontSize.Body}"
                                                          TextWrapping="Wrap"/>
                                 </Border>
 
                                 <TextBlock Text="{loc:Loc Tool.ResultLabel}"
                                            IsVisible="{Binding HasResult}"
-                                           FontSize="10" FontWeight="SemiBold" Opacity="0.6"/>
+                                           FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
                                 <Border IsVisible="{Binding HasResult}"
                                         Background="{DynamicResource App.SelectedBackground}"
                                         CornerRadius="4" Padding="6">
                                     <SelectableTextBlock Text="{Binding Result}"
-                                                         FontSize="11"
+                                                         FontSize="{DynamicResource App.FontSize.Body}"
                                                          TextWrapping="Wrap"/>
                                 </Border>
                             </StackPanel>
@@ -127,7 +127,7 @@
                 HorizontalContentAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="6">
                 <PathIcon x:Name="PART_ToggleIcon" Width="13" Height="13" Opacity="0.7" VerticalAlignment="Center"/>
-                <TextBlock x:Name="PART_ToggleText" FontSize="12" Opacity="0.7" VerticalAlignment="Center"/>
+                <TextBlock x:Name="PART_ToggleText" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7" VerticalAlignment="Center"/>
             </StackPanel>
         </Button>
     </StackPanel>

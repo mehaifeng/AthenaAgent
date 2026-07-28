@@ -16,7 +16,7 @@
     </UserControl.Resources>
     <Grid RowDefinitions="40,*">
         <Border Grid.Row="0" CornerRadius="0,0,5,5" Background="{DynamicResource App.SectionBg}" Padding="12,8">
-            <TextBlock Text="{loc:Loc Skills.Title}" FontWeight="SemiBold" FontSize="14"/>
+            <TextBlock Text="{loc:Loc Skills.Title}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Heading}"/>
         </Border>
         <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
             <Grid RowDefinitions="Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" HorizontalAlignment="Stretch">
@@ -30,12 +30,12 @@
                         <Button Grid.Column="4" Content="{loc:Loc Skills.ImportFolder}" Command="{Binding ImportFolderCommand}"/>
                         <Button Grid.Column="5" Content="{loc:Loc Skills.OpenFolder}" Command="{Binding OpenSkillsDirectoryCommand}"/>
                     </Grid>
-                    <TextBlock Text="{loc:Loc Skills.Description}" FontSize="12" Opacity="0.7" TextWrapping="Wrap"/>
+                    <TextBlock Text="{loc:Loc Skills.Description}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7" TextWrapping="Wrap"/>
                     <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="{loc:Loc Skills.MarketHint}" FontSize="12" Opacity="0.7"/>
-                        <HyperlinkButton Content="{loc:Loc Skills.MarketLink}" NavigateUri="https://mcpservers.org/agent-skills" FontSize="12" Padding="0" MinHeight="0"/>
+                        <TextBlock Text="{loc:Loc Skills.MarketHint}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
+                        <HyperlinkButton Content="{loc:Loc Skills.MarketLink}" NavigateUri="https://mcpservers.org/agent-skills" FontSize="{DynamicResource App.FontSize.Body}" Padding="0" MinHeight="0"/>
                     </StackPanel>
-                    <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.75"/>
+                    <TextBlock Text="{Binding Status}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75"/>
                     <ItemsControl ItemsSource="{Binding Skills}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:SkillItemViewModel">
@@ -46,7 +46,7 @@
                                             <Button Grid.Column="1" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).ToggleExpandedCommand}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Skill.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding Skill.Description}" FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" MaxWidth="450"/>
+                                                    <TextBlock Text="{Binding Skill.Description}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7" TextTrimming="CharacterEllipsis" MaxWidth="450"/>
                                                 </StackPanel>
                                             </Button>
                                             <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center"/>
@@ -57,15 +57,15 @@
                                         <StackPanel IsVisible="{Binding IsExpanded}" Spacing="7" Margin="30,4,0,0">
                                             <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
                                                 <TextBlock Grid.Column="0" Text="{loc:Loc Skills.Source}" Opacity="0.7"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Skill.RootDirectory}" TextWrapping="Wrap" FontSize="12"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Skill.RootDirectory}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
                                             </Grid>
                                             <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
                                                 <TextBlock Grid.Column="0" Text="{loc:Loc Skills.Compatibility}" Opacity="0.7"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Skill.Compatibility}" TextWrapping="Wrap" FontSize="12"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Skill.Compatibility}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
                                             </Grid>
-                                            <TextBlock Text="{Binding Resources}" FontSize="12" Opacity="0.7"/>
-                                            <TextBlock Text="{Binding Diagnostics}" IsVisible="{Binding Skill.HasDiagnostics}" FontSize="12" Foreground="Orange" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding Skill.InstructionsPreview}" FontSize="12" TextWrapping="Wrap" MaxHeight="150"/>
+                                            <TextBlock Text="{Binding Resources}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.7"/>
+                                            <TextBlock Text="{Binding Diagnostics}" IsVisible="{Binding Skill.HasDiagnostics}" FontSize="{DynamicResource App.FontSize.Body}" Foreground="Orange" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Skill.InstructionsPreview}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap" MaxHeight="150"/>
                                             <Button Content="{loc:Loc Skills.OpenFile}" Command="{Binding $parent[UserControl].((vm:SkillsTabViewModel)DataContext).OpenSkillFileCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left"/>
                                         </StackPanel>
                                     </StackPanel>

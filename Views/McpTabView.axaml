@@ -31,7 +31,7 @@
                 Padding="12,8">
             <TextBlock Text="{loc:Loc Config.Mcp}"
                        FontWeight="SemiBold"
-                       FontSize="14"/>
+                       FontSize="{DynamicResource App.FontSize.Heading}"/>
         </Border>
 
         <!-- SCROLLABLE CONTENT -->
@@ -50,17 +50,17 @@
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableMcp}" HorizontalAlignment="Left"/>
                         </Grid>
                         <StackPanel Spacing="4">
-                            <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                            <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap"/>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{loc:Loc Config.Mcp.ExampleHint}"
                                            TextWrapping="Wrap"
-                                           FontSize="11"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
                                            Opacity="0.6"
                                            VerticalAlignment="Center"/>
                                 <HyperlinkButton Margin="5,0,0,0"
                                                  Content="{loc:Loc Config.Mcp.ExampleLink}"
                                                  NavigateUri="https://mcpservers.org"
-                                                 FontSize="11"
+                                                 FontSize="{DynamicResource App.FontSize.Body}"
                                                  Padding="0"
                                                  MinHeight="0"
                                                  VerticalAlignment="Center"/>
@@ -103,7 +103,7 @@
                                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                     <Ellipse Width="10" Height="10" VerticalAlignment="Center"
                                                              Fill="{Binding Status, Converter={StaticResource McpStatusToBrushConverter}}"/>
-                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="12"
+                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}"
                                                                MaxWidth="180" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
                                                 <!-- 重连：仅在连接失败时出现（改动配置会自动重连，此处用于配置未变时的失败重试） -->
@@ -229,7 +229,7 @@
                             <Button Grid.Column="0" Content="{loc:Loc Config.Mcp.Import}"
                                     Command="{Binding ImportMcpJsonCommand}"
                                     IsEnabled="{Binding Config.EnableMcp}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+                            <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

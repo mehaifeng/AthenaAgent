@@ -78,7 +78,7 @@
         <!-- lang：语言分段切换。未选中=透明底+正常文字；选中=前景色反转实底 -->
         <Style Selector="ToggleButton.lang">
             <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
             <Setter Property="Padding" Value="10,4"/>
         </Style>
         <Style Selector="ToggleButton.lang /template/ ContentPresenter">
@@ -120,7 +120,7 @@
         </Style>
         <Style Selector="TextBlock.mono">
             <Setter Property="FontFamily" Value="Consolas, Menlo, monospace"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
             <Setter Property="Opacity" Value="0.7"/>
         </Style>
         <Style Selector="Border.chip">
@@ -149,7 +149,7 @@
                     <Image Source="avares://Athena.UI/Assets/AthenaAgent.png" Width="54" Height="54" Stretch="Fill"/>
                 </Border>
                 <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="ΑΘΗΝΑ · Athena" FontSize="19" FontWeight="SemiBold" LetterSpacing="1"/>
+                    <TextBlock Text="ΑΘΗΝΑ · Athena" FontSize="{DynamicResource App.FontSize.Brand}" FontWeight="SemiBold" LetterSpacing="1"/>
                     <TextBlock Classes="mono" Text="{loc:Loc Onboarding.Motto}"/>
                 </StackPanel>
             </StackPanel>
@@ -190,12 +190,12 @@
 
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Opacity="0.8"/>
                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PrimaryProvider.BaseUrl}"
-                         FontFamily="Consolas, Menlo, monospace" FontSize="12" Margin="0,0,0,8"/>
+                         FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}" Margin="0,0,0,8"/>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Opacity="0.8"/>
                 <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
                     <TextBox Text="{Binding PrimaryProvider.ApiKey}" PasswordChar="*"
-                             FontFamily="Consolas, Menlo, monospace" FontSize="12"/>
+                             FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}"/>
                     <Button Grid.Column="1" Command="{Binding LoadModelOptionsCommand}" Content="{loc:Loc Config.RefreshModelList}"/>
                 </Grid>
 
@@ -213,14 +213,14 @@
             <!-- 最小化配置：只要求首个供应商和主对话模型。 -->
             <Border Classes="card" Margin="0,4,0,0">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="其他模型分工默认复用主模型，可在下一步展开调整；Embedding 与图像识别均为可选。" FontSize="12" Opacity="0.65"/>
+                    <TextBlock Text="其他模型分工默认复用主模型，可在下一步展开调整；Embedding 与图像识别均为可选。" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65"/>
                     <WrapPanel>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="Embedding"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Config.ModelRole.Approval}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.SubAgents}"/></Border>
-                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="11" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Browser}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Primary}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Background}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="Embedding"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Config.ModelRole.Approval}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.SubAgents}"/></Border>
+                        <Border Classes="chip" Margin="0,0,6,6"><TextBlock FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.75" Text="{loc:Loc Onboarding.Role.Browser}"/></Border>
                     </WrapPanel>
                 </StackPanel>
             </Border>
@@ -229,7 +229,7 @@
         <!-- Step 2：可选模型分工，默认留空即在完成时复用主模型。 -->
         <ScrollViewer Grid.Row="1" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
             <StackPanel Spacing="12">
-                <TextBlock Text="模型分工（可选）" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock Text="模型分工（可选）" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                 <TextBlock Text="留空的通用分工会自动复用主对话模型。Embedding 与图像识别留空即禁用。" Opacity="0.65"/>
                 <Expander Header="展开高级分工">
                     <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" Margin="0,10,0,0">
@@ -252,7 +252,7 @@
         <!-- Step 3：神谕开场 -->
         <StackPanel Grid.Row="1" Spacing="14" IsVisible="{Binding IsStep3}" VerticalAlignment="Center">
             <TextBlock Classes="mono" Text="{loc:Loc Onboarding.Step3Oracle}" HorizontalAlignment="Center"/>
-            <TextBlock Text="{loc:Loc Onboarding.Step3Welcome}" FontSize="16" TextWrapping="Wrap"
+            <TextBlock Text="{loc:Loc Onboarding.Step3Welcome}" FontSize="{DynamicResource App.FontSize.Title}" TextWrapping="Wrap"
                        HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="520"/>
             <StackPanel Spacing="8" Margin="0,10,0,0" HorizontalAlignment="Center" MinWidth="420">
                 <Button Classes="plain" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"

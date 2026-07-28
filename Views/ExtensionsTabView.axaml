@@ -25,7 +25,7 @@
                 Padding="12,8">
             <TextBlock Text="{loc:Loc Ext.Header}"
                        FontWeight="SemiBold"
-                       FontSize="14"/>
+                       FontSize="{DynamicResource App.FontSize.Heading}"/>
         </Border>
 
         <!-- SCROLLABLE CONTENT -->
@@ -37,7 +37,7 @@
                         CornerRadius="8"
                         Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.AudioOutput}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.AudioOutput}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                                 <StackPanel Spacing="12">
                                     <Grid ColumnDefinitions="120,*" ColumnSpacing="14" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ChatAudioEnabled}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.8"/>
@@ -82,7 +82,7 @@
                                                        TextWrapping="Wrap"
                                                        Margin="12,0,0,0"
                                                        VerticalAlignment="Center"
-                                                       FontSize="12"
+                                                       FontSize="{DynamicResource App.FontSize.Body}"
                                                        Opacity="0.8"/>
                                         </Grid>
 
@@ -116,7 +116,7 @@
                                                            TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Grid.Column="2"
                                                            Text="{Binding AudioTestAttachment.DisplaySize}"
-                                                           FontSize="10"
+                                                           FontSize="{DynamicResource App.FontSize.Caption}"
                                                            Opacity="0.65"
                                                            VerticalAlignment="Center"/>
                                             </Grid>
@@ -131,7 +131,7 @@
                         CornerRadius="8"
                         Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.ImageGeneration}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.ImageGeneration}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                                 <StackPanel Spacing="12">
                                     <Grid ColumnDefinitions="120,*" ColumnSpacing="14" RowDefinitions="Auto,Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.ImageGenerationEnabled}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.8"/>
@@ -155,7 +155,7 @@
                         CornerRadius="8"
                         Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.WebSearch}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.WebSearch}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                                 <StackPanel Spacing="12">
                                     <!-- 启用开关 -->
                                     <Grid ColumnDefinitions="120,*" ColumnSpacing="14">
@@ -197,7 +197,7 @@
                                                     Margin="12,0,0,0"
                                                     HorizontalAlignment="Left"
                                                     VerticalAlignment="Center"
-                                                    FontSize="12"
+                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                     Opacity="0.8"/>
                                         </Grid>
                                     </Grid>
@@ -210,11 +210,11 @@
                         CornerRadius="8"
                         Padding="16">
                     <StackPanel Spacing="16">
-                        <TextBlock Text="{loc:Loc Config.SectionDocumentParser}" FontWeight="Bold" FontSize="15"/>
+                        <TextBlock Text="{loc:Loc Config.SectionDocumentParser}" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Heading}"/>
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="{loc:Loc Config.DocumentParserDescription}"
                                                TextWrapping="Wrap"
-                                               FontSize="12"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                Opacity="0.7"/>
                                     <Grid ColumnDefinitions="120,*" ColumnSpacing="14" RowDefinitions="Auto,Auto,Auto">
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.DocumentParserEnabled}" TextWrapping="Wrap" VerticalAlignment="Center" Opacity="0.8"/>
@@ -237,13 +237,13 @@
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{loc:Loc Config.DocumentParserTokenHint}"
                                                            TextWrapping="Wrap"
-                                                           FontSize="11"
+                                                           FontSize="{DynamicResource App.FontSize.Body}"
                                                            Opacity="0.6"/>
                                                 <HyperlinkButton
                                                     Margin="5,0,0,0"
                                                     Content="{loc:Loc Config.DocumentParserGetToken}"
                                                     NavigateUri="https://mineru.net/apiManage/token"
-                                                    FontSize="11"
+                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                     Padding="0"
                                                     MinHeight="0"
                                                     VerticalAlignment="Center"/>
