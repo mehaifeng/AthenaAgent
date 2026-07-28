@@ -19,7 +19,7 @@ using Serilog;
 
 namespace Athena.UI.Services;
 
-public sealed class GitHubUpdateService : IUpdateService
+public sealed class GitHubUpdateService : IUpdateService, IDisposable
 {
     private const string LatestReleaseApiUrl = "https://api.github.com/repos/mehaifeng/AthenaAgent/releases/latest";
     private const string ManifestAssetName = "update-manifest.json";
@@ -553,6 +553,8 @@ public sealed class GitHubUpdateService : IUpdateService
         };
         return $"{os}-{arch}";
     }
+
+    public void Dispose() => _httpClient.Dispose();
 
     private sealed class GitHubReleaseDto
     {

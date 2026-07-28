@@ -1,5 +1,4 @@
 using Athena.UI.Services.Interfaces;
-using OpenAI;
 using OpenAI.Models;
 using Serilog;
 using System;

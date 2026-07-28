@@ -3,16 +3,19 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public sealed partial class AppSettingsViewModel : ViewModelBase
+public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 {
     private readonly AppConfigurationSession _configurationSession;
     private readonly IHeadlessBrowserService? _browserService;
     private readonly IBrowserVisionService? _browserVisionService;
     private readonly ILocalizationService? _localizationService;
+    private CancellationTokenSource _windowOperations = new();
 
     public AppSettingsViewModel(
         AppConfigurationSession configurationSession,
@@ -65,6 +68,22 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
 
     private void OnCurrentConfigChanged(object? sender, AppConfig config) => Config = config;
 
+    public void ActivateWindow()
+    {
+        if (!_windowOperations.IsCancellationRequested) return;
+        _windowOperations.Dispose();
+        _windowOperations = new CancellationTokenSource();
+        IsTestingBrowserRuntime = false;
+        IsInstallingBrowserRuntime = false;
+        IsTestingBrowserAgent = false;
+    }
+
+    public void DeactivateWindow()
+    {
+        if (!_windowOperations.IsCancellationRequested)
+            _windowOperations.Cancel();
+    }
+
     [RelayCommand]
     private void SetApprovalMode(string? mode)
     {
@@ -97,14 +116,19 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
 
         IsTestingBrowserRuntime = true;
         BrowserRuntimeStatus = GetString("Status.TestingConnection", "Testing...");
+        var cancellationToken = _windowOperations.Token;
         try
         {
-            var status = await _browserService.GetRuntimeStatusAsync();
+            var status = await _browserService.GetRuntimeStatusAsync(cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return;
             BrowserRuntimeStatus = status.Details == null ? status.Message : $"{status.Message}\n{status.Details}";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         finally
         {
-            IsTestingBrowserRuntime = false;
+            if (!cancellationToken.IsCancellationRequested) IsTestingBrowserRuntime = false;
         }
     }
 
@@ -119,13 +143,18 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
 
         IsInstallingBrowserRuntime = true;
         BrowserRuntimeStatus = GetString("Status.InstallingBrowserRuntime", "Installing browser runtime...");
+        var cancellationToken = _windowOperations.Token;
         try
         {
-            BrowserRuntimeStatus = (await _browserService.InstallRuntimeAsync()).Message;
+            var result = await _browserService.InstallRuntimeAsync(cancellationToken);
+            if (!cancellationToken.IsCancellationRequested) BrowserRuntimeStatus = result.Message;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         finally
         {
-            IsInstallingBrowserRuntime = false;
+            if (!cancellationToken.IsCancellationRequested) IsInstallingBrowserRuntime = false;
         }
     }
 
@@ -140,18 +169,30 @@ public sealed partial class AppSettingsViewModel : ViewModelBase
 
         IsTestingBrowserAgent = true;
         BrowserAgentTestStatus = GetString("Status.TestingConnection", "Testing...");
+        var cancellationToken = _windowOperations.Token;
         try
         {
             AppConfigNormalizer.NormalizeBrowser(Config);
             await _configurationSession.SaveNowAsync();
-            BrowserAgentTestStatus = (await _browserVisionService.TestConnectionAsync()).Message;
+            var result = await _browserVisionService.TestConnectionAsync(cancellationToken);
+            if (!cancellationToken.IsCancellationRequested) BrowserAgentTestStatus = result.Message;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         finally
         {
-            IsTestingBrowserAgent = false;
+            if (!cancellationToken.IsCancellationRequested) IsTestingBrowserAgent = false;
         }
     }
 
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
+
+    public void Dispose()
+    {
+        _windowOperations.Cancel();
+        _windowOperations.Dispose();
+        _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+    }
 }

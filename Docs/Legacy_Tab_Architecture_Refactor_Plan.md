@@ -17,12 +17,12 @@
 - [x] 阶段 3：已迁移旧 Config/Extensions 能力并删除孤儿 View/VM。
 - [x] 阶段 4：已删除旧 History 投影和 Tab 导航，归档状态、搜索与删除统一由会话树持有。
 - [x] 阶段 5：已完成仍在使用的 View/VM、功能窗口和 App Settings 窗口所有权重命名。
-- [ ] 阶段 6：待实施。
-- [ ] 阶段 7：待实施。
+- [x] 阶段 6：已完成动态会话、功能窗口、诊断任务和应用级服务的生命周期清理及重复释放测试。
+- [x] 阶段 7：已完成样式/注释/文档/截图清理，并将静态分析与两组测试纳入 CI。
 
-阶段 0 延期项：
+阶段 0 延期项已在阶段 6 关闭：
 
-- Main Conversation 释放测试、Provider Models 关闭后解除订阅依赖阶段 6 的生命周期 seam，未提前锁定当前泄漏行为。
+- Main Conversation 释放测试、Provider Models 关闭后解除订阅及进行中刷新取消均已补齐。
 
 ## 2. 结论
 
@@ -588,30 +588,70 @@ Main Conversation 重命名改动面最大，应最后执行，避免与功能�
 
 ### 阶段 6：生命周期清理
 
-1. `MainConversationViewModel` 实现明确的释放流程。
-2. 静态主题事件、Localization、ConfigChanged 改为具名订阅并解除。
-3. `ConversationSessionItemViewModel.Dispose()` 负责释放其拥有的 Main Conversation VM，或明确由会话容器统一释放。
-4. `ProviderModelsViewModel` 在窗口关闭时解除 Provider/Role 订阅。
-5. Skills/MCP/扩展页面根据窗口生命周期 Activate/Deactivate。
-6. 取消未完成的防抖、测试和网络 `CancellationTokenSource`。
-7. 增加反复打开/关闭窗口及创建/删除会话的生命周期测试。
+1. [x] `MainConversationViewModel` 实现明确且幂等的释放流程。
+2. [x] 静态主题事件、Localization、ConfigChanged 改为具名订阅并解除。
+3. [x] `ConversationSessionItemViewModel.Dispose()` 负责释放其拥有的 Main Conversation VM；`MainWindowViewModel` 统一释放仍在会话树中的 VM。
+4. [x] `ProviderModelsViewModel` 在窗口关闭时解除配置订阅，并取消进行中的模型刷新。
+5. [x] Skills/MCP/扩展页面由 `SkillsConnectorsWindowViewModel` 随窗口统一释放；App Settings 使用显式 Activate/Deactivate。
+6. [x] 取消未完成的防抖、模型刷新、诊断、音频、预览和对话后台 `CancellationTokenSource`。
+7. [x] 增加反复打开/关闭窗口及创建/删除会话的生命周期测试。
+
+#### 阶段 6 实施记录（2026-07-28）
+
+生命周期所有权：
+
+- `MainConversationViewModel`、`ConversationSessionItemViewModel` 和 `MainWindowViewModel` 均实现幂等释放；会话删除、主窗口关闭和应用退出形成从容器到会话再到对话 VM 的所有权链。
+- Main Conversation 的主题、本地化、配置、消息集合、附件集合、归档和子代理事件全部改为可解除的具名处理器；释放时同时停止计时器并取消响应、预览、截图和音频工作。
+- `ProviderModelsWindow`、`AppSettingsWindow`、`SkillsConnectorsWindow` 和 `OnboardingWindow` 在关闭时释放各自 DataContext；Provider Models、Web Search、语音、图像和文档设置页停止接收共享配置替换并取消仍在运行的诊断或刷新。
+- `App` 退出时先持久化主窗口状态，再释放主窗口 VM 和 DI 容器；持有 watcher、timer、semaphore、浏览器/向量/归档资源的进程级服务补充了明确释放路径。
+
+回归覆盖：
+
+- Headless 测试连续 10 次创建/删除会话，逐次验证 Config、Archive 和 Localization 的订阅计数回到零，并验证重复 `Dispose()` 安全。
+- Headless 测试连续 5 次实际打开/关闭 Skills & Connectors，确认六个页面关闭后不再接收外部配置替换。
+- Provider Models 测试确认释放会取消进行中的模型目录刷新，并解除共享配置会话订阅。
+
+与计划的偏差：
+
+- 为满足新增的 `CA1001`/`CA2000` 生命周期门禁，释放范围从窗口和页面 VM 扩展到确实持有 watcher、timer、semaphore、CTS 或其他 disposable 的应用级服务；这是分析器发现的同类所有权问题，没有扩展到新的产品能力或后续架构拆分。
+- Skills/MCP 页面已在阶段 2 采用窗口级聚合所有权，因此阶段 6 没有再引入额外 Activate 状态机，而是保留初始化一次、窗口关闭统一 Dispose 的模型。
 
 ### 阶段 7：样式、注释、文档和静态分析
 
-1. 删除应用内无实际 TabItem 后的全局 `TabItem` Style。
-2. 验证并清理 TabItem 主题画刷覆盖。
-3. 清理所有过时 Tab 注释和空 region。
-4. 更新 `AGENTS.md`、`CLAUDE.md` 的目录说明。
-5. 更新 README 和中英文用户指南。
-6. 重新截取当前 UI，使用语义化文件名替换 `*TabView.png`。
-7. 增加 `.editorconfig` 和 .NET analyzer 配置，至少启用：
+1. [x] 删除应用内无实际 TabItem 后的全局 `TabItem` Style。
+2. [x] 验证并清理 TabItem 主题画刷覆盖。
+3. [x] 清理所有过时 Tab 注释和空 region。
+4. [x] 更新 `AGENTS.md`、`CLAUDE.md` 的目录说明。
+5. [x] 更新 README 和中英文用户指南。
+6. [x] 重新截取当前 UI，使用语义化文件名替换 `*TabView.png`。
+7. [x] 增加 `.editorconfig` 和 .NET analyzer 配置，至少启用：
    - 未使用 private 成员
    - 未使用 using
    - 可释放对象和事件生命周期检查
    - async 方法与取消令牌规则
-8. 将 analyzer 纳入 CI，避免旧代码再次无声积累。
+8. [x] 将 analyzer 纳入 CI，避免旧代码再次无声积累。
 
-当前 `dotnet build` 为 0 警告，但项目没有显式 analyzer 配置，因此不能把 0 警告解释为没有死代码。
+#### 阶段 7 实施记录（2026-07-28）
+
+- `App.axaml` 已删除全局 `TabItem` Style、字体选择器中的 `TabItem` 以及明暗主题内的 Tab 选中画刷覆盖；空的旧 Tab region 和过时注释一并清理。
+- `AGENTS.md`、`CLAUDE.md`、README、README_CN 和中英文用户指南已改用三栏主壳、语义化功能窗口、App Settings、Provider Models、Skills & Connectors 和 Knowledge Base 的当前术语。
+- Headless 测试直接生成 `MainShell.png`、`KnowledgeBaseWindow.png`、`AppSettingsWindow.png` 和 `SkillsConnectorsWindow.png`；文档引用已切换，6 张旧 `*TabView.png` 已删除。
+- 新增 `.editorconfig`，将 IDE0005、IDE0051、CA1001、CA2000、CA2012、CA2016 提升为构建错误；`Directory.Build.props` 显式启用最新 .NET analyzer 和构建时代码风格检查。
+- 新增 `.gitattributes`，让 Git 的空白检查正确识别仓库既有 C# CRLF 行尾，避免把合法的回车误报为尾随空白。
+- CI 现在执行 Release 模式的 Build and analyze，并在同一构建产物上运行 Archive Tests 与 Headless UI Tests。
+
+与计划的偏差：
+
+- 截图由 Headless 测试确定性生成，而不是手工截取；这样可以让文档截图与受测窗口组合保持同步。
+- CA2000 对窗口/聚合 VM 的明确所有权转移存在数据流误报：生产代码使用窄范围、带理由的 `SuppressMessage`，Headless 组合根使用文件级 CA2000 抑制；规则仍在其他生产和测试代码中保持 error，未全局降级。
+- 启用 IDE0005 后机械清理了历史无效 `using`；其中源生成器依赖但编译器误判的 JSON 属性改为完全限定名，未关闭规则。
+- 为让构建时代码风格分析稳定运行启用了文档文件生成；既有 XML 注释完整性告警（CS1573/CS1574/CS1591）不属于本阶段的死代码/生命周期范围，保持定向 `NoWarn`，没有降低新增 analyzer 规则。
+
+验证结果：
+
+- [x] `dotnet build Athena.UI.sln --configuration Release --no-restore -p:ContinuousIntegrationBuild=true`：0 warning，0 error。
+- [x] `dotnet run --project Athena.Archive.Tests --configuration Release --no-build`：全部通过。
+- [x] `dotnet run --project Athena.UI.HeadlessTests --configuration Release --no-build`：全部通过。
 
 ## 8. 提交拆分建议
 
@@ -646,40 +686,40 @@ Main Conversation 重命名改动面最大，应最后执行，避免与功能�
 
 ### 架构
 
-- [ ] 主窗口中不存在旧主 Tab 导航状态。
-- [ ] 每个独立窗口都有自己的 VM。
-- [ ] `SkillsConnectorsWindow` 是纯窗口壳。
-- [ ] 六个 Skills/Connectors 页面各有独立 View 和 VM。
-- [ ] 配置只有一个内存实例和一个自动保存所有者。
-- [ ] 页面 VM 不依赖已不可见的 `ConfigTabViewModel`。
-- [ ] 动态 VM 的全局事件订阅可以完整解除。
+- [x] 主窗口中不存在旧主 Tab 导航状态。
+- [x] 每个独立窗口都有自己的 VM。
+- [x] `SkillsConnectorsWindow` 是纯窗口壳。
+- [x] 六个 Skills/Connectors 页面各有独立 View 和 VM。
+- [x] 配置只有一个内存实例和一个自动保存所有者。
+- [x] 页面 VM 不依赖已不可见的 `ConfigTabViewModel`。
+- [x] 动态 VM 的全局事件订阅可以完整解除。
 
 ### 代码
 
-- [ ] 不存在无入口的 Config/Extensions/History View。
-- [ ] 不存在旧 `SelectedTabIndex`、魔法页面索引和空 Tab region。
-- [ ] 除 Workspace 文件编辑器外，不再使用旧主 Tab 语义命名。
-- [ ] XAML 不通过祖先强转获取页面命令或选项。
-- [ ] 用户可见文本全部通过 localization 资源。
+- [x] 不存在无入口的 Config/Extensions/History View。
+- [x] 不存在旧 `SelectedTabIndex`、魔法页面索引和空 Tab region。
+- [x] 除 Workspace 文件编辑器外，不再使用旧主 Tab 语义命名。
+- [x] XAML 不通过祖先强转获取页面命令或选项。
+- [x] 用户可见文本全部通过 localization 资源。
 
 ### 行为
 
-- [ ] 原有六个 Skills/Connectors 页面功能可用。
-- [ ] 语音和 Web Search 测试可用。
-- [ ] 文档解析模式和 Token 条件正确。
-- [ ] Provider、MCP、Extension Settings 修改可持久化。
-- [ ] 一次配置编辑只产生一次预期保存/广播。
-- [ ] 会话创建、删除、切换和归档行为无回归。
+- [x] 原有六个 Skills/Connectors 页面功能可用。
+- [x] 语音和 Web Search 测试可用。
+- [x] 文档解析模式和 Token 条件正确。
+- [x] Provider、MCP、Extension Settings 修改可持久化。
+- [x] 一次配置编辑只产生一次预期保存/广播。
+- [x] 会话创建、删除、切换和归档行为无回归。
 
 ### 验证
 
-- [ ] `dotnet build Athena.UI.sln --no-restore`
-- [ ] `dotnet run --project Athena.Archive.Tests`
-- [ ] `dotnet run --project Athena.UI.HeadlessTests`
-- [ ] Skills/Connectors 六页 Headless 渲染检查
-- [ ] 多次打开/关闭设置窗口的生命周期检查
-- [ ] 多会话创建/删除后的对象释放检查
-- [ ] README、用户指南、AGENTS/CLAUDE 与当前结构一致
+- [x] `dotnet build Athena.UI.sln --no-restore`
+- [x] `dotnet run --project Athena.Archive.Tests`
+- [x] `dotnet run --project Athena.UI.HeadlessTests`
+- [x] Skills/Connectors 六页 Headless 渲染检查
+- [x] 多次打开/关闭设置窗口的生命周期检查
+- [x] 多会话创建/删除后的对象释放检查
+- [x] README、用户指南、AGENTS/CLAUDE 与当前结构一致
 
 ## 11. 推荐起点
 

@@ -19,7 +19,7 @@ namespace Athena.UI.Services.Parsers;
 /// - 精度解析（Precision）：需要 Token，支持更大文件与更高精度。
 /// 两种方式均为「提交 -> 轮询 -> 下载结果」的异步流程。
 /// </summary>
-public class MinerUDocumentParserService : IDocumentParserService
+public class MinerUDocumentParserService : IDocumentParserService, IDisposable
 {
     private const string AgentBaseUrl = "https://mineru.net/api/v1/agent";
     private const string PrecisionFileUrlsEndpoint = "https://mineru.net/api/v4/file-urls/batch";
@@ -82,9 +82,10 @@ public class MinerUDocumentParserService : IDocumentParserService
     {
         // 1. 申请签名上传地址
         var requestBody = JsonSerializer.Serialize(new { file_name = fileName });
+        using var submitContent = new StringContent(requestBody, Encoding.UTF8, "application/json");
         using var submitResponse = await _httpClient.PostAsync(
             $"{AgentBaseUrl}/parse/file",
-            new StringContent(requestBody, Encoding.UTF8, "application/json"),
+            submitContent,
             cancellationToken);
 
         var submitJson = await submitResponse.Content.ReadAsStringAsync(cancellationToken);
@@ -293,6 +294,8 @@ public class MinerUDocumentParserService : IDocumentParserService
             ? value.GetString()
             : null;
     }
+
+    public void Dispose() => _httpClient.Dispose();
 }
 
 internal static class ZipArchiveExtensions

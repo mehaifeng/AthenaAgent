@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -19,7 +20,7 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class MainWindowViewModel : ViewModelBase
+public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly ILogger _logger = Log.ForContext<MainWindowViewModel>();
     private readonly ILocalizationService? _localizationService;
@@ -29,10 +30,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IWorkspaceService? _workspaceService;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly IConfigService? _configService;
+    private readonly ITaskScheduler? _taskScheduler;
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly DispatcherTimer? _compactLogTimer;
     private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
     private readonly Func<AppSettingsWindowViewModel>? _appSettingsFactory;
+    private bool _disposed;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
 
@@ -89,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedConversationChanged(ConversationSessionItemViewModel? oldValue, ConversationSessionItemViewModel? newValue)
     {
+        var previousConversation = MainConversationViewModel;
         if (oldValue != null) oldValue.IsSelected = false;
         if (newValue == null) return;
         if (oldValue != null
@@ -105,6 +109,12 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         newValue.IsSelected = true;
         MainConversationViewModel = newValue.Chat;
+        if (!ReferenceEquals(previousConversation, newValue.Chat)
+            && ConversationGroups.SelectMany(group => group.Conversations)
+                .All(session => !ReferenceEquals(session.Chat, previousConversation)))
+        {
+            previousConversation.Dispose();
+        }
         _workspaceService?.SetActiveWorkspace(newValue.Workspace);
         if (Workbench != null) _ = Workbench.SetWorkspaceAsync(newValue.Workspace);
         RebuildCompactLogs();
@@ -187,12 +197,13 @@ public partial class MainWindowViewModel : ViewModelBase
         _workspaceService = workspaceService;
         _userInteractionService = userInteractionService;
         _configService = configService;
+        _taskScheduler = taskScheduler;
         Workbench = workbench;
         AppSettings = appSettings;
         _approvalQueue = approvalQueue;
         _skillsConnectorsFactory = skillsConnectorsFactory;
         _appSettingsFactory = appSettingsFactory;
-        if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += (_, _) => RefreshApprovalStates();
+        if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += OnApprovalQueueChanged;
         Orchestrator = subAgentOrchestrator;
 
         // Initialize the live feature view models.
@@ -227,10 +238,14 @@ public partial class MainWindowViewModel : ViewModelBase
         if (logService != null)
         {
             _compactLogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _compactLogTimer.Tick += async (_, _) => await RefreshCompactLogsAsync();
+            _compactLogTimer.Tick += OnCompactLogTimerTick;
             _compactLogTimer.Start();
         }
     }
+
+    private void OnApprovalQueueChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshApprovalStates();
+
+    private async void OnCompactLogTimerTick(object? sender, EventArgs e) => await RefreshCompactLogsAsync();
 
     private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)
     {
@@ -767,7 +782,34 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    #region Global Commands (Proxy to Tab ViewModels if needed)
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
 
-    #endregion
+        if (_approvalQueue != null)
+            _approvalQueue.Pending.CollectionChanged -= OnApprovalQueueChanged;
+        if (_conversationArchiveService != null)
+        {
+            _conversationArchiveService.ArchiveStaged -= OnArchiveStaged;
+            _conversationArchiveService.ArchiveCompleted -= OnArchiveCompleted;
+            _conversationArchiveService.ArchiveFailed -= OnArchiveFailed;
+        }
+        if (_taskScheduler != null)
+            _taskScheduler.ProactiveMessageTriggered -= OnProactiveMessageTriggered;
+        if (_compactLogTimer != null)
+        {
+            _compactLogTimer.Stop();
+            _compactLogTimer.Tick -= OnCompactLogTimerTick;
+        }
+
+        foreach (var session in ConversationGroups
+                     .SelectMany(group => group.Conversations)
+                     .Distinct())
+        {
+            session.Dispose();
+        }
+        ConversationGroups.Clear();
+        PinnedConversations.Clear();
+    }
 }

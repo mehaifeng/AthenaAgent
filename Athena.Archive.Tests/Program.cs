@@ -2219,6 +2219,8 @@ sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost
 
 sealed class TestHarness : IDisposable
 {
+    private readonly List<IDisposable> _ownedResources = [];
+
     public TestHarness()
     {
         Root = Path.Combine(Path.GetTempPath(), "athena-archive-tests", Guid.NewGuid().ToString("N"));
@@ -2233,17 +2235,26 @@ sealed class TestHarness : IDisposable
     public ConversationArchiveService CreateHistoryService()
     {
         var store = new ConversationArchiveStore(PathService, Log.ForContext<ConversationArchiveStore>());
-        return new ConversationArchiveService(
+        _ownedResources.Add(store);
+        var service = new ConversationArchiveService(
             store,
             store,
             new TestTitleGenerator(),
             PathService,
             Log.ForContext<ConversationArchiveService>(),
             new ImageGenerationSessionService(PathService, Log.ForContext<ImageGenerationSessionService>()));
+        _ownedResources.Add(service);
+        return service;
     }
 
     public void Dispose()
     {
+        for (var index = _ownedResources.Count - 1; index >= 0; index--)
+        {
+            _ownedResources[index].Dispose();
+        }
+        _ownedResources.Clear();
+
         try
         {
             if (Directory.Exists(Root))

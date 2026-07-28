@@ -16,7 +16,7 @@ namespace Athena.UI.ViewModels;
 /// 首次启动引导向导（3 步：语言/主题+首个供应商/主模型 → 可选模型分工 → 起手语）。
 /// 首个供应商、API Key 与主模型是进入主应用前的最小必填配置。
 /// </summary>
-public partial class OnboardingViewModel : ObservableObject
+public partial class OnboardingViewModel : ObservableObject, IDisposable
 {
     private readonly IConfigService _configService;
     private readonly ILocalizationService? _localizationService;
@@ -386,5 +386,13 @@ public partial class OnboardingViewModel : ObservableObject
             role.ProviderId = providerId;
             if (reuseMainModel && string.IsNullOrWhiteSpace(role.Model)) role.Model = mainModel;
         }
+    }
+
+    public void Dispose()
+    {
+        _modelOptionsCts?.Cancel();
+        _modelOptionsCts?.Dispose();
+        _modelOptionsCts = null;
+        RequestClose = null;
     }
 }

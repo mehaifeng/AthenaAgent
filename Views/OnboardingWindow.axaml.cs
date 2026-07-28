@@ -1,5 +1,4 @@
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Athena.UI.ViewModels;
@@ -36,6 +35,12 @@ public partial class OnboardingWindow : Window
             vm.RequestClose = null;
         }
         base.OnClosing(e);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (DataContext is IDisposable disposable) disposable.Dispose();
+        base.OnClosed(e);
     }
 
     /// <summary>完成/跳过按钮的关窗请求：有交接回调则走版画揭幕流程（App 全程编排），否则直接关窗。</summary>

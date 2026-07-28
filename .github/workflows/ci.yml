@@ -27,5 +27,11 @@ jobs:
       - name: Restore
         run: dotnet restore Athena.UI.sln
 
-      - name: Build
-        run: dotnet build Athena.UI.sln --configuration Release --no-restore
+      - name: Build and analyze
+        run: dotnet build Athena.UI.sln --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Archive tests
+        run: dotnet run --project Athena.Archive.Tests --configuration Release --no-build
+
+      - name: Headless UI tests
+        run: dotnet run --project Athena.UI.HeadlessTests --configuration Release --no-build

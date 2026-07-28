@@ -2,7 +2,6 @@
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.SubAgents;
-using Athena.UI.Services.Skills;
 using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
@@ -215,18 +214,18 @@ public class OpenAIChatService : IChatService
                 var currentTokens = lastRealInputTokens ?? context.EstimatedTokenCount;
                 if (currentTokens > _config.CompressionThreshold)
                 {
-                    Log.Information("检测到工具调用循环中 Token 超过阈值 ({Tokens} > {Threshold})，触发中间压缩", 
+                    Log.Information("检测到工具调用循环中 Token 超过阈值 ({Tokens} > {Threshold})，触发中间压缩",
                         currentTokens, _config.CompressionThreshold);
-                    
+
                     // 将 ContextMessage 转换为 ChatMessage 以供压缩服务处理
-                    var tempMessages = context.Messages.Select(m => new Models.ChatMessage 
-                    { 
-                        Role = m.Role, 
-                        Content = m.Content, 
-                        ToolCallsJson = m.ToolCallsJson, 
+                    var tempMessages = context.Messages.Select(m => new Models.ChatMessage
+                    {
+                        Role = m.Role,
+                        Content = m.Content,
+                        ToolCallsJson = m.ToolCallsJson,
                         ReasoningContent = m.ReasoningContent,
                         Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(m.Attachments),
-                        IsCompressed = false 
+                        IsCompressed = false
                     }).ToList();
 
                     // 把当前摘要一并传入，做"旧摘要 ⊕ 旧消息"的滚动合并，避免多次压缩丢史
@@ -444,7 +443,7 @@ public class OpenAIChatService : IChatService
                 }
                 yield break;
             }
-            
+
             var toolCalls = toolCallBuilders.Values.Select(b =>
             {
                 var id = string.IsNullOrEmpty(b.Id) ? $"call_{Guid.NewGuid():N}" : b.Id;
@@ -486,10 +485,10 @@ public class OpenAIChatService : IChatService
                     ? FunctionResult.FailureResult("Function registry is not available.")
                     : await _functionRegistry.ExecuteAsync(toolCall.FunctionName, toolCall.Arguments);
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 var resultJson = result.ToJson();
-                Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}", 
-                    toolCall.FunctionName, 
+                Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}",
+                    toolCall.FunctionName,
                     resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
 
                 if (result.GeneratedAttachments.Count > 0)
@@ -501,7 +500,7 @@ public class OpenAIChatService : IChatService
                         Timestamp = DateTime.Now
                     });
                 }
-                
+
                 // 通知 UI 产生了工具结果消息
                 var toolResultMsg = new Models.ChatMessage
                 {
@@ -762,7 +761,7 @@ public class OpenAIChatService : IChatService
                 case "tool":
                     messages.Add(new ToolChatMessage(msg.ToolCallId ?? string.Empty, msg.Content));
                     break;
-                // "system" 角色已在上面合并到主 system prompt，无需单独处理
+                    // "system" 角色已在上面合并到主 system prompt，无需单独处理
             }
         }
 

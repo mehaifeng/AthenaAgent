@@ -1,6 +1,4 @@
 using System;
-using Avalonia;
-using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Markup.Xaml;
 using Athena.UI.Services.Interfaces;

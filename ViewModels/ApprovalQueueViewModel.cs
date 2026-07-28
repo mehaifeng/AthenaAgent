@@ -2,7 +2,6 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Views;
 using Avalonia.Threading;
-using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;

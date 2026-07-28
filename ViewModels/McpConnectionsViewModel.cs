@@ -21,6 +21,7 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
     private readonly IConfigService? _configService;
     private readonly ILocalizationService? _localizationService;
     private AppConfigurationSession? _configurationSession;
+    private bool _disposed;
 
     /// <summary>配置会话提供的共享配置实例（由 Initialize 注入并跟随其替换）。</summary>
     [ObservableProperty]
@@ -44,6 +45,9 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void Initialize(AppConfigurationSession configurationSession)
     {
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        _disposed = false;
         _configurationSession = configurationSession;
         Config = configurationSession.Current;
         configurationSession.CurrentChanged += OnCurrentConfigChanged;
@@ -144,8 +148,11 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        _configurationSession = null;
     }
 
     /// <summary>粘贴的 MCP JSON（Claude Desktop 格式），供导入命令读取。</summary>

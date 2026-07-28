@@ -3,7 +3,6 @@ using Athena.UI.Services.Interfaces;
 using Avalonia.Threading;
 using Serilog;
 using System;
-using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
 

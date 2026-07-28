@@ -11,7 +11,7 @@ using Serilog;
 
 namespace Athena.UI.Services;
 
-public class ConversationArchiveService : IConversationArchiveService
+public class ConversationArchiveService : IConversationArchiveService, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,6 +31,7 @@ public class ConversationArchiveService : IConversationArchiveService
         SingleWriter = false
     });
     private readonly CancellationTokenSource _processingCts = new();
+    private bool _disposed;
 
     public ConversationArchiveService(
         IConversationArchiveStore store,
@@ -250,5 +251,14 @@ public class ConversationArchiveService : IConversationArchiveService
             Warning = turn.Warning,
             CreatedAt = turn.CreatedAt
         };
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _channel.Writer.TryComplete();
+        _processingCts.Cancel();
+        _processingCts.Dispose();
     }
 }

@@ -22,13 +22,11 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 
 ## 🖼️ 界面预览
 
-| 对话 | 知识库 |
+| 三栏工作区 | 知识库 |
 | --- | --- |
-| <img src="Docs/images/ChatTabView.png" alt="Athena 对话界面" width="280"> | <img src="Docs/images/KnowledgeTabView.png" alt="Athena 知识库界面" width="280"> |
-| 配置 | 扩展 |
-| <img src="Docs/images/ConfigTabView.png" alt="Athena 配置界面" width="280"> | <img src="Docs/images/ExtensionsTabView.png" alt="Athena 扩展界面" width="280"> |
-| MCP 服务器 | 技能 |
-| <img src="Docs/images/McpTabView.png" alt="Athena MCP 服务器管理界面" width="280"> | <img src="Docs/images/SkillsTabView.png" alt="Athena 技能管理界面" width="280"> |
+| <img src="Docs/images/MainShell.png" alt="Athena 三栏工作区" width="280"> | <img src="Docs/images/KnowledgeBaseWindow.png" alt="Athena 知识库窗口" width="280"> |
+| 应用设置 | Skills 与连接器 |
+| <img src="Docs/images/AppSettingsWindow.png" alt="Athena 应用设置窗口" width="280"> | <img src="Docs/images/SkillsConnectorsWindow.png" alt="Athena Skills 与连接器窗口" width="280"> |
 
 ## 🚀 快速开始
 

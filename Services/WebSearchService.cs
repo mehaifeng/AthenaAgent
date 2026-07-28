@@ -18,7 +18,7 @@ namespace Athena.UI.Services;
 /// Dedicated web-search adapters. Provider credentials are intentionally not
 /// borrowed from the chat-model connection.
 /// </summary>
-public sealed class WebSearchService : IWebSearchService
+public sealed class WebSearchService : IWebSearchService, IDisposable
 {
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
@@ -89,7 +89,7 @@ public sealed class WebSearchService : IWebSearchService
         }
     }
 
-    public async Task<(bool Success, string Message)> TestConnectionAsync()
+    public async Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         var config = _configService.Load();
         ApplyActiveProviderSettings(config);
@@ -100,8 +100,12 @@ public sealed class WebSearchService : IWebSearchService
 
         try
         {
-            var results = await SearchAsync("Athena Agent", 1);
+            var results = await SearchAsync("Athena Agent", 1, cancellationToken);
             return (true, $"Connection succeeded — {results.Count} result(s)");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -111,6 +115,8 @@ public sealed class WebSearchService : IWebSearchService
 
     private string Localize(string key, string fallback)
         => _localizationService?.GetString(key, fallback) ?? fallback;
+
+    public void Dispose() => _httpClient.Dispose();
 
     private static bool HasRequiredConfiguration(AppConfig config)
     {

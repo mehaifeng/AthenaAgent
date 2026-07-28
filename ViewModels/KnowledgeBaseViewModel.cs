@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -74,7 +73,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
     public KnowledgeBaseViewModel() : this(null, null, null, null, null, null, null) { }
 
     public KnowledgeBaseViewModel(
-        IFileSystemService? fileSystemService, 
+        IFileSystemService? fileSystemService,
         IPlatformPathService? pathService,
         IKnowledgeBaseService? knowledgeBaseService,
         ILocalizationService? localizationService = null,
@@ -102,7 +101,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
             IsRunningMaintenance = _maintenanceService.IsRunning;
             UpdateMaintenanceStatus();
         }
-        
+
         if (_pathService != null)
         {
             _rootPath = _pathService.GetKnowledgeBaseDirectory();
@@ -261,12 +260,12 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
         Files.Clear();
         try
         {
-            var rootNode = new KnowledgeFileNode 
-            { 
-                Name = "KnowledgeBase", 
-                IsDirectory = true, 
-                IsExpanded = true, 
-                FullPath = _rootPath 
+            var rootNode = new KnowledgeFileNode
+            {
+                Name = "KnowledgeBase",
+                IsDirectory = true,
+                IsExpanded = true,
+                FullPath = _rootPath
             };
 
             await BuildFileTreeAsync(rootNode, _rootPath);
@@ -325,7 +324,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
             var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
             var newDirPath = Path.Combine(baseDir, NewFolderName);
             Directory.CreateDirectory(newDirPath);
-            
+
             // 在新文件夹下创建一个 README.md 引导
             if (_fileSystemService != null)
             {
@@ -348,10 +347,10 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
             var fileName = NewFileName.Trim();
             // 默认后缀
             if (!Path.HasExtension(fileName)) fileName += ".md";
-            
+
             var fullPath = Path.Combine(baseDir, fileName);
             await _fileSystemService.WriteFileAsync(fullPath, $"# {Path.GetFileNameWithoutExtension(fileName)}\n\nCreated at {DateTime.Now}");
-            
+
             NewFileName = string.Empty;
             await RefreshFilesAsync();
         }
@@ -386,7 +385,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
             {
                 await _fileSystemService!.DeleteFileAsync(SelectedFile.FullPath);
             }
-            
+
             EditingFileContent = string.Empty;
             IsEditingFile = false;
             await RefreshFilesAsync();
@@ -409,7 +408,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
         {
             await _fileSystemService.WriteFileAsync(SelectedFile.FullPath, EditingFileContent);
             IsEditingFile = false;
-            
+
             // 如果是知识库目录下的文件，触发知识库刷新向量（可选）
             if (_knowledgeBaseService != null && SelectedFile.FullPath.Contains("KnowledgeBase"))
             {
@@ -436,15 +435,15 @@ public partial class KnowledgeBaseViewModel : ViewModelBase
         var files = await _userInteractionService.PickFilesAsync(
             GetString("Knowledge.ImportPickerTitle", "Select Markdown files to import"),
             "Markdown Files", ["*.md"], true);
-        
+
         if (files.Count == 0) return;
-        
+
         var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
 
         foreach (var file in files)
         {
-            try 
-            { 
+            try
+            {
                 var content = await File.ReadAllTextAsync(file);
                 await _fileSystemService.WriteFileAsync(Path.Combine(baseDir, Path.GetFileName(file)), content);
             }

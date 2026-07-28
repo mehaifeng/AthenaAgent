@@ -7,6 +7,8 @@ namespace Athena.UI.ViewModels;
 
 public sealed partial class SkillsConnectorsWindowViewModel : ViewModelBase, IDisposable
 {
+    private bool _disposed;
+
     public SkillsConnectorsWindowViewModel(
         SkillsViewModel skills,
         McpConnectionsViewModel mcpConnections,
@@ -36,6 +38,8 @@ public sealed partial class SkillsConnectorsWindowViewModel : ViewModelBase, IDi
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         foreach (var section in Sections)
             if (section.Content is IDisposable disposable) disposable.Dispose();
     }

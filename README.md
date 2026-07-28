@@ -22,13 +22,11 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 ## 🖼️ Interface Preview
 
-| Chat | Knowledge Base |
+| Three-pane workspace | Knowledge Base |
 | --- | --- |
-| <img src="Docs/images/ChatTabView.png" alt="Athena chat interface" width="280"> | <img src="Docs/images/KnowledgeTabView.png" alt="Athena knowledge base interface" width="280"> |
-| Configuration | Extensions |
-| <img src="Docs/images/ConfigTabView.png" alt="Athena configuration interface" width="280"> | <img src="Docs/images/ExtensionsTabView.png" alt="Athena extensions interface" width="280"> |
-| MCP Servers | Skills |
-| <img src="Docs/images/McpTabView.png" alt="Athena MCP server management interface" width="280"> | <img src="Docs/images/SkillsTabView.png" alt="Athena skills management interface" width="280"> |
+| <img src="Docs/images/MainShell.png" alt="Athena three-pane workspace" width="280"> | <img src="Docs/images/KnowledgeBaseWindow.png" alt="Athena Knowledge Base window" width="280"> |
+| App Settings | Skills & Connectors |
+| <img src="Docs/images/AppSettingsWindow.png" alt="Athena App Settings window" width="280"> | <img src="Docs/images/SkillsConnectorsWindow.png" alt="Athena Skills and Connectors window" width="280"> |
 
 ## 🚀 Getting Started
 

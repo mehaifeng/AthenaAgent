@@ -2,15 +2,17 @@
 
 ## 1. Scope
 This guide focuses on the following:
-- What the Chat home page does (including attachments, screenshots, and sub-agents).
-- What each major Settings section means and how to configure it.
-- How to enable and manage Extensions, Skills, and MCP servers.
+- How the three-pane workspace and main conversation work (including attachments, screenshots, and sub-agents).
+- What App Settings and Provider Models control.
+- How to enable and manage Skills, MCP, voice, images, search, and document parsing.
 - How proactive messages work and how to set them up.
 - How the Knowledge Base page works, and how the LLM uses it to actively learn your preferences.
 
-## 2. Chat Home
+## 2. Three-Pane Workspace and Main Conversation
 
-![Chat page](images/ChatTabView.png)
+![Three-pane workspace](images/MainShell.png)
+
+The left pane owns workspaces and the conversation tree, the center permanently hosts the selected main conversation, and the right pane hosts workspace files, the workbench, and compact logs. Conversations can be pinned, renamed, forked, exported, searched, and deleted directly from the tree.
 
 ### 2.1 Core interactions
 - Send message: press `Enter` or click Send.
@@ -34,9 +36,9 @@ This guide focuses on the following:
 - When threshold is reached, history can be compressed (summary + recent rounds kept).
 - Draft restore: unfinished main conversation can be recovered after restart.
 
-## 3. Settings: Meaning and Configuration
+## 3. App Settings and Provider Models
 
-![Settings page](images/ConfigTabView.png)
+![App Settings window](images/AppSettingsWindow.png)
 
 Settings are auto-saved; no manual save button is required.
 
@@ -48,49 +50,35 @@ Settings are auto-saved; no manual save button is required.
 Recommendation:
 - Keep confirmations enabled at first, then disable once your workflow is stable.
 
-### 3.2 Primary AI
-- API Provider / Endpoint / API Key: connectivity trio.
-- Model ID: main conversation model; use the Fetch button to pull the available model list from the endpoint.
-- Temperature: creativity vs determinism.
-- Max Tokens: per-response upper bound.
-- Function Calling: allow the model to invoke tools.
+### 3.2 Provider Models
+- Open **Provider Models** from the launcher to manage OpenAI-compatible providers, endpoints, API keys, and discovered model IDs.
+- Assign models independently to main conversation, title generation, context compression, approval, Embedding, browser automation, sub-agents, knowledge maintenance, and image recognition.
+- A compatibility section can retain an independent Embedding connection when required.
 
 Recommendation:
-- For stable production-style work, use temperature around 0.2 to 0.7.
-- Always run the connection test first.
+- Refresh the provider model list to verify its endpoint and credentials.
 - Pick the most stable model for your real workload, not only by benchmark.
 
-### 3.3 Background tasks and auxiliary cores
-This area is split into tabs, each with its own model and switches:
-- Background tasks (Secondary AI): used for summarization and context compression; can differ from the primary model.
-- Vector knowledge base (Embedding): used by knowledge base semantic retrieval.
-- Audio output: TTS playback configuration.
-- Image generation: model used by the `generate_image` tool.
-- Web search: search provider used by the `web_search` tool.
-- Browser: vision model used by the browser agent; can follow the primary model.
-- Sub-agents: model and concurrency settings for parallel sub-agents.
-- Document parsing: MinerU parsing service configuration.
+### 3.3 Runtime, approvals, and diagnostics
+App Settings owns context limits, automatic compression, workspace-knowledge budget, sub-agent concurrency, tool approval mode and allowlists, plus browser runtime/agent diagnostics.
 
 Recommendation:
-- The secondary model can be a cheaper/faster model.
 - Keep the embedding model stable; frequent switching can hurt vector consistency.
 
 ### 3.4 Memory and context compression
 - MaxContextTokens: max context budget.
 - CompressionThreshold: point where compression should trigger.
 - AutoCompress: automatic compression switch.
-- Compression preview / execute / undo summary: manual control for summary state.
 
 Recommendation:
 - Keep `AutoCompress` enabled for long threads.
 - Set `CompressionThreshold` to roughly 40% to 70% of `MaxContextTokens`.
-- For important projects, regularly verify that the summary still preserves key constraints.
 
-## 4. Extensions
+## 4. Skills & Connectors
 
-![Extensions page](images/ExtensionsTabView.png)
+![Skills and Connectors window](images/SkillsConnectorsWindow.png)
 
-The Extensions page manages optional capabilities such as voice, image generation, and web search. Changes are saved automatically.
+The independent Skills & Connectors window has six persistent sections: Skills, MCP, Speech, Image generation, Web Search, and Document parsing. Switching sections preserves each page's in-progress state, and changes are saved automatically.
 
 - **Voice**: Enable voice, then configure the provider, API endpoint, API key, model name, and voice. Auto-play can be controlled separately; use **Diagnostics** to check the configuration.
 - **Image generation**: Enable it to let the assistant use `generate_image`; provide its API endpoint, API key, and model name.
@@ -99,8 +87,6 @@ The Extensions page manages optional capabilities such as voice, image generatio
 Recommendation: enable only the extensions you use. Keep API keys in local configuration and never paste them into ordinary chats or Knowledge Base files.
 
 ## 5. Skills
-
-![Skills page](images/SkillsTabView.png)
 
 Skills give Athena reusable, specialized workflows for particular kinds of work.
 
@@ -113,8 +99,6 @@ Import a single Skill folder or ZIP archive that contains `SKILL.md`. Once impor
 
 ## 6. MCP Servers
 
-![MCP Servers page](images/McpTabView.png)
-
 MCP (Model Context Protocol) lets Athena connect to external servers and use the tools and data they provide on demand.
 
 1. Turn on the global **Enable MCP** switch.
@@ -125,7 +109,7 @@ MCP (Model Context Protocol) lets Athena connect to external servers and use the
 Only add servers you trust. An MCP server may access local files, the network, or third-party services; review the requested action whenever an approval prompt appears.
 
 ## 7. Proactive Messages
-Proactive messages are triggered by the system scheduling mechanism. At trigger time, Athena switches to Chat and injects a hidden trigger message so the assistant can initiate the interaction.
+Proactive messages are triggered by the system scheduling mechanism. At trigger time, Athena activates the current main conversation, flashes the tray indicator, and injects the task intent so the assistant can initiate the interaction.
 
 ### 7.1 Creation methods
 You can create proactive messages in two ways:
@@ -147,12 +131,12 @@ Example:
 
 ## 8. Knowledge Base and Long-Term Memory
 
-![Knowledge base page](images/KnowledgeTabView.png)
+![Knowledge Base window](images/KnowledgeBaseWindow.png)
 
 ### 8.1 The Knowledge Base page
 - The left panel is the directory tree; create folders and Markdown files directly to organize long-term memory (for example `user_preferences`, `user_profiles`).
-- The right panel shows file content with a read-only mode; the full file path is displayed at the top.
-- The toolbar provides refresh, import, export, and delete operations.
+- The right panel shows and edits Markdown content; the full file path is displayed at the top.
+- The toolbar provides refresh, import, export, delete, knowledge maintenance, and full vector-index rebuild operations.
 - Knowledge base content is synchronously indexed into the vector database: what you write is immediately searchable.
 
 ### 8.2 Active memory behavior

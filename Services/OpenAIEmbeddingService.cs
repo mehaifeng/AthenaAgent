@@ -85,7 +85,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             }
 
             _client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
-            
+
             if (!string.IsNullOrWhiteSpace(effective.Model))
             {
                 _embeddingClient = _client.GetEmbeddingClient(effective.Model);
@@ -120,7 +120,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             // 使用复数形式的 GenerateEmbeddingsAsync，这在某些 SDK 版本中更稳定
             // 且能更好地处理响应解析
             ClientResult<OpenAIEmbeddingCollection> result = await _embeddingClient.GenerateEmbeddingsAsync(new[] { text });
-            
+
             if (result?.Value != null && result.Value.Count > 0)
             {
                 var embedding = NormalizeL2(result.Value[0].ToFloats().ToArray());
@@ -197,13 +197,13 @@ public class OpenAIEmbeddingService : IEmbeddingService
         try
         {
             var similarity = TensorPrimitives.CosineSimilarity(a.AsSpan(), b.AsSpan());
-            
+
             if (float.IsNaN(similarity))
             {
                 _logger.Warning("CosineSimilarity 返回了 NaN (向量 A 为空或 B 为空)");
                 return 0f;
             }
-            
+
             return similarity;
         }
         catch (Exception ex)

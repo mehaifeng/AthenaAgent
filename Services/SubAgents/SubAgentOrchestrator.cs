@@ -18,7 +18,7 @@ namespace Athena.UI.Services.SubAgents;
 /// 子代理编排器。负责：批量并行派生子代理、并发上限、副作用串行（全局工具闸）、
 /// 取消联动、结果合并回传，以及把每只猫头鹰的实时状态暴露给 UI 绑定。
 /// </summary>
-public sealed class SubAgentOrchestrator : ISubAgentOrchestrator
+public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
 {
     private readonly IConfigService _configService;
     private readonly IServiceProvider _serviceProvider;
@@ -161,5 +161,11 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator
         {
             Dispatcher.UIThread.Post(action);
         }
+    }
+
+    public void Dispose()
+    {
+        _browserGate.Dispose();
+        _writeGate.Dispose();
     }
 }

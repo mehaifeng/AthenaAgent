@@ -14,7 +14,7 @@ namespace Athena.UI.ViewModels;
 /// 审批弹窗展示器（UI 层实现）。在 UI 线程弹出 <see cref="ToolApprovalDialog"/> 并等待用户决策。
 /// 用信号量串行化弹窗，避免同一时刻叠出多个审批窗。
 /// </summary>
-public class ToolApprovalPrompter : IToolApprovalPrompter
+public class ToolApprovalPrompter : IToolApprovalPrompter, IDisposable
 {
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
@@ -75,4 +75,6 @@ public class ToolApprovalPrompter : IToolApprovalPrompter
         }
         return null;
     }
+
+    public void Dispose() => _gate.Dispose();
 }

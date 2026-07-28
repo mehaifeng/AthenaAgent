@@ -4,7 +4,6 @@ using Avalonia.Media;
 using LiveMarkdown.Avalonia;
 using Markdig;
 using Markdig.Extensions.Emoji;
-using Markdig.Extensions.Mathematics;
 
 namespace Athena.UI.Markup;
 

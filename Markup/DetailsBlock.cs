@@ -4,7 +4,6 @@ using System.Threading;
 using Avalonia.Controls;
 using LiveMarkdown.Avalonia;
 using Markdig;
-using Markdig.Helpers;
 using Markdig.Parsers;
 using Markdig.Renderers;
 using Markdig.Syntax;

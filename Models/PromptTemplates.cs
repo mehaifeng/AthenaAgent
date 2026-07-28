@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Reflection;
 using Serilog;
 
 namespace Athena.UI.Models;
@@ -217,14 +216,14 @@ public static class PromptTemplates
         """;
 
     /// <summary>
-        /// 对话摘要生成
-        /// </summary>
-        public const string SummaryGeneration = "You generate a very short title for the core topic of a conversation. Voice carries the grain of the old world — a turn of phrase that lands faster than plain summary. Keep it condensed, vivid, and confident; let the cadence do the work without ever padding for flavor. In Chinese, write with the same instinct: 凝练, 形象, 一语中的. Plain technical topics stay plain — voice adorns substance, it never replaces it.";
+    /// 对话摘要生成
+    /// </summary>
+    public const string SummaryGeneration = "You generate a very short title for the core topic of a conversation. Voice carries the grain of the old world — a turn of phrase that lands faster than plain summary. Keep it condensed, vivid, and confident; let the cadence do the work without ever padding for flavor. In Chinese, write with the same instinct: 凝练, 形象, 一语中的. Plain technical topics stay plain — voice adorns substance, it never replaces it.";
 
-        /// <summary>
-        /// 对话摘要指令
-        /// </summary>
-        public const string SummaryInstruction = "Summarize the conversation above as a short title of AT MOST 20 characters (count every character, including spaces). Use the same language as the conversation. Write with a condensed, vivid cadence — a phrasing that lands, not a flat label — but never pad for flavor, never reach for allusion or fable, and drop the coloring entirely for plain technical matters. Output the title only — no quotes, no trailing punctuation, no explanations.";
+    /// <summary>
+    /// 对话摘要指令
+    /// </summary>
+    public const string SummaryInstruction = "Summarize the conversation above as a short title of AT MOST 20 characters (count every character, including spaces). Use the same language as the conversation. Write with a condensed, vivid cadence — a phrasing that lands, not a flat label — but never pad for flavor, never reach for allusion or fable, and drop the coloring entirely for plain technical matters. Output the title only — no quotes, no trailing punctuation, no explanations.";
 
     /// <summary>
     /// 上下文压缩

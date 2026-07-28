@@ -1,11 +1,9 @@
 using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
@@ -330,6 +328,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.Messages.CollectionChanged -= OnMessagesChanged;
         _saveDebounce?.Cancel();
         _saveDebounce?.Dispose();
+        _saveDebounce = null;
+        Chat.Dispose();
     }
 }
 

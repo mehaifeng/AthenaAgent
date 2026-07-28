@@ -188,7 +188,7 @@ public class ConversationContext
             int total = EstimateTokens(_mainPersona);
             total += ToolsDeclarationTokenCount; // 计入工具声明开销
             if (!string.IsNullOrEmpty(_summary)) total += EstimateTokens(_summary);
-            foreach (var msg in _messages) 
+            foreach (var msg in _messages)
             {
                 total += EstimateTokens(msg.Content);
                 if (!string.IsNullOrEmpty(msg.ToolCallsJson))

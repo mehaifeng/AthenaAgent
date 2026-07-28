@@ -1,5 +1,4 @@
 using Athena.UI.Models;
-using System;
 
 namespace Athena.UI.Services.Browser;
 

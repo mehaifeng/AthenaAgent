@@ -1,7 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.ObjectModel;
-using System.Text.Json.Serialization;
-using Athena.UI.Models.Mcp;
 
 namespace Athena.UI.Models;
 
@@ -28,7 +26,7 @@ public partial class McpServerConfig : ObservableObject
 
     // 序列化为扁平字符串数组，内存里用 McpArgEntry 包装以支持行内编辑。
     [ObservableProperty]
-    [property: JsonConverter(typeof(McpArgListJsonConverter))]
+    [property: System.Text.Json.Serialization.JsonConverterAttribute(typeof(Mcp.McpArgListJsonConverter))]
     private ObservableCollection<McpArgEntry> _arguments = new();
 
     [ObservableProperty]
@@ -53,20 +51,20 @@ public partial class McpServerConfig : ObservableObject
 
     // —— 运行期状态（不持久化）——
     [ObservableProperty]
-    [property: JsonIgnore]
+    [property: System.Text.Json.Serialization.JsonIgnoreAttribute]
     private McpConnectionStatus _status = McpConnectionStatus.Idle;
 
     [ObservableProperty]
-    [property: JsonIgnore]
+    [property: System.Text.Json.Serialization.JsonIgnoreAttribute]
     private string _statusDetail = string.Empty;
 
     [ObservableProperty]
-    [property: JsonIgnore]
+    [property: System.Text.Json.Serialization.JsonIgnoreAttribute]
     private int _discoveredToolCount;
 
     // UI 折叠状态（不持久化）：默认折叠，仅在展开时显示可编辑详情。
     [ObservableProperty]
-    [property: JsonIgnore]
+    [property: System.Text.Json.Serialization.JsonIgnoreAttribute]
     private bool _isExpanded;
 }
 

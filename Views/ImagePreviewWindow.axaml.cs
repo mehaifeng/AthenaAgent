@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Athena.UI.Models;
 using Avalonia.Controls;

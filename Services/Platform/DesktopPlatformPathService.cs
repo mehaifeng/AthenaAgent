@@ -15,7 +15,7 @@ public class DesktopPlatformPathService : IPlatformPathService
     {
         // 使用应用程序根目录下的 AthenaData 文件夹，确保所有内容都在一起
         _baseDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AthenaData");
-        
+
         // 确保基础目录存在
         if (!Directory.Exists(_baseDirectory))
         {

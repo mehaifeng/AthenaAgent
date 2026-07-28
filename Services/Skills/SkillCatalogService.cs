@@ -272,18 +272,33 @@ public sealed class SkillCatalogService : ISkillCatalogService
 
     private static SkillDescriptor Invalid(string root, string path, SkillSourceScope scope, string stableKey, bool disabled, string error) => new()
     {
-        Name = Path.GetFileName(root), RootDirectory = Path.GetFullPath(root), SkillFilePath = path,
-        SourceScope = scope, StableKey = stableKey, IsEnabled = !disabled,
+        Name = Path.GetFileName(root),
+        RootDirectory = Path.GetFullPath(root),
+        SkillFilePath = path,
+        SourceScope = scope,
+        StableKey = stableKey,
+        IsEnabled = !disabled,
         ValidationIssues = new[] { new SkillValidationIssue(error, true) }
     };
 
     private static SkillDescriptor WithState(SkillDescriptor skill, bool isEffective, string? shadowedBy = null) => new()
     {
-        Name = skill.Name, Description = skill.Description, SkillFilePath = skill.SkillFilePath, RootDirectory = skill.RootDirectory,
-        SourceScope = skill.SourceScope, StableKey = skill.StableKey, Compatibility = skill.Compatibility, AllowedTools = skill.AllowedTools,
-        Metadata = skill.Metadata, ResourceDirectories = skill.ResourceDirectories, ValidationIssues = skill.ValidationIssues,
-        IsEnabled = skill.IsEnabled, IsEffective = isEffective && skill.IsEnabled, ShadowedBy = shadowedBy,
-        InstructionsPreview = skill.InstructionsPreview, LastWriteTimeUtc = skill.LastWriteTimeUtc
+        Name = skill.Name,
+        Description = skill.Description,
+        SkillFilePath = skill.SkillFilePath,
+        RootDirectory = skill.RootDirectory,
+        SourceScope = skill.SourceScope,
+        StableKey = skill.StableKey,
+        Compatibility = skill.Compatibility,
+        AllowedTools = skill.AllowedTools,
+        Metadata = skill.Metadata,
+        ResourceDirectories = skill.ResourceDirectories,
+        ValidationIssues = skill.ValidationIssues,
+        IsEnabled = skill.IsEnabled,
+        IsEffective = isEffective && skill.IsEnabled,
+        ShadowedBy = shadowedBy,
+        InstructionsPreview = skill.InstructionsPreview,
+        LastWriteTimeUtc = skill.LastWriteTimeUtc
     };
 
     private static IReadOnlyList<SkillDescriptor> ResolveScopeCollisions(IEnumerable<SkillDescriptor> skills, string shadowedBy)

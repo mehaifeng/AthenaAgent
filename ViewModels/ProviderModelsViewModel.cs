@@ -6,14 +6,17 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class ProviderModelsViewModel : ViewModelBase
+public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 {
     private readonly AppConfigurationSession _configurationSession;
     private readonly IModelCatalogService _catalogService;
+    private CancellationTokenSource? _refreshCancellation;
+    private bool _disposed;
 
     public ProviderModelsViewModel(AppConfigurationSession configurationSession, IModelCatalogService catalogService)
     {
@@ -90,11 +93,14 @@ public partial class ProviderModelsViewModel : ViewModelBase
     private async Task RefreshModelsAsync(OpenAiProviderConfiguration? provider)
     {
         provider ??= SelectedProvider;
-        if (provider == null) return;
+        if (provider == null || _disposed) return;
+        var cancellation = new CancellationTokenSource();
+        _refreshCancellation = cancellation;
         IsRefreshing = true;
         try
         {
-            var result = await _catalogService.GetModelsAsync(provider.BaseUrl, provider.ApiKey);
+            var result = await _catalogService.GetModelsAsync(provider.BaseUrl, provider.ApiKey, cancellation.Token);
+            if (_disposed || cancellation.IsCancellationRequested) return;
             if (!result.Success)
             {
                 StatusText = "刷新失败，已保留旧列表：" + result.ErrorMessage;
@@ -116,9 +122,17 @@ public partial class ProviderModelsViewModel : ViewModelBase
             StatusText = $"已发现 {provider.Models.Count} 个模型";
             RebuildRoles();
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
         finally
         {
-            IsRefreshing = false;
+            if (ReferenceEquals(_refreshCancellation, cancellation))
+            {
+                _refreshCancellation = null;
+                if (!_disposed) IsRefreshing = false;
+            }
+            cancellation.Dispose();
         }
     }
 
@@ -176,6 +190,15 @@ public partial class ProviderModelsViewModel : ViewModelBase
         if (id.Contains("image", StringComparison.OrdinalIgnoreCase) || id.Contains("dall", StringComparison.OrdinalIgnoreCase)) return ModelCapability.Image;
         if (id.Contains("tts", StringComparison.OrdinalIgnoreCase) || id.Contains("audio", StringComparison.OrdinalIgnoreCase)) return ModelCapability.Speech;
         return ModelCapability.Text;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        _refreshCancellation?.Cancel();
+        _refreshCancellation = null;
     }
 }
 

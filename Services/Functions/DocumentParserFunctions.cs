@@ -4,7 +4,6 @@ using Athena.UI.Services.SubAgents;
 using Serilog;
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;

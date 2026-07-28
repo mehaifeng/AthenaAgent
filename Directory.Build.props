@@ -6,5 +6,11 @@
     <FileVersion Condition="'$(FileVersion)' == ''">$(Version)</FileVersion>
     <RestoreFallbackFolders></RestoreFallbackFolders>
     <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>None</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1573;CS1574;CS1591</NoWarn>
   </PropertyGroup>
 </Project>

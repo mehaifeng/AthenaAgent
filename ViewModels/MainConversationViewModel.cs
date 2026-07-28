@@ -22,7 +22,7 @@ using System.Collections.Specialized;
 
 namespace Athena.UI.ViewModels;
 
-public partial class MainConversationViewModel : ViewModelBase
+public partial class MainConversationViewModel : ViewModelBase, IDisposable
 {
     private enum TransitionStageResult
     {
@@ -65,6 +65,9 @@ public partial class MainConversationViewModel : ViewModelBase
     private readonly IUserInteractionService? _userInteractionService;
     private readonly ConversationExecutionCoordinator? _executionCoordinator;
     private readonly ILogger _logger = Log.ForContext<MainConversationViewModel>();
+    private bool _disposed;
+
+    public bool IsDisposed => _disposed;
 
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
@@ -539,7 +542,7 @@ public partial class MainConversationViewModel : ViewModelBase
         _localizationService = localizationService;
         if (_localizationService != null)
         {
-            _localizationService.LanguageChanged += (_, _) => RefreshToolCallSummaries();
+            _localizationService.LanguageChanged += OnLanguageChanged;
         }
         _attachmentStoreService = attachmentStoreService;
         _systemAudioService = systemAudioService;
@@ -562,42 +565,16 @@ public partial class MainConversationViewModel : ViewModelBase
         }
 
         // 监听全局主题变更（来自应用设置或其他入口），同步按钮状态
-        App.ThemeChanged += theme =>
-        {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                CurrentTheme = theme;
-                ThemeIcon = theme == "Dark" ? "Moon" : "Sun";
-            });
-        };
-
-        Messages.CollectionChanged += (s, e) =>
-        {
-            // 批量恢复期间跳过：由调用方在灌完后手动调用一次
-            if (_isBulkLoadingMessages) return;
-            UpdateContextTokensDisplay();
-            UpdateBubbleButtonVisibility();
-        };
+        App.ThemeChanged += OnThemeChanged;
+        Messages.CollectionChanged += OnMessagesCollectionChanged;
 
         // 监听配置变更（如在扩展页开启/关闭语音合成）：刷新各气泡「生成语音」按钮显隐。
         if (_configService != null)
         {
-            _configService.ConfigChanged += (_, config) =>
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    CurrentModelName = config.AiModels.MainConversation.Model;
-                    UpdateBubbleButtonVisibility();
-                    UpdateContextTokensDisplay();
-                });
-            };
+            _configService.ConfigChanged += OnConfigChanged;
         }
 
-        PendingAttachments.CollectionChanged += (s, e) =>
-        {
-            OnPropertyChanged(nameof(HasPendingAttachments));
-            SendMessageCommand.NotifyCanExecuteChanged();
-        };
+        PendingAttachments.CollectionChanged += OnPendingAttachmentsCollectionChanged;
 
         // 计算初始 Token（系统提示词和工具声明的基底开销）
         UpdateContextTokensDisplay();
@@ -609,6 +586,43 @@ public partial class MainConversationViewModel : ViewModelBase
         }
 
         RestoreDraftIfNeeded();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshToolCallSummaries();
+
+    private void OnThemeChanged(string theme)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed) return;
+            CurrentTheme = theme;
+            ThemeIcon = theme == "Dark" ? "Moon" : "Sun";
+        });
+    }
+
+    private void OnMessagesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_disposed || _isBulkLoadingMessages) return;
+        UpdateContextTokensDisplay();
+        UpdateBubbleButtonVisibility();
+    }
+
+    private void OnConfigChanged(object? sender, AppConfig config)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed) return;
+            CurrentModelName = config.AiModels.MainConversation.Model;
+            UpdateBubbleButtonVisibility();
+            UpdateContextTokensDisplay();
+        });
+    }
+
+    private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_disposed) return;
+        OnPropertyChanged(nameof(HasPendingAttachments));
+        SendMessageCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanSendMessage))]
@@ -973,7 +987,7 @@ public partial class MainConversationViewModel : ViewModelBase
             if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 var clipboard = TopLevel.GetTopLevel(desktop.MainWindow)?.Clipboard;
-                clipboard?.SetTextAsync(message.Content?? string.Empty);
+                clipboard?.SetTextAsync(message.Content ?? string.Empty);
                 _logger.Debug("Copying message content to clipboard");
             }
         }
@@ -1465,7 +1479,8 @@ public partial class MainConversationViewModel : ViewModelBase
                 input,
                 requestContext,
                 cancellationToken: cancellationToken,
-                onMessageAdded: msg => {
+                onMessageAdded: msg =>
+                {
                     if (!IsCurrentConversationEpoch(epoch))
                     {
                         return;
@@ -1563,7 +1578,8 @@ public partial class MainConversationViewModel : ViewModelBase
                         assistantMsg.IsLoading = true;
                     }
                 },
-                onContextCompressed: (summary, count) => {
+                onContextCompressed: (summary, count) =>
+                {
                     if (!IsCurrentConversationEpoch(epoch))
                     {
                         return;
@@ -1594,13 +1610,15 @@ public partial class MainConversationViewModel : ViewModelBase
                     UndoCompressionCommand.NotifyCanExecuteChanged();
                     _logger.Information("检测到中间压缩，UI 已同步标记 {Count} 条消息", count);
                 },
-                onUsageReported: usage => {
+                onUsageReported: usage =>
+                {
                     if (!IsCurrentConversationEpoch(epoch)) return;
                     // 供应商回报的真实用量：作为上下文占用的权威锚点，覆盖此前一切估算。
                     _tokenService?.ApplyUsage(usage);
                     OnPropertyChanged(nameof(ContextTokensInfo));
                 },
-                onToolCallArgumentsStreaming: functionName => {
+                onToolCallArgumentsStreaming: functionName =>
+                {
                     if (!IsCurrentConversationEpoch(epoch)
                         || (functionName != "write_system_file" && functionName != "modify_system_file"))
                     {
@@ -2985,5 +3003,50 @@ public partial class MainConversationViewModel : ViewModelBase
         // 下一段正文另起一段（工具组置顶后，相邻轮文本之间不再有工具段天然分隔）
         _forceNewAssistantTextSegment = true;
         bubble.NotifySegmentsChanged();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        App.ThemeChanged -= OnThemeChanged;
+        Messages.CollectionChanged -= OnMessagesCollectionChanged;
+        PendingAttachments.CollectionChanged -= OnPendingAttachmentsCollectionChanged;
+
+        if (_localizationService != null)
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        if (_configService != null)
+            _configService.ConfigChanged -= OnConfigChanged;
+        if (_archiveService != null)
+        {
+            _archiveService.ArchiveCompleted -= OnArchiveCompleted;
+            _archiveService.ArchiveFailed -= OnArchiveFailed;
+        }
+        if (Orchestrator != null)
+        {
+            Orchestrator.ActiveAgents.CollectionChanged -= OnActiveSubAgentsChanged;
+            foreach (var agent in Orchestrator.ActiveAgents)
+                agent.PropertyChanged -= OnSubAgentStatePropertyChanged;
+        }
+
+        _subAgentClearTimer?.Stop();
+        _subAgentClearTimer = null;
+
+        _responseCts?.Cancel();
+        _responseCts?.Dispose();
+        _responseCts = null;
+
+        CancelPendingPreviewLoading();
+        _screenshotBackgroundPollCts?.Cancel();
+        _screenshotBackgroundPollCts = null;
+
+        try { _audioSessionCts.Cancel(); } catch (ObjectDisposedException) { }
+        _audioSessionCts.Dispose();
+        StopAudioPlayback();
+
+        ReleaseAttachmentPreviews(
+            Messages.SelectMany(message => message.Attachments)
+                .Concat(PendingAttachments));
     }
 }

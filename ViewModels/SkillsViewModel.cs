@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Athena.UI.Models;
@@ -22,6 +21,7 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
     private readonly ILocalizationService? _localization;
     private readonly IUserInteractionService? _userInteraction;
     private AppConfigurationSession? _configurationSession;
+    private bool _disposed;
 
     [ObservableProperty] private AppConfig _config = new();
     [ObservableProperty] private ObservableCollection<SkillItemViewModel> _skills = new();
@@ -47,6 +47,11 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
 
     public void Initialize(AppConfigurationSession configurationSession)
     {
+        if (_configurationSession != null)
+            _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        if (_workspaceService != null)
+            _workspaceService.ActiveWorkspaceChanged -= OnActiveWorkspaceChanged;
+        _disposed = false;
         _configurationSession = configurationSession;
         Config = configurationSession.Current;
         configurationSession.CurrentChanged += OnCurrentConfigChanged;
@@ -187,10 +192,13 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         if (_workspaceService != null)
             _workspaceService.ActiveWorkspaceChanged -= OnActiveWorkspaceChanged;
+        _configurationSession = null;
     }
 }
 

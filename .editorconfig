@@ -1,0 +1,12 @@
+root = true
+
+[*.cs]
+dotnet_diagnostic.IDE0005.severity = error
+dotnet_diagnostic.IDE0051.severity = error
+dotnet_diagnostic.CA1001.severity = error
+dotnet_diagnostic.CA2000.severity = error
+dotnet_diagnostic.CA2012.severity = error
+dotnet_diagnostic.CA2016.severity = error
+
+[*.{axaml,xml,md,yml,yaml}]
+insert_final_newline = true

@@ -1,5 +1,3 @@
-using Athena.UI.Models;
-using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Avalonia;
 using Avalonia.Media;

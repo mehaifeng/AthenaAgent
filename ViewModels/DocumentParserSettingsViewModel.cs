@@ -10,6 +10,7 @@ namespace Athena.UI.ViewModels;
 public partial class DocumentParserSettingsViewModel : ViewModelBase, IDisposable
 {
     private readonly AppConfigurationSession _configurationSession;
+    private bool _disposed;
 
     public DocumentParserSettingsViewModel(AppConfigurationSession configurationSession)
     {
@@ -42,6 +43,8 @@ public partial class DocumentParserSettingsViewModel : ViewModelBase, IDisposabl
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         Config.PropertyChanged -= OnConfigPropertyChanged;
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
     }

@@ -1,5 +1,3 @@
-using System;
-
 namespace Athena.UI.Models;
 
 /// <summary>

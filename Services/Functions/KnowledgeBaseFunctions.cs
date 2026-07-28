@@ -1,4 +1,3 @@
-using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;

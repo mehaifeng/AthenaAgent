@@ -81,16 +81,16 @@ Ensure you have the .NET 10 SDK installed.
   - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `ToolDiscoveryService`, `DiffApplier` (powers `modify_system_file`).
 - `Styles/`: Global styles and icon stream geometries.
 - `ViewModels/`: MVVM ViewModels.
-  - `MainWindowViewModel`: Orchestrator for all tabs.
-  - `ChatTabViewModel`: Primary AI interaction interface.
-  - `KnowledgeBaseTabViewModel`: Local knowledge management UI.
-  - `TasksTabViewModel`: Proactive task list and scheduling.
-  - `HistoryTabViewModel`: Conversation history browser.
-  - `ConfigTabViewModel`: User preferences and API settings.
-  - `LogsTabViewModel`: Runtime system diagnostics.
-  - `AboutTabViewModel`: Version and project info.
+  - `MainWindowViewModel`: Orchestrates the three-pane shell, workspace conversation tree, and feature windows.
+  - `MainConversationViewModel`: Primary AI interaction interface; each conversation session owns one instance.
+  - `KnowledgeBaseViewModel`: Local knowledge management, maintenance, and vector-index controls.
+  - `TasksViewModel`: Proactive task list and scheduling.
+  - `LogsViewModel`: Runtime system diagnostics.
+  - `AboutViewModel`: Version and project info.
+  - `AppSettingsWindowViewModel`: App Settings window composition without leaking the main-window DataContext.
+  - `SkillsConnectorsWindowViewModel`: Skills/Connectors navigation and page lifetime owner.
   - `SubAgentViewModel`: Per-sub-agent state for the owl-village panel.
-- `Views/`: XAML UI definitions corresponding to ViewModels (plus `OwlVillageView` for sub-agent visualization).
+- `Views/`: Semantic XAML views corresponding to ViewModels, plus strongly typed feature windows and `OwlVillageView`.
 
 ### Coding Conventions
 - **MVVM**: Strictly separate UI (`Views`) from logic (`ViewModels`).

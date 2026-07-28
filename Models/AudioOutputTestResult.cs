@@ -1,5 +1,3 @@
-using Athena.UI.Models;
-
 namespace Athena.UI.Models;
 
 public sealed class AudioOutputTestResult

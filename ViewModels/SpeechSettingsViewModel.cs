@@ -17,6 +17,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
     private readonly IChatService? _chatService;
     private readonly ISystemAudioService? _systemAudioService;
     private readonly ILocalizationService? _localizationService;
+    private CancellationTokenSource? _outputTestCancellation;
     private CancellationTokenSource? _audioTestCancellation;
     private bool _disposed;
 
@@ -102,10 +103,13 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
         IsTesting = true;
         TestStatus = GetString("Status.TestingConnection", "Testing...");
         TestAttachment = null;
+        var cancellation = new CancellationTokenSource();
+        _outputTestCancellation = cancellation;
         try
         {
             await _configurationSession.SaveNowAsync();
-            var result = await _chatService.TestAudioOutputAsync();
+            var result = await _chatService.TestAudioOutputAsync(cancellation.Token);
+            if (_disposed || cancellation.IsCancellationRequested) return;
             TestStatus = result.Message;
             TestAttachment = result.Attachment;
             OnPropertyChanged(nameof(PlaybackGlyph));
@@ -116,7 +120,12 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            IsTesting = false;
+            if (ReferenceEquals(_outputTestCancellation, cancellation))
+            {
+                _outputTestCancellation = null;
+                if (!_disposed) IsTesting = false;
+            }
+            cancellation.Dispose();
         }
     }
 
@@ -188,6 +197,8 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _outputTestCancellation?.Cancel();
+        _outputTestCancellation = null;
         StopPlayback();
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
     }

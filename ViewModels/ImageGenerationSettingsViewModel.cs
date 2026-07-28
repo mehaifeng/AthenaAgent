@@ -12,6 +12,7 @@ public partial class ImageGenerationSettingsViewModel : ViewModelBase, IDisposab
 {
     private readonly AppConfigurationSession _configurationSession;
     private readonly ILocalizationService? _localizationService;
+    private bool _disposed;
 
     public ImageGenerationSettingsViewModel(
         AppConfigurationSession configurationSession,
@@ -63,5 +64,10 @@ public partial class ImageGenerationSettingsViewModel : ViewModelBase, IDisposab
         RebuildCards();
     }
 
-    public void Dispose() => _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+    }
 }

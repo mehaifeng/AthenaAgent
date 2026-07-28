@@ -107,7 +107,7 @@ public interface IVectorStoreService
 /// <summary>
 /// SQLite 向量存储服务实现
 /// </summary>
-public class VectorStoreService : IVectorStoreService
+public class VectorStoreService : IVectorStoreService, IDisposable
 {
     private readonly string _dbPath;
     private readonly ILogger _logger;
@@ -840,4 +840,6 @@ public class VectorStoreService : IVectorStoreService
         Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
         return floats;
     }
+
+    public void Dispose() => _lock.Dispose();
 }

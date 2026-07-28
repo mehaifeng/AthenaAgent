@@ -1,3 +1,5 @@
+#pragma warning disable CA2000 // Test composition root transfers ownership to windows/aggregate VMs; lifecycle cases dispose explicitly.
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -24,7 +26,8 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
-TestConfigurationSession();
+TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
+TestLifecycle();
 
 var mainViewModel = new MainWindowViewModel();
 var globalConversationGroup = new WorkspaceConversationGroupViewModel(null);
@@ -233,6 +236,7 @@ window.Close();
     if (!ReferenceEquals(connectorContentHost.Content, skillsPage)
         || skillsPage.Status != "unsaved-characterization")
         throw new InvalidOperationException("Switching connector sections recreated a view model or reset page state.");
+    SaveWindowFrame(skillsWindow, Path.Combine(Path.GetDirectoryName(outputPath)!, "skills-connectors-window.png"));
     Console.WriteLine("[PASS] six connector page types share one content host and preserve page view models and state");
     skillsWindow.Close();
 }
@@ -268,6 +272,7 @@ window.Close();
     var viewLocator = new ViewLocator();
     if (semanticViewMappings.Any(pair => viewLocator.Build(pair.ViewModel)?.GetType() != pair.View))
         throw new InvalidOperationException("Semantic view names no longer satisfy the ViewLocator naming convention.");
+    SaveWindowFrame(knowledgeWindow, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-window.png"));
     Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and strongly typed feature windows own their content");
     knowledgeWindow.Close();
 }
@@ -586,8 +591,12 @@ if (diffTab.IsDirty || diffTab.Text.Contains("// unsaved", StringComparison.Ordi
 Console.WriteLine("[PASS] edit-only save/cancel commands, cancel restore, compact link styling, and horizontal tabs");
 diffWindow.Close();
 workbench.Dispose();
+sessionCommandChecks.Dispose();
+forkViewModel.Dispose();
+archiveTreeViewModel.Dispose();
+mainViewModel.Dispose();
 
-static void TestConfigurationSession()
+static void TestConfigurationSession(string artifactDirectory)
 {
     var service = new HeadlessConfigService(new AppConfig());
     using var session = new AppConfigurationSession(service);
@@ -735,6 +744,7 @@ static void TestConfigurationSession()
     if (appSettingsWindow.DataContext is MainWindowViewModel
         || !appSettingsWindow.GetVisualDescendants().OfType<AboutView>().Any())
         throw new InvalidOperationException("App Settings must use its own window view model and semantic About view.");
+    SaveWindowFrame(appSettingsWindow, Path.Combine(artifactDirectory, "app-settings-window.png"));
     appSettingsWindow.Close();
 
     Console.WriteLine("[PASS] one debounced owner saves root, MCP, and extension settings and detaches removed items");
@@ -743,6 +753,119 @@ static void TestConfigurationSession()
     Console.WriteLine("[PASS] Web Search and audio diagnostics expose success, failure, and playback cancellation");
     Console.WriteLine("[PASS] App Settings owns approval-list revocation and browser diagnostics");
     Console.WriteLine("[PASS] App Settings uses an independent window view model");
+}
+
+static void SaveWindowFrame(Window window, string path)
+{
+    using var frame = window.CaptureRenderedFrame()
+        ?? throw new InvalidOperationException($"Headless renderer returned no frame for {window.GetType().Name}.");
+    using var output = File.Create(path);
+    frame.Save(output, PngBitmapEncoderOptions.Default);
+}
+
+static void TestLifecycle()
+{
+    var configService = new HeadlessConfigService(new AppConfig());
+    var archiveStore = new HeadlessConversationStore();
+    var archiveService = new HeadlessArchiveService(archiveStore);
+    var localizationService = new HeadlessLocalizationService();
+
+    for (var iteration = 0; iteration < 10; iteration++)
+    {
+        var conversation = new MainConversationViewModel(
+            null,
+            configService,
+            null,
+            null,
+            null,
+            null,
+            null,
+            localizationService,
+            archiveService: archiveService);
+        var session = new ConversationSessionItemViewModel(conversation, null, null);
+        if (configService.ConfigSubscriberCount != 1
+            || archiveService.CompletedSubscriberCount != 1
+            || archiveService.FailedSubscriberCount != 1
+            || localizationService.LanguageSubscriberCount != 1)
+            throw new InvalidOperationException("Main Conversation did not attach exactly one lifecycle subscription.");
+
+        session.Dispose();
+        session.Dispose();
+        if (!conversation.IsDisposed
+            || configService.ConfigSubscriberCount != 0
+            || archiveService.CompletedSubscriberCount != 0
+            || archiveService.FailedSubscriberCount != 0
+            || localizationService.LanguageSubscriberCount != 0)
+            throw new InvalidOperationException("Deleting a conversation did not release its Main Conversation subscriptions.");
+    }
+
+    for (var iteration = 0; iteration < 5; iteration++)
+    {
+        var connectorConfigService = new HeadlessConfigService(new AppConfig());
+        using var connectorSession = new AppConfigurationSession(connectorConfigService);
+        var skills = new SkillsViewModel();
+        skills.Initialize(connectorSession);
+        var mcp = new McpConnectionsViewModel();
+        mcp.Initialize(connectorSession);
+        var speech = new SpeechSettingsViewModel(connectorSession);
+        var image = new ImageGenerationSettingsViewModel(connectorSession);
+        var web = new WebSearchSettingsViewModel(connectorSession);
+        var document = new DocumentParserSettingsViewModel(connectorSession);
+        var connectorWindow = new SkillsConnectorsWindow
+        {
+            DataContext = new SkillsConnectorsWindowViewModel(skills, mcp, speech, image, web, document)
+        };
+
+        connectorWindow.Show();
+        Dispatcher.UIThread.RunJobs();
+        connectorWindow.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        var replacementConfig = new AppConfig();
+        connectorConfigService.PublishExternal(replacementConfig);
+        if (ReferenceEquals(skills.Config, replacementConfig)
+            || ReferenceEquals(mcp.Config, replacementConfig)
+            || ReferenceEquals(speech.Config, replacementConfig)
+            || ReferenceEquals(image.Config, replacementConfig)
+            || ReferenceEquals(web.Config, replacementConfig)
+            || ReferenceEquals(document.Config, replacementConfig))
+            throw new InvalidOperationException("Closed Skills & Connectors pages still observed configuration replacement.");
+    }
+
+    var providerConfigService = new HeadlessConfigService(new AppConfig());
+    using var configurationSession = new AppConfigurationSession(providerConfigService);
+    var provider = new OpenAiProviderConfiguration
+    {
+        DisplayName = "Lifecycle provider",
+        BaseUrl = "https://example.invalid/v1",
+        ApiKey = "test"
+    };
+    configurationSession.Current.AiModels.Providers.Add(provider);
+    var blockingCatalog = new BlockingModelCatalogService();
+    var providerViewModel = new ProviderModelsViewModel(configurationSession, blockingCatalog)
+    {
+        SelectedProvider = provider
+    };
+    var refreshTask = providerViewModel.RefreshModelsCommand.ExecuteAsync(provider);
+    if (!blockingCatalog.Started.Task.Wait(TimeSpan.FromSeconds(2)))
+        throw new InvalidOperationException("Provider Models refresh did not start.");
+    providerViewModel.Dispose();
+    for (var attempt = 0; attempt < 100 && !blockingCatalog.WasCancelled; attempt++)
+    {
+        Thread.Sleep(10);
+    }
+    _ = refreshTask;
+    if (!blockingCatalog.WasCancelled)
+        throw new InvalidOperationException("Disposing Provider Models did not cancel its in-flight model refresh.");
+
+    var replacement = new AppConfig();
+    providerConfigService.PublishExternal(replacement);
+    if (ReferenceEquals(providerViewModel.Config, replacement))
+        throw new InvalidOperationException("Closed Provider Models still observed configuration replacement.");
+
+    Console.WriteLine("[PASS] repeated conversation disposal releases config, archive, localization, and background work");
+    Console.WriteLine("[PASS] repeated Skills & Connectors close disposes every settings page");
+    Console.WriteLine("[PASS] Provider Models disposal cancels refresh and detaches configuration subscription");
 }
 
 static void AssertSaveCount(HeadlessConfigService service, int expected, string scenario)
@@ -771,10 +894,24 @@ sealed class HeadlessPathService : IPlatformPathService
 sealed class HeadlessConfigService(AppConfig initial) : IConfigService
 {
     private AppConfig _current = initial;
+    private EventHandler<AppConfig>? _configChanged;
 
     public int SaveCount { get; private set; }
+    public int ConfigSubscriberCount { get; private set; }
     public string ConfigFilePath => "/tmp/athena-headless-config.json";
-    public event EventHandler<AppConfig>? ConfigChanged;
+    public event EventHandler<AppConfig>? ConfigChanged
+    {
+        add
+        {
+            _configChanged += value;
+            ConfigSubscriberCount++;
+        }
+        remove
+        {
+            _configChanged -= value;
+            ConfigSubscriberCount--;
+        }
+    }
 
     public Task<AppConfig> LoadAsync() => Task.FromResult(_current);
     public AppConfig Load() => _current;
@@ -783,14 +920,14 @@ sealed class HeadlessConfigService(AppConfig initial) : IConfigService
     {
         _current = config;
         SaveCount++;
-        ConfigChanged?.Invoke(this, config);
+        _configChanged?.Invoke(this, config);
         return Task.CompletedTask;
     }
 
     public void PublishExternal(AppConfig config)
     {
         _current = config;
-        ConfigChanged?.Invoke(this, config);
+        _configChanged?.Invoke(this, config);
     }
 
     public void ResetSaveCount() => SaveCount = 0;
@@ -804,13 +941,84 @@ sealed class HeadlessModelCatalogService : IModelCatalogService
     public Task<ModelCatalogResult> GetEmbeddingModelsAsync(string? baseUrl, string? apiKey, CancellationToken cancellationToken = default) => Task.FromResult(Empty);
 }
 
+sealed class BlockingModelCatalogService : IModelCatalogService
+{
+    public TaskCompletionSource Started { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool WasCancelled { get; private set; }
+
+    public async Task<ModelCatalogResult> GetModelsAsync(
+        string? baseUrl,
+        string? apiKey,
+        CancellationToken cancellationToken = default)
+    {
+        Started.TrySetResult();
+        using var registration = cancellationToken.Register(() => WasCancelled = true);
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return ModelCatalogResult.Ok([]);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+    }
+
+    public Task<ModelCatalogResult> GetTextModelsAsync(
+        string? baseUrl,
+        string? apiKey,
+        CancellationToken cancellationToken = default) =>
+        GetModelsAsync(baseUrl, apiKey, cancellationToken);
+
+    public Task<ModelCatalogResult> GetEmbeddingModelsAsync(
+        string? baseUrl,
+        string? apiKey,
+        CancellationToken cancellationToken = default) =>
+        GetModelsAsync(baseUrl, apiKey, cancellationToken);
+}
+
+sealed class HeadlessLocalizationService : ILocalizationService
+{
+    private EventHandler? _languageChanged;
+
+    public int LanguageSubscriberCount { get; private set; }
+    public string CurrentLanguage => "en-US";
+    public IReadOnlyList<string> AvailableLanguages => ["en-US"];
+    public IReadOnlyList<string> AvailableLanguageNames => ["English"];
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged
+    {
+        add { }
+        remove { }
+    }
+    public event EventHandler? LanguageChanged
+    {
+        add
+        {
+            _languageChanged += value;
+            LanguageSubscriberCount++;
+        }
+        remove
+        {
+            _languageChanged -= value;
+            LanguageSubscriberCount--;
+        }
+    }
+
+    public int GetLanguageIndex(string languageCode) => languageCode == "en-US" ? 0 : -1;
+    public void SwitchLanguage(string languageCode) => _languageChanged?.Invoke(this, EventArgs.Empty);
+    public string GetString(string key) => key;
+    public string GetString(string key, string defaultValue) => defaultValue;
+}
+
 sealed class HeadlessWebSearchService : IWebSearchService
 {
     public (bool Success, string Message) Result { get; set; } = (true, "ok");
     public bool IsConfigured => true;
     public Task<List<WebSearchResult>> SearchAsync(string query, int maxResults = 5, CancellationToken cancellationToken = default) =>
         Task.FromResult(new List<WebSearchResult>());
-    public Task<(bool Success, string Message)> TestConnectionAsync() => Task.FromResult(Result);
+    public Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result);
 }
 
 sealed class HeadlessSystemAudioService : ISystemAudioService
@@ -895,9 +1103,29 @@ sealed class HeadlessConversationStore : IConversationArchiveStore
 
 sealed class HeadlessArchiveService(HeadlessConversationStore store) : IConversationArchiveService
 {
-    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveStaged;
-    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveCompleted;
-    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveFailed;
+    private EventHandler<ConversationArchiveResultEventArgs>? _archiveStaged;
+    private EventHandler<ConversationArchiveResultEventArgs>? _archiveCompleted;
+    private EventHandler<ConversationArchiveResultEventArgs>? _archiveFailed;
+
+    public int StagedSubscriberCount { get; private set; }
+    public int CompletedSubscriberCount { get; private set; }
+    public int FailedSubscriberCount { get; private set; }
+
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveStaged
+    {
+        add { _archiveStaged += value; StagedSubscriberCount++; }
+        remove { _archiveStaged -= value; StagedSubscriberCount--; }
+    }
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveCompleted
+    {
+        add { _archiveCompleted += value; CompletedSubscriberCount++; }
+        remove { _archiveCompleted -= value; CompletedSubscriberCount--; }
+    }
+    public event EventHandler<ConversationArchiveResultEventArgs>? ArchiveFailed
+    {
+        add { _archiveFailed += value; FailedSubscriberCount++; }
+        remove { _archiveFailed -= value; FailedSubscriberCount--; }
+    }
 
     public Task<List<ConversationHistoryItem>> LoadAllAsync() => store.LoadAllAsync();
     public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => store.LoadByIdAsync(id);
@@ -913,13 +1141,13 @@ sealed class HeadlessArchiveService(HeadlessConversationStore store) : IConversa
     }
 
     public void PublishStaged(ConversationArchiveSnapshot snapshot) =>
-        ArchiveStaged?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json"));
+        _archiveStaged?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json"));
 
     public void PublishCompleted(ConversationArchiveSnapshot snapshot, ConversationHistoryItem history) =>
-        ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json", history));
+        _archiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, "/tmp/archive-staged.json", history));
 
     public void PublishFailed(ConversationArchiveSnapshot snapshot) =>
-        ArchiveFailed?.Invoke(
+        _archiveFailed?.Invoke(
             this,
             new ConversationArchiveResultEventArgs(
                 snapshot,

@@ -1,5 +1,4 @@
 using Athena.UI.Models;
-using Athena.UI.Services;
 using System;
 using System.Collections.Generic;
 using System.Threading;

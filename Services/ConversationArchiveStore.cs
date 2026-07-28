@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services;
 
 /// <summary>SQLite 对话存储；消息 JSON 保留完整领域结构，索引字段独立列出。</summary>
-public sealed class ConversationArchiveStore : IConversationArchiveStore, IConversationDraftStore
+public sealed class ConversationArchiveStore : IConversationArchiveStore, IConversationDraftStore, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -24,6 +24,7 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
     private readonly string _connectionString;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private bool _disposed;
 
     public ConversationArchiveStore(IPlatformPathService platformPathService, ILogger logger)
     {
@@ -229,5 +230,12 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             );
             """;
         command.ExecuteNonQuery();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _writeGate.Dispose();
     }
 }

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Athena.UI.Models;
 
 namespace Athena.UI.Services.Interfaces;
 
@@ -27,8 +26,9 @@ public interface IWebSearchService
     /// <summary>
     /// 测试连接
     /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns>测试结果</returns>
-    Task<(bool Success, string Message)> TestConnectionAsync();
+    Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

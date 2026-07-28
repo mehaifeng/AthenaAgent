@@ -20,7 +20,7 @@ namespace Athena.UI.Services;
 /// 支持向量语义检索（当 Embedding 服务可用时）
 /// 向量持久化到 SQLite，支持增量更新
 /// </summary>
-public class KnowledgeBaseService : IKnowledgeBaseService
+public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 {
     private readonly string _knowledgeBasePath;
     private readonly ILogger _logger;
@@ -177,7 +177,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
             _watcher.Renamed += (s, e) => { EnqueueUpdate(e.OldFullPath); EnqueueUpdate(e.FullPath); };
 
             _watcher.EnableRaisingEvents = true;
-            
+
             _debounceTimer = new Timer(ProcessPendingUpdates, null, Timeout.Infinite, Timeout.Infinite);
             _logger.Information("知识库文件监控已启动");
         }
@@ -1480,4 +1480,14 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     }
 
     #endregion
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _debounceTimer?.Dispose();
+        _initLock.Dispose();
+        _globalLock.Dispose();
+        foreach (var gate in _fileLocks.Values) gate.Dispose();
+        _vectorStoreService.Dispose();
+    }
 }

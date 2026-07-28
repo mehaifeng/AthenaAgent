@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
@@ -15,6 +16,8 @@ public partial class WebSearchSettingsViewModel : ViewModelBase, IDisposable
     private readonly AppConfigurationSession _configurationSession;
     private readonly IWebSearchService? _webSearchService;
     private readonly ILocalizationService? _localizationService;
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private bool _disposed;
 
     public WebSearchSettingsViewModel(
         AppConfigurationSession configurationSession,
@@ -87,12 +90,16 @@ public partial class WebSearchSettingsViewModel : ViewModelBase, IDisposable
         {
             await _configurationSession.SaveNowAsync();
             if (_webSearchService is WebSearchService service) service.RefreshConfig();
-            var (_, message) = await _webSearchService.TestConnectionAsync();
+            var (_, message) = await _webSearchService.TestConnectionAsync(_lifetimeCancellation.Token);
+            if (_disposed) return;
             TestStatus = message;
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
         }
         finally
         {
-            IsTesting = false;
+            if (!_disposed) IsTesting = false;
         }
     }
 
@@ -104,5 +111,12 @@ public partial class WebSearchSettingsViewModel : ViewModelBase, IDisposable
 
     private string GetString(string key, string fallback) => _localizationService?.GetString(key, fallback) ?? fallback;
 
-    public void Dispose() => _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _lifetimeCancellation.Cancel();
+        _lifetimeCancellation.Dispose();
+        _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+    }
 }

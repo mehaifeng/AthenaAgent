@@ -15,7 +15,6 @@ using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
-using Athena.UI.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
@@ -23,12 +22,12 @@ using Avalonia.Styling;
 
 namespace Athena.UI;
 
-public partial class App : Application
+public partial class App : Application, IDisposable
 {
     /// <summary>
     /// 服务提供者（用于依赖注入）
     /// </summary>
-    public static IServiceProvider?  Services { get; private set; }
+    public static IServiceProvider? Services { get; private set; }
 
     /// <summary>
     /// 是否正在退出应用程序
@@ -98,6 +97,7 @@ public partial class App : Application
     }
 
     private System.Threading.CancellationTokenSource? _flashCts;
+    private bool _disposed;
 
     /// <summary>
     /// 开始托盘图标闪烁
@@ -398,6 +398,20 @@ public partial class App : Application
         // macOS Dock 右键退出时，确保真正退出
         IsQuitting = true;
         PersistSessionState();
+        if (Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel viewModel)
+            viewModel.Dispose();
+        Dispose();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _flashCts?.Cancel();
+        _flashCts?.Dispose();
+        _flashCts = null;
+        if (Services is IDisposable disposable) disposable.Dispose();
+        Services = null;
     }
 
     private void PersistSessionState()

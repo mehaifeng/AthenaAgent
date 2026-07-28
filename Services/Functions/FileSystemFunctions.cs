@@ -1,11 +1,8 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -104,36 +101,36 @@ public class FileSystemFunctions
             if (content == null) return FunctionResult.FailureResult($"错误: 文件不存在 ({path})");
 
             var info = await _fileSystemService.GetFileInfoAsync(path);
-            return FunctionResult.SuccessResult("读取成功", new 
-            { 
-                content, 
-                startLine, 
-                endLine, 
-                chunkIndex, 
+            return FunctionResult.SuccessResult("读取成功", new
+            {
+                content,
+                startLine,
+                endLine,
+                chunkIndex,
                 totalChunks = info?.ChunkCount ?? 1,
-                truncated = !string.IsNullOrEmpty(content) && content.Length >= 50 * 1024 
+                truncated = !string.IsNullOrEmpty(content) && content.Length >= 50 * 1024
             });
         }
         catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
         catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
         catch (Exception ex) { return FunctionResult.FailureResult($"读取失败: {ex.Message}"); }
     }
-public async Task<FunctionResult> WriteSystemFileAsync(string path, string content)
-{
-    try
+    public async Task<FunctionResult> WriteSystemFileAsync(string path, string content)
     {
-        if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
-        var success = await _fileSystemService.WriteFileAsync(path, content ?? string.Empty);
-        if (!success) return FunctionResult.FailureResult($"文件写入失败: {path}");
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
+            var success = await _fileSystemService.WriteFileAsync(path, content ?? string.Empty);
+            if (!success) return FunctionResult.FailureResult($"文件写入失败: {path}");
 
-        await TryUpdateKnowledgeBaseVectorsAsync(path);
+            await TryUpdateKnowledgeBaseVectorsAsync(path);
 
-        return FunctionResult.SuccessResult("文件写入成功。");
+            return FunctionResult.SuccessResult("文件写入成功。");
+        }
+        catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
+        catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
+        catch (Exception ex) { return FunctionResult.FailureResult($"写入失败: {ex.Message}"); }
     }
-    catch (UnauthorizedAccessException ex) { return FunctionResult.FailureResult($"安全拦截: {ex.Message}"); }
-    catch (InvalidOperationException ex) { return FunctionResult.FailureResult($"操作限制: {ex.Message}"); }
-    catch (Exception ex) { return FunctionResult.FailureResult($"写入失败: {ex.Message}"); }
-}
 
     public async Task<FunctionResult> ModifySystemFileAsync(string path, string diffContent, bool fuzzyMatch = true, bool replaceAll = false)
     {
@@ -189,7 +186,7 @@ public async Task<FunctionResult> WriteSystemFileAsync(string path, string conte
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("错误: 必须提供 path 参数。");
             var entries = await _fileSystemService.ListDirectoryAsync(path, recursive, filter);
             var formatted = entries.Select(e => new { e.Name, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") }).ToList();
-            
+
             var message = $"目录内容 ({path})";
             if (formatted.Count >= 1000)
             {

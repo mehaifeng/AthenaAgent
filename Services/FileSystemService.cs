@@ -186,7 +186,7 @@ public class FileSystemService : IFileSystemService
         if (!File.Exists(fullPath)) return null;
 
         var fileInfo = new FileInfo(fullPath);
-        
+
         // Handle Section Title (Simple Markdown implementation)
         if (!string.IsNullOrEmpty(sectionTitle))
         {
@@ -382,7 +382,7 @@ public class FileSystemService : IFileSystemService
 
         var pattern = string.IsNullOrEmpty(filter) ? "*" : filter;
         var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-        
+
         var allEntries = new List<FileSystemEntry>();
         var dirInfo = new DirectoryInfo(fullPath);
 
@@ -393,7 +393,7 @@ public class FileSystemService : IFileSystemService
             allEntries.Add(new FileSystemEntry { Name = d.Name, FullPath = d.FullName, Type = "Directory", LastModified = d.LastWriteTime });
             if (allEntries.Count >= maxEntries) break;
         }
-        
+
         if (allEntries.Count < maxEntries)
         {
             foreach (var f in dirInfo.GetFiles(pattern, opt))

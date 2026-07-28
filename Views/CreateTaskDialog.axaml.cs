@@ -1,6 +1,5 @@
 using Athena.UI.ViewModels;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 
 namespace Athena.UI.Views;
 

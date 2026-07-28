@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -120,7 +119,7 @@ public interface IToolDiscoveryService
 /// 工具发现服务实现
 /// 使用向量语义检索发现相关工具
 /// </summary>
-public class ToolDiscoveryService : IToolDiscoveryService
+public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
 {
     private readonly IEmbeddingService _embeddingService;
     private readonly IFunctionRegistry _functionRegistry;
@@ -555,5 +554,11 @@ public class ToolDiscoveryService : IToolDiscoveryService
         var floats = new float[bytes.Length / sizeof(float)];
         Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
         return floats;
+    }
+
+    public void Dispose()
+    {
+        _lock.Dispose();
+        _initLock.Dispose();
     }
 }

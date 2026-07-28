@@ -1,6 +1,6 @@
 namespace Athena.UI.ViewModels;
 
-public sealed class AppSettingsWindowViewModel : ViewModelBase
+public sealed class AppSettingsWindowViewModel : ViewModelBase, System.IDisposable
 {
     public AppSettingsWindowViewModel(
         AppSettingsViewModel appSettings,
@@ -8,9 +8,12 @@ public sealed class AppSettingsWindowViewModel : ViewModelBase
     {
         AppSettings = appSettings;
         About = about;
+        AppSettings.ActivateWindow();
     }
 
     public AppSettingsViewModel AppSettings { get; }
 
     public AboutViewModel About { get; }
+
+    public void Dispose() => AppSettings.DeactivateWindow();
 }

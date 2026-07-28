@@ -1,4 +1,3 @@
-using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.Skills;
@@ -7,7 +6,6 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 
