@@ -399,7 +399,7 @@
                             </StackPanel>
                         </Button>
                         <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}">
-                            <PathIcon Data="{StaticResource AthenaIconPanelSwap}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <PathIcon Data="{StaticResource SemiIconSidebar}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
                 </Grid>

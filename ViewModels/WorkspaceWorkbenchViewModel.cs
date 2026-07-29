@@ -15,6 +15,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,6 +54,7 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     public bool IsMarkdown => string.Equals(Path.GetExtension(FullPath), ".md", StringComparison.OrdinalIgnoreCase)
                               || string.Equals(Path.GetExtension(FullPath), ".markdown", StringComparison.OrdinalIgnoreCase);
     public bool IsImage => ImageExtensions.Contains(Path.GetExtension(FullPath));
+    public bool CanEdit => !IsImage;
     public bool CanPreview => IsMarkdown;
     [ObservableProperty]
     private bool _canDiff;
@@ -70,11 +72,14 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEditMode))]
+    [NotifyPropertyChangedFor(nameof(CanModify))]
     private WorkspaceEditorMode _mode;
 
     public bool IsEditMode => Mode == WorkspaceEditorMode.Edit;
+    public bool CanModify => IsEditMode && IsDirty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanModify))]
     private bool _isDirty;
 
     [ObservableProperty]
@@ -148,6 +153,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly ILogger _logger = Log.ForContext<WorkspaceWorkbenchViewModel>();
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _refreshDebounce;
+    private bool _refreshFilesPending;
+    private bool _refreshGitStatePending;
     private WorkspaceProfile? _workspace;
 
     public WorkspaceWorkbenchViewModel(
@@ -216,9 +223,20 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         IsLoadingFiles = true;
         try
         {
-            var nodes = await Task.Run(() => BuildTree(_workspace.DirectoryPath, _workspace.DirectoryPath, 0));
+            var expandedPaths = new HashSet<string>(
+                EnumerateNodes(Files)
+                    .Where(node => node.IsDirectory && node.IsExpanded)
+                    .Select(node => node.RelativePath),
+                PathComparer);
+            var selectedPath = SelectedFile?.RelativePath;
+            var nodes = await Task.Run(
+                () => BuildTree(_workspace.DirectoryPath, _workspace.DirectoryPath, 0, expandedPaths));
             Files.Clear();
             foreach (var node in nodes) Files.Add(node);
+            SelectedFile = selectedPath == null
+                ? null
+                : EnumerateNodes(Files).FirstOrDefault(
+                    node => string.Equals(node.RelativePath, selectedPath, PathComparison));
         }
         catch (Exception ex)
         {
@@ -263,7 +281,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 return;
             }
             tab.ReplaceFromDisk(await File.ReadAllTextAsync(node.FullPath), info.LastWriteTimeUtc);
-            tab.CanDiff = await IsGitTrackedAsync(node.RelativePath);
+            tab.CanDiff = await HasUncommittedChangesAsync(node.RelativePath);
             tab.Mode = tab.IsMarkdown ? WorkspaceEditorMode.Preview : WorkspaceEditorMode.Edit;
         }
         EditorTabs.Add(tab);
@@ -288,7 +306,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         });
         tab.MarkSaved();
         StatusText = "已保存 " + tab.RelativePath;
-        tab.CanDiff = await IsGitTrackedAsync(tab.RelativePath);
+        tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
         if (tab.CanDiff)
         {
             await RefreshDiffAsync(tab);
@@ -310,16 +328,24 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         tab ??= SelectedEditorTab;
         if (tab == null || tab.IsImage || _workspace == null) return;
+        tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
+        if (!tab.CanDiff)
+        {
+            tab.SetDiff([]);
+            if (tab.Mode == WorkspaceEditorMode.Diff) tab.Mode = WorkspaceEditorMode.Edit;
+            return;
+        }
+
         var head = await ReadHeadVersionAsync(tab.RelativePath);
         tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, tab.Text));
-        tab.CanDiff = head != null;
-        if (tab.CanDiff) tab.Mode = WorkspaceEditorMode.Diff;
+        tab.Mode = WorkspaceEditorMode.Diff;
     }
 
     [RelayCommand]
     private void SetEditorMode(string? mode)
     {
         if (SelectedEditorTab == null || !Enum.TryParse<WorkspaceEditorMode>(mode, true, out var parsed)) return;
+        if (parsed == WorkspaceEditorMode.Edit && !SelectedEditorTab.CanEdit) return;
         if (parsed == WorkspaceEditorMode.Preview && !SelectedEditorTab.CanPreview) return;
         if (parsed == WorkspaceEditorMode.Diff && !SelectedEditorTab.CanDiff) return;
         SelectedEditorTab.Mode = parsed;
@@ -439,6 +465,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private void OnExternalFileChanged(object sender, FileSystemEventArgs e)
     {
         var changedAt = DateTime.UtcNow;
+        var refreshGitState = IsGitMetadataPath(e.FullPath);
         Dispatcher.UIThread.Post(async () =>
         {
             var tab = EditorTabs.FirstOrDefault(candidate => string.Equals(candidate.FullPath, e.FullPath, StringComparison.Ordinal));
@@ -455,25 +482,32 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     else if (changedAt >= tab.LastLocalEditAt)
                     {
                         tab.ReplaceFromDisk(await File.ReadAllTextAsync(tab.FullPath), changedAt);
-                        tab.CanDiff = await IsGitTrackedAsync(tab.RelativePath);
+                        tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
                         if (tab.CanDiff)
                         {
                             await RefreshDiffAsync(tab);
                             tab.Mode = WorkspaceEditorMode.Diff;
                         }
+                        else if (tab.Mode == WorkspaceEditorMode.Diff)
+                        {
+                            tab.SetDiff([]);
+                            tab.Mode = WorkspaceEditorMode.Edit;
+                        }
                     }
                 }
                 catch (IOException)
                 {
-                    ScheduleRefresh();
+                    ScheduleRefresh(refreshFiles: !refreshGitState, refreshGitState: refreshGitState);
                 }
             }
-            ScheduleRefresh();
+            ScheduleRefresh(refreshFiles: !refreshGitState, refreshGitState: refreshGitState);
         });
     }
 
-    private void ScheduleRefresh()
+    private void ScheduleRefresh(bool refreshFiles, bool refreshGitState)
     {
+        _refreshFilesPending |= refreshFiles;
+        _refreshGitStatePending |= refreshGitState;
         _refreshDebounce?.Cancel();
         _refreshDebounce?.Dispose();
         var cts = new CancellationTokenSource();
@@ -483,7 +517,15 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             try
             {
                 await Task.Delay(250, cts.Token);
-                await Dispatcher.UIThread.InvokeAsync(RefreshFilesAsync);
+                Dispatcher.UIThread.Post(async () =>
+                {
+                    var shouldRefreshFiles = _refreshFilesPending;
+                    var shouldRefreshGitState = _refreshGitStatePending;
+                    _refreshFilesPending = false;
+                    _refreshGitStatePending = false;
+                    if (shouldRefreshFiles) await RefreshFilesAsync();
+                    if (shouldRefreshGitState) await RefreshOpenTabGitStateAsync();
+                });
             }
             catch (OperationCanceledException)
             {
@@ -491,7 +533,46 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         });
     }
 
-    private static List<WorkspaceFileNodeViewModel> BuildTree(string root, string directory, int depth)
+    private async Task RefreshOpenTabGitStateAsync()
+    {
+        foreach (var tab in EditorTabs.Where(tab => !tab.IsImage).ToList())
+        {
+            tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
+            if (tab.Mode != WorkspaceEditorMode.Diff) continue;
+            if (tab.CanDiff) await RefreshDiffAsync(tab);
+            else
+            {
+                tab.SetDiff([]);
+                tab.Mode = WorkspaceEditorMode.Edit;
+            }
+        }
+    }
+
+    private bool IsGitMetadataPath(string path)
+    {
+        if (_workspace == null) return false;
+        var gitPath = Path.GetFullPath(Path.Combine(_workspace.DirectoryPath, ".git"));
+        var candidate = Path.GetFullPath(path);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return candidate.Equals(gitPath, comparison)
+               || candidate.StartsWith(gitPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, comparison);
+    }
+
+    private static IEnumerable<WorkspaceFileNodeViewModel> EnumerateNodes(
+        IEnumerable<WorkspaceFileNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            foreach (var child in EnumerateNodes(node.Children)) yield return child;
+        }
+    }
+
+    private static List<WorkspaceFileNodeViewModel> BuildTree(
+        string root,
+        string directory,
+        int depth,
+        IReadOnlySet<string>? expandedPaths = null)
     {
         if (depth > 10) return [];
         var result = new List<WorkspaceFileNodeViewModel>();
@@ -502,34 +583,44 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                      .OrderByDescending(Directory.Exists).ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
             var isDirectory = Directory.Exists(entry);
+            var relativePath = Path.GetRelativePath(root, entry);
             var node = new WorkspaceFileNodeViewModel
             {
                 Name = Path.GetFileName(entry),
                 FullPath = entry,
-                RelativePath = Path.GetRelativePath(root, entry),
-                IsDirectory = isDirectory
+                RelativePath = relativePath,
+                IsDirectory = isDirectory,
+                IsExpanded = isDirectory && expandedPaths?.Contains(relativePath) == true
             };
             if (isDirectory)
             {
-                foreach (var child in BuildTree(root, entry, depth + 1)) node.Children.Add(child);
+                foreach (var child in BuildTree(root, entry, depth + 1, expandedPaths)) node.Children.Add(child);
             }
             result.Add(node);
         }
         return result;
     }
 
-    private async Task<bool> IsGitTrackedAsync(string relativePath)
+    private async Task<bool> HasUncommittedChangesAsync(string relativePath)
     {
         if (_workspace == null || !Directory.Exists(Path.Combine(_workspace.DirectoryPath, ".git"))) return false;
-        var result = await RunGitAsync("ls-files", "--error-unmatch", "--", relativePath);
-        return result.ExitCode == 0;
+        var result = await RunGitAsync(
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=normal",
+            "--",
+            relativePath);
+        return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Output);
     }
 
     private async Task<string?> ReadHeadVersionAsync(string relativePath)
     {
         if (_workspace == null || !Directory.Exists(Path.Combine(_workspace.DirectoryPath, ".git"))) return null;
         var normalized = relativePath.Replace(Path.DirectorySeparatorChar, '/');
-        var result = await RunGitAsync("show", $"HEAD:{normalized}");
+        // Materialize the committed blob with the same attributes/filters Git applies to
+        // the working tree. This avoids presenting EOL or clean/smudge conversion as a
+        // user-authored, uncommitted change.
+        var result = await RunGitAsync("cat-file", "--filters", $"--path={normalized}", $"HEAD:{normalized}");
         return result.ExitCode == 0 ? result.Output : string.Empty;
     }
 
@@ -541,6 +632,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             WorkingDirectory = _workspace.DirectoryPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -551,6 +644,12 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         await process.WaitForExitAsync();
         return (process.ExitCode, output);
     }
+
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static StringComparer PathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private async Task CopyToClipboardAsync(string? value)
     {
@@ -598,7 +697,16 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     RelativePath = Path.GetRelativePath(_workspace!.DirectoryPath, tabState.FullPath)
                 };
                 await OpenFileAsync(node);
-                if (SelectedEditorTab != null) SelectedEditorTab.Mode = tabState.Mode;
+                if (SelectedEditorTab == null) continue;
+                var canRestoreMode = tabState.Mode switch
+                {
+                    WorkspaceEditorMode.Edit => SelectedEditorTab.CanEdit,
+                    WorkspaceEditorMode.Preview => SelectedEditorTab.CanPreview,
+                    WorkspaceEditorMode.Diff => SelectedEditorTab.CanDiff,
+                    WorkspaceEditorMode.Image => SelectedEditorTab.IsImage,
+                    _ => false
+                };
+                if (canRestoreMode) SelectedEditorTab.Mode = tabState.Mode;
             }
             SelectedEditorTab = EditorTabs.FirstOrDefault(tab => tab.FullPath == state.SelectedPath) ?? EditorTabs.FirstOrDefault();
         }

@@ -34,7 +34,10 @@ public static class WorkspaceDiffBuilder
 {
     public static IReadOnlyList<WorkspaceDiffLine> Build(string oldText, string newText)
     {
-        var model = InlineDiffBuilder.Diff(oldText ?? string.Empty, newText ?? string.Empty);
+        // Git blobs normally use LF while a Windows working tree commonly uses CRLF.
+        // Line-ending conversion is not an uncommitted content change, so normalize both
+        // inputs before asking DiffPlex for a line diff.
+        var model = InlineDiffBuilder.Diff(NormalizeLineEndings(oldText), NormalizeLineEndings(newText));
         var result = new List<WorkspaceDiffLine>(model.Lines.Count);
         var oldLine = 0;
         var newLine = 0;
@@ -61,4 +64,7 @@ public static class WorkspaceDiffBuilder
 
         return result;
     }
+
+    private static string NormalizeLineEndings(string? text)
+        => (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
 }

@@ -15,6 +15,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
+using System.Diagnostics;
 using System.Reflection;
 
 var outputPath = args.Length > 0
@@ -29,6 +30,7 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
 TestConcreteConfigServiceIdentity();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
@@ -553,7 +555,11 @@ var diffTab = new WorkspaceEditorTabViewModel
     CanDiff = true,
     Mode = WorkspaceEditorMode.Diff
 };
-diffTab.ReplaceFromDisk("class Athena\n{\n    string Mode = \"new\";\n}", DateTime.UtcNow);
+var lineEndingOnlyDiff = WorkspaceDiffBuilder.Build("first\nsecond\n", "first\r\nsecond\r\n");
+if (lineEndingOnlyDiff.Any(line => line.IsAdded || line.IsRemoved))
+    throw new InvalidOperationException("LF/CRLF conversion must not appear as an uncommitted workspace diff.");
+var longDiffLine = "    string LongLine = \"" + new string('x', 240) + "\";";
+diffTab.ReplaceFromDisk($"class Athena\n{{\n    string Mode = \"new\";\n{longDiffLine}\n}}", DateTime.UtcNow);
 diffTab.SetDiff(WorkspaceDiffBuilder.Build(
     "class Athena\n{\n    string Mode = \"old\";\n}",
     diffTab.Text));
@@ -562,6 +568,20 @@ var workbench = new WorkspaceWorkbenchViewModel(
     new WorkspaceOperationCoordinator(),
     new HeadlessPathService(),
     new HeadlessInteractionService());
+var fileTreeFolder = new WorkspaceFileNodeViewModel
+{
+    Name = "folder",
+    FullPath = "/tmp/folder",
+    RelativePath = "folder",
+    IsDirectory = true
+};
+fileTreeFolder.Children.Add(new WorkspaceFileNodeViewModel
+{
+    Name = "child.txt",
+    FullPath = "/tmp/folder/child.txt",
+    RelativePath = "folder/child.txt"
+});
+workbench.Files.Add(fileTreeFolder);
 workbench.EditorTabs.Add(diffTab);
 for (var index = 1; index <= 8; index++)
 {
@@ -584,10 +604,28 @@ var diffWindow = new Window
 };
 diffWindow.Show();
 Dispatcher.UIThread.RunJobs();
+var workspaceFileTree = workbenchView.FindControl<TreeView>("WorkspaceFileTree")
+                        ?? throw new InvalidOperationException("Workspace file tree was not created.");
+var folderTreeItem = workspaceFileTree.GetVisualDescendants()
+                         .OfType<TreeViewItem>()
+                         .FirstOrDefault(item => ReferenceEquals(item.DataContext, fileTreeFolder))
+                     ?? throw new InvalidOperationException("Workspace folder tree item was not materialized.");
+folderTreeItem.IsExpanded = true;
+Dispatcher.UIThread.RunJobs();
+if (!fileTreeFolder.IsExpanded)
+    throw new InvalidOperationException("Expanding a workspace folder did not persist to its node view model.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"old\";"))
     throw new InvalidOperationException("Visual diff did not render the removed line.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"new\";"))
     throw new InvalidOperationException("Visual diff did not render the inserted line.");
+var diffLinesList = diffWindow.GetVisualDescendants()
+                        .OfType<ListBox>()
+                        .FirstOrDefault(list => ReferenceEquals(list.ItemsSource, diffTab.DiffLines))
+                    ?? throw new InvalidOperationException("Visual diff line list was not created.");
+var diffScroller = diffLinesList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()
+                   ?? throw new InvalidOperationException("Visual diff does not have a scroll host.");
+if (diffScroller.Extent.Width <= diffScroller.Viewport.Width)
+    throw new InvalidOperationException("A long diff line did not create a horizontal scroll range.");
 var editorTabs = workbenchView.FindControl<ListBox>("EditorTabsList")
                  ?? throw new InvalidOperationException("Scrollable editor tab list was not created.");
 var tabItems = editorTabs.GetVisualDescendants().OfType<ListBoxItem>().ToList();
@@ -631,6 +669,9 @@ Console.WriteLine($"[PASS] minimum-width edit toolbar rendered to {editPath}");
 workbench.CancelFileEditsCommand.Execute(diffTab);
 if (diffTab.IsDirty || diffTab.Text.Contains("// unsaved", StringComparison.Ordinal))
     throw new InvalidOperationException("Cancel must restore the latest disk/saved buffer.");
+Dispatcher.UIThread.RunJobs();
+if (saveButton.IsVisible || cancelButton.IsVisible)
+    throw new InvalidOperationException("Save and cancel commands must hide again when edit mode is clean.");
 Console.WriteLine("[PASS] edit-only save/cancel commands, cancel restore, compact link styling, and horizontal tabs");
 diffWindow.Close();
 workbench.Dispose();
@@ -1037,6 +1078,102 @@ static void AssertSaveCount(HeadlessConfigService service, int expected, string 
 {
     if (service.SaveCount != expected)
         throw new InvalidOperationException($"{scenario} expected {expected} save(s), got {service.SaveCount}.");
+}
+
+static async Task TestWorkspaceGitDiffAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-diff-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "clean.txt"), "中文保持不变\n");
+        File.WriteAllText(Path.Combine(root, "modified.txt"), "中文保持不变\nbefore\n");
+        Directory.CreateDirectory(Path.Combine(root, "folder"));
+        File.WriteAllText(Path.Combine(root, "folder", "child.txt"), "child\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        File.WriteAllText(Path.Combine(root, "modified.txt"), "中文保持不变\nafter\n");
+        File.WriteAllText(Path.Combine(root, "added.txt"), "new\n");
+
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService());
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Git diff fixture",
+            DirectoryPath = root
+        });
+
+        await workbench.OpenFileCommand.ExecuteAsync(
+            workbench.Files.Single(node => node.Name == "clean.txt"));
+        if (workbench.SelectedEditorTab?.CanDiff != false)
+            throw new InvalidOperationException("A Git-clean file must not expose workspace diff mode.");
+
+        var expandedFolder = workbench.Files.Single(node => node.Name == "folder");
+        expandedFolder.IsExpanded = true;
+        await workbench.RefreshFilesCommand.ExecuteAsync(null);
+        if (!workbench.Files.Single(node => node.Name == "folder").IsExpanded)
+            throw new InvalidOperationException("Refreshing the workspace tree did not preserve expanded folders.");
+
+        await workbench.OpenFileCommand.ExecuteAsync(
+            workbench.Files.Single(node => node.Name == "modified.txt"));
+        var modifiedTab = workbench.SelectedEditorTab
+                          ?? throw new InvalidOperationException("Modified Git fixture did not open.");
+        if (!modifiedTab.CanDiff)
+            throw new InvalidOperationException("A modified tracked file must expose workspace diff mode.");
+        await workbench.RefreshDiffCommand.ExecuteAsync(modifiedTab);
+        if (modifiedTab.DiffAddedCount != 1 || modifiedTab.DiffRemovedCount != 1)
+            throw new InvalidOperationException("Unchanged Chinese text was incorrectly counted in the Git diff.");
+        if (!modifiedTab.DiffLines.Any(
+                line => line.Kind == WorkspaceDiffLineKind.Unchanged && line.Text == "中文保持不变"))
+            throw new InvalidOperationException("Committed Chinese text was not decoded as UTF-8 in the Git baseline.");
+
+        await workbench.OpenFileCommand.ExecuteAsync(
+            workbench.Files.Single(node => node.Name == "added.txt"));
+        var addedTab = workbench.SelectedEditorTab
+                       ?? throw new InvalidOperationException("Untracked Git fixture did not open.");
+        if (!addedTab.CanDiff)
+            throw new InvalidOperationException("An untracked file must expose workspace diff mode.");
+        await workbench.RefreshDiffCommand.ExecuteAsync(addedTab);
+        if (addedTab.DiffAddedCount == 0 || addedTab.DiffRemovedCount != 0)
+            throw new InvalidOperationException("Untracked file must render as added content against an empty HEAD baseline.");
+
+        Console.WriteLine("[PASS] workspace diff is offered only for tracked changes and untracked files");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static void RunGitForWorkspaceTest(string workingDirectory, params string[] arguments)
+{
+    var start = new ProcessStartInfo("git")
+    {
+        WorkingDirectory = workingDirectory,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+    foreach (var argument in arguments) start.ArgumentList.Add(argument);
+    using var process = Process.Start(start)
+                        ?? throw new InvalidOperationException("Unable to start Git for workspace diff test.");
+    var standardError = process.StandardError.ReadToEnd();
+    process.WaitForExit();
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException($"Git workspace diff fixture failed: {standardError}");
 }
 
 sealed class HeadlessPathService : IPlatformPathService
