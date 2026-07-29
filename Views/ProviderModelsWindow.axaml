@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:u="https://irihi.tech/ursa"
         xmlns:vm="using:Athena.UI.ViewModels"
         xmlns:models="using:Athena.UI.Models"
         x:Class="Athena.UI.Views.ProviderModelsWindow"
@@ -40,18 +41,28 @@
                                     BorderThickness="1"
                                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                                     CornerRadius="7">
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="{Binding DisplayName}"
-                                               FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding BaseUrl}"
-                                               FontSize="{DynamicResource App.FontSize.Body}"
-                                               Opacity="0.65"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}"
-                                               FontSize="{DynamicResource App.FontSize.Body}"
-                                               Opacity="0.8"/>
-                                </StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="4">
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding BaseUrl}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   Opacity="0.65"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   Opacity="0.8"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="✕"
+                                            VerticalAlignment="Top"
+                                            Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).DeleteProviderCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="4,2"/>
+                                </Grid>
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -92,13 +103,14 @@
                         <TextBlock Text="API Key"/>
                         <TextBox Text="{Binding SelectedProvider.ApiKey, UpdateSourceTrigger=PropertyChanged}"
                                  PasswordChar="●"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="刷新模型"
-                                    Command="{Binding RefreshModelsCommand}"
-                                    CommandParameter="{Binding SelectedProvider}"/>
-                            <Button Content="删除供应商"
-                                    Command="{Binding DeleteProviderCommand}"
-                                    CommandParameter="{Binding SelectedProvider}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <u:IconButton Content="刷新模型"
+                                          Command="{Binding RefreshModelsCommand}"
+                                          CommandParameter="{Binding SelectedProvider}"
+                                          IsLoading="{Binding IsRefreshing}"/>
+                            <TextBlock Text="{Binding StatusText}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SemiOrange5}"/>
                         </StackPanel>
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                             <TextBox PlaceholderText="手动模型 ID"
@@ -152,38 +164,10 @@
                     </StackPanel>
                 </Border>
 
-                <Border Padding="16"
-                        BorderThickness="1"
-                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                        Background="{DynamicResource App.SectionBg}"
-                        CornerRadius="8">
-                    <StackPanel Spacing="9">
-                        <TextBlock Text="Embedding 兼容连接"
-                                   FontSize="{DynamicResource App.FontSize.Title}"
-                                   FontWeight="SemiBold"/>
-                        <TextBlock Text="通常由上方 Embedding 分工选择供应商；仅旧式独立凭据需要启用此项。"
-                                   Opacity="0.65"
-                                   TextWrapping="Wrap"/>
-                        <CheckBox Content="使用独立 Embedding 连接"
-                                  IsChecked="{Binding UseCustomEmbeddingConnection}"/>
-                        <StackPanel Spacing="8"
-                                    IsVisible="{Binding UseCustomEmbeddingConnection}">
-                            <TextBlock Text="API Root"/>
-                            <TextBox Text="{Binding Config.EmbeddingBaseUrl}"/>
-                            <TextBlock Text="API Key"/>
-                            <TextBox Text="{Binding Config.EmbeddingApiKey}"
-                                     PasswordChar="●"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+
                     </StackPanel>
                 </ScrollViewer>
 
-                <TextBlock Grid.Row="1"
-                           Text="{Binding StatusText}"
-                           Foreground="{DynamicResource SemiOrange5}"
-                           HorizontalAlignment="Center"
-                           Margin="12,0,12,10"/>
             </Grid>
         </Border>
     </Grid>

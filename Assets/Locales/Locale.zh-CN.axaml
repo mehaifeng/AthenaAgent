@@ -4,6 +4,9 @@
 
     <!-- Main Window -->
     <system:String x:Key="App.Title">Athena</system:String>
+    <system:String x:Key="MainWindow.Minimize">最小化</system:String>
+    <system:String x:Key="MainWindow.MaximizeRestore">最大化/还原</system:String>
+    <system:String x:Key="MainWindow.Close">关闭</system:String>
     <system:String x:Key="Notification.AssistantTitle">Athena 已回复</system:String>
     <system:String x:Key="Tray.Show">显示主窗口</system:String>
     <system:String x:Key="Tray.Quit">退出</system:String>
@@ -331,6 +334,8 @@
     <system:String x:Key="Settings.General.Appearance">外观与语言</system:String>
     <system:String x:Key="Settings.General.Theme">主题</system:String>
     <system:String x:Key="Settings.General.Language">语言</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity">面板透明度</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的雅典娜图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），50% 为最透明。标题栏不受影响。</system:String>
     <system:String x:Key="Settings.General.Interaction">交互</system:String>
     <system:String x:Key="Settings.General.RewindHint">启用后，回溯对话会立即执行，不再显示确认提示。</system:String>
     <system:String x:Key="Settings.Context.Title">对话与上下文</system:String>

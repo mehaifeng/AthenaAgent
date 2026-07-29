@@ -3,6 +3,8 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -25,6 +27,8 @@ public partial class MainWindow : Window
     private ColumnDefinition? _rightShellColumn;
     private RowDefinition? _rightTopRow;
     private RowDefinition? _rightLogRow;
+    private Path? _titleBarMaximizeIcon;
+    private Path? _titleBarRestoreIcon;
     private MainWindowViewModel? _viewModel;
 
     public MainWindow()
@@ -33,6 +37,9 @@ public partial class MainWindow : Window
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
+        _titleBarMaximizeIcon = this.FindControl<Path>("TitleBarMaximizeIcon");
+        _titleBarRestoreIcon = this.FindControl<Path>("TitleBarRestoreIcon");
+        UpdateMaximizeRestoreIcons();
         var shellGrid = this.FindControl<Grid>("MainShellGrid");
         _leftShellColumn = shellGrid?.ColumnDefinitions[0];
         _rightShellColumn = shellGrid?.ColumnDefinitions[4];
@@ -49,6 +56,60 @@ public partial class MainWindow : Window
             _themeSplashImage.IsHitTestVisible = false;
             _themeSplashImage.Opacity = 1;
         }
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == WindowStateProperty) UpdateMaximizeRestoreIcons();
+    }
+
+    private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximizeRestore();
+        }
+        else
+        {
+            BeginMoveDrag(e);
+        }
+
+        e.Handled = true;
+    }
+
+    private void OnTitleBarMinimizeClick(object? sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+        e.Handled = true;
+    }
+
+    private void OnTitleBarMaximizeRestoreClick(object? sender, RoutedEventArgs e)
+    {
+        ToggleMaximizeRestore();
+        e.Handled = true;
+    }
+
+    private void OnTitleBarCloseClick(object? sender, RoutedEventArgs e)
+    {
+        Close();
+        e.Handled = true;
+    }
+
+    private void ToggleMaximizeRestore()
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void UpdateMaximizeRestoreIcons()
+    {
+        var isMaximized = WindowState == WindowState.Maximized;
+        if (_titleBarMaximizeIcon != null) _titleBarMaximizeIcon.IsVisible = !isMaximized;
+        if (_titleBarRestoreIcon != null) _titleBarRestoreIcon.IsVisible = isMaximized;
     }
 
     private void OnMainDataContextChanged(object? sender, EventArgs e)

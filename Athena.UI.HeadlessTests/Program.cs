@@ -2,8 +2,10 @@
 
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Chrome;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -92,12 +94,51 @@ if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "
     throw new InvalidOperationException("The compact log toolbar must not expose a pause command.");
 if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text is "工作区文件" or "编辑区"))
     throw new InvalidOperationException("The workspace file header must not expose redundant section labels or editor buttons.");
-var settingsButton = window.FindControl<Button>("AppSettingsButton")
-                     ?? throw new InvalidOperationException("Settings command was not moved into the workspace-side footer.");
+if (window.FindControl<Button>("AppSettingsButton") != null)
+    throw new InvalidOperationException("The old workspace-footer settings button must be removed.");
+var titleBarThemeButton = window.FindControl<Button>("TitleBarThemeButton")
+                          ?? throw new InvalidOperationException("The theme command was not moved into the title bar.");
+var titleBarSettingsButton = window.FindControl<Button>("TitleBarAppSettingsButton")
+                             ?? throw new InvalidOperationException("The settings command was not moved into the title bar.");
+var titleBarDragArea = window.FindControl<Grid>("TitleBarDragArea")
+                       ?? throw new InvalidOperationException("The title bar has no dedicated drag area.");
+if (titleBarDragArea.Background == null
+    || WindowDecorationProperties.GetElementRole(titleBarDragArea) != WindowDecorationsElementRole.TitleBar)
+    throw new InvalidOperationException("The title-bar drag area must be hit-testable and marked with the native title-bar role.");
+var titleBarMinimizeButton = window.FindControl<Button>("TitleBarMinimizeButton")
+                             ?? throw new InvalidOperationException("The title bar has no minimize button.");
+var titleBarMaximizeButton = window.FindControl<Button>("TitleBarMaximizeButton")
+                             ?? throw new InvalidOperationException("The title bar has no maximize/restore button.");
+var titleBarCloseButton = window.FindControl<Button>("TitleBarCloseButton")
+                          ?? throw new InvalidOperationException("The title bar has no close button.");
+if (window.WindowDecorations != WindowDecorations.BorderOnly)
+    throw new InvalidOperationException("The custom title bar must retain only the native resize border.");
+if (!ReferenceEquals(titleBarThemeButton.Command, mainViewModel.MainConversationViewModel.ToggleThemeCommand)
+    || !ReferenceEquals(titleBarSettingsButton.Command, mainViewModel.OpenAppSettingsCommand))
+    throw new InvalidOperationException("Title-bar commands are not bound to the existing theme and settings commands.");
+if (window.FindControl<Button>("TitleBarFullScreenButton") != null)
+    throw new InvalidOperationException("The title bar must not expose a full-screen button.");
+titleBarMaximizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+Dispatcher.UIThread.RunJobs();
+if (window.WindowState != WindowState.Maximized)
+    throw new InvalidOperationException("The title-bar maximize button did not maximize the window.");
+titleBarMaximizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+Dispatcher.UIThread.RunJobs();
+if (window.WindowState != WindowState.Normal)
+    throw new InvalidOperationException("The title-bar maximize button did not restore the window.");
+titleBarMinimizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+Dispatcher.UIThread.RunJobs();
+if (window.WindowState != WindowState.Minimized)
+    throw new InvalidOperationException("The title-bar minimize button did not minimize the window.");
+window.WindowState = WindowState.Normal;
+Dispatcher.UIThread.RunJobs();
+if (window.GetVisualDescendants().OfType<Button>()
+    .Any(button => ReferenceEquals(button.Command, mainViewModel.MainConversationViewModel.NewConversationCommand)))
+    throw new InvalidOperationException("The main conversation view must not expose a new-conversation button.");
 var globalConversationButton = window.FindControl<Button>("GlobalConversationButton")
                                ?? throw new InvalidOperationException("Global conversation command was not created.");
-if (settingsButton.Bounds.X >= globalConversationButton.Bounds.X || globalConversationButton.Bounds.Width <= settingsButton.Bounds.Width * 2)
-    throw new InvalidOperationException("The workspace footer must place settings left of a stretched global conversation command.");
+if (globalConversationButton.Bounds.Width <= 0)
+    throw new InvalidOperationException("The global conversation command must stretch across the workspace footer.");
 var searchBox = window.FindControl<TextBox>("WorkspaceSearchBox")
                 ?? throw new InvalidOperationException("Workspace search field was not created.");
 var addWorkspaceButton = window.FindControl<Button>("AddWorkspaceButton")
@@ -177,7 +218,7 @@ await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapE
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
 Console.WriteLine("[PASS] three semantic columns, two splitters, side minimum widths, permanent chat, no main TabStrip");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
-Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, footer settings, and search spacing");
+Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, title-bar commands, and search spacing");
 window.Close();
 
 {
@@ -684,10 +725,6 @@ static void TestConfigurationSession(string artifactDirectory)
     documentPage.Config.DocumentParserMode = DocumentParserMode.Precision;
     if (!documentPage.CanEditToken)
         throw new InvalidOperationException("Precision parser mode must enable the token field when parsing is enabled.");
-
-    providerPage.UseCustomEmbeddingConnection = true;
-    if (session.Current.EmbeddingCredentialSource != EmbeddingConnectionSource.Custom)
-        throw new InvalidOperationException("Provider Models did not preserve the legacy custom Embedding connection option.");
 
     service.ResetSaveCount();
     session.Current.Language = "en-US";

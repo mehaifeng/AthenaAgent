@@ -2,6 +2,7 @@ using Athena.UI.Services.Interfaces;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
@@ -86,6 +87,8 @@ public partial class LogsViewModel : ViewModelBase, IDisposable
         _localizationService = localizationService;
         _userInteractionService = userInteractionService;
         App.ThemeChanged += OnThemeChanged;
+        if (_logService != null)
+            _logService.LogsChanged += OnLogsChanged;
         RefreshLogsAsync().ConfigureAwait(false);
     }
 
@@ -98,11 +101,20 @@ public partial class LogsViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void OnLogsChanged()
+    {
+        if (_disposed) return;
+        // SQLiteSink 在后台线程触发，需切回 UI 线程刷新。
+        Dispatcher.UIThread.Post(async () => await LoadLogsAsync());
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         App.ThemeChanged -= OnThemeChanged;
+        if (_logService != null)
+            _logService.LogsChanged -= OnLogsChanged;
     }
 
     [RelayCommand]

@@ -51,6 +51,11 @@ public class LogQueryResult
 public interface ILogService
 {
     /// <summary>
+    /// 当有新日志写入数据库时触发。UI 层订阅此事件实现响应式刷新，取代轮询定时器。
+    /// </summary>
+    event Action? LogsChanged;
+
+    /// <summary>
     /// 查询日志
     /// </summary>
     Task<LogQueryResult> QueryLogsAsync(LogQueryParams queryParams);

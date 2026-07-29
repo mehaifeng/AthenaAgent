@@ -335,9 +335,13 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
 public partial class WorkspaceConversationGroupViewModel : ViewModelBase
 {
-    public WorkspaceConversationGroupViewModel(WorkspaceProfile? workspace)
+    /// <summary>注入全局对话的"历史目录"回退路径，菜单"在文件夹中显示"/"复制路径"会用到它。</summary>
+    private readonly string _globalDirectoryPath;
+
+    public WorkspaceConversationGroupViewModel(WorkspaceProfile? workspace, string globalDirectoryPath = "")
     {
         Workspace = workspace;
+        _globalDirectoryPath = globalDirectoryPath;
         Name = workspace?.Name ?? "全局对话";
         IsExpanded = true;
     }
@@ -349,7 +353,7 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     [ObservableProperty]
     private string _name;
 
-    public string DirectoryPath => Workspace?.DirectoryPath ?? string.Empty;
+    public string DirectoryPath => Workspace?.DirectoryPath ?? _globalDirectoryPath;
 
     public System.Collections.ObjectModel.ObservableCollection<ConversationSessionItemViewModel> Conversations { get; } = new();
 
@@ -396,13 +400,14 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     [RelayCommand]
     private void RequestReveal()
     {
-        if (IsWorkspace) RevealRequested?.Invoke(this, EventArgs.Empty);
+        // 全局对话也有自己的目录（AthenaData/history），菜单的"在文件夹中显示"应当对所有 group 都可用。
+        RevealRequested?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]
     private void RequestCopyPath()
     {
-        if (IsWorkspace) CopyPathRequested?.Invoke(this, EventArgs.Empty);
+        CopyPathRequested?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

@@ -220,7 +220,7 @@
                 CornerRadius="0,0,5,5"
                 VerticalAlignment="Center"
                 Padding="12,8">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*">
                 <StackPanel Grid.Column="0"
                             Orientation="Horizontal"
                             Spacing="8"
@@ -288,26 +288,6 @@
                                TextTrimming="CharacterEllipsis"/>
                 </Grid>
 
-                <Button Grid.Column="2"
-                        VerticalAlignment="Center"
-                        Command="{Binding ToggleThemeCommand}"
-                        Tag="{Binding ThemeIcon}"
-                        Margin="0,0,8,0"
-                        ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
-                    <Panel>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}" IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}" IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
-                    </Panel>
-                </Button>
-                
-                <Button Grid.Column="3"
-                        VerticalAlignment="Center"
-                        Command="{Binding NewConversationCommand}"
-                        IsEnabled="{Binding !IsResetting}"
-                        Margin="0,0,8,0"
-                        ToolTip.Tip="{loc:Loc Chat.BtnReset}">
-                    <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconPlusCircle}"/>
-                </Button>
             </Grid>
         </Border>
 

@@ -12,6 +12,7 @@ using Serilog;
 using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -30,9 +31,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IWorkspaceService? _workspaceService;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly AppConfigurationSession? _configurationSession;
+    private readonly IPlatformPathService? _platformPathService;
     private readonly ITaskScheduler? _taskScheduler;
     private readonly ApprovalQueueViewModel? _approvalQueue;
-    private readonly DispatcherTimer? _compactLogTimer;
+    private readonly ILogService? _logService;
     private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
     private readonly Func<AppSettingsWindowViewModel>? _appSettingsFactory;
     private bool _disposed;
@@ -42,6 +44,34 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public AppConfig? Config => _configurationSession?.Current;
 
     public bool IsSidePanelsSwapped => Config?.MainLayout.SidePanelsSwapped == true;
+
+    /// <summary>用户配置的"面板透明度"分率（0 = 完全不透明，0.5 = 50% 透明）。</summary>
+    public double PanelTransparency => Config?.MainLayout.PanelTransparency ?? 0.0;
+
+    /// <summary>XAML 直接消费的 Border.Opacity 值：透明度 0 对应不透明（Opacity=1），透明度 0.5 对应半透（Opacity=0.5）。</summary>
+    public double ShellPanelOpacity => 1.0 - PanelTransparency;
+
+    private MainLayoutSettings? _trackedMainLayout;
+
+    private void TrackMainLayout(MainLayoutSettings? layout)
+    {
+        if (ReferenceEquals(_trackedMainLayout, layout)) return;
+        if (_trackedMainLayout != null)
+            _trackedMainLayout.PropertyChanged -= OnMainLayoutPropertyChanged;
+        _trackedMainLayout = layout;
+        if (_trackedMainLayout != null)
+            _trackedMainLayout.PropertyChanged += OnMainLayoutPropertyChanged;
+    }
+
+    private void OnMainLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // 任意子属性变化都重抛顶层派生属性，避免遗漏其他将来新增的 MainLayout 字段。
+        if (e.PropertyName == nameof(MainLayoutSettings.PanelTransparency))
+        {
+            OnPropertyChanged(nameof(PanelTransparency));
+            OnPropertyChanged(nameof(ShellPanelOpacity));
+        }
+    }
 
     public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
 
@@ -194,6 +224,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _conversationStore = conversationStore;
         _workspaceService = workspaceService;
         _userInteractionService = userInteractionService;
+        _platformPathService = platformPathService;
         _taskScheduler = taskScheduler;
         Workbench = workbench;
         _configurationSession = configurationSession;
@@ -202,6 +233,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _appSettingsFactory = appSettingsFactory;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged += OnCurrentConfigChanged;
+        // 跟踪初始配置里的 MainLayout，让面板透明度滑块第一次拖动就能即时反映到主窗口。
+        TrackMainLayout(_configurationSession?.Current?.MainLayout);
         if (_approvalQueue != null) _approvalQueue.Pending.CollectionChanged += OnApprovalQueueChanged;
         Orchestrator = subAgentOrchestrator;
 
@@ -236,15 +269,18 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _ = RefreshCompactLogsAsync();
         if (logService != null)
         {
-            _compactLogTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            _compactLogTimer.Tick += OnCompactLogTimerTick;
-            _compactLogTimer.Start();
+            _logService = logService;
+            logService.LogsChanged += OnLogsChanged;
         }
     }
 
     private void OnApprovalQueueChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshApprovalStates();
 
-    private async void OnCompactLogTimerTick(object? sender, EventArgs e) => await RefreshCompactLogsAsync();
+    private void OnLogsChanged()
+    {
+        // SQLiteSink 在后台线程触发，需切回 UI 线程刷新集合。
+        Dispatcher.UIThread.Post(async () => await RefreshCompactLogsAsync());
+    }
 
     private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)
     {
@@ -410,7 +446,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             ConversationGroups.Clear();
-            var globalGroup = new WorkspaceConversationGroupViewModel(null);
+            var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty);
             WireGroup(globalGroup);
             ConversationGroups.Add(globalGroup);
 
@@ -457,7 +493,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             _logger.Error(ex, "初始化多会话树失败");
             if (ConversationGroups.Count == 0)
             {
-                var globalGroup = new WorkspaceConversationGroupViewModel(null);
+                var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty);
                 WireGroup(globalGroup);
                 ConversationGroups.Add(globalGroup);
             }
@@ -595,6 +631,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         OnPropertyChanged(nameof(Config));
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
+        OnPropertyChanged(nameof(PanelTransparency));
+        OnPropertyChanged(nameof(ShellPanelOpacity));
+        TrackMainLayout(config.MainLayout);
     }
 
     private async Task RefreshCompactLogsAsync()
@@ -694,14 +733,14 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private async Task CopyWorkspacePathAsync(WorkspaceConversationGroupViewModel group)
     {
-        if (!group.IsWorkspace || string.IsNullOrWhiteSpace(group.DirectoryPath)) return;
+        if (string.IsNullOrWhiteSpace(group.DirectoryPath)) return;
         var clipboard = MainOwner == null ? null : TopLevel.GetTopLevel(MainOwner)?.Clipboard;
         if (clipboard != null) await clipboard.SetTextAsync(group.DirectoryPath);
     }
 
     private void RevealWorkspace(WorkspaceConversationGroupViewModel group)
     {
-        if (!group.IsWorkspace || !Directory.Exists(group.DirectoryPath)) return;
+        if (string.IsNullOrWhiteSpace(group.DirectoryPath) || !Directory.Exists(group.DirectoryPath)) return;
         var start = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("explorer.exe", $"\"{group.DirectoryPath}\"") { UseShellExecute = true }
             : OperatingSystem.IsMacOS()
@@ -807,11 +846,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             _taskScheduler.ProactiveMessageTriggered -= OnProactiveMessageTriggered;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
-        if (_compactLogTimer != null)
-        {
-            _compactLogTimer.Stop();
-            _compactLogTimer.Tick -= OnCompactLogTimerTick;
-        }
+        TrackMainLayout(null);
+        if (_logService != null)
+            _logService.LogsChanged -= OnLogsChanged;
 
         foreach (var session in ConversationGroups
                      .SelectMany(group => group.Conversations)

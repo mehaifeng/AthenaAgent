@@ -4,6 +4,7 @@ using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
@@ -44,18 +45,6 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private bool _isRefreshing;
-
-    public bool UseCustomEmbeddingConnection
-    {
-        get => Config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom;
-        set
-        {
-            var source = value ? EmbeddingConnectionSource.Custom : EmbeddingConnectionSource.Provider;
-            if (Config.EmbeddingCredentialSource == source) return;
-            Config.EmbeddingCredentialSource = source;
-            OnPropertyChanged();
-        }
-    }
 
     [RelayCommand]
     private void AddProvider()
@@ -106,9 +95,22 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
                 StatusText = "刷新失败，已保留旧列表：" + result.ErrorMessage;
                 return;
             }
+
+            var modelIds = new HashSet<string>(result.Models, StringComparer.OrdinalIgnoreCase);
+
+            // OpenRouter: 额外拉取精确的 Embedding 模型列表并合并。
+            if (IsOpenRouter(provider.BaseUrl))
+            {
+                var embedResult = await _catalogService.GetEmbeddingModelsAsync(provider.BaseUrl, provider.ApiKey, cancellation.Token);
+                if (!_disposed && !cancellation.IsCancellationRequested && embedResult.Success)
+                {
+                    foreach (var id in embedResult.Models) modelIds.Add(id);
+                }
+            }
+
             var manual = provider.Models.Where(model => model.IsManual).ToList();
             provider.Models.Clear();
-            foreach (var id in result.Models)
+            foreach (var id in modelIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
             {
                 provider.Models.Add(new ProviderModelDescriptor
                 {
@@ -136,6 +138,14 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private static bool IsOpenRouter(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri))
+            return false;
+        return uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase);
+    }
+
     [RelayCommand]
     private void AddManualModel()
     {
@@ -158,20 +168,20 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     private void RebuildRoles()
     {
         Roles.Clear();
-        AddRole("主对话", Config.AiModels.MainConversation);
-        AddRole("标题生成", Config.AiModels.TitleGeneration);
-        AddRole("上下文压缩", Config.AiModels.ContextCompression);
-        AddRole("自动审批", Config.AiModels.Approval);
-        AddRole("Embedding", Config.AiModels.Embedding);
-        AddRole("自动化浏览器", Config.AiModels.BrowserAgent);
-        AddRole("子代理", Config.AiModels.SubAgent);
-        AddRole("知识整理", Config.AiModels.KnowledgeMaintenance);
-        AddRole("图像识别", Config.AiModels.ImageRecognition);
+        AddRole("主对话", Config.AiModels.MainConversation, ModelCapability.Text);
+        AddRole("标题生成", Config.AiModels.TitleGeneration, ModelCapability.Text);
+        AddRole("上下文压缩", Config.AiModels.ContextCompression, ModelCapability.Text);
+        AddRole("自动审批", Config.AiModels.Approval, ModelCapability.Text);
+        AddRole("Embedding", Config.AiModels.Embedding, ModelCapability.Embedding);
+        AddRole("自动化浏览器", Config.AiModels.BrowserAgent, ModelCapability.Text);
+        AddRole("子代理", Config.AiModels.SubAgent, ModelCapability.Text);
+        AddRole("知识整理", Config.AiModels.KnowledgeMaintenance, ModelCapability.Text);
+        AddRole("图像识别", Config.AiModels.ImageRecognition, ModelCapability.Text);
     }
 
-    private void AddRole(string name, ModelRoleSettings settings)
+    private void AddRole(string name, ModelRoleSettings settings, ModelCapability requiredCapability)
     {
-        var role = new ProviderRoleSelectionViewModel(name, settings, Providers);
+        var role = new ProviderRoleSelectionViewModel(name, settings, Providers, requiredCapability);
         Roles.Add(role);
     }
 
@@ -179,7 +189,6 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     {
         Config = config;
         OnPropertyChanged(nameof(Providers));
-        OnPropertyChanged(nameof(UseCustomEmbeddingConnection));
         SelectedProvider = null;
         RebuildRoles();
     }
@@ -205,28 +214,40 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 public partial class ProviderRoleSelectionViewModel : ViewModelBase
 {
     private readonly ObservableCollection<OpenAiProviderConfiguration> _providers;
+    private readonly ModelCapability _requiredCapability;
 
     public ProviderRoleSelectionViewModel(
         string name,
         ModelRoleSettings settings,
-        ObservableCollection<OpenAiProviderConfiguration> providers)
+        ObservableCollection<OpenAiProviderConfiguration> providers,
+        ModelCapability requiredCapability)
     {
         Name = name;
         Settings = settings;
         _providers = providers;
+        _requiredCapability = requiredCapability;
         _selectedProvider = providers.FirstOrDefault(provider => provider.Id == settings.ProviderId);
         if (_selectedProvider == null && providers.Count == 1)
         {
             _selectedProvider = providers[0];
             Settings.ProviderId = providers[0].Id;
         }
-        _selectedModel = _selectedProvider?.Models.FirstOrDefault(model => model.Id == settings.Model);
+        _selectedModel = FilterModels(_selectedProvider?.Models).FirstOrDefault(model => model.Id == settings.Model);
     }
 
     public string Name { get; }
     public ModelRoleSettings Settings { get; }
     public ObservableCollection<OpenAiProviderConfiguration> Providers => _providers;
-    public ObservableCollection<ProviderModelDescriptor> AvailableModels => SelectedProvider?.Models ?? [];
+
+    public IEnumerable<ProviderModelDescriptor> AvailableModels => FilterModels(SelectedProvider?.Models);
+
+    private IEnumerable<ProviderModelDescriptor> FilterModels(ObservableCollection<ProviderModelDescriptor>? models)
+    {
+        if (models == null) return [];
+        return _requiredCapability == ModelCapability.Embedding
+            ? models.Where(m => m.Capability == ModelCapability.Embedding)
+            : models.Where(m => m.Capability != ModelCapability.Embedding);
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AvailableModels))]
@@ -238,8 +259,9 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase
     partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? value)
     {
         Settings.ProviderId = value?.Id ?? string.Empty;
-        if (value != null && value.Models.All(model => model.Id != Settings.Model)) Settings.Model = value.Models.FirstOrDefault()?.Id ?? string.Empty;
-        SelectedModel = value?.Models.FirstOrDefault(model => model.Id == Settings.Model);
+        var available = FilterModels(value?.Models).ToList();
+        if (value != null && available.All(model => model.Id != Settings.Model)) Settings.Model = available.FirstOrDefault()?.Id ?? string.Empty;
+        SelectedModel = available.FirstOrDefault(model => model.Id == Settings.Model);
     }
 
     partial void OnSelectedModelChanged(ProviderModelDescriptor? value)

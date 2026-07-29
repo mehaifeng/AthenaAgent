@@ -11,11 +11,13 @@ namespace Athena.UI.Services;
 /// <summary>
 /// 日志服务实现
 /// </summary>
-public class LogService : ILogService
+public class LogService : ILogService, IDisposable
 {
     private readonly string _dbPath;
     private readonly string _logDir;
     private readonly IPlatformPathService _platformPathService;
+
+    public event Action? LogsChanged;
 
     public string DatabasePath => _dbPath;
 
@@ -27,7 +29,10 @@ public class LogService : ILogService
 
         _dbPath = Path.Combine(_logDir, "logs.db");
         InitializeDatabase();
+        SQLiteSink.BatchWritten += OnBatchWritten;
     }
+
+    private void OnBatchWritten() => LogsChanged?.Invoke();
 
     private void InitializeDatabase()
     {
@@ -211,5 +216,10 @@ public class LogService : ILogService
             "VERBOSE" => "Verbose",
             _ => level
         };
+    }
+
+    public void Dispose()
+    {
+        SQLiteSink.BatchWritten -= OnBatchWritten;
     }
 }

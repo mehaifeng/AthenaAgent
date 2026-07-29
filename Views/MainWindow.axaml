@@ -4,12 +4,16 @@
         xmlns:views="using:Athena.UI.Views"
         xmlns:loc="using:Athena.UI.Markup"
         xmlns:appconv="using:Athena.UI.Converters"
+        xmlns:chrome="using:Avalonia.Controls.Chrome"
         x:Class="Athena.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{loc:Loc App.Title}"
         Width="1440" Height="900"
         MinWidth="1180" MinHeight="720"
         WindowStartupLocation="CenterScreen"
+        WindowDecorations="BorderOnly"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="40"
         Icon="/Assets/Athena.ico"
         FontFamily="{DynamicResource MainFontFamily}">
     <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
@@ -50,10 +54,9 @@
                         </Grid>
                     </Button>
                     <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="会话菜单"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnOverflowMenuClick">
-                        <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Stretch="Uniform"
-                              Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
-                              StrokeLineCap="Round" StrokeJoin="Round"/>
+                        <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Foreground="{DynamicResource App.IconMutedForeground}"/>
                         <Button.ContextFlyout>
                             <MenuFlyout>
                                 <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
@@ -67,9 +70,7 @@
                                 </MenuItem>
                                 <MenuItem Header="导出" Command="{Binding RequestExportCommand}">
                                     <MenuItem.Icon>
-                                        <Path Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Stretch="Uniform"
-                                              Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
-                                              StrokeLineCap="Round" StrokeJoin="Round"/>
+                                        <PathIcon Data="{StaticResource SemiIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
@@ -96,6 +97,8 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="10"/>
+            <!-- 面板透明度：1 = 完全不透明（与原观感一致），0.5 = 半透（让背景雅典娜图像淡淡透出）。默认 1 保持原观感。 -->
+            <Setter Property="Opacity" Value="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShellPanelOpacity}"/>
         </Style>
         <Style Selector="Button.launcher">
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -133,20 +136,127 @@
         <Style Selector="StackPanel.nav-group">
             <Setter Property="Spacing" Value="0"/>
         </Style>
+        <Style Selector="Button.window-caption">
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.window-caption:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
+        </Style>
+        <Style Selector="Button.window-caption.close:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SemiRed6}"/>
+        </Style>
     </Window.Styles>
 
-    <Grid>
-        <Image x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
-        <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
-        <Border Background="{DynamicResource App.BackgroundOverlay}" Opacity="0.72" IsHitTestVisible="False"/>
-        <Image x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
+    <Grid RowDefinitions="40,*">
+        <Image Grid.RowSpan="2" x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
+        <Image Grid.RowSpan="2" x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
-        <Grid x:Name="MainShellGrid" Margin="8">
+        <Border Grid.Row="0"
+                Background="{DynamicResource App.SectionBg}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+                <Grid x:Name="TitleBarDragArea"
+                      Background="Transparent"
+                      PointerPressed="OnTitleBarPointerPressed"
+                      chrome:WindowDecorationProperties.ElementRole="TitleBar">
+                    <TextBlock Text="{loc:Loc App.Title}"
+                               Margin="12,0"
+                               VerticalAlignment="Center"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               FontWeight="SemiBold"
+                               IsHitTestVisible="False"/>
+                </Grid>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button x:Name="TitleBarThemeButton"
+                            Classes="icon-plain"
+                            Margin="0,0,12,0"
+                            Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
+                            Tag="{Binding MainConversationViewModel.ThemeIcon}"
+                            ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
+                        <Panel>
+                            <PathIcon Width="16" Height="16"
+                                      Data="{StaticResource SemiIconMoon}"
+                                      IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
+                            <PathIcon Width="16" Height="16"
+                                      Data="{StaticResource SemiIconSun}"
+                                      IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
+                        </Panel>
+                    </Button>
+                    <Button x:Name="TitleBarAppSettingsButton"
+                            Classes="icon-plain"
+                            Margin="0,0,4,0"
+                            Command="{Binding OpenAppSettingsCommand}"
+                            ToolTip.Tip="{loc:Loc Settings.Window.Title}">
+                        <PathIcon Data="{StaticResource AthenaIconSettings}"
+                                  Width="16" Height="16"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                    <Button x:Name="TitleBarMinimizeButton"
+                            Classes="window-caption"
+                            Click="OnTitleBarMinimizeClick"
+                            ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
+                        <Path Width="16" Height="16"
+                              Data="M 1,7.5 L 11,7.5"
+                              Stretch="None"
+                              Stroke="{DynamicResource App.IconForeground}"
+                              StrokeThickness="1.5"
+                              StrokeLineCap="Square"/>
+                    </Button>
+                    <Button x:Name="TitleBarMaximizeButton"
+                            Classes="window-caption"
+                            Click="OnTitleBarMaximizeRestoreClick"
+                            ToolTip.Tip="{loc:Loc MainWindow.MaximizeRestore}">
+                        <Panel Width="16" Height="16">
+                            <Path x:Name="TitleBarMaximizeIcon"
+                                  Data="M 1.5,1.5 H 10.5 V 10.5 H 1.5 Z"
+                                  Stretch="None"
+                                  Stroke="{DynamicResource App.IconForeground}"
+                                  StrokeThickness="1.5"/>
+                            <Path x:Name="TitleBarRestoreIcon"
+                                  IsVisible="False"
+                                  Data="M 3.5,1.5 H 10.5 V 8.5 M 1.5,3.5 H 8.5 V 10.5 H 1.5 Z"
+                                  Stretch="None"
+                                  Stroke="{DynamicResource App.IconForeground}"
+                                  StrokeThickness="1.5"/>
+                        </Panel>
+                    </Button>
+                    <Button x:Name="TitleBarCloseButton"
+                            Classes="window-caption close"
+                            Click="OnTitleBarCloseClick"
+                            ToolTip.Tip="{loc:Loc MainWindow.Close}">
+                        <Path Width="16" Height="16"
+                              Data="M 2,2 L 10,10 M 10,2 L 2,10"
+                              Stretch="None"
+                              Stroke="{DynamicResource App.IconForeground}"
+                              StrokeThickness="1.5"
+                              StrokeLineCap="Square"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Image Grid.RowSpan="2" x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
+
+        <Grid Grid.Row="1" x:Name="MainShellGrid" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
-                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="5" MinWidth="5"/>
                 <ColumnDefinition Width="*" MinWidth="540"/>
-                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="5" MinWidth="5"/>
                 <ColumnDefinition Width="470" MinWidth="360"/>
             </Grid.ColumnDefinitions>
             <!-- 左侧：入口 + 工作区会话树。语义区域可与右侧整体对调。 -->
@@ -224,12 +334,27 @@
                                                       Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
                                                       StrokeLineCap="Round" StrokeJoin="Round"/>
                                             </Button>
+                                            <Button Grid.Column="3" Classes="icon-plain global-menu" ToolTip.Tip="全局对话菜单"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    Click="OnOverflowMenuClick"
+                                                    IsVisible="{Binding !IsWorkspace}">
+                                            <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="13" Height="13" Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                            <Button.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
+                                                        <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                    </MenuItem>
+                                                    <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
+                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                    </MenuItem>
+                                                </MenuFlyout>
+                                            </Button.ContextFlyout>
+                                            </Button>
                                             <Button Grid.Column="3" Classes="icon-plain workspace-menu" ToolTip.Tip="工作区菜单"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     Click="OnOverflowMenuClick"
                                                     IsVisible="{Binding IsWorkspace}">
-                                                <Path Data="{StaticResource AthenaIconOverflowMenu}" Width="13" Height="13" Stretch="Uniform"
-                                                      Stroke="{DynamicResource App.IconMutedForeground}" StrokeThickness="1.8"
-                                                      StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="13" Height="13" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                                 <Button.ContextFlyout>
                                                     <MenuFlyout>
                                                         <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
@@ -237,9 +362,7 @@
                                                         </MenuItem>
                                                         <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
                                                             <MenuItem.Icon>
-                                                                <Path Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Stretch="Uniform"
-                                                                      Stroke="{DynamicResource App.IconForeground}" StrokeThickness="1.8"
-                                                                      StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                                <PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                                             </MenuItem.Icon>
                                                         </MenuItem>
                                                         <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
@@ -265,11 +388,8 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
-                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                        <Button x:Name="AppSettingsButton" Classes="icon-plain" ToolTip.Tip="应用设置" Command="{Binding OpenAppSettingsCommand}">
-                            <PathIcon Data="{StaticResource AthenaIconSettings}" Width="17" Height="17" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                        </Button>
-                        <Button x:Name="GlobalConversationButton" Grid.Column="1" HorizontalAlignment="Stretch"
+                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Button x:Name="GlobalConversationButton" HorizontalAlignment="Stretch"
                                 Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}">
                             <StackPanel Orientation="Horizontal" Spacing="7">
                                 <Path Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Stretch="Uniform"
@@ -278,7 +398,7 @@
                                 <TextBlock Text="全局对话"/>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="2" Classes="icon-plain" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}">
+                        <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}">
                             <PathIcon Data="{StaticResource AthenaIconPanelSwap}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
@@ -288,8 +408,9 @@
             <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
                           Width="5" MinWidth="5" Background="Transparent" DragCompleted="OnSideSplitterDragCompleted"/>
 
-            <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。 -->
-            <Border Grid.Column="2" MinWidth="540" Margin="5,0" Classes="shell-panel">
+            <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
+                 不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
+            <Border Grid.Column="2" MinWidth="540" Classes="shell-panel">
                 <views:MainConversationView x:Name="MainConversationView" DataContext="{Binding MainConversationViewModel}"/>
             </Border>
 

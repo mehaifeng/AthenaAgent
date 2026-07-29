@@ -4,6 +4,9 @@
 
     <!-- Main Window -->
     <system:String x:Key="App.Title">Athena</system:String>
+    <system:String x:Key="MainWindow.Minimize">Minimize</system:String>
+    <system:String x:Key="MainWindow.MaximizeRestore">Maximize/restore</system:String>
+    <system:String x:Key="MainWindow.Close">Close</system:String>
     <system:String x:Key="Notification.AssistantTitle">Athena has replied</system:String>
     <system:String x:Key="Tray.Show">Show main window</system:String>
     <system:String x:Key="Tray.Quit">Quit</system:String>
@@ -331,6 +334,8 @@
     <system:String x:Key="Settings.General.Appearance">Appearance &amp; language</system:String>
     <system:String x:Key="Settings.General.Theme">Theme</system:String>
     <system:String x:Key="Settings.General.Language">Language</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity">Panel transparency</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity.Description">Let the Athena background image gently show through the three main-window panels. 0% hides it completely (original look); 50% is the most transparent. The title bar is unaffected.</system:String>
     <system:String x:Key="Settings.General.Interaction">Interaction</system:String>
     <system:String x:Key="Settings.General.RewindHint">When enabled, rewinding a conversation happens immediately without a confirmation prompt.</system:String>
     <system:String x:Key="Settings.Context.Title">Conversation &amp; context</system:String>

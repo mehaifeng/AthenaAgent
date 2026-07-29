@@ -25,6 +25,9 @@ public class SQLiteSink : ILogEventSink, IDisposable
     private readonly Channel<LogEvent> _channel;
     private readonly Task _worker;
 
+    /// <summary>每批日志写入数据库后触发，供 UI 响应式刷新。</summary>
+    public static event Action? BatchWritten;
+
     public SQLiteSink(string dbPath)
     {
         _dbPath = dbPath;
@@ -147,6 +150,8 @@ public class SQLiteSink : ILogEventSink, IDisposable
         {
             // 单批失败不影响后续批次
         }
+
+        BatchWritten?.Invoke();
     }
 
     public void Dispose()
