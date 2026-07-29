@@ -14,7 +14,7 @@ public partial class WorkspaceWorkbenchView : UserControl
     {
         InitializeComponent();
         var grid = this.FindControl<Grid>("WorkbenchGrid");
-        _editorColumn = grid?.ColumnDefinitions[0];
+        _editorColumn = grid?.ColumnDefinitions[2];
         var config = (App.Services?.GetService(typeof(IConfigService)) as IConfigService)?.Load();
         if (_editorColumn != null && config != null)
             _editorColumn.Width = new GridLength(Math.Max(180, config.MainLayout.EditorWidth));

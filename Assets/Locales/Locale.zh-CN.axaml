@@ -281,6 +281,24 @@
     <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">切换到“{0}”会先保存当前会话，并开启一个新会话，是否继续？</system:String>
     <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">切换</system:String>
     <system:String x:Key="Chat.Workspace.SwitchConfirm.No">取消</system:String>
+    <system:String x:Key="Git.Branch.OpenReview">打开差异审查</system:String>
+    <system:String x:Key="Git.Branch.Menu">分支菜单</system:String>
+    <system:String x:Key="Git.Branch.SwitchSoon">切换分支</system:String>
+    <system:String x:Key="Git.Branch.CreateSoon">新建分支</system:String>
+    <system:String x:Key="Git.Branch.ManageSoon">管理分支</system:String>
+    <system:String x:Key="Git.Review.Title">差异审查</system:String>
+    <system:String x:Key="Git.Review.StageAll">全部暂存</system:String>
+    <system:String x:Key="Git.Review.RestoreAll">全部还原</system:String>
+    <system:String x:Key="Git.Review.RefreshTree">刷新文件树</system:String>
+    <system:String x:Key="Git.Review.Close">关闭差异审查</system:String>
+    <system:String x:Key="Git.Review.All">全部</system:String>
+    <system:String x:Key="Git.Review.Restore">还原</system:String>
+    <system:String x:Key="Git.Review.Refresh">刷新</system:String>
+    <system:String x:Key="Git.Review.Stage">暂存</system:String>
+    <system:String x:Key="Git.Review.CommitPlaceholder">输入提交信息…</system:String>
+    <system:String x:Key="Git.Review.GenerateSoon">AI 生成提交信息（即将推出）</system:String>
+    <system:String x:Key="Git.Review.Commit">提交</system:String>
+    <system:String x:Key="Git.Review.CommitPush">提交并推送</system:String>
 
     <!-- Files Tab -->
     <system:String x:Key="Files.Header">知识库管理</system:String>

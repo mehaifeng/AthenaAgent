@@ -22,6 +22,15 @@ namespace Athena.UI.Views;
 
 public partial class MainConversationView : UserControl
 {
+    public static readonly StyledProperty<WorkspaceWorkbenchViewModel?> WorkbenchProperty =
+        AvaloniaProperty.Register<MainConversationView, WorkspaceWorkbenchViewModel?>(nameof(Workbench));
+
+    public WorkspaceWorkbenchViewModel? Workbench
+    {
+        get => GetValue(WorkbenchProperty);
+        set => SetValue(WorkbenchProperty, value);
+    }
+
     private ScrollViewer? _chatScrollViewer;
     private TextBox? _messageInputTextBox;
     private MainConversationViewModel? _viewModel;

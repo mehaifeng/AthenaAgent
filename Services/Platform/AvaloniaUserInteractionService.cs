@@ -14,7 +14,12 @@ namespace Athena.UI.Services.Platform;
 
 public sealed class AvaloniaUserInteractionService : IUserInteractionService
 {
-    public async Task<bool> ConfirmAsync(string title, string message, string confirmText, string cancelText)
+    public async Task<bool> ConfirmAsync(
+        string title,
+        string message,
+        string confirmText,
+        string cancelText,
+        bool showDontAskAgain = true)
     {
         var owner = GetMainWindow();
         if (owner == null) return false;
@@ -23,7 +28,8 @@ public sealed class AvaloniaUserInteractionService : IUserInteractionService
             Title = title,
             Message = message,
             ConfirmText = confirmText,
-            CancelText = cancelText
+            CancelText = cancelText,
+            ShowDontAskAgain = showDontAskAgain
         };
         await new ConfirmDialog(viewModel).ShowDialog(owner);
         return viewModel.Result == true;

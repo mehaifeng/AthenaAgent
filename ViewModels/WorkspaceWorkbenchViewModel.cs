@@ -39,6 +39,39 @@ public partial class WorkspaceFileNodeViewModel : ViewModelBase
     private bool _isExpanded;
 }
 
+public partial class GitChangeFileViewModel : ViewModelBase
+{
+    public string RelativePath { get; init; } = string.Empty;
+    public string? OriginalRelativePath { get; init; }
+    public string FullPath { get; init; } = string.Empty;
+    public string StatusCode { get; init; } = string.Empty;
+    public string StatusLabel { get; init; } = string.Empty;
+    public bool IsUntracked { get; init; }
+    public bool HasStagedChange { get; init; }
+    public bool HasWorkingTreeChange { get; init; }
+    public bool CanStage => HasWorkingTreeChange || IsUntracked;
+    public string StatusGlyph
+    {
+        get
+        {
+            if (IsUntracked) return "A";
+            var indexStatus = StatusCode.Length > 0 ? StatusCode[0] : ' ';
+            var workTreeStatus = StatusCode.Length > 1 ? StatusCode[1] : ' ';
+            var status = indexStatus is not (' ' or '?') ? indexStatus : workTreeStatus;
+            return status is ' ' or '?' ? "M" : status.ToString();
+        }
+    }
+    public string FileName => Path.GetFileName(RelativePath);
+    public string DirectoryName
+    {
+        get
+        {
+            var directory = Path.GetDirectoryName(RelativePath);
+            return string.IsNullOrWhiteSpace(directory) ? "." : directory;
+        }
+    }
+}
+
 public enum WorkspaceEditorMode
 {
     Edit,
@@ -161,6 +194,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private bool _refreshFilesPending;
     private bool _refreshGitStatePending;
     private WorkspaceProfile? _workspace;
+    private string? _repositoryRoot;
+    private string _workspaceRepositoryPathspec = ".";
 
     public WorkspaceWorkbenchViewModel(
         WorkspaceOperationCoordinator operations,
@@ -174,6 +209,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<WorkspaceFileNodeViewModel> Files { get; } = new();
     public ObservableCollection<WorkspaceEditorTabViewModel> EditorTabs { get; } = new();
+    public ObservableCollection<GitChangeFileViewModel> GitChanges { get; } = new();
 
     [ObservableProperty]
     private WorkspaceEditorTabViewModel? _selectedEditorTab;
@@ -199,8 +235,44 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _renameName = string.Empty;
 
+    [ObservableProperty]
+    private bool _hasGitRepository;
+
+    [ObservableProperty]
+    private string _currentBranchName = string.Empty;
+
+    [ObservableProperty]
+    private bool _isReviewVisible;
+
+    [ObservableProperty]
+    private GitChangeFileViewModel? _selectedGitChange;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    private string _commitMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    private bool _hasStagedChanges;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    private bool _isGitBusy;
+
+    [ObservableProperty]
+    private string _gitStatusText = string.Empty;
+
     public bool HasWorkspace => _workspace != null;
     public bool HasEditorTabs => EditorTabs.Count > 0;
+    public int GitChangeCount => GitChanges.Count;
+
+    partial void OnSelectedGitChangeChanged(GitChangeFileViewModel? value)
+    {
+        if (value != null) _ = OpenGitChangeAsync(value);
+    }
 
     public async Task SetWorkspaceAsync(WorkspaceProfile? workspace)
     {
@@ -210,15 +282,46 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         foreach (var tab in EditorTabs) tab.Dispose();
         EditorTabs.Clear();
         Files.Clear();
+        GitChanges.Clear();
         _workspace = workspace;
+        _repositoryRoot = null;
+        _workspaceRepositoryPathspec = ".";
         WorkspaceName = workspace?.Name ?? "全局对话";
         StatusText = workspace == null ? "全局对话不使用工作区文件" : workspace.DirectoryPath;
+        HasGitRepository = false;
+        CurrentBranchName = string.Empty;
+        IsReviewVisible = false;
+        SelectedGitChange = null;
+        CommitMessage = string.Empty;
+        HasStagedChanges = false;
+        GitStatusText = string.Empty;
+        OnPropertyChanged(nameof(GitChangeCount));
         OnPropertyChanged(nameof(HasWorkspace));
         OnPropertyChanged(nameof(HasEditorTabs));
         if (workspace == null || !Directory.Exists(workspace.DirectoryPath)) return;
         await RefreshFilesAsync();
+        await RefreshRepositoryStateAsync();
         await RestoreStateAsync();
         StartWatcher(workspace.DirectoryPath);
+    }
+
+    [RelayCommand]
+    private async Task ToggleReviewAsync()
+    {
+        if (!HasGitRepository) return;
+        IsReviewVisible = !IsReviewVisible;
+        if (!IsReviewVisible) return;
+        await RefreshRepositoryStateAsync();
+    }
+
+    [RelayCommand]
+    private void CloseReview() => IsReviewVisible = false;
+
+    [RelayCommand]
+    private async Task RefreshWorkbenchAsync()
+    {
+        await RefreshFilesAsync();
+        await RefreshRepositoryStateAsync();
     }
 
     [RelayCommand]
@@ -251,6 +354,320 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             IsLoadingFiles = false;
         }
+    }
+
+    private async Task RefreshRepositoryStateAsync()
+    {
+        if (_workspace == null || !Directory.Exists(_workspace.DirectoryPath))
+        {
+            HasGitRepository = false;
+            CurrentBranchName = string.Empty;
+            GitChanges.Clear();
+            HasStagedChanges = false;
+            OnPropertyChanged(nameof(GitChangeCount));
+            return;
+        }
+
+        _repositoryRoot = null;
+        var repositoryCheck = await RunGitAsync("rev-parse", "--show-toplevel");
+        HasGitRepository = repositoryCheck.ExitCode == 0;
+        if (!HasGitRepository)
+        {
+            CurrentBranchName = string.Empty;
+            GitChanges.Clear();
+            HasStagedChanges = false;
+            IsReviewVisible = false;
+            OnPropertyChanged(nameof(GitChangeCount));
+            return;
+        }
+        _repositoryRoot = Path.GetFullPath(repositoryCheck.Output.Trim());
+        var prefix = await RunGitAsync("rev-parse", "--show-prefix");
+        _workspaceRepositoryPathspec = prefix.ExitCode == 0
+            ? prefix.Output.Trim().TrimEnd('/')
+            : ".";
+        if (string.IsNullOrWhiteSpace(_workspaceRepositoryPathspec)) _workspaceRepositoryPathspec = ".";
+
+        var branch = await RunGitAsync("branch", "--show-current");
+        CurrentBranchName = branch.Output.Trim();
+        if (string.IsNullOrWhiteSpace(CurrentBranchName))
+        {
+            var head = await RunGitAsync("rev-parse", "--short", "HEAD");
+            CurrentBranchName = head.ExitCode == 0 ? $"HEAD@{head.Output.Trim()}" : "HEAD";
+        }
+
+        var status = await RunGitAsync(
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--",
+            _workspaceRepositoryPathspec);
+        if (status.ExitCode != 0)
+        {
+            GitStatusText = string.IsNullOrWhiteSpace(status.Error) ? "无法读取 Git 状态" : status.Error.Trim();
+            return;
+        }
+
+        var selectedPath = SelectedGitChange?.RelativePath;
+        var changes = ParseGitStatus(status.Output, _repositoryRoot);
+        GitChanges.Clear();
+        foreach (var change in changes) GitChanges.Add(change);
+        HasStagedChanges = changes.Any(change => change.HasStagedChange);
+        SelectedGitChange = selectedPath == null
+            ? null
+            : GitChanges.FirstOrDefault(change => string.Equals(change.RelativePath, selectedPath, PathComparison));
+        GitStatusText = changes.Count == 0 ? "工作树干净" : $"{changes.Count} 个文件有更改";
+        OnPropertyChanged(nameof(GitChangeCount));
+    }
+
+    [RelayCommand]
+    private async Task StageAllAsync()
+    {
+        if (!HasGitRepository || GitChanges.Count == 0) return;
+        await RunGitOperationAsync(
+            ["add", "-A", "--", _workspaceRepositoryPathspec],
+            "已暂存全部更改");
+    }
+
+    [RelayCommand]
+    private async Task StageFileAsync(GitChangeFileViewModel? change)
+    {
+        if (change == null || !change.CanStage) return;
+        var arguments = new List<string> { "add", "-A", "--", change.RelativePath };
+        if (!string.IsNullOrWhiteSpace(change.OriginalRelativePath))
+            arguments.Add(change.OriginalRelativePath);
+        await RunGitOperationAsync(arguments, $"已暂存 {change.RelativePath}");
+    }
+
+    [RelayCommand]
+    private async Task RestoreFileAsync(GitChangeFileViewModel? change)
+    {
+        if (change == null || _workspace == null) return;
+        if (!await _interaction.ConfirmAsync(
+                "还原文件",
+                $"确定还原“{change.RelativePath}”吗？当前未提交的更改将丢失。",
+                "还原",
+                "取消",
+                showDontAskAgain: false)) return;
+
+        IsGitBusy = true;
+        try
+        {
+            if (change.IsUntracked)
+            {
+                DeleteUntrackedPath(change.FullPath, GetWorkspaceSecurityRoot());
+            }
+            else if (!await RestoreTrackedChangeAsync(change))
+            {
+                return;
+            }
+            GitStatusText = $"已还原 {change.RelativePath}";
+            await RefreshFilesAsync();
+            await RefreshRepositoryStateAsync();
+            await RefreshOpenTabGitStateAsync();
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task RestoreAllAsync()
+    {
+        if (_workspace == null || GitChanges.Count == 0) return;
+        if (!await _interaction.ConfirmAsync(
+                "还原全部更改",
+                $"确定还原全部 {GitChanges.Count} 个文件吗？所有未提交的更改将丢失。",
+                "全部还原",
+                "取消",
+                showDontAskAgain: false)) return;
+
+        IsGitBusy = true;
+        try
+        {
+            foreach (var change in GitChanges.ToList())
+            {
+                if (change.IsUntracked)
+                {
+                    DeleteUntrackedPath(change.FullPath, GetWorkspaceSecurityRoot());
+                }
+                else if (!await RestoreTrackedChangeAsync(change))
+                {
+                    return;
+                }
+            }
+            GitStatusText = "已还原全部更改";
+            await RefreshFilesAsync();
+            await RefreshRepositoryStateAsync();
+            await RefreshOpenTabGitStateAsync();
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCommit))]
+    private async Task CommitAsync() => await CommitCoreAsync(pushAfterCommit: false);
+
+    [RelayCommand(CanExecute = nameof(CanCommit))]
+    private async Task CommitAndPushAsync() => await CommitCoreAsync(pushAfterCommit: true);
+
+    private bool CanCommit() =>
+        HasGitRepository
+        && HasStagedChanges
+        && !IsGitBusy
+        && !string.IsNullOrWhiteSpace(CommitMessage);
+
+    private async Task CommitCoreAsync(bool pushAfterCommit)
+    {
+        IsGitBusy = true;
+        try
+        {
+            var commit = await RunGitAsync("commit", "-m", CommitMessage.Trim());
+            if (commit.ExitCode != 0)
+            {
+                GitStatusText = BuildGitFailure("提交失败", commit);
+                return;
+            }
+
+            if (pushAfterCommit)
+            {
+                var push = await RunGitAsync("push");
+                if (push.ExitCode != 0)
+                {
+                    GitStatusText = BuildGitFailure("提交成功，但推送失败", push);
+                    await RefreshRepositoryStateAsync();
+                    return;
+                }
+            }
+
+            GitStatusText = pushAfterCommit ? "已提交并推送" : "提交成功";
+            CommitMessage = string.Empty;
+            await RefreshRepositoryStateAsync();
+            await RefreshOpenTabGitStateAsync();
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    private async Task RunGitOperationAsync(IReadOnlyList<string> arguments, string successMessage)
+    {
+        IsGitBusy = true;
+        try
+        {
+            var result = await RunGitAsync(arguments.ToArray());
+            GitStatusText = result.ExitCode == 0 ? successMessage : BuildGitFailure("Git 操作失败", result);
+            await RefreshRepositoryStateAsync();
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    private async Task<bool> RestoreTrackedChangeAsync(GitChangeFileViewModel change)
+    {
+        if (_workspace == null || _repositoryRoot == null) return false;
+        var paths = new[] { change.RelativePath, change.OriginalRelativePath }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .Distinct(PathComparer);
+
+        foreach (var path in paths)
+        {
+            var existsInHead = await RunGitAsync("cat-file", "-e", $"HEAD:{path}");
+            if (existsInHead.ExitCode == 0)
+            {
+                var restore = await RunGitAsync(
+                    "restore",
+                    "--source=HEAD",
+                    "--staged",
+                    "--worktree",
+                    "--",
+                    path);
+                if (restore.ExitCode != 0)
+                {
+                    GitStatusText = BuildGitFailure("还原失败", restore);
+                    return false;
+                }
+                continue;
+            }
+
+            // A path absent from HEAD is a staged addition or the destination
+            // side of a rename/copy. Remove it from the index and working tree.
+            var unstage = await RunGitAsync("rm", "--cached", "-r", "--ignore-unmatch", "--", path);
+            if (unstage.ExitCode != 0)
+            {
+                GitStatusText = BuildGitFailure("还原失败", unstage);
+                return false;
+            }
+            var fullPath = Path.GetFullPath(
+                Path.Combine(_repositoryRoot, path.Replace('/', Path.DirectorySeparatorChar)));
+            DeleteUntrackedPath(fullPath, GetWorkspaceSecurityRoot());
+        }
+
+        return true;
+    }
+
+    private async Task OpenGitChangeAsync(GitChangeFileViewModel change)
+    {
+        if (_workspace == null) return;
+        var tab = EditorTabs.FirstOrDefault(
+            candidate => string.Equals(candidate.FullPath, change.FullPath, StringComparison.Ordinal));
+        if (tab == null)
+        {
+            tab = new WorkspaceEditorTabViewModel
+            {
+                FullPath = change.FullPath,
+                RelativePath = change.RelativePath
+            };
+            if (tab.IsImage && File.Exists(change.FullPath))
+            {
+                tab.Image = new Bitmap(change.FullPath);
+                tab.Mode = WorkspaceEditorMode.Image;
+                tab.CanDiff = true;
+                StatusText = "二进制文件不支持文本 Diff";
+            }
+            else
+            {
+                var current = File.Exists(change.FullPath)
+                    ? await File.ReadAllTextAsync(change.FullPath)
+                    : string.Empty;
+                var changedAt = File.Exists(change.FullPath)
+                    ? File.GetLastWriteTimeUtc(change.FullPath)
+                    : DateTime.UtcNow;
+                tab.ReplaceFromDisk(current, changedAt);
+                tab.CanDiff = true;
+                var head = await ReadHeadVersionAsync(change.RelativePath);
+                tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
+                tab.Mode = WorkspaceEditorMode.Diff;
+            }
+            EditorTabs.Add(tab);
+            OnPropertyChanged(nameof(HasEditorTabs));
+        }
+        else if (!tab.IsImage)
+        {
+            if (!tab.IsDirty)
+            {
+                var current = File.Exists(change.FullPath)
+                    ? await File.ReadAllTextAsync(change.FullPath)
+                    : string.Empty;
+                var changedAt = File.Exists(change.FullPath)
+                    ? File.GetLastWriteTimeUtc(change.FullPath)
+                    : DateTime.UtcNow;
+                tab.ReplaceFromDisk(current, changedAt);
+            }
+            await RefreshDiffAsync(tab);
+            tab.Mode = WorkspaceEditorMode.Diff;
+        }
+
+        SelectedEditorTab = tab;
+        IsEditorVisible = true;
+        await PersistStateAsync();
     }
 
     [RelayCommand]
@@ -469,8 +886,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private void OnExternalFileChanged(object sender, FileSystemEventArgs e)
     {
         var changedAt = DateTime.UtcNow;
-        var refreshGitState = IsGitMetadataPath(e.FullPath);
-        var refreshFiles = !refreshGitState && e.ChangeType != WatcherChangeTypes.Changed;
+        var isGitMetadata = IsGitMetadataPath(e.FullPath);
+        var refreshGitState = HasGitRepository;
+        var refreshFiles = !isGitMetadata && e.ChangeType != WatcherChangeTypes.Changed;
         Dispatcher.UIThread.Post(async () =>
         {
             var tab = EditorTabs.FirstOrDefault(candidate => string.Equals(candidate.FullPath, e.FullPath, StringComparison.Ordinal));
@@ -532,7 +950,11 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     _refreshFilesPending = false;
                     _refreshGitStatePending = false;
                     if (shouldRefreshFiles) await RefreshFilesAsync();
-                    if (shouldRefreshGitState) await RefreshOpenTabGitStateAsync();
+                    if (shouldRefreshGitState)
+                    {
+                        await RefreshRepositoryStateAsync();
+                        await RefreshOpenTabGitStateAsync();
+                    }
                 });
             }
             catch (OperationCanceledException)
@@ -654,7 +1076,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private async Task<bool> HasUncommittedChangesAsync(string relativePath)
     {
-        if (_workspace == null || !Directory.Exists(Path.Combine(_workspace.DirectoryPath, ".git"))) return false;
+        if (_workspace == null || !HasGitRepository) return false;
         var result = await RunGitAsync(
             "status",
             "--porcelain=v1",
@@ -666,7 +1088,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private async Task<string?> ReadHeadVersionAsync(string relativePath)
     {
-        if (_workspace == null || !Directory.Exists(Path.Combine(_workspace.DirectoryPath, ".git"))) return null;
+        if (_workspace == null || !HasGitRepository) return null;
         var normalized = relativePath.Replace(Path.DirectorySeparatorChar, '/');
         // Materialize the committed blob with the same attributes/filters Git applies to
         // the working tree. This avoids presenting EOL or clean/smudge conversion as a
@@ -675,25 +1097,111 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         return result.ExitCode == 0 ? result.Output : string.Empty;
     }
 
-    private async Task<(int ExitCode, string Output)> RunGitAsync(params string[] arguments)
+    private async Task<(int ExitCode, string Output, string Error)> RunGitAsync(params string[] arguments)
     {
-        if (_workspace == null) return (-1, string.Empty);
-        var start = new ProcessStartInfo("git")
+        if (_workspace == null) return (-1, string.Empty, string.Empty);
+        try
         {
-            WorkingDirectory = _workspace.DirectoryPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        using var process = Process.Start(start);
-        if (process == null) return (-1, string.Empty);
-        var output = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        return (process.ExitCode, output);
+            var start = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = _repositoryRoot ?? _workspace.DirectoryPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (var argument in arguments) start.ArgumentList.Add(argument);
+            using var process = Process.Start(start);
+            if (process == null) return (-1, string.Empty, "无法启动 Git");
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return (process.ExitCode, await outputTask, await errorTask);
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug(ex, "Git command failed to start");
+            return (-1, string.Empty, ex.Message);
+        }
+    }
+
+    private static IReadOnlyList<GitChangeFileViewModel> ParseGitStatus(string output, string workspaceRoot)
+    {
+        var result = new List<GitChangeFileViewModel>();
+        var records = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        for (var index = 0; index < records.Length; index++)
+        {
+            var record = records[index];
+            if (record.Length < 4) continue;
+            var x = record[0];
+            var y = record[1];
+            var relativePath = record[3..];
+            string? originalRelativePath = null;
+            if ((x is 'R' or 'C') && index + 1 < records.Length)
+            {
+                originalRelativePath = records[++index]; // -z emits the original path next.
+            }
+
+            var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar);
+            var isUntracked = x == '?' && y == '?';
+            result.Add(new GitChangeFileViewModel
+            {
+                RelativePath = relativePath,
+                OriginalRelativePath = originalRelativePath,
+                FullPath = Path.GetFullPath(Path.Combine(workspaceRoot, normalized)),
+                StatusCode = new string([x, y]),
+                StatusLabel = DescribeGitStatus(x, y),
+                IsUntracked = isUntracked,
+                HasStagedChange = !isUntracked && x != ' ' && x != '?',
+                HasWorkingTreeChange = isUntracked || (y != ' ' && y != '?')
+            });
+        }
+
+        return result
+            .OrderBy(change => change.DirectoryName, PathComparer)
+            .ThenBy(change => change.FileName, PathComparer)
+            .ToList();
+    }
+
+    private static string DescribeGitStatus(char indexStatus, char workTreeStatus)
+    {
+        if (indexStatus == '?' && workTreeStatus == '?') return "未跟踪";
+        if (indexStatus == 'U' || workTreeStatus == 'U') return "有冲突";
+        if (indexStatus == 'R' || workTreeStatus == 'R') return "已重命名";
+        if (indexStatus == 'C' || workTreeStatus == 'C') return "已复制";
+        if (indexStatus == 'D' || workTreeStatus == 'D') return "已删除";
+        if (indexStatus == 'A') return workTreeStatus == ' ' ? "已暂存新增" : "新增";
+        if (indexStatus != ' ') return workTreeStatus == ' ' ? "已暂存" : "部分暂存";
+        return "已修改";
+    }
+
+    private static void DeleteUntrackedPath(string fullPath, string workspaceRoot)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        EnsureInsideWorkspace(root, fullPath);
+        EnsureLinkTargetInsideWorkspace(root, fullPath);
+        if (Directory.Exists(fullPath)) Directory.Delete(fullPath, recursive: true);
+        else if (File.Exists(fullPath)) File.Delete(fullPath);
+    }
+
+    private static string BuildGitFailure(
+        string prefix,
+        (int ExitCode, string Output, string Error) result)
+    {
+        var detail = string.IsNullOrWhiteSpace(result.Error) ? result.Output : result.Error;
+        detail = detail.Trim();
+        return string.IsNullOrWhiteSpace(detail) ? prefix : $"{prefix}：{detail}";
+    }
+
+    private string GetWorkspaceSecurityRoot()
+    {
+        if (_repositoryRoot == null || _workspaceRepositoryPathspec == ".")
+            return _repositoryRoot ?? _workspace?.DirectoryPath ?? string.Empty;
+        return Path.Combine(
+            _repositoryRoot,
+            _workspaceRepositoryPathspec.Replace('/', Path.DirectorySeparatorChar));
     }
 
     private static StringComparison PathComparison =>

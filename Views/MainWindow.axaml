@@ -411,7 +411,9 @@
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
             <Border Grid.Column="2" MinWidth="540" Classes="shell-panel">
-                <views:MainConversationView x:Name="MainConversationView" DataContext="{Binding MainConversationViewModel}"/>
+                <views:MainConversationView x:Name="MainConversationView"
+                                            Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
+                                            DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MainConversationViewModel}"/>
             </Border>
 
             <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"

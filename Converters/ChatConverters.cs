@@ -77,7 +77,7 @@ public class EditorPaneGridConverter : IValueConverter
         var visible = value is true;
         return parameter?.ToString() switch
         {
-            "BrowserColumn" => visible ? 2 : 0,
+            "BrowserColumn" => visible ? 4 : 2,
             "BrowserSpan" => visible ? 1 : 3,
             _ => 0
         };

@@ -25,6 +25,9 @@ public partial class ConfirmDialogViewModel : ObservableObject
     private bool _dontAskAgain;
 
     [ObservableProperty]
+    private bool _showDontAskAgain = true;
+
+    [ObservableProperty]
     private bool _isLoading;
 
     /// <summary>

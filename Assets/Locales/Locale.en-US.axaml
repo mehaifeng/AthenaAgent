@@ -281,6 +281,24 @@
     <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">Switching to “{0}” will save the current conversation and start a new one. Continue?</system:String>
     <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">Switch</system:String>
     <system:String x:Key="Chat.Workspace.SwitchConfirm.No">Cancel</system:String>
+    <system:String x:Key="Git.Branch.OpenReview">Open changes review</system:String>
+    <system:String x:Key="Git.Branch.Menu">Branch menu</system:String>
+    <system:String x:Key="Git.Branch.SwitchSoon">Switch branch</system:String>
+    <system:String x:Key="Git.Branch.CreateSoon">Create branch</system:String>
+    <system:String x:Key="Git.Branch.ManageSoon">Manage branches</system:String>
+    <system:String x:Key="Git.Review.Title">Changes</system:String>
+    <system:String x:Key="Git.Review.StageAll">Stage all</system:String>
+    <system:String x:Key="Git.Review.RestoreAll">Restore all</system:String>
+    <system:String x:Key="Git.Review.RefreshTree">Refresh file tree</system:String>
+    <system:String x:Key="Git.Review.Close">Close changes review</system:String>
+    <system:String x:Key="Git.Review.All">All</system:String>
+    <system:String x:Key="Git.Review.Restore">Restore</system:String>
+    <system:String x:Key="Git.Review.Refresh">Refresh</system:String>
+    <system:String x:Key="Git.Review.Stage">Stage</system:String>
+    <system:String x:Key="Git.Review.CommitPlaceholder">Enter a commit message…</system:String>
+    <system:String x:Key="Git.Review.GenerateSoon">AI commit message (coming soon)</system:String>
+    <system:String x:Key="Git.Review.Commit">Commit</system:String>
+    <system:String x:Key="Git.Review.CommitPush">Commit and push</system:String>
 
     <!-- Files Tab -->
     <system:String x:Key="Files.Header">Knowledge base</system:String>

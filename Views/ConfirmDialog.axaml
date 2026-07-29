@@ -24,6 +24,7 @@
         <CheckBox Grid.Row="1"
                   Content="{loc:Loc Dialog.DontAskAgain}"
                   IsChecked="{Binding DontAskAgain}"
+                  IsVisible="{Binding ShowDontAskAgain}"
                   Margin="0,16,0,0"/>
 
         <!-- 按钮 -->

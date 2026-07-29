@@ -30,14 +30,211 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
+        <Style Selector="Button.review-command">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Width" Value="26"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Caption}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.review-command:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiGrey0}"/>
+        </Style>
+        <Style Selector="ListBox.git-changes">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.git-changes ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,3"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
     </UserControl.Styles>
     <Grid x:Name="WorkbenchGrid">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280" MinWidth="240"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="280" MinWidth="220"/>
             <ColumnDefinition Width="5"/>
             <ColumnDefinition Width="*" MinWidth="100"/>
         </Grid.ColumnDefinitions>
+
+        <!-- 差异审查：按需展开，始终位于编辑器左侧。 -->
         <Border Grid.Column="0"
+                MinWidth="260"
+                IsVisible="{Binding IsReviewVisible}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Background="{DynamicResource SemiColorBackground0}">
+            <Grid RowDefinitions="Auto,*,Auto,Auto">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,8,8,5">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        <TextBlock Text="{loc:Loc Git.Review.Title}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Border CornerRadius="8" Padding="6,1" Background="{DynamicResource SemiGrey1}">
+                            <TextBlock Text="{Binding GitChangeCount}" FontSize="{DynamicResource App.FontSize.Caption}"/>
+                        </Border>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                Spacing="1"
+                                HorizontalAlignment="Right">
+                        <Button Classes="review-command"
+                                Command="{Binding StageAllCommand}"
+                                IsEnabled="{Binding !IsGitBusy}"
+                                ToolTip.Tip="{loc:Loc Git.Review.StageAll}">
+                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
+                        </Button>
+                        <Button Classes="review-command"
+                                Command="{Binding RestoreAllCommand}"
+                                IsEnabled="{Binding !IsGitBusy}"
+                                ToolTip.Tip="{loc:Loc Git.Review.RestoreAll}">
+                            <PathIcon Data="{StaticResource AthenaIconCancel}" Width="11" Height="11"/>
+                        </Button>
+                        <Button Classes="review-command"
+                                Command="{Binding RefreshWorkbenchCommand}"
+                                IsEnabled="{Binding !IsGitBusy}"
+                                ToolTip.Tip="{loc:Loc Git.Review.RefreshTree}">
+                            <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="11" Height="11"/>
+                        </Button>
+                        <Button Classes="review-command"
+                                Command="{Binding CloseReviewCommand}"
+                                ToolTip.Tip="{loc:Loc Git.Review.Close}">
+                            <PathIcon Data="{StaticResource AthenaIconClose}" Width="11" Height="11"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <ListBox Grid.Row="1"
+                         Classes="git-changes"
+                         ItemsSource="{Binding GitChanges}"
+                         SelectedItem="{Binding SelectedGitChange}"
+                         Margin="5,0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GitChangeFileViewModel">
+                            <Border Padding="7,6"
+                                    CornerRadius="5"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                                    Background="{DynamicResource SemiGrey0}">
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="5">
+                                    <Border Grid.RowSpan="2"
+                                            Width="24"
+                                            Height="24"
+                                            CornerRadius="5"
+                                            Background="{DynamicResource SemiGrey1}"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding StatusGlyph}"
+                                                   FontFamily="Menlo, Consolas, monospace"
+                                                   FontSize="{DynamicResource App.FontSize.Caption}"
+                                                   FontWeight="Bold"
+                                                   Width="24"
+                                                   TextAlignment="Center"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                    </Border>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding FileName}"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Button Grid.Column="2" Grid.RowSpan="2"
+                                            Classes="review-command"
+                                            Command="{Binding $parent[UserControl].DataContext.StageFileCommand}"
+                                            CommandParameter="{Binding}"
+                                            IsEnabled="{Binding CanStage}"
+                                            ToolTip.Tip="{loc:Loc Git.Review.Stage}">
+                                        <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
+                                    </Button>
+                                    <Button Grid.Column="3" Grid.RowSpan="2"
+                                            Classes="review-command"
+                                            Command="{Binding $parent[UserControl].DataContext.RestoreFileCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="{loc:Loc Git.Review.Restore}">
+                                        <PathIcon Data="{StaticResource AthenaIconCancel}" Width="11" Height="11"/>
+                                    </Button>
+                                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                                        <TextBlock Text="{Binding StatusLabel}"
+                                                   FontSize="{DynamicResource App.FontSize.Caption}"
+                                                   Foreground="{DynamicResource Chat.TimestampFg}"/>
+                                        <TextBlock Text="{Binding DirectoryName}"
+                                                   FontSize="{DynamicResource App.FontSize.Caption}"
+                                                   Opacity="0.45"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding GitStatusText}"
+                           FontSize="{DynamicResource App.FontSize.Caption}"
+                           Foreground="{DynamicResource Chat.TimestampFg}"
+                           Margin="10,5,10,2"
+                           TextWrapping="Wrap"
+                           MaxHeight="38"/>
+
+                <Border Grid.Row="3"
+                        Margin="6"
+                        Padding="6"
+                        CornerRadius="6"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                        Background="{DynamicResource App.SectionBg}">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Row="0"
+                                 Grid.ColumnSpan="2"
+                                 Text="{Binding CommitMessage}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="58"
+                                 MaxHeight="100"
+                                 Padding="5,4,30,4"
+                                 PlaceholderText="{loc:Loc Git.Review.CommitPlaceholder}"/>
+                        <Button Grid.Row="0"
+                                Grid.Column="1"
+                                Classes="review-command"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Margin="0,3,3,0"
+                                IsEnabled="False"
+                                ToolTip.Tip="{loc:Loc Git.Review.GenerateSoon}">
+                            <PathIcon Data="{StaticResource SemiIconStar}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        </Button>
+                        <SplitButton Grid.Row="1"
+                                     Grid.ColumnSpan="2"
+                                     HorizontalAlignment="Stretch"
+                                     HorizontalContentAlignment="Center"
+                                     Margin="0,6,0,0"
+                                     Command="{Binding CommitCommand}"
+                                     Content="{loc:Loc Git.Review.Commit}">
+                            <SplitButton.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight">
+                                    <MenuItem Header="{loc:Loc Git.Review.CommitPush}"
+                                              Command="{Binding CommitAndPushCommand}"/>
+                                </MenuFlyout>
+                            </SplitButton.Flyout>
+                        </SplitButton>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <GridSplitter Grid.Column="1"
+                      Width="5"
+                      Background="{DynamicResource SemiColorBorder}"
+                      IsVisible="{Binding IsReviewVisible}"/>
+
+        <Border Grid.Column="2"
                 IsVisible="{Binding IsEditorVisible}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
@@ -194,7 +391,7 @@
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1" Width="5" Background="{DynamicResource SemiColorBorder}"
+        <GridSplitter Grid.Column="3" Width="5" Background="{DynamicResource SemiColorBorder}"
                       IsVisible="{Binding IsEditorVisible}" DragCompleted="OnEditorSplitterDragCompleted"/>
 
         <Border Grid.Column="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserColumn}"

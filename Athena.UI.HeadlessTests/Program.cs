@@ -568,6 +568,27 @@ var workbench = new WorkspaceWorkbenchViewModel(
     new WorkspaceOperationCoordinator(),
     new HeadlessPathService(),
     new HeadlessInteractionService());
+workbench.HasGitRepository = true;
+workbench.CurrentBranchName = "codex/review-layout";
+workbench.IsReviewVisible = true;
+workbench.CommitMessage = "Refine the workspace review experience";
+workbench.HasStagedChanges = true;
+workbench.GitChanges.Add(new GitChangeFileViewModel
+{
+    RelativePath = "Views/WorkspaceWorkbenchView.axaml",
+    FullPath = "/tmp/Views/WorkspaceWorkbenchView.axaml",
+    StatusCode = "M ",
+    StatusLabel = "已暂存",
+    HasStagedChange = true
+});
+workbench.GitChanges.Add(new GitChangeFileViewModel
+{
+    RelativePath = "ViewModels/WorkspaceWorkbenchViewModel.cs",
+    FullPath = "/tmp/ViewModels/WorkspaceWorkbenchViewModel.cs",
+    StatusCode = " M",
+    StatusLabel = "已修改",
+    HasWorkingTreeChange = true
+});
 var fileTreeFolder = new WorkspaceFileNodeViewModel
 {
     Name = "folder",
@@ -671,11 +692,35 @@ using var diffFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOper
 await using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] visual workspace diff rendered to {diffPath}");
 
+var branchConversation = new MainConversationViewModel();
+var branchView = new MainConversationView
+{
+    DataContext = branchConversation,
+    Workbench = workbench
+};
+var branchWindow = new Window
+{
+    Content = branchView,
+    Width = 720,
+    Height = 360
+};
+branchWindow.Show();
+Dispatcher.UIThread.RunJobs();
+if (!branchWindow.GetVisualDescendants().OfType<TextBlock>()
+        .Any(text => text.IsVisible && text.Text == "codex/review-layout"))
+    throw new InvalidOperationException("A detected repository did not expose the branch selector in the message composer.");
+var branchPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-branch-selector.png");
+using var branchFrame = branchWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Branch selector renderer returned no frame.");
+await using (var output = File.Create(branchPath)) branchFrame.Save(output, PngBitmapEncoderOptions.Default);
+Console.WriteLine($"[PASS] branch selector rendered to {branchPath}");
+branchWindow.Close();
+branchConversation.Dispose();
+
 diffTab.Mode = WorkspaceEditorMode.Edit;
 diffTab.Text += "\n// unsaved";
 var workbenchGrid = workbenchView.FindControl<Grid>("WorkbenchGrid")
                     ?? throw new InvalidOperationException("Workbench grid was not created.");
-workbenchGrid.ColumnDefinitions[0].Width = new GridLength(240);
+workbenchGrid.ColumnDefinitions[2].Width = new GridLength(240);
 Dispatcher.UIThread.RunJobs();
 if (!saveButton.IsVisible || !cancelButton.IsVisible || !saveButton.IsEnabled || !cancelButton.IsEnabled)
     throw new InvalidOperationException("Dirty edit mode must expose enabled save and cancel link commands.");
@@ -1120,10 +1165,11 @@ static async Task TestWorkspaceGitDiffAsync()
         File.WriteAllText(Path.Combine(root, "modified.txt"), "中文保持不变\nafter\n");
         File.WriteAllText(Path.Combine(root, "added.txt"), "new\n");
 
+        var interaction = new HeadlessInteractionService(confirmResult: true);
         workbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
-            new HeadlessInteractionService());
+            interaction);
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -1172,6 +1218,39 @@ static async Task TestWorkspaceGitDiffAsync()
         await workbench.RefreshDiffCommand.ExecuteAsync(addedTab);
         if (addedTab.DiffAddedCount == 0 || addedTab.DiffRemovedCount != 0)
             throw new InvalidOperationException("Untracked file must render as added content against an empty HEAD baseline.");
+
+        if (!workbench.HasGitRepository
+            || string.IsNullOrWhiteSpace(workbench.CurrentBranchName)
+            || workbench.GitChanges.Count != 2)
+            throw new InvalidOperationException(
+                $"Repository detection did not publish the branch and complete changed-file list "
+                + $"(repo={workbench.HasGitRepository}, branch={workbench.CurrentBranchName}, "
+                + $"changes={workbench.GitChanges.Count}, status={workbench.GitStatusText}).");
+
+        await workbench.ToggleReviewCommand.ExecuteAsync(null);
+        if (!workbench.IsReviewVisible)
+            throw new InvalidOperationException("The branch selector did not open the changes review.");
+        await workbench.ToggleReviewCommand.ExecuteAsync(null);
+        if (workbench.IsReviewVisible)
+            throw new InvalidOperationException("A second branch-selector activation did not close the changes review.");
+
+        var addedChange = workbench.GitChanges.Single(change => change.RelativePath == "added.txt");
+        await workbench.StageFileCommand.ExecuteAsync(addedChange);
+        var stagedAddition = workbench.GitChanges.Single(change => change.RelativePath == "added.txt");
+        if (!stagedAddition.HasStagedChange || !workbench.HasStagedChanges)
+            throw new InvalidOperationException("Per-file staging did not update the review state.");
+        await workbench.RestoreFileCommand.ExecuteAsync(stagedAddition);
+        if (File.Exists(Path.Combine(root, "added.txt"))
+            || workbench.GitChanges.Any(change => change.RelativePath == "added.txt"))
+            throw new InvalidOperationException("Restoring a staged addition did not remove it from both index and working tree.");
+        if (interaction.LastShowDontAskAgain != false)
+            throw new InvalidOperationException("Restore confirmation must not expose a persistent don't-ask-again option.");
+
+        var modifiedChange = workbench.GitChanges.Single(change => change.RelativePath == "modified.txt");
+        await workbench.RestoreFileCommand.ExecuteAsync(modifiedChange);
+        if (File.ReadAllText(Path.Combine(root, "modified.txt")) != "中文保持不变\nbefore\n"
+            || workbench.GitChanges.Count != 0)
+            throw new InvalidOperationException("Restoring a tracked change did not return the file and review state to HEAD.");
 
         Console.WriteLine("[PASS] workspace diff is offered only for tracked changes and untracked files");
     }
@@ -1443,9 +1522,20 @@ sealed class HeadlessChatService : IChatService
         Task.FromResult<(ChatAttachment?, string)>((null, string.Empty));
 }
 
-sealed class HeadlessInteractionService : IUserInteractionService
+sealed class HeadlessInteractionService(bool confirmResult = false) : IUserInteractionService
 {
-    public Task<bool> ConfirmAsync(string title, string message, string confirmText, string cancelText) => Task.FromResult(false);
+    public bool? LastShowDontAskAgain { get; private set; }
+
+    public Task<bool> ConfirmAsync(
+        string title,
+        string message,
+        string confirmText,
+        string cancelText,
+        bool showDontAskAgain = true)
+    {
+        LastShowDontAskAgain = showDontAskAgain;
+        return Task.FromResult(confirmResult);
+    }
     public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
     public Task<IReadOnlyList<string>> PickFilesAsync(string title, string displayName, IReadOnlyList<string> patterns, bool allowMultiple)
         => Task.FromResult<IReadOnlyList<string>>([]);
