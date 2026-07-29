@@ -232,8 +232,33 @@
                     </TreeView.Styles>
                     <TreeView.ItemTemplate>
                         <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:WorkspaceFileNodeViewModel">
-                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis">
-                                <TextBlock.ContextFlyout>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                <PathIcon Classes="workspace-folder-icon"
+                                          Data="{StaticResource SemiIconFolder}"
+                                          IsVisible="{Binding IsFolderClosed}"
+                                          Width="15"
+                                          Height="15"
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                <PathIcon Classes="workspace-folder-open-icon"
+                                          Data="{StaticResource SemiIconFolderOpen}"
+                                          IsVisible="{Binding IsFolderOpen}"
+                                          Width="15"
+                                          Height="15"
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <PathIcon Classes="workspace-file-icon"
+                                          Data="{StaticResource SemiIconFile}"
+                                          IsVisible="{Binding IsFile}"
+                                          Width="15"
+                                          Height="15"
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Name}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
+                                <Grid.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuItem Header="打开"
                                                   Command="{Binding $parent[UserControl].DataContext.OpenFileCommand}"
@@ -261,8 +286,8 @@
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
                                         </MenuItem>
                                     </MenuFlyout>
-                                </TextBlock.ContextFlyout>
-                            </TextBlock>
+                                </Grid.ContextFlyout>
+                            </Grid>
                         </TreeDataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>

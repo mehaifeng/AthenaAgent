@@ -28,9 +28,14 @@ public partial class WorkspaceFileNodeViewModel : ViewModelBase
     public string FullPath { get; init; } = string.Empty;
     public string RelativePath { get; init; } = string.Empty;
     public bool IsDirectory { get; init; }
+    public bool IsFile => !IsDirectory;
+    public bool IsFolderClosed => IsDirectory && !IsExpanded;
+    public bool IsFolderOpen => IsDirectory && IsExpanded;
     public ObservableCollection<WorkspaceFileNodeViewModel> Children { get; } = new();
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFolderClosed))]
+    [NotifyPropertyChangedFor(nameof(IsFolderOpen))]
     private bool _isExpanded;
 }
 
@@ -231,8 +236,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var selectedPath = SelectedFile?.RelativePath;
             var nodes = await Task.Run(
                 () => BuildTree(_workspace.DirectoryPath, _workspace.DirectoryPath, 0, expandedPaths));
-            Files.Clear();
-            foreach (var node in nodes) Files.Add(node);
+            ReconcileNodes(Files, nodes);
             SelectedFile = selectedPath == null
                 ? null
                 : EnumerateNodes(Files).FirstOrDefault(
@@ -466,6 +470,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         var changedAt = DateTime.UtcNow;
         var refreshGitState = IsGitMetadataPath(e.FullPath);
+        var refreshFiles = !refreshGitState && e.ChangeType != WatcherChangeTypes.Changed;
         Dispatcher.UIThread.Post(async () =>
         {
             var tab = EditorTabs.FirstOrDefault(candidate => string.Equals(candidate.FullPath, e.FullPath, StringComparison.Ordinal));
@@ -497,10 +502,13 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 }
                 catch (IOException)
                 {
-                    ScheduleRefresh(refreshFiles: !refreshGitState, refreshGitState: refreshGitState);
+                    ScheduleRefresh(refreshFiles, refreshGitState);
                 }
             }
-            ScheduleRefresh(refreshFiles: !refreshGitState, refreshGitState: refreshGitState);
+            if (refreshFiles || refreshGitState)
+            {
+                ScheduleRefresh(refreshFiles, refreshGitState);
+            }
         });
     }
 
@@ -565,6 +573,49 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             yield return node;
             foreach (var child in EnumerateNodes(node.Children)) yield return child;
+        }
+    }
+
+    private static void ReconcileNodes(
+        ObservableCollection<WorkspaceFileNodeViewModel> current,
+        IReadOnlyList<WorkspaceFileNodeViewModel> desired)
+    {
+        for (var desiredIndex = 0; desiredIndex < desired.Count; desiredIndex++)
+        {
+            var desiredNode = desired[desiredIndex];
+            var existingIndex = -1;
+            for (var currentIndex = desiredIndex; currentIndex < current.Count; currentIndex++)
+            {
+                var candidate = current[currentIndex];
+                if (candidate.IsDirectory == desiredNode.IsDirectory
+                    && string.Equals(candidate.RelativePath, desiredNode.RelativePath, PathComparison))
+                {
+                    existingIndex = currentIndex;
+                    break;
+                }
+            }
+
+            if (existingIndex < 0)
+            {
+                current.Insert(desiredIndex, desiredNode);
+                continue;
+            }
+
+            if (existingIndex != desiredIndex)
+            {
+                current.Move(existingIndex, desiredIndex);
+            }
+
+            var existingNode = current[desiredIndex];
+            if (existingNode.IsDirectory)
+            {
+                ReconcileNodes(existingNode.Children, desiredNode.Children);
+            }
+        }
+
+        while (current.Count > desired.Count)
+        {
+            current.RemoveAt(current.Count - 1);
         }
     }
 

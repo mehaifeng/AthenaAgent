@@ -610,10 +610,29 @@ var folderTreeItem = workspaceFileTree.GetVisualDescendants()
                          .OfType<TreeViewItem>()
                          .FirstOrDefault(item => ReferenceEquals(item.DataContext, fileTreeFolder))
                      ?? throw new InvalidOperationException("Workspace folder tree item was not materialized.");
+var closedFolderIcon = folderTreeItem.GetVisualDescendants()
+                           .OfType<PathIcon>()
+                           .Single(icon => icon.Classes.Contains("workspace-folder-icon"));
+var openFolderIcon = folderTreeItem.GetVisualDescendants()
+                         .OfType<PathIcon>()
+                         .Single(icon => icon.Classes.Contains("workspace-folder-open-icon"));
+if (!closedFolderIcon.IsVisible || openFolderIcon.IsVisible)
+    throw new InvalidOperationException("A collapsed workspace directory must display only the closed-folder icon.");
 folderTreeItem.IsExpanded = true;
 Dispatcher.UIThread.RunJobs();
 if (!fileTreeFolder.IsExpanded)
     throw new InvalidOperationException("Expanding a workspace folder did not persist to its node view model.");
+if (closedFolderIcon.IsVisible || !openFolderIcon.IsVisible)
+    throw new InvalidOperationException("An expanded workspace directory must display only the open-folder icon.");
+var childTreeItem = workspaceFileTree.GetVisualDescendants()
+                        .OfType<TreeViewItem>()
+                        .FirstOrDefault(item => ReferenceEquals(item.DataContext, fileTreeFolder.Children[0]))
+                    ?? throw new InvalidOperationException("Workspace file tree item was not materialized.");
+var fileIcon = childTreeItem.GetVisualDescendants()
+                   .OfType<PathIcon>()
+                   .Single(icon => icon.Classes.Contains("workspace-file-icon"));
+if (!fileIcon.IsVisible)
+    throw new InvalidOperationException("A workspace file must display the file icon.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"old\";"))
     throw new InvalidOperationException("Visual diff did not render the removed line.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"new\";"))
@@ -1119,9 +1138,17 @@ static async Task TestWorkspaceGitDiffAsync()
 
         var expandedFolder = workbench.Files.Single(node => node.Name == "folder");
         expandedFolder.IsExpanded = true;
+        var treeResetCount = 0;
+        workbench.Files.CollectionChanged += (_, args) =>
+        {
+            if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+                treeResetCount++;
+        };
         await workbench.RefreshFilesCommand.ExecuteAsync(null);
         if (!workbench.Files.Single(node => node.Name == "folder").IsExpanded)
             throw new InvalidOperationException("Refreshing the workspace tree did not preserve expanded folders.");
+        if (treeResetCount != 0 || !ReferenceEquals(expandedFolder, workbench.Files.Single(node => node.Name == "folder")))
+            throw new InvalidOperationException("Refreshing an unchanged workspace tree must preserve node identity without resetting the collection.");
 
         await workbench.OpenFileCommand.ExecuteAsync(
             workbench.Files.Single(node => node.Name == "modified.txt"));
