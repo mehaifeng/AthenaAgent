@@ -31,6 +31,7 @@ AppBuilder.Configure<App>()
     .SetupWithoutStarting();
 
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
+TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
@@ -1201,6 +1202,69 @@ static void AssertSaveCount(HeadlessConfigService service, int expected, string 
         throw new InvalidOperationException($"{scenario} expected {expected} save(s), got {service.SaveCount}.");
 }
 
+static void TestLayoutSaveDoesNotReapplyRuntimeClients()
+{
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "runtime-provider",
+        DisplayName = "Runtime provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://example.invalid/v1",
+        ApiKey = "test-key"
+    };
+    var config = new AppConfig { Theme = "Light", Timeout = 60 };
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "chat-model";
+    config.AiModels.Embedding.ProviderId = provider.Id;
+    config.AiModels.Embedding.Model = "embedding-model";
+
+    var configService = new HeadlessConfigService(config);
+    var chatService = new HeadlessChatService();
+    var embeddingService = new HeadlessEmbeddingService();
+    var themeApplyCount = 0;
+    void OnThemeChanged(string _) => themeApplyCount++;
+    App.ThemeChanged += OnThemeChanged;
+    try
+    {
+        using var applier = new AppConfigurationApplier(
+            configService,
+            chatService,
+            embeddingService,
+            knowledgeBaseService: null,
+            tokenService: null,
+            localizationService: null);
+
+        if (themeApplyCount != 1
+            || chatService.UpdateConfigCount != 1
+            || embeddingService.UpdateConfigCount != 1)
+            throw new InvalidOperationException("Initial runtime configuration was not applied exactly once.");
+
+        config.MainLayout.LeftWidth += 20;
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 1
+            || chatService.UpdateConfigCount != 1
+            || embeddingService.UpdateConfigCount != 1)
+            throw new InvalidOperationException("Saving layout changes reapplied an unchanged runtime subsystem.");
+
+        config.AiModels.MainConversation.Model = "chat-model-2";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (chatService.UpdateConfigCount != 2 || embeddingService.UpdateConfigCount != 1)
+            throw new InvalidOperationException("A main-model change did not update only the chat runtime.");
+
+        config.AiModels.Embedding.Model = "embedding-model-2";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (chatService.UpdateConfigCount != 2 || embeddingService.UpdateConfigCount != 2)
+            throw new InvalidOperationException("An embedding-model change did not update only the embedding runtime.");
+    }
+    finally
+    {
+        App.ThemeChanged -= OnThemeChanged;
+    }
+
+    Console.WriteLine("[PASS] layout saves do not reapply unchanged AI runtime clients");
+}
+
 static async Task TestWorkspaceGitDiffAsync()
 {
     var root = Path.Combine(Path.GetTempPath(), "athena-workspace-diff-" + Guid.NewGuid().ToString("N"));
@@ -1603,6 +1667,7 @@ sealed class HeadlessSystemAudioService : ISystemAudioService
 sealed class HeadlessChatService : IChatService
 {
     public AudioOutputTestResult AudioResult { get; set; } = new() { Success = true, Message = "ok" };
+    public int UpdateConfigCount { get; private set; }
 
     public async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -1621,10 +1686,25 @@ sealed class HeadlessChatService : IChatService
 
     public Task<(bool Success, string? Message)> TestConnectionAsync() => Task.FromResult<(bool, string?)>((true, "ok"));
     public IReadOnlyList<RawContextEntry> BuildRawContext(ConversationContext context) => [];
-    public void UpdateConfig(AppConfig config) { }
+    public void UpdateConfig(AppConfig config) => UpdateConfigCount++;
     public Task<AudioOutputTestResult> TestAudioOutputAsync(CancellationToken cancellationToken = default) => Task.FromResult(AudioResult);
     public Task<(ChatAttachment? Attachment, string ErrorMessage)> GenerateAssistantSpeechAsync(string text, CancellationToken cancellationToken = default) =>
         Task.FromResult<(ChatAttachment?, string)>((null, string.Empty));
+}
+
+sealed class HeadlessEmbeddingService : IEmbeddingService
+{
+    public int UpdateConfigCount { get; private set; }
+    public bool IsConfigured => true;
+    public string? ModelId => "headless-embedding";
+
+    public void UpdateConfig(AppConfig config) => UpdateConfigCount++;
+    public Task<float[]?> GenerateEmbeddingAsync(string text) => Task.FromResult<float[]?>([]);
+    public Task<List<float[]?>> GenerateEmbeddingsAsync(IEnumerable<string> texts) =>
+        Task.FromResult(texts.Select(_ => (float[]?)[]).ToList());
+    public float CosineSimilarity(float[] a, float[] b) => 0;
+    public Task<(bool Success, string Message)> TestConnectionAsync() =>
+        Task.FromResult((true, "ok"));
 }
 
 sealed class HeadlessInteractionService(bool confirmResult = false) : IUserInteractionService

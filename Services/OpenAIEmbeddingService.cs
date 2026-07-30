@@ -24,6 +24,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private OpenAIClient? _client;
     private EmbeddingClient? _embeddingClient;
     private string? _effectiveModelId;
+    private OpenAiModelClientIdentity _clientIdentity;
 
     public bool IsConfigured => _embeddingClient != null;
 
@@ -32,6 +33,9 @@ public class OpenAIEmbeddingService : IEmbeddingService
     public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null)
     {
         _config = config;
+        _clientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.Embedding);
         _logger = logger.ForContext<OpenAIEmbeddingService>();
         _localizationService = localizationService;
         InitializeClient();
@@ -41,11 +45,18 @@ public class OpenAIEmbeddingService : IEmbeddingService
         => _localizationService?.GetString(key, defaultValue) ?? defaultValue;
 
     /// <summary>
-    /// 更新配置并重新初始化客户端
+    /// 更新配置；仅当客户端连接指纹变化时重新初始化。
     /// </summary>
     public void UpdateConfig(AppConfig config)
     {
+        var nextClientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.Embedding);
         _config = config;
+        if (_clientIdentity == nextClientIdentity)
+            return;
+
+        _clientIdentity = nextClientIdentity;
         InitializeClient();
     }
 

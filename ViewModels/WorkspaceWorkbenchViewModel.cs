@@ -284,6 +284,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (_workspace?.Id == workspace?.Id) return;
         await PersistStateAsync();
         DisposeWatcher();
+        CancelScheduledRefresh();
         foreach (var tab in EditorTabs) tab.Dispose();
         EditorTabs.Clear();
         IsEditorVisible = false;
@@ -972,33 +973,60 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         _refreshFilesPending |= refreshFiles;
         _refreshGitStatePending |= refreshGitState;
-        _refreshDebounce?.Cancel();
-        _refreshDebounce?.Dispose();
         var cts = new CancellationTokenSource();
-        _refreshDebounce = cts;
-        _ = Task.Run(async () =>
+        var previous = Interlocked.Exchange(ref _refreshDebounce, cts);
+        previous?.Cancel();
+        _ = RunScheduledRefreshAsync(cts);
+    }
+
+    private async Task RunScheduledRefreshAsync(CancellationTokenSource cts)
+    {
+        var cancellationToken = cts.Token;
+        try
         {
-            try
+            await Task.Delay(250, cancellationToken);
+            await Dispatcher.UIThread.InvokeAsync(async () =>
             {
-                await Task.Delay(250, cts.Token);
-                Dispatcher.UIThread.Post(async () =>
+                if (cancellationToken.IsCancellationRequested
+                    || !ReferenceEquals(
+                        Interlocked.CompareExchange(ref _refreshDebounce, null, cts),
+                        cts))
                 {
-                    var shouldRefreshFiles = _refreshFilesPending;
-                    var shouldRefreshGitState = _refreshGitStatePending;
-                    _refreshFilesPending = false;
-                    _refreshGitStatePending = false;
-                    if (shouldRefreshFiles) await RefreshFilesAsync();
-                    if (shouldRefreshGitState)
-                    {
-                        await RefreshRepositoryStateAsync();
-                        await RefreshOpenTabGitStateAsync();
-                    }
-                });
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        });
+                    return;
+                }
+
+                var shouldRefreshFiles = _refreshFilesPending;
+                var shouldRefreshGitState = _refreshGitStatePending;
+                _refreshFilesPending = false;
+                _refreshGitStatePending = false;
+                if (shouldRefreshFiles) await RefreshFilesAsync();
+                if (shouldRefreshGitState)
+                {
+                    await RefreshRepositoryStateAsync();
+                    await RefreshOpenTabGitStateAsync();
+                }
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "刷新工作区状态失败");
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _refreshDebounce, null, cts);
+            cts.Dispose();
+        }
+    }
+
+    private void CancelScheduledRefresh()
+    {
+        var cts = Interlocked.Exchange(ref _refreshDebounce, null);
+        cts?.Cancel();
+        _refreshFilesPending = false;
+        _refreshGitStatePending = false;
     }
 
     private async Task RefreshOpenTabGitStateAsync()
@@ -1356,8 +1384,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         DisposeWatcher();
         foreach (var tab in EditorTabs) tab.Dispose();
-        _refreshDebounce?.Cancel();
-        _refreshDebounce?.Dispose();
+        CancelScheduledRefresh();
     }
 
     private sealed class WorkspaceEditorState

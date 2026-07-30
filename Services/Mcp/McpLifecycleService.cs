@@ -57,6 +57,8 @@ public sealed class McpLifecycleService : IAsyncDisposable
         {
             var desired = McpConfigDiff.BuildDesired(config);
             var plan = McpConfigDiff.Diff(_applied, desired);
+            if (plan.ToStart.Count == 0 && plan.ToStop.Count == 0)
+                return;
 
             foreach (var name in plan.ToStop)
             {

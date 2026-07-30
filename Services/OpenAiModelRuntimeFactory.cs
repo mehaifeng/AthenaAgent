@@ -70,6 +70,23 @@ public sealed class OpenAiModelRuntimeFactory
             GetInternalMaxOutputTokens(role));
     }
 
+    internal static OpenAiModelClientIdentity ComputeClientIdentity(AppConfig config, AiModelRole role)
+    {
+        try
+        {
+            var effective = Resolve(config, role);
+            return new OpenAiModelClientIdentity(
+                effective.BaseUrl,
+                effective.ApiKey,
+                effective.Model,
+                config.Timeout);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
     private static double GetInternalTemperature(AiModelRole role) => role switch
     {
         AiModelRole.MainConversation => 0.7,
@@ -148,6 +165,12 @@ public sealed class OpenAiModelRuntimeFactory
         return new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
     }
 }
+
+internal readonly record struct OpenAiModelClientIdentity(
+    string? BaseUrl,
+    string? ApiKey,
+    string? Model,
+    int Timeout);
 
 public readonly record struct EffectiveOpenAiModel(
     string ProviderPreset,

@@ -16,6 +16,11 @@ public sealed class AppConfigurationApplier : IDisposable
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
+    private AppConfig? _lastChatConfig;
+    private AppConfig? _lastEmbeddingConfig;
+    private string? _themeIdentity;
+    private OpenAiModelClientIdentity? _chatClientIdentity;
+    private OpenAiModelClientIdentity? _embeddingClientIdentity;
     private string _embeddingIdentity;
 
     public AppConfigurationApplier(
@@ -64,20 +69,46 @@ public sealed class AppConfigurationApplier : IDisposable
 
     private void Apply(AppConfig config)
     {
+        var nextThemeIdentity = string.Equals(config.Theme, "Light", StringComparison.OrdinalIgnoreCase)
+            ? "Light"
+            : "Dark";
+        var shouldApplyTheme = !string.Equals(_themeIdentity, nextThemeIdentity, StringComparison.Ordinal);
+        _themeIdentity = nextThemeIdentity;
+
         void ApplyOnUiThread()
         {
-            App.SetTheme(config.Theme);
+            if (shouldApplyTheme)
+                App.SetTheme(nextThemeIdentity);
             if (_localizationService?.CurrentLanguage != config.Language)
                 _localizationService?.SwitchLanguage(config.Language);
-            _tokenService?.MaxTokens = config.MaxContextTokens;
+            if (_tokenService != null && _tokenService.MaxTokens != config.MaxContextTokens)
+                _tokenService.MaxTokens = config.MaxContextTokens;
         }
 
         if (Dispatcher.UIThread.CheckAccess()) ApplyOnUiThread();
         else Dispatcher.UIThread.Post(ApplyOnUiThread);
 
-        _chatService?.UpdateConfig(config);
-        if (_embeddingService is OpenAIEmbeddingService embeddingService)
-            embeddingService.UpdateConfig(config);
+        var nextChatClientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.MainConversation);
+        if (!ReferenceEquals(_lastChatConfig, config)
+            || _chatClientIdentity != nextChatClientIdentity)
+        {
+            _chatService?.UpdateConfig(config);
+            _lastChatConfig = config;
+            _chatClientIdentity = nextChatClientIdentity;
+        }
+
+        var nextEmbeddingClientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.Embedding);
+        if (!ReferenceEquals(_lastEmbeddingConfig, config)
+            || _embeddingClientIdentity != nextEmbeddingClientIdentity)
+        {
+            _embeddingService?.UpdateConfig(config);
+            _lastEmbeddingConfig = config;
+            _embeddingClientIdentity = nextEmbeddingClientIdentity;
+        }
     }
 
     private static string ComputeEmbeddingIdentity(AppConfig config)

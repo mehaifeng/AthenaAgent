@@ -43,6 +43,7 @@ public class OpenAIChatService : IChatService
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
     private EffectiveOpenAiModel? _mainModel;
+    private OpenAiModelClientIdentity _clientIdentity;
 
     public OpenAIChatService(
         AppConfig config,
@@ -58,6 +59,9 @@ public class OpenAIChatService : IChatService
         ISkillCatalogService? skillCatalog = null)
     {
         _config = config;
+        _clientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.MainConversation);
         _promptService = promptService;
         _contextCompressionService = contextCompressionService;
         _localizationService = localizationService;
@@ -73,7 +77,14 @@ public class OpenAIChatService : IChatService
 
     public void UpdateConfig(AppConfig config)
     {
+        var nextClientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
+            config,
+            AiModelRole.MainConversation);
         _config = config;
+        if (_clientIdentity == nextClientIdentity)
+            return;
+
+        _clientIdentity = nextClientIdentity;
         InitializeClient();
     }
 

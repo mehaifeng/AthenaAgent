@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -9,6 +10,11 @@ namespace Athena.UI.Services.Interfaces;
 /// </summary>
 public interface IEmbeddingService
 {
+    /// <summary>
+    /// 更新运行时配置。调用方仅应在 Embedding 客户端连接配置变化时调用。
+    /// </summary>
+    void UpdateConfig(AppConfig config);
+
     /// <summary>
     /// 判断 Embedding 服务是否已配置
     /// </summary>
