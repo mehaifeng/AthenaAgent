@@ -193,6 +193,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _refreshDebounce;
     private bool _refreshFilesPending;
     private bool _refreshGitStatePending;
+    private bool _suppressGitChangeSelectionOpen;
+    private int _gitChangeSelectionVersion;
     private WorkspaceProfile? _workspace;
     private string? _repositoryRoot;
     private string _workspaceRepositoryPathspec = ".";
@@ -271,7 +273,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedGitChangeChanged(GitChangeFileViewModel? value)
     {
-        if (value != null) _ = OpenGitChangeAsync(value);
+        if (_suppressGitChangeSelectionOpen) return;
+
+        var selectionVersion = ++_gitChangeSelectionVersion;
+        if (value != null) _ = OpenGitChangeAsync(value, selectionVersion);
     }
 
     public async Task SetWorkspaceAsync(WorkspaceProfile? workspace)
@@ -410,12 +415,20 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
         var selectedPath = SelectedGitChange?.RelativePath;
         var changes = ParseGitStatus(status.Output, _repositoryRoot);
-        GitChanges.Clear();
-        foreach (var change in changes) GitChanges.Add(change);
+        _suppressGitChangeSelectionOpen = true;
+        try
+        {
+            GitChanges.Clear();
+            foreach (var change in changes) GitChanges.Add(change);
+            SelectedGitChange = selectedPath == null
+                ? null
+                : GitChanges.FirstOrDefault(change => string.Equals(change.RelativePath, selectedPath, PathComparison));
+        }
+        finally
+        {
+            _suppressGitChangeSelectionOpen = false;
+        }
         HasStagedChanges = changes.Any(change => change.HasStagedChange);
-        SelectedGitChange = selectedPath == null
-            ? null
-            : GitChanges.FirstOrDefault(change => string.Equals(change.RelativePath, selectedPath, PathComparison));
         GitStatusText = changes.Count == 0 ? "工作树干净" : $"{changes.Count} 个文件有更改";
         OnPropertyChanged(nameof(GitChangeCount));
     }
@@ -613,9 +626,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         return true;
     }
 
-    private async Task OpenGitChangeAsync(GitChangeFileViewModel change)
+    private async Task OpenGitChangeAsync(GitChangeFileViewModel change, int selectionVersion)
     {
-        if (_workspace == null) return;
+        if (_workspace == null || !IsCurrentGitChangeSelection(change, selectionVersion)) return;
         var tab = EditorTabs.FirstOrDefault(
             candidate => string.Equals(candidate.FullPath, change.FullPath, StringComparison.Ordinal));
         if (tab == null)
@@ -643,8 +656,18 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 tab.ReplaceFromDisk(current, changedAt);
                 tab.CanDiff = true;
                 var head = await ReadHeadVersionAsync(change.RelativePath);
+                if (!IsCurrentGitChangeSelection(change, selectionVersion))
+                {
+                    tab.Dispose();
+                    return;
+                }
                 tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
                 tab.Mode = WorkspaceEditorMode.Diff;
+            }
+            if (!IsCurrentGitChangeSelection(change, selectionVersion))
+            {
+                tab.Dispose();
+                return;
             }
             EditorTabs.Add(tab);
             OnPropertyChanged(nameof(HasEditorTabs));
@@ -659,16 +682,24 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 var changedAt = File.Exists(change.FullPath)
                     ? File.GetLastWriteTimeUtc(change.FullPath)
                     : DateTime.UtcNow;
+                if (!IsCurrentGitChangeSelection(change, selectionVersion)) return;
                 tab.ReplaceFromDisk(current, changedAt);
             }
             await RefreshDiffAsync(tab);
+            if (!IsCurrentGitChangeSelection(change, selectionVersion)) return;
             tab.Mode = WorkspaceEditorMode.Diff;
         }
 
+        if (!IsCurrentGitChangeSelection(change, selectionVersion)) return;
         SelectedEditorTab = tab;
         IsEditorVisible = true;
         await PersistStateAsync();
     }
+
+    private bool IsCurrentGitChangeSelection(GitChangeFileViewModel change, int selectionVersion) =>
+        selectionVersion == _gitChangeSelectionVersion
+        && SelectedGitChange != null
+        && string.Equals(SelectedGitChange.RelativePath, change.RelativePath, PathComparison);
 
     [RelayCommand]
     private async Task OpenFileAsync(WorkspaceFileNodeViewModel? node)
@@ -779,6 +810,11 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (tab == null) return;
         if (tab.IsDirty && !await _interaction.ConfirmAsync("关闭文件", $"“{tab.FileName}”包含未保存内容，仍要关闭吗？", "关闭", "取消")) return;
+        if (SelectedGitChange != null
+            && string.Equals(SelectedGitChange.RelativePath, tab.RelativePath, PathComparison))
+        {
+            SelectedGitChange = null;
+        }
         var index = EditorTabs.IndexOf(tab);
         EditorTabs.Remove(tab);
         tab.Dispose();

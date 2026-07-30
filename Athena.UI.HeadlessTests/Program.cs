@@ -1234,6 +1234,31 @@ static async Task TestWorkspaceGitDiffAsync()
         if (workbench.IsReviewVisible)
             throw new InvalidOperationException("A second branch-selector activation did not close the changes review.");
 
+        var selectedModifiedChange = workbench.GitChanges.Single(change => change.RelativePath == "modified.txt");
+        workbench.SelectedGitChange = selectedModifiedChange;
+        var selectionDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (workbench.SelectedEditorTab?.RelativePath != "modified.txt")
+        {
+            if (DateTime.UtcNow >= selectionDeadline)
+                throw new InvalidOperationException("Selecting a review change did not open its editor diff tab.");
+            await Task.Delay(25);
+        }
+
+        workbench.SelectedEditorTab = addedTab;
+        await workbench.RefreshWorkbenchCommand.ExecuteAsync(null);
+        await Task.Delay(100);
+        if (!ReferenceEquals(workbench.SelectedEditorTab, addedTab))
+            throw new InvalidOperationException("Refreshing Git state stole editor focus back to the selected review change.");
+
+        workbench.SelectedEditorTab = modifiedTab;
+        await workbench.CloseEditorTabCommand.ExecuteAsync(modifiedTab);
+        if (workbench.SelectedGitChange != null)
+            throw new InvalidOperationException("Closing a review-opened tab did not release its review selection.");
+        await workbench.RefreshWorkbenchCommand.ExecuteAsync(null);
+        await Task.Delay(100);
+        if (workbench.EditorTabs.Any(tab => tab.RelativePath == "modified.txt"))
+            throw new InvalidOperationException("A closed review-opened tab was reopened by a Git state refresh.");
+
         var addedChange = workbench.GitChanges.Single(change => change.RelativePath == "added.txt");
         await workbench.StageFileCommand.ExecuteAsync(addedChange);
         var stagedAddition = workbench.GitChanges.Single(change => change.RelativePath == "added.txt");
