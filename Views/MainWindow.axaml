@@ -405,8 +405,15 @@
                 </Grid>
             </Border>
 
-            <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
-                          Width="5" MinWidth="5" Background="Transparent" DragCompleted="OnSideSplitterDragCompleted"/>
+            <GridSplitter x:Name="LeftSideSplitter"
+                          Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
+                          Width="5"
+                          MinWidth="5"
+                          Background="Transparent"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"
+                          ShowsPreview="True"
+                          DragCompleted="OnSideSplitterDragCompleted"/>
 
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
@@ -416,8 +423,15 @@
                                             DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MainConversationViewModel}"/>
             </Border>
 
-            <GridSplitter Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
-                          Width="5" MinWidth="5" Background="Transparent" DragCompleted="OnSideSplitterDragCompleted"/>
+            <GridSplitter x:Name="RightSideSplitter"
+                          Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
+                          Width="5"
+                          MinWidth="5"
+                          Background="Transparent"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"
+                          ShowsPreview="True"
+                          DragCompleted="OnSideSplitterDragCompleted"/>
 
             <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。 -->
             <Border Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"

@@ -54,10 +54,10 @@
     </UserControl.Styles>
     <Grid x:Name="WorkbenchGrid">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="280" MinWidth="220"/>
-            <ColumnDefinition Width="5"/>
+            <ColumnDefinition Width="280" MinWidth="260"/>
+            <ColumnDefinition Width="5" MinWidth="5"/>
+            <ColumnDefinition Width="280" MinWidth="248"/>
+            <ColumnDefinition Width="5" MinWidth="5"/>
             <ColumnDefinition Width="*" MinWidth="100"/>
         </Grid.ColumnDefinitions>
 
@@ -229,10 +229,14 @@
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1"
+        <GridSplitter x:Name="ReviewSplitter"
+                      Grid.Column="1"
                       Width="5"
                       Background="{DynamicResource SemiColorBorder}"
-                      IsVisible="{Binding IsReviewVisible}"/>
+                      IsVisible="{Binding IsReviewVisible}"
+                      ResizeDirection="Columns"
+                      ResizeBehavior="PreviousAndNext"
+                      ShowsPreview="True"/>
 
         <Border Grid.Column="2"
                 IsVisible="{Binding IsEditorVisible}"
@@ -391,8 +395,15 @@
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="3" Width="5" Background="{DynamicResource SemiColorBorder}"
-                      IsVisible="{Binding IsEditorVisible}" DragCompleted="OnEditorSplitterDragCompleted"/>
+        <GridSplitter x:Name="EditorSplitter"
+                      Grid.Column="3"
+                      Width="5"
+                      Background="{DynamicResource SemiColorBorder}"
+                      IsVisible="{Binding IsEditorVisible}"
+                      ResizeDirection="Columns"
+                      ResizeBehavior="PreviousAndNext"
+                      ShowsPreview="True"
+                      DragCompleted="OnEditorSplitterDragCompleted"/>
 
         <Border Grid.Column="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserColumn}"
                 Grid.ColumnSpan="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserSpan}"

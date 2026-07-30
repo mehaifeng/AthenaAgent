@@ -220,7 +220,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private WorkspaceFileNodeViewModel? _selectedFile;
 
     [ObservableProperty]
-    private bool _isEditorVisible = true;
+    private bool _isEditorVisible;
 
     [ObservableProperty]
     private bool _isLoadingFiles;
@@ -286,6 +286,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         DisposeWatcher();
         foreach (var tab in EditorTabs) tab.Dispose();
         EditorTabs.Clear();
+        IsEditorVisible = false;
         Files.Clear();
         GitChanges.Clear();
         _workspace = workspace;
@@ -819,6 +820,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         EditorTabs.Remove(tab);
         tab.Dispose();
         SelectedEditorTab = EditorTabs.Count == 0 ? null : EditorTabs[Math.Clamp(index, 0, EditorTabs.Count - 1)];
+        if (EditorTabs.Count == 0) IsEditorVisible = false;
         OnPropertyChanged(nameof(HasEditorTabs));
         await PersistStateAsync();
     }
@@ -1304,6 +1306,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 if (canRestoreMode) SelectedEditorTab.Mode = tabState.Mode;
             }
             SelectedEditorTab = EditorTabs.FirstOrDefault(tab => tab.FullPath == state.SelectedPath) ?? EditorTabs.FirstOrDefault();
+            if (EditorTabs.Count == 0) IsEditorVisible = false;
         }
         catch (Exception ex) { _logger.Debug(ex, "恢复编辑器工作区状态失败"); }
     }
@@ -1359,7 +1362,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private sealed class WorkspaceEditorState
     {
-        public bool IsEditorVisible { get; set; } = true;
+        public bool IsEditorVisible { get; set; }
         public string? SelectedPath { get; set; }
         public List<WorkspaceEditorTabState> Tabs { get; set; } = [];
     }

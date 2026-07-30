@@ -6,7 +6,7 @@ This file serves as foundational guidance for AI interactions within the AthenaA
 
 **Athena.UI** is a sophisticated, highly autonomous desktop AI assistant built with **.NET 10** and **Avalonia UI**. It is designed to be a "presence-like" intellectual partner with deep system integration capabilities, robust security, and a modern, polished interface.
 
-### Core Technologies
+### Core Technologie
 - **Framework**: Avalonia UI 12.0 (Cross-platform XAML)
 - **UI Themes**: `Semi.Avalonia` and `Irihi.Ursa.Themes.Semi` for a clean, modern aesthetic.
 - **Runtime**: .NET 10

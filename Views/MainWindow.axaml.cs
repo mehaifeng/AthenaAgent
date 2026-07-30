@@ -20,9 +20,15 @@ namespace Athena.UI.Views;
 
 public partial class MainWindow : Window
 {
+    private const double LeftPanelMinWidth = 260;
+    private const double RightPanelMinWidth = 360;
+    private const double ConversationMinWidth = 540;
+    private const double ShellSplitterWidth = 5;
+
     private Image? _themeSplashImage;
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
+    private Grid? _mainShellGrid;
     private ColumnDefinition? _leftShellColumn;
     private ColumnDefinition? _rightShellColumn;
     private RowDefinition? _rightTopRow;
@@ -40,13 +46,14 @@ public partial class MainWindow : Window
         _titleBarMaximizeIcon = this.FindControl<Path>("TitleBarMaximizeIcon");
         _titleBarRestoreIcon = this.FindControl<Path>("TitleBarRestoreIcon");
         UpdateMaximizeRestoreIcons();
-        var shellGrid = this.FindControl<Grid>("MainShellGrid");
-        _leftShellColumn = shellGrid?.ColumnDefinitions[0];
-        _rightShellColumn = shellGrid?.ColumnDefinitions[4];
+        _mainShellGrid = this.FindControl<Grid>("MainShellGrid");
+        _leftShellColumn = _mainShellGrid?.ColumnDefinitions[0];
+        _rightShellColumn = _mainShellGrid?.ColumnDefinitions[4];
         var rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
         _rightTopRow = rightPanelGrid?.RowDefinitions[0];
         _rightLogRow = rightPanelGrid?.RowDefinitions[2];
         DataContextChanged += OnMainDataContextChanged;
+        SizeChanged += (_, _) => ApplySavedLayout();
         // 窗口显示之前就设置好 Splash 图片的初始状态：
         // Opacity=1 让窗口打开时图片立即覆盖在 UI 上，
         // ShowThemeSplashAsync 根据 IsLoaded 决定是否需要从 0 渐入
@@ -141,12 +148,56 @@ public partial class MainWindow : Window
     {
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _leftShellColumn == null || _rightShellColumn == null) return;
-        var leftSemanticWidth = Math.Max(260, layout.LeftWidth);
-        var rightSemanticWidth = Math.Max(360, layout.RightWidth);
-        _leftShellColumn.Width = new GridLength(layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth);
-        _rightShellColumn.Width = new GridLength(layout.SidePanelsSwapped ? leftSemanticWidth : rightSemanticWidth);
+        var leftSemanticWidth = Math.Max(LeftPanelMinWidth, layout.LeftWidth);
+        var rightSemanticWidth = Math.Max(RightPanelMinWidth, layout.RightWidth);
+        var physicalLeftMinWidth = layout.SidePanelsSwapped ? RightPanelMinWidth : LeftPanelMinWidth;
+        var physicalRightMinWidth = layout.SidePanelsSwapped ? LeftPanelMinWidth : RightPanelMinWidth;
+        var physicalLeftWidth = layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth;
+        var physicalRightWidth = layout.SidePanelsSwapped ? leftSemanticWidth : rightSemanticWidth;
+
+        ConstrainSideWidths(
+            ref physicalLeftWidth,
+            ref physicalRightWidth,
+            physicalLeftMinWidth,
+            physicalRightMinWidth);
+        _leftShellColumn.MinWidth = physicalLeftMinWidth;
+        _rightShellColumn.MinWidth = physicalRightMinWidth;
+        _leftShellColumn.Width = new GridLength(physicalLeftWidth);
+        _rightShellColumn.Width = new GridLength(physicalRightWidth);
         if (_rightTopRow != null && layout.RightTopHeight > 0) _rightTopRow.Height = new GridLength(layout.RightTopHeight);
         if (_rightLogRow != null) _rightLogRow.Height = new GridLength(Math.Max(120, 900 - layout.RightTopHeight));
+    }
+
+    private void ConstrainSideWidths(
+        ref double leftWidth,
+        ref double rightWidth,
+        double leftMinWidth,
+        double rightMinWidth)
+    {
+        var shellWidth = _mainShellGrid?.Bounds.Width ?? 0;
+        if (shellWidth <= 0) shellWidth = Math.Max(0, ClientSize.Width - 10);
+        if (shellWidth <= 0) return;
+
+        var sideBudget = Math.Max(
+            leftMinWidth + rightMinWidth,
+            shellWidth - ConversationMinWidth - (2 * ShellSplitterWidth));
+        var requestedWidth = leftWidth + rightWidth;
+        if (requestedWidth <= sideBudget) return;
+
+        var availableExtra = Math.Max(0, sideBudget - leftMinWidth - rightMinWidth);
+        var leftExtra = Math.Max(0, leftWidth - leftMinWidth);
+        var rightExtra = Math.Max(0, rightWidth - rightMinWidth);
+        var requestedExtra = leftExtra + rightExtra;
+        if (requestedExtra <= 0)
+        {
+            leftWidth = leftMinWidth;
+            rightWidth = rightMinWidth;
+            return;
+        }
+
+        var scale = availableExtra / requestedExtra;
+        leftWidth = leftMinWidth + (leftExtra * scale);
+        rightWidth = rightMinWidth + (rightExtra * scale);
     }
 
     private async void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)

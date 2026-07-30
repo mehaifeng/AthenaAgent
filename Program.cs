@@ -11,7 +11,7 @@ class Program
 {
     private static string CrashLogPath = null!;
 
-    // 单实例守卫：保持对命名互斥量的静态引用，防止被 GC 回收（否则其终结器
+    // 单实例：保持对命名互斥量的静态引用，防止被 GC 回收（否则其终结器
     // 会释放互斥量，导致运行期间可被多开）。进程退出时操作系统自动释放句柄。
     private static Mutex? _singleInstanceMutex;
 

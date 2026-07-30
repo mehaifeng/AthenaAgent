@@ -35,7 +35,26 @@ TestConcreteConfigServiceIdentity();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
 
-var mainViewModel = new MainWindowViewModel();
+var shellConfigService = new HeadlessConfigService(new AppConfig());
+using var shellConfigurationSession = new AppConfigurationSession(shellConfigService);
+var mainViewModel = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: null,
+    imageGenerationSessionService: null,
+    configurationSession: shellConfigurationSession);
 var globalConversationGroup = new WorkspaceConversationGroupViewModel(null);
 globalConversationGroup.Conversations.Add(new ConversationSessionItemViewModel(new MainConversationViewModel(), null, null)
 {
@@ -78,6 +97,21 @@ var shell = window.FindControl<Grid>("MainShellGrid") ?? throw new InvalidOperat
 if (shell.ColumnDefinitions.Count != 5) throw new InvalidOperationException("Main shell must contain five grid columns including splitters.");
 if (shell.ColumnDefinitions[0].MinWidth < 260 || shell.ColumnDefinitions[4].MinWidth < 360)
     throw new InvalidOperationException("Side panel minimum widths are not applied.");
+var leftSideSplitter = window.FindControl<GridSplitter>("LeftSideSplitter")
+                       ?? throw new InvalidOperationException("The left shell splitter was not created.");
+var rightSideSplitter = window.FindControl<GridSplitter>("RightSideSplitter")
+                        ?? throw new InvalidOperationException("The right shell splitter was not created.");
+if (!leftSideSplitter.ShowsPreview
+    || !rightSideSplitter.ShowsPreview
+    || leftSideSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext
+    || rightSideSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
+    throw new InvalidOperationException("Shell splitters must preview and resize only their adjacent columns.");
+await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+Dispatcher.UIThread.RunJobs();
+if (shell.ColumnDefinitions[0].MinWidth < 360 || shell.ColumnDefinitions[4].MinWidth < 260)
+    throw new InvalidOperationException("Swapping side panels did not swap their physical column minimum widths.");
+await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+Dispatcher.UIThread.RunJobs();
 if (window.FindControl<MainConversationView>("MainConversationView") == null)
     throw new InvalidOperationException("Chat view is not permanently mounted in the center column.");
 if (window.GetVisualDescendants().OfType<TabStrip>().Any())
@@ -616,6 +650,7 @@ for (var index = 1; index <= 8; index++)
     workbench.EditorTabs.Add(extraTab);
 }
 workbench.SelectedEditorTab = diffTab;
+workbench.IsEditorVisible = true;
 var workbenchView = new WorkspaceWorkbenchView { DataContext = workbench };
 var diffWindow = new Window
 {
@@ -720,7 +755,29 @@ diffTab.Mode = WorkspaceEditorMode.Edit;
 diffTab.Text += "\n// unsaved";
 var workbenchGrid = workbenchView.FindControl<Grid>("WorkbenchGrid")
                     ?? throw new InvalidOperationException("Workbench grid was not created.");
-workbenchGrid.ColumnDefinitions[2].Width = new GridLength(240);
+var reviewSplitter = workbenchView.FindControl<GridSplitter>("ReviewSplitter")
+                     ?? throw new InvalidOperationException("The review splitter was not created.");
+var editorSplitter = workbenchView.FindControl<GridSplitter>("EditorSplitter")
+                     ?? throw new InvalidOperationException("The editor splitter was not created.");
+if (workbenchGrid.ColumnDefinitions[0].MinWidth < 260
+    || workbenchGrid.ColumnDefinitions[2].MinWidth < 248
+    || !reviewSplitter.ShowsPreview
+    || !editorSplitter.ShowsPreview
+    || reviewSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext
+    || editorSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
+    throw new InvalidOperationException("Workbench panes do not enforce VS Code-style adjacent-column resize constraints.");
+workbenchGrid.ColumnDefinitions[0].Width = new GridLength(100);
+workbenchGrid.ColumnDefinitions[2].Width = new GridLength(200);
+Dispatcher.UIThread.RunJobs();
+if (workbenchGrid.ColumnDefinitions[0].ActualWidth < 260
+    || workbenchGrid.ColumnDefinitions[2].ActualWidth < 248)
+    throw new InvalidOperationException("Workbench pane columns resized below their declared minimum widths.");
+workbench.IsReviewVisible = false;
+Dispatcher.UIThread.RunJobs();
+if (workbenchGrid.ColumnDefinitions[0].ActualWidth > 0
+    || workbenchGrid.ColumnDefinitions[1].ActualWidth > 0)
+    throw new InvalidOperationException("Closing review did not collapse its pane and splitter columns.");
+workbench.IsReviewVisible = true;
 Dispatcher.UIThread.RunJobs();
 if (!saveButton.IsVisible || !cancelButton.IsVisible || !saveButton.IsEnabled || !cancelButton.IsEnabled)
     throw new InvalidOperationException("Dirty edit mode must expose enabled save and cancel link commands.");
@@ -1258,6 +1315,29 @@ static async Task TestWorkspaceGitDiffAsync()
         await Task.Delay(100);
         if (workbench.EditorTabs.Any(tab => tab.RelativePath == "modified.txt"))
             throw new InvalidOperationException("A closed review-opened tab was reopened by a Git state refresh.");
+
+        using (var singleTabWorkbench = new WorkspaceWorkbenchViewModel(
+                   new WorkspaceOperationCoordinator(),
+                   new HeadlessPathService(),
+                   new HeadlessInteractionService()))
+        {
+            if (singleTabWorkbench.IsEditorVisible)
+                throw new InvalidOperationException("An editor pane without tabs must start closed.");
+            var onlyTab = new WorkspaceEditorTabViewModel
+            {
+                FullPath = Path.Combine(root, "clean.txt"),
+                RelativePath = "clean.txt"
+            };
+            onlyTab.ReplaceFromDisk("clean", DateTime.UtcNow);
+            singleTabWorkbench.EditorTabs.Add(onlyTab);
+            singleTabWorkbench.SelectedEditorTab = onlyTab;
+            singleTabWorkbench.IsEditorVisible = true;
+            await singleTabWorkbench.CloseEditorTabCommand.ExecuteAsync(onlyTab);
+            if (singleTabWorkbench.IsEditorVisible
+                || singleTabWorkbench.SelectedEditorTab != null
+                || singleTabWorkbench.EditorTabs.Count != 0)
+                throw new InvalidOperationException("Closing the last editor tab did not close the editor pane.");
+        }
 
         var addedChange = workbench.GitChanges.Single(change => change.RelativePath == "added.txt");
         await workbench.StageFileCommand.ExecuteAsync(addedChange);
