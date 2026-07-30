@@ -22,7 +22,7 @@ using Avalonia.Styling;
 
 namespace Athena.UI;
 
-public partial class App : Application, IDisposable
+public partial class App : Application, IAsyncDisposable
 {
     /// <summary>
     /// 服务提供者（用于依赖注入）
@@ -98,6 +98,8 @@ public partial class App : Application, IDisposable
 
     private System.Threading.CancellationTokenSource? _flashCts;
     private bool _disposed;
+    private bool _shutdownCleanupInProgress;
+    private bool _shutdownCleanupCompleted;
 
     /// <summary>
     /// 开始托盘图标闪烁
@@ -246,15 +248,10 @@ public partial class App : Application, IDisposable
                     try { await mcpLifecycle.StartAsync(); }
                     catch (Exception ex) { Log.Error(ex, "MCP 生命周期启动失败"); }
                 });
-                // 退出时释放全部 MCP 子进程（在日志关闭之前）。
-                desktop.Exit += (_, _) =>
-                {
-                    try { mcpLifecycle.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
-                    catch (Exception ex) { Log.Warning(ex, "释放 MCP 子进程时出错"); }
-                };
             }
 
-            // 关闭日志管线：等待 SQLiteSink 后台线程冲刷余量
+            // 异步服务已在 OnShutdownRequested 中随 DI 容器释放；
+            // 最终退出事件只负责等待日志管线冲刷余量。
             desktop.Exit += (_, _) => Log.CloseAndFlush();
 
             if (!config.OnboardingCompleted)
@@ -393,25 +390,53 @@ public partial class App : Application, IDisposable
         return mainWindow;
     }
 
-    private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
+    private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
         // macOS Dock 右键退出时，确保真正退出
         IsQuitting = true;
+
+        // 首次关闭请求先暂停退出，异步释放 DI 容器内的 Browser/MCP 等服务。
+        // 释放完成后的第二次 Shutdown 会直接放行并触发 Exit。
+        if (_shutdownCleanupCompleted) return;
+        e.Cancel = true;
+        if (_shutdownCleanupInProgress) return;
+
+        _shutdownCleanupInProgress = true;
         PersistSessionState();
         if (Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel viewModel)
             viewModel.Dispose();
-        Dispose();
+
+        try
+        {
+            await DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "释放应用服务时出错");
+        }
+        finally
+        {
+            _shutdownCleanupInProgress = false;
+            _shutdownCleanupCompleted = true;
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                desktop.Shutdown();
+        }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
         _disposed = true;
         _flashCts?.Cancel();
         _flashCts?.Dispose();
         _flashCts = null;
-        if (Services is IDisposable disposable) disposable.Dispose();
+
+        var services = Services;
         Services = null;
+        if (services is IAsyncDisposable asyncDisposable)
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        else if (services is IDisposable disposable)
+            disposable.Dispose();
     }
 
     private void PersistSessionState()

@@ -368,7 +368,16 @@ public partial class MainLayoutSettings : ObservableObject
     private double _rightTopHeight = 560;
 
     [ObservableProperty]
+    private double _rightLogHeight = 190;
+
+    [ObservableProperty]
+    private double _reviewWidth = 280;
+
+    [ObservableProperty]
     private double _editorWidth = 280;
+
+    [ObservableProperty]
+    private double _fileTreeWidth = 180;
 
     [ObservableProperty]
     private bool _sidePanelsSwapped;

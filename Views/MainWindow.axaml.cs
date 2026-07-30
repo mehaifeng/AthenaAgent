@@ -3,7 +3,6 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -33,8 +32,8 @@ public partial class MainWindow : Window
     private ColumnDefinition? _rightShellColumn;
     private RowDefinition? _rightTopRow;
     private RowDefinition? _rightLogRow;
-    private Path? _titleBarMaximizeIcon;
-    private Path? _titleBarRestoreIcon;
+    private PathIcon? _titleBarMaximizeIcon;
+    private PathIcon? _titleBarRestoreIcon;
     private MainWindowViewModel? _viewModel;
 
     public MainWindow()
@@ -43,8 +42,8 @@ public partial class MainWindow : Window
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
-        _titleBarMaximizeIcon = this.FindControl<Path>("TitleBarMaximizeIcon");
-        _titleBarRestoreIcon = this.FindControl<Path>("TitleBarRestoreIcon");
+        _titleBarMaximizeIcon = this.FindControl<PathIcon>("TitleBarMaximizeIcon");
+        _titleBarRestoreIcon = this.FindControl<PathIcon>("TitleBarRestoreIcon");
         UpdateMaximizeRestoreIcons();
         _mainShellGrid = this.FindControl<Grid>("MainShellGrid");
         _leftShellColumn = _mainShellGrid?.ColumnDefinitions[0];

@@ -183,7 +183,7 @@
                             VerticalAlignment="Center">
                     <Button x:Name="TitleBarThemeButton"
                             Classes="icon-plain"
-                            Margin="0,0,12,0"
+                            Margin="0,0,20,0"
                             Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
                             Tag="{Binding MainConversationViewModel.ThemeIcon}"
                             ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
@@ -198,7 +198,7 @@
                     </Button>
                     <Button x:Name="TitleBarAppSettingsButton"
                             Classes="icon-plain"
-                            Margin="0,0,4,0"
+                            Margin="0,0,8,0"
                             Command="{Binding OpenAppSettingsCommand}"
                             ToolTip.Tip="{loc:Loc Settings.Window.Title}">
                         <PathIcon Data="{StaticResource AthenaIconSettings}"
@@ -209,41 +209,33 @@
                             Classes="window-caption"
                             Click="OnTitleBarMinimizeClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
-                        <Path Width="16" Height="16"
-                              Data="M 1,7.5 L 11,7.5"
-                              Stretch="None"
-                              Stroke="{DynamicResource App.IconForeground}"
-                              StrokeThickness="1.5"
-                              StrokeLineCap="Square"/>
+                        <PathIcon Width="16" Height="16"
+                                  Data="{StaticResource SemiIconMinimize}"
+                                  Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMaximizeButton"
                             Classes="window-caption"
                             Click="OnTitleBarMaximizeRestoreClick"
                             ToolTip.Tip="{loc:Loc MainWindow.MaximizeRestore}">
-                        <Panel Width="16" Height="16">
-                            <Path x:Name="TitleBarMaximizeIcon"
-                                  Data="M 1.5,1.5 H 10.5 V 10.5 H 1.5 Z"
-                                  Stretch="None"
-                                  Stroke="{DynamicResource App.IconForeground}"
-                                  StrokeThickness="1.5"/>
-                            <Path x:Name="TitleBarRestoreIcon"
-                                  IsVisible="False"
-                                  Data="M 3.5,1.5 H 10.5 V 8.5 M 1.5,3.5 H 8.5 V 10.5 H 1.5 Z"
-                                  Stretch="None"
-                                  Stroke="{DynamicResource App.IconForeground}"
-                                  StrokeThickness="1.5"/>
+                        <Panel Width="14" Height="14">
+                            <PathIcon x:Name="TitleBarMaximizeIcon"
+                                      Width="14" Height="14"
+                                      Data="{StaticResource SemiIconMaximize2}"
+                                      Foreground="{DynamicResource App.IconForeground}"/>
+                            <PathIcon x:Name="TitleBarRestoreIcon"
+                                      Width="14" Height="14"
+                                      IsVisible="False"
+                                      Data="{StaticResource SemiIconRestore}"
+                                      Foreground="{DynamicResource App.IconForeground}"/>
                         </Panel>
                     </Button>
                     <Button x:Name="TitleBarCloseButton"
                             Classes="window-caption close"
                             Click="OnTitleBarCloseClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Close}">
-                        <Path Width="16" Height="16"
-                              Data="M 2,2 L 10,10 M 10,2 L 2,10"
-                              Stretch="None"
-                              Stroke="{DynamicResource App.IconForeground}"
-                              StrokeThickness="1.5"
-                              StrokeLineCap="Square"/>
+                        <PathIcon Width="14" Height="14"
+                                  Data="{StaticResource SemiIconClose}"
+                                  Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                 </StackPanel>
             </Grid>

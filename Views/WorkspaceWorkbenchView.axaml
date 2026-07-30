@@ -51,6 +51,18 @@
             <Setter Property="Margin" Value="0,0,0,3"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
+        <Style Selector="GridSplitter.layout-splitter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBorder}"/>
+        </Style>
+        <Style Selector="GridSplitter.layout-splitter:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
+        </Style>
+        <Style Selector="GridSplitter.layout-splitter:pressed">
+            <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
+        </Style>
+        <Style Selector="TextBox.workspace-rename-editor.rename-error">
+            <Setter Property="BorderBrush" Value="{DynamicResource App.IconDangerForeground}"/>
+        </Style>
     </UserControl.Styles>
     <Grid x:Name="WorkbenchGrid">
         <Grid.ColumnDefinitions>
@@ -230,13 +242,16 @@
         </Border>
 
         <GridSplitter x:Name="ReviewSplitter"
+                      Classes="layout-splitter"
                       Grid.Column="1"
                       Width="5"
-                      Background="{DynamicResource SemiColorBorder}"
                       IsVisible="{Binding IsReviewVisible}"
                       ResizeDirection="Columns"
                       ResizeBehavior="PreviousAndNext"
-                      ShowsPreview="True"/>
+                      ShowsPreview="False"
+                      DragStarted="OnReviewSplitterDragStarted"
+                      DragDelta="OnReviewSplitterDragDelta"
+                      DragCompleted="OnReviewSplitterDragCompleted"/>
 
         <Border Grid.Column="2"
                 IsVisible="{Binding IsEditorVisible}"
@@ -396,13 +411,15 @@
         </Border>
 
         <GridSplitter x:Name="EditorSplitter"
+                      Classes="layout-splitter"
                       Grid.Column="3"
                       Width="5"
-                      Background="{DynamicResource SemiColorBorder}"
                       IsVisible="{Binding IsEditorVisible}"
                       ResizeDirection="Columns"
                       ResizeBehavior="PreviousAndNext"
-                      ShowsPreview="True"
+                      ShowsPreview="False"
+                      DragStarted="OnEditorSplitterDragStarted"
+                      DragDelta="OnEditorSplitterDragDelta"
                       DragCompleted="OnEditorSplitterDragCompleted"/>
 
         <Border Grid.Column="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserColumn}"
@@ -411,24 +428,15 @@
                 BorderThickness="1"
                 CornerRadius="8"
                 Background="{DynamicResource SemiColorBackground0}">
-            <Grid RowDefinitions="Auto,Auto,*">
+            <Grid RowDefinitions="Auto,*">
                 <Grid Margin="10,8">
                     <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                         <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="15" Height="15" Foreground="{DynamicResource App.IconMutedForeground}"/>
                         <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
                     </StackPanel>
                 </Grid>
-                <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="8,0,8,6" IsVisible="{Binding IsRenameVisible}" Background="{DynamicResource SemiColorBackground0}">
-                    <TextBox Text="{Binding RenameName}"/>
-                    <Button Grid.Column="1" Command="{Binding CommitRenameFileCommand}">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                            <TextBlock Text="重命名"/>
-                        </StackPanel>
-                    </Button>
-                </Grid>
                 <TreeView x:Name="WorkspaceFileTree"
-                          Grid.Row="2"
+                          Grid.Row="1"
                           ItemsSource="{Binding Files}"
                           SelectedItem="{Binding SelectedFile}"
                           DoubleTapped="OnFileDoubleTapped"
@@ -440,7 +448,7 @@
                     </TreeView.Styles>
                     <TreeView.ItemTemplate>
                         <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:WorkspaceFileNodeViewModel">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="6">
                                 <PathIcon Classes="workspace-folder-icon"
                                           Data="{StaticResource SemiIconFolder}"
                                           IsVisible="{Binding IsFolderClosed}"
@@ -465,7 +473,28 @@
                                 <TextBlock Grid.Column="1"
                                            Text="{Binding Name}"
                                            TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center"/>
+                                           VerticalAlignment="Center"
+                                           IsVisible="{Binding !IsRenaming}"/>
+                                <TextBox Grid.Column="1"
+                                         Classes="workspace-rename-editor"
+                                         Classes.rename-error="{Binding HasRenameError}"
+                                         Text="{Binding RenameText, Mode=TwoWay}"
+                                         MinHeight="24"
+                                         Padding="4,1"
+                                         VerticalContentAlignment="Center"
+                                         IsVisible="{Binding IsRenaming}"
+                                         IsEnabled="{Binding !IsRenamePending}"
+                                         PropertyChanged="OnRenameTextBoxPropertyChanged"
+                                         KeyDown="OnRenameTextBoxKeyDown"
+                                         LostFocus="OnRenameTextBoxLostFocus"/>
+                                <TextBlock Grid.Row="1"
+                                           Grid.Column="1"
+                                           Text="{Binding RenameError}"
+                                           IsVisible="{Binding HasRenameError}"
+                                           Foreground="{DynamicResource App.IconDangerForeground}"
+                                           FontSize="{DynamicResource App.FontSize.Caption}"
+                                           TextWrapping="Wrap"
+                                           Margin="3,1,0,2"/>
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuItem Header="打开"

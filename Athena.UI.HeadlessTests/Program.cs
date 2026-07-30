@@ -30,6 +30,8 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestWorkspaceInlineRenameVisual();
+Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
@@ -1194,6 +1196,107 @@ static void TestConcreteConfigServiceIdentity()
     }
 
     Console.WriteLine("[PASS] ConfigService owns one default instance before the first save");
+}
+
+static void TestWorkspaceInlineRenameVisual()
+{
+    using var workbench = new WorkspaceWorkbenchViewModel(
+        new WorkspaceOperationCoordinator(),
+        new HeadlessPathService(),
+        new HeadlessInteractionService());
+    var folder = new WorkspaceFileNodeViewModel
+    {
+        Name = "folder",
+        FullPath = "/tmp/folder",
+        RelativePath = "folder",
+        IsDirectory = true,
+        IsExpanded = true
+    };
+    var file = new WorkspaceFileNodeViewModel
+    {
+        Name = "child.txt",
+        FullPath = "/tmp/folder/child.txt",
+        RelativePath = "folder/child.txt"
+    };
+    folder.Children.Add(file);
+    workbench.Files.Add(folder);
+
+    var view = new WorkspaceWorkbenchView { DataContext = workbench };
+    var window = new Window { Content = view, Width = 400, Height = 320 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    var fileTree = view.FindControl<TreeView>("WorkspaceFileTree")
+                   ?? throw new InvalidOperationException("Workspace file tree was not created for inline rename.");
+    var fileTreeItem = fileTree.GetVisualDescendants()
+                           .OfType<TreeViewItem>()
+                           .Single(item => ReferenceEquals(item.DataContext, file));
+
+    workbench.BeginRenameFileCommand.Execute(file);
+    Dispatcher.UIThread.RunJobs();
+    var renameEditor = fileTreeItem.GetVisualDescendants()
+                           .OfType<TextBox>()
+                           .Single(textBox => textBox.Classes.Contains("workspace-rename-editor"));
+    if (!renameEditor.IsVisible || renameEditor.Text != file.Name || !renameEditor.IsFocused)
+        throw new InvalidOperationException("Workspace rename did not focus an inline editor in place of the selected tree-node label.");
+
+    renameEditor.RaiseEvent(new KeyEventArgs
+    {
+        RoutedEvent = InputElement.KeyDownEvent,
+        Key = Key.Escape
+    });
+    Dispatcher.UIThread.RunJobs();
+    if (renameEditor.IsVisible)
+        throw new InvalidOperationException("Escape did not cancel the inline workspace rename.");
+    window.Close();
+    Console.WriteLine("[PASS] workspace tree renders rename editing inline without a separate toolbar control");
+}
+
+static async Task TestWorkspaceRenameBehaviorAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-rename-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        var sourcePath = Path.Combine(root, "source.txt");
+        var existingPath = Path.Combine(root, "existing.txt");
+        File.WriteAllText(sourcePath, "source");
+        File.WriteAllText(existingPath, "existing");
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService());
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Rename fixture",
+            DirectoryPath = root
+        });
+
+        var source = workbench.Files.Single(node => node.Name == "source.txt");
+        workbench.BeginRenameFileCommand.Execute(source);
+        source.RenameText = "existing.txt";
+        await workbench.CommitRenameFileCommand.ExecuteAsync(source);
+        if (!File.Exists(sourcePath)
+            || File.ReadAllText(existingPath) != "existing"
+            || !source.IsRenaming
+            || string.IsNullOrWhiteSpace(source.RenameError))
+            throw new InvalidOperationException("A conflicting workspace rename must preserve both files and remain editable.");
+
+        source.RenameText = "renamed.txt";
+        await workbench.CommitRenameFileCommand.ExecuteAsync(source);
+        if (File.Exists(sourcePath)
+            || File.ReadAllText(Path.Combine(root, "renamed.txt")) != "source"
+            || source.IsRenaming)
+            throw new InvalidOperationException("A valid inline workspace rename did not move the source or finish editing.");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        Directory.Delete(root, recursive: true);
+    }
+
+    Console.WriteLine("[PASS] workspace rename contains conflicts and commits valid names");
 }
 
 static void AssertSaveCount(HeadlessConfigService service, int expected, string scenario)
