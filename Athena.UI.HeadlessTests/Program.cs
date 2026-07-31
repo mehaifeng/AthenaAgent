@@ -104,11 +104,21 @@ var leftSideSplitter = window.FindControl<GridSplitter>("LeftSideSplitter")
                        ?? throw new InvalidOperationException("The left shell splitter was not created.");
 var rightSideSplitter = window.FindControl<GridSplitter>("RightSideSplitter")
                         ?? throw new InvalidOperationException("The right shell splitter was not created.");
-if (!leftSideSplitter.ShowsPreview
-    || !rightSideSplitter.ShowsPreview
+if (leftSideSplitter.ShowsPreview
+    || rightSideSplitter.ShowsPreview
+    || leftSideSplitter.ResizeDirection != GridResizeDirection.Columns
+    || rightSideSplitter.ResizeDirection != GridResizeDirection.Columns
     || leftSideSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext
     || rightSideSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
-    throw new InvalidOperationException("Shell splitters must preview and resize only their adjacent columns.");
+    throw new InvalidOperationException("Shell splitters must resize adjacent columns live without preview.");
+var rightPanelGrid = window.FindControl<Grid>("RightPanelGrid")
+                     ?? throw new InvalidOperationException("The right panel grid was not created.");
+var logSplitter = rightPanelGrid.Children.OfType<GridSplitter>().SingleOrDefault();
+if (logSplitter == null
+    || logSplitter.ShowsPreview
+    || logSplitter.ResizeDirection != GridResizeDirection.Rows
+    || logSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
+    throw new InvalidOperationException("The log splitter must resize adjacent rows live without preview.");
 await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
 Dispatcher.UIThread.RunJobs();
 if (shell.ColumnDefinitions[0].MinWidth < 360 || shell.ColumnDefinitions[4].MinWidth < 260)
@@ -764,11 +774,13 @@ var editorSplitter = workbenchView.FindControl<GridSplitter>("EditorSplitter")
                      ?? throw new InvalidOperationException("The editor splitter was not created.");
 if (workbenchGrid.ColumnDefinitions[0].MinWidth < 260
     || workbenchGrid.ColumnDefinitions[2].MinWidth < 248
-    || !reviewSplitter.ShowsPreview
-    || !editorSplitter.ShowsPreview
+    || reviewSplitter.ShowsPreview
+    || editorSplitter.ShowsPreview
+    || reviewSplitter.ResizeDirection != GridResizeDirection.Columns
+    || editorSplitter.ResizeDirection != GridResizeDirection.Columns
     || reviewSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext
     || editorSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
-    throw new InvalidOperationException("Workbench panes do not enforce VS Code-style adjacent-column resize constraints.");
+    throw new InvalidOperationException("Workbench panes do not enforce live adjacent-column resize constraints.");
 workbenchGrid.ColumnDefinitions[0].Width = new GridLength(100);
 workbenchGrid.ColumnDefinitions[2].Width = new GridLength(200);
 Dispatcher.UIThread.RunJobs();
@@ -1474,10 +1486,20 @@ static async Task TestWorkspaceGitDiffAsync()
         if (!ReferenceEquals(workbench.SelectedEditorTab, addedTab))
             throw new InvalidOperationException("Refreshing Git state stole editor focus back to the selected review change.");
 
+        var modifiedTabsBeforeClose = workbench.EditorTabs
+            .Where(tab => tab.RelativePath == "modified.txt")
+            .ToList();
+        if (modifiedTabsBeforeClose.Count != 1
+            || !ReferenceEquals(modifiedTabsBeforeClose[0], modifiedTab))
+            throw new InvalidOperationException(
+                $"Review selection created duplicate or replacement editor tabs before close "
+                + $"(count={modifiedTabsBeforeClose.Count}, originalPresent={modifiedTabsBeforeClose.Contains(modifiedTab)}).");
         workbench.SelectedEditorTab = modifiedTab;
         await workbench.CloseEditorTabCommand.ExecuteAsync(modifiedTab);
         if (workbench.SelectedGitChange != null)
             throw new InvalidOperationException("Closing a review-opened tab did not release its review selection.");
+        if (workbench.EditorTabs.Any(tab => tab.RelativePath == "modified.txt"))
+            throw new InvalidOperationException("Closing a review-opened tab did not remove it before refresh.");
         await workbench.RefreshWorkbenchCommand.ExecuteAsync(null);
         await Task.Delay(100);
         if (workbench.EditorTabs.Any(tab => tab.RelativePath == "modified.txt"))

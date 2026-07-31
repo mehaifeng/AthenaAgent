@@ -695,7 +695,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (_workspace == null || !IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken)) return;
         var tab = EditorTabs.FirstOrDefault(
-            candidate => string.Equals(candidate.FullPath, change.FullPath, StringComparison.Ordinal));
+            candidate => string.Equals(candidate.RelativePath, change.RelativePath, PathComparison));
         if (tab == null)
         {
             tab = new WorkspaceEditorTabViewModel
