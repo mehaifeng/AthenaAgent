@@ -66,8 +66,6 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         provider ??= SelectedProvider;
         if (provider == null) return;
         var references = Roles.Where(role => role.Settings.ProviderId == provider.Id).Select(role => role.Name).ToList();
-        if (Config.ChatAudioProviderId == provider.Id) references.Add("语音");
-        if (Config.ImageGenerationProviderId == provider.Id) references.Add("图像生成");
         if (references.Count > 0)
         {
             StatusText = "无法删除：仍被这些分工引用：" + string.Join("、", references);

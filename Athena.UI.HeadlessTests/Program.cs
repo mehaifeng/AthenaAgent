@@ -3,6 +3,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Chrome;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -18,6 +19,8 @@ using Athena.UI.Views;
 using System.Diagnostics;
 using System.Reflection;
 
+try
+{
 var outputPath = args.Length > 0
     ? Path.GetFullPath(args[0])
     : Path.Combine(AppContext.BaseDirectory, "main-window.png");
@@ -32,6 +35,8 @@ AppBuilder.Configure<App>()
 
 TestWorkspaceInlineRenameVisual();
 Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceEditorRestoreAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceDiffRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
@@ -719,6 +724,24 @@ var editorTabs = workbenchView.FindControl<ListBox>("EditorTabsList")
 var tabItems = editorTabs.GetVisualDescendants().OfType<ListBoxItem>().ToList();
 if (tabItems.Count != workbench.EditorTabs.Count)
     throw new InvalidOperationException("The horizontal editor tab list did not materialize every tab.");
+var tabCloseButtons = tabItems
+    .SelectMany(item => item.GetVisualDescendants().OfType<Button>())
+    .Where(button => button.Classes.Contains("editor-tab-close"))
+    .ToList();
+if (tabCloseButtons.Count != workbench.EditorTabs.Count
+    || tabCloseButtons.Any(button =>
+        Math.Abs(button.Bounds.Width - 12) > 0.01
+        || Math.Abs(button.Bounds.Height - 12) > 0.01
+        || button.Cursor == null
+        || button.GetVisualChildren().SingleOrDefault() is not ContentPresenter presenter
+        || presenter.Background != null
+        || presenter.BorderThickness != default))
+    throw new InvalidOperationException(
+        "Editor-tab close buttons must remain centered 12px content-only hand targets without a themed container. "
+        + $"Expected {workbench.EditorTabs.Count}, found {tabCloseButtons.Count}; "
+        + string.Join("; ", tabCloseButtons.Select(button =>
+            $"{button.Bounds.Width}x{button.Bounds.Height}, cursor={button.Cursor}, "
+            + $"root={button.GetVisualChildren().SingleOrDefault()?.GetType().Name}")));
 if (tabItems.Select(item => item.Bounds.Y).Distinct().Count() != 1)
     throw new InvalidOperationException("Editor tabs wrapped vertically instead of remaining on one horizontal row.");
 var tabScroller = editorTabs.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()
@@ -815,6 +838,13 @@ sessionCommandChecks.Dispose();
 forkViewModel.Dispose();
 archiveTreeViewModel.Dispose();
 mainViewModel.Dispose();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine("[FAIL] Headless test run failed:");
+    Console.Error.WriteLine(ex);
+    Environment.ExitCode = 1;
+}
 
 static void TestConfigurationSession(string artifactDirectory)
 {
@@ -1371,6 +1401,20 @@ static void TestLayoutSaveDoesNotReapplyRuntimeClients()
         configService.SaveAsync(config).GetAwaiter().GetResult();
         if (chatService.UpdateConfigCount != 2 || embeddingService.UpdateConfigCount != 2)
             throw new InvalidOperationException("An embedding-model change did not update only the embedding runtime.");
+
+        var embeddingProvider = new OpenAiProviderConfiguration
+        {
+            Id = "embedding-provider-2",
+            DisplayName = "Embedding provider",
+            ProviderPreset = "OpenRouter",
+            BaseUrl = "https://openrouter.ai/api/v1",
+            ApiKey = "embedding-key-2"
+        };
+        config.AiModels.Providers.Add(embeddingProvider);
+        config.AiModels.Embedding.ProviderId = embeddingProvider.Id;
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (chatService.UpdateConfigCount != 2 || embeddingService.UpdateConfigCount != 3)
+            throw new InvalidOperationException("Changing the Embedding role provider did not refresh the embedding runtime.");
     }
     finally
     {
@@ -1378,6 +1422,155 @@ static void TestLayoutSaveDoesNotReapplyRuntimeClients()
     }
 
     Console.WriteLine("[PASS] layout saves do not reapply unchanged AI runtime clients");
+}
+
+static async Task TestWorkspaceEditorRestoreAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-editor-" + Guid.NewGuid().ToString("N"));
+    var appData = Path.Combine(Path.GetTempPath(), "athena-workspace-editor-state-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? sourceWorkbench = null;
+    WorkspaceWorkbenchViewModel? restoredWorkbench = null;
+    try
+    {
+        foreach (var fileName in new[] { "first.txt", "second.txt", "third.txt" })
+            File.WriteAllText(Path.Combine(root, fileName), fileName);
+
+        var workspace = new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Editor restore fixture",
+            DirectoryPath = root
+        };
+        var pathService = new TemporaryPathService(appData);
+        sourceWorkbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            pathService,
+            new HeadlessInteractionService());
+        await sourceWorkbench.SetWorkspaceAsync(workspace);
+        foreach (var fileName in new[] { "first.txt", "second.txt", "third.txt" })
+        {
+            await sourceWorkbench.OpenFileCommand.ExecuteAsync(
+                sourceWorkbench.Files.Single(node => node.Name == fileName));
+        }
+
+        sourceWorkbench.SelectedEditorTab = sourceWorkbench.EditorTabs.Single(
+            tab => tab.RelativePath == "second.txt");
+        sourceWorkbench.IsEditorVisible = false;
+        await sourceWorkbench.SetWorkspaceAsync(null);
+        sourceWorkbench.Dispose();
+        sourceWorkbench = null;
+
+        restoredWorkbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            pathService,
+            new HeadlessInteractionService());
+        var selectedPaths = new List<string?>();
+        restoredWorkbench.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(WorkspaceWorkbenchViewModel.SelectedEditorTab))
+                selectedPaths.Add(restoredWorkbench.SelectedEditorTab?.RelativePath);
+        };
+
+        await restoredWorkbench.SetWorkspaceAsync(workspace);
+
+        if (restoredWorkbench.EditorTabs.Count != 3)
+            throw new InvalidOperationException("Workspace editor restoration did not reload every saved tab.");
+        if (restoredWorkbench.SelectedEditorTab?.RelativePath != "second.txt")
+            throw new InvalidOperationException("Workspace editor restoration did not restore the saved selected tab.");
+        if (selectedPaths.Count != 1 || selectedPaths[0] != "second.txt")
+            throw new InvalidOperationException(
+                $"Workspace editor restoration published intermediate tab selections: {string.Join(", ", selectedPaths)}.");
+        if (restoredWorkbench.IsEditorVisible)
+            throw new InvalidOperationException("Workspace editor restoration did not preserve the closed editor pane state.");
+
+        Console.WriteLine("[PASS] workspace editor tabs restore without publishing intermediate selections");
+    }
+    finally
+    {
+        sourceWorkbench?.Dispose();
+        restoredWorkbench?.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        if (Directory.Exists(appData)) Directory.Delete(appData, recursive: true);
+    }
+}
+
+static async Task TestWorkspaceDiffRestoreAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-diff-restore-" + Guid.NewGuid().ToString("N"));
+    var appData = Path.Combine(Path.GetTempPath(), "athena-workspace-diff-state-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? sourceWorkbench = null;
+    WorkspaceWorkbenchViewModel? restoredWorkbench = null;
+    try
+    {
+        var modifiedPath = Path.Combine(root, "modified.txt");
+        File.WriteAllText(modifiedPath, "before\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        File.WriteAllText(modifiedPath, "after\n");
+
+        var workspace = new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Diff restore fixture",
+            DirectoryPath = root
+        };
+        var pathService = new TemporaryPathService(appData);
+        sourceWorkbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            pathService,
+            new HeadlessInteractionService());
+        await sourceWorkbench.SetWorkspaceAsync(workspace);
+        await sourceWorkbench.OpenFileCommand.ExecuteAsync(
+            sourceWorkbench.Files.Single(node => node.Name == "modified.txt"));
+        await sourceWorkbench.RefreshDiffCommand.ExecuteAsync(sourceWorkbench.SelectedEditorTab);
+        if (sourceWorkbench.SelectedEditorTab?.Mode != WorkspaceEditorMode.Diff
+            || sourceWorkbench.SelectedEditorTab.DiffLines.Count == 0)
+            throw new InvalidOperationException("Diff restore fixture did not enter a populated diff mode.");
+
+        await sourceWorkbench.SetWorkspaceAsync(null);
+        sourceWorkbench.Dispose();
+        sourceWorkbench = null;
+
+        restoredWorkbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            pathService,
+            new HeadlessInteractionService());
+        await restoredWorkbench.SetWorkspaceAsync(workspace);
+
+        var restoredTab = restoredWorkbench.SelectedEditorTab
+                          ?? throw new InvalidOperationException("Restored workspace did not select its saved diff tab.");
+        if (restoredTab.RelativePath != "modified.txt"
+            || restoredTab.Mode != WorkspaceEditorMode.Diff
+            || restoredTab.DiffLines.Count == 0
+            || restoredTab.DiffAddedCount != 1
+            || restoredTab.DiffRemovedCount != 1)
+            throw new InvalidOperationException(
+                $"Restored diff tab was not populated before selection "
+                + $"(path={restoredTab.RelativePath}, mode={restoredTab.Mode}, "
+                + $"lines={restoredTab.DiffLines.Count}, +{restoredTab.DiffAddedCount}, "
+                + $"-{restoredTab.DiffRemovedCount}).");
+
+        Console.WriteLine("[PASS] restored workspace diff tabs populate before their saved selection is published");
+    }
+    finally
+    {
+        sourceWorkbench?.Dispose();
+        restoredWorkbench?.Dispose();
+        if (Directory.Exists(root))
+        {
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(root, recursive: true);
+        }
+        if (Directory.Exists(appData)) Directory.Delete(appData, recursive: true);
+    }
 }
 
 static async Task TestWorkspaceGitDiffAsync()

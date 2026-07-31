@@ -47,28 +47,14 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
 
     private void RebuildCards()
     {
+        DisposeProviderCards();
         var providers = ExtensionProviderCatalog.AudioProviders;
         if (providers.All(provider => provider.Id != Config.ChatAudioProvider))
             Config.ChatAudioProvider = "Edge";
 
         ExtensionSettingsSupport.EnsureSettings(
             Config.AudioProviderSettings,
-            providers,
-            Config.ChatAudioProvider,
-            selected =>
-            {
-                if (Config.ChatAudioProvider == "OpenAI")
-                {
-                    selected.BaseUrl = Config.ChatAudioBaseUrl;
-                    selected.ApiKey = Config.ChatAudioApiKey;
-                    selected.Model = Config.ChatAudioModel;
-                    selected.Voice = Config.ChatAudioVoice;
-                }
-                selected.Language = string.IsNullOrWhiteSpace(Config.ChatAudioLanguage) ? "en-US" : Config.ChatAudioLanguage;
-                selected.Speed = Config.ChatAudioSpeed <= 0 ? 1 : Config.ChatAudioSpeed;
-                selected.LocalExecutable = Config.ChatAudioLocalExecutable;
-                selected.LocalModelPath = Config.ChatAudioLocalModelPath;
-            });
+            providers);
 
         ProviderCards = providers.Select(option => new ExtensionProviderCardViewModel(
             ExtensionProviderKind.Audio,
@@ -201,5 +187,12 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
         _outputTestCancellation = null;
         StopPlayback();
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        DisposeProviderCards();
+    }
+
+    private void DisposeProviderCards()
+    {
+        foreach (var card in ProviderCards)
+            card.Dispose();
     }
 }

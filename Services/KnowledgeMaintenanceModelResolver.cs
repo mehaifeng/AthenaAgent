@@ -2,7 +2,7 @@ using Athena.UI.Models;
 
 namespace Athena.UI.Services;
 
-/// <summary>知识库整理 Agent 的有效模型配置（合并"来源开关 + 逐字段回退"后的最终结果）。</summary>
+/// <summary>知识库整理 Agent 的有效模型配置，由统一模型角色解析。</summary>
 internal sealed class EffectiveMaintenanceModel
 {
     public string BaseUrl { get; init; } = string.Empty;
@@ -13,8 +13,7 @@ internal sealed class EffectiveMaintenanceModel
 }
 
 /// <summary>
-/// 解析整理 Agent 模型：默认跟随次级（后台）模型；次级字段留空时逐字段回退主 AI；
-/// Custom 时用整理专属字段（同样逐字段回退）。与 SubAgentModelResolver 同构。
+/// 解析统一的知识整理模型角色，避免独立凭据与主供应商配置分叉。
 /// </summary>
 internal static class KnowledgeMaintenanceModelResolver
 {

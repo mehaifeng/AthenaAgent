@@ -50,6 +50,10 @@
                 <TextBox Text="{Binding Settings.BaseUrl}" IsVisible="{Binding UsesBaseUrl}"/>
                 <TextBlock Text="{loc:Loc Connectors.Provider.Model}" IsVisible="{Binding UsesModel}"/>
                 <TextBox Text="{Binding Settings.Model}" IsVisible="{Binding UsesModel}"/>
+                <TextBlock Text="{Binding ModelWarning}"
+                           Foreground="#D97706"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasModelWarning}"/>
                 <TextBlock Text="{Binding VoiceLabel}" IsVisible="{Binding UsesVoice}"/>
                 <TextBox Text="{Binding Settings.Voice}" IsVisible="{Binding UsesVoice}"/>
                 <TextBlock Text="{loc:Loc Connectors.Provider.Language}" IsVisible="{Binding UsesLanguage}"/>

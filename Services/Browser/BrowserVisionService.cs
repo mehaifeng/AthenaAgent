@@ -21,9 +21,10 @@ public class BrowserVisionService : IBrowserVisionService
     private readonly ILogger _logger;
     private readonly ILocalizationService? _localizationService;
 
-    // 1×1 透明 PNG，仅用于连接测试时探测模型是否接受图像输入。
-    private static readonly byte[] OnePixelPngBytes = Convert.FromBase64String(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+    // 64×64 checkerboard used to verify image input. Some vision providers reject
+    // 1×1 images during preprocessing even though the model supports images.
+    private static readonly byte[] VisionProbePngBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEHSURBVHhe7dAxDgNBEMOw+/+nk17uOc0aUE/4+77vd9n1voJ013sHFKS73jugIN313gEF6a73DihId713QEG6670DCtJd7x1QkO5674CCdNd7BxSku947oCDd9d4BBemu9w4oSHe9d0BBuuu9AwrSXe8dUJDueueCHsIrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuoL0BqQrSG9AuD9PptpKKJptugAAAABJRU5ErkJggg==");
 
     public BrowserVisionService(IConfigService configService, ILogger logger, ILocalizationService? localizationService = null)
     {
@@ -204,7 +205,7 @@ public class BrowserVisionService : IBrowserVisionService
             UserChatMessage userMessage = needsVision
                 ? new UserChatMessage(
                     ChatMessageContentPart.CreateTextPart("Reply with OK only."),
-                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(OnePixelPngBytes), "image/png", ChatImageDetailLevel.Low))
+                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(VisionProbePngBytes), "image/png", ChatImageDetailLevel.Low))
                 : new UserChatMessage("test");
 
             // 上限给足：reasoning 模型的思考 token 也计入 max_tokens，给太小会在
@@ -230,8 +231,30 @@ public class BrowserVisionService : IBrowserVisionService
 
             return (true, $"Browser agent model connection succeeded [{capability}]. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
         }
+        catch (ClientResultException ex)
+        {
+            var errorDetail = ex.Message.StartsWith("HTTP ", StringComparison.OrdinalIgnoreCase)
+                ? ex.Message
+                : $"HTTP {ex.Status}: {ex.Message}";
+            _logger.Warning(
+                ex,
+                "Browser vision model connection test failed. Provider={Provider}, Model={Model}, BaseUrl={BaseUrl}, Status={Status}",
+                effectiveConfig.Provider,
+                effectiveConfig.Model,
+                string.IsNullOrWhiteSpace(effectiveConfig.BaseUrl) ? "(default)" : effectiveConfig.BaseUrl,
+                ex.Status);
+            return (false, string.Format(
+                GetLocalized("Vision.ConnectionFailed", "Browser vision model connection failed: {0}"),
+                errorDetail));
+        }
         catch (Exception ex)
         {
+            _logger.Warning(
+                ex,
+                "Browser vision model connection test failed. Provider={Provider}, Model={Model}, BaseUrl={BaseUrl}",
+                effectiveConfig.Provider,
+                effectiveConfig.Model,
+                string.IsNullOrWhiteSpace(effectiveConfig.BaseUrl) ? "(default)" : effectiveConfig.BaseUrl);
             return (false, string.Format(GetLocalized("Vision.ConnectionFailed", "Browser vision model connection failed: {0}"), ex.Message));
         }
     }

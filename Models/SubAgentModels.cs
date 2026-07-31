@@ -6,12 +6,6 @@ namespace Athena.UI.Models;
 /// 子代理模型来源。InheritMain：复用主 AI 的 Provider/BaseUrl/ApiKey/Model；
 /// Custom：使用独立填写的子代理模型字段（留空时逐字段回退主 AI）。仿浏览器智能体。
 /// </summary>
-public enum SubAgentModelSource
-{
-    InheritMain,
-    Custom
-}
-
 /// <summary>子代理（猫头鹰）当前所在的"场所"，由它正在调用的工具类别决定。</summary>
 public enum SubAgentZone
 {

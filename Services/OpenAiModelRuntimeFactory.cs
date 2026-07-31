@@ -41,18 +41,6 @@ public sealed class OpenAiModelRuntimeFactory
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
         };
 
-        if (role == AiModelRole.Embedding && config.EmbeddingCredentialSource == EmbeddingConnectionSource.Custom)
-        {
-            return new EffectiveOpenAiModel(
-                "embedding-custom",
-                string.IsNullOrWhiteSpace(config.EmbeddingProvider) ? "Custom" : config.EmbeddingProvider,
-                config.EmbeddingBaseUrl,
-                config.EmbeddingApiKey,
-                settings.Model,
-                GetInternalTemperature(role),
-                GetInternalMaxOutputTokens(role));
-        }
-
         var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
             string.Equals(candidate.Id, settings.ProviderId, StringComparison.Ordinal));
         if (provider == null)

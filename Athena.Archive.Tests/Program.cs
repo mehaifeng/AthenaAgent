@@ -279,31 +279,26 @@ static Task TestAudioPersistenceCloneAsync()
 
 static Task TestAudioConfigInheritanceAsync()
 {
-    var provider = new OpenAiProviderConfiguration
+    var config = new AppConfig { ChatAudioEnabled = true, ChatAudioProvider = "OpenAI" };
+    config.AudioProviderSettings.Add(new ExtensionProviderSettings
     {
-        DisplayName = "OpenAI",
-        ProviderPreset = "OpenAI",
-        BaseUrl = "https://api.openai.com/v1",
-        ApiKey = "shared-key"
-    };
-    var config = new AppConfig
-    {
-        ChatAudioEnabled = true,
-        ChatAudioProviderId = provider.Id,
-        ChatAudioVoice = "alloy"
-    };
-    config.AiModels.Providers.Add(provider);
+        ProviderId = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1/audio/speech",
+        ApiKey = "audio-key",
+        Model = "tts-1",
+        Voice = "alloy"
+    });
 
     var resolved = AudioConfigResolver.Resolve(config);
 
-    AssertEqual("OpenAI", resolved.Provider, "audio provider should resolve by stable provider id");
+    AssertEqual("OpenAI", resolved.Provider, "audio provider should resolve by extension provider id");
     AssertEqual("https://api.openai.com/v1/audio/speech", resolved.BaseUrl, "audio base url should use dedicated audio endpoint");
-    AssertEqual("shared-key", resolved.ApiKey, "audio should reuse the configured provider credential");
-    AssertEqual("gpt-4o-mini-tts", resolved.Model, "audio model should use dedicated default");
+    AssertEqual("audio-key", resolved.ApiKey, "audio should use its dedicated provider credential");
+    AssertEqual("tts-1", resolved.Model, "audio model should use its configured model");
     AssertEqual("alloy", resolved.Voice, "audio voice should use explicit audio voice");
     AssertFalse(resolved.AutoPlay, "auto play should default to false");
 
-    config.ChatAudioProviderId = string.Empty;
+    config.AudioProviderSettings.Clear();
     var resolvedWithoutKey = AudioConfigResolver.Resolve(config);
     AssertEqual(string.Empty, resolvedWithoutKey.ApiKey, "audio should not silently fall back to another provider");
     return Task.CompletedTask;
@@ -969,7 +964,7 @@ static Task TestReferenceImagePayloadAsync()
 static Task TestPromptOnlyPayloadAsync()
 {
     var payload = OpenAIImageGenerationService.BuildGenerationRequestPayload(
-        "gpt-image-1",
+        "gpt-image-2",
         "draw an eagle",
         [],
         "https://api.openai.com/v1");
@@ -989,13 +984,14 @@ static async Task TestMissingReferenceImageAsync()
         BaseUrl = "https://api.openai.com/v1",
         ApiKey = "test-key"
     };
-    var config = new AppConfig
+    var config = new AppConfig { ImageGenerationEnabled = true, ImageGenerationProvider = "OpenAI" };
+    config.ImageProviderSettings.Add(new ExtensionProviderSettings
     {
-        ImageGenerationEnabled = true,
-        ImageGenerationProviderId = provider.Id,
-        ImageGenerationModel = "gpt-image-1"
-    };
-    config.AiModels.Providers.Add(provider);
+        ProviderId = "OpenAI",
+        BaseUrl = provider.BaseUrl,
+        ApiKey = provider.ApiKey,
+        Model = "gpt-image-2"
+    });
     var service = new OpenAIImageGenerationService(
         new TestConfigService(config),
         new TestAttachmentStoreService(),

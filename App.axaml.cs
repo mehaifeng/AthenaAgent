@@ -618,7 +618,18 @@ public partial class App : Application, IAsyncDisposable
             var config = configService.Load();
             var logger = Log.ForContext<OpenAIEmbeddingService>();
             var localizationService = sp.GetService<ILocalizationService>();
-            Log.Information("Embedding 服务初始化，模型: {Model}", config.EmbeddingModel);
+            try
+            {
+                var embedding = OpenAiModelRuntimeFactory.Resolve(config, Athena.UI.Models.AiModelRole.Embedding);
+                Log.Information(
+                    "Embedding service initialized, provider: {Provider}, model: {Model}",
+                    embedding.ProviderDisplayName,
+                    embedding.Model);
+            }
+            catch (InvalidOperationException)
+            {
+                Log.Information("Embedding service initialized without a configured provider/model");
+            }
             return new OpenAIEmbeddingService(config, logger, localizationService);
         });
 

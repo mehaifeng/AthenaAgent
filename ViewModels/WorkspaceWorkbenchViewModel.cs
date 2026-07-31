@@ -309,6 +309,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         CancelRenameFile(_renamingFile);
         foreach (var tab in EditorTabs) tab.Dispose();
         EditorTabs.Clear();
+        SelectedEditorTab = null;
         IsEditorVisible = false;
         Files.Clear();
         GitChanges.Clear();
@@ -773,13 +774,24 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task OpenFileAsync(WorkspaceFileNodeViewModel? node)
     {
+        await OpenFileAsync(node, activate: true, persist: true);
+    }
+
+    private async Task OpenFileAsync(
+        WorkspaceFileNodeViewModel? node,
+        bool activate,
+        bool persist)
+    {
         node ??= SelectedFile;
         if (node == null || node.IsDirectory || _workspace == null) return;
         var existing = EditorTabs.FirstOrDefault(tab => string.Equals(tab.FullPath, node.FullPath, StringComparison.Ordinal));
         if (existing != null)
         {
-            SelectedEditorTab = existing;
-            IsEditorVisible = true;
+            if (activate)
+            {
+                SelectedEditorTab = existing;
+                IsEditorVisible = true;
+            }
             return;
         }
 
@@ -806,10 +818,13 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             tab.Mode = tab.IsMarkdown ? WorkspaceEditorMode.Preview : WorkspaceEditorMode.Edit;
         }
         EditorTabs.Add(tab);
-        SelectedEditorTab = tab;
-        IsEditorVisible = true;
+        if (activate)
+        {
+            SelectedEditorTab = tab;
+            IsEditorVisible = true;
+        }
         OnPropertyChanged(nameof(HasEditorTabs));
-        await PersistStateAsync();
+        if (persist) await PersistStateAsync();
     }
 
     [RelayCommand]
@@ -1533,7 +1548,6 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             var state = JsonSerializer.Deserialize<WorkspaceEditorState>(await File.ReadAllTextAsync(StatePath));
             if (state == null) return;
-            IsEditorVisible = state.IsEditorVisible;
             foreach (var tabState in state.Tabs.Where(tab => File.Exists(tab.FullPath)))
             {
                 var node = new WorkspaceFileNodeViewModel
@@ -1542,20 +1556,28 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     FullPath = tabState.FullPath,
                     RelativePath = Path.GetRelativePath(_workspace!.DirectoryPath, tabState.FullPath)
                 };
-                await OpenFileAsync(node);
-                if (SelectedEditorTab == null) continue;
+                await OpenFileAsync(node, activate: false, persist: false);
+                var tab = EditorTabs.FirstOrDefault(
+                    candidate => string.Equals(candidate.FullPath, tabState.FullPath, PathComparison));
+                if (tab == null) continue;
                 var canRestoreMode = tabState.Mode switch
                 {
-                    WorkspaceEditorMode.Edit => SelectedEditorTab.CanEdit,
-                    WorkspaceEditorMode.Preview => SelectedEditorTab.CanPreview,
-                    WorkspaceEditorMode.Diff => SelectedEditorTab.CanDiff,
-                    WorkspaceEditorMode.Image => SelectedEditorTab.IsImage,
+                    WorkspaceEditorMode.Edit => tab.CanEdit,
+                    WorkspaceEditorMode.Preview => tab.CanPreview,
+                    WorkspaceEditorMode.Diff => tab.CanDiff,
+                    WorkspaceEditorMode.Image => tab.IsImage,
                     _ => false
                 };
-                if (canRestoreMode) SelectedEditorTab.Mode = tabState.Mode;
+                if (!canRestoreMode) continue;
+                if (tabState.Mode == WorkspaceEditorMode.Diff)
+                    await RefreshDiffAsync(tab);
+                else
+                    tab.Mode = tabState.Mode;
             }
-            SelectedEditorTab = EditorTabs.FirstOrDefault(tab => tab.FullPath == state.SelectedPath) ?? EditorTabs.FirstOrDefault();
-            if (EditorTabs.Count == 0) IsEditorVisible = false;
+            SelectedEditorTab = EditorTabs.FirstOrDefault(
+                                    tab => string.Equals(tab.FullPath, state.SelectedPath, PathComparison))
+                                ?? EditorTabs.FirstOrDefault();
+            IsEditorVisible = state.IsEditorVisible && EditorTabs.Count > 0;
         }
         catch (Exception ex) { _logger.Debug(ex, "恢复编辑器工作区状态失败"); }
     }

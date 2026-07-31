@@ -3,7 +3,7 @@ using Athena.UI.Models;
 namespace Athena.UI.Services.Browser;
 
 /// <summary>
-/// 浏览器智能体模型的有效配置：合并"来源开关 + 逐字段回退"后的最终结果。
+/// 浏览器智能体模型的有效配置，由统一模型角色解析。
 /// </summary>
 internal sealed class EffectiveBrowserAgentConfig
 {

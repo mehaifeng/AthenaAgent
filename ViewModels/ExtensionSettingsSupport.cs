@@ -1,5 +1,4 @@
 using Athena.UI.Models;
-using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -10,11 +9,8 @@ internal static class ExtensionSettingsSupport
 {
     public static void EnsureSettings(
         ObservableCollection<ExtensionProviderSettings> settings,
-        IReadOnlyList<ExtensionProviderOption> providers,
-        string selectedProviderId,
-        Action<ExtensionProviderSettings> migrateSelected)
+        IReadOnlyList<ExtensionProviderOption> providers)
     {
-        var wasEmpty = settings.Count == 0;
         foreach (var provider in providers)
         {
             if (settings.Any(item => item.ProviderId == provider.Id)) continue;
@@ -26,9 +22,5 @@ internal static class ExtensionSettingsSupport
                 Voice = provider.DefaultVoice
             });
         }
-
-        if (!wasEmpty) return;
-        var selected = settings.FirstOrDefault(item => item.ProviderId == selectedProviderId);
-        if (selected != null) migrateSelected(selected);
     }
 }

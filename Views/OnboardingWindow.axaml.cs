@@ -132,12 +132,4 @@ public partial class OnboardingWindow : Window
         }
     }
 
-    /// <summary>Web Search 供应商选择变化：带出默认 BaseUrl 并刷新 Custom / Baidu 附加字段可见性。</summary>
-    private void OnWebSearchProviderSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is OnboardingViewModel vm && vm.ApplyWebSearchProviderDefaultUrlCommand.CanExecute(null))
-        {
-            vm.ApplyWebSearchProviderDefaultUrlCommand.Execute(null);
-        }
-    }
 }

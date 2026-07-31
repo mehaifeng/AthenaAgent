@@ -47,18 +47,6 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Providers[0];
 
     /// <summary>Web Search 供应商默认 BaseUrl。</summary>
-    private static readonly Dictionary<string, string> WebSearchProviderUrls = new()
-    {
-        { "Tavily", "https://api.tavily.com" },
-        { "WebSearchAPI", "https://api.websearchapi.ai" },
-        { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
-        { "Baidu", "https://qianfan.baidubce.com/v2/ai_search/web_search" }
-    };
-
-    public List<string> WebSearchProviders { get; } = new(WebSearchProviderUrls.Keys);
-
-    public bool IsBaiduWebSearch => Config.WebSearchProvider == "Baidu";
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsStep1), nameof(IsStep2), nameof(IsStep3), nameof(IsNotLastStep), nameof(CanGoBack))]
     private int _currentStep;
@@ -256,16 +244,6 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Web Search 供应商变化时带出默认 BaseUrl（Custom 保留用户填的端点）。</summary>
-    [RelayCommand]
-    private void ApplyWebSearchProviderDefaultUrl()
-    {
-        if (WebSearchProviderUrls.TryGetValue(Config.WebSearchProvider, out var url) && !string.IsNullOrEmpty(url))
-        {
-            Config.WebSearchBaseUrl = url;
-        }
-        OnPropertyChanged(nameof(IsBaiduWebSearch));
-    }
-
     private bool CanTestConnection => !IsTestingConnection;
 
     [RelayCommand(CanExecute = nameof(CanTestConnection))]

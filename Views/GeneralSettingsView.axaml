@@ -26,14 +26,14 @@
                                FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.Theme}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" SelectedItem="{Binding State.Config.Theme}">
+                        <ComboBox Grid.Column="1" Width="100" SelectedItem="{Binding State.Config.Theme}">
                             <x:String>Dark</x:String>
                             <x:String>Light</x:String>
                         </ComboBox>
                     </Grid>
                     <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.Language}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" SelectedItem="{Binding State.Config.Language}">
+                        <ComboBox Grid.Column="1" Width="100"  SelectedItem="{Binding State.Config.Language}">
                             <x:String>zh-CN</x:String>
                             <x:String>en-US</x:String>
                         </ComboBox>
@@ -51,7 +51,6 @@
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="{loc:Loc Settings.General.PanelOpacity.Description}"
-                               Margin="26,0,0,0"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
                 </StackPanel>

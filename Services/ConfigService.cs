@@ -129,8 +129,8 @@ public class ConfigService : IConfigService
     private static AppConfig DeserializeConfig(string json)
     {
         var root = JsonNode.Parse(json) as JsonObject;
-        // v4 是一次明确的 greenfield 切换：旧配置不做字段猜测或凭据迁移。
-        if (root?["configSchemaVersion"]?.GetValue<int>() is not >= 4) return new AppConfig();
+        // v5 is a deliberate greenfield switch; older schemas are discarded rather than migrated.
+        if (root?["configSchemaVersion"]?.GetValue<int>() is not >= 5) return new AppConfig();
         return root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
     }
 }

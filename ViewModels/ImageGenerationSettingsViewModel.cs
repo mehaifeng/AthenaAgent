@@ -30,18 +30,11 @@ public partial class ImageGenerationSettingsViewModel : ViewModelBase, IDisposab
 
     private void RebuildCards()
     {
+        DisposeProviderCards();
         var providers = ExtensionProviderCatalog.ImageProviders;
         ExtensionSettingsSupport.EnsureSettings(
             Config.ImageProviderSettings,
-            providers,
-            Config.ImageGenerationProvider,
-            selected =>
-            {
-                selected.BaseUrl = Config.ImageGenerationBaseUrl;
-                selected.ApiKey = Config.ImageGenerationApiKey;
-                selected.Model = Config.ImageGenerationModel;
-                selected.AspectRatio = Config.ImageGenerationAspectRatio;
-            });
+            providers);
         ProviderCards = providers.Select(option => new ExtensionProviderCardViewModel(
             ExtensionProviderKind.Image,
             option,
@@ -69,5 +62,12 @@ public partial class ImageGenerationSettingsViewModel : ViewModelBase, IDisposab
         if (_disposed) return;
         _disposed = true;
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        DisposeProviderCards();
+    }
+
+    private void DisposeProviderCards()
+    {
+        foreach (var card in ProviderCards)
+            card.Dispose();
     }
 }

@@ -2,7 +2,7 @@ using Athena.UI.Models;
 
 namespace Athena.UI.Services.SubAgents;
 
-/// <summary>子代理模型的有效配置（合并"来源开关 + 逐字段回退"后的最终结果）。</summary>
+/// <summary>子代理模型的有效配置，由统一模型角色解析。</summary>
 internal sealed class EffectiveSubAgentConfig
 {
     public string BaseUrl { get; init; } = string.Empty;
@@ -13,8 +13,7 @@ internal sealed class EffectiveSubAgentConfig
 }
 
 /// <summary>
-/// 解析子代理模型配置：默认跟随主模型；Custom 时使用子代理专属字段，逐字段在留空时回退主 AI。
-/// 与 BrowserAgentModelResolver 同构，避免逻辑分叉。
+/// 解析统一的子代理模型角色，避免独立凭据与主供应商配置分叉。
 /// </summary>
 internal static class SubAgentModelResolver
 {

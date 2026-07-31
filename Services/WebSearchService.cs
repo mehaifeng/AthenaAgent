@@ -36,9 +36,11 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     {
         get
         {
-            var config = _configService.Load();
-            ApplyActiveProviderSettings(config);
-            return HasRequiredConfiguration(config);
+            var appConfig = _configService.Load();
+            var config = ResolveActiveProvider(appConfig);
+            return appConfig.WebSearchEnabled
+                && config != null
+                && HasRequiredConfiguration(config);
         }
     }
 
@@ -51,9 +53,9 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
         int maxResults = 5,
         CancellationToken cancellationToken = default)
     {
-        var config = _configService.Load();
-        ApplyActiveProviderSettings(config);
-        if (!HasRequiredConfiguration(config))
+        var appConfig = _configService.Load();
+        var config = ResolveActiveProvider(appConfig);
+        if (!appConfig.WebSearchEnabled || config == null || !HasRequiredConfiguration(config))
         {
             _logger.Warning("Web Search provider configuration is incomplete");
             return [];
@@ -91,11 +93,11 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
 
     public async Task<(bool Success, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
-        var config = _configService.Load();
-        ApplyActiveProviderSettings(config);
-        if (!config.WebSearchEnabled)
+        var appConfig = _configService.Load();
+        var config = ResolveActiveProvider(appConfig);
+        if (!appConfig.WebSearchEnabled)
             return (false, Localize("WebSearch.NotEnabled", "Web Search is not enabled"));
-        if (!HasRequiredConfiguration(config))
+        if (config == null || !HasRequiredConfiguration(config))
             return (false, Localize("WebSearch.ApiKeyMissing", "Web Search provider configuration is incomplete"));
 
         try
@@ -118,9 +120,8 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
 
     public void Dispose() => _httpClient.Dispose();
 
-    private static bool HasRequiredConfiguration(AppConfig config)
+    private static bool HasRequiredConfiguration(WebSearchRuntimeConfig config)
     {
-        if (!config.WebSearchEnabled) return false;
         return config.WebSearchProvider.ToLowerInvariant() switch
         {
             "duckduckgo" => true,
@@ -129,16 +130,18 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
         };
     }
 
-    private static void ApplyActiveProviderSettings(AppConfig config)
+    private static WebSearchRuntimeConfig? ResolveActiveProvider(AppConfig config)
     {
         var settings = config.WebSearchProviderSettings.FirstOrDefault(
             item => item.ProviderId.Equals(config.WebSearchProvider, StringComparison.OrdinalIgnoreCase));
-        if (settings == null) return;
-        config.WebSearchBaseUrl = settings.BaseUrl;
-        config.WebSearchApiKey = settings.ApiKey;
-        config.WebSearchModel = settings.Model;
-        config.WebSearchAppId = settings.AppId;
-        config.WebSearchMode = settings.Mode;
+        if (settings == null) return null;
+        return new WebSearchRuntimeConfig(
+            config.WebSearchProvider,
+            settings.BaseUrl,
+            settings.ApiKey,
+            settings.Model,
+            settings.AppId,
+            settings.Mode);
     }
 
     private static HttpRequestMessage JsonRequest(HttpMethod method, string url, object? body = null)
@@ -149,7 +152,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchBraveAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var endpoint = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.search.brave.com/res/v1/web/search"
@@ -197,7 +200,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchExaAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         using var request = JsonRequest(HttpMethod.Post, "https://api.exa.ai/search", new
         {
@@ -211,7 +214,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchFirecrawlAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.firecrawl.dev/v1"
@@ -224,7 +227,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchParallelAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         using var request = JsonRequest(HttpMethod.Post, "https://api.parallel.ai/v1beta/search", new
         {
@@ -239,7 +242,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchSearXngAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
@@ -249,7 +252,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchTavilyAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.tavily.com"
@@ -268,14 +271,14 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchXaiAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.x.ai/v1"
             : config.WebSearchBaseUrl.TrimEnd('/');
         using var request = JsonRequest(HttpMethod.Post, $"{root}/responses", new
         {
-            model = string.IsNullOrWhiteSpace(config.WebSearchModel) ? "grok-4-fast" : config.WebSearchModel,
+            model = string.IsNullOrWhiteSpace(config.WebSearchModel) ? "grok-4.5" : config.WebSearchModel,
             input = new[]
             {
                 new
@@ -298,7 +301,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchWebSearchApiAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://api.websearchapi.ai"
@@ -317,7 +320,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchZhipuAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var root = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://open.bigmodel.cn/api/paas/v4"
@@ -333,7 +336,7 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     }
 
     private async Task<List<WebSearchResult>> SearchBaiduAsync(
-        string query, int limit, AppConfig config, CancellationToken token)
+        string query, int limit, WebSearchRuntimeConfig config, CancellationToken token)
     {
         var endpoint = string.IsNullOrWhiteSpace(config.WebSearchBaseUrl)
             ? "https://qianfan.baidubce.com/v2/ai_search/web_search"
@@ -429,3 +432,11 @@ public sealed class WebSearchService : IWebSearchService, IDisposable
     private static string StripHtml(string value)
         => WebUtility.HtmlDecode(Regex.Replace(value, "<[^>]+>", " ")).Trim();
 }
+
+internal sealed record WebSearchRuntimeConfig(
+    string WebSearchProvider,
+    string WebSearchBaseUrl,
+    string WebSearchApiKey,
+    string WebSearchModel,
+    string WebSearchAppId,
+    string WebSearchMode);

@@ -8,13 +8,6 @@ namespace Athena.UI.Models;
 /// InheritMain：复用主 AI 模型；
 /// Custom：使用整理专属字段（留空时逐字段回退次级 → 主 AI）。
 /// </summary>
-public enum KnowledgeMaintenanceModelSource
-{
-    InheritSecondary,
-    InheritMain,
-    Custom
-}
-
 /// <summary>
 /// 知识库整理的运行态（持久化到 AthenaData/kb_maintenance_state.json，与用户配置分离）。
 /// </summary>

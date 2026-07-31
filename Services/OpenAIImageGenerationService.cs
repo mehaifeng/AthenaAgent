@@ -41,10 +41,10 @@ public class OpenAIImageGenerationService : IImageGenerationService
         get
         {
             var config = _configService.Load();
-            ApplyActiveProviderSettings(config);
+            var effective = GetEffective(config);
             return config.ImageGenerationEnabled
-                && !string.IsNullOrWhiteSpace(GetEffectiveApiKey(config))
-                && !string.IsNullOrWhiteSpace(GetEffectiveModel(config));
+                && !string.IsNullOrWhiteSpace(effective.ApiKey)
+                && !string.IsNullOrWhiteSpace(effective.Model);
         }
     }
 
@@ -61,7 +61,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
         }
 
         var config = _configService.Load();
-        ApplyActiveProviderSettings(config);
+        var effective = GetEffective(config);
         if (!config.ImageGenerationEnabled)
         {
             return new ImageGenerationResult
@@ -71,8 +71,8 @@ public class OpenAIImageGenerationService : IImageGenerationService
             };
         }
 
-        var apiKey = GetEffectiveApiKey(config);
-        var model = GetEffectiveModel(config);
+        var apiKey = effective.ApiKey;
+        var model = effective.Model;
         if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
         {
             return new ImageGenerationResult
@@ -84,14 +84,13 @@ public class OpenAIImageGenerationService : IImageGenerationService
 
         try
         {
-            var baseUrl = GetEffectiveBaseUrl(config);
-            if (config.ImageGenerationProvider is "Fal" or "Krea" or "OpenRouter" or "OpenAICodex")
+            var baseUrl = effective.BaseUrl;
+            if (effective.Provider is "Fal" or "Krea" or "OpenRouter" or "OpenAICodex")
             {
                 var specialBytes = await GenerateProviderSpecificAsync(
-                    config.ImageGenerationProvider,
                     prompt,
                     request.ReferenceImages ?? [],
-                    config,
+                    effective,
                     cancellationToken);
                 var specialAttachment = await _attachmentStoreService.CreateGeneratedImageAsync(
                     specialBytes,
@@ -169,74 +168,52 @@ public class OpenAIImageGenerationService : IImageGenerationService
     // 图像生成引用统一供应商连接，不再保存重复 API Key。
     private static ImageModelConfig GetEffective(AppConfig config)
     {
-        var legacyProvider = !string.IsNullOrWhiteSpace(config.ImageGenerationProviderId)
-            ? config.AiModels.Providers.FirstOrDefault(candidate => candidate.Id == config.ImageGenerationProviderId)
-            : null;
-        if (legacyProvider != null
-            && config.ImageProviderSettings.All(item => item.ProviderId != config.ImageGenerationProvider))
-        {
-            return new ImageModelConfig(
-                legacyProvider.ProviderPreset,
-                legacyProvider.BaseUrl,
-                legacyProvider.ApiKey,
-                config.ImageGenerationModel);
-        }
-        return new ImageModelConfig(
-            config.ImageGenerationProvider,
-            config.ImageGenerationBaseUrl,
-            config.ImageGenerationApiKey,
-            config.ImageGenerationModel);
-    }
-
-    private static void ApplyActiveProviderSettings(AppConfig config)
-    {
         var settings = config.ImageProviderSettings.FirstOrDefault(
             item => item.ProviderId.Equals(config.ImageGenerationProvider, StringComparison.OrdinalIgnoreCase));
-        if (settings == null) return;
-        config.ImageGenerationBaseUrl = settings.BaseUrl;
-        config.ImageGenerationApiKey = settings.ApiKey;
-        config.ImageGenerationModel = settings.Model;
-        config.ImageGenerationAspectRatio = settings.AspectRatio;
+        var defaults = ExtensionProviderCatalog.ImageProviders.FirstOrDefault(
+            item => item.Id.Equals(config.ImageGenerationProvider, StringComparison.OrdinalIgnoreCase));
+        return new ImageModelConfig(
+            config.ImageGenerationProvider,
+            settings?.BaseUrl ?? defaults?.DefaultBaseUrl ?? string.Empty,
+            settings?.ApiKey ?? string.Empty,
+            string.IsNullOrWhiteSpace(settings?.Model)
+                ? defaults?.DefaultModel ?? string.Empty
+                : settings.Model,
+            string.IsNullOrWhiteSpace(settings?.AspectRatio) ? "1:1" : settings.AspectRatio);
     }
-
-    private static string GetEffectiveApiKey(AppConfig config) => GetEffective(config).ApiKey;
-
-    private static string GetEffectiveBaseUrl(AppConfig config) => GetEffective(config).BaseUrl;
-
-    private static string GetEffectiveModel(AppConfig config) => GetEffective(config).Model;
 
     private readonly record struct ImageModelConfig(
         string Provider,
         string BaseUrl,
         string ApiKey,
-        string Model);
+        string Model,
+        string AspectRatio);
 
     private async Task<byte[]> GenerateProviderSpecificAsync(
-        string provider,
         string prompt,
         IReadOnlyList<ImageGenerationReferenceImage> references,
-        AppConfig config,
+        ImageModelConfig config,
         CancellationToken cancellationToken)
     {
-        if (provider == "Krea")
+        if (config.Provider == "Krea")
             return await GenerateKreaAsync(prompt, config, cancellationToken);
 
-        using var request = provider switch
+        using var request = config.Provider switch
         {
             "Fal" => BuildJsonRequest(
-                $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/{config.ImageGenerationModel.TrimStart('/')}",
-                config.ImageGenerationApiKey,
+                $"{config.BaseUrl.TrimEnd('/')}/{config.Model.TrimStart('/')}",
+                config.ApiKey,
                 new
                 {
                     prompt,
-                    image_size = AspectToFalSize(config.ImageGenerationAspectRatio),
+                    image_size = AspectToFalSize(config.AspectRatio),
                     num_images = 1,
                     output_format = "png"
                 },
                 "Key"),
             "OpenRouter" => BuildOpenRouterRequest(prompt, references, config),
             "OpenAICodex" => BuildCodexRequest(prompt, references, config),
-            _ => throw new NotSupportedException($"Unsupported image provider: {provider}")
+            _ => throw new NotSupportedException($"Unsupported image provider: {config.Provider}")
         };
         using var response = await SharedHttpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -262,43 +239,43 @@ public class OpenAIImageGenerationService : IImageGenerationService
     private static HttpRequestMessage BuildOpenRouterRequest(
         string prompt,
         IReadOnlyList<ImageGenerationReferenceImage> references,
-        AppConfig config)
+        ImageModelConfig config)
     {
         var content = new List<object> { new { type = "text", text = prompt } };
         foreach (var image in PrepareReferenceImages(references))
             content.Add(new { type = "image_url", image_url = new { url = image.DataUri } });
         return BuildJsonRequest(
-            $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/chat/completions",
-            config.ImageGenerationApiKey,
+            $"{config.BaseUrl.TrimEnd('/')}/chat/completions",
+            config.ApiKey,
             new
             {
-                model = config.ImageGenerationModel,
+                model = config.Model,
                 modalities = new[] { "image", "text" },
                 messages = new[] { new { role = "user", content } },
-                image_config = new { aspect_ratio = config.ImageGenerationAspectRatio }
+                image_config = new { aspect_ratio = config.AspectRatio }
             });
     }
 
     private static HttpRequestMessage BuildCodexRequest(
         string prompt,
         IReadOnlyList<ImageGenerationReferenceImage> references,
-        AppConfig config)
+        ImageModelConfig config)
     {
         var content = new List<object> { new { type = "input_text", text = prompt } };
         foreach (var image in PrepareReferenceImages(references))
             content.Add(new { type = "input_image", image_url = image.DataUri });
-        var size = config.ImageGenerationAspectRatio switch
+        var size = config.AspectRatio switch
         {
             "16:9" or "4:3" => "1536x1024",
             "9:16" or "3:4" => "1024x1536",
             _ => "1024x1024"
         };
         return BuildJsonRequest(
-            $"{config.ImageGenerationBaseUrl.TrimEnd('/')}/codex/responses",
-            config.ImageGenerationApiKey,
+            $"{config.BaseUrl.TrimEnd('/')}/codex/responses",
+            config.ApiKey,
             new
             {
-                model = string.IsNullOrWhiteSpace(config.ImageGenerationModel) ? "gpt-5" : config.ImageGenerationModel,
+                model = string.IsNullOrWhiteSpace(config.Model) ? "gpt-5.6" : config.Model,
                 store = false,
                 instructions = "Use the image_generation tool to create the requested image and return its result.",
                 input = new[] { new { type = "message", role = "user", content } },
@@ -307,7 +284,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
                     new
                     {
                         type = "image_generation",
-                        model = "gpt-image-1",
+                        model = "gpt-image-2",
                         size,
                         quality = "high",
                         output_format = "png",
@@ -321,20 +298,20 @@ public class OpenAIImageGenerationService : IImageGenerationService
 
     private async Task<byte[]> GenerateKreaAsync(
         string prompt,
-        AppConfig config,
+        ImageModelConfig config,
         CancellationToken cancellationToken)
     {
-        var root = config.ImageGenerationBaseUrl.TrimEnd('/');
-        var path = config.ImageGenerationModel.Contains("turbo", StringComparison.OrdinalIgnoreCase)
+        var root = config.BaseUrl.TrimEnd('/');
+        var path = config.Model.Contains("turbo", StringComparison.OrdinalIgnoreCase)
             ? "medium-turbo"
             : "medium";
         using var submit = BuildJsonRequest(
             $"{root}/generate/image/krea/krea-2/{path}",
-            config.ImageGenerationApiKey,
+            config.ApiKey,
             new
             {
                 prompt,
-                aspect_ratio = config.ImageGenerationAspectRatio,
+                aspect_ratio = config.AspectRatio,
                 resolution = "1K",
                 creativity = "medium"
             });
@@ -351,7 +328,7 @@ public class OpenAIImageGenerationService : IImageGenerationService
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             using var poll = new HttpRequestMessage(HttpMethod.Get, $"{root}/jobs/{jobId}");
-            poll.Headers.Authorization = new("Bearer", config.ImageGenerationApiKey);
+            poll.Headers.Authorization = new("Bearer", config.ApiKey);
             using var pollResponse = await SharedHttpClient.SendAsync(poll, cancellationToken);
             var body = await pollResponse.Content.ReadAsStringAsync(cancellationToken);
             if (!pollResponse.IsSuccessStatusCode)

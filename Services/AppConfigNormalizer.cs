@@ -22,22 +22,4 @@ public static class AppConfigNormalizer
         config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
     }
 
-    /// <summary>补齐语音播报的缺省字段（与 <see cref="AudioConfigResolver"/> 的运行期回退保持一致）。</summary>
-    public static void NormalizeAudio(AppConfig config)
-    {
-        if (string.IsNullOrWhiteSpace(config.ChatAudioProvider))
-        {
-            config.ChatAudioProvider = "OpenAI";
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ChatAudioBaseUrl))
-        {
-            config.ChatAudioBaseUrl = AudioConfigResolver.GetDefaultBaseUrl(config.ChatAudioProvider);
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ChatAudioModel))
-        {
-            config.ChatAudioModel = "gpt-4o-mini-tts";
-        }
-    }
 }

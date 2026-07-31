@@ -135,10 +135,6 @@
     <system:String x:Key="Config.ModelRole.Browser">Automatic browser</system:String>
     <system:String x:Key="Config.SubAgentParameters">Sub-agent parameters</system:String>
     <system:String x:Key="Config.KnowledgeMaintenance">Knowledge maintenance</system:String>
-    <system:String x:Key="Config.EmbeddingModel">Embedding model</system:String>
-    <system:String x:Key="Config.EmbeddingConnection">Connection source</system:String>
-    <system:String x:Key="Config.EmbeddingConnection.Provider">Use provider connection</system:String>
-    <system:String x:Key="Config.EmbeddingConnection.Custom">Custom connection</system:String>
     <system:String x:Key="Config.BrowserUnifiedModelHint">Automatic browser uses the Automatic browser role under Settings → Providers and model roles.</system:String>
     <system:String x:Key="Config.ModelRole.SubAgent">Sub-agent</system:String>
     <system:String x:Key="Config.ModelRole.Maintenance">Knowledge maintenance</system:String>
@@ -189,9 +185,6 @@
     <system:String x:Key="Config.KbMaintenanceEnabled">Enable periodic maintenance:</system:String>
     <system:String x:Key="Config.KbMaintenanceInterval">Interval (days):</system:String>
     <system:String x:Key="Config.KbMaintenanceModelSource">Model for maintenance:</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceSecondary">Secondary model</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceMain">Primary model</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceCustom">Custom</system:String>
     <system:String x:Key="Config.KbMaintenanceDoneMerged">Merged {0} duplicate group(s)</system:String>
     <system:String x:Key="Config.KbMaintenanceNoDup">No duplicates found</system:String>
     <system:String x:Key="Config.KbMaintenanceFailed">Maintenance failed (see logs)</system:String>
@@ -353,7 +346,7 @@
     <system:String x:Key="Settings.General.Theme">Theme</system:String>
     <system:String x:Key="Settings.General.Language">Language</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">Panel transparency</system:String>
-    <system:String x:Key="Settings.General.PanelOpacity.Description">Let the Athena background image gently show through the three main-window panels. 0% hides it completely (original look); 50% is the most transparent. The title bar is unaffected.</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity.Description">Let the background image gently show through the three main-window panels. 0% hides it completely (original look); 50% is the most transparent. The title bar is unaffected.</system:String>
     <system:String x:Key="Settings.General.Interaction">Interaction</system:String>
     <system:String x:Key="Settings.General.RewindHint">When enabled, rewinding a conversation happens immediately without a confirmation prompt.</system:String>
     <system:String x:Key="Settings.Context.Title">Conversation &amp; context</system:String>
@@ -607,7 +600,6 @@
     <system:String x:Key="Config.BrowserSomIncludeText">Include element text:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">Screenshot scale:</system:String>
     <system:String x:Key="Config.BrowserImageQuality">Image quality:</system:String>
-    <system:String x:Key="Config.BrowserAgentModel">Browser model</system:String>
     <system:String x:Key="Config.CredentialSource">API Key source:</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">Same as primary</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">Custom</system:String>
@@ -620,9 +612,6 @@
     <system:String x:Key="Config.SubAgentMaxParallel">Max concurrent:</system:String>
     <system:String x:Key="Config.SubAgentMaxIterations">Max steps per agent:</system:String>
     <system:String x:Key="Config.SubAgentTimeout">Per-run timeout (sec):</system:String>
-    <system:String x:Key="Config.SubAgentModelSource">Model:</system:String>
-    <system:String x:Key="Config.SubAgentModelSourceInherit">Same as primary</system:String>
-    <system:String x:Key="Config.SubAgentModelSourceCustom">Custom</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
@@ -805,4 +794,5 @@
     <system:String x:Key="Config.VectorIndexRebuilt">Vector index rebuilt</system:String>
     <system:String x:Key="Config.VectorIndexRebuildIncomplete">Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response.</system:String>
     <system:String x:Key="Config.VectorIndexRebuildFailed">Failed to rebuild vector index: {0}</system:String>
+    <system:String x:Key="Connectors.Provider.DeprecatedModel">This model is deprecated. Recommended replacement: {0}</system:String>
 </ResourceDictionary>

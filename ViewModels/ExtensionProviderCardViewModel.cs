@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace Athena.UI.ViewModels;
 
@@ -14,7 +15,7 @@ public enum ExtensionProviderKind
     WebSearch
 }
 
-public partial class ExtensionProviderCardViewModel : ObservableObject
+public partial class ExtensionProviderCardViewModel : ObservableObject, IDisposable
 {
     private readonly Action<ExtensionProviderCardViewModel> _onSelected;
     private readonly ILocalizationService? _localizationService;
@@ -33,6 +34,7 @@ public partial class ExtensionProviderCardViewModel : ObservableObject
         _isSelected = isSelected;
         _onSelected = onSelected;
         _localizationService = localizationService;
+        Settings.PropertyChanged += OnSettingsPropertyChanged;
     }
 
     public ExtensionProviderKind Kind { get; }
@@ -74,7 +76,7 @@ public partial class ExtensionProviderCardViewModel : ObservableObject
 
     public bool UsesModel => Kind switch
     {
-        ExtensionProviderKind.Audio => Id != "Edge",
+        ExtensionProviderKind.Audio => Id is not ("Edge" or "xAI"),
         ExtensionProviderKind.WebSearch => Id == "xAI",
         _ => true
     };
@@ -87,6 +89,16 @@ public partial class ExtensionProviderCardViewModel : ObservableObject
     public bool UsesAspectRatio => Kind == ExtensionProviderKind.Image;
     public bool UsesMode => Kind == ExtensionProviderKind.WebSearch && Id == "Parallel";
     public bool UsesAppId => Kind == ExtensionProviderKind.WebSearch && Id == "Baidu";
+    public bool HasModelWarning => ModelWarning.Length > 0;
+    public string ModelWarning =>
+        Option.DeprecatedModels != null
+        && Option.DeprecatedModels.TryGetValue(Settings.Model ?? string.Empty, out var replacement)
+            ? string.Format(
+                GetString(
+                    "Connectors.Provider.DeprecatedModel",
+                    "This model is deprecated. Recommended replacement: {0}"),
+                replacement)
+            : string.Empty;
 
     public string ApiKeyLabel => Id == "OpenAICodex"
         ? GetString("Connectors.Provider.CodexToken", "ChatGPT / Codex Access Token")
@@ -107,6 +119,17 @@ public partial class ExtensionProviderCardViewModel : ObservableObject
         $"Connectors.Provider.Description.{Kind}.{Id}",
         string.Empty);
 
+    private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(ExtensionProviderSettings.Model))
+            return;
+
+        OnPropertyChanged(nameof(HasModelWarning));
+        OnPropertyChanged(nameof(ModelWarning));
+    }
+
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
+
+    public void Dispose() => Settings.PropertyChanged -= OnSettingsPropertyChanged;
 }

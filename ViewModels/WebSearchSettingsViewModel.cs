@@ -41,19 +41,11 @@ public partial class WebSearchSettingsViewModel : ViewModelBase, IDisposable
 
     private void RebuildCards()
     {
+        DisposeProviderCards();
         var providers = ExtensionProviderCatalog.WebSearchProviders;
         ExtensionSettingsSupport.EnsureSettings(
             Config.WebSearchProviderSettings,
-            providers,
-            Config.WebSearchProvider,
-            selected =>
-            {
-                selected.BaseUrl = Config.WebSearchBaseUrl;
-                selected.ApiKey = Config.WebSearchApiKey;
-                selected.Model = Config.WebSearchModel;
-                selected.AppId = Config.WebSearchAppId;
-                selected.Mode = Config.WebSearchMode;
-            });
+            providers);
         ProviderCards = providers.Select(option => new ExtensionProviderCardViewModel(
             ExtensionProviderKind.WebSearch,
             option,
@@ -118,5 +110,12 @@ public partial class WebSearchSettingsViewModel : ViewModelBase, IDisposable
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        DisposeProviderCards();
+    }
+
+    private void DisposeProviderCards()
+    {
+        foreach (var card in ProviderCards)
+            card.Dispose();
     }
 }

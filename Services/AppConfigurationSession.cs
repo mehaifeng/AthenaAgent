@@ -93,17 +93,6 @@ public sealed class AppConfigurationSession : IDisposable
     {
         TrackPropertyChanges(Current, (_, args) =>
         {
-            if (args.PropertyName == nameof(AppConfig.WebSearchProvider)
-                && ProviderCatalog.TryGetWebSearchBaseUrl(Current.WebSearchProvider, out var searchUrl))
-            {
-                Current.WebSearchBaseUrl = searchUrl;
-            }
-            else if (args.PropertyName == nameof(AppConfig.ChatAudioProvider)
-                     && AudioConfigResolver.TryGetDefaultBaseUrl(Current.ChatAudioProvider, out var audioUrl))
-            {
-                Current.ChatAudioBaseUrl = audioUrl;
-            }
-
             if (args.PropertyName is nameof(AppConfig.AiModels)
                 or nameof(AppConfig.McpServers)
                 or nameof(AppConfig.AudioProviderSettings)
@@ -301,7 +290,6 @@ public sealed class AppConfigurationSession : IDisposable
         if (config.CompressionThreshold > config.MaxContextTokens)
             config.CompressionThreshold = config.MaxContextTokens;
         AppConfigNormalizer.NormalizeBrowser(config);
-        AppConfigNormalizer.NormalizeAudio(config);
     }
 
     private static IEnumerable<ModelRoleSettings> GetRoleSettings(AiModelConfiguration models)

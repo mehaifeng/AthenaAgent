@@ -135,10 +135,6 @@
     <system:String x:Key="Config.ModelRole.Browser">自动浏览器</system:String>
     <system:String x:Key="Config.SubAgentParameters">子代理参数</system:String>
     <system:String x:Key="Config.KnowledgeMaintenance">知识库整理</system:String>
-    <system:String x:Key="Config.EmbeddingModel">向量嵌入模型</system:String>
-    <system:String x:Key="Config.EmbeddingConnection">连接来源：</system:String>
-    <system:String x:Key="Config.EmbeddingConnection.Provider">使用供应商连接</system:String>
-    <system:String x:Key="Config.EmbeddingConnection.Custom">自定义连接</system:String>
     <system:String x:Key="Config.BrowserUnifiedModelHint">自动浏览器使用“设置 → 供应商与业务模型”中的自动浏览器角色。</system:String>
     <system:String x:Key="Config.ModelRole.SubAgent">子代理</system:String>
     <system:String x:Key="Config.ModelRole.Maintenance">知识库整理</system:String>
@@ -189,9 +185,6 @@
     <system:String x:Key="Config.KbMaintenanceEnabled">启用定期整理：</system:String>
     <system:String x:Key="Config.KbMaintenanceInterval">整理周期（天）：</system:String>
     <system:String x:Key="Config.KbMaintenanceModelSource">整理使用的模型：</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceSecondary">辅助模型</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceMain">主对话模型</system:String>
-    <system:String x:Key="Config.KbMaintenanceSourceCustom">自定义</system:String>
     <system:String x:Key="Config.KbMaintenanceDoneMerged">已合并 {0} 组疑似重复</system:String>
     <system:String x:Key="Config.KbMaintenanceNoDup">未发现重复条目</system:String>
     <system:String x:Key="Config.KbMaintenanceFailed">整理失败（详见日志）</system:String>
@@ -353,7 +346,7 @@
     <system:String x:Key="Settings.General.Theme">主题</system:String>
     <system:String x:Key="Settings.General.Language">语言</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">面板透明度</system:String>
-    <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的雅典娜图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），50% 为最透明。标题栏不受影响。</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），50% 为最透明。标题栏不受影响。</system:String>
     <system:String x:Key="Settings.General.Interaction">交互</system:String>
     <system:String x:Key="Settings.General.RewindHint">启用后，回溯对话会立即执行，不再显示确认提示。</system:String>
     <system:String x:Key="Settings.Context.Title">对话与上下文</system:String>
@@ -607,7 +600,6 @@
     <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本：</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">截图缩放：</system:String>
     <system:String x:Key="Config.BrowserImageQuality">图片质量：</system:String>
-    <system:String x:Key="Config.BrowserAgentModel">浏览器模型</system:String>
     <system:String x:Key="Config.CredentialSource">API Key 来源：</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">与主对话模型相同</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">自定义</system:String>
@@ -620,9 +612,6 @@
     <system:String x:Key="Config.SubAgentMaxParallel">同时运行上限：</system:String>
     <system:String x:Key="Config.SubAgentMaxIterations">单代理步数上限：</system:String>
     <system:String x:Key="Config.SubAgentTimeout">单次超时（秒）：</system:String>
-    <system:String x:Key="Config.SubAgentModelSource">使用模型：</system:String>
-    <system:String x:Key="Config.SubAgentModelSourceInherit">与主对话模型相同</system:String>
-    <system:String x:Key="Config.SubAgentModelSourceCustom">自定义</system:String>
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">服务尚未初始化</system:String>
@@ -805,4 +794,5 @@
     <system:String x:Key="Config.VectorIndexRebuilt">向量索引已重新生成</system:String>
     <system:String x:Key="Config.VectorIndexRebuildIncomplete">向量索引不完整：已生成 {0}/{1} 个分块。请检查 Embedding 模型或服务商响应。</system:String>
     <system:String x:Key="Config.VectorIndexRebuildFailed">重新生成向量索引失败：{0}</system:String>
+    <system:String x:Key="Connectors.Provider.DeprecatedModel">该模型已弃用，建议替换为：{0}</system:String>
 </ResourceDictionary>

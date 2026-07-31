@@ -8,9 +8,9 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class AppConfig : ObservableObject
 {
-    // v4 是三栏、多供应商、多活动会话的全新配置，不迁移旧数据。
+    // v5 removes legacy provider compatibility fields and intentionally does not migrate older schemas.
     [ObservableProperty]
-    private int _configSchemaVersion = 4;
+    private int _configSchemaVersion = 5;
 
     [ObservableProperty]
     private AiModelConfiguration _aiModels = new();
@@ -41,66 +41,13 @@ public partial class AppConfig : ObservableObject
     private string _chatAudioProvider = "OpenAI";
 
     [ObservableProperty]
-    private string _chatAudioBaseUrl = "https://api.openai.com/v1/audio/speech";
-
-    [ObservableProperty]
-    private string _chatAudioApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _chatAudioModel = "gpt-4o-mini-tts";
-
-    [ObservableProperty]
-    private string _chatAudioVoice = "alloy";
-
-    [ObservableProperty]
     private bool _chatAudioAutoPlay;
-
-    [ObservableProperty]
-    private string _chatAudioLanguage = "en-US";
-
-    [ObservableProperty]
-    private double _chatAudioSpeed = 1.0;
-
-    // Edge/KittenTTS/Piper use a locally installed executable or Python runtime.
-    [ObservableProperty]
-    private string _chatAudioLocalExecutable = string.Empty;
-
-    [ObservableProperty]
-    private string _chatAudioLocalModelPath = string.Empty;
 
     [ObservableProperty]
     private bool _imageGenerationEnabled = true;
 
     [ObservableProperty]
-    private string _imageGenerationModel = "gpt-image-1";
-
-    [ObservableProperty]
-    private string _imageGenerationBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _imageGenerationApiKey = string.Empty;
-
-    [ObservableProperty]
     private string _imageGenerationProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _imageGenerationAspectRatio = "1:1";
-
-    // Embedding 模型配置（用于向量检索）
-    [ObservableProperty]
-    private EmbeddingConnectionSource _embeddingCredentialSource = EmbeddingConnectionSource.Provider;
-
-    [ObservableProperty]
-    private string _embeddingProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _embeddingBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _embeddingApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _embeddingModel = "text-embedding-3-small";
 
     // 知识库定期整理（后台合并去重）
     [ObservableProperty]
@@ -108,22 +55,6 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private int _knowledgeMaintenanceIntervalDays = 7;
-
-    // 整理 Agent 模型来源：默认跟随次级（后台任务）模型；Custom 时用下方独立字段（留空逐字段回退次级→主）。
-    [ObservableProperty]
-    private KnowledgeMaintenanceModelSource _knowledgeMaintenanceModelSource = KnowledgeMaintenanceModelSource.InheritSecondary;
-
-    [ObservableProperty]
-    private string _knowledgeMaintenanceProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _knowledgeMaintenanceBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _knowledgeMaintenanceApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _knowledgeMaintenanceModel = string.Empty;
 
     // 记忆配置
     [ObservableProperty]
@@ -148,21 +79,6 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private string _webSearchProvider = "Tavily";
-
-    [ObservableProperty]
-    private string _webSearchBaseUrl = "https://api.tavily.com";
-
-    [ObservableProperty]
-    private string _webSearchApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _webSearchAppId = string.Empty;
-
-    [ObservableProperty]
-    private string _webSearchModel = "grok-4-fast";
-
-    [ObservableProperty]
-    private string _webSearchMode = "fast";
 
     // Each extension provider keeps its own credentials and protocol-specific options.
     [ObservableProperty]
@@ -217,25 +133,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _browserSomIncludeText = true;
 
-    // 浏览器智能体模型：独立凭据，不继承主对话模型。
-    [ObservableProperty]
-    private string _browserAgentProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _browserAgentBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _browserAgentApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _browserAgentModel = "gpt-4o-mini";
-
-    [ObservableProperty]
-    private int _browserAgentMaxTokens = 16000;
-
-    [ObservableProperty]
-    private double _browserAgentTemperature = 0.2;
-
     // 浏览器 Agent 结构化输出策略：Auto 乐观启用 json_object 并在后端拒绝时自动降级。
     [ObservableProperty]
     private BrowserStructuredOutputMode _browserStructuredOutputMode = BrowserStructuredOutputMode.Auto;
@@ -243,28 +140,6 @@ public partial class AppConfig : ObservableObject
     // 子代理配置（dispatch_subagents：主模型并行派生隔离上下文的子代理）
     [ObservableProperty]
     private bool _enableSubAgents = false;
-
-    // 子代理模型来源：默认跟随主模型；Custom 时使用下方独立字段（留空逐字段回退主 AI）。
-    [ObservableProperty]
-    private SubAgentModelSource _subAgentModelSource = SubAgentModelSource.InheritMain;
-
-    [ObservableProperty]
-    private string _subAgentProvider = "OpenAI";
-
-    [ObservableProperty]
-    private string _subAgentBaseUrl = string.Empty;
-
-    [ObservableProperty]
-    private string _subAgentApiKey = string.Empty;
-
-    [ObservableProperty]
-    private string _subAgentModel = "gpt-4o-mini";
-
-    [ObservableProperty]
-    private int _subAgentMaxTokens = 16000;
-
-    [ObservableProperty]
-    private double _subAgentTemperature = 0.3;
 
     // 同时并行运行的子代理上限（超出排队）。
     [ObservableProperty]
@@ -337,23 +212,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _workspaceKnowledgeTokenBudget = 2000;
 
-    [ObservableProperty]
-    private string _chatAudioProviderId = string.Empty;
-
-    [ObservableProperty]
-    private string _chatAudioEndpointPath = "/audio/speech";
-
-    [ObservableProperty]
-    private string _imageGenerationProviderId = string.Empty;
-
-    [ObservableProperty]
-    private string _imageGenerationEndpointPath = "/images/generations";
-
-    [ObservableProperty]
-    private string _browserProviderId = string.Empty;
-
-    [ObservableProperty]
-    private string _browserEndpointPath = string.Empty;
 }
 
 public partial class MainLayoutSettings : ObservableObject
@@ -363,9 +221,6 @@ public partial class MainLayoutSettings : ObservableObject
 
     [ObservableProperty]
     private double _rightWidth = 470;
-
-    [ObservableProperty]
-    private double _rightTopHeight = 560;
 
     [ObservableProperty]
     private double _rightLogHeight = 190;

@@ -30,6 +30,26 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
+        <Style Selector="Button.editor-tab-close">
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="Height" Value="12"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                </ControlTemplate>
+            </Setter>
+        </Style>
         <Style Selector="Button.review-command">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -307,6 +327,7 @@
                 <Grid Grid.Row="1" RowDefinitions="Auto,*">
                     <ListBox x:Name="EditorTabsList"
                              Grid.Row="0"
+                             Height="33"
                              Classes="editor-tabs"
                              ItemsSource="{Binding EditorTabs}"
                              SelectedItem="{Binding SelectedEditorTab}"
@@ -324,8 +345,7 @@
                                 <TextBlock Text="●" Foreground="{DynamicResource SemiOrange5}" IsVisible="{Binding IsDirty}"
                                            VerticalAlignment="Center"/>
                                 <Button ToolTip.Tip="关闭文件"
-                                        Padding="2,0"
-                                        VerticalAlignment="Center"
+                                        Classes="editor-tab-close"
                                         Command="{Binding $parent[UserControl].DataContext.CloseEditorTabCommand}"
                                         CommandParameter="{Binding}">
                                     <PathIcon Data="{StaticResource AthenaIconClose}" Width="8" Height="8" Foreground="{DynamicResource App.IconMutedForeground}"/>

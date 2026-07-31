@@ -23,7 +23,6 @@
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/ExtensionProviderCatalog.cs" Link="Source/Models/ExtensionProviderCatalog.cs" />
     <Compile Include="../Models/AiModelConfiguration.cs" Link="Source/Models/AiModelConfiguration.cs" />
-    <Compile Include="../Models/EmbeddingConnectionSource.cs" Link="Source/Models/EmbeddingConnectionSource.cs" />
     <Compile Include="../Services/ConfigService.cs" Link="Source/Services/ConfigService.cs" />
     <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
     <Compile Include="../Services/Interfaces/IModelCatalogService.cs" Link="Source/Services/Interfaces/IModelCatalogService.cs" />
