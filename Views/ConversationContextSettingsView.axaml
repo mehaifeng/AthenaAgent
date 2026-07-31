@@ -5,7 +5,7 @@
              x:Class="Athena.UI.Views.ConversationContextSettingsView"
              x:DataType="vm:ConversationContextSettingsViewModel">
     <ScrollViewer Padding="28">
-        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+        <StackPanel MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Settings.Context.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"

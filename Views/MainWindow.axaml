@@ -219,7 +219,7 @@
                             Click="OnTitleBarMinimizeClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
                         <PathIcon Width="16" Height="16"
-                                  Data="{StaticResource SemiIconMinimize}"
+                                  Data="{StaticResource SemiIconMinus}"
                                   Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMaximizeButton"

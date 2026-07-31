@@ -33,12 +33,12 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
 
         Sections =
         [
-            new("Settings.Nav.General", "General", General, localizationService),
-            new("Settings.Nav.ConversationContext", "Conversation & context", ConversationContext, localizationService),
-            new("Settings.Nav.ToolApproval", "Tool approval", ToolApproval, localizationService),
-            new("Settings.Nav.AgentRuntime", "Agent runtime", AgentRuntime, localizationService),
-            new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", RuntimeDiagnostics, localizationService),
-            new("Settings.Nav.About", "About & updates", about, localizationService)
+            new("Settings.Nav.General", "General", "SemiIconSetting", General, localizationService),
+            new("Settings.Nav.ConversationContext", "Conversation & context", "SemiIconComment", ConversationContext, localizationService),
+            new("Settings.Nav.ToolApproval", "Tool approval", "SemiIconEdit2", ToolApproval, localizationService),
+            new("Settings.Nav.AgentRuntime", "Agent runtime", "SemiIconUserGroup", AgentRuntime, localizationService),
+            new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", "SemiIconPulse", RuntimeDiagnostics, localizationService),
+            new("Settings.Nav.About", "About & updates", "SemiIconInfoCircle", about, localizationService)
         ];
         _selectedSection = Sections[0];
         if (_localizationService != null)
@@ -81,11 +81,13 @@ public sealed partial class AppSettingsSection : ViewModelBase
     public AppSettingsSection(
         string titleKey,
         string fallbackTitle,
+        string? iconKey,
         ViewModelBase content,
         ILocalizationService? localizationService)
     {
         _titleKey = titleKey;
         _fallbackTitle = fallbackTitle;
+        IconKey = iconKey;
         Content = content;
         _title = fallbackTitle;
         RefreshTitle(localizationService);
@@ -93,6 +95,9 @@ public sealed partial class AppSettingsSection : ViewModelBase
 
     [ObservableProperty]
     private string _title;
+
+    /// <summary>左侧导航项图标的 AppIcons 资源 key；在 XAML 中经 ToolIconKeyToGeometryConverter 解析为 StreamGeometry。</summary>
+    public string? IconKey { get; }
 
     public ViewModelBase Content { get; }
 

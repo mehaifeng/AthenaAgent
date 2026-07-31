@@ -15,7 +15,7 @@
     </Design.DataContext>
 
     <ScrollViewer Padding="28">
-        <StackPanel Spacing="18" HorizontalAlignment="Center" MaxWidth="720">
+        <StackPanel Spacing="18" HorizontalAlignment="Stretch" MaxWidth="960">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc About.Header}"
                            FontWeight="SemiBold"

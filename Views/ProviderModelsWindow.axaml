@@ -9,7 +9,7 @@
         Width="1120" Height="780"
         MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterOwner">
-    <Grid Margin="16" ColumnDefinitions="280,16,*">
+    <Grid Margin="5" ColumnDefinitions="280,5,*">
         <!-- 固定宽度的供应商导航，操作按钮始终留在顶部。 -->
         <Border Background="{DynamicResource App.WorkspaceLeftBackground}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
@@ -34,6 +34,18 @@
                          BorderThickness="0"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.Styles>
+                        <!-- 仅在 ListBoxItem 悬停时显示删除按钮；选中态也保留可见。 -->
+                        <Style Selector="ListBoxItem Button.provider-item-delete">
+                            <Setter Property="IsVisible" Value="False"/>
+                        </Style>
+                        <Style Selector="ListBoxItem:pointerover Button.provider-item-delete">
+                            <Setter Property="IsVisible" Value="True"/>
+                        </Style>
+                        <Style Selector="ListBoxItem:selected Button.provider-item-delete">
+                            <Setter Property="IsVisible" Value="True"/>
+                        </Style>
+                    </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="models:OpenAiProviderConfiguration">
                             <Border Padding="11"
@@ -55,13 +67,21 @@
                                                    Opacity="0.8"/>
                                     </StackPanel>
                                     <Button Grid.Column="1"
-                                            Content="✕"
-                                            VerticalAlignment="Top"
+                                            Classes="provider-item-delete"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Right"
+                                            Margin="8,0,0,0"
                                             Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).DeleteProviderCommand}"
                                             CommandParameter="{Binding}"
                                             Background="Transparent"
                                             BorderThickness="0"
-                                            Padding="4,2"/>
+                                            Padding="4,4"
+                                            ToolTip.Tip="删除供应商">
+                                        <PathIcon Data="{StaticResource SemiIconDelete}"
+                                                  Width="14"
+                                                  Height="14"
+                                                  Foreground="{DynamicResource App.IconDangerForeground}"/>
+                                    </Button>
                                 </Grid>
                             </Border>
                         </DataTemplate>

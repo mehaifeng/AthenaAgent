@@ -10,7 +10,7 @@
         MinWidth="1000"
         MinHeight="640"
         WindowStartupLocation="CenterOwner">
-    <Grid Margin="14" ColumnDefinitions="3*,12,7*">
+    <Grid Margin="5" ColumnDefinitions="3*,5,7*">
         <Border Padding="8"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
                 BorderThickness="1"

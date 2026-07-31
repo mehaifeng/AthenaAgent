@@ -16,7 +16,7 @@
         <vm:KnowledgeBaseViewModel/>
     </Design.DataContext>
 
-    <Grid Margin="14" ColumnDefinitions="3*,12,7*">
+    <Grid Margin="5" ColumnDefinitions="3*,5,7*">
         <!-- 左侧目录区保持约三成宽度。 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"

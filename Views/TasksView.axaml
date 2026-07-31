@@ -44,7 +44,7 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid Margin="14" ColumnDefinitions="3*,12,7*">
+    <Grid Margin="5" ColumnDefinitions="3*,5,7*">
         <!-- 新任务表单直接进入主页左栏。 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"

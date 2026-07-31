@@ -2,10 +2,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:u="https://irihi.tech/ursa"
              x:Class="Athena.UI.Views.RuntimeDiagnosticsView"
              x:DataType="vm:RuntimeDiagnosticsViewModel">
     <ScrollViewer Padding="28">
-        <StackPanel MaxWidth="720" HorizontalAlignment="Center" Spacing="18">
+        <StackPanel MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Settings.Diagnostics.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
@@ -28,13 +29,15 @@
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
                     <WrapPanel>
-                        <Button x:Name="TestBrowserRuntimeButton"
-                                Content="{loc:Loc Config.BrowserTestRuntime}"
-                                Command="{Binding TestBrowserRuntimeCommand}"
-                                Margin="0,0,8,0"/>
-                        <Button x:Name="InstallBrowserRuntimeButton"
-                                Content="{loc:Loc Config.BrowserInstallRuntime}"
-                                Command="{Binding InstallBrowserRuntimeCommand}"/>
+                        <u:IconButton x:Name="TestBrowserRuntimeButton"
+                                      Content="{loc:Loc Config.BrowserTestRuntime}"
+                                      Command="{Binding TestBrowserRuntimeCommand}"
+                                      IsLoading="{Binding IsTestingBrowserRuntime}"
+                                      Margin="0,0,8,0"/>
+                        <u:IconButton x:Name="InstallBrowserRuntimeButton"
+                                      Content="{loc:Loc Config.BrowserInstallRuntime}"
+                                      Command="{Binding InstallBrowserRuntimeCommand}"
+                                      IsLoading="{Binding IsInstallingBrowserRuntime}"/>
                     </WrapPanel>
                     <Border Padding="12"
                             Background="{DynamicResource App.AssistantBubbleBg}"
@@ -59,10 +62,11 @@
                     <TextBlock Text="{loc:Loc Config.BrowserUnifiedModelHint}"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
-                    <Button x:Name="TestBrowserAgentButton"
-                            Content="{loc:Loc Config.BtnRunDiagnostics}"
-                            Command="{Binding TestBrowserAgentCommand}"
-                            HorizontalAlignment="Left"/>
+                    <u:IconButton x:Name="TestBrowserAgentButton"
+                                  Content="{loc:Loc Config.BtnRunDiagnostics}"
+                                  Command="{Binding TestBrowserAgentCommand}"
+                                  IsLoading="{Binding IsTestingBrowserAgent}"
+                                  HorizontalAlignment="Left"/>
                     <Border Padding="12"
                             Background="{DynamicResource App.AssistantBubbleBg}"
                             CornerRadius="8"
