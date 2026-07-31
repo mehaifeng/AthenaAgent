@@ -60,9 +60,11 @@
     <PackageReference Include="Avalonia" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+    <PackageReference Include="AvaloniaTerminal" Version="1.0.0" />
 
     <PackageReference Include="CliWrap" Version="3.10.2" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
+    <PackageReference Include="Porta.Pty" Version="1.0.7" />
 
     <!-- MVVM -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

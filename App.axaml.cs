@@ -538,6 +538,9 @@ public partial class App : Application, IAsyncDisposable
 
         // CLI 服务（单例）
         services.AddSingleton<ICliService, CliService>();
+        services.AddSingleton<ITerminalSessionManager>(sp =>
+            new TerminalSessionManager(Log.ForContext<TerminalSessionManager>()));
+        services.AddSingleton<TerminalPanelViewModel>();
         services.AddSingleton<ISystemAudioService>(sp =>
         {
             var cliService = sp.GetRequiredService<ICliService>();
@@ -1052,6 +1055,7 @@ public partial class App : Application, IAsyncDisposable
             var workbench = sp.GetRequiredService<WorkspaceWorkbenchViewModel>();
             var approvalQueue = sp.GetRequiredService<ApprovalQueueViewModel>();
             var configurationSession = sp.GetRequiredService<AppConfigurationSession>();
+            var terminalPanelViewModel = sp.GetRequiredService<TerminalPanelViewModel>();
             _ = sp.GetRequiredService<AppConfigurationApplier>();
             Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
                 () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
@@ -1088,7 +1092,8 @@ public partial class App : Application, IAsyncDisposable
                 approvalQueue,
                 configurationSession,
                 skillsConnectorsFactory,
-                appSettingsFactory);
+                appSettingsFactory,
+                terminalPanelViewModel);
         });
 
         Log.Debug("依赖注入服务配置完成");

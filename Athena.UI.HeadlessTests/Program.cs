@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Chrome;
 using Avalonia.Controls.Presenters;
-using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
@@ -18,6 +17,7 @@ using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 
 try
 {
@@ -38,6 +38,7 @@ Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceEditorRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceDiffRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
+Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
@@ -132,8 +133,18 @@ await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
 Dispatcher.UIThread.RunJobs();
 if (window.FindControl<MainConversationView>("MainConversationView") == null)
     throw new InvalidOperationException("Chat view is not permanently mounted in the center column.");
-if (window.GetVisualDescendants().OfType<TabStrip>().Any())
-    throw new InvalidOperationException("The main window must not contain a TabStrip.");
+var utilityTabs = window.FindControl<TabControl>("UtilityTabControl")
+                  ?? throw new InvalidOperationException("The log and terminal utility tabs were not created.");
+if (utilityTabs.ItemCount != 2)
+    throw new InvalidOperationException("The right utility panel must contain Log and Terminal tabs.");
+mainViewModel.SelectedUtilityTabIndex = 1;
+Dispatcher.UIThread.RunJobs();
+var terminalPanel = window.GetVisualDescendants().OfType<TerminalPanelView>().SingleOrDefault();
+if (terminalPanel == null
+    || terminalPanel.FindControl<Button>("AddTerminalButton") == null)
+    throw new InvalidOperationException("The Terminal tab did not render its terminal host and add button.");
+mainViewModel.SelectedUtilityTabIndex = 0;
+Dispatcher.UIThread.RunJobs();
 var launcherButtons = window.GetVisualDescendants().OfType<Button>()
     .Where(button => button.Classes.Contains("launcher"))
     .ToList();
@@ -270,10 +281,12 @@ Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
 await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
-Console.WriteLine("[PASS] three semantic columns, two splitters, side minimum widths, permanent chat, no main TabStrip");
+Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, and permanent chat");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
 Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, title-bar commands, and search spacing");
 window.Close();
+await RenderTerminalPanelAsync(
+    Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-terminal.png"));
 
 {
     var connectorConfigService = new HeadlessConfigService(new AppConfig());
@@ -1767,6 +1780,114 @@ static void RunGitForWorkspaceTest(string workingDirectory, params string[] argu
     process.WaitForExit();
     if (process.ExitCode != 0)
         throw new InvalidOperationException($"Git workspace diff fixture failed: {standardError}");
+}
+
+static async Task TestTerminalPtyAsync()
+{
+    await using var manager = new TerminalSessionManager(
+        Serilog.Log.ForContext<TerminalSessionManager>());
+    var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    var session = await manager.CreateAsync(TerminalPanelViewModel.GlobalScopeKey, string.Empty);
+    if (!string.Equals(
+            Path.GetFullPath(session.WorkingDirectory),
+            Path.GetFullPath(userProfile),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        throw new InvalidOperationException("Global terminals must start in the current user's profile directory.");
+
+    const string marker = "ATHENA_PTY_READY_7B9A";
+    var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var output = new StringBuilder();
+    session.OutputReceived += (_, e) =>
+    {
+        output.Append(Encoding.UTF8.GetString(e.Data));
+        if (output.ToString().Contains(marker, StringComparison.Ordinal))
+            completion.TrySetResult();
+    };
+
+    var command = OperatingSystem.IsWindows()
+        ? $"Write-Output '{marker}'\r"
+        : $"printf '{marker}\\n'\r";
+    session.WriteAsync(Encoding.UTF8.GetBytes(command)).GetAwaiter().GetResult();
+    await completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+    var secondSession = await manager.CreateAsync(
+        TerminalPanelViewModel.GlobalScopeKey,
+        string.Empty);
+    const string secondMarker = "ATHENA_SECOND_PTY_READY_4C2D";
+    var secondCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var secondOutput = new StringBuilder();
+    secondSession.OutputReceived += (_, e) =>
+    {
+        secondOutput.Append(Encoding.UTF8.GetString(e.Data));
+        if (secondOutput.ToString().Contains(secondMarker, StringComparison.Ordinal))
+            secondCompletion.TrySetResult();
+    };
+    var secondCommand = OperatingSystem.IsWindows()
+        ? $"Write-Output '{secondMarker}'\r"
+        : $"printf '{secondMarker}\\n'\r";
+    await secondSession.WriteAsync(Encoding.UTF8.GetBytes(secondCommand));
+    await secondCompletion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+    await manager.CloseOthersAsync(TerminalPanelViewModel.GlobalScopeKey, session.Id);
+    if (manager.GetSessions(TerminalPanelViewModel.GlobalScopeKey).Count != 1)
+        throw new InvalidOperationException("Closing other terminals did not preserve exactly one session.");
+    await manager.CloseAllAsync(TerminalPanelViewModel.GlobalScopeKey);
+    if (manager.GetSessions(TerminalPanelViewModel.GlobalScopeKey).Count != 0)
+        throw new InvalidOperationException("Closing all terminals did not clear the active terminal pool.");
+
+    Console.WriteLine("[PASS] multiple PTYs start in the user profile, stream commands, and close their pool");
+}
+
+static async Task RenderTerminalPanelAsync(string outputPath)
+{
+    await using var manager = new TerminalSessionManager(
+        Serilog.Log.ForContext<TerminalSessionManager>());
+    using var viewModel = new TerminalPanelViewModel(manager);
+    viewModel.ActivateScope(null, null);
+    await viewModel.EnsureTerminalAsync();
+    await viewModel.NewTerminalCommand.ExecuteAsync(null);
+    var sessions = manager.GetSessions(TerminalPanelViewModel.GlobalScopeKey);
+    if (sessions.Count != 2)
+        throw new InvalidOperationException("The terminal add command did not create a second session.");
+    viewModel.SelectedSession = viewModel.Sessions[0];
+    Console.WriteLine("[TRACE] terminal visual: two sessions created");
+
+    viewModel.SelectedSession.Model.Feed(
+        $"PS {viewModel.ActiveWorkingDirectory}> Write-Output 'Athena terminal ready'\r\n" +
+        "Athena terminal ready\r\n");
+
+    var view = new TerminalPanelView { DataContext = viewModel };
+    var window = new Window
+    {
+        Content = view,
+        Width = 720,
+        Height = 320
+    };
+
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    Console.WriteLine("[TRACE] terminal visual: window shown and output rendered");
+
+    Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+    Console.WriteLine("[TRACE] terminal visual: capturing frame");
+    using var frame = window.CaptureRenderedFrame()
+                      ?? throw new InvalidOperationException("Headless terminal renderer returned no frame.");
+    await using (var output = File.Create(outputPath))
+        frame.Save(output, PngBitmapEncoderOptions.Default);
+    Console.WriteLine("[TRACE] terminal visual: frame saved");
+
+    var allClosed = false;
+    viewModel.AllTerminalsClosed += (_, _) => allClosed = true;
+    Task.Run(async () => await manager.CloseAllAsync(TerminalPanelViewModel.GlobalScopeKey))
+        .GetAwaiter()
+        .GetResult();
+    Dispatcher.UIThread.RunJobs();
+    Console.WriteLine("[TRACE] terminal visual: all sessions closed");
+    if (!allClosed || manager.GetSessions(TerminalPanelViewModel.GlobalScopeKey).Count != 0)
+        throw new InvalidOperationException("Close All terminals did not empty the pool and publish the empty state.");
+    window.Close();
+
+    Console.WriteLine($"[PASS] terminal panel rendered and close menus exercised at {outputPath}");
 }
 
 sealed class HeadlessPathService : IPlatformPathService

@@ -453,43 +453,65 @@
                                   ShowsPreview="False"
                                   DragCompleted="OnRightRowSplitterDragCompleted"/>
                     <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                        <Grid RowDefinitions="Auto,*">
-                            <Grid Margin="8,5" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                                <StackPanel Orientation="Horizontal" Spacing="5">
-                                    <PathIcon Data="{StaticResource AthenaIconActivity}" Width="15" Height="15" Foreground="{DynamicResource App.IconMutedForeground}"/>
-                                    <TextBlock Text="日志" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding GlobalErrorCount}" Foreground="{DynamicResource SemiRed5}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <ComboBox Grid.Column="1" SelectedItem="{Binding SelectedLogScope}" HorizontalAlignment="Left" Width="132">
-                                    <x:String>全部</x:String>
-                                    <x:String>当前工作区</x:String>
-                                    <x:String>当前对话</x:String>
-                                </ComboBox>
-                                <Button Grid.Column="2" Command="{Binding OpenDetailedLogsCommand}">
+                        <TabControl x:Name="UtilityTabControl"
+                                    SelectedIndex="{Binding SelectedUtilityTabIndex}">
+                            <TabItem>
+                                <TabItem.Header>
                                     <StackPanel Orientation="Horizontal" Spacing="5">
-                                        <PathIcon Data="{StaticResource AthenaIconDetails}" Width="14" Height="14" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                        <TextBlock Text="详细"/>
+                                        <PathIcon Data="{StaticResource AthenaIconActivity}"
+                                                  Width="15"
+                                                  Height="15"
+                                                  Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                        <TextBlock Text="{loc:Loc Logs.Header}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding GlobalErrorCount}"
+                                                   Foreground="{DynamicResource SemiRed5}"/>
                                     </StackPanel>
-                                </Button>
-                            </Grid>
-                            <ListBox x:Name="CompactLogsList"
-                                     Grid.Row="1"
-                                     ItemsSource="{Binding CompactLogEntries}"
-                                     Margin="5"
-                                     HorizontalAlignment="Stretch"
-                                     VerticalAlignment="Stretch"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:LogEntryViewModel">
-                                        <Grid ColumnDefinitions="64,48,*" Margin="2">
-                                            <TextBlock Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Level}" FontSize="{DynamicResource App.FontSize.Caption}"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Message}" FontSize="{DynamicResource App.FontSize.Caption}" TextTrimming="CharacterEllipsis"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
+                                </TabItem.Header>
+                                <Grid RowDefinitions="Auto,*">
+                                    <Button HorizontalAlignment="Right"
+                                            Margin="5,3,5,0"
+                                            Padding="7,3"
+                                            Command="{Binding OpenDetailedLogsCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <PathIcon Data="{StaticResource AthenaIconDetails}"
+                                                      Width="14"
+                                                      Height="14"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                            <TextBlock Text="详细"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <ListBox x:Name="CompactLogsList"
+                                             Grid.Row="1"
+                                             ItemsSource="{Binding CompactLogEntries}"
+                                             Margin="5"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Stretch"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:LogEntryViewModel">
+                                                <Grid ColumnDefinitions="64,48,*" Margin="2">
+                                                    <TextBlock Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Level}" FontSize="{DynamicResource App.FontSize.Caption}"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Message}" FontSize="{DynamicResource App.FontSize.Caption}" TextTrimming="CharacterEllipsis"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </TabItem>
+                            <TabItem>
+                                <TabItem.Header>
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <PathIcon Data="{StaticResource SemiIconTerminal}"
+                                                  Width="15"
+                                                  Height="15"
+                                                  Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                        <TextBlock Text="{loc:Loc Terminal.Header}" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </TabItem.Header>
+                                <views:TerminalPanelView DataContext="{Binding TerminalPanelViewModel}"/>
+                            </TabItem>
+                        </TabControl>
                     </Border>
                 </Grid>
             </Border>

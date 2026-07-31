@@ -788,6 +788,11 @@
     <system:String x:Key="Knowledge.ImportPickerTitle">选择要导入的 Markdown 文件</system:String>
     <system:String x:Key="Knowledge.ExportPickerTitle">选择导出目录</system:String>
     <system:String x:Key="Logs.ExportPickerTitle">导出日志</system:String>
+    <system:String x:Key="Terminal.Header">终端</system:String>
+    <system:String x:Key="Terminal.New">新建终端</system:String>
+    <system:String x:Key="Terminal.Close">关闭</system:String>
+    <system:String x:Key="Terminal.CloseOthers">关闭其他</system:String>
+    <system:String x:Key="Terminal.CloseAll">全部关闭</system:String>
     <system:String x:Key="Chat.Error.Generic">错误：{0}</system:String>
     <system:String x:Key="Config.RebuildVectorIndex">重新生成索引</system:String>
     <system:String x:Key="Config.VectorIndexRebuilding">正在重新生成向量索引…</system:String>

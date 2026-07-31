@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.TerminalPanelView"
+             x:DataType="vm:TerminalPanelViewModel">
+    <UserControl.Styles>
+        <Style Selector="ListBox.terminal-sessions">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="ListBox.terminal-sessions > ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="ListBox.terminal-sessions > ListBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+        </Style>
+        <Style Selector="Button.terminal-add">
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid ColumnDefinitions="*,34">
+        <Border x:Name="TerminalHost"
+                Background="{DynamicResource App.SectionBg}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderThickness="0,0,1,0"/>
+
+        <Border Grid.Column="1"
+                Background="{DynamicResource App.SectionBg}">
+            <Grid RowDefinitions="*,Auto">
+                <ListBox x:Name="TerminalSessionsList"
+                         Grid.Row="0"
+                         Classes="terminal-sessions"
+                         ItemsSource="{Binding Sessions}"
+                         SelectedItem="{Binding SelectedSession}"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TerminalSessionViewModel">
+                            <Border Height="30"
+                                    Background="Transparent"
+                                    ToolTip.Tip="{Binding Name}">
+                                <Grid>
+                                    <PathIcon Data="{StaticResource SemiIconTerminal}"
+                                              Width="13"
+                                              Height="13"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                    <Ellipse Width="4"
+                                             Height="4"
+                                             Margin="0,0,3,3"
+                                             HorizontalAlignment="Right"
+                                             VerticalAlignment="Bottom"
+                                             Fill="{DynamicResource SemiGreen5}"
+                                             IsVisible="{Binding IsRunning}"/>
+                                </Grid>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="{loc:Loc Terminal.Close}"
+                                                  Command="{Binding $parent[ListBox].((vm:TerminalPanelViewModel)DataContext).CloseTerminalCommand}"
+                                                  CommandParameter="{Binding .}"/>
+                                        <MenuItem Header="{loc:Loc Terminal.CloseOthers}"
+                                                  IsEnabled="{Binding $parent[ListBox].((vm:TerminalPanelViewModel)DataContext).HasMultipleSessions}"
+                                                  Command="{Binding $parent[ListBox].((vm:TerminalPanelViewModel)DataContext).CloseOtherTerminalsCommand}"
+                                                  CommandParameter="{Binding .}"/>
+                                        <Separator/>
+                                        <MenuItem Header="{loc:Loc Terminal.CloseAll}"
+                                                  Command="{Binding $parent[ListBox].((vm:TerminalPanelViewModel)DataContext).CloseAllTerminalsCommand}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Button x:Name="AddTerminalButton"
+                        Grid.Row="1"
+                        Classes="terminal-add"
+                        Command="{Binding NewTerminalCommand}"
+                        ToolTip.Tip="{loc:Loc Terminal.New}">
+                    <PathIcon Data="{StaticResource SemiIconPlus}"
+                              Width="13"
+                              Height="13"/>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

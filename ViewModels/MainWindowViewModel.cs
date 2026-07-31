@@ -76,12 +76,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
 
     [ObservableProperty]
-    private string _selectedLogScope = "全部";
-
-    [ObservableProperty]
     private int _globalErrorCount;
-
-    partial void OnSelectedLogScopeChanged(string value) => RebuildCompactLogs();
 
     public ObservableCollection<WorkspaceConversationGroupViewModel> ConversationGroups { get; } = new();
 
@@ -146,8 +141,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         _workspaceService?.SetActiveWorkspace(newValue.Workspace);
         if (Workbench != null) _ = Workbench.SetWorkspaceAsync(newValue.Workspace);
-        RebuildCompactLogs();
+        TerminalPanelViewModel.ActivateScope(
+            newValue.Workspace?.Id,
+            newValue.Workspace?.DirectoryPath);
+        if (SelectedUtilityTabIndex == 1)
+            _ = TerminalPanelViewModel.EnsureTerminalAsync();
     }
+
+    private void OnAllTerminalsClosed(object? sender, EventArgs e) =>
+        SelectedUtilityTabIndex = 0;
 
     #region Feature ViewModels
 
@@ -162,6 +164,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private LogsViewModel _logsViewModel;
+
+    public TerminalPanelViewModel TerminalPanelViewModel { get; }
+
+    [ObservableProperty]
+    private int _selectedUtilityTabIndex;
+
+    partial void OnSelectedUtilityTabIndexChanged(int value)
+    {
+        if (value == 1)
+            _ = TerminalPanelViewModel.EnsureTerminalAsync();
+    }
 
     #endregion
 
@@ -181,6 +194,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _tasksViewModel = new TasksViewModel();
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel();
         _logsViewModel = new LogsViewModel();
+        TerminalPanelViewModel = new TerminalPanelViewModel();
     }
 
     /// <summary>
@@ -216,7 +230,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         ApprovalQueueViewModel? approvalQueue = null,
         AppConfigurationSession? configurationSession = null,
         Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
-        Func<AppSettingsWindowViewModel>? appSettingsFactory = null)
+        Func<AppSettingsWindowViewModel>? appSettingsFactory = null,
+        TerminalPanelViewModel? terminalPanelViewModel = null)
     {
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
@@ -229,6 +244,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Workbench = workbench;
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
+        _logService = logService;
         _skillsConnectorsFactory = skillsConnectorsFactory;
         _appSettingsFactory = appSettingsFactory;
         if (_configurationSession != null)
@@ -250,6 +266,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             knowledgeMaintenanceService,
             configurationSession);
         _logsViewModel = new LogsViewModel(logService, localizationService, userInteractionService);
+        TerminalPanelViewModel = terminalPanelViewModel ?? new TerminalPanelViewModel();
+        TerminalPanelViewModel.ActivateScope(null, null);
+        TerminalPanelViewModel.AllTerminalsClosed += OnAllTerminalsClosed;
 
         if (archiveService != null)
         {
@@ -267,11 +286,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         _ = InitializeConversationTreeAsync();
         _ = RefreshCompactLogsAsync();
-        if (logService != null)
-        {
-            _logService = logService;
-            logService.LogsChanged += OnLogsChanged;
-        }
+        if (_logService != null)
+            _logService.LogsChanged += OnLogsChanged;
     }
 
     private void OnApprovalQueueChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshApprovalStates();
@@ -638,23 +654,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private async Task RefreshCompactLogsAsync()
     {
-        await LogsViewModel.RefreshLogsAsync();
-        RebuildCompactLogs();
-    }
-
-    private void RebuildCompactLogs()
-    {
-        GlobalErrorCount = LogsViewModel.LogEntries.Count(entry => entry.Level is "ERROR" or "FATAL");
-        var workspaceId = SelectedConversation?.Workspace?.Id;
-        var conversationId = SelectedConversation?.ConversationId;
-        var filtered = LogsViewModel.LogEntries.Where(entry => SelectedLogScope switch
+        if (_logService == null) return;
+        var result = await _logService.QueryLogsAsync(new LogQueryParams
         {
-            "当前工作区" => !string.IsNullOrWhiteSpace(workspaceId) && entry.Properties?.Contains(workspaceId, StringComparison.Ordinal) == true,
-            "当前对话" => !string.IsNullOrWhiteSpace(conversationId) && entry.Properties?.Contains(conversationId, StringComparison.Ordinal) == true,
-            _ => true
-        }).Take(200);
+            Page = 1,
+            PageSize = 200
+        });
+        var entries = result.Entries.Select(entry => new LogEntryViewModel(entry)).ToList();
+        GlobalErrorCount = entries.Count(entry => entry.Level is "ERROR" or "FATAL");
         CompactLogEntries.Clear();
-        foreach (var entry in filtered) CompactLogEntries.Add(entry);
+        foreach (var entry in entries)
+            CompactLogEntries.Add(entry);
     }
 
     [RelayCommand]
@@ -758,6 +768,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 "删除",
                 "取消")) return;
         if (!await _workspaceService.DeleteAsync(group.Workspace.Id)) return;
+        await TerminalPanelViewModel.CloseScopeAsync(group.Workspace.Id);
 
         foreach (var session in group.Conversations)
         {
@@ -860,5 +871,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         PinnedConversations.Clear();
         KnowledgeBaseViewModel.Dispose();
         LogsViewModel.Dispose();
+        TerminalPanelViewModel.AllTerminalsClosed -= OnAllTerminalsClosed;
+        TerminalPanelViewModel.Dispose();
     }
 }

@@ -788,6 +788,11 @@
     <system:String x:Key="Knowledge.ImportPickerTitle">Select Markdown files to import</system:String>
     <system:String x:Key="Knowledge.ExportPickerTitle">Select export folder</system:String>
     <system:String x:Key="Logs.ExportPickerTitle">Export logs</system:String>
+    <system:String x:Key="Terminal.Header">Terminal</system:String>
+    <system:String x:Key="Terminal.New">New terminal</system:String>
+    <system:String x:Key="Terminal.Close">Close</system:String>
+    <system:String x:Key="Terminal.CloseOthers">Close Others</system:String>
+    <system:String x:Key="Terminal.CloseAll">Close All</system:String>
     <system:String x:Key="Chat.Error.Generic">Error: {0}</system:String>
     <system:String x:Key="Config.RebuildVectorIndex">Rebuild vector index</system:String>
     <system:String x:Key="Config.VectorIndexRebuilding">Rebuilding vector index…</system:String>
