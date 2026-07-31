@@ -154,6 +154,15 @@
         <Style Selector="Button.window-caption.close:pointerover">
             <Setter Property="Background" Value="{DynamicResource SemiRed6}"/>
         </Style>
+        <Style Selector="GridSplitter.layout-splitter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBorder}"/>
+        </Style>
+        <Style Selector="GridSplitter.layout-splitter:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
+        </Style>
+        <Style Selector="GridSplitter.layout-splitter:pressed">
+            <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="40,*">
@@ -398,13 +407,13 @@
             </Border>
 
             <GridSplitter x:Name="LeftSideSplitter"
+                          Classes="layout-splitter"
                           Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
                           Width="5"
                           MinWidth="5"
-                          Background="Transparent"
                           ResizeDirection="Columns"
                           ResizeBehavior="PreviousAndNext"
-                          ShowsPreview="True"
+                          ShowsPreview="False"
                           DragCompleted="OnSideSplitterDragCompleted"/>
 
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
@@ -416,13 +425,13 @@
             </Border>
 
             <GridSplitter x:Name="RightSideSplitter"
+                          Classes="layout-splitter"
                           Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
                           Width="5"
                           MinWidth="5"
-                          Background="Transparent"
                           ResizeDirection="Columns"
                           ResizeBehavior="PreviousAndNext"
-                          ShowsPreview="True"
+                          ShowsPreview="False"
                           DragCompleted="OnSideSplitterDragCompleted"/>
 
             <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。 -->
@@ -434,8 +443,14 @@
                         <RowDefinition Height="5"/>
                         <RowDefinition Height="190" MinHeight="120"/>
                     </Grid.RowDefinitions>
-                    <views:WorkspaceWorkbenchView DataContext="{Binding Workbench}"/>
-                    <GridSplitter Grid.Row="1" Height="5" Background="{DynamicResource SemiColorBorder}"
+                    <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
+                                                  DataContext="{Binding Workbench}"/>
+                    <GridSplitter Grid.Row="1"
+                                  Classes="layout-splitter"
+                                  Height="5"
+                                  ResizeDirection="Rows"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
                                   DragCompleted="OnRightRowSplitterDragCompleted"/>
                     <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                         <Grid RowDefinitions="Auto,*">
@@ -457,7 +472,13 @@
                                     </StackPanel>
                                 </Button>
                             </Grid>
-                            <ListBox Grid.Row="1" ItemsSource="{Binding CompactLogEntries}" Margin="5">
+                            <ListBox x:Name="CompactLogsList"
+                                     Grid.Row="1"
+                                     ItemsSource="{Binding CompactLogEntries}"
+                                     Margin="5"
+                                     HorizontalAlignment="Stretch"
+                                     VerticalAlignment="Stretch"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:LogEntryViewModel">
                                         <Grid ColumnDefinitions="64,48,*" Margin="2">

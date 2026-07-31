@@ -19,19 +19,27 @@ namespace Athena.UI.Views;
 
 public partial class MainWindow : Window
 {
+    private const double WindowBaseMinWidth = 1180;
+    private const double ShellHorizontalMargin = 10;
     private const double LeftPanelMinWidth = 260;
     private const double RightPanelMinWidth = 360;
     private const double ConversationMinWidth = 540;
     private const double ShellSplitterWidth = 5;
+    private const double RightPanelHorizontalInset = 16;
+    private const double RightTopMinHeight = 280;
+    private const double RightLogMinHeight = 120;
+    private const double RightRowSplitterHeight = 5;
 
     private Image? _themeSplashImage;
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
     private Grid? _mainShellGrid;
+    private Grid? _rightPanelGrid;
     private ColumnDefinition? _leftShellColumn;
     private ColumnDefinition? _rightShellColumn;
     private RowDefinition? _rightTopRow;
     private RowDefinition? _rightLogRow;
+    private WorkspaceWorkbenchView? _workspaceWorkbench;
     private PathIcon? _titleBarMaximizeIcon;
     private PathIcon? _titleBarRestoreIcon;
     private MainWindowViewModel? _viewModel;
@@ -48,9 +56,12 @@ public partial class MainWindow : Window
         _mainShellGrid = this.FindControl<Grid>("MainShellGrid");
         _leftShellColumn = _mainShellGrid?.ColumnDefinitions[0];
         _rightShellColumn = _mainShellGrid?.ColumnDefinitions[4];
-        var rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
-        _rightTopRow = rightPanelGrid?.RowDefinitions[0];
-        _rightLogRow = rightPanelGrid?.RowDefinitions[2];
+        _rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
+        _rightTopRow = _rightPanelGrid?.RowDefinitions[0];
+        _rightLogRow = _rightPanelGrid?.RowDefinitions[2];
+        _workspaceWorkbench = this.FindControl<WorkspaceWorkbenchView>("WorkspaceWorkbench");
+        if (_workspaceWorkbench != null)
+            _workspaceWorkbench.MinimumRequiredWidthChanged += OnWorkbenchMinimumRequiredWidthChanged;
         DataContextChanged += OnMainDataContextChanged;
         SizeChanged += (_, _) => ApplySavedLayout();
         // 窗口显示之前就设置好 Splash 图片的初始状态：
@@ -134,6 +145,9 @@ public partial class MainWindow : Window
         if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
     }
 
+    private void OnWorkbenchMinimumRequiredWidthChanged(object? sender, EventArgs e) =>
+        ApplySavedLayout();
+
     private void OnOverflowMenuClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Control control && control.ContextFlyout is FlyoutBase flyout)
@@ -147,10 +161,24 @@ public partial class MainWindow : Window
     {
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _leftShellColumn == null || _rightShellColumn == null) return;
+        var semanticRightMinWidth = GetSemanticRightMinWidth();
+        MinWidth = Math.Max(
+            WindowBaseMinWidth,
+            ShellHorizontalMargin
+            + LeftPanelMinWidth
+            + ConversationMinWidth
+            + semanticRightMinWidth
+            + (2 * ShellSplitterWidth));
+        if (WindowState == WindowState.Normal
+            && Bounds.Width > 0
+            && Bounds.Width + 0.01 < MinWidth)
+        {
+            Width = MinWidth;
+        }
         var leftSemanticWidth = Math.Max(LeftPanelMinWidth, layout.LeftWidth);
-        var rightSemanticWidth = Math.Max(RightPanelMinWidth, layout.RightWidth);
-        var physicalLeftMinWidth = layout.SidePanelsSwapped ? RightPanelMinWidth : LeftPanelMinWidth;
-        var physicalRightMinWidth = layout.SidePanelsSwapped ? LeftPanelMinWidth : RightPanelMinWidth;
+        var rightSemanticWidth = Math.Max(semanticRightMinWidth, layout.RightWidth);
+        var physicalLeftMinWidth = layout.SidePanelsSwapped ? semanticRightMinWidth : LeftPanelMinWidth;
+        var physicalRightMinWidth = layout.SidePanelsSwapped ? LeftPanelMinWidth : semanticRightMinWidth;
         var physicalLeftWidth = layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth;
         var physicalRightWidth = layout.SidePanelsSwapped ? leftSemanticWidth : rightSemanticWidth;
 
@@ -163,8 +191,30 @@ public partial class MainWindow : Window
         _rightShellColumn.MinWidth = physicalRightMinWidth;
         _leftShellColumn.Width = new GridLength(physicalLeftWidth);
         _rightShellColumn.Width = new GridLength(physicalRightWidth);
-        if (_rightTopRow != null && layout.RightTopHeight > 0) _rightTopRow.Height = new GridLength(layout.RightTopHeight);
-        if (_rightLogRow != null) _rightLogRow.Height = new GridLength(Math.Max(120, 900 - layout.RightTopHeight));
+        ApplySavedLogHeight(layout.RightLogHeight);
+    }
+
+    private double GetSemanticRightMinWidth() =>
+        Math.Max(
+            RightPanelMinWidth,
+            (_workspaceWorkbench?.MinimumRequiredWidth ?? 0) + RightPanelHorizontalInset);
+
+    private void ApplySavedLogHeight(double preferredHeight)
+    {
+        if (_rightTopRow == null || _rightLogRow == null) return;
+        var availableHeight = _rightPanelGrid?.Bounds.Height ?? 0;
+        var maxLogHeight = availableHeight > 0
+            ? Math.Max(
+                RightLogMinHeight,
+                availableHeight - RightTopMinHeight - RightRowSplitterHeight)
+            : Math.Max(RightLogMinHeight, preferredHeight);
+        var logHeight = Math.Clamp(
+            preferredHeight > 0 ? preferredHeight : 190,
+            RightLogMinHeight,
+            maxLogHeight);
+
+        _rightTopRow.Height = new GridLength(1, GridUnitType.Star);
+        _rightLogRow.Height = new GridLength(logHeight);
     }
 
     private void ConstrainSideWidths(
@@ -219,8 +269,8 @@ public partial class MainWindow : Window
     private async void OnRightRowSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
     {
         var layout = _viewModel?.Config?.MainLayout;
-        if (layout == null || _viewModel == null || _rightTopRow == null) return;
-        layout.RightTopHeight = _rightTopRow.ActualHeight;
+        if (layout == null || _viewModel == null || _rightLogRow == null) return;
+        layout.RightLogHeight = Math.Max(RightLogMinHeight, _rightLogRow.ActualHeight);
         await _viewModel.SaveConfigurationNowAsync();
     }
 
