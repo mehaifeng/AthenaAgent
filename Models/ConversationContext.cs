@@ -16,6 +16,9 @@ public class ConversationContext
 
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
 
+    /// <summary>创建本次请求快照时对应的会话持久化修订号。</summary>
+    public long Revision { get; set; }
+
     /// <summary>当前工作区 ID（null 表示未绑定工作区）</summary>
     public string? WorkspaceId { get; set; }
 
@@ -46,10 +49,15 @@ public class ConversationContext
 
     public IReadOnlyList<ContextMessage> Messages => _messages.AsReadOnly();
 
-    public void AddUserMessage(string content, DateTime? timestamp = null, IEnumerable<ChatAttachment>? attachments = null)
+    public void AddUserMessage(
+        string content,
+        DateTime? timestamp = null,
+        IEnumerable<ChatAttachment>? attachments = null,
+        string? id = null)
     {
         _messages.Add(new ContextMessage
         {
+            Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
             Role = "user",
             Content = content,
             Timestamp = timestamp ?? DateTime.Now,
@@ -62,10 +70,12 @@ public class ConversationContext
         string? toolCallsJson = null,
         string? reasoningContent = null,
         IEnumerable<ChatAttachment>? attachments = null,
-        string? outputAudioReferenceId = null)
+        string? outputAudioReferenceId = null,
+        string? id = null)
     {
         _messages.Add(new ContextMessage
         {
+            Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
             Role = "assistant",
             Content = content,
             ToolCallsJson = toolCallsJson,
@@ -75,14 +85,25 @@ public class ConversationContext
         });
     }
 
-    public void AddToolMessage(string content, string? toolCallId = null)
+    public void AddToolMessage(string content, string? toolCallId = null, string? id = null)
     {
-        _messages.Add(new ContextMessage { Role = "tool", Content = content, ToolCallId = toolCallId });
+        _messages.Add(new ContextMessage
+        {
+            Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
+            Role = "tool",
+            Content = content,
+            ToolCallId = toolCallId
+        });
     }
 
-    public void AddSystemMessage(string content)
+    public void AddSystemMessage(string content, string? id = null)
     {
-        _messages.Add(new ContextMessage { Role = "system", Content = content });
+        _messages.Add(new ContextMessage
+        {
+            Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
+            Role = "system",
+            Content = content
+        });
     }
 
     public void Clear() => _messages.Clear();
@@ -92,6 +113,16 @@ public class ConversationContext
         if (count <= 0) return;
         int toRemove = Math.Min(count, _messages.Count);
         _messages.RemoveRange(0, toRemove);
+    }
+
+    public bool RemoveMessagesById(IReadOnlyCollection<string> messageIds)
+    {
+        if (messageIds.Count == 0) return false;
+        var ids = new HashSet<string>(messageIds, StringComparer.Ordinal);
+        if (ids.Count != messageIds.Count || ids.Any(id => _messages.All(message => message.Id != id)))
+            return false;
+        _messages.RemoveAll(message => ids.Contains(message.Id));
+        return true;
     }
 
     public void Reset()
@@ -106,6 +137,7 @@ public class ConversationContext
         {
             ToolsDeclarationTokenCount = ToolsDeclarationTokenCount,
             ConversationId = ConversationId,
+            Revision = Revision,
             WorkspaceId = WorkspaceId,
             WorkspaceDirectoryPath = WorkspaceDirectoryPath,
             WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath
@@ -119,7 +151,7 @@ public class ConversationContext
             switch (message.Role)
             {
                 case "user":
-                    clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments);
+                    clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments, message.Id);
                     break;
                 case "assistant":
                     clone.AddAssistantMessage(
@@ -127,13 +159,14 @@ public class ConversationContext
                         message.ToolCallsJson,
                         message.ReasoningContent,
                         message.Attachments,
-                        message.OutputAudioReferenceId);
+                        message.OutputAudioReferenceId,
+                        message.Id);
                     break;
                 case "tool":
-                    clone.AddToolMessage(message.Content, message.ToolCallId);
+                    clone.AddToolMessage(message.Content, message.ToolCallId, message.Id);
                     break;
                 case "system":
-                    clone.AddSystemMessage(message.Content);
+                    clone.AddSystemMessage(message.Content, message.Id);
                     break;
             }
         }
@@ -230,6 +263,7 @@ public class ConversationContext
 
 public class ContextMessage
 {
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string? ToolCallId { get; set; }

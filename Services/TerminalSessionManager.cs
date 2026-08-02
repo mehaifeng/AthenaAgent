@@ -154,8 +154,7 @@ public sealed class TerminalSessionManager : ITerminalSessionManager
 
     private static async Task DisposeSessionsAsync(IEnumerable<TerminalSession> sessions)
     {
-        foreach (var session in sessions)
-            await session.DisposeAsync();
+        await Task.WhenAll(sessions.Select(session => session.DisposeAsync().AsTask()));
     }
 
     private void RaiseSessionsChanged(string scopeKey) =>

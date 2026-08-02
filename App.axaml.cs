@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using System;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Avalonia.Markup.Xaml;
 using Athena.UI.ViewModels;
@@ -15,6 +16,8 @@ using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
+using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.Context;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
@@ -78,11 +81,8 @@ public partial class App : Application, IAsyncDisposable
     {
         StopTrayFlashing();
         IsQuitting = true;
-        PersistSessionState();
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
-        }
+        // 与 macOS Dock/⌘Q 退出共用同一套异步清理流程（保存会话、释放服务、最后 Shutdown）。
+        _ = ShutdownAndCleanupAsync();
     }
 
     private void ShowMainWindow()
@@ -100,6 +100,9 @@ public partial class App : Application, IAsyncDisposable
     private bool _disposed;
     private bool _shutdownCleanupInProgress;
     private bool _shutdownCleanupCompleted;
+
+    /// <summary>退出清理的兜底时限：超过后不再等待，直接继续退出流程，避免任何服务卡死阻塞退出。</summary>
+    private static readonly TimeSpan ShutdownCleanupTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// 开始托盘图标闪烁
@@ -232,6 +235,18 @@ public partial class App : Application, IAsyncDisposable
             var config = configService.Load();
             var initialTheme = config.Theme;
             SetTheme(initialTheme);
+
+            // 元数据目录先同步发布磁盘 last-known-good/内置 seed；网络刷新后台执行，不阻塞首屏。
+            var metadataCatalog = Services.GetService<IOpenRouterModelMetadataCatalog>();
+            if (metadataCatalog != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    var result = await metadataCatalog.RefreshAsync(force: false);
+                    if (result.Status == Athena.UI.Models.ModelCatalogRefreshStatus.Failed)
+                        Log.Warning("OpenRouter 元数据后台刷新失败，继续使用本地目录: {Message}", result.Message);
+                });
+            }
 
             // 更新托盘菜单文本（NativeMenu 不支持 XAML 绑定）
             UpdateTrayMenuText();
@@ -401,26 +416,7 @@ public partial class App : Application, IAsyncDisposable
         e.Cancel = true;
         if (_shutdownCleanupInProgress) return;
 
-        _shutdownCleanupInProgress = true;
-        PersistSessionState();
-        if (Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel viewModel)
-            viewModel.Dispose();
-
-        try
-        {
-            await DisposeAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "释放应用服务时出错");
-        }
-        finally
-        {
-            _shutdownCleanupInProgress = false;
-            _shutdownCleanupCompleted = true;
-            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                desktop.Shutdown();
-        }
+        await ShutdownAndCleanupAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -439,19 +435,97 @@ public partial class App : Application, IAsyncDisposable
             disposable.Dispose();
     }
 
-    private void PersistSessionState()
+    private async Task PersistSessionStateAsync()
     {
         try
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
                 && desktop.MainWindow?.DataContext is MainWindowViewModel viewModel)
             {
-                viewModel.PersistSessionState();
+                await viewModel.PersistSessionStateAsync();
             }
         }
         catch (Exception ex)
         {
             Log.Error(ex, "保存主对话会话状态失败");
+        }
+    }
+
+    /// <summary>
+    /// 统一的退出清理流程：保存会话状态、释放主窗口 ViewModel 与 DI 容器，最后真正关闭应用。
+    /// 全程带限时兜底——任何服务卡死（如 MCP/浏览器/PTY 释放）都不会阻止应用退出。
+    /// 必须在 UI 线程上调用（OnShutdownRequested / 托盘退出均满足）。
+    /// </summary>
+    private async Task ShutdownAndCleanupAsync()
+    {
+        if (_shutdownCleanupInProgress || _shutdownCleanupCompleted) return;
+        _shutdownCleanupInProgress = true;
+        try
+        {
+            var cleanup = CleanupAsync();
+            var winner = await Task.WhenAny(cleanup, Task.Delay(ShutdownCleanupTimeout));
+            if (winner != cleanup)
+            {
+                Log.Warning(
+                    "退出清理超过 {TimeoutSeconds} 秒未完成，强制继续退出流程",
+                    ShutdownCleanupTimeout.TotalSeconds);
+                _ = cleanup.ContinueWith(
+                    static (task, _) =>
+                    {
+                        if (task.IsFaulted)
+                            Log.Error(task.Exception, "退出清理后台任务最终失败");
+                    },
+                    System.Threading.Tasks.TaskScheduler.Default);
+            }
+            else
+            {
+                try
+                {
+                    await cleanup;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "退出清理失败");
+                }
+            }
+        }
+        finally
+        {
+            _shutdownCleanupInProgress = false;
+            _shutdownCleanupCompleted = true;
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                desktop.Shutdown();
+        }
+    }
+
+    private async Task CleanupAsync()
+    {
+        try
+        {
+            await PersistSessionStateAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "保存主对话会话状态失败");
+        }
+
+        try
+        {
+            if (Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel viewModel)
+                viewModel.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "释放主窗口 ViewModel 时出错");
+        }
+
+        try
+        {
+            await DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "释放应用服务时出错");
         }
     }
 
@@ -746,12 +820,6 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<IPromptService>(),
                 Log.ForContext<ConversationTitleGenerator>(),
                 sp.GetService<ILocalizationService>()));
-        services.AddSingleton<IContextCompressionService>(sp =>
-            new ContextCompressionService(
-                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
-                sp.GetRequiredService<IPromptService>(),
-                Log.ForContext<ContextCompressionService>(),
-                sp.GetService<ILocalizationService>()));
         services.AddSingleton<IWorkspaceKnowledgeCompressor>(sp =>
             new WorkspaceKnowledgeCompressor(
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
@@ -987,6 +1055,47 @@ public partial class App : Application, IAsyncDisposable
 
         // 模型列表查询服务（无状态，按需用各字段的 BaseUrl/Key 临时构造客户端）
         services.AddSingleton<IModelCatalogService, ModelCatalogService>();
+        services.AddSingleton<ModelIdentityMatcher>();
+        services.AddSingleton<ModelMetadataResolver>();
+        services.AddSingleton<IModelMetadataResolver>(sp => sp.GetRequiredService<ModelMetadataResolver>());
+        services.AddSingleton<ModelContextPolicyResolver>();
+        services.AddSingleton<IModelContextPolicyResolver>(sp => sp.GetRequiredService<ModelContextPolicyResolver>());
+        services.AddSingleton<IProviderErrorClassifier, ProviderErrorClassifier>();
+        services.AddSingleton<OpenRouterModelMetadataStore>(sp =>
+            new OpenRouterModelMetadataStore(
+                sp.GetRequiredService<IPlatformPathService>(),
+                Log.ForContext<OpenRouterModelMetadataStore>()));
+        services.AddSingleton<IOpenRouterModelMetadataCatalog>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            return new OpenRouterModelMetadataCatalog(
+                new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                sp.GetRequiredService<OpenRouterModelMetadataStore>(),
+                OpenRouterSeedCatalog.Load(),
+                Log.ForContext<OpenRouterModelMetadataCatalog>(),
+                apiKeyProvider: () => configService.Load().AiModels.Providers
+                    .FirstOrDefault(provider =>
+                        Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out var uri)
+                        && (uri.Host.Equals("openrouter.ai", StringComparison.OrdinalIgnoreCase)
+                            || uri.Host.EndsWith(".openrouter.ai", StringComparison.OrdinalIgnoreCase)))
+                    ?.ApiKey);
+        });
+        services.AddSingleton<IContextPolicyProvider, ContextPolicyProvider>();
+        services.AddSingleton<TokenFingerprintService>();
+        services.AddSingleton<IContextRequestPreparer, ContextRequestPreparer>();
+        services.AddSingleton<ICompressionPlanner, CompressionPlanner>();
+        services.AddSingleton<ICompressionTextGenerator, OpenAiCompressionTextGenerator>();
+        services.AddSingleton<ICompressionCandidateGenerator>(sp =>
+            new CompressionCandidateGenerator(
+                sp.GetRequiredService<ICompressionTextGenerator>(),
+                sp.GetRequiredService<IPromptService>(),
+                Log.ForContext<CompressionCandidateGenerator>()));
+        services.AddSingleton<ICompressionValidator, CompressionValidator>();
+        services.AddSingleton<ITokenCalibrationService>(sp =>
+            new TokenCalibrationService(
+                sp.GetRequiredService<IPlatformPathService>(),
+                sp.GetRequiredService<TokenFingerprintService>(),
+                Log.ForContext<TokenCalibrationService>()));
 
         services.AddSingleton<OpenAiModelRuntimeFactory>();
         // AI 对话服务（单例，共享配置）
@@ -994,7 +1103,6 @@ public partial class App : Application, IAsyncDisposable
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var promptService = sp.GetRequiredService<IPromptService>();
-            var contextCompressionService = sp.GetService<IContextCompressionService>();
             var locationService = sp.GetService<ILocalizationService>();
             var attachmentStoreService = sp.GetService<IAttachmentStoreService>();
             var conversationSessionAccessor = sp.GetRequiredService<IConversationSessionAccessor>();
@@ -1002,6 +1110,16 @@ public partial class App : Application, IAsyncDisposable
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
             var mcpToolHost = sp.GetService<Athena.UI.Services.Mcp.IMcpToolHost>();
             var skillCatalog = sp.GetService<ISkillCatalogService>();
+            var metadataCatalog = sp.GetService<IOpenRouterModelMetadataCatalog>();
+            var metadataResolver = sp.GetService<IModelMetadataResolver>();
+            var contextPolicyResolver = sp.GetService<IModelContextPolicyResolver>();
+            var providerErrorClassifier = sp.GetService<IProviderErrorClassifier>();
+            var requestPreparer = sp.GetService<IContextRequestPreparer>();
+            var tokenCalibration = sp.GetService<ITokenCalibrationService>();
+            var compressionPlanner = sp.GetService<ICompressionPlanner>();
+            var compressionCandidateGenerator = sp.GetService<ICompressionCandidateGenerator>();
+            var compressionValidator = sp.GetService<ICompressionValidator>();
+            var contextPolicyProvider = sp.GetService<IContextPolicyProvider>();
             var config = configService.Load();
             var mainProvider = config.AiModels.Providers.FirstOrDefault(provider =>
                 provider.Id == config.AiModels.MainConversation.ProviderId);
@@ -1009,7 +1127,28 @@ public partial class App : Application, IAsyncDisposable
                 mainProvider?.ProviderPreset ?? "(not configured)",
                 config.AiModels.MainConversation.Model,
                 true);
-            var service = new OpenAIChatService(config, promptService, contextCompressionService, locationService, attachmentStoreService, conversationSessionAccessor, workspaceService, configService, functionRegistry, mcpToolHost, skillCatalog);
+            var service = new OpenAIChatService(
+                config,
+                promptService,
+                null,
+                locationService,
+                attachmentStoreService,
+                conversationSessionAccessor,
+                workspaceService,
+                configService,
+                functionRegistry,
+                mcpToolHost,
+                skillCatalog,
+                metadataCatalog,
+                metadataResolver,
+                contextPolicyResolver,
+                providerErrorClassifier,
+                requestPreparer,
+                tokenCalibration,
+                compressionPlanner,
+                compressionCandidateGenerator,
+                compressionValidator,
+                contextPolicyProvider);
             return service;
         });
 
@@ -1030,7 +1169,6 @@ public partial class App : Application, IAsyncDisposable
             var chatService = sp.GetService<IChatService>();
             var configService = sp.GetService<IConfigService>();
             var taskScheduler = sp.GetService<ITaskScheduler>();
-            var contextCompressionService = sp.GetService<IContextCompressionService>();
             var promptService = sp.GetService<IPromptService>();
             var logService = sp.GetService<ILogService>();
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
@@ -1056,6 +1194,7 @@ public partial class App : Application, IAsyncDisposable
             var approvalQueue = sp.GetRequiredService<ApprovalQueueViewModel>();
             var configurationSession = sp.GetRequiredService<AppConfigurationSession>();
             var terminalPanelViewModel = sp.GetRequiredService<TerminalPanelViewModel>();
+            var contextPolicyProvider = sp.GetRequiredService<IContextPolicyProvider>();
             _ = sp.GetRequiredService<AppConfigurationApplier>();
             Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
                 () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
@@ -1066,7 +1205,7 @@ public partial class App : Application, IAsyncDisposable
                 chatService,
                 configService,
                 taskScheduler,
-                contextCompressionService,
+                null,
                 promptService,
                 logService,
                 knowledgeBaseService,
@@ -1093,7 +1232,8 @@ public partial class App : Application, IAsyncDisposable
                 configurationSession,
                 skillsConnectorsFactory,
                 appSettingsFactory,
-                terminalPanelViewModel);
+                terminalPanelViewModel,
+                contextPolicyProvider);
         });
 
         Log.Debug("依赖注入服务配置完成");

@@ -318,6 +318,27 @@ public partial class WorkspaceWorkbenchView : UserControl
         }
     }
 
+    private void OnGitChangeDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is not WorkspaceWorkbenchViewModel viewModel
+            || e.Source is not StyledElement source)
+        {
+            return;
+        }
+
+        // 差异文件改为双击才在文件编辑区切换 diff 视图；
+        // 单击仅更新选中高亮。双击行内操作按钮时不触发切换。
+        for (var element = source; element != null; element = element.Parent as StyledElement)
+        {
+            if (element is Button) return;
+            if (element is ListBoxItem { DataContext: GitChangeFileViewModel change })
+            {
+                viewModel.OpenGitChangeCommand.Execute(change);
+                return;
+            }
+        }
+    }
+
     private void OnRenameTextBoxPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Visual.IsVisibleProperty && sender is TextBox { IsVisible: true } textBox)

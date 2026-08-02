@@ -13,7 +13,6 @@ public sealed class AppConfigurationApplier : IDisposable
     private readonly IChatService? _chatService;
     private readonly IEmbeddingService? _embeddingService;
     private readonly IKnowledgeBaseService? _knowledgeBaseService;
-    private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
     private AppConfig? _lastChatConfig;
@@ -28,14 +27,12 @@ public sealed class AppConfigurationApplier : IDisposable
         IChatService? chatService,
         IEmbeddingService? embeddingService,
         IKnowledgeBaseService? knowledgeBaseService,
-        ITokenService? tokenService,
         ILocalizationService? localizationService)
     {
         _configService = configService;
         _chatService = chatService;
         _embeddingService = embeddingService;
         _knowledgeBaseService = knowledgeBaseService;
-        _tokenService = tokenService;
         _localizationService = localizationService;
         _logger = Log.ForContext<AppConfigurationApplier>();
 
@@ -81,8 +78,6 @@ public sealed class AppConfigurationApplier : IDisposable
                 App.SetTheme(nextThemeIdentity);
             if (_localizationService?.CurrentLanguage != config.Language)
                 _localizationService?.SwitchLanguage(config.Language);
-            if (_tokenService != null && _tokenService.MaxTokens != config.MaxContextTokens)
-                _tokenService.MaxTokens = config.MaxContextTokens;
         }
 
         if (Dispatcher.UIThread.CheckAccess()) ApplyOnUiThread();

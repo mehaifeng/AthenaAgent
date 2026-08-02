@@ -94,6 +94,7 @@ public sealed class AppConfigurationSession : IDisposable
         TrackPropertyChanges(Current, (_, args) =>
         {
             if (args.PropertyName is nameof(AppConfig.AiModels)
+                or nameof(AppConfig.ContextPolicy)
                 or nameof(AppConfig.McpServers)
                 or nameof(AppConfig.AudioProviderSettings)
                 or nameof(AppConfig.ImageProviderSettings)
@@ -110,6 +111,7 @@ public sealed class AppConfigurationSession : IDisposable
         });
 
         TrackAiModels(Current.AiModels);
+        TrackObservable(Current.ContextPolicy);
         TrackMcpServers(Current.McpServers);
         TrackProviderSettings(Current.AudioProviderSettings);
         TrackProviderSettings(Current.ImageProviderSettings);
@@ -133,6 +135,11 @@ public sealed class AppConfigurationSession : IDisposable
             RebuildTracking();
             RequestSave();
         });
+        TrackCollection(models.ModelMetadataProfiles, () =>
+        {
+            RebuildTracking();
+            RequestSave();
+        });
         foreach (var provider in models.Providers)
         {
             TrackPropertyChanges(provider, (_, args) =>
@@ -149,6 +156,30 @@ public sealed class AppConfigurationSession : IDisposable
         }
 
         foreach (var role in GetRoleSettings(models)) TrackObservable(role);
+        foreach (var profile in models.ModelMetadataProfiles)
+        {
+            TrackPropertyChanges(profile, (_, args) =>
+            {
+                if (args.PropertyName == nameof(ProviderModelMetadataProfile.Overrides))
+                {
+                    RebuildTracking();
+                }
+                RequestSave();
+            });
+            TrackPropertyChanges(profile.Overrides, (_, args) =>
+            {
+                if (args.PropertyName is nameof(ModelMetadataOverrides.InputModalities)
+                    or nameof(ModelMetadataOverrides.OutputModalities))
+                {
+                    RebuildTracking();
+                }
+                RequestSave();
+            });
+            if (profile.Overrides.InputModalities != null)
+                TrackCollection(profile.Overrides.InputModalities, RequestSave);
+            if (profile.Overrides.OutputModalities != null)
+                TrackCollection(profile.Overrides.OutputModalities, RequestSave);
+        }
     }
 
     private void TrackMcpServers(ObservableCollection<McpServerConfig> servers)
@@ -287,8 +318,7 @@ public sealed class AppConfigurationSession : IDisposable
 
     private static void Normalize(AppConfig config)
     {
-        if (config.CompressionThreshold > config.MaxContextTokens)
-            config.CompressionThreshold = config.MaxContextTokens;
+        AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeBrowser(config);
     }
 

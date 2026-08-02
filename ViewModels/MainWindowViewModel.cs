@@ -29,6 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IConversationArchiveService? _conversationArchiveService;
     private readonly IConversationArchiveStore? _conversationStore;
     private readonly IWorkspaceService? _workspaceService;
+    private readonly IContextPolicyProvider? _contextPolicyProvider;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly AppConfigurationSession? _configurationSession;
     private readonly IPlatformPathService? _platformPathService;
@@ -231,13 +232,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         AppConfigurationSession? configurationSession = null,
         Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
         Func<AppSettingsWindowViewModel>? appSettingsFactory = null,
-        TerminalPanelViewModel? terminalPanelViewModel = null)
+        TerminalPanelViewModel? terminalPanelViewModel = null,
+        IContextPolicyProvider? contextPolicyProvider = null)
     {
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
         _conversationArchiveService = archiveService;
         _conversationStore = conversationStore;
         _workspaceService = workspaceService;
+        _contextPolicyProvider = contextPolicyProvider;
         _userInteractionService = userInteractionService;
         _platformPathService = platformPathService;
         _taskScheduler = taskScheduler;
@@ -255,7 +258,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Orchestrator = subAgentOrchestrator;
 
         // Initialize the live feature view models.
-        _mainConversationViewModel = new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator);
+        // Production fallback/initial sessions must receive the same transactional compression
+        // pipeline as sessions loaded into the tree. The factory is the composition root for that
+        // per-session state; design-time and isolated tests may still use the lightweight fallback.
+        _mainConversationViewModel = chatSessionFactory?.Create()
+            ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
         _tasksViewModel = new TasksViewModel(taskScheduler, localizationService);
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel(
             fileSystemService,
@@ -448,12 +455,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             workspaceService: _workspaceService,
             userInteractionService: _userInteractionService);
 
-    public void PersistSessionState()
+    public async Task PersistSessionStateAsync()
     {
+        // 会话持久化包含真正的异步 I/O（SQLite），且 PersistNowAsync 在非 UI 线程上
+        // 需要回到 UI 线程捕获快照。退出流程必须在 UI 线程上 await 本方法：UI 线程在
+        // 每次 await 处让出，分发器才能泵送 InvokeAsync 回调，避免“UI 线程同步等待 +
+        // 线程池任务等待 UI 线程取快照”的互等死锁（旧实现 GetAwaiter().GetResult()
+        // 会把 UI 线程阻塞死，导致应用退出只能强杀）。
         var saves = ConversationGroups
             .SelectMany(group => group.Conversations)
             .Select(session => session.PersistNowAsync());
-        Task.WhenAll(saves).GetAwaiter().GetResult();
+        await Task.WhenAll(saves);
     }
 
     private async Task InitializeConversationTreeAsync()
@@ -726,6 +738,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         };
         group.RevealRequested += (_, _) => RevealWorkspace(group);
         group.CopyPathRequested += async (_, _) => await CopyWorkspacePathAsync(group);
+        group.ContextSettingsRequested += async (_, _) => await OpenWorkspaceContextSettingsAsync(group);
         group.DeleteRequested += async (_, _) => await DeleteWorkspaceAsync(group);
     }
 
@@ -757,6 +770,23 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 ? new ProcessStartInfo("open", $"\"{group.DirectoryPath}\"") { UseShellExecute = true }
                 : new ProcessStartInfo("xdg-open", $"\"{group.DirectoryPath}\"") { UseShellExecute = true };
         Process.Start(start);
+    }
+
+    private async Task OpenWorkspaceContextSettingsAsync(WorkspaceConversationGroupViewModel group)
+    {
+        if (group.Workspace == null
+            || _workspaceService == null
+            || _contextPolicyProvider == null
+            || Config == null
+            || MainOwner is not { } owner)
+            return;
+        var viewModel = new WorkspaceContextSettingsViewModel(
+            group.Workspace,
+            Config,
+            _contextPolicyProvider,
+            _workspaceService,
+            _localizationService);
+        await new WorkspaceContextSettingsWindow { DataContext = viewModel }.ShowDialog(owner);
     }
 
     private async Task DeleteWorkspaceAsync(WorkspaceConversationGroupViewModel group)

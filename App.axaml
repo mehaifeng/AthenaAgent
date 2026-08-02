@@ -148,6 +148,7 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#2E2E30" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#7F7F7F" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#FFD33D" />
+                    <SolidColorBrush x:Key="Chat.LoadingDotBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonForeground" Color="#D9D9DB" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonBackground" Color="#00FFFFFF" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonBorderBrush" Color="#00FFFFFF" />
@@ -273,6 +274,7 @@
                     <SolidColorBrush x:Key="Chat.AssistantBubbleBg" Color="#F2F3F5" />
                     <SolidColorBrush x:Key="Chat.TimestampFg" Color="#86909C" />
                     <SolidColorBrush x:Key="Chat.ArchivedFg" Color="#D29E00" />
+                    <SolidColorBrush x:Key="Chat.LoadingDotBrush" Color="#111111" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonForeground" Color="#5C6068" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonBackground" Color="#00000000" />
                     <SolidColorBrush x:Key="CodeBlock.ToolButtonBorderBrush" Color="#00000000" />
@@ -305,6 +307,7 @@
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
             <conv:OpacityConverter x:Key="OpacityConverter"/>
+            <conv:InverseOpacityConverter x:Key="InverseOpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
             <conv:SubAgentStateToBrushConverter x:Key="SubAgentStateToBrushConverter"/>
@@ -367,6 +370,8 @@
 
         <Style Selector="lmd|MarkdownRenderer">
             <Setter Property="TextElement.FontFamily" Value="{DynamicResource MainFontFamily}"/>
+            <!-- 对话气泡中的 Markdown 正文显式跟随全局正文大小，避免受组件默认字号影响。 -->
+            <Setter Property="TextElement.FontSize" Value="{DynamicResource App.FontSize.Body}"/>
 
             <Style Selector="^ Span.Emphasis.Subscript">
                 <Setter Property="BaselineAlignment" Value="Subscript"/>
@@ -398,6 +403,7 @@
 
         <Style Selector="lmd|MarkdownTextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
         </Style>
 
         <Style Selector="lmd|CodeBlock">
@@ -561,10 +567,12 @@
 
         <Style Selector="lmd|MarkdownRenderer TextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
         </Style>
 
         <Style Selector="lmd|MarkdownRenderer SelectableTextBlock">
             <Setter Property="FontFamily" Value="{DynamicResource MainFontFamily}"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
         </Style>
 
         <!-- 旋转动画 -->

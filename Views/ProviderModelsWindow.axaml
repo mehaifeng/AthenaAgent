@@ -1,12 +1,13 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:u="https://irihi.tech/ursa"
+        xmlns:loc="using:Athena.UI.Markup"
         xmlns:vm="using:Athena.UI.ViewModels"
         xmlns:models="using:Athena.UI.Models"
         x:Class="Athena.UI.Views.ProviderModelsWindow"
         x:DataType="vm:ProviderModelsViewModel"
-        Title="供应商模型"
-        Width="1120" Height="780"
+        Title="{loc:Loc ProviderModels.Title}"
+        Width="1280" Height="820"
         MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="5" ColumnDefinitions="280,5,*">
@@ -19,7 +20,7 @@
                 <Border Padding="10"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,0,0,1">
-                    <Button Content="＋ 添加供应商"
+                    <Button Content="{loc:Loc ProviderModels.AddProvider}"
                             Command="{Binding AddProviderCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
@@ -62,9 +63,10 @@
                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                    Opacity="0.65"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding Models.Count, StringFormat={}{0} 个模型}"
-                                                   FontSize="{DynamicResource App.FontSize.Body}"
-                                                   Opacity="0.8"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding Models.Count}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.8"/>
+                                            <TextBlock Text="{loc:Loc ProviderModels.ModelCount}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.8"/>
+                                        </StackPanel>
                                     </StackPanel>
                                     <Button Grid.Column="1"
                                             Classes="provider-item-delete"
@@ -76,7 +78,8 @@
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Padding="4,4"
-                                            ToolTip.Tip="删除供应商">
+                                            ToolTip.Tip="{loc:Loc ProviderModels.DeleteProvider}"
+                                            AutomationProperties.Name="{loc:Loc ProviderModels.DeleteProvider}">
                                         <PathIcon Data="{StaticResource SemiIconDelete}"
                                                   Width="14"
                                                   Height="14"
@@ -101,8 +104,8 @@
                               HorizontalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14"
                                 Margin="16"
-                                MinWidth="600"
-                                MaxWidth="760"
+                                MinWidth="660"
+                                MaxWidth="1020"
                                 HorizontalAlignment="Center">
                 <Border Padding="16"
                         BorderThickness="1"
@@ -110,21 +113,21 @@
                         Background="{DynamicResource App.SectionBg}"
                         CornerRadius="8">
                     <StackPanel Spacing="9">
-                        <TextBlock Text="连接"
+                        <TextBlock Text="{loc:Loc ProviderModels.Connection}"
                                    FontSize="{DynamicResource App.FontSize.Title}"
                                    FontWeight="SemiBold"/>
-                        <TextBlock Text="显示名称"/>
+                        <TextBlock Text="{loc:Loc ProviderModels.DisplayName}"/>
                         <TextBox Text="{Binding SelectedProvider.DisplayName, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="预设"/>
+                        <TextBlock Text="{loc:Loc ProviderModels.Preset}"/>
                         <TextBox Text="{Binding SelectedProvider.ProviderPreset, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="OpenAI / OpenRouter / Custom"/>
-                        <TextBlock Text="API Root"/>
+                                 PlaceholderText="{loc:Loc ProviderModels.PresetPlaceholder}"/>
+                        <TextBlock Text="{loc:Loc ProviderModels.ApiRoot}"/>
                         <TextBox Text="{Binding SelectedProvider.BaseUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="API Key"/>
+                        <TextBlock Text="{loc:Loc ProviderModels.ApiKey}"/>
                         <TextBox Text="{Binding SelectedProvider.ApiKey, UpdateSourceTrigger=PropertyChanged}"
                                  PasswordChar="●"/>
                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <u:IconButton Content="刷新模型"
+                            <u:IconButton Content="{loc:Loc ProviderModels.RefreshInventory}"
                                           Command="{Binding RefreshModelsCommand}"
                                           CommandParameter="{Binding SelectedProvider}"
                                           IsLoading="{Binding IsRefreshing}"/>
@@ -133,10 +136,10 @@
                                        Foreground="{DynamicResource SemiOrange5}"/>
                         </StackPanel>
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                            <TextBox PlaceholderText="手动模型 ID"
+                            <TextBox PlaceholderText="{loc:Loc ProviderModels.ManualModelId}"
                                      Text="{Binding ManualModelId}"/>
                             <Button Grid.Column="1"
-                                    Content="添加"
+                                    Content="{loc:Loc Common.Add}"
                                     Command="{Binding AddManualModelCommand}"/>
                         </Grid>
                     </StackPanel>
@@ -148,7 +151,156 @@
                         Background="{DynamicResource App.SectionBg}"
                         CornerRadius="8">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="模型分工"
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="{loc:Loc ProviderModels.Metadata.Title}"
+                                           FontSize="{DynamicResource App.FontSize.Title}"
+                                           FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding MetadataCatalogText}" Opacity="0.62" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <u:IconButton Grid.Column="1"
+                                          Content="{loc:Loc ProviderModels.Metadata.Refresh}"
+                                          Command="{Binding RefreshMetadataCatalogCommand}"
+                                          IsLoading="{Binding IsMetadataRefreshing}"
+                                          AutomationProperties.Name="{loc:Loc ProviderModels.Metadata.Refresh}"/>
+                            <u:IconButton Grid.Column="2"
+                                          Content="{loc:Loc ProviderModels.Metadata.ExportCsv}"
+                                          Command="{Binding ExportMetadataCsvCommand}"
+                                          AutomationProperties.Name="{loc:Loc ProviderModels.Metadata.ExportCsv}"/>
+                        </Grid>
+                        <TextBlock Text="{Binding MetadataStatusText}" IsVisible="{Binding HasMetadataStatusText}" TextWrapping="Wrap"/>
+                        <Grid ColumnDefinitions="2*,*,*" ColumnSpacing="8">
+                            <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.Search}"
+                                     Text="{Binding MetadataSearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding CapabilityFilters}" SelectedItem="{Binding SelectedCapabilityFilter}">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <ComboBox Grid.Column="2" ItemsSource="{Binding MatchFilters}" SelectedItem="{Binding SelectedMatchFilter}">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="310,8,*" Height="560">
+                            <ListBox x:Name="MetadataModelList"
+                                     Grid.Column="0"
+                                     ItemsSource="{Binding MetadataModels}"
+                                     SelectedItem="{Binding SelectedMetadataModel}"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ProviderModelMetadataItemViewModel">
+                                        <Grid Margin="4" RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="{Binding ExternalModelId}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ExternalModelId}"/>
+                                            <TextBlock Grid.Row="1" Text="{Binding OpenRouterModelId}" Opacity="0.65"
+                                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OpenRouterModelId}"/>
+                                            <TextBlock Grid.Row="2" Text="{Binding ContextWindowText}" Opacity="0.65"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding MatchStatusText}" Margin="8,0,0,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Border Grid.Column="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                                <ScrollViewer Padding="14" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel DataContext="{Binding SelectedMetadataModel}" Spacing="12">
+                                        <TextBlock Text="{loc:Loc ProviderModels.Metadata.Empty}"
+                                                   IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"
+                                                   Opacity="0.6"/>
+                                        <StackPanel Spacing="6" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                            <TextBlock Text="{loc:Loc ProviderModels.Metadata.Identity}" FontWeight="SemiBold"/>
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                                <SelectableTextBlock Text="{Binding ExternalModelId}" TextWrapping="Wrap"/>
+                                                <Button Grid.Column="1" Content="{loc:Loc Common.Copy}"
+                                                        Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
+                                                        CommandParameter="{Binding ExternalModelId}"/>
+                                            </Grid>
+                                            <TextBlock Text="{Binding AvailabilityText}"/>
+                                            <SelectableTextBlock Text="{Binding OpenRouterModelId}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding OpenRouterModelName}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding MatchDetails}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+
+                                        <StackPanel Spacing="5" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                            <TextBlock Text="{loc:Loc ProviderModels.Metadata.ResolvedFacts}" FontWeight="SemiBold"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.ContextWindow}"/><TextBlock Text="{Binding ContextWindowText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.MaxOutput}"/><TextBlock Text="{Binding MaxCompletionText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Tools}"/><TextBlock Text="{Binding ToolsText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Reasoning}"/><TextBlock Text="{Binding ReasoningText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.StructuredOutputs}"/><TextBlock Text="{Binding StructuredOutputText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Input}"/><TextBlock Text="{Binding InputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Output}"/><TextBlock Text="{Binding OutputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
+                                            <TextBlock Text="{Binding WarningText}" IsVisible="{Binding HasWarnings}" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource SemiOrange5}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Spacing="7" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                            <TextBlock Text="{loc:Loc ProviderModels.Metadata.Binding}" FontWeight="SemiBold"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button Content="{loc:Loc ProviderModels.Metadata.Automatic}" Command="{Binding UseAutomaticMatchCommand}"/>
+                                                <Button Content="{loc:Loc ProviderModels.Metadata.CustomOnly}" Command="{Binding UseCustomOnlyCommand}"/>
+                                            </StackPanel>
+                                            <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding SelectedPinnedModel}"
+                                                      PlaceholderText="{loc:Loc ProviderModels.Metadata.PinPlaceholder}">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate x:DataType="models:OpenRouterModelMetadata">
+                                                        <TextBlock Text="{Binding Id}" ToolTip.Tip="{Binding Name}"/>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <ItemsControl ItemsSource="{Binding MatchCandidates}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="models:ModelMatchCandidate">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="5">
+                                                            <TextBlock Text="{Binding OpenRouterModelId, StringFormat='• {0}'}" ToolTip.Tip="{Binding Rule}" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Column="1" Text="{loc:Loc ProviderModels.Metadata.Score}" Opacity="0.6"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding Score}" Opacity="0.6"/>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+
+                                        <StackPanel Spacing="7" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="{loc:Loc ProviderModels.Metadata.Overrides}" FontWeight="SemiBold"/>
+                                                <Button Grid.Column="1" Content="{loc:Loc ProviderModels.Metadata.ResetOverrides}"
+                                                        Command="{Binding ResetOverridesCommand}"/>
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                                <StackPanel><TextBlock Text="{loc:Loc ProviderModels.Metadata.ContextWindow}"/><NumericUpDown Value="{Binding ContextWindowOverride}" Minimum="1024"/></StackPanel>
+                                                <StackPanel Grid.Column="1"><TextBlock Text="{loc:Loc ProviderModels.Metadata.MaxOutput}"/><NumericUpDown Value="{Binding MaxCompletionOverride}" Minimum="1"/></StackPanel>
+                                            </Grid>
+                                            <CheckBox Content="{loc:Loc ProviderModels.Metadata.Tools}" IsThreeState="True" IsChecked="{Binding SupportsToolsOverride}"/>
+                                            <CheckBox Content="{loc:Loc ProviderModels.Metadata.Reasoning}" IsThreeState="True" IsChecked="{Binding SupportsReasoningOverride}"/>
+                                            <CheckBox Content="{loc:Loc ProviderModels.Metadata.StructuredOutputs}" IsThreeState="True" IsChecked="{Binding SupportsStructuredOutputOverride}"/>
+                                            <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.InputPlaceholder}" Text="{Binding InputModalitiesOverride}"/>
+                                            <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.OutputPlaceholder}" Text="{Binding OutputModalitiesOverride}"/>
+                                        </StackPanel>
+
+                                        <Expander Header="{loc:Loc ProviderModels.Metadata.RawJson}" IsVisible="{Binding HasRawOpenRouterJson}">
+                                            <StackPanel Spacing="6">
+                                                <Button Content="{loc:Loc Common.Copy}" HorizontalAlignment="Left"
+                                                        Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
+                                                        CommandParameter="{Binding RawOpenRouterJson}"/>
+                                                <SelectableTextBlock Text="{Binding RawOpenRouterJson}" FontFamily="Menlo,Consolas,monospace"
+                                                                     TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Padding="16"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                        Background="{DynamicResource App.SectionBg}"
+                        CornerRadius="8">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{loc:Loc ProviderModels.Roles}"
                                    FontSize="{DynamicResource App.FontSize.Title}"
                                    FontWeight="SemiBold"/>
                         <ItemsControl ItemsSource="{Binding Roles}">

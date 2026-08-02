@@ -9,6 +9,11 @@ namespace Athena.UI.Models;
 /// </summary>
 public class ConversationHistoryItem
 {
+    public int SchemaVersion { get; set; } = ConversationPersistenceSnapshot.CurrentSchemaVersion;
+
+    /// <summary>会话语义 Revision；存储层只允许更大的 Revision 覆盖。</summary>
+    public long Revision { get; set; }
+
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
 
     /// <summary>
@@ -25,6 +30,10 @@ public class ConversationHistoryItem
     /// 上下文压缩摘要 (LLM 压缩后的结果)
     /// </summary>
     public string? ContextSummary { get; set; }
+
+    public string? OrphanedLegacySummary { get; set; }
+
+    public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
     /// <summary>
     /// 创建时间

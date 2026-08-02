@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
+        x:Class="Athena.UI.Views.WorkspaceContextSettingsWindow"
+        x:DataType="vm:WorkspaceContextSettingsViewModel"
+        Title="{loc:Loc WorkspaceContext.Title}"
+        Width="820" Height="720"
+        MinWidth="640" MinHeight="520"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Padding="20,16" BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Spacing="3">
+                <TextBlock Text="{loc:Loc WorkspaceContext.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc WorkspaceContext.Description}" TextWrapping="Wrap" Opacity="0.62"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" Padding="20">
+            <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10" Margin="4,0">
+                    <TextBlock Grid.Column="1" Text="{loc:Loc WorkspaceContext.Value}" Opacity="0.55"/>
+                    <TextBlock Grid.Column="2" Text="{loc:Loc WorkspaceContext.Effective}" Opacity="0.55"/>
+                    <TextBlock Grid.Column="3" Text="{loc:Loc WorkspaceContext.Source}" Opacity="0.55"/>
+                </Grid>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.ContextCap}" IsChecked="{Binding OverrideContextCap}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="1024" Maximum="10000000" Value="{Binding ContextCapTokens}" IsEnabled="{Binding OverrideContextCap}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveContextCapText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding ContextCapSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.AutoCompress}" IsChecked="{Binding OverrideAutoCompress}"/>
+                        <CheckBox Grid.Column="1" Content="{loc:Loc Common.Enabled}" IsChecked="{Binding AutoCompress}" IsEnabled="{Binding OverrideAutoCompress}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveAutoCompressText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding AutoCompressSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.Threshold}" IsChecked="{Binding OverrideCompressionThreshold}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="1" Maximum="10000000" Value="{Binding CompressionThresholdTokens}" IsEnabled="{Binding OverrideCompressionThreshold}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveCompressionThresholdText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding CompressionThresholdSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.KeepRecent}" IsChecked="{Binding OverrideKeepRecentRounds}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="1" Maximum="50" Value="{Binding KeepRecentRounds}" IsEnabled="{Binding OverrideKeepRecentRounds}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveKeepRecentRoundsText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding KeepRecentRoundsSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.TargetSummary}" IsChecked="{Binding OverrideTargetSummaryTokens}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="128" Maximum="65536" Value="{Binding TargetSummaryTokens}" IsEnabled="{Binding OverrideTargetSummaryTokens}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveTargetSummaryTokensText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding TargetSummaryTokensSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.KnowledgeBudget}" IsChecked="{Binding OverrideWorkspaceKnowledgeBudget}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="0" Maximum="100000" Value="{Binding WorkspaceKnowledgeTokenBudget}" IsEnabled="{Binding OverrideWorkspaceKnowledgeBudget}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveWorkspaceKnowledgeText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding WorkspaceKnowledgeSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" Background="{DynamicResource App.SectionBg}" CornerRadius="7">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="{loc:Loc WorkspaceContext.Preview}" FontWeight="SemiBold"/>
+                        <SelectableTextBlock Text="{Binding EffectivePolicyText}" FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SourceText}" TextWrapping="Wrap" Opacity="0.62"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" TextWrapping="Wrap" Foreground="{DynamicResource SemiRed6}"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Padding="16" BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelCommand}"/>
+                <Button Content="{loc:Loc Common.Save}" Command="{Binding SaveCommand}" Theme="{StaticResource AccentButtonTheme}" IsEnabled="{Binding CanSave}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -20,16 +20,22 @@
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
-                <StackPanel Spacing="16">
-                    <TextBlock Text="{loc:Loc Settings.Context.Conversation}"
+                <StackPanel Spacing="12">
+                    <TextBlock Text="{loc:Loc Settings.Context.CurrentModel}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Context.MaxParallel}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
-                                       Minimum="1"
-                                       Maximum="16"
-                                       Value="{Binding State.Config.MainConversationMaxParallel}"/>
+                    <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                        <TextBlock Text="{loc:Loc Settings.Context.MainModel}" Opacity="0.62"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MainModelText}" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Row="1" Text="{loc:Loc Settings.Context.ContextWindow}" Opacity="0.62"/>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding ContextWindowText}"/>
+                            <TextBlock Text="{Binding ContextWindowSourceText}" Opacity="0.62"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="2" Text="{loc:Loc Settings.Context.MatchStatus}" Opacity="0.62"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding MatchStatusText}"/>
+                        <TextBlock Grid.Row="3" Text="{loc:Loc Settings.Context.MetadataCatalog}" Opacity="0.62"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding CatalogText}"/>
                     </Grid>
                 </StackPanel>
             </Border>
@@ -40,26 +46,70 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="{loc:Loc Settings.Context.Budget}"
+                    <TextBlock Text="{loc:Loc Settings.Context.GlobalPolicy}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <CheckBox Content="{loc:Loc Settings.Context.AutoCompress}"
-                              IsChecked="{Binding State.Config.AutoCompress}"/>
-                    <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Context.MaxTokens}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
-                                       Minimum="1000"
-                                       Maximum="2000000"
-                                       Value="{Binding State.Config.MaxContextTokens}"/>
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.Mode}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding ContextPolicyModes}"
+                                  SelectedItem="{Binding State.Config.ContextPolicy.Mode}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,180,*">
+                    <Grid ColumnDefinitions="300,220,*" IsVisible="{Binding IsCustomCap}">
+                        <TextBlock Text="{loc:Loc Settings.Context.CustomCap}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1024"
+                                       Maximum="10000000"
+                                       Value="{Binding State.Config.ContextPolicy.CustomCapTokens}"/>
+                    </Grid>
+                    <CheckBox Content="{loc:Loc Settings.Context.AutoCompress}"
+                              IsChecked="{Binding State.Config.ContextPolicy.AutoCompress}"/>
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.ThresholdMode}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding CompressionThresholdModes}"
+                                  SelectedItem="{Binding State.Config.ContextPolicy.CompressionThresholdMode}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,220,*" IsVisible="{Binding IsCustomThreshold}">
                         <TextBlock Text="{loc:Loc Settings.Context.CompressionThreshold}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
-                                       Minimum="1000"
-                                       Maximum="2000000"
-                                       Value="{Binding State.Config.CompressionThreshold}"/>
+                                       Minimum="1"
+                                       Maximum="10000000"
+                                       Value="{Binding State.Config.ContextPolicy.CustomCompressionThresholdTokens}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,180,*">
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.KeepRecentRounds}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="50"
+                                       Value="{Binding State.Config.ContextPolicy.KeepRecentRounds}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.TargetSummaryTokens}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="128"
+                                       Maximum="65536"
+                                       Value="{Binding State.Config.ContextPolicy.TargetSummaryTokens}"/>
+                    </Grid>
+                    <TextBlock Text="{Binding EffectivePolicyText}"
+                               FontFamily="Menlo,Consolas,monospace"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{loc:Loc Settings.Context.UnknownAssumption}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc Settings.Context.WorkspaceKnowledge}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="300,220,*">
                         <TextBlock Text="{loc:Loc Settings.Context.WorkspaceKnowledgeBudget}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="0"

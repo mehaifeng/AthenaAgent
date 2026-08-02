@@ -17,6 +17,7 @@ public sealed class TerminalSession : IAsyncDisposable
 {
     private const int InitialColumns = 100;
     private const int InitialRows = 24;
+    private static readonly TimeSpan ReaderShutdownTimeout = TimeSpan.FromSeconds(2);
 
     private readonly IPtyConnection _connection;
     private readonly CancellationTokenSource _readCancellation = new();
@@ -154,7 +155,49 @@ public sealed class TerminalSession : IAsyncDisposable
         }
 
         IsRunning = false;
+        try
+        {
+            _connection.ReaderStream.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug(ex, "Terminal output stream disposal failed");
+        }
         _connection.Dispose();
+
+        var readerCompleted = await Task.WhenAny(
+                _readTask,
+                Task.Delay(ReaderShutdownTimeout))
+            .ConfigureAwait(false) == _readTask;
+        if (readerCompleted)
+        {
+            try
+            {
+                await _readTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            _readCancellation.Dispose();
+        }
+        else
+        {
+            // Porta.Pty 1.0.7 can leave a native macOS read pending after both
+            // cancellation and connection disposal. The process and native
+            // connection are already closed, so never let UI shutdown wait
+            // without a bound; release the CTS if the pending read later exits.
+            _logger.Warning(
+                "Terminal output reader did not stop within {TimeoutMs} ms after connection disposal: {TerminalName}",
+                ReaderShutdownTimeout.TotalMilliseconds,
+                Name);
+            _ = DisposeReadCancellationWhenReaderCompletesAsync();
+        }
+
+        _writeGate.Dispose();
+    }
+
+    private async Task DisposeReadCancellationWhenReaderCompletesAsync()
+    {
         try
         {
             await _readTask.ConfigureAwait(false);
@@ -162,9 +205,10 @@ public sealed class TerminalSession : IAsyncDisposable
         catch (OperationCanceledException)
         {
         }
-
-        _writeGate.Dispose();
-        _readCancellation.Dispose();
+        finally
+        {
+            _readCancellation.Dispose();
+        }
     }
 
     private async Task ReadOutputAsync(CancellationToken cancellationToken)

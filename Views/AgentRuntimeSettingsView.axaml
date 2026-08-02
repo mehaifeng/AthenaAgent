@@ -21,6 +21,25 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc Settings.Agent.ConversationExecution}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.MaxParallel}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="16"
+                                       Value="{Binding State.Config.MainConversationMaxParallel}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
                     <TextBlock Text="{loc:Loc Settings.Agent.SubAgents}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>

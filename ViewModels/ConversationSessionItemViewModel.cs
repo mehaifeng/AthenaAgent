@@ -9,13 +9,16 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 
 namespace Athena.UI.ViewModels;
 
-public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposable
+public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposable, IConversationCompressionCommitter
 {
     private readonly IConversationArchiveStore? _store;
     private CancellationTokenSource? _saveDebounce;
+    private readonly SemaphoreSlim _persistGate = new(1, 1);
+    private bool _metadataTrackingEnabled;
 
     public event EventHandler? DeleteRequested;
     public event EventHandler? ForkRequested;
@@ -34,6 +37,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         _store = store;
         Chat.PropertyChanged += OnChatPropertyChanged;
         Chat.Messages.CollectionChanged += OnMessagesChanged;
+        Chat.PersistenceStateChanged += OnPersistenceStateChanged;
+        Chat.AttachCompressionCommitter(this);
+        Dispatcher.UIThread.Post(() => _metadataTrackingEnabled = true);
     }
 
     public MainConversationViewModel Chat { get; }
@@ -194,6 +200,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     partial void OnIsPinnedChanged(bool value)
     {
+        if (!_metadataTrackingEnabled) return;
+        Chat.MarkPersistenceMetadataChanged();
         ScheduleSave();
         PinChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -214,7 +222,11 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [RelayCommand]
     private void Rename(string? title)
     {
-        if (!string.IsNullOrWhiteSpace(title)) Title = title.Trim();
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            Title = title.Trim();
+            Chat.MarkPersistenceMetadataChanged();
+        }
         ScheduleSave();
     }
 
@@ -281,26 +293,202 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         ScheduleSave();
     }
 
+    private void OnPersistenceStateChanged(object? sender, EventArgs e)
+    {
+        UpdatedAt = DateTime.Now;
+        _ = PersistObservedAsync();
+    }
+
+    private async Task PersistObservedAsync()
+    {
+        try
+        {
+            await PersistNowAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Conversation persistence failed: {ex}");
+        }
+    }
+
     public async Task PersistNowAsync()
     {
         if (_store == null || (Chat.Messages.Count == 0 && string.IsNullOrWhiteSpace(Chat.InputText))) return;
-        var item = new ConversationHistoryItem
+        ConversationPersistenceSnapshot snapshot;
+        if (Dispatcher.UIThread.CheckAccess())
         {
-            Id = HistoryId,
-            ConversationId = Chat.ConversationId,
-            Summary = Title,
-            CreatedAt = Chat.Messages.FirstOrDefault()?.Timestamp ?? UpdatedAt,
-            UpdatedAt = UpdatedAt,
-            MessageCount = Chat.Messages.Count(ConversationArchiveStore.IsCountableMessage),
-            Messages = ConversationPersistenceHelper.CloneMessages(Chat.Messages),
-            WorkspaceId = Workspace?.Id,
-            Draft = Chat.InputText,
-            IsPinned = IsPinned,
-            RuntimeStatus = Chat.IsSending ? "interrupted" : "idle",
-            ForkedFromConversationId = ForkedFromConversationId,
-            ForkedFromHistoryId = ForkedFromHistoryId
+            snapshot = Chat.CapturePersistenceSnapshot(HistoryId, Title, UpdatedAt, IsPinned, Workspace?.Id);
+        }
+        else
+        {
+            snapshot = await Dispatcher.UIThread.InvokeAsync(
+                () => Chat.CapturePersistenceSnapshot(HistoryId, Title, UpdatedAt, IsPinned, Workspace?.Id));
+        }
+
+        var item = ToHistoryItem(snapshot);
+        // 快照已在 UI 线程捕获完成，后续 SQLite 写入无需再回 UI 线程；
+        // 加上 ConfigureAwait(false) 避免保存批次串行钉在 UI 线程上。
+        await _persistGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await _store.SaveAsync(item).ConfigureAwait(false);
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
+    }
+
+    public async Task<CompressionCommitResult> CommitCompressionAsync(
+        CompressionTransition transition,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store == null)
+            return CompressionCommitResult.Failed(
+                CompressionCommitStatus.PersistenceUnavailable,
+                Chat.Revision,
+                "Conversation persistence is unavailable; compression was not applied.");
+
+        var commitUpdatedAt = DateTime.Now;
+        (ConversationPersistenceSnapshot? Snapshot, string Error) prepared;
+        ConversationHistoryItem? item = null;
+        await _persistGate.WaitAsync(cancellationToken);
+        try
+        {
+            // The immutable after-snapshot belongs inside the per-session writer gate. A queued
+            // ordinary save or a tool-result publication must not make a pre-captured transition
+            // stale while it is waiting for the durable writer.
+            cancellationToken.ThrowIfCancellationRequested();
+            prepared = Dispatcher.UIThread.CheckAccess()
+                ? Chat.PrepareCompressionCommitSnapshot(
+                    transition, HistoryId, Title, commitUpdatedAt, IsPinned, Workspace?.Id)
+                : await Dispatcher.UIThread.InvokeAsync(() => Chat.PrepareCompressionCommitSnapshot(
+                    transition, HistoryId, Title, commitUpdatedAt, IsPinned, Workspace?.Id));
+            if (prepared.Snapshot == null)
+                return CompressionCommitResult.Failed(
+                    CompressionCommitStatus.Stale,
+                    Chat.Revision,
+                    prepared.Error);
+
+            item = ToHistoryItem(prepared.Snapshot);
+            await _store.SaveAsync(item);
+        }
+        catch (Exception ex)
+        {
+            return CompressionCommitResult.Failed(
+                ex is ConversationRevisionConflictException
+                    ? CompressionCommitStatus.Stale
+                    : CompressionCommitStatus.PersistenceFailed,
+                Chat.Revision,
+                ex.Message);
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
+
+        var committedSnapshot = prepared.Snapshot!;
+        var published = Dispatcher.UIThread.CheckAccess()
+            ? Chat.PublishCompressionCommit(transition, committedSnapshot.Revision, HistoryId)
+            : await Dispatcher.UIThread.InvokeAsync(() =>
+                Chat.PublishCompressionCommit(transition, committedSnapshot.Revision, HistoryId));
+        if (!published)
+        {
+            // The durable snapshot is authoritative. If publication raced with an unexpected
+            // local mutation, reload exactly what was committed rather than leaving split state.
+            if (Dispatcher.UIThread.CheckAccess()) Chat.RestorePersistedConversation(item!);
+            else await Dispatcher.UIThread.InvokeAsync(() => Chat.RestorePersistedConversation(item!));
+        }
+        UpdatedAt = commitUpdatedAt;
+        return CompressionCommitResult.Committed(committedSnapshot.Revision);
+    }
+
+    public async Task<CompressionCommitResult> CommitUndoCompressionAsync(
+        CompressionUndoTransition transition,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store == null)
+            return CompressionCommitResult.Failed(
+                CompressionCommitStatus.PersistenceUnavailable,
+                Chat.Revision,
+                "Conversation persistence is unavailable; compression undo was not applied.");
+
+        var commitUpdatedAt = DateTime.Now;
+        (ConversationPersistenceSnapshot? Snapshot, string Error) prepared;
+        ConversationHistoryItem? item = null;
+        await _persistGate.WaitAsync(cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            prepared = Dispatcher.UIThread.CheckAccess()
+                ? Chat.PrepareCompressionUndoSnapshot(
+                    transition, HistoryId, Title, commitUpdatedAt, IsPinned, Workspace?.Id)
+                : await Dispatcher.UIThread.InvokeAsync(() => Chat.PrepareCompressionUndoSnapshot(
+                    transition, HistoryId, Title, commitUpdatedAt, IsPinned, Workspace?.Id));
+            if (prepared.Snapshot == null)
+                return CompressionCommitResult.Failed(
+                    CompressionCommitStatus.Stale,
+                    Chat.Revision,
+                    prepared.Error);
+
+            item = ToHistoryItem(prepared.Snapshot);
+            await _store.SaveAsync(item);
+        }
+        catch (Exception ex)
+        {
+            return CompressionCommitResult.Failed(
+                ex is ConversationRevisionConflictException
+                    ? CompressionCommitStatus.Stale
+                    : CompressionCommitStatus.PersistenceFailed,
+                Chat.Revision,
+                ex.Message);
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
+
+        var committedSnapshot = prepared.Snapshot!;
+        var published = Dispatcher.UIThread.CheckAccess()
+            ? Chat.PublishCompressionUndo(transition, committedSnapshot.Revision, HistoryId)
+            : await Dispatcher.UIThread.InvokeAsync(() =>
+                Chat.PublishCompressionUndo(transition, committedSnapshot.Revision, HistoryId));
+        if (!published)
+        {
+            if (Dispatcher.UIThread.CheckAccess()) Chat.RestorePersistedConversation(item!);
+            else await Dispatcher.UIThread.InvokeAsync(() => Chat.RestorePersistedConversation(item!));
+        }
+        UpdatedAt = commitUpdatedAt;
+        return CompressionCommitResult.Committed(committedSnapshot.Revision);
+    }
+
+    private static ConversationHistoryItem ToHistoryItem(ConversationPersistenceSnapshot snapshot)
+    {
+        return new ConversationHistoryItem
+        {
+            SchemaVersion = snapshot.SchemaVersion,
+            Revision = snapshot.Revision,
+            Id = snapshot.HistoryId!,
+            ConversationId = snapshot.ConversationId,
+            Summary = snapshot.Title,
+            CreatedAt = snapshot.CreatedAt,
+            UpdatedAt = snapshot.UpdatedAt,
+            MessageCount = snapshot.Messages.Count(ConversationArchiveStore.IsCountableMessage),
+            Messages = snapshot.Messages,
+            ContextSummary = snapshot.ContextSummary,
+            OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
+            CompressionHistory = snapshot.CompressionHistory,
+            WorkspaceId = snapshot.WorkspaceId,
+            Draft = snapshot.Draft,
+            IsPinned = snapshot.IsPinned,
+            RuntimeStatus = snapshot.RuntimeStatus,
+            ForkedFromConversationId = snapshot.ForkedFromConversationId,
+            ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
+            ForkedAtMessageId = snapshot.ForkedAtMessageId
         };
-        await _store.SaveAsync(item);
     }
 
     private void ScheduleSave()
@@ -314,7 +502,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             try
             {
                 await Task.Delay(450, cts.Token);
-                await PersistNowAsync();
+                await PersistObservedAsync();
             }
             catch (OperationCanceledException)
             {
@@ -326,9 +514,11 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     {
         Chat.PropertyChanged -= OnChatPropertyChanged;
         Chat.Messages.CollectionChanged -= OnMessagesChanged;
+        Chat.PersistenceStateChanged -= OnPersistenceStateChanged;
         _saveDebounce?.Cancel();
         _saveDebounce?.Dispose();
         _saveDebounce = null;
+        _persistGate.Dispose();
         Chat.Dispose();
     }
 }
@@ -372,6 +562,7 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     public event EventHandler? RenameCommitted;
     public event EventHandler? RevealRequested;
     public event EventHandler? CopyPathRequested;
+    public event EventHandler? ContextSettingsRequested;
     public event EventHandler? DeleteRequested;
 
     [RelayCommand]
@@ -408,6 +599,12 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     private void RequestCopyPath()
     {
         CopyPathRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void RequestContextSettings()
+    {
+        if (IsWorkspace) ContextSettingsRequested?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

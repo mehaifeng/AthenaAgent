@@ -6,6 +6,8 @@ using OpenAI.Embeddings;
 using System;
 using System.ClientModel;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -73,6 +75,60 @@ public sealed class OpenAiModelRuntimeFactory
         {
             return default;
         }
+    }
+
+    internal static OpenAiModelExecutionPolicyIdentity ComputeExecutionPolicyIdentity(
+        AppConfig config,
+        AiModelRole role,
+        ResolvedModelMetadata metadata,
+        ResolvedContextPolicy policy,
+        string catalogRevision,
+        int requestFormatVersion)
+    {
+        var settings = GetRoleSettings(config, role);
+        var profile = config.AiModels.ModelMetadataProfiles.FirstOrDefault(candidate =>
+            string.Equals(candidate.ProviderId, settings.ProviderId, StringComparison.Ordinal)
+            && string.Equals(candidate.ExternalModelId, settings.Model, StringComparison.Ordinal));
+        return new OpenAiModelExecutionPolicyIdentity(
+            settings.ProviderId,
+            settings.Model,
+            ComputeProfileRevision(profile),
+            catalogRevision,
+            policy.ContextWindowTokens,
+            policy.OutputReserveTokens,
+            requestFormatVersion);
+    }
+
+    private static ModelRoleSettings GetRoleSettings(AppConfig config, AiModelRole role) => role switch
+    {
+        AiModelRole.MainConversation => config.AiModels.MainConversation,
+        AiModelRole.TitleGeneration => config.AiModels.TitleGeneration,
+        AiModelRole.ContextCompression => config.AiModels.ContextCompression,
+        AiModelRole.Approval => config.AiModels.Approval,
+        AiModelRole.Embedding => config.AiModels.Embedding,
+        AiModelRole.BrowserAgent => config.AiModels.BrowserAgent,
+        AiModelRole.SubAgent => config.AiModels.SubAgent,
+        AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
+        AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
+    };
+
+    internal static string ComputeProfileRevision(ProviderModelMetadataProfile? profile)
+    {
+        if (profile == null) return "none";
+        var values = string.Join('\u001f',
+            profile.ProviderId,
+            profile.ExternalModelId,
+            profile.BindingMode,
+            profile.PinnedOpenRouterModelId ?? string.Empty,
+            profile.Overrides.ContextWindowTokens,
+            profile.Overrides.MaxCompletionTokens,
+            profile.Overrides.SupportsTools,
+            profile.Overrides.SupportsReasoning,
+            profile.Overrides.SupportsStructuredOutput,
+            string.Join('\u001e', profile.Overrides.InputModalities ?? []),
+            string.Join('\u001e', profile.Overrides.OutputModalities ?? []));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(values))).ToLowerInvariant();
     }
 
     private static double GetInternalTemperature(AiModelRole role) => role switch
@@ -159,6 +215,15 @@ internal readonly record struct OpenAiModelClientIdentity(
     string? ApiKey,
     string? Model,
     int Timeout);
+
+public readonly record struct OpenAiModelExecutionPolicyIdentity(
+    string ProviderId,
+    string ExternalModelId,
+    string ProfileRevision,
+    string CatalogRevision,
+    long EffectiveContextWindow,
+    long EffectiveMaxOutput,
+    int RequestFormatVersion);
 
 public readonly record struct EffectiveOpenAiModel(
     string ProviderPreset,

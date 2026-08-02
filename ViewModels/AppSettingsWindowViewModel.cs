@@ -17,19 +17,32 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         AboutViewModel about,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        IOpenRouterModelMetadataCatalog? metadataCatalog = null,
+        IModelMetadataResolver? metadataResolver = null,
+        IModelContextPolicyResolver? contextPolicyResolver = null,
+        ITokenCalibrationService? tokenCalibration = null,
+        IUserInteractionService? userInteractionService = null)
     {
         _localizationService = localizationService;
         _state = new AppSettingsState(configurationSession);
         General = new GeneralSettingsViewModel(_state);
-        ConversationContext = new ConversationContextSettingsViewModel(_state);
+        ConversationContext = new ConversationContextSettingsViewModel(
+            _state,
+            metadataCatalog,
+            metadataResolver,
+            contextPolicyResolver,
+            localizationService);
         ToolApproval = new ToolApprovalSettingsViewModel(_state, localizationService);
         AgentRuntime = new AgentRuntimeSettingsViewModel(_state);
         RuntimeDiagnostics = new RuntimeDiagnosticsViewModel(
             _state,
             browserService,
             browserVisionService,
-            localizationService);
+            localizationService,
+            tokenCalibration,
+            metadataCatalog,
+            userInteractionService);
 
         Sections =
         [
@@ -62,6 +75,7 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         if (_localizationService != null)
             _localizationService.LanguageChanged -= OnLanguageChanged;
         ToolApproval.Dispose();
+        ConversationContext.Dispose();
         RuntimeDiagnostics.Dispose();
         _state.Dispose();
     }

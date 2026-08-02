@@ -7,7 +7,6 @@ public sealed class ChatSessionFactory
 {
     private readonly IChatService _chatService;
     private readonly IConfigService _configService;
-    private readonly IContextCompressionService _compressionService;
     private readonly IPromptService _promptService;
     private readonly ITaskScheduler _taskScheduler;
     private readonly IFunctionRegistry _functionRegistry;
@@ -22,11 +21,14 @@ public sealed class ChatSessionFactory
     private readonly IConversationSessionAccessor _sessionAccessor;
     private readonly IUserInteractionService _userInteractionService;
     private readonly ConversationExecutionCoordinator _executionCoordinator;
+    private readonly IContextPolicyProvider _contextPolicyProvider;
+    private readonly ICompressionPlanner _compressionPlanner;
+    private readonly ICompressionCandidateGenerator _compressionCandidateGenerator;
+    private readonly ICompressionValidator _compressionValidator;
 
     public ChatSessionFactory(
         IChatService chatService,
         IConfigService configService,
-        IContextCompressionService compressionService,
         IPromptService promptService,
         ITaskScheduler taskScheduler,
         IFunctionRegistry functionRegistry,
@@ -40,11 +42,14 @@ public sealed class ChatSessionFactory
         IWorkspaceService workspaceService,
         IConversationSessionAccessor sessionAccessor,
         IUserInteractionService userInteractionService,
-        ConversationExecutionCoordinator executionCoordinator)
+        ConversationExecutionCoordinator executionCoordinator,
+        IContextPolicyProvider contextPolicyProvider,
+        ICompressionPlanner compressionPlanner,
+        ICompressionCandidateGenerator compressionCandidateGenerator,
+        ICompressionValidator compressionValidator)
     {
         _chatService = chatService;
         _configService = configService;
-        _compressionService = compressionService;
         _promptService = promptService;
         _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
@@ -59,6 +64,10 @@ public sealed class ChatSessionFactory
         _sessionAccessor = sessionAccessor;
         _userInteractionService = userInteractionService;
         _executionCoordinator = executionCoordinator;
+        _contextPolicyProvider = contextPolicyProvider;
+        _compressionPlanner = compressionPlanner;
+        _compressionCandidateGenerator = compressionCandidateGenerator;
+        _compressionValidator = compressionValidator;
     }
 
     public MainConversationViewModel Create()
@@ -67,7 +76,7 @@ public sealed class ChatSessionFactory
         return new MainConversationViewModel(
             _chatService,
             _configService,
-            _compressionService,
+            null,
             _promptService,
             _taskScheduler,
             _functionRegistry,
@@ -82,6 +91,10 @@ public sealed class ChatSessionFactory
             _workspaceService,
             _sessionAccessor,
             _userInteractionService,
-            _executionCoordinator);
+            _executionCoordinator,
+            _contextPolicyProvider,
+            _compressionPlanner,
+            _compressionCandidateGenerator,
+            _compressionValidator);
     }
 }

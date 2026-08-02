@@ -15,6 +15,8 @@ using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.Context;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
@@ -24,15 +26,44 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bulk collection replacement emits one reset", TestBulkCollectionReplaceAllAsync),
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
+    ("workspace context overrides publish only after an atomic durable write", TestWorkspaceContextOverridePersistenceAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config reuses a referenced provider credential", TestAudioConfigInheritanceAsync),
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
+    ("config v5 default context values migrate to v6 auto without losing providers", TestConfigV5DefaultMigrationAsync),
+    ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
+    ("future config schema is backed up and rejected", TestFutureConfigSchemaAsync),
+    ("metadata profiles and nested overrides persist in v6", TestMetadataProfilePersistenceAsync),
+    ("matcher deterministic layers preserve variants and reject conflicts", TestModelIdentityMatcherAsync),
+    ("resolver honors profile overrides and unknown-model defaults", TestModelMetadataResolverAsync),
+    ("OpenRouter catalog filters text models and follows allowlisted pagination", TestOpenRouterMetadataCatalogAsync),
+    ("OpenRouter catalog rejects foreign pagination and preserves last-known-good", TestOpenRouterMetadataForeignNextAsync),
+    ("OpenRouter catalog refresh is single-flight and respects Retry-After", TestOpenRouterMetadataSingleFlightAsync),
+    ("OpenRouter catalog network failures preserve last-known-good and cancel cleanly", TestOpenRouterMetadataFailureMatrixAsync),
+    ("OpenRouter catalog rejects malformed and adversarial payloads without losing good data", TestOpenRouterMetadataPayloadMatrixAsync),
+    ("OpenRouter snapshot store falls back from corrupt Current to Previous", TestOpenRouterMetadataStoreRecoveryAsync),
+    ("OpenRouter abnormal shrink is quarantined and fresh TTL skips network", TestOpenRouterMetadataQuarantineAndTtlAsync),
+    ("local metadata and calibration clear operations are race-safe and failure-nonpublishing", TestLocalContextDataClearAsync),
+    ("context policy resolves unknown default and known W/R/S/B/T", TestContextPolicyResolverAsync),
+    ("context policy handles small windows and workspace field overrides", TestContextPolicySmallWindowsAsync),
+    ("connection identity is separate from metadata execution policy identity", TestExecutionPolicyIdentityAsync),
+    ("provider error classifier prioritizes overflow and redacts credentials", TestProviderErrorClassifierAsync),
+    ("provider inventory keyed merge preserves exact identities and references", TestProviderInventoryMergeAsync),
+    ("conversation usage remains hidden until valid matching API usage", TestConversationUsageStateAsync),
+    ("prepared request features and calibration persistence contain no prompt content", TestTokenCalibrationPrivacyAsync),
+    ("model metadata CSV neutralizes formulas and replaces files atomically", TestModelMetadataCsvExportAsync),
     ("vector index rebuild requires every chunk to be embedded", TestVectorIndexRebuildResultAsync),
     ("upsert preserves created time and updates content", TestUpsertAsync),
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
+    ("conversation snapshot atomically round-trips compression and fork metadata", TestAtomicConversationSnapshotAsync),
+    ("conversation store rejects stale and conflicting revisions", TestConversationRevisionGuardAsync),
+    ("recovery reactivates compressed messages when summary is missing", TestMissingSummaryRecoveryAsync),
+    ("compression material preserves every role and cancellation has zero mutation", TestCompressionSafetyAsync),
+    ("compression planner selects only complete rounds without mutating messages", TestCompressionPlannerAsync),
+    ("compression candidate map-reduce and validator enforce facts and benefit", TestCompressionCandidateAndValidatorAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
     ("summary context obeys 10-message and 1000-char budget", TestSummaryContextBudgetAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
@@ -134,6 +165,1123 @@ static Task TestVectorIndexRebuildResultAsync()
     AssertTrue(!incomplete.IsFullyIndexed, "partial embedding output must not be reported as a successful vector rebuild");
 
     return Task.CompletedTask;
+}
+
+static async Task TestConfigV5DefaultMigrationAsync()
+{
+    using var harness = new TestHarness();
+    var providerId = Guid.NewGuid().ToString("N");
+    var json = $$"""
+        {
+          "configSchemaVersion": 5,
+          "maxContextTokens": 128000,
+          "compressionThreshold": 64000,
+          "autoCompress": true,
+          "keepRecentRounds": 4,
+          "aiModels": {
+            "providers": [
+              {
+                "id": "{{providerId}}",
+                "displayName": "Preserved Provider",
+                "providerPreset": "Custom",
+                "baseUrl": "https://example.invalid/v1",
+                "apiKey": "secret",
+                "models": []
+              }
+            ],
+            "mainConversation": { "providerId": "{{providerId}}", "model": "chat-model" }
+          }
+        }
+        """;
+    File.WriteAllText(harness.PathService.GetConfigFilePath(), json);
+
+    var service = new ConfigService(harness.PathService);
+    var migrated = await service.LoadAsync();
+    AssertEqual(6, migrated.ConfigSchemaVersion, "v5 should migrate to v6");
+    AssertEqual(ContextPolicyMode.Auto, migrated.ContextPolicy.Mode, "historical 128K/64K defaults should become Auto");
+    AssertEqual<long?>(null, migrated.ContextPolicy.CustomCapTokens, "auto migration should not retain a cap");
+    AssertEqual(1_000_000, migrated.MaxContextTokens, "compatibility mirror should follow unknown-model 1M default");
+    AssertEqual(262_144, migrated.CompressionThreshold, "compatibility mirror should follow 256K threshold");
+    AssertEqual(providerId, migrated.AiModels.Providers.Single().Id, "provider identity must survive migration");
+    AssertEqual("secret", migrated.AiModels.Providers.Single().ApiKey, "provider credential must survive migration");
+    AssertEqual("chat-model", migrated.AiModels.MainConversation.Model, "role selection must survive migration");
+
+    using var document = JsonDocument.Parse(File.ReadAllText(harness.PathService.GetConfigFilePath()));
+    AssertEqual(6, document.RootElement.GetProperty("configSchemaVersion").GetInt32(), "migration should be atomically persisted");
+}
+
+static async Task TestConfigV5CustomMigrationAsync()
+{
+    using var harness = new TestHarness();
+    File.WriteAllText(harness.PathService.GetConfigFilePath(),
+        "{\"configSchemaVersion\":5,\"maxContextTokens\":200000,\"compressionThreshold\":90000,\"autoCompress\":false,\"keepRecentRounds\":7}");
+    var migrated = await new ConfigService(harness.PathService).LoadAsync();
+    AssertEqual(ContextPolicyMode.LegacyCustom, migrated.ContextPolicy.Mode, "non-default legacy values should remain explicit");
+    AssertEqual(200_000L, migrated.ContextPolicy.CustomCapTokens ?? -1, "legacy cap should be preserved");
+    AssertEqual(90_000L, migrated.ContextPolicy.CustomCompressionThresholdTokens ?? -1, "legacy threshold should be preserved");
+    AssertFalse(migrated.ContextPolicy.AutoCompress, "legacy auto-compress setting should be preserved");
+    AssertEqual(7, migrated.ContextPolicy.KeepRecentRounds, "legacy keep rounds should be preserved");
+}
+
+static async Task TestFutureConfigSchemaAsync()
+{
+    using var harness = new TestHarness();
+    File.WriteAllText(harness.PathService.GetConfigFilePath(), "{\"configSchemaVersion\":99,\"theme\":\"Light\"}");
+    var service = new ConfigService(harness.PathService);
+    await AssertThrowsAsync<UnsupportedConfigSchemaException>(
+        () => service.LoadAsync(),
+        "future config schemas must not be silently overwritten");
+    AssertTrue(Directory.GetFiles(harness.Root, "config.json.future-v99.*.bak").Length == 1,
+        "future config should have a recoverable backup");
+    AssertTrue(File.ReadAllText(harness.PathService.GetConfigFilePath()).Contains("\"configSchemaVersion\":99", StringComparison.Ordinal),
+        "future config source must remain untouched");
+}
+
+static async Task TestMetadataProfilePersistenceAsync()
+{
+    using var harness = new TestHarness();
+    var service = new ConfigService(harness.PathService);
+    var config = new AppConfig();
+    config.AiModels.ModelMetadataProfiles.Add(new ProviderModelMetadataProfile
+    {
+        ProviderId = "provider-A",
+        ExternalModelId = "Deployment-X",
+        BindingMode = ModelMetadataBindingMode.PinnedOpenRouter,
+        PinnedOpenRouterModelId = "openai/gpt-x",
+        Overrides = new ModelMetadataOverrides
+        {
+            ContextWindowTokens = 123_456,
+            SupportsTools = true,
+            InputModalities = ["text", "image"]
+        }
+    });
+    await service.SaveAsync(config);
+    AssertTrue(File.Exists(harness.PathService.GetConfigFilePath()), "atomic save should publish config");
+    AssertEqual(0, Directory.GetFiles(harness.Root, "*.tmp").Length, "atomic save should not leave temp files");
+
+    var loaded = await new ConfigService(harness.PathService).LoadAsync();
+    var profile = loaded.AiModels.ModelMetadataProfiles.Single();
+    AssertEqual("provider-A", profile.ProviderId, "profile provider key should round-trip exactly");
+    AssertEqual("Deployment-X", profile.ExternalModelId, "external model id casing should round-trip exactly");
+    AssertEqual(123_456L, profile.Overrides.ContextWindowTokens ?? -1, "nested override should round-trip");
+    AssertTrue(profile.Overrides.SupportsTools == true, "nullable capability override should round-trip");
+
+    profile.Overrides.MaxCompletionTokens = 4096;
+    using (var session = new AppConfigurationSession(new ConfigService(harness.PathService)))
+    {
+        // Use the tracked instance owned by the session for the nested-save path.
+        session.Current.AiModels.ModelMetadataProfiles.Single().Overrides.MaxCompletionTokens = 8192;
+        await session.SaveNowAsync();
+    }
+    var reloaded = await new ConfigService(harness.PathService).LoadAsync();
+    AssertEqual(8192L, reloaded.AiModels.ModelMetadataProfiles.Single().Overrides.MaxCompletionTokens ?? -1,
+        "nested override changes should be included by the v6 save owner");
+    AssertTrue(File.Exists(harness.PathService.GetConfigFilePath() + ".bak"), "subsequent atomic save should retain a backup");
+}
+
+static Task TestModelIdentityMatcherAsync()
+{
+    var matcher = new ModelIdentityMatcher();
+    var snapshot = CreateModelMetadataFixture();
+    var exact = matcher.Match(
+        new ExternalModelIdentity("p", "Custom", "example.invalid", "openai/gpt-4o"), snapshot);
+    AssertEqual(ModelMatchStatus.Matched, exact.Status, "full OpenRouter id should match");
+    AssertEqual("M1", exact.WinningLayer, "full id should use M1");
+
+    var bare = matcher.Match(
+        new ExternalModelIdentity("p", "OpenAI", "api.openai.com", "gpt-4o"), snapshot);
+    AssertEqual(ModelMatchStatus.Matched, bare.Status, "bare OpenAI slug with agreeing strong hints should match");
+    AssertEqual("M5", bare.WinningLayer, "bare slug should use the strong-hint layer");
+
+    var wrapped = matcher.Match(
+        new ExternalModelIdentity("p", null, null, "models/openai/gpt-4o"), snapshot);
+    AssertEqual("M3", wrapped.WinningLayer, "models/ protocol wrapper should be safely removed");
+
+    var variant = matcher.Match(
+        new ExternalModelIdentity("p", "OpenAI", "api.openai.com", "gpt-4o:free"), snapshot);
+    AssertTrue(variant.SelectedOpenRouterModelId != "openai/gpt-4o", ":free must not be stripped into the base model");
+
+    var conflict = matcher.Match(
+        new ExternalModelIdentity("p", "OpenAI", "api.openai.com", "gpt-4o-coder"), snapshot);
+    AssertTrue(conflict.Status != ModelMatchStatus.Matched, "coder conflict must not auto-match the base model");
+    AssertTrue(conflict.HardConflicts.Contains("coder"), "hard conflict reason should be explainable");
+
+    var azure = matcher.Match(
+        new ExternalModelIdentity("azure", "Azure", "contoso.openai.azure.com", "production-deployment"), snapshot);
+    AssertTrue(azure.Status != ModelMatchStatus.Matched, "arbitrary Azure deployment must not be guessed");
+    return Task.CompletedTask;
+}
+
+static Task TestModelMetadataResolverAsync()
+{
+    var matcher = new ModelIdentityMatcher();
+    var resolver = new ModelMetadataResolver(matcher);
+    var snapshot = CreateModelMetadataFixture();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "provider-A",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://custom.example/v1"
+    };
+    var unknown = resolver.Resolve(
+        provider,
+        new ProviderModelDescriptor { Id = "Unknown-Deployment", DisplayName = "Unknown-Deployment" },
+        null,
+        snapshot);
+    AssertEqual(1_000_000L, unknown.ContextWindowTokens.Value, "unknown model should receive 1M context");
+    AssertEqual(MetadataValueSource.ApplicationDefault, unknown.ContextWindowTokens.Source, "unknown context source should remain visible");
+    AssertTrue(unknown.Warnings.Contains("UnknownModelAssumption"), "unknown-model assumption should be explicit");
+    AssertEqual(CapabilitySupport.Unknown, unknown.SupportsTools.Value, "missing capability must remain Unknown");
+
+    var profile = new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "deployment-x",
+        BindingMode = ModelMetadataBindingMode.PinnedOpenRouter,
+        PinnedOpenRouterModelId = "openai/gpt-4o",
+        Overrides = new ModelMetadataOverrides { ContextWindowTokens = 200_000, SupportsTools = false }
+    };
+    var resolved = resolver.Resolve(
+        provider,
+        new ProviderModelDescriptor { Id = "deployment-x" }, profile, snapshot);
+    AssertEqual(200_000L, resolved.ContextWindowTokens.Value, "field override should beat pinned metadata");
+    AssertEqual(MetadataValueSource.UserOverride, resolved.ContextWindowTokens.Source, "override provenance should be preserved");
+    AssertEqual(CapabilitySupport.Unsupported, resolved.SupportsTools.Value, "explicit false capability override should win");
+    AssertEqual("openai/gpt-4o", resolved.Match.SelectedOpenRouterModelId, "manual binding should be selected");
+
+    var otherProviderProfile = new ProviderModelMetadataProfile
+    {
+        ProviderId = "provider-B",
+        ExternalModelId = "deployment-x",
+        BindingMode = ModelMetadataBindingMode.CustomOnly,
+        Overrides = new ModelMetadataOverrides { ContextWindowTokens = 64_000 }
+    };
+    AssertFalse(string.Equals(profile.ProviderId, otherProviderProfile.ProviderId, StringComparison.Ordinal),
+        "same external id on two providers must retain separate profile keys");
+    return Task.CompletedTask;
+}
+
+static OpenRouterCatalogSnapshot CreateModelMetadataFixture()
+{
+    static OpenRouterModelMetadata Model(string id, long context, params string[] supported) => new(
+        id,
+        id,
+        id,
+        null,
+        null,
+        context,
+        new OpenRouterArchitecture(
+            new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(["text"], StringComparer.OrdinalIgnoreCase),
+            null,
+            null),
+        new OpenRouterTopProvider(context, 16_384),
+        null,
+        new HashSet<string>(supported, StringComparer.OrdinalIgnoreCase),
+        null,
+        null);
+
+    return new OpenRouterCatalogSnapshot(
+        1,
+        "fixture-r1",
+        DateTimeOffset.UtcNow,
+        "https://openrouter.ai/api/v1/models?output_modalities=text",
+        "hash",
+        null,
+        [
+            Model("openai/gpt-4o", 128_000, "tools", "response_format"),
+            Model("openai/gpt-4o:free", 128_000, "tools"),
+            Model("qwen/qwen2.5-72b-instruct", 131_072, "tools")
+        ]);
+}
+
+static async Task TestOpenRouterMetadataCatalogAsync()
+{
+    using var harness = new TestHarness();
+    var handler = new QueueHttpHandler();
+    handler.EnqueueJson("""
+        {"data":[
+          {"id":"alpha/text","context_length":32000,"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["tools"]},
+          {"id":"alpha/embed","context_length":8192,"architecture":{"input_modalities":["text"],"output_modalities":["embeddings"]}}
+        ],"links":{"next":"/api/v1/models?output_modalities=text&offset=1"}}
+        """);
+    handler.EnqueueJson("""
+        {"data":[
+          {"id":"beta/vision","context_length":64000,"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]}}
+        ]}
+        """);
+    var store = new OpenRouterModelMetadataStore(harness.PathService, Log.Logger);
+    var catalog = new OpenRouterModelMetadataCatalog(new HttpClient(handler), store, OpenRouterCatalogSnapshot.Empty, Log.Logger);
+    var result = await catalog.RefreshAsync(force: true);
+    AssertEqual(ModelCatalogRefreshStatus.Succeeded, result.Status, "valid paged catalog should commit");
+    AssertEqual(2, catalog.Current.Models.Count, "embedding-only model should be excluded while visual text model remains");
+    AssertTrue(catalog.Current.Models.Any(model => model.Id == "beta/vision"), "multimodal text-output model should remain");
+    AssertEqual(2, handler.Requests.Count, "relative next should be followed exactly once");
+    AssertTrue(handler.Requests.All(uri => uri.Host == "openrouter.ai" && uri.Scheme == "https"), "every page must stay on the official HTTPS host");
+
+    var reloaded = new OpenRouterModelMetadataCatalog(new HttpClient(new QueueHttpHandler()), store, OpenRouterCatalogSnapshot.Empty, Log.Logger);
+    AssertEqual(catalog.Current.CatalogRevision, reloaded.Current.CatalogRevision, "disk last-known-good should load without network");
+}
+
+static async Task TestOpenRouterMetadataForeignNextAsync()
+{
+    using var harness = new TestHarness();
+    var seed = CreateModelMetadataFixture();
+    var handler = new QueueHttpHandler();
+    handler.EnqueueJson("""
+        {"data":[{"id":"bad/partial","context_length":1000,"architecture":{"output_modalities":["text"]}}],
+         "links":{"next":"https://evil.example/models"}}
+        """);
+    var catalog = new OpenRouterModelMetadataCatalog(
+        new HttpClient(handler),
+        new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+        seed,
+        Log.Logger);
+    var result = await catalog.RefreshAsync(force: true);
+    AssertEqual(ModelCatalogRefreshStatus.Failed, result.Status, "foreign pagination URL should fail the refresh");
+    AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision, "failed page sequence must preserve last-known-good");
+}
+
+static async Task TestOpenRouterMetadataSingleFlightAsync()
+{
+    using var harness = new TestHarness();
+    var handler = new QueueHttpHandler();
+    var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+    rateLimited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(3));
+    handler.Enqueue(rateLimited);
+    handler.EnqueueJson("""
+        {"data":[{"id":"alpha/text","context_length":32000,"architecture":{"output_modalities":["text"]}}]}
+        """);
+    var delays = new List<TimeSpan>();
+    var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var catalog = new OpenRouterModelMetadataCatalog(
+        new HttpClient(handler),
+        new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+        OpenRouterCatalogSnapshot.Empty,
+        Log.Logger,
+        delay: async (delay, cancellationToken) =>
+        {
+            delays.Add(delay);
+            delayEntered.TrySetResult(true);
+            await releaseDelay.Task.WaitAsync(cancellationToken);
+        });
+    var first = catalog.RefreshAsync(force: false);
+    await delayEntered.Task;
+    var second = catalog.RefreshAsync(force: false);
+    AssertTrue(ReferenceEquals(first, second), "concurrent refresh callers should share one task");
+    releaseDelay.TrySetResult(true);
+    var result = await first;
+    AssertEqual(ModelCatalogRefreshStatus.Succeeded, result.Status, "retryable refresh should eventually succeed");
+    AssertEqual(2, handler.Requests.Count, "single-flight retry should issue one sequence, not duplicate callers");
+    AssertEqual(TimeSpan.FromSeconds(3), delays.Single(), "429 Retry-After should be honored");
+}
+
+static async Task TestOpenRouterMetadataFailureMatrixAsync()
+{
+    var seed = CreateModelMetadataFixture();
+
+    using (var harness = new TestHarness())
+    {
+        var unauthorized = new QueueHttpHandler();
+        unauthorized.Enqueue(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var catalog = new OpenRouterModelMetadataCatalog(
+            new HttpClient(unauthorized),
+            new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+            seed,
+            Log.Logger);
+        var result = await catalog.RefreshAsync(force: true);
+        AssertEqual(ModelCatalogRefreshStatus.Failed, result.Status, "anonymous 401 should be a classified refresh failure");
+        AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision, "401 must preserve last-known-good");
+    }
+
+    using (var harness = new TestHarness())
+    {
+        var authenticated = new QueueHttpHandler();
+        authenticated.Enqueue(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        authenticated.EnqueueJson("""
+            {"data":[{"id":"auth/text","context_length":32000,"architecture":{"output_modalities":["text"]}}]}
+            """);
+        var catalog = new OpenRouterModelMetadataCatalog(
+            new HttpClient(authenticated),
+            new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+            seed,
+            Log.Logger,
+            apiKeyProvider: () => "metadata-key");
+        var result = await catalog.RefreshAsync(force: true);
+        AssertEqual(ModelCatalogRefreshStatus.Succeeded, result.Status,
+            "401/403 should make one authenticated retry when an OpenRouter key exists");
+        AssertEqual(2, authenticated.Requests.Count, "authenticated fallback should issue exactly two requests");
+        AssertTrue(authenticated.Authorizations[0] == null
+                   && authenticated.Authorizations[1] == "Bearer metadata-key",
+            "the metadata key should be sent only on the explicit authenticated retry");
+    }
+
+    using (var harness = new TestHarness())
+    {
+        var transient = new QueueHttpHandler();
+        transient.Enqueue(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        transient.Enqueue(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        transient.EnqueueJson("""
+            {"data":[{"id":"retry/text","context_length":32000,"architecture":{"output_modalities":["text"]}}]}
+            """);
+        var delays = new List<TimeSpan>();
+        var catalog = new OpenRouterModelMetadataCatalog(
+            new HttpClient(transient),
+            new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+            seed,
+            Log.Logger,
+            delay: (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            });
+        var result = await catalog.RefreshAsync(force: false);
+        AssertEqual(ModelCatalogRefreshStatus.Succeeded, result.Status, "background 5xx should use the bounded retry policy");
+        AssertEqual(3, transient.Requests.Count, "5xx retry policy should stop after the configured sequence succeeds");
+        AssertEqual(2, delays.Count, "each retried 5xx should schedule one bounded delay");
+    }
+
+    foreach (var exception in new Exception[]
+             {
+                 new TaskCanceledException("transport timeout"),
+                 new HttpRequestException("DNS resolution failed")
+             })
+    {
+        using var harness = new TestHarness();
+        var catalog = new OpenRouterModelMetadataCatalog(
+            new HttpClient(new ThrowingHttpHandler(exception)),
+            new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+            seed,
+            Log.Logger);
+        var result = await catalog.RefreshAsync(force: true);
+        AssertEqual(ModelCatalogRefreshStatus.Failed, result.Status,
+            "timeout/DNS transport failures should degrade to last-known-good");
+        AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision,
+            "transport failure must preserve last-known-good");
+    }
+
+    using (var harness = new TestHarness())
+    {
+        var blocking = new BlockingMetadataHttpHandler();
+        var catalog = new OpenRouterModelMetadataCatalog(
+            new HttpClient(blocking),
+            new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+            seed,
+            Log.Logger);
+        using var cancellation = new CancellationTokenSource();
+        var refresh = catalog.RefreshAsync(force: true, cancellation.Token);
+        await blocking.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+        var result = await refresh;
+        AssertEqual(ModelCatalogRefreshStatus.Cancelled, result.Status, "caller cancellation should not be reported as network failure");
+        AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision, "cancelled refresh must preserve last-known-good");
+        blocking.Release.TrySetResult(true);
+    }
+}
+
+static async Task TestOpenRouterMetadataPayloadMatrixAsync()
+{
+    using var harness = new TestHarness();
+    var seed = CreateModelMetadataFixture();
+    var handler = new QueueHttpHandler();
+    handler.EnqueueJson("{\"data\":[]}");
+    handler.EnqueueJson("{\"data\":{}}");
+#pragma warning disable CA2000
+    handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent("{\"data\":[", Encoding.UTF8, "application/json")
+    });
+#pragma warning restore CA2000
+    handler.EnqueueJson("""
+        {"unknown_root":"ignored","data":[
+          {"id":"valid/partial","unknown_field":{"nested":true},"architecture":{"output_modalities":["text"],"unknown":[1]}},
+          {"missing_id":true,"architecture":{"output_modalities":["text"]}}
+        ]}
+        """);
+    handler.EnqueueJson("""
+        {"data":[
+          {"id":"duplicate/model","context_length":32000,"architecture":{"output_modalities":["text"]}},
+          {"id":"duplicate/model","context_length":64000,"architecture":{"output_modalities":["text"]}}
+        ]}
+        """);
+    handler.EnqueueJson("""
+        {"data":[{"id":"negative/context","context_length":-1,"architecture":{"output_modalities":["text"]}}]}
+        """);
+    handler.EnqueueJson("""
+        {"data":[{"id":"huge/context","context_length":999999999999999999999999,"architecture":{"output_modalities":["text"]}}]}
+        """);
+    var catalog = new OpenRouterModelMetadataCatalog(
+        new HttpClient(handler),
+        new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+        seed,
+        Log.Logger);
+
+    for (var index = 0; index < 3; index++)
+    {
+        var invalid = await catalog.RefreshAsync(force: true);
+        AssertEqual(ModelCatalogRefreshStatus.Failed, invalid.Status,
+            "empty data, wrong schema, and truncated JSON should be rejected");
+        AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision,
+            "malformed payload must preserve last-known-good");
+    }
+
+    var tolerant = await catalog.RefreshAsync(force: true);
+    AssertEqual(ModelCatalogRefreshStatus.Succeeded, tolerant.Status,
+        "unknown fields and skipped incomplete entries should remain forward-compatible");
+    AssertEqual(1, catalog.Current.Models.Count, "only the valid text-output entry should be committed");
+    var goodRevision = catalog.Current.CatalogRevision;
+
+    for (var index = 0; index < 3; index++)
+    {
+        var adversarial = await catalog.RefreshAsync(force: true);
+        AssertEqual(ModelCatalogRefreshStatus.Failed, adversarial.Status,
+            "duplicate IDs and invalid numeric context values should be rejected");
+        AssertEqual(goodRevision, catalog.Current.CatalogRevision,
+            "adversarial payload must preserve the previously committed snapshot");
+    }
+}
+
+static Task TestOpenRouterMetadataStoreRecoveryAsync()
+{
+    using var harness = new TestHarness();
+    var store = new OpenRouterModelMetadataStore(harness.PathService, Log.Logger);
+    var firstModels = CreateModelMetadataFixture().Models.Take(1).ToList();
+    var firstHash = OpenRouterModelMetadataStore.ComputeContentHash(firstModels);
+    var first = new OpenRouterCatalogSnapshot(1, firstHash, DateTimeOffset.UtcNow.AddMinutes(-1), OpenRouterModelMetadataCatalog.SourceUrl, firstHash, null, firstModels);
+    var pointer = store.Commit(first, new OpenRouterCatalogPointer(1, null, null, null, DateTimeOffset.MinValue));
+    var secondModels = CreateModelMetadataFixture().Models.Take(2).ToList();
+    var secondHash = OpenRouterModelMetadataStore.ComputeContentHash(secondModels);
+    var second = new OpenRouterCatalogSnapshot(1, secondHash, DateTimeOffset.UtcNow, OpenRouterModelMetadataCatalog.SourceUrl, secondHash, null, secondModels);
+    store.Commit(second, pointer);
+    var currentPath = Path.Combine(harness.PathService.GetAppDataDirectory(), "ModelMetadata", "OpenRouter", "snapshots", secondHash + ".json");
+    File.WriteAllText(currentPath, "truncated");
+    var recovered = store.Load(OpenRouterCatalogSnapshot.Empty);
+    AssertEqual(firstHash, recovered.Snapshot.CatalogRevision, "corrupt Current should recover Previous");
+    return Task.CompletedTask;
+}
+
+static async Task TestOpenRouterMetadataQuarantineAndTtlAsync()
+{
+    using var harness = new TestHarness();
+    var seedModels = Enumerable.Range(0, 24)
+        .Select(index => new OpenRouterModelMetadata(
+            $"seed/model-{index}", null, $"model-{index}", null, null, 32_000,
+            new OpenRouterArchitecture(new HashSet<string>(["text"]), new HashSet<string>(["text"]), null, null),
+            null, null, new HashSet<string>(), null, null))
+        .ToList();
+    var seedHash = OpenRouterModelMetadataStore.ComputeContentHash(seedModels);
+    var seed = new OpenRouterCatalogSnapshot(1, seedHash, DateTimeOffset.UtcNow, OpenRouterModelMetadataCatalog.SourceUrl, seedHash, null, seedModels);
+    var handler = new QueueHttpHandler();
+    handler.EnqueueJson("""
+        {"data":[
+          {"id":"tiny/one","context_length":32000,"architecture":{"output_modalities":["text"]}},
+          {"id":"tiny/two","context_length":32000,"architecture":{"output_modalities":["text"]}}
+        ]}
+        """);
+    var catalog = new OpenRouterModelMetadataCatalog(
+        new HttpClient(handler),
+        new OpenRouterModelMetadataStore(harness.PathService, Log.Logger),
+        seed,
+        Log.Logger);
+    var quarantined = await catalog.RefreshAsync(force: true);
+    AssertEqual(ModelCatalogRefreshStatus.Quarantined, quarantined.Status, "unexpected catalog collapse should be quarantined");
+    AssertEqual(seedHash, catalog.Current.CatalogRevision, "quarantine must not replace current snapshot");
+
+    var models = seedModels.Take(2).ToList();
+    var hash = OpenRouterModelMetadataStore.ComputeContentHash(models);
+    var store = new OpenRouterModelMetadataStore(harness.PathService, Log.Logger);
+    store.Commit(new OpenRouterCatalogSnapshot(1, hash, DateTimeOffset.UtcNow, OpenRouterModelMetadataCatalog.SourceUrl, hash, null, models),
+        new OpenRouterCatalogPointer(1, null, null, null, DateTimeOffset.MinValue));
+    var noNetwork = new QueueHttpHandler();
+    var fresh = new OpenRouterModelMetadataCatalog(new HttpClient(noNetwork), store, OpenRouterCatalogSnapshot.Empty, Log.Logger);
+    var skipped = await fresh.RefreshAsync(force: false);
+    AssertEqual(ModelCatalogRefreshStatus.SkippedFresh, skipped.Status, "fresh pointer should honor 24h TTL");
+    AssertEqual(0, noNetwork.Requests.Count, "TTL skip must not issue a network request");
+}
+
+static async Task TestLocalContextDataClearAsync()
+{
+    using var harness = new TestHarness();
+    var seedFixture = CreateModelMetadataFixture();
+    var seedModels = seedFixture.Models.Take(1).ToList();
+    var seedHash = OpenRouterModelMetadataStore.ComputeContentHash(seedModels);
+    var seed = new OpenRouterCatalogSnapshot(
+        1,
+        seedHash,
+        DateTimeOffset.UtcNow,
+        OpenRouterModelMetadataCatalog.SourceUrl,
+        seedHash,
+        null,
+        seedModels);
+    var handler = new BlockingMetadataHttpHandler();
+    var store = new OpenRouterModelMetadataStore(harness.PathService, Log.Logger);
+    var catalog = new OpenRouterModelMetadataCatalog(new HttpClient(handler), store, seed, Log.Logger);
+    var inFlight = catalog.RefreshAsync(force: true);
+    await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    await catalog.ClearLocalCacheAsync();
+    handler.Release.TrySetResult(true);
+    var staleRefresh = await inFlight;
+    AssertEqual(ModelCatalogRefreshStatus.Cancelled, staleRefresh.Status,
+        "a refresh started before cache clear must not repopulate the cleared cache");
+    AssertEqual(seed.CatalogRevision, catalog.Current.CatalogRevision,
+        "clearing downloaded metadata should immediately restore the bundled seed");
+    var snapshotsDirectory = Path.Combine(
+        ((IPlatformPathService)harness.PathService).GetModelMetadataDirectory(),
+        "OpenRouter",
+        "snapshots");
+    AssertFalse(Directory.EnumerateFiles(snapshotsDirectory, "*.json").Any(),
+        "metadata cache clear should detach every downloaded immutable snapshot");
+
+    var fingerprints = new TokenFingerprintService(harness.PathService);
+    await using var calibration = new TokenCalibrationService(harness.PathService, fingerprints, Log.Logger);
+    var features = new ContextFeatureSnapshot(
+        "clear-fixture",
+        "clear-profile",
+        ContextRequestPreparer.EstimatorVersion,
+        10,
+        40,
+        20,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        32,
+        "fixed-hmac",
+        "context-hmac",
+        true,
+        false);
+    AssertTrue(calibration.Observe(features, 40), "calibration clear fixture should train one aggregate sample");
+    await calibration.FlushAsync();
+    AssertEqual(1, calibration.GetDiagnostics().ProfileCount,
+        "calibration diagnostics should expose aggregate profile count before clear");
+
+    var calibrationPath = ((IPlatformPathService)harness.PathService).GetTokenCalibrationFilePath();
+    var calibrationDirectory = Path.GetDirectoryName(calibrationPath)!;
+    if (!OperatingSystem.IsWindows())
+    {
+        var originalMode = File.GetUnixFileMode(calibrationDirectory);
+        try
+        {
+            File.SetUnixFileMode(calibrationDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var failed = false;
+            try
+            {
+                await calibration.ClearAsync();
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                failed = true;
+            }
+            AssertTrue(failed, "read-only calibration storage should reject durable clear");
+            AssertEqual(1, calibration.GetDiagnostics().ProfileCount,
+                "failed calibration clear must not mutate live aggregate profiles");
+        }
+        finally
+        {
+            File.SetUnixFileMode(calibrationDirectory, originalMode);
+        }
+    }
+
+    await calibration.ClearAsync();
+    AssertEqual(0, calibration.GetDiagnostics().ProfileCount,
+        "successful calibration clear should publish an empty aggregate state");
+    AssertFalse(File.Exists(calibrationPath),
+        "successful calibration clear should remove the persisted aggregate file");
+}
+
+static Task TestContextPolicyResolverAsync()
+{
+    var resolver = new ModelContextPolicyResolver();
+    var unknown = CreateResolvedMetadata(1_000_000, MetadataValueSource.ApplicationDefault, null);
+    var unknownPolicy = resolver.Resolve(unknown, new AppContextPolicy(), null, AiModelRole.MainConversation);
+    AssertEqual(1_000_000L, unknownPolicy.ContextWindowTokens, "unknown policy should retain 1M model fact");
+    AssertEqual(32_768L, unknownPolicy.SafetyMarginTokens, "safety should cap at 32K");
+    AssertEqual(16_000L, unknownPolicy.OutputReserveTokens, "main role output intent should remain 16K");
+    AssertEqual(951_232L, unknownPolicy.AvailableInputBudgetTokens, "unknown input budget formula should be exact");
+    AssertEqual(262_144L, unknownPolicy.CompressionThresholdTokens, "unknown model threshold should be 256K");
+
+    var known = CreateResolvedMetadata(128_000, MetadataValueSource.AutomaticOpenRouter, 32_000);
+    var knownPolicy = resolver.Resolve(known, new AppContextPolicy(), null, AiModelRole.MainConversation);
+    AssertEqual(128_000L, knownPolicy.ContextWindowTokens, "known window should be used");
+    AssertEqual(6_400L, knownPolicy.SafetyMarginTokens, "known safety should be 5 percent");
+    AssertEqual(105_600L, knownPolicy.AvailableInputBudgetTokens, "known input budget should satisfy W=R+S+B");
+    AssertEqual(84_480L, knownPolicy.CompressionThresholdTokens, "known automatic threshold should be 80 percent of B");
+    AssertEqual(knownPolicy.ContextWindowTokens,
+        knownPolicy.OutputReserveTokens + knownPolicy.SafetyMarginTokens + knownPolicy.AvailableInputBudgetTokens,
+        "resolved budgets must conserve the full window");
+    return Task.CompletedTask;
+}
+
+static Task TestContextPolicySmallWindowsAsync()
+{
+    var resolver = new ModelContextPolicyResolver();
+    foreach (var window in new[] { 4096L, 8192L, 16_384L })
+    {
+        var policy = resolver.Resolve(
+            CreateResolvedMetadata(window, MetadataValueSource.UserOverride, null),
+            new AppContextPolicy(), null, AiModelRole.MainConversation);
+        AssertTrue(policy.OutputReserveTokens >= 0 && policy.AvailableInputBudgetTokens >= 0, $"{window} window budgets must be non-negative");
+        AssertEqual(window, policy.OutputReserveTokens + policy.SafetyMarginTokens + policy.AvailableInputBudgetTokens,
+            $"{window} window must satisfy W=R+S+B");
+    }
+
+    var app = new AppContextPolicy
+    {
+        Mode = ContextPolicyMode.CustomCap,
+        CustomCapTokens = 32_000,
+        CompressionThresholdMode = CompressionThresholdMode.Custom,
+        CustomCompressionThresholdTokens = 999_999
+    };
+    var workspace = new WorkspaceContextPolicyOverride
+    {
+        ContextCapTokens = 64_000,
+        AutoCompress = false,
+        KeepRecentRounds = 9
+    };
+    var overridden = resolver.Resolve(
+        CreateResolvedMetadata(128_000, MetadataValueSource.AutomaticOpenRouter, null),
+        app, workspace, AiModelRole.MainConversation);
+    AssertEqual(64_000L, overridden.ContextWindowTokens, "workspace cap should override app cap rather than min with it");
+    AssertTrue(overridden.CompressionThresholdTokens <= overridden.AvailableInputBudgetTokens, "threshold must clamp to B");
+    AssertTrue(overridden.Warnings.Contains("CompressionThresholdClamped"), "clamped threshold should expose a warning");
+    AssertFalse(overridden.AutoCompress, "workspace bool should override app independently");
+    AssertEqual(9, overridden.KeepRecentRounds, "workspace keep rounds should override independently");
+
+    var huge = resolver.Resolve(
+        CreateResolvedMetadata(long.MaxValue, MetadataValueSource.UserOverride, null),
+        new AppContextPolicy(), null, AiModelRole.MainConversation);
+    AssertEqual(long.MaxValue,
+        huge.OutputReserveTokens + huge.SafetyMarginTokens + huge.AvailableInputBudgetTokens,
+        "percentage arithmetic must remain overflow-safe for Int64 metadata");
+    return Task.CompletedTask;
+}
+
+static Task TestExecutionPolicyIdentityAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "provider-exact",
+        BaseUrl = "https://example.invalid/v1",
+        ApiKey = "secret"
+    };
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "Deployment-A";
+    var profile = new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "Deployment-A",
+        Overrides = new ModelMetadataOverrides { ContextWindowTokens = 128_000 }
+    };
+    config.AiModels.ModelMetadataProfiles.Add(profile);
+
+    var connectionBefore = OpenAiModelRuntimeFactory.ComputeClientIdentity(config, AiModelRole.MainConversation);
+    var resolver = new ModelContextPolicyResolver();
+    var metadataBefore = CreateResolvedMetadata(128_000, MetadataValueSource.UserOverride, null);
+    var policyBefore = resolver.Resolve(metadataBefore, config.ContextPolicy, null, AiModelRole.MainConversation);
+    var executionBefore = OpenAiModelRuntimeFactory.ComputeExecutionPolicyIdentity(
+        config, AiModelRole.MainConversation, metadataBefore, policyBefore, "catalog-a", 1);
+
+    profile.Overrides.ContextWindowTokens = 256_000;
+    var connectionAfter = OpenAiModelRuntimeFactory.ComputeClientIdentity(config, AiModelRole.MainConversation);
+    var metadataAfter = CreateResolvedMetadata(256_000, MetadataValueSource.UserOverride, null);
+    var policyAfter = resolver.Resolve(metadataAfter, config.ContextPolicy, null, AiModelRole.MainConversation);
+    var executionAfter = OpenAiModelRuntimeFactory.ComputeExecutionPolicyIdentity(
+        config, AiModelRole.MainConversation, metadataAfter, policyAfter, "catalog-b", 1);
+
+    AssertEqual(connectionBefore, connectionAfter, "metadata-only change must not rebuild the SDK client");
+    AssertFalse(executionBefore == executionAfter, "metadata-only change must refresh next-request execution identity");
+    return Task.CompletedTask;
+}
+
+static Task TestProviderErrorClassifierAsync()
+{
+    var classifier = new ProviderErrorClassifier();
+    var overflow = classifier.Classify(new InvalidOperationException(
+        "image request rejected: maximum context length exceeded; Authorization: Bearer sk-secret"));
+    AssertEqual(ProviderErrorCategory.ContextOverflow, overflow.Category,
+        "context overflow must win even when an image is present");
+    AssertFalse(overflow.SafeProviderMessage.Contains("sk-secret", StringComparison.Ordinal),
+        "provider errors must redact credentials");
+    AssertTrue(overflow.SafeProviderMessage.Contains("[redacted]", StringComparison.Ordinal),
+        "credential redaction should remain visible as a diagnostic marker");
+
+    var modality = classifier.Classify(new InvalidOperationException("image input is not supported by this text-only model"));
+    AssertEqual(ProviderErrorCategory.UnsupportedModality, modality.Category, "explicit modality errors should classify distinctly");
+    return Task.CompletedTask;
+}
+
+static Task TestProviderInventoryMergeAsync()
+{
+    var referenced = new ProviderModelDescriptor { Id = "CaseModel", DisplayName = "CaseModel" };
+    var manual = new ProviderModelDescriptor { Id = "manual", DisplayName = "Manual label", IsManual = true };
+    var merged = ProviderModelInventoryMerger.Merge(
+        [referenced, manual],
+        ["casemodel", "new-model"],
+        new HashSet<string>(["CaseModel"], StringComparer.Ordinal),
+        _ => ModelCapability.Text);
+
+    AssertTrue(merged.Any(model => model.Id == "CaseModel" && !model.IsAvailable),
+        "referenced model missing from latest inventory must remain as unavailable");
+    AssertTrue(merged.Any(model => model.Id == "casemodel" && model.IsAvailable),
+        "case-distinct provider identities must not merge");
+    AssertTrue(merged.Any(model => model.Id == "manual" && model.IsManual && model.IsAvailable),
+        "manual inventory entries must survive refresh");
+    return Task.CompletedTask;
+}
+
+static Task TestConversationUsageStateAsync()
+{
+    var usage = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    usage.RefreshEstimate(12_000, contextRevision: 1);
+    AssertFalse(usage.HasVisibleUsage, "unanchored heuristic must remain hidden");
+    AssertEqual(TokenMeasurementKind.Unanchored, usage.MeasurementKind, "pre-usage estimate must remain unanchored");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(0, 0, 0, 0, "zero", "p", "m"), "p", "m", 1),
+        "all-zero usage must be rejected");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(100, 0, 10, 110, "wrong", "p2", "m"), "p", "m", 1),
+        "wrong-provider usage must be rejected");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(100, 101, 10, 110, "cached", "p", "m"), "p", "m", 1),
+        "cached usage larger than input must be rejected");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(100, 0, 10, 105, "total", "p", "m"), "p", "m", 1),
+        "contradictory total usage must be rejected");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(long.MaxValue, 0, 1, 0, "overflow", "p", "m"), "p", "m", 1),
+        "overflowing input plus output must be rejected");
+
+    AssertTrue(usage.TryApplyUsage(new TokenUsageSnapshot(100, 20, 10, 110, "r1", "p", "m"), "p", "m", 2),
+        "valid matching usage should anchor");
+    AssertTrue(usage.HasVisibleUsage && usage.IsRealUsage, "valid usage must unlock exact display");
+    AssertEqual(110L, usage.CurrentTokens, "response-complete anchor should be input plus output");
+    AssertFalse(usage.TryApplyUsage(new TokenUsageSnapshot(100, 0, 10, 110, "wrong-model", "p", "m2"), "p", "m", 2),
+        "wrong-model usage must be rejected");
+    usage.RefreshEstimate(60, contextRevision: 2);
+    AssertEqual(TokenMeasurementKind.ApiExact, usage.MeasurementKind,
+        "same-request streaming content must not downgrade an anchored exact value");
+    AssertEqual(110L, usage.CurrentTokens, "anchored value must remain untouched until a real change occurs");
+
+    usage.ApplyEstimatedBaseline(125, contextRevision: 3);
+    AssertTrue(usage.HasVisibleUsage, "local mutation after anchor must stay visible");
+    AssertEqual(TokenMeasurementKind.HeuristicAfterAnchor, usage.MeasurementKind,
+        "local mutation after anchor should become an explicit approximation");
+    AssertTrue(usage.TokenInfoText.StartsWith("≈", StringComparison.Ordinal), "estimated display should use approximation marker");
+    AssertTrue(usage.TryApplyUsage(new TokenUsageSnapshot(150, 0, 25, 175, "r2", "p", "m"), "p", "m", 4),
+        "next valid usage should re-anchor");
+    AssertEqual(TokenMeasurementKind.ApiExact, usage.MeasurementKind, "next usage should restore exact state");
+
+    usage.ResetUsage();
+    AssertFalse(usage.HasVisibleUsage, "new/restored/fork reset must hide usage again");
+    return Task.CompletedTask;
+}
+
+static async Task TestTokenCalibrationPrivacyAsync()
+{
+    using var harness = new TestHarness();
+    var fingerprints = new TokenFingerprintService(harness.PathService);
+    var preparer = new ContextRequestPreparer(fingerprints);
+    var metadata = CreateResolvedMetadata(128_000, MetadataValueSource.UserOverride, null);
+    var policy = new ModelContextPolicyResolver().Resolve(metadata, new AppContextPolicy(), null, AiModelRole.MainConversation);
+    var runtime = new EffectiveRequestRuntimeSnapshot(
+        "top", null!,
+        new EffectiveOpenAiModel("OpenAI", "Fixture", "https://example.invalid/v1", "secret", "model", 0.7, 16_000),
+        null, metadata, policy,
+        new OpenAiModelExecutionPolicyIdentity("provider", "model", "profile", "catalog", 128_000, 16_000, 1),
+        new OpenAI.Chat.ChatCompletionOptions(), [], "tools", false, "fixture", 60, 1, DateTimeOffset.UtcNow);
+    const string secretSystem = "SYSTEM_SENTINEL 2026-08-01 12:34:56 11111111111111111111111111111111";
+    const string secretUser = "USER_SENTINEL 中文 alpha";
+    const string secretTool = "{\"TOOL_SENTINEL\":123}";
+    var messages = new List<OpenAI.Chat.ChatMessage>
+    {
+        new OpenAI.Chat.SystemChatMessage(secretSystem),
+        new OpenAI.Chat.UserChatMessage(secretUser),
+        new OpenAI.Chat.ToolChatMessage("call-1", secretTool)
+    };
+    var context = new ConversationContext();
+    var prepared = preparer.Prepare(runtime, messages, context, "request-1", 7);
+    AssertEqual(7L, prepared.ConversationRevision, "prepared request should capture the conversation revision");
+    AssertTrue(ReferenceEquals(runtime, prepared.Runtime), "prepared request should retain the frozen runtime snapshot");
+    AssertTrue(prepared.Features.CjkTextChars > 0, "feature capture should count CJK separately");
+    AssertTrue(prepared.Features.StructuredJsonChars >= secretTool.Length, "tool JSON should be counted as structured material");
+    AssertFalse(string.IsNullOrWhiteSpace(prepared.ContextFingerprint), "exact context HMAC should be captured");
+
+    var mutableMessages = new List<OpenAI.Chat.ChatMessage>(messages);
+    var immutablePrepared = preparer.Prepare(runtime, mutableMessages, context, "request-immutable", 7);
+    mutableMessages.Add(new OpenAI.Chat.UserChatMessage("late mutation"));
+    AssertEqual(messages.Count, immutablePrepared.Messages.Count,
+        "prepared request message membership must remain frozen after caller list mutation");
+
+    var reasoningAssistant = new OpenAI.Chat.AssistantChatMessage("visible");
+#pragma warning disable SCME0001
+    reasoningAssistant.Patch.Set("$.reasoning_content"u8, "隐藏推理结论 reasoning");
+#pragma warning restore SCME0001
+    var reasoningPrepared = preparer.Prepare(
+        runtime,
+        [new OpenAI.Chat.SystemChatMessage(secretSystem), reasoningAssistant],
+        context,
+        "request-reasoning",
+        7);
+    AssertTrue(reasoningPrepared.Features.CjkTextChars >= 6,
+        "reasoning replay must be captured in mutually counted request features");
+
+    var normalizedMessages = new List<OpenAI.Chat.ChatMessage>
+    {
+        new OpenAI.Chat.SystemChatMessage("SYSTEM_SENTINEL 2026-08-02 01:02:03 00000000000000000000000000000000"),
+        new OpenAI.Chat.UserChatMessage(secretUser),
+        new OpenAI.Chat.ToolChatMessage("call-1", secretTool)
+    };
+    var normalized = preparer.Prepare(runtime, normalizedMessages, context, "request-2", 8);
+    AssertEqual(prepared.Features.FixedOverheadFingerprint, normalized.Features.FixedOverheadFingerprint,
+        "volatile timestamp and identifier values should not split a fixed-overhead profile");
+    AssertFalse(prepared.ContextFingerprint == normalized.ContextFingerprint,
+        "the exact context fingerprint must still detect volatile content changes");
+
+    var changedTools = preparer.Prepare(runtime with { ToolFingerprint = "tools-v2" }, messages, context, "request-3", 9);
+    AssertFalse(prepared.Features.ModelProfileKey == changedTools.Features.ModelProfileKey,
+        "tool schema identity changes must not mix calibration profiles");
+    AssertFalse(prepared.Features.FixedOverheadFingerprint == changedTools.Features.FixedOverheadFingerprint,
+        "tool schema identity should change fixed-overhead fingerprint");
+    AssertFalse(prepared.ContextFingerprint == changedTools.ContextFingerprint,
+        "tool schema identity should change exact request fingerprint");
+
+    var largeToolPayload = "{\"result\":\"" + new string('x', 12_000) + "\"}";
+    var largeToolMessages = new List<OpenAI.Chat.ChatMessage>
+    {
+        new OpenAI.Chat.SystemChatMessage(secretSystem),
+        new OpenAI.Chat.UserChatMessage(secretUser),
+        new OpenAI.Chat.ToolChatMessage("call-1", largeToolPayload)
+    };
+    var afterLargeTool = preparer.Prepare(runtime, largeToolMessages, context, "request-large-tool", 10);
+    AssertTrue(afterLargeTool.Features.StructuredJsonChars > prepared.Features.StructuredJsonChars + 10_000,
+        "a large tool result must be visible in the next request's structured feature delta");
+    AssertTrue(afterLargeTool.Features.HeuristicEstimate > prepared.Features.HeuristicEstimate + 2_500,
+        "a large tool result must materially increase the next request estimate");
+
+    var imageContext = new ConversationContext();
+    imageContext.AddUserMessage("image", attachments:
+    [
+        new ChatAttachment
+        {
+            Id = "image-1",
+            Kind = AttachmentKind.Image,
+            MimeType = "image/png",
+            SizeBytes = 1024,
+            Width = 512,
+            Height = 512
+        }
+    ]);
+    var withImage = preparer.Prepare(runtime, messages, imageContext, "request-image", 10);
+    var imageFallback = preparer.Prepare(runtime, messages, imageContext, "request-image-fallback", 10, false, true);
+    AssertEqual(1, withImage.Features.ImageCount, "prepared features should capture image identity and dimensions");
+    AssertFalse(withImage.ContextFingerprint == imageFallback.ContextFingerprint,
+        "image fallback mode must produce a distinct exact request fingerprint");
+
+    await using (var calibration = new TokenCalibrationService(harness.PathService, fingerprints, Log.Logger))
+    {
+        for (var index = 0; index < 10; index++)
+        {
+            var features = prepared.Features with
+            {
+                RequestId = $"request-{index}",
+                OtherTextChars = prepared.Features.OtherTextChars + index * 40,
+                HeuristicEstimate = prepared.Features.HeuristicEstimate + index * 10
+            };
+            AssertTrue(calibration.Observe(features, features.HeuristicEstimate + 20), "valid text sample should train shadow profile");
+        }
+        var estimate = calibration.Estimate(prepared.Features);
+        AssertTrue(estimate.SampleCount == 10 && estimate.DecisionTokens >= estimate.MeanTokens,
+            "calibration should expose a conservative upper bound after aggregate samples");
+        var untrainedImage = withImage.Features with
+        {
+            RequestId = "untrained-image",
+            ModelProfileKey = withImage.Features.ModelProfileKey + "|untrained-image"
+        };
+        AssertFalse(calibration.Observe(untrainedImage, untrainedImage.HeuristicEstimate + 20),
+            "image residual calibration must reject a sample before the text profile is stable");
+
+        for (var index = 0; index < 3; index++)
+        {
+            var baseline = prepared.Features with { RequestId = $"image-baseline-{index}" };
+            var baselineActual = calibration.Estimate(baseline).MeanTokens;
+            AssertTrue(calibration.Observe(baseline, baselineActual),
+                "clean no-image baseline should remain eligible for text calibration");
+            var imageFeatures = withImage.Features with { RequestId = $"image-clean-{index}" };
+            var imageActual = calibration.Estimate(baseline).MeanTokens + imageFeatures.ImagePriorTokens * 2;
+            AssertTrue(calibration.Observe(imageFeatures, imageActual),
+                $"single known-dimension image residual should train after text reaches medium confidence (confidence={calibration.Estimate(baseline).Confidence:F3})");
+        }
+
+        var calibratedText = calibration.Estimate(prepared.Features);
+        var calibratedImage = calibration.Estimate(withImage.Features);
+        AssertTrue(
+            calibratedImage.MeanTokens - calibratedText.MeanTokens > withImage.Features.ImagePriorTokens * 1.25,
+            "three clean image samples should enable a model-level image residual correction");
+        AssertTrue(calibratedImage.DecisionTokens >= calibratedImage.MeanTokens,
+            "image-aware automatic decisions must retain the conservative upper bound");
+
+        var fallbackFeatures = imageFallback.Features with
+        {
+            RequestId = "image-fallback-text",
+            ModelProfileKey = imageFallback.Features.ModelProfileKey + "|fallback-fixture"
+        };
+        AssertTrue(calibration.Observe(fallbackFeatures, fallbackFeatures.HeuristicEstimate + 10),
+            "image fallback should train as a no-binary-image text request");
+
+        var directFeatures = withImage.Features with
+        {
+            RequestId = "direct-image-0",
+            ModelProfileKey = withImage.Features.ModelProfileKey + "|direct-image-fixture"
+        };
+        for (var index = 0; index < 3; index++)
+        {
+            var sample = directFeatures with { RequestId = $"direct-image-{index}" };
+            AssertTrue(calibration.Observe(
+                    sample,
+                    sample.HeuristicEstimate + sample.ImagePriorTokens,
+                    modalityUsage: new ProviderInputModalityUsage(ImageTokens: sample.ImagePriorTokens * 2)),
+                "provider-reported image modality usage should train without residual inference");
+        }
+        AssertTrue(
+            calibration.Estimate(directFeatures).MeanTokens > directFeatures.HeuristicEstimate,
+            "three direct modality samples should enable image correction even without text-profile confidence");
+
+        var mixedFeatures = directFeatures with
+        {
+            RequestId = "mixed-image",
+            ModelProfileKey = directFeatures.ModelProfileKey + "|mixed",
+            ImageCount = 2,
+            KnownDimensionImageCount = 1,
+            UnknownDimensionImageCount = 1,
+            ImagePriorTokens = directFeatures.ImagePriorTokens + 1000,
+            HeuristicEstimate = directFeatures.HeuristicEstimate + 1000
+        };
+        AssertTrue(calibration.Observe(
+                mixedFeatures,
+                mixedFeatures.HeuristicEstimate + 500,
+                modalityUsage: new ProviderInputModalityUsage(ImageTokens: mixedFeatures.ImagePriorTokens + 500)),
+            "mixed or unknown-dimension modality samples may be retained at low weight");
+        AssertEqual(
+            mixedFeatures.HeuristicEstimate,
+            calibration.Estimate(mixedFeatures).MeanTokens,
+            "low-weight mixed samples alone must not enable image correction");
+        await calibration.FlushAsync();
+    }
+
+    var calibrationPath = ((IPlatformPathService)harness.PathService).GetTokenCalibrationFilePath();
+    var keyPath = ((IPlatformPathService)harness.PathService).GetTokenCalibrationKeyPath();
+    if (!OperatingSystem.IsWindows())
+    {
+        var keyMode = File.GetUnixFileMode(keyPath);
+        AssertEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, keyMode,
+            "local HMAC key should be readable and writable only by its owner");
+    }
+    var persisted = File.ReadAllText(calibrationPath);
+    AssertFalse(persisted.Contains("SYSTEM_SENTINEL", StringComparison.Ordinal)
+                || persisted.Contains("USER_SENTINEL", StringComparison.Ordinal)
+                || persisted.Contains("TOOL_SENTINEL", StringComparison.Ordinal)
+                || persisted.Contains("secret", StringComparison.Ordinal),
+        "calibration persistence must not contain prompt, tool content, or API keys");
+    AssertTrue(persisted.Contains("sampleCount", StringComparison.OrdinalIgnoreCase), "aggregate sample count should persist");
+    var aggregate = JsonSerializer.Deserialize<TokenCalibrationDocument>(persisted)
+                    ?? throw new InvalidOperationException("calibration aggregate JSON did not deserialize");
+    var profile = aggregate.Profiles[prepared.Features.ModelProfileKey];
+    AssertTrue(profile.CleanDeltaSampleCount >= 2, "monotonic same-overhead requests should train clean delta statistics");
+    AssertEqual(3, profile.CleanImageSampleCount,
+        "only the three clean residual samples should count toward the image confidence gate");
+    AssertEqual(0, profile.DirectImageUsageSampleCount,
+        "residual samples must remain distinguishable from provider modality usage");
+    var directProfile = aggregate.Profiles[withImage.Features.ModelProfileKey + "|direct-image-fixture"];
+    AssertEqual(3, directProfile.DirectImageUsageSampleCount,
+        "provider modality image samples should persist only aggregate counters");
+    var mixedProfile = aggregate.Profiles[withImage.Features.ModelProfileKey + "|direct-image-fixture|mixed"];
+    AssertEqual(0, mixedProfile.CleanImageSampleCount,
+        "multi-image/unknown-dimension samples must not satisfy the confidence gate");
+    AssertEqual(1, mixedProfile.LowWeightImageSampleCount,
+        "multi-image/unknown-dimension samples should be explicitly down-weighted");
+
+    File.WriteAllBytes(keyPath, Enumerable.Repeat((byte)0x5A, 32).ToArray());
+    var rotatedFingerprints = new TokenFingerprintService(harness.PathService);
+    await using var afterRotation = new TokenCalibrationService(harness.PathService, rotatedFingerprints, Log.Logger);
+    AssertEqual(0, afterRotation.Estimate(prepared.Features).SampleCount,
+        "HMAC key rotation must reset incompatible fingerprint profiles");
+}
+
+static async Task TestModelMetadataCsvExportAsync()
+{
+    using var harness = new TestHarness();
+    var path = Path.Combine(harness.Root, "model-metadata.csv");
+    var dangerous = new ModelMetadataCsvRow(
+        "=provider()",
+        "  +SUM(1,1)",
+        "@external",
+        "quoted \"name\", line\r\nnext",
+        "Available",
+        "Text",
+        "Matched",
+        100,
+        12,
+        "-openrouter",
+        1_000_000,
+        "ApplicationDefault",
+        262_144,
+        "AutomaticOpenRouter",
+        "text|image",
+        "text",
+        "Supported",
+        "Unknown",
+        "Supported",
+        "@warning");
+    var csv = ModelMetadataCsvExporter.Build([dangerous]);
+    AssertTrue(csv.StartsWith("ProviderId,ProviderName,ExternalModelId", StringComparison.Ordinal),
+        "CSV export should use a stable diagnostic header");
+    AssertTrue(csv.Contains("'=provider()", StringComparison.Ordinal)
+               && csv.Contains("'  +SUM(1,1)", StringComparison.Ordinal)
+               && csv.Contains("'@external", StringComparison.Ordinal)
+               && csv.Contains("'-openrouter", StringComparison.Ordinal)
+               && csv.Contains("'@warning", StringComparison.Ordinal),
+        "every formula-like external field must be neutralized before spreadsheet parsing");
+    AssertTrue(csv.Contains("\"quoted \"\"name\"\", line\r\nnext\"", StringComparison.Ordinal),
+        "commas, quotes, and newlines should follow RFC 4180 quoting");
+
+    await ModelMetadataCsvExporter.WriteAtomicallyAsync(path, [dangerous]);
+    var bytes = File.ReadAllBytes(path);
+    AssertTrue(bytes.Length > 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+        "CSV export should include a UTF-8 BOM for spreadsheet compatibility");
+
+    var replacement = dangerous with { ExternalModelId = "safe-replacement" };
+    await ModelMetadataCsvExporter.WriteAtomicallyAsync(path, [replacement]);
+    AssertTrue(File.ReadAllText(path).Contains("safe-replacement", StringComparison.Ordinal),
+        "a successful repeat export should atomically replace the previous file");
+
+    using var cancelled = new CancellationTokenSource();
+    cancelled.Cancel();
+    await AssertThrowsAsync<OperationCanceledException>(
+        () => ModelMetadataCsvExporter.WriteAtomicallyAsync(path, [dangerous], cancelled.Token),
+        "cancelled export should propagate cancellation");
+    AssertTrue(File.ReadAllText(path).Contains("safe-replacement", StringComparison.Ordinal),
+        "cancelled export must preserve the previous complete CSV");
+    AssertFalse(Directory.EnumerateFiles(harness.Root, ".*.tmp").Any(),
+        "failed or cancelled exports must clean same-directory temporary files");
+}
+
+static ResolvedModelMetadata CreateResolvedMetadata(long context, MetadataValueSource source, long? maxOutput)
+{
+    return new ResolvedModelMetadata(
+        "provider", "model",
+        new ModelMatchResult(ModelMatchStatus.Unmatched, null, null, null, null, null, false, [], [], "fixture", false, false),
+        new ResolvedMetadataValue<long>(context, source),
+        new ResolvedMetadataValue<long?>(maxOutput, maxOutput.HasValue ? MetadataValueSource.AutomaticOpenRouter : MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(CapabilitySupport.Unknown, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(CapabilitySupport.Unknown, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(CapabilitySupport.Unknown, MetadataValueSource.ApplicationDefault),
+        new HashSet<string>(), new HashSet<string>(), []);
 }
 
 static Task TestBulkCollectionReplaceAllAsync()
@@ -243,6 +1391,88 @@ static async Task TestWorkspaceProfileAndKnowledgeContextAsync()
     await service.DeleteAsync(workspace.Id);
     AssertTrue(!Directory.Exists(Path.Combine(harness.PathService.GetWorkspacesDirectory(), workspace.Id)),
         "removing a workspace should remove only its managed workspace data");
+}
+
+static async Task TestWorkspaceContextOverridePersistenceAsync()
+{
+    using var harness = new TestHarness();
+    var service = new WorkspaceService(harness.PathService, Log.ForContext<WorkspaceService>());
+    var workspace = new WorkspaceProfile
+    {
+        Name = "Context policy fixture",
+        DirectoryPath = harness.Root
+    };
+    await service.SaveAsync(workspace);
+
+    var committed = new WorkspaceContextPolicyOverride
+    {
+        ContextCapTokens = 80_000,
+        AutoCompress = false,
+        CompressionThresholdTokens = 40_000,
+        KeepRecentRounds = 5,
+        TargetSummaryTokens = 2_000,
+        WorkspaceKnowledgeTokenBudget = 6_000
+    };
+    var changedEvents = 0;
+    service.WorkspacePolicyChanged += (_, id) =>
+    {
+        if (id == workspace.Id) changedEvents++;
+    };
+    await service.UpdateContextPolicyAsync(workspace, committed);
+    AssertEqual(1, changedEvents, "durable workspace policy commit should publish exactly once");
+    var loaded = await service.LoadByIdAsync(workspace.Id);
+    AssertEqual(80_000L, loaded?.ContextPolicyOverride?.ContextCapTokens,
+        "workspace context cap should round-trip through its own profile");
+    AssertEqual(false, loaded?.ContextPolicyOverride?.AutoCompress,
+        "workspace boolean override should preserve false rather than inherit");
+    AssertEqual(6_000, loaded?.ContextPolicyOverride?.WorkspaceKnowledgeTokenBudget,
+        "workspace knowledge budget should round-trip independently from App policy");
+    AssertFalse(Directory.EnumerateFiles(harness.PathService.GetWorkspacesDirectory(), ".*.tmp").Any(),
+        "successful workspace policy commits should leave no temporary file");
+
+    var liveReference = workspace.ContextPolicyOverride;
+    using (var cancelled = new CancellationTokenSource())
+    {
+        cancelled.Cancel();
+        await AssertThrowsAsync<OperationCanceledException>(
+            () => service.UpdateContextPolicyAsync(
+                workspace,
+                new WorkspaceContextPolicyOverride { ContextCapTokens = 4_000 },
+                cancelled.Token),
+            "cancelled workspace policy write should propagate cancellation");
+    }
+    AssertTrue(ReferenceEquals(liveReference, workspace.ContextPolicyOverride),
+        "cancelled workspace policy write must not publish a draft into the live Workspace");
+    AssertFalse(Directory.EnumerateFiles(harness.PathService.GetWorkspacesDirectory(), ".*.tmp").Any(),
+        "cancelled workspace policy writes should clean temporary files");
+
+    if (!OperatingSystem.IsWindows())
+    {
+        var directory = harness.PathService.GetWorkspacesDirectory();
+        var originalMode = File.GetUnixFileMode(directory);
+        try
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var failed = false;
+            try
+            {
+                await service.UpdateContextPolicyAsync(
+                    workspace,
+                    new WorkspaceContextPolicyOverride { ContextCapTokens = 4_000 });
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                failed = true;
+            }
+            AssertTrue(failed, "read-only Workspace storage should reject the policy commit");
+            AssertTrue(ReferenceEquals(liveReference, workspace.ContextPolicyOverride),
+                "read-only persistence failure must leave the live Workspace policy unchanged");
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, originalMode);
+        }
+    }
 }
 
 static Task TestAudioPersistenceCloneAsync()
@@ -561,6 +1791,412 @@ static Task TestCloneMessagePreservesIdAsync()
     var attachmentClone = ConversationPersistenceHelper.CloneAttachment(attachment);
     AssertEqual("att-1", attachmentClone.Id, "cloned attachment keeps id so segments and image sessions stay linked");
     return Task.CompletedTask;
+}
+
+static async Task TestAtomicConversationSnapshotAsync()
+{
+    using var harness = new TestHarness();
+    var service = harness.CreateHistoryService();
+    var historyId = Guid.NewGuid().ToString("N");
+    var compressed = new ChatMessage { Role = "tool", Content = "/tmp/result.txt", ToolCallId = "call-1", IsCompressed = true };
+    var snapshot = new ConversationArchiveSnapshot
+    {
+        HistoryId = historyId,
+        Revision = 7,
+        ContextSummary = "tool call-1 wrote /tmp/result.txt",
+        ForkedFromConversationId = "parent-conversation",
+        ForkedFromHistoryId = "parent-history",
+        ForkedAtMessageId = "fork-message",
+        CompressionHistory =
+        [
+            new CompressionCheckpointRecord
+            {
+                CompressionId = "compression-1",
+                AppliedRevision = 7,
+                MessageIds = [compressed.Id],
+                SummaryAfter = "tool call-1 wrote /tmp/result.txt"
+            }
+        ],
+        Messages = [compressed],
+        CapturedAt = DateTime.Now,
+        ForceGenerateSummary = false
+    };
+
+    await service.UpsertFromSnapshotAsync(snapshot);
+    var loaded = await service.LoadByIdAsync(historyId);
+    AssertEqual(7L, loaded?.Revision ?? -1, "revision should round-trip with the same payload");
+    AssertEqual("tool call-1 wrote /tmp/result.txt", loaded?.ContextSummary, "summary should round-trip");
+    AssertTrue(loaded?.Messages.Single().IsCompressed == true, "compressed flag should round-trip atomically with summary");
+    AssertEqual("compression-1", loaded?.CompressionHistory.Single().CompressionId, "compression history should round-trip");
+    AssertEqual("fork-message", loaded?.ForkedAtMessageId, "fork anchor should share the same snapshot");
+}
+
+static async Task TestConversationRevisionGuardAsync()
+{
+    using var harness = new TestHarness();
+    using var store = new ConversationArchiveStore(harness.PathService, Log.ForContext<ConversationArchiveStore>());
+    var id = Guid.NewGuid().ToString("N");
+    var current = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 3,
+        Summary = "current",
+        Messages = [new ChatMessage { Role = "user", Content = "current" }]
+    };
+    await store.SaveAsync(current);
+    await store.SaveAsync(current); // identical revision/payload is idempotent
+
+    var stale = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 2,
+        Summary = "stale",
+        Messages = [new ChatMessage { Role = "user", Content = "stale" }]
+    };
+    await AssertThrowsAsync<ConversationRevisionConflictException>(
+        () => store.SaveAsync(stale),
+        "older revision must be rejected");
+
+    var conflicting = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 3,
+        Summary = "different",
+        Messages = [new ChatMessage { Role = "user", Content = "different" }]
+    };
+    await AssertThrowsAsync<ConversationRevisionConflictException>(
+        () => store.SaveAsync(conflicting),
+        "different payload at the same revision must be rejected");
+
+    var loaded = await store.LoadByIdAsync(id);
+    AssertEqual("current", loaded?.Summary, "rejected writes must not change stored content");
+}
+
+static async Task TestMissingSummaryRecoveryAsync()
+{
+    using var harness = new TestHarness();
+    using var store = new ConversationArchiveStore(harness.PathService, Log.ForContext<ConversationArchiveStore>());
+    var id = Guid.NewGuid().ToString("N");
+    await store.SaveAsync(new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 4,
+        Summary = "damaged legacy item",
+        ContextSummary = null,
+        CompressionHistory = [new CompressionCheckpointRecord { AppliedRevision = 4, MessageIds = ["m1"] }],
+        Messages = [new ChatMessage { Id = "m1", Role = "user", Content = "must survive", IsCompressed = true }]
+    });
+
+    var repaired = await store.LoadByIdAsync(id);
+    AssertFalse(repaired!.Messages[0].IsCompressed, "missing summary recovery must reactivate compressed messages");
+    AssertEqual(0, repaired.CompressionHistory.Count, "invalid compression history must be cleared");
+    AssertEqual(5L, repaired.Revision, "repair must create a new revision");
+
+    var loadedAgain = await store.LoadByIdAsync(id);
+    AssertEqual(5L, loadedAgain?.Revision ?? -1, "repair must be persisted and idempotent");
+
+    var recoverableId = Guid.NewGuid().ToString("N");
+    await store.SaveAsync(new ConversationHistoryItem
+    {
+        Id = recoverableId,
+        ConversationId = "recoverable-summary",
+        Revision = 8,
+        Summary = "recoverable",
+        ContextSummary = "validated summary",
+        CompressionHistory =
+        [
+            new CompressionCheckpointRecord
+            {
+                AppliedRevision = 8,
+                MessageIds = ["recoverable-message"],
+                SummaryAfter = "validated summary"
+            }
+        ],
+        Messages = [new ChatMessage { Id = "recoverable-message", Role = "user", Content = "historical", IsCompressed = false }]
+    });
+    var flagsRepaired = await store.LoadByIdAsync(recoverableId);
+    AssertTrue(flagsRepaired!.Messages[0].IsCompressed,
+        "a verifiable checkpoint must restore missing compression flags");
+    AssertEqual(9L, flagsRepaired.Revision, "restoring flags must create one durable revision");
+    var flagsRepairedAgain = await store.LoadByIdAsync(recoverableId);
+    AssertEqual(9L, flagsRepairedAgain!.Revision, "flag recovery must be idempotent after persistence");
+
+    var orphanId = Guid.NewGuid().ToString("N");
+    await store.SaveAsync(new ConversationHistoryItem
+    {
+        Id = orphanId,
+        ConversationId = "orphan-summary",
+        Revision = 3,
+        Summary = "orphan",
+        ContextSummary = "unverifiable legacy summary",
+        Messages = [new ChatMessage { Id = "orphan-message", Role = "user", Content = "still active" }]
+    });
+    var orphaned = await store.LoadByIdAsync(orphanId);
+    AssertEqual<string?>(null, orphaned!.ContextSummary,
+        "an unverifiable summary must not be injected beside all active messages");
+    AssertEqual("unverifiable legacy summary", orphaned.OrphanedLegacySummary,
+        "an unverifiable summary must remain available in the diagnostic quarantine");
+    AssertFalse(orphaned.Messages[0].IsCompressed, "orphan quarantine must preserve every original message");
+    var orphanedAgain = await store.LoadByIdAsync(orphanId);
+    AssertEqual(4L, orphanedAgain!.Revision, "orphan quarantine must be persisted exactly once");
+}
+
+static async Task TestCompressionSafetyAsync()
+{
+    var attachment = new ChatAttachment
+    {
+        Id = "attachment-1",
+        FileName = "evidence.txt",
+        StoredPath = "/tmp/evidence.txt",
+        MimeType = "text/plain"
+    };
+    var messages = new List<ChatMessage>
+    {
+        new() { Role = "user", Content = "keep constraint 42" },
+        new() { Role = "assistant", ToolCallsJson = "[{\"id\":\"call-1\",\"name\":\"read_file\"}]", ReasoningContent = "Need inspect exact path" },
+        new() { Role = "tool", ToolCallId = "call-1", Content = "ENOENT /tmp/missing.txt" },
+        new() { Role = "assistant", Content = "result", Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { attachment } }
+    };
+    var material = ContextCompressionService.BuildCompressionMaterial(messages);
+    AssertTrue(material.Contains("assistant_tool_calls_json", StringComparison.Ordinal), "assistant tool calls must enter compression material");
+    AssertTrue(material.Contains("ENOENT /tmp/missing.txt", StringComparison.Ordinal), "tool results must enter compression material");
+    AssertTrue(material.Contains("Need inspect exact path", StringComparison.Ordinal), "reasoning conclusions must enter compression material");
+    AssertTrue(material.Contains("attachment-1", StringComparison.Ordinal) && material.Contains("/tmp/evidence.txt", StringComparison.Ordinal), "attachment references must enter compression material");
+
+    var service = new ContextCompressionService(
+        new OpenAiModelRuntimeFactory(new TestConfigService(new AppConfig())),
+        new TestPromptService(),
+        Log.ForContext<ContextCompressionService>());
+    using var cts = new CancellationTokenSource();
+    cts.Cancel();
+    await AssertThrowsAsync<OperationCanceledException>(
+        () => service.CompressAsync(messages, null, 1, cts.Token),
+        "cancellation must propagate");
+    AssertTrue(messages.All(message => !message.IsCompressed), "cancellation must not mutate compression flags");
+}
+
+static Task TestCompressionPlannerAsync()
+{
+    var attachment = new ChatAttachment
+    {
+        Id = "att-plan",
+        Kind = AttachmentKind.Document,
+        FileName = "facts.md",
+        StoredPath = "/safe/facts.md",
+        MimeType = "text/markdown",
+        SizeBytes = 321
+    };
+    var messages = new List<ChatMessage>
+    {
+        new() { Id = "u1", Role = "user", Content = "first request" },
+        new() { Id = "a1", Role = "assistant", Content = "first answer" },
+
+        new()
+        {
+            Id = "u2", Role = "user", Content = "read facts",
+            Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { attachment }
+        },
+        new()
+        {
+            Id = "tc2", Role = "assistant", ReasoningContent = "Preserve decision 42",
+            ToolCallsJson = "[{\"id\":\"call-1\",\"functionName\":\"read_file\",\"arguments\":\"{}\"}]"
+        },
+        new() { Id = "t2", Role = "tool", ToolCallId = "call-1", Content = "ENOENT /safe/facts.md" },
+        new() { Id = "a2", Role = "assistant", Content = "tool round complete" },
+
+        // Incomplete tool chain: it must remain active and must not poison other complete rounds.
+        new() { Id = "u3", Role = "user", Content = "incomplete" },
+        new()
+        {
+            Id = "tc3", Role = "assistant",
+            ToolCallsJson = "[{\"id\":\"call-missing\",\"functionName\":\"probe\",\"arguments\":\"{}\"}]"
+        },
+
+        new() { Id = "u4", Role = "user", Content = "fourth request" },
+        new() { Id = "a4", Role = "assistant", Content = "fourth answer" },
+        new() { Id = "u5", Role = "user", Content = "latest request" },
+        new() { Id = "a5", Role = "assistant", Content = "latest answer" }
+    };
+    var mainPolicy = CompressionTestPolicy(100_000, 80_000, 16_000);
+    var compressionPolicy = CompressionTestPolicy(32_000, 24_000, 4_096);
+    var planner = new CompressionPlanner();
+    var result = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-plan",
+        17,
+        "context-hmac",
+        CompressionTriggerMode.Manual,
+        "old summary",
+        messages,
+        1,
+        55_000,
+        8_192,
+        mainPolicy,
+        compressionPolicy));
+
+    AssertEqual(CompressionPlanStatus.Ready, result.Status, "complete old rounds should produce a plan");
+    var plan = result.Plan ?? throw new InvalidOperationException("ready plan was missing");
+    AssertEqual(17L, plan.BaseRevision, "plan should freeze source revision");
+    AssertEqual("context-hmac", plan.BaseContextFingerprint, "plan should freeze exact source fingerprint");
+    AssertEqual(4_096L, plan.TargetSummaryTokens, "target should be clamped by compression-model output budget");
+    AssertTrue(new[] { "u1", "a1", "u2", "tc2", "t2", "a2", "u4", "a4" }
+            .All(id => plan.CompressMessageIds.Contains(id, StringComparer.Ordinal)),
+        "planner should select complete old rounds including an entire tool chain");
+    AssertTrue(new[] { "u3", "tc3", "u5", "a5" }
+            .All(id => plan.RetainMessageIds.Contains(id, StringComparer.Ordinal)),
+        "incomplete chains and the most recent complete round must stay active");
+    AssertTrue(plan.Material.Any(entry => entry.ToolCallsJson?.Contains("call-1", StringComparison.Ordinal) == true)
+               && plan.Material.Any(entry => entry.Content.Contains("ENOENT /safe/facts.md", StringComparison.Ordinal))
+               && plan.Material.Any(entry => entry.ReasoningContent?.Contains("decision 42", StringComparison.Ordinal) == true)
+               && plan.Material.SelectMany(entry => entry.Attachments).Any(item => item.Id == "att-plan" && item.StoredPath == "/safe/facts.md"),
+        "structured plan material must preserve tool facts, reasoning conclusions, and attachment references");
+    AssertTrue(messages.All(message => !message.IsCompressed), "planning must have zero mutation");
+
+    var insufficient = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-plan", 18, "context-hmac-2", CompressionTriggerMode.Auto, null,
+        messages.Take(2).ToList(), 0, 1000, 8192, mainPolicy, compressionPolicy));
+    AssertEqual(CompressionPlanStatus.NotCompressible, insufficient.Status,
+        "KeepRecentRounds <= 0 should normalize to one and retain the only complete round");
+
+    var negativeKeep = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-plan", 19, "context-hmac-3", CompressionTriggerMode.Auto, null,
+        messages.Take(2).ToList(), -20, 1000, 8192, mainPolicy, compressionPolicy));
+    AssertEqual(CompressionPlanStatus.NotCompressible, negativeKeep.Status,
+        "negative KeepRecentRounds must normalize to the same safe minimum as zero");
+    var hugeKeep = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-plan", 20, "context-hmac-4", CompressionTriggerMode.Auto, null,
+        messages, 500, 55_000, 8192, mainPolicy, compressionPolicy));
+    AssertEqual(CompressionPlanStatus.NotCompressible, hugeKeep.Status,
+        "a KeepRecentRounds value larger than the conversation must retain every complete round");
+
+    var unsafeBoundaries = new List<ChatMessage>
+    {
+        new() { Id = "orphan-tool", Role = "tool", ToolCallId = "unknown", Content = "orphan" },
+        new() { Id = "consecutive-u1", Role = "user", Content = "first unanswered" },
+        new() { Id = "consecutive-u2", Role = "user", Content = "second" },
+        new() { Id = "consecutive-a2", Role = "assistant", Content = "second answer" },
+        new() { Id = "missing-u", Role = "user", Content = "broken tool chain" },
+        new() { Id = "missing-call", Role = "assistant", ToolCallsJson = "[{\"id\":\"call-broken\",\"functionName\":\"probe\"}]" },
+        new() { Id = "missing-result-id", Role = "tool", Content = "result without id" },
+        new() { Id = "missing-final", Role = "assistant", Content = "cannot prove pairing" },
+        new() { Id = "safe-u", Role = "user", Content = "safe old" },
+        new() { Id = "safe-a", Role = "assistant", Content = "safe answer" },
+        new() { Id = "latest-u", Role = "user", Content = "latest" },
+        new() { Id = "latest-a", Role = "assistant", Content = "latest answer" }
+    };
+    var boundaryPlan = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-boundaries", 21, "context-hmac-5", CompressionTriggerMode.Manual, null,
+        unsafeBoundaries, 1, 20_000, 2048, mainPolicy, compressionPolicy));
+    AssertEqual(CompressionPlanStatus.Ready, boundaryPlan.Status, "safe rounds should remain compressible around unsafe groups");
+    AssertTrue(new[] { "orphan-tool", "consecutive-u1", "missing-u", "missing-call", "missing-result-id", "missing-final", "latest-u", "latest-a" }
+            .All(id => boundaryPlan.Plan!.RetainMessageIds.Contains(id, StringComparer.Ordinal)),
+        "orphan results, consecutive users, missing tool-call IDs, and the latest round must remain active");
+
+    var context = new ConversationContext();
+    context.AddUserMessage("stable", id: "stable-user-id");
+    context.AddAssistantMessage("answer", id: "stable-assistant-id");
+    var cloned = context.Clone();
+    AssertEqual("stable-user-id", cloned.Messages[0].Id, "ConversationContext clone must preserve user message identity");
+    AssertEqual("stable-assistant-id", cloned.Messages[1].Id, "ConversationContext clone must preserve assistant message identity");
+    return Task.CompletedTask;
+}
+
+static ResolvedContextPolicy CompressionTestPolicy(long window, long threshold, long output) => new(
+    window,
+    window,
+    output,
+    0,
+    window - output,
+    threshold,
+    true,
+    1,
+    8192,
+    ContextPolicyValueSource.ModelMetadata,
+    ContextPolicyValueSource.AppDefault,
+    []);
+
+static async Task TestCompressionCandidateAndValidatorAsync()
+{
+    var mainPolicy = CompressionTestPolicy(100_000, 80_000, 16_000);
+    var mapPolicy = CompressionTestPolicy(1_700, 1_300, 256);
+    var mapMaterial = new List<CompressionMaterialMessage>
+    {
+        new("mu1", "user", "round one " + new string('a', 1_800), null, null, null, DateTime.UtcNow, []),
+        new("ma1", "assistant", "answer one", null, null, null, DateTime.UtcNow, []),
+        new("mu2", "user", "round two " + new string('b', 1_800), null, null, null, DateTime.UtcNow, []),
+        new("ma2", "assistant", "answer two", null, null, null, DateTime.UtcNow, [])
+    };
+    var mapPlan = new CompressionPlan(
+        "plan-map", "conversation-map", 4, "fingerprint-map", CompressionTriggerMode.Manual,
+        null, mapMaterial.Select(item => item.Id).ToArray(), [], mapMaterial,
+        10_000, 256, mainPolicy, mapPolicy, 1);
+    var textGenerator = new CapturingCompressionTextGenerator();
+    var generator = new CompressionCandidateGenerator(textGenerator, new TestPromptService(), Log.Logger);
+    var generated = await generator.GenerateAsync(mapPlan);
+    AssertEqual(CompressionGenerationStatus.Generated, generated.Status, "map/reduce should produce a pure candidate");
+    AssertTrue(textGenerator.Prompts.Count >= 3
+               && textGenerator.Prompts.Count(prompt => prompt.StartsWith("Map ", StringComparison.Ordinal)) >= 2
+               && textGenerator.Prompts.Any(prompt => prompt.StartsWith("Reduce ", StringComparison.Ordinal)),
+        "compression-model budget should split complete rounds into maps and then reduce them");
+    AssertFalse(generated.Candidate!.UsedLocalFallback, "default candidate generation must never silently use a local fallback");
+
+    var hardMaterial = new List<CompressionMaterialMessage>
+    {
+        new("vu", "user", "You must preserve 42.\nbackground", null, null, null, DateTime.UtcNow, []),
+        new("vtc", "assistant", string.Empty, null,
+            "[{\"id\":\"call-1\",\"functionName\":\"read_file\",\"arguments\":\"{}\"}]",
+            "decision", DateTime.UtcNow, []),
+        new("vt", "tool",
+            "ENOENT /safe/facts.md https://example.com/doc " + new string('x', 12_000),
+            "call-1", null, null, DateTime.UtcNow, []),
+        new("va", "assistant", "done", null, null, null, DateTime.UtcNow,
+            [new CompressionAttachmentReference("att-id", AttachmentKind.Document, "att.bin", "/safe/att.bin", "application/octet-stream", 8, 0, 0)])
+    };
+    var validationPlan = new CompressionPlan(
+        "plan-valid", "conversation-valid", 9, "fingerprint-valid", CompressionTriggerMode.Auto,
+        null, hardMaterial.Select(item => item.Id).ToArray(), [], hardMaterial,
+        10_000, 1_024, mainPolicy, CompressionTestPolicy(32_000, 24_000, 4_096), 2);
+    const string faithful = "[user] You must preserve 42; value 42. [assistant/tool] read_file call-1 returned ENOENT for /safe/facts.md and https://example.com/doc. Attachment att-id remains at /safe/att.bin.";
+    var candidate = new CompressionCandidate(
+        "candidate-valid", validationPlan.PlanId, validationPlan.BaseRevision, faithful,
+        "model-fingerprint", validationPlan.PromptVersion, DateTimeOffset.UtcNow, false);
+    var validator = new CompressionValidator();
+    var valid = validator.Validate(validationPlan, candidate);
+    AssertEqual(CompressionValidationStatus.Valid, valid.Status,
+        "candidate preserving hard anchors with material benefit should validate");
+    AssertTrue(valid.EstimatedBenefitTokens >= 2_000, "validator should enforce the 20% benefit floor");
+
+    var missing = validator.Validate(validationPlan, candidate with
+    {
+        Summary = "[user] You must preserve 42; value 42. read_file call-1 returned ENOENT. Attachment att-id."
+    });
+    AssertEqual(CompressionValidationStatus.MissingHardAnchors, missing.Status,
+        "candidate omitting paths/URLs must be rejected before commit");
+    AssertTrue(missing.MissingHardAnchors.Any(anchor => anchor.Value.Contains("/safe/facts.md", StringComparison.Ordinal)),
+        "validation failure should identify the missing deterministic anchor");
+
+    AssertEqual(CompressionValidationStatus.Empty,
+        validator.Validate(validationPlan, candidate with { Summary = "[error] failed" }).Status,
+        "empty/error candidates must be rejected");
+    AssertEqual(CompressionValidationStatus.OverBudget,
+        validator.Validate(validationPlan, candidate with { Summary = new string('z', 8_000) }).Status,
+        "oversized candidates must be rejected");
+    AssertEqual(CompressionValidationStatus.InsufficientBenefit,
+        validator.Validate(validationPlan with { PreCompressionEstimate = 1_000 }, candidate).Status,
+        "candidates without the minimum material benefit must be rejected");
+    AssertEqual(CompressionValidationStatus.Stale,
+        validator.Validate(validationPlan, candidate with { BaseRevision = candidate.BaseRevision + 1 }).Status,
+        "a candidate from another plan revision must be rejected");
+
+    using var cancelled = new CancellationTokenSource();
+    cancelled.Cancel();
+    var cancellationPropagated = false;
+    try { _ = validator.Validate(validationPlan, candidate, cancelled.Token); }
+    catch (OperationCanceledException) { cancellationPropagated = true; }
+    AssertTrue(cancellationPropagated, "validator cancellation must preserve zero side effects");
 }
 
 static Task TestSummaryContextBudgetAsync()
@@ -2128,6 +3764,21 @@ static async Task TestMcpAddServerCoerceAsync()
     AssertEqual("k123", s.Environment[0].Value, "api key recovered from string-encoded env");
 }
 
+static async Task AssertThrowsAsync<TException>(Func<Task> action, string message)
+    where TException : Exception
+{
+    try
+    {
+        await action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"{message}. Expected exception: {typeof(TException).Name}");
+}
+
 static void AssertTrue(bool condition, string message)
 {
     if (!condition)
@@ -2285,6 +3936,24 @@ sealed class TestPromptService : IPromptService
     public string GetProactiveMessagePrompt(string intent, DateTime currentTime) => $"{intent} @ {currentTime:O}";
 
     public Task ReloadAsync() => Task.CompletedTask;
+}
+
+sealed class CapturingCompressionTextGenerator : ICompressionTextGenerator
+{
+    public List<string> Prompts { get; } = [];
+    public string ModelFingerprint => "capturing-compression-model";
+
+    public Task<string?> GenerateAsync(
+        string systemPrompt,
+        string userPrompt,
+        int maxOutputTokens,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Prompts.Add(userPrompt);
+        var prefix = userPrompt.StartsWith("Map ", StringComparison.Ordinal) ? "map" : "reduce";
+        return Task.FromResult<string?>($"[{prefix}] faithful summary {Prompts.Count}");
+    }
 }
 
 sealed class TestLocalizationService : ILocalizationService
@@ -2657,4 +4326,62 @@ sealed class RecordingHttpHandler : HttpMessageHandler
         return Task.FromResult(response);
     }
 }
+
+sealed class QueueHttpHandler : HttpMessageHandler
+{
+    private readonly Queue<HttpResponseMessage> _responses = new();
+    public List<Uri> Requests { get; } = [];
+    public List<string?> Authorizations { get; } = [];
+
+    public void Enqueue(HttpResponseMessage response) => _responses.Enqueue(response);
+
+#pragma warning disable CA2000 // ownership is transferred to the queue and then to HttpClient callers
+    public void EnqueueJson(string json) => Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json")
+    });
+#pragma warning restore CA2000
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests.Add(request.RequestUri ?? throw new InvalidOperationException("Request URI missing."));
+        Authorizations.Add(request.Headers.Authorization?.ToString());
+        if (_responses.Count == 0) throw new InvalidOperationException("No queued HTTP response.");
+        return Task.FromResult(_responses.Dequeue());
+    }
+}
+
+sealed class ThrowingHttpHandler(Exception exception) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken) =>
+        Task.FromException<HttpResponseMessage>(exception);
+}
+
+sealed class BlockingMetadataHttpHandler : HttpMessageHandler
+{
+    public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+#pragma warning disable CA2000
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        Started.TrySetResult(true);
+        await Release.Task.WaitAsync(cancellationToken);
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                {"data":[{"id":"network/new-model","context_length":32000,"architecture":{"output_modalities":["text"]}}]}
+                """,
+                Encoding.UTF8,
+                "application/json")
+        };
+    }
+#pragma warning restore CA2000
+}
+
 #pragma warning restore CS0067

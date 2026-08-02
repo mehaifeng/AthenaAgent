@@ -19,6 +19,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using System.Collections.Specialized;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Athena.UI.ViewModels;
 
@@ -33,7 +35,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     private readonly IChatService? _chatService;
     private readonly IConfigService? _configService;
-    private readonly IContextCompressionService? _contextCompressionService;
     private readonly IPromptService? _promptService;
     private readonly ITaskScheduler? _taskScheduler;
     private readonly IFunctionRegistry? _functionRegistry;
@@ -64,10 +65,21 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private readonly IConversationSessionAccessor? _sessionAccessor;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly ConversationExecutionCoordinator? _executionCoordinator;
+    private readonly IContextPolicyProvider? _contextPolicyProvider;
+    private readonly ICompressionPlanner? _compressionPlanner;
+    private readonly ICompressionCandidateGenerator? _compressionCandidateGenerator;
+    private readonly ICompressionValidator? _compressionValidator;
+    private IConversationCompressionCommitter? _compressionCommitter;
+    private EffectiveContextPolicySnapshot? _effectiveContextPolicy;
+    private bool _policyRefreshPending;
+    private string _requestContentIdentity = string.Empty;
     private readonly ILogger _logger = Log.ForContext<MainConversationViewModel>();
     private bool _disposed;
 
     public bool IsDisposed => _disposed;
+
+    /// <summary>响应封口、压缩和撤销等需要立即持久化的语义状态变化。</summary>
+    public event EventHandler? PersistenceStateChanged;
 
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
@@ -88,6 +100,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
+    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
+    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
     private bool _isSending;
 
     [ObservableProperty]
@@ -104,6 +118,22 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public string? CurrentHistoryId => _currentHistoryId;
 
+    public long Revision => _revision;
+
+    public string? ActiveContextSummary => _activeContextSummary;
+
+    public string? OrphanedLegacySummary => _orphanedLegacySummary;
+
+    public bool HasActiveContextSummary => !string.IsNullOrWhiteSpace(_activeContextSummary);
+
+    public bool HasOrphanedLegacySummary => !string.IsNullOrWhiteSpace(_orphanedLegacySummary);
+
+    public string? ForkedFromConversationId => _forkedFromConversationId;
+
+    public string? ForkedFromHistoryId => _forkedFromHistoryId;
+
+    public string? ForkedAtMessageId => _forkedAtMessageId;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
@@ -117,7 +147,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
+    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
+    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
     private bool _isCompressing;
+
+    [ObservableProperty]
+    private string _compressionStatusMessage = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAttachmentStatusMessage))]
@@ -146,14 +181,62 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     private bool _isRawContextView;
 
+    [ObservableProperty]
+    private bool _isContextInspectorOpen;
+
+    [ObservableProperty]
+    private int _selectedContextInspectorTab;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompressionImpactPreview))]
+    private string _compressionImpactPreview = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompressionCandidatePreview))]
+    private string _compressionCandidatePreview = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
+    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
+    private bool _isCompressionPreviewBusy;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
+    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
+    private bool _isCompressionPreviewStale;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompressionPreviewStatus))]
+    private string _compressionPreviewStatus = string.Empty;
+
+    [ObservableProperty]
+    private bool _isRawContextLoading;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRawContextStatus))]
+    private string _rawContextStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _rawContextSnapshotInfo = string.Empty;
+
     /// <summary>调试：原始上下文按消息拆分的条目（避免单一大文本框选择卡顿）。</summary>
     public ObservableCollection<RawContextEntry> RawContextEntries { get; } = new();
+
+    public bool HasCompressionImpactPreview => !string.IsNullOrWhiteSpace(CompressionImpactPreview);
+    public bool HasCompressionCandidatePreview => !string.IsNullOrWhiteSpace(CompressionCandidatePreview);
+    public bool HasCompressionPreviewStatus => !string.IsNullOrWhiteSpace(CompressionPreviewStatus);
+    public bool HasRawContextStatus => !string.IsNullOrWhiteSpace(RawContextStatus);
+    public bool CanGenerateCompressionCandidate =>
+        _compressionPreviewPlan != null && !IsCompressionPreviewStale && !IsCompressionPreviewBusy && !IsSending && !IsCompressing;
+    public bool CanApplyCompressionCandidate =>
+        _compressionPreviewPlan != null && _compressionPreviewCandidate != null && _compressionPreviewValidation?.IsValid == true
+        && !IsCompressionPreviewStale && !IsCompressionPreviewBusy && !IsSending && !IsCompressing;
 
     /// <summary>仅当对话流处于「完成」态（非发送/压缩/解析/重置）时，才允许切换 raw 视图。</summary>
     public bool CanToggleRawContext => !IsSending && !IsCompressing && !IsResetting;
 
     /// <summary>仅在聊天处于可发送状态时接受选择、粘贴或拖放附件。</summary>
-    public bool CanAcceptAttachments => !IsSending && !IsCompressing && !IsResetting && !IsRawContextView;
+    public bool CanAcceptAttachments => !IsSending && !IsCompressing && !IsResetting;
 
     public BulkObservableCollection<ChatMessage> Messages { get; } = new();
 
@@ -169,9 +252,94 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public bool HasBackgroundArchiveErrorStatus => HasBackgroundArchiveStatusMessage && IsBackgroundArchiveError;
 
-    public string ContextTokensInfo => _tokenService?.TokenInfoText ?? "0 / 0 tokens";
+    public string ContextTokensInfo => _tokenService?.HasVisibleUsage == true
+        ? _tokenService.TokenInfoText
+        : GetString("Chat.Context.Unanchored", "Context usage will appear after the provider reports Usage.");
 
     public ITokenService? TokenService => _tokenService;
+
+    public string ContextInspectorModelText => _effectiveContextPolicy == null
+        ? GetString("Settings.Context.Unconfigured", "Not configured")
+        : $"{_effectiveContextPolicy.ProviderId} / {_effectiveContextPolicy.ExternalModelId}";
+
+    public string ContextInspectorMatchText => _effectiveContextPolicy == null
+        ? "—"
+        : $"{_effectiveContextPolicy.Metadata.Match.Status} · {_effectiveContextPolicy.Metadata.ContextWindowTokens.Source}";
+
+    public string ContextInspectorPolicyText => _effectiveContextPolicy == null
+        ? "—"
+        : $"W {_effectiveContextPolicy.Policy.ContextWindowTokens:N0} · R {_effectiveContextPolicy.Policy.OutputReserveTokens:N0} · "
+          + $"S {_effectiveContextPolicy.Policy.SafetyMarginTokens:N0} · B {_effectiveContextPolicy.Policy.AvailableInputBudgetTokens:N0} · "
+          + $"T {_effectiveContextPolicy.Policy.CompressionThresholdTokens:N0}";
+
+    public string ContextInspectorUsageText => _tokenService?.HasVisibleUsage == true
+        ? $"{_tokenService.MeasurementKind} · {_tokenService.CurrentTokens:N0} / {_tokenService.MaxTokens:N0}"
+        : GetString("Chat.Context.Unanchored", "Context usage will appear after the provider first reports Usage.");
+
+    public string ContextInspectorUsageDetails => _tokenService?.HasVisibleUsage == true
+        ? string.Format(
+            GetString("ContextInspector.Usage.ReportedDetails", "Cached input {0:N0} · Last Usage {1}"),
+            _tokenService.CachedInputTokens,
+            _tokenService.State.LastUsageAt?.ToLocalTime().ToString("g") ?? "—")
+        : string.Format(
+            GetString("ContextInspector.Usage.EstimateDetails", "≈ {0:N0} internal protection estimate"),
+            _currentContext.EstimatedTokenCount);
+
+    public string ContextInspectorWorkspaceText => CurrentWorkspace == null
+        ? GetString("ContextInspector.Workspace.App", "App defaults (no Workspace override)")
+        : string.Format(
+            GetString("ContextInspector.Workspace.Chain", "{0} · Workspace → App → model metadata"),
+            CurrentWorkspace.Name);
+
+    public string ContextInspectorCompressionModelText
+    {
+        get
+        {
+            var role = _configService?.Load().AiModels.ContextCompression;
+            return role == null || string.IsNullOrWhiteSpace(role.Model)
+                ? GetString("Settings.Context.Unconfigured", "Not configured")
+                : $"{role.ProviderId} / {role.Model}";
+        }
+    }
+
+    public string ContextInspectorWarningsText
+    {
+        get
+        {
+            var warnings = new List<string>();
+            if (_effectiveContextPolicy?.Metadata.Match.Status == ModelMatchStatus.Unmatched)
+                warnings.Add(GetString("ContextInspector.Warning.UnknownModel", "Unmatched model: using the 1M / 256K assumption."));
+            if (_effectiveContextPolicy != null)
+            {
+                warnings.AddRange(_effectiveContextPolicy.Metadata.Warnings);
+                warnings.AddRange(_effectiveContextPolicy.Policy.Warnings);
+            }
+            if (!string.IsNullOrWhiteSpace(CompressionStatusMessage)) warnings.Add(CompressionStatusMessage);
+            return string.Join(Environment.NewLine, warnings.Distinct(StringComparer.Ordinal));
+        }
+    }
+
+    public bool HasContextInspectorWarnings => !string.IsNullOrWhiteSpace(ContextInspectorWarningsText);
+
+    public string CompressionSummaryDetails
+    {
+        get
+        {
+            if (_compressionHistory.Count == 0) return string.Empty;
+            var checkpoint = _compressionHistory.Peek();
+            return string.Format(
+                GetString(
+                    "ContextInspector.Summary.Details",
+                    "{0} · {1:g} · {2} messages · {3:N0} → {4:N0} tokens · Prompt v{5} · {6}"),
+                checkpoint.Mode,
+                checkpoint.CreatedAt,
+                checkpoint.Batch.Count,
+                checkpoint.PreCompressionTokens,
+                checkpoint.PostCompressionTokens,
+                checkpoint.PromptVersion,
+                checkpoint.CompressionModelFingerprint);
+        }
+    }
 
     [ObservableProperty]
     private string _currentModelName = string.Empty;
@@ -181,6 +349,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
     private CancellationTokenSource? _previewLoadCts;
+    private CancellationTokenSource? _compressionPreviewCts;
+    private CancellationTokenSource? _rawContextCts;
+    private CompressionPlan? _compressionPreviewPlan;
+    private CompressionCandidate? _compressionPreviewCandidate;
+    private CompressionValidationResult? _compressionPreviewValidation;
     private readonly SemaphoreSlim _conversationTransitionLock = new(1, 1);
     private int _conversationEpoch;
 
@@ -190,9 +363,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 记录加载历史时的初始签名，用于判断是否发生了修改
     private string? _initialConversationSignature;
     private string _conversationId = Guid.NewGuid().ToString("N");
+    private long _revision;
 
     // 当前会话的上下文压缩摘要（唯一真源；TokenService.CompressionPreview 仅作设置页展示镜像）。
     private string? _activeContextSummary;
+    private string? _orphanedLegacySummary;
 
     // fork 元数据：当前会话若是从其他会话 fork 出的分支，归档时随快照持久化
     private string? _forkedFromConversationId;
@@ -202,7 +377,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 会话内压缩撤销栈：每次压缩入栈一个检查点，撤销时弹出还原。切换/重置会话时清空。
     private readonly Stack<CompressionCheckpoint> _compressionHistory = new();
 
-    private sealed record CompressionCheckpoint(string? PreviousSummary, IReadOnlyList<ChatMessage> Batch);
+    private sealed record CompressionCheckpoint(
+        string CompressionId,
+        long AppliedRevision,
+        string? PreviousSummary,
+        string? AppliedSummary,
+        IReadOnlyList<ChatMessage> Batch,
+        DateTime CreatedAt,
+        CompressionTriggerMode Mode = CompressionTriggerMode.Manual,
+        string SummaryAfterHash = "",
+        string CompressionModelFingerprint = "",
+        int PromptVersion = 1,
+        long PreCompressionTokens = 0,
+        long PostCompressionTokens = 0,
+        bool UsedLocalFallback = false);
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
@@ -332,6 +520,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(CurrentWorkspaceDisplayName));
         OnPropertyChanged(nameof(CurrentWorkspacePath));
         ApplyWorkspaceToContext(value);
+        InvalidateCompressionPreview();
+        RefreshContextInspectorProperties();
+        if (!IsSending) RefreshEffectiveContextPolicy();
+        else _policyRefreshPending = true;
     }
 
     /// <summary>将工作区信息同步到当前对话上下文</summary>
@@ -501,7 +693,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     #endregion
 
-    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public MainConversationViewModel(
         IChatService? chatService,
@@ -521,7 +713,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IWorkspaceService? workspaceService = null,
         IConversationSessionAccessor? sessionAccessor = null,
         IUserInteractionService? userInteractionService = null,
-        ConversationExecutionCoordinator? executionCoordinator = null)
+        ConversationExecutionCoordinator? executionCoordinator = null,
+        IContextPolicyProvider? contextPolicyProvider = null,
+        ICompressionPlanner? compressionPlanner = null,
+        ICompressionCandidateGenerator? compressionCandidateGenerator = null,
+        ICompressionValidator? compressionValidator = null)
     {
         Orchestrator = subAgentOrchestrator;
         if (Orchestrator != null)
@@ -531,7 +727,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         _chatService = chatService;
         _configService = configService;
-        _contextCompressionService = contextCompressionService;
         _promptService = promptService;
         _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
@@ -550,16 +745,24 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _sessionAccessor = sessionAccessor;
         _userInteractionService = userInteractionService;
         _executionCoordinator = executionCoordinator;
+        _contextPolicyProvider = contextPolicyProvider;
+        _compressionPlanner = compressionPlanner;
+        _compressionCandidateGenerator = compressionCandidateGenerator;
+        _compressionValidator = compressionValidator;
+        if (_contextPolicyProvider != null)
+            _contextPolicyProvider.EffectivePolicyChanged += OnEffectivePolicyChanged;
 
         // Initialize from config
         if (_configService != null)
         {
             var config = _configService.Load();
-            if (_tokenService != null) _tokenService.MaxTokens = config.MaxContextTokens;
             CurrentModelName = config.AiModels.MainConversation.Model;
+            _requestContentIdentity = ComputeRequestContentIdentity(config);
             CurrentTheme = config.Theme;
             ThemeIcon = config.Theme == "Dark" ? "Moon" : "Sun";
         }
+
+        RefreshEffectiveContextPolicy();
 
         // 监听全局主题变更（来自应用设置或其他入口），同步按钮状态
         App.ThemeChanged += OnThemeChanged;
@@ -585,7 +788,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         RestoreDraftIfNeeded();
     }
 
-    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshToolCallSummaries();
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        RefreshToolCallSummaries();
+        OnPropertyChanged(nameof(ContextTokensInfo));
+        RefreshContextInspectorProperties();
+    }
+
+    partial void OnCompressionStatusMessageChanged(string value)
+        => RefreshContextInspectorProperties();
 
     private void OnThemeChanged(string theme)
     {
@@ -600,8 +811,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private void OnMessagesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (_disposed || _isBulkLoadingMessages) return;
+        _revision++;
+        InvalidateCompressionPreview();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
+        RefreshContextInspectorProperties();
     }
 
     private void OnConfigChanged(object? sender, AppConfig config)
@@ -609,11 +823,73 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed) return;
+            var nextContentIdentity = ComputeRequestContentIdentity(config);
+            if (!string.Equals(_requestContentIdentity, nextContentIdentity, StringComparison.Ordinal)
+                && _tokenService?.HasVisibleUsage == true)
+            {
+                _tokenService.ApplyEstimatedBaseline(_tokenService.CurrentTokens, _revision);
+            }
+            _requestContentIdentity = nextContentIdentity;
+            InvalidateCompressionPreview();
             CurrentModelName = config.AiModels.MainConversation.Model;
             UpdateBubbleButtonVisibility();
             UpdateContextTokensDisplay();
+            RefreshContextInspectorProperties();
         });
     }
+
+    private void OnEffectivePolicyChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed) return;
+            if (IsSending)
+            {
+                _policyRefreshPending = true;
+                return;
+            }
+            RefreshEffectiveContextPolicy();
+        });
+    }
+
+    private void RefreshEffectiveContextPolicy()
+    {
+        if (_contextPolicyProvider == null) return;
+        try
+        {
+            var previous = _effectiveContextPolicy;
+            _effectiveContextPolicy = _contextPolicyProvider.Resolve(CurrentWorkspace?.ContextPolicyOverride);
+            if (_tokenService != null && _effectiveContextPolicy != null)
+            {
+                if (previous != null
+                    && (!string.Equals(previous.ProviderId, _effectiveContextPolicy.ProviderId, StringComparison.Ordinal)
+                        || !string.Equals(previous.ExternalModelId, _effectiveContextPolicy.ExternalModelId, StringComparison.Ordinal)
+                        || !string.Equals(previous.Metadata.TokenizerHint, _effectiveContextPolicy.Metadata.TokenizerHint, StringComparison.Ordinal))
+                    && _tokenService.HasVisibleUsage)
+                {
+                    _tokenService.ApplyEstimatedBaseline(_tokenService.CurrentTokens, _revision);
+                }
+                _tokenService.MaxTokens = checked((int)Math.Min(
+                    _effectiveContextPolicy.Policy.AvailableInputBudgetTokens,
+                    int.MaxValue));
+                _tokenService.CompressionThresholdTokens = _effectiveContextPolicy.Policy.CompressionThresholdTokens;
+            }
+            OnPropertyChanged(nameof(ContextTokensInfo));
+            InvalidateCompressionPreview();
+            RefreshContextInspectorProperties();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "空闲会话有效上下文策略刷新失败");
+        }
+    }
+
+    private string ComputeRequestContentIdentity(AppConfig config)
+        => string.Join('|',
+            config.EnableMcp,
+            config.EnableSkills,
+            _functionRegistry?.GetToolDeclarationTokenCount() ?? 0,
+            _promptService?.GetPrompt(PromptType.MainPersona).GetHashCode(StringComparison.Ordinal) ?? 0);
 
     private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -626,17 +902,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText) && PendingAttachments.Count == 0) return;
-
-        // 在发送前检查是否需要压缩上下文
-        if (_tokenService != null && _configService != null)
-        {
-            var config = _configService.Load();
-            if (config.AutoCompress && _tokenService.CurrentTokens > config.CompressionThreshold && !IsCompressing)
-            {
-                _logger.Information("检测到 Token 超过阈值 ({Tokens} > {Threshold})，触发自动压缩", _tokenService.CurrentTokens, config.CompressionThreshold);
-                await InternalCompressContextAsync();
-            }
-        }
 
         var userContent = InputText;
         var attachments = PendingAttachments.Select(CloneAttachmentForMessage).ToList();
@@ -653,6 +918,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         });
 
         UpdateConversationContext();
+        // 新用户消息/附件不属于上一 Usage 覆盖范围；若已解锁，立即转为显式近似态。
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
 
         // 先让出 UI 线程跑一次渲染，确保用户气泡立即出现，再去做后续较重的请求准备
         // （BuildMessages / token 估算 / 读取配置等），避免发送后约 1s 才看到气泡。
@@ -689,43 +956,325 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// 调试：进入「原始上下文」视图时，即时构建一次发送给主模型的 raw 消息快照。
-    /// </summary>
     partial void OnIsRawContextViewChanged(bool value)
     {
         if (value)
         {
-            RefreshRawContext();
+            IsContextInspectorOpen = true;
+            SelectedContextInspectorTab = 3;
+            IsRawContextView = false;
         }
     }
 
-    private void RefreshRawContext()
+    partial void OnIsContextInspectorOpenChanged(bool value)
     {
+        if (value)
+        {
+            RefreshContextInspectorProperties();
+            if (SelectedContextInspectorTab == 2) RefreshCompressionPlan();
+            if (SelectedContextInspectorTab == 3) _ = RefreshRawContextAsync();
+            return;
+        }
+        _compressionPreviewCts?.Cancel();
+        _rawContextCts?.Cancel();
+    }
+
+    partial void OnSelectedContextInspectorTabChanged(int value)
+    {
+        if (!IsContextInspectorOpen) return;
+        if (value == 2) RefreshCompressionPlan();
+        if (value == 3) _ = RefreshRawContextAsync();
+    }
+
+    [RelayCommand]
+    private void ToggleContextInspector()
+        => IsContextInspectorOpen = !IsContextInspectorOpen;
+
+    [RelayCommand]
+    private void CloseContextInspector()
+        => IsContextInspectorOpen = false;
+
+    [RelayCommand]
+    private void RefreshCompressionPlan()
+    {
+        _compressionPreviewCts?.Cancel();
+        _compressionPreviewPlan = null;
+        _compressionPreviewCandidate = null;
+        _compressionPreviewValidation = null;
+        CompressionCandidatePreview = string.Empty;
+        IsCompressionPreviewStale = false;
+
+        if (_compressionPlanner == null || _contextPolicyProvider == null)
+        {
+            CompressionImpactPreview = string.Empty;
+            CompressionPreviewStatus = GetString(
+                "ContextInspector.Preview.Unavailable",
+                "Transactional compression is unavailable.");
+            NotifyCompressionPreviewState();
+            return;
+        }
+
+        var main = _effectiveContextPolicy ?? _contextPolicyProvider.Resolve(CurrentWorkspace?.ContextPolicyOverride);
+        var compression = _contextPolicyProvider.ResolveRole(AiModelRole.ContextCompression);
+        if (main == null || compression == null)
+        {
+            CompressionImpactPreview = string.Empty;
+            CompressionPreviewStatus = GetString(
+                "ContextInspector.Preview.ModelUnavailable",
+                "Compression model policy is unavailable.");
+            NotifyCompressionPreviewState();
+            return;
+        }
+
+        UpdateConversationContext();
+        var estimate = Math.Max(_currentContext.EstimatedTokenCount, _tokenService?.CurrentTokens ?? 0);
+        var result = _compressionPlanner.CreatePlan(new CompressionPlanRequest(
+            _conversationId,
+            _revision,
+            ComputeCompressionContextFingerprint(),
+            CompressionTriggerMode.Manual,
+            _activeContextSummary,
+            Messages.ToList(),
+            main.Policy.KeepRecentRounds,
+            estimate,
+            main.Policy.TargetSummaryTokens,
+            main.Policy,
+            compression.Policy));
+        if (result.Plan == null)
+        {
+            CompressionImpactPreview = string.Empty;
+            CompressionPreviewStatus = result.Reason;
+            NotifyCompressionPreviewState();
+            return;
+        }
+
+        _compressionPreviewPlan = result.Plan;
+        CompressionImpactPreview = string.Format(
+            GetString(
+                "ContextInspector.Preview.ImpactFormat",
+                "Compress {0} messages; retain {1}. Estimate {2:N0} tokens; summary target {3:N0}. IDs {4} → {5}."),
+            result.Plan.CompressMessageIds.Count,
+            result.Plan.RetainMessageIds.Count,
+            result.Plan.PreCompressionEstimate,
+            result.Plan.TargetSummaryTokens,
+            result.Plan.CompressMessageIds.First(),
+            result.Plan.CompressMessageIds.Last());
+        CompressionPreviewStatus = GetString(
+            "ContextInspector.Preview.LocalOnly",
+            "Local impact preview only. No model request or charge has occurred.");
+        NotifyCompressionPreviewState();
+    }
+
+    [RelayCommand]
+    private async Task GenerateCompressionCandidateAsync()
+    {
+        if (!CanGenerateCompressionCandidate
+            || _compressionCandidateGenerator == null
+            || _compressionValidator == null
+            || _compressionPreviewPlan == null)
+            return;
+
+        var plan = _compressionPreviewPlan;
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _compressionPreviewCts, cts)?.Cancel();
+        IsCompressionPreviewBusy = true;
+        CompressionPreviewStatus = GetString(
+            "ContextInspector.Preview.Generating",
+            "Generating a candidate with the configured compression model; provider charges may apply.");
+        try
+        {
+            var generated = await _compressionCandidateGenerator.GenerateAsync(plan, cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            if (plan.BaseRevision != _revision
+                || !string.Equals(plan.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
+            {
+                IsCompressionPreviewStale = true;
+                CompressionPreviewStatus = GetString("ContextInspector.Preview.Stale", "Preview is stale. Refresh the local plan.");
+                return;
+            }
+            if (generated.Candidate == null)
+            {
+                CompressionPreviewStatus = generated.Error;
+                return;
+            }
+            var validation = _compressionValidator.Validate(plan, generated.Candidate, cts.Token);
+            if (!validation.IsValid)
+            {
+                CompressionPreviewStatus = validation.Error;
+                return;
+            }
+            _compressionPreviewCandidate = generated.Candidate;
+            _compressionPreviewValidation = validation;
+            CompressionCandidatePreview = generated.Candidate.Summary;
+            CompressionPreviewStatus = string.Format(
+                GetString(
+                    "ContextInspector.Preview.CandidateReady",
+                    "Candidate ready. Estimated {0:N0} → {1:N0} tokens. Review it before Apply."),
+                plan.PreCompressionEstimate,
+                validation.PostCompressionEstimate);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            CompressionPreviewStatus = GetString("ContextInspector.Preview.Cancelled", "Candidate generation cancelled; conversation unchanged.");
+        }
+        finally
+        {
+            _ = Interlocked.CompareExchange(ref _compressionPreviewCts, null, cts);
+            cts.Dispose();
+            IsCompressionPreviewBusy = false;
+            NotifyCompressionPreviewState();
+        }
+    }
+
+    [RelayCommand]
+    private async Task ApplyCompressionCandidateAsync()
+    {
+        if (!CanApplyCompressionCandidate
+            || _compressionCommitter == null
+            || _compressionPreviewPlan == null
+            || _compressionPreviewCandidate == null
+            || _compressionPreviewValidation == null)
+            return;
+        var plan = _compressionPreviewPlan;
+        var candidate = _compressionPreviewCandidate;
+        var validation = _compressionPreviewValidation;
+        IsCompressionPreviewBusy = true;
+        try
+        {
+            var transition = new CompressionTransition(
+                plan.PlanId,
+                candidate.CandidateId,
+                _conversationId,
+                plan.BaseRevision,
+                plan.BaseContextFingerprint,
+                CompressionTriggerMode.Manual,
+                plan.CompressMessageIds,
+                plan.ExistingSummary,
+                candidate.Summary,
+                candidate.CompressionModelFingerprint,
+                candidate.PromptVersion,
+                plan.PreCompressionEstimate,
+                validation.PostCompressionEstimate,
+                candidate.UsedLocalFallback);
+            var committed = await _compressionCommitter.CommitCompressionAsync(transition);
+            if (!committed.IsCommitted)
+            {
+                IsCompressionPreviewStale = committed.Status == CompressionCommitStatus.Stale;
+                CompressionPreviewStatus = committed.Error;
+                return;
+            }
+            CompressionPreviewStatus = GetString("ContextInspector.Preview.Applied", "Candidate applied and persisted atomically.");
+            _compressionPreviewPlan = null;
+            _compressionPreviewCandidate = null;
+            _compressionPreviewValidation = null;
+            CompressionImpactPreview = string.Empty;
+            CompressionCandidatePreview = string.Empty;
+            RefreshContextInspectorProperties();
+        }
+        finally
+        {
+            IsCompressionPreviewBusy = false;
+            NotifyCompressionPreviewState();
+        }
+    }
+
+    [RelayCommand]
+    private void CancelCompressionPreview()
+        => _compressionPreviewCts?.Cancel();
+
+    [RelayCommand]
+    private async Task RefreshRawContextAsync()
+    {
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _rawContextCts, cts)?.Cancel();
+        IsRawContextLoading = true;
+        RawContextStatus = string.Empty;
         RawContextEntries.Clear();
 
         if (_chatService == null)
         {
-            RawContextEntries.Add(new RawContextEntry
-            {
-                Header = "error",
-                Text = GetString("Chat.Raw.ServiceUnavailable", "Chat service is unavailable.")
-            });
+            RawContextStatus = GetString("Chat.Raw.ServiceUnavailable", "Chat service is unavailable.");
+            IsRawContextLoading = false;
             return;
         }
 
+        UpdateConversationContext();
+        var snapshot = _currentContext.Clone();
+        var revision = _revision;
+        var fingerprint = ComputeCompressionContextFingerprint();
         try
         {
-            foreach (var entry in _chatService.BuildRawContext(_currentContext))
+            var entries = await Task.Run(() => _chatService.BuildRawContext(snapshot, cts.Token), cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            if (!IsContextInspectorOpen
+                || revision != _revision
+                || !string.Equals(fingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
             {
-                RawContextEntries.Add(entry);
+                RawContextStatus = GetString("ContextInspector.Raw.Stale", "RAW snapshot became stale; refresh it.");
+                return;
             }
+            foreach (var entry in entries) RawContextEntries.Add(entry);
+            RawContextSnapshotInfo = $"{DateTime.Now:g} · RequestFormat v1 · Revision {revision} · {fingerprint[..Math.Min(16, fingerprint.Length)]}";
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            RawContextStatus = GetString("ContextInspector.Raw.Cancelled", "RAW context build cancelled.");
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "构建 raw 上下文失败");
-            RawContextEntries.Add(new RawContextEntry { Header = "error", Text = "构建 raw 上下文失败: " + ex.Message });
+            RawContextStatus = string.Format(
+                GetString("ContextInspector.Raw.Failed", "Failed to build RAW context: {0}"),
+                ex.Message);
         }
+        finally
+        {
+            _ = Interlocked.CompareExchange(ref _rawContextCts, null, cts);
+            cts.Dispose();
+            IsRawContextLoading = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelRawContextBuild() => _rawContextCts?.Cancel();
+
+    [RelayCommand]
+    private void CopyContextText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        if (App.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            _ = TopLevel.GetTopLevel(desktop.MainWindow)?.Clipboard?.SetTextAsync(text);
+    }
+
+    private void InvalidateCompressionPreview()
+    {
+        if (_compressionPreviewPlan == null) return;
+        IsCompressionPreviewStale = true;
+        CompressionPreviewStatus = GetString("ContextInspector.Preview.Stale", "Preview is stale. Refresh the local plan.");
+        _compressionPreviewCts?.Cancel();
+        NotifyCompressionPreviewState();
+    }
+
+    private void NotifyCompressionPreviewState()
+    {
+        OnPropertyChanged(nameof(CanGenerateCompressionCandidate));
+        OnPropertyChanged(nameof(CanApplyCompressionCandidate));
+        OnPropertyChanged(nameof(HasCompressionImpactPreview));
+        OnPropertyChanged(nameof(HasCompressionCandidatePreview));
+    }
+
+    private void RefreshContextInspectorProperties()
+    {
+        OnPropertyChanged(nameof(ContextInspectorModelText));
+        OnPropertyChanged(nameof(ContextInspectorMatchText));
+        OnPropertyChanged(nameof(ContextInspectorPolicyText));
+        OnPropertyChanged(nameof(ContextInspectorUsageText));
+        OnPropertyChanged(nameof(ContextInspectorUsageDetails));
+        OnPropertyChanged(nameof(ContextInspectorWorkspaceText));
+        OnPropertyChanged(nameof(ContextInspectorCompressionModelText));
+        OnPropertyChanged(nameof(ContextInspectorWarningsText));
+        OnPropertyChanged(nameof(HasContextInspectorWarnings));
+        OnPropertyChanged(nameof(CompressionSummaryDetails));
     }
 
     private bool CanStartNewConversation() => !IsResetting;
@@ -820,7 +1369,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// 从该条用户消息处 fork 分支：原会话完整保存为历史，当前会话换新身份，
     /// 保留 fork 点之前的上下文（附件物理克隆以与父历史解耦），fork 点消息回填输入区。
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanModifyMessages))]
+    [RelayCommand(CanExecute = nameof(CanForkFromMessage))]
     private async Task ForkFromMessageAsync(ChatMessage? message)
     {
         if (message == null || message.Role != "user") return;
@@ -900,6 +1449,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             "已从会话 {ParentId} 的消息 {MessageId} 处 fork 出分支 {BranchId}",
             parentConversationId, message.Id, _conversationId);
     }
+
+    // P0 安全止血：消息级 Fork 在外层 Session 身份事务化前禁用，避免分支继续保存到父 HistoryId。
+    private bool CanForkFromMessage() => false;
 
     /// <summary>
     /// 把一批附件挂回输入区待发送列表；超出上限的部分按需清理物理文件并提示。
@@ -1322,6 +1874,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         Interlocked.Increment(ref _conversationEpoch);
         _responseCts?.Cancel();
+        _compressionPreviewCts?.Cancel();
+        _rawContextCts?.Cancel();
+        IsContextInspectorOpen = false;
         CancelPendingPreviewLoading();
         CancelPendingAudio();
         FinalizePendingAssistantMessages();
@@ -1356,9 +1911,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         return new ConversationArchiveSnapshot
         {
+            SchemaVersion = ConversationPersistenceSnapshot.CurrentSchemaVersion,
             ConversationId = _conversationId,
             HistoryId = _currentHistoryId,
+            Revision = _revision,
+            CreatedAt = messages.FirstOrDefault()?.Timestamp ?? DateTime.Now,
+            UpdatedAt = DateTime.Now,
             ContextSummary = _activeContextSummary,
+            OrphanedLegacySummary = _orphanedLegacySummary,
+            CompressionHistory = CaptureCompressionHistory(),
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -1388,12 +1949,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = null;
         _initialConversationSignature = null;
+        _revision = 0;
         _forkedFromConversationId = null;
         _forkedFromHistoryId = null;
         _forkedAtMessageId = null;
 
         _compressionHistory.Clear();
         SetActiveContextSummary(null);
+        SetOrphanedLegacySummary(null);
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
         _archiveService?.DeleteDraft();
@@ -1439,6 +2002,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         var cancellationToken = responseCts.Token;
         var requestContext = _currentContext.Clone();
         requestContext.ConversationId = _conversationId;
+        requestContext.Revision = _revision;
+        var requestContentIdentityAtStart = _requestContentIdentity;
         var outcome = TaskExecutionResult.Succeeded();
 
         IsSending = true;
@@ -1456,6 +2021,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             IsStreaming = true
         };
         Messages.Add(assistantMsg);
+        requestContext.Revision = _revision;
 
         try
         {
@@ -1573,46 +2139,35 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         assistantMsg.ToolExecutionSummary = string.Empty;
                         assistantMsg.IsComposingFileText = false;
                         assistantMsg.IsLoading = true;
+                        // 工具结果发生在刚才的 API Usage 之后，必须降为近似态等待下一轮 Usage 重锚。
+                        UpdateConversationContext();
+                        UpdateContextTokensDisplay(forceEstimateBaseline: true);
                     }
-                },
-                onContextCompressed: (summary, count) =>
-                {
-                    if (!IsCurrentConversationEpoch(epoch))
-                    {
-                        return;
-                    }
-
-                    // 捕获压缩前摘要，供撤销还原
-                    var previousSummary = _activeContextSummary;
-
-                    // 同步 UI 消息状态：标记前 count 条当前未压缩的消息为已压缩，并收集引用入撤销栈
-                    var batch = new List<ChatMessage>(count);
-                    foreach (var m in Messages)
-                    {
-                        if (!m.IsCompressed)
-                        {
-                            m.IsCompressed = true;
-                            batch.Add(m);
-                            if (batch.Count >= count) break;
-                        }
-                    }
-                    if (batch.Count > 0)
-                    {
-                        _compressionHistory.Push(new CompressionCheckpoint(previousSummary, batch));
-                    }
-                    SetActiveContextSummary(summary);
-                    // 上下文被压缩变小：强制以估算刷新显示，下一轮真实 usage 会自动重锚。
-                    UpdateContextTokensDisplay(forceEstimateBaseline: true);
-                    UpdateBubbleButtonVisibility();
-                    UndoCompressionCommand.NotifyCanExecuteChanged();
-                    _logger.Information("检测到中间压缩，UI 已同步标记 {Count} 条消息", count);
+                    requestContext.Revision = _revision;
                 },
                 onUsageReported: usage =>
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;
-                    // 供应商回报的真实用量：作为上下文占用的权威锚点，覆盖此前一切估算。
-                    _tokenService?.ApplyUsage(usage);
-                    OnPropertyChanged(nameof(ContextTokensInfo));
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!IsCurrentConversationEpoch(epoch) || _tokenService == null) return;
+                        var currentRole = _configService?.Load().AiModels.MainConversation;
+                        if (_tokenService.TryApplyUsage(
+                                usage,
+                                currentRole?.ProviderId,
+                                currentRole?.Model,
+                                _revision))
+                        {
+                            OnPropertyChanged(nameof(ContextTokensInfo));
+                            RefreshContextInspectorProperties();
+                        }
+                        else
+                        {
+                            _logger.Warning(
+                                "UsageObserved/Rejected RequestId={RequestId} Provider={ProviderId} Model={Model}",
+                                usage.RequestId, usage.ProviderId, usage.ModelId);
+                        }
+                    });
                 },
                 onToolCallArgumentsStreaming: functionName =>
                 {
@@ -1625,7 +2180,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     assistantMsg.IsComposingFileText = true;
                     assistantMsg.IsLoading = true;
                 },
-                addToContext: addToContext))
+                addToContext: addToContext,
+                onCompressionTransition: (transition, token) =>
+                    CommitAutomaticCompressionAsync(
+                        transition,
+                        epoch,
+                        requestContentIdentityAtStart,
+                        token),
+                onContextWarning: warning =>
+                {
+                    if (IsCurrentConversationEpoch(epoch)) CompressionStatusMessage = warning;
+                }))
             {
                 if (!IsCurrentConversationEpoch(epoch))
                 {
@@ -1714,8 +2279,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 UpdateConversationContext();
                 await ReconcileImageGenerationSessionAsync();
                 IsSending = false;
+                if (_policyRefreshPending)
+                {
+                    _policyRefreshPending = false;
+                    RefreshEffectiveContextPolicy();
+                }
                 UpdateContextTokensDisplay();
                 UpdateBubbleButtonVisibility();
+                MarkPersistenceStateChanged();
 
                 // 文本回复已结束、发送态已解除：语音在后台异步生成，不阻塞任何交互。
                 // 仅对成功产出正文、非报错/中断的终态气泡生成语音。
@@ -1744,12 +2315,94 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             _tokenService.CompressionPreview = _activeContextSummary ?? string.Empty;
         }
+        OnPropertyChanged(nameof(ActiveContextSummary));
+        OnPropertyChanged(nameof(HasActiveContextSummary));
+        OnPropertyChanged(nameof(CompressionSummaryDetails));
+        RefreshContextInspectorProperties();
+    }
+
+    private void SetOrphanedLegacySummary(string? summary)
+    {
+        _orphanedLegacySummary = string.IsNullOrWhiteSpace(summary) ? null : summary;
+        OnPropertyChanged(nameof(OrphanedLegacySummary));
+        OnPropertyChanged(nameof(HasOrphanedLegacySummary));
+        RefreshContextInspectorProperties();
+    }
+
+    private void MarkPersistenceStateChanged()
+    {
+        _revision++;
+        PersistenceStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void MarkPersistenceMetadataChanged() => MarkPersistenceStateChanged();
+
+    public void AttachCompressionCommitter(IConversationCompressionCommitter committer)
+    {
+        _compressionCommitter = committer;
+    }
+
+    public ConversationPersistenceSnapshot CapturePersistenceSnapshot(
+        string historyId,
+        string title,
+        DateTime updatedAt,
+        bool isPinned,
+        string? workspaceId)
+    {
+        var messages = Messages
+            .Where(ConversationPersistenceHelper.ShouldPersistMessage)
+            .Select(ConversationPersistenceHelper.CloneMessage)
+            .ToList();
+        return new ConversationPersistenceSnapshot
+        {
+            ConversationId = _conversationId,
+            HistoryId = historyId,
+            Revision = _revision,
+            Title = title,
+            CreatedAt = messages.FirstOrDefault()?.Timestamp ?? updatedAt,
+            UpdatedAt = updatedAt,
+            ContextSummary = _activeContextSummary,
+            OrphanedLegacySummary = _orphanedLegacySummary,
+            CompressionHistory = CaptureCompressionHistory(),
+            ForkedFromConversationId = _forkedFromConversationId,
+            ForkedFromHistoryId = _forkedFromHistoryId,
+            ForkedAtMessageId = _forkedAtMessageId,
+            Messages = messages,
+            WorkspaceId = workspaceId,
+            Draft = InputText,
+            IsPinned = isPinned,
+            RuntimeStatus = IsSending ? "interrupted" : "idle"
+        };
+    }
+
+    private List<CompressionCheckpointRecord> CaptureCompressionHistory()
+    {
+        return _compressionHistory
+            .Reverse()
+            .Select(checkpoint => new CompressionCheckpointRecord
+            {
+                CompressionId = checkpoint.CompressionId,
+                AppliedRevision = checkpoint.AppliedRevision,
+                MessageIds = checkpoint.Batch.Select(message => message.Id).ToList(),
+                SummaryBefore = checkpoint.PreviousSummary,
+                SummaryAfter = checkpoint.AppliedSummary,
+                SummaryAfterHash = checkpoint.SummaryAfterHash,
+                Mode = checkpoint.Mode,
+                CompressionModelFingerprint = checkpoint.CompressionModelFingerprint,
+                PromptVersion = checkpoint.PromptVersion,
+                PreCompressionTokens = checkpoint.PreCompressionTokens,
+                PostCompressionTokens = checkpoint.PostCompressionTokens,
+                UsedLocalFallback = checkpoint.UsedLocalFallback,
+                CreatedAt = checkpoint.CreatedAt
+            })
+            .ToList();
     }
 
     private void UpdateConversationContext()
     {
         _currentContext.Clear();
         _currentContext.ConversationId = _conversationId;
+        _currentContext.Revision = _revision;
 
         // 赋予当前的压缩摘要（如果有）——读会话级真源，而非 UI 单例
         _currentContext.SetSummary(string.IsNullOrEmpty(_activeContextSummary) ? null : _activeContextSummary);
@@ -1761,7 +2414,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
             if (msg.Role == "user")
             {
-                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments);
+                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments, msg.Id);
             }
             else if (msg.Role == "assistant")
             {
@@ -1777,12 +2430,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         msg.ToolCallsJson,
                         msg.ReasoningContent,
                         msg.Attachments,
-                        msg.OutputAudioReferenceId);
+                        msg.OutputAudioReferenceId,
+                        msg.Id);
                 }
             }
             else if (msg.Role == "tool")
             {
-                _currentContext.AddToolMessage(msg.Content, msg.ToolCallId);
+                _currentContext.AddToolMessage(msg.Content, msg.ToolCallId, msg.Id);
             }
         }
     }
@@ -1858,11 +2512,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         if (forceEstimateBaseline)
         {
-            _tokenService.ApplyEstimatedBaseline(estimated);
+            _tokenService.ApplyEstimatedBaseline(estimated, _revision);
         }
         else
         {
-            _tokenService.RefreshEstimate(estimated);
+            _tokenService.RefreshEstimate(estimated, _revision);
         }
 
         OnPropertyChanged(nameof(ContextTokensInfo));
@@ -1896,47 +2550,273 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         if (_configService != null)
         {
-            var config = await _configService.LoadAsync();
-            if (_tokenService != null) _tokenService.MaxTokens = config.MaxContextTokens;
+            _ = await _configService.LoadAsync();
+            RefreshEffectiveContextPolicy();
             UpdateContextTokensDisplay();
         }
     }
 
-    public async Task InternalCompressContextAsync()
+    public async Task InternalCompressContextAsync(CancellationToken cancellationToken = default)
     {
-        if (_contextCompressionService == null || _configService == null) return;
+        if (_configService == null) return;
 
-        var config = _configService.Load();
         IsCompressing = true;
+        CompressionStatusMessage = string.Empty;
         try
         {
-            var previousSummary = _activeContextSummary;
-            var messagesList = Messages.ToList();
-            var result = await _contextCompressionService.CompressAsync(
-                messagesList,
-                previousSummary,
-                config.KeepRecentRounds);
-            if (result.Summary != null && result.CompressedCount > 0)
+            if (_compressionPlanner == null
+                || _compressionCandidateGenerator == null
+                || _compressionValidator == null)
             {
-                // 入压缩撤销栈：捕获压缩前摘要与被压缩消息引用
-                _compressionHistory.Push(new CompressionCheckpoint(previousSummary, result.CompressedMessages));
-
-                SetActiveContextSummary(result.Summary);
-
-                // 更新对话上下文并重新计算 Token（上下文变小，强制以估算刷新，下轮真实 usage 重锚）
-                UpdateConversationContext();
-                UpdateContextTokensDisplay(forceEstimateBaseline: true);
-                UpdateBubbleButtonVisibility();
-                UndoCompressionCommand.NotifyCanExecuteChanged();
-
-                _logger.Information("UI 上下文压缩显示已更新（按轮次压缩，{Mode}）", result.UsedFallback ? "本地兜底" : "AI");
+                CompressionStatusMessage = "Transactional compression is unavailable; the conversation remains unchanged.";
+                return;
             }
+            if (_compressionCommitter == null)
+            {
+                CompressionStatusMessage = "Conversation persistence is unavailable; compression was not applied.";
+                return;
+            }
+            var main = _effectiveContextPolicy ?? _contextPolicyProvider?.Resolve(CurrentWorkspace?.ContextPolicyOverride);
+            var compression = _contextPolicyProvider?.ResolveRole(AiModelRole.ContextCompression);
+            if (main == null || compression == null)
+            {
+                CompressionStatusMessage = "Compression model policy is unavailable; the conversation remains unchanged.";
+                return;
+            }
+
+            UpdateConversationContext();
+            var fingerprint = ComputeCompressionContextFingerprint();
+            var preEstimate = Math.Max(
+                _currentContext.EstimatedTokenCount,
+                _tokenService?.CurrentTokens ?? 0);
+            var planResult = _compressionPlanner.CreatePlan(new CompressionPlanRequest(
+                _conversationId,
+                _revision,
+                fingerprint,
+                CompressionTriggerMode.Manual,
+                _activeContextSummary,
+                Messages.ToList(),
+                main.Policy.KeepRecentRounds,
+                preEstimate,
+                main.Policy.TargetSummaryTokens,
+                main.Policy,
+                compression.Policy));
+            if (planResult.Plan == null)
+            {
+                CompressionStatusMessage = planResult.Reason;
+                return;
+            }
+
+            var generated = await _compressionCandidateGenerator.GenerateAsync(planResult.Plan, cancellationToken);
+            if (generated.Candidate == null)
+            {
+                CompressionStatusMessage = generated.Error;
+                return;
+            }
+            var validation = _compressionValidator.Validate(planResult.Plan, generated.Candidate, cancellationToken);
+            if (!validation.IsValid)
+            {
+                CompressionStatusMessage = validation.Error;
+                return;
+            }
+
+            var transition = new CompressionTransition(
+                planResult.Plan.PlanId,
+                generated.Candidate.CandidateId,
+                _conversationId,
+                planResult.Plan.BaseRevision,
+                planResult.Plan.BaseContextFingerprint,
+                planResult.Plan.TriggerMode,
+                planResult.Plan.CompressMessageIds,
+                planResult.Plan.ExistingSummary,
+                generated.Candidate.Summary,
+                generated.Candidate.CompressionModelFingerprint,
+                generated.Candidate.PromptVersion,
+                planResult.Plan.PreCompressionEstimate,
+                validation.PostCompressionEstimate,
+                generated.Candidate.UsedLocalFallback);
+            var committed = await _compressionCommitter.CommitCompressionAsync(transition, cancellationToken);
+            if (!committed.IsCommitted)
+            {
+                CompressionStatusMessage = committed.Error;
+                return;
+            }
+            CompressionStatusMessage = string.Empty;
+            _logger.Information("事务化上下文压缩已提交: Revision={Revision}, Messages={Count}",
+                committed.Revision, transition.MessageIds.Count);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         finally
         {
             IsCompressing = false;
             await NotifySchedulerAvailabilityAsync();
         }
+    }
+
+    public (ConversationPersistenceSnapshot? Snapshot, string Error) PrepareCompressionCommitSnapshot(
+        CompressionTransition transition,
+        string historyId,
+        string title,
+        DateTime updatedAt,
+        bool isPinned,
+        string? workspaceId)
+    {
+        if (transition.ConversationId != _conversationId
+            || transition.BaseRevision != _revision
+            || !string.Equals(transition.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal)
+            || !string.Equals(transition.SummaryBefore, _activeContextSummary, StringComparison.Ordinal))
+            return (null, "Compression plan is stale.");
+        if (transition.MessageIds.Count == 0
+            || transition.MessageIds.Distinct(StringComparer.Ordinal).Count() != transition.MessageIds.Count)
+            return (null, "Compression transition contains invalid message identities.");
+
+        var snapshot = CapturePersistenceSnapshot(historyId, title, updatedAt, isPinned, workspaceId);
+        var byId = snapshot.Messages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        foreach (var id in transition.MessageIds)
+        {
+            if (!byId.TryGetValue(id, out var message) || message.IsCompressed)
+                return (null, "Compression plan message set is stale or incomplete.");
+            message.IsCompressed = true;
+        }
+        snapshot.Revision = transition.BaseRevision + 1;
+        snapshot.ContextSummary = transition.SummaryAfter;
+        snapshot.CompressionHistory.Add(CreateCheckpointRecord(transition, snapshot.Revision));
+        if (snapshot.CompressionHistory.Count > 20)
+            snapshot.CompressionHistory = snapshot.CompressionHistory.TakeLast(20).ToList();
+        return (snapshot, string.Empty);
+    }
+
+    private async Task<CompressionCommitResult> CommitAutomaticCompressionAsync(
+        CompressionTransition transition,
+        int epoch,
+        string requestContentIdentityAtStart,
+        CancellationToken cancellationToken)
+    {
+        if (_compressionCommitter == null)
+            return CompressionCommitResult.Failed(
+                CompressionCommitStatus.PersistenceUnavailable,
+                _revision,
+                "Conversation persistence is unavailable.");
+
+        CompressionTransition? liveTransition = null;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsCurrentConversationEpoch(epoch)
+                || transition.ConversationId != _conversationId
+                || transition.BaseRevision != _revision
+                || !string.Equals(requestContentIdentityAtStart, _requestContentIdentity, StringComparison.Ordinal)
+                || !string.Equals(transition.SummaryBefore, _activeContextSummary, StringComparison.Ordinal))
+                return;
+            var activeIds = Messages
+                .Where(message => !message.IsCompressed)
+                .Select(message => message.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            if (transition.MessageIds.Any(id => !activeIds.Contains(id))) return;
+            liveTransition = transition with
+            {
+                BaseContextFingerprint = ComputeCompressionContextFingerprint()
+            };
+        });
+        if (liveTransition == null)
+            return CompressionCommitResult.Failed(
+                CompressionCommitStatus.Stale,
+                _revision,
+                "Automatic compression plan became stale before commit.");
+        return await _compressionCommitter.CommitCompressionAsync(liveTransition, cancellationToken);
+    }
+
+    public bool PublishCompressionCommit(CompressionTransition transition, long committedRevision, string historyId)
+    {
+        if (transition.BaseRevision != _revision
+            || committedRevision != transition.BaseRevision + 1
+            || !string.Equals(transition.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
+            return false;
+        var byId = Messages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        var batch = new List<ChatMessage>(transition.MessageIds.Count);
+        foreach (var id in transition.MessageIds)
+        {
+            if (!byId.TryGetValue(id, out var message) || message.IsCompressed) return false;
+            batch.Add(message);
+        }
+        foreach (var message in batch) message.IsCompressed = true;
+        SetActiveContextSummary(transition.SummaryAfter);
+        _compressionHistory.Push(CreateCheckpoint(transition, committedRevision, batch));
+        TrimCompressionHistory();
+        _currentHistoryId = historyId;
+        _revision = committedRevision;
+        UpdateConversationContext();
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        UpdateBubbleButtonVisibility();
+        UndoCompressionCommand.NotifyCanExecuteChanged();
+        return true;
+    }
+
+    public string CaptureCompressionContextFingerprint() => ComputeCompressionContextFingerprint();
+
+    private string ComputeCompressionContextFingerprint()
+    {
+        var messages = Messages
+            .Where(ConversationPersistenceHelper.ShouldPersistMessage)
+            .Select(ConversationPersistenceHelper.CloneMessage)
+            .ToList();
+        var material = JsonSerializer.Serialize(new
+        {
+            ConversationId = _conversationId,
+            Summary = _activeContextSummary,
+            RequestContentIdentity = _requestContentIdentity,
+            WorkspaceId = _currentContext.WorkspaceId,
+            Messages = messages
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
+    }
+
+    private static CompressionCheckpointRecord CreateCheckpointRecord(CompressionTransition transition, long revision) => new()
+    {
+        CompressionId = transition.CandidateId,
+        AppliedRevision = revision,
+        MessageIds = transition.MessageIds.ToList(),
+        SummaryBefore = transition.SummaryBefore,
+        SummaryAfter = transition.SummaryAfter,
+        SummaryAfterHash = HashSummary(transition.SummaryAfter),
+        Mode = transition.Mode,
+        CompressionModelFingerprint = transition.CompressionModelFingerprint,
+        PromptVersion = transition.PromptVersion,
+        PreCompressionTokens = transition.PreCompressionTokens,
+        PostCompressionTokens = transition.PostCompressionTokens,
+        UsedLocalFallback = transition.UsedLocalFallback,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    private static CompressionCheckpoint CreateCheckpoint(
+        CompressionTransition transition,
+        long revision,
+        IReadOnlyList<ChatMessage> batch) => new(
+        transition.CandidateId,
+        revision,
+        transition.SummaryBefore,
+        transition.SummaryAfter,
+        batch,
+        DateTime.UtcNow,
+        transition.Mode,
+        HashSummary(transition.SummaryAfter),
+        transition.CompressionModelFingerprint,
+        transition.PromptVersion,
+        transition.PreCompressionTokens,
+        transition.PostCompressionTokens,
+        transition.UsedLocalFallback);
+
+    private static string HashSummary(string summary)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(summary))).ToLowerInvariant();
+
+    private void TrimCompressionHistory()
+    {
+        if (_compressionHistory.Count <= 20) return;
+        var newest = _compressionHistory.Take(20).Reverse().ToArray();
+        _compressionHistory.Clear();
+        foreach (var checkpoint in newest) _compressionHistory.Push(checkpoint);
     }
 
     private async Task NotifySchedulerAvailabilityAsync()
@@ -1957,7 +2837,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand(CanExecute = nameof(CanUndoCompression))]
-    private void UndoCompression() => InternalUndoCompression();
+    private async Task UndoCompressionAsync() => await InternalUndoCompressionAsync();
 
     private bool CanUndoCompression() => !IsSending && !IsCompressing && _compressionHistory.Count > 0;
 
@@ -1965,7 +2845,49 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// 撤销上一次上下文压缩：把该批被归档的消息重新激活，并恢复压缩前的摘要。
     /// 仅支持会话内（内存）撤销；切换/重置会话后栈清空。
     /// </summary>
+    public async Task<bool> InternalUndoCompressionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_compressionHistory.Count == 0 || IsSending || IsCompressing) return false;
+
+        if (_compressionCommitter != null)
+        {
+            IsCompressing = true;
+            try
+            {
+                var checkpoint = _compressionHistory.Peek();
+                var transition = new CompressionUndoTransition(
+                    checkpoint.CompressionId,
+                    _conversationId,
+                    _revision,
+                    ComputeCompressionContextFingerprint(),
+                    checkpoint.Batch.Select(message => message.Id).ToArray(),
+                    _activeContextSummary,
+                    checkpoint.PreviousSummary);
+                var committed = await _compressionCommitter.CommitUndoCompressionAsync(transition, cancellationToken);
+                CompressionStatusMessage = committed.IsCommitted ? string.Empty : committed.Error;
+                return committed.IsCommitted;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            finally
+            {
+                IsCompressing = false;
+                await NotifySchedulerAvailabilityAsync();
+            }
+        }
+
+        return ApplyLegacyUndoInMemory();
+    }
+
+    /// <summary>Compatibility wrapper for isolated legacy tests; production commands use the async transaction.</summary>
     public bool InternalUndoCompression()
+        => _compressionCommitter == null
+            ? ApplyLegacyUndoInMemory()
+            : InternalUndoCompressionAsync().GetAwaiter().GetResult();
+
+    private bool ApplyLegacyUndoInMemory()
     {
         if (_compressionHistory.Count == 0 || IsSending || IsCompressing) return false;
 
@@ -1981,8 +2903,77 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
         UndoCompressionCommand.NotifyCanExecuteChanged();
+        MarkPersistenceStateChanged();
 
         _logger.Information("已撤销上一次上下文压缩，恢复 {Count} 条消息", checkpoint.Batch.Count);
+        return true;
+    }
+
+    public (ConversationPersistenceSnapshot? Snapshot, string Error) PrepareCompressionUndoSnapshot(
+        CompressionUndoTransition transition,
+        string historyId,
+        string title,
+        DateTime updatedAt,
+        bool isPinned,
+        string? workspaceId)
+    {
+        if (_compressionHistory.Count == 0
+            || transition.ConversationId != _conversationId
+            || transition.BaseRevision != _revision
+            || !string.Equals(transition.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
+            return (null, "Compression undo is stale.");
+        var checkpoint = _compressionHistory.Peek();
+        if (!string.Equals(checkpoint.CompressionId, transition.CompressionId, StringComparison.Ordinal)
+            || !string.Equals(_activeContextSummary, transition.SummaryBeforeUndo, StringComparison.Ordinal)
+            || !checkpoint.Batch.Select(message => message.Id).SequenceEqual(transition.MessageIds, StringComparer.Ordinal))
+            return (null, "Only the latest complete compression checkpoint can be undone.");
+        if (!string.IsNullOrWhiteSpace(checkpoint.SummaryAfterHash)
+            && !string.Equals(checkpoint.SummaryAfterHash, HashSummary(_activeContextSummary ?? string.Empty), StringComparison.Ordinal))
+            return (null, "The active summary no longer matches the checkpoint.");
+
+        var snapshot = CapturePersistenceSnapshot(historyId, title, updatedAt, isPinned, workspaceId);
+        var byId = snapshot.Messages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        foreach (var id in transition.MessageIds)
+        {
+            if (!byId.TryGetValue(id, out var message) || !message.IsCompressed)
+                return (null, "Compression undo message set is incomplete.");
+            message.IsCompressed = false;
+        }
+        snapshot.Revision = transition.BaseRevision + 1;
+        snapshot.ContextSummary = transition.SummaryAfterUndo;
+        if (snapshot.CompressionHistory.Count == 0
+            || !string.Equals(snapshot.CompressionHistory[^1].CompressionId, transition.CompressionId, StringComparison.Ordinal))
+            return (null, "Persisted checkpoint stack does not match the undo request.");
+        snapshot.CompressionHistory.RemoveAt(snapshot.CompressionHistory.Count - 1);
+        return (snapshot, string.Empty);
+    }
+
+    public bool PublishCompressionUndo(CompressionUndoTransition transition, long committedRevision, string historyId)
+    {
+        if (_compressionHistory.Count == 0
+            || transition.BaseRevision != _revision
+            || committedRevision != transition.BaseRevision + 1
+            || !string.Equals(transition.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
+            return false;
+        var checkpoint = _compressionHistory.Peek();
+        if (!string.Equals(checkpoint.CompressionId, transition.CompressionId, StringComparison.Ordinal)) return false;
+        var byId = Messages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        var batch = new List<ChatMessage>();
+        foreach (var id in transition.MessageIds)
+        {
+            if (!byId.TryGetValue(id, out var message) || !message.IsCompressed) return false;
+            batch.Add(message);
+        }
+        foreach (var message in batch) message.IsCompressed = false;
+        _compressionHistory.Pop();
+        SetActiveContextSummary(transition.SummaryAfterUndo);
+        _currentHistoryId = historyId;
+        _revision = committedRevision;
+        UpdateConversationContext();
+        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        UpdateBubbleButtonVisibility();
+        UndoCompressionCommand.NotifyCanExecuteChanged();
+        _logger.Information("已原子撤销上下文压缩，恢复 {Count} 条消息", batch.Count);
         return true;
     }
 
@@ -2000,6 +2991,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             : history.ConversationId;
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = history.Id;
+        _revision = Math.Max(0, history.Revision);
         _forkedFromConversationId = history.ForkedFromConversationId;
         _forkedFromHistoryId = history.ForkedFromHistoryId;
         _forkedAtMessageId = history.ForkedAtMessageId;
@@ -2010,6 +3002,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _compressionHistory.Clear();
         SetActiveContextSummary(history.ContextSummary);
+        SetOrphanedLegacySummary(history.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
         var restoredMessages = ConversationPersistenceHelper.CloneMessages(history.Messages ?? []);
@@ -2017,7 +3010,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             ConversationPersistenceHelper.PrepareRestoredMessage(message);
         }
-        Messages.ReplaceAll(restoredMessages);
+        _isBulkLoadingMessages = true;
+        try
+        {
+            Messages.ReplaceAll(restoredMessages);
+        }
+        finally
+        {
+            _isBulkLoadingMessages = false;
+        }
+        RestoreCompressionHistory(history.CompressionHistory, restoredMessages);
         LoadPreviewsInBackground(restoredMessages);
 
         _ = ReconcileImageGenerationSessionAsync();
@@ -2026,6 +3028,44 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
+    }
+
+    private void RestoreCompressionHistory(
+        IEnumerable<CompressionCheckpointRecord>? records,
+        IReadOnlyCollection<ChatMessage> restoredMessages)
+    {
+        if (records == null) return;
+        var byId = restoredMessages.ToDictionary(message => message.Id, StringComparer.Ordinal);
+        foreach (var record in records.OrderBy(record => record.AppliedRevision))
+        {
+            var batch = new List<ChatMessage>();
+            var complete = true;
+            foreach (var id in record.MessageIds)
+            {
+                if (!byId.TryGetValue(id, out var message))
+                {
+                    complete = false;
+                    break;
+                }
+                batch.Add(message);
+            }
+            if (!complete || batch.Count == 0) continue;
+            _compressionHistory.Push(new CompressionCheckpoint(
+                record.CompressionId,
+                record.AppliedRevision,
+                record.SummaryBefore,
+                record.SummaryAfter,
+                batch,
+                record.CreatedAt,
+                record.Mode,
+                record.SummaryAfterHash,
+                record.CompressionModelFingerprint,
+                record.PromptVersion,
+                record.PreCompressionTokens,
+                record.PostCompressionTokens,
+                record.UsedLocalFallback));
+        }
+        UndoCompressionCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -2129,10 +3169,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         var snapshot = new ConversationDraftSnapshot
         {
+            SchemaVersion = ConversationPersistenceSnapshot.CurrentSchemaVersion,
+            Revision = _revision,
             ConversationId = _conversationId,
             CurrentHistoryId = _currentHistoryId,
             InitialConversationSignature = _initialConversationSignature,
             ContextSummary = _activeContextSummary,
+            OrphanedLegacySummary = _orphanedLegacySummary,
+            CompressionHistory = CaptureCompressionHistory(),
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -2173,6 +3217,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             : snapshot.ConversationId;
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = snapshot.CurrentHistoryId;
+        _revision = Math.Max(0, snapshot.Revision);
         _initialConversationSignature = snapshot.InitialConversationSignature;
         _forkedFromConversationId = snapshot.ForkedFromConversationId;
         _forkedFromHistoryId = snapshot.ForkedFromHistoryId;
@@ -2180,6 +3225,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _compressionHistory.Clear();
         SetActiveContextSummary(snapshot.ContextSummary);
+        SetOrphanedLegacySummary(snapshot.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
         if (snapshot.Messages != null)
@@ -2200,6 +3246,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             }
 
             LoadPreviewsInBackground(snapshot.Messages);
+            RestoreCompressionHistory(snapshot.CompressionHistory, snapshot.Messages);
         }
         else
         {
@@ -2916,6 +3963,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _localizationService.LanguageChanged -= OnLanguageChanged;
         if (_configService != null)
             _configService.ConfigChanged -= OnConfigChanged;
+        if (_contextPolicyProvider != null)
+            _contextPolicyProvider.EffectivePolicyChanged -= OnEffectivePolicyChanged;
         if (_archiveService != null)
         {
             _archiveService.ArchiveCompleted -= OnArchiveCompleted;
@@ -2934,6 +3983,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _responseCts?.Cancel();
         _responseCts?.Dispose();
         _responseCts = null;
+
+        _compressionPreviewCts?.Cancel();
+        _compressionPreviewCts = null;
+        _rawContextCts?.Cancel();
+        _rawContextCts = null;
 
         CancelPendingPreviewLoading();
         _screenshotBackgroundPollCts?.Cancel();

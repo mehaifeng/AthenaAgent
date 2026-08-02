@@ -85,13 +85,23 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
 
         var stagedSnapshot = new ConversationArchiveSnapshot
         {
+            SchemaVersion = snapshot.SchemaVersion,
             ConversationId = snapshot.ConversationId,
             HistoryId = snapshot.HistoryId,
+            Revision = snapshot.Revision,
+            Title = snapshot.Title,
+            CreatedAt = snapshot.CreatedAt,
+            UpdatedAt = snapshot.UpdatedAt,
             ContextSummary = snapshot.ContextSummary,
+            OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
+            CompressionHistory = snapshot.CompressionHistory.Select(CloneCompressionCheckpoint).ToList(),
             ForkedFromConversationId = snapshot.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
             ForkedAtMessageId = snapshot.ForkedAtMessageId,
             WorkspaceId = snapshot.WorkspaceId,
+            Draft = snapshot.Draft,
+            IsPinned = snapshot.IsPinned,
+            RuntimeStatus = snapshot.RuntimeStatus,
             Messages = ConversationPersistenceHelper.CloneMessages(snapshot.Messages),
             ImageSession = snapshot.ImageSession == null
                 ? null
@@ -164,6 +174,21 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
         }
+        catch (ConversationRevisionConflictException ex)
+        {
+            var historyId = snapshot?.HistoryId;
+            var current = string.IsNullOrWhiteSpace(historyId) ? null : await _store.LoadByIdAsync(historyId);
+            if (snapshot != null && current != null)
+            {
+                File.Delete(stagedFilePath);
+                ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, stagedFilePath, current));
+                _logger.Information(ex, "旧 Revision 归档已安全淘汰: {HistoryId}, Incoming={Incoming}, Current={Current}",
+                    current.Id, snapshot.Revision, current.Revision);
+                return;
+            }
+
+            _logger.Warning(ex, "归档 Revision 冲突且无法定位当前会话，保留待处理文件: {Path}", stagedFilePath);
+        }
         catch (Exception ex)
         {
             snapshot ??= SafeReadSnapshot(stagedFilePath);
@@ -181,18 +206,28 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
         var title = await _titleGenerator.GenerateAsync(messages, snapshot.ForceGenerateSummary, ct);
         var historyId = string.IsNullOrWhiteSpace(snapshot.HistoryId) ? Guid.NewGuid().ToString() : snapshot.HistoryId!;
         var existing = await _store.LoadByIdAsync(historyId);
+        var revision = snapshot.Revision > 0
+            ? snapshot.Revision
+            : Math.Max(1, (existing?.Revision ?? 0) + 1);
         var item = new ConversationHistoryItem
         {
+            SchemaVersion = snapshot.SchemaVersion,
+            Revision = revision,
             ConversationId = string.IsNullOrWhiteSpace(snapshot.ConversationId)
                 ? existing?.ConversationId ?? Guid.NewGuid().ToString("N")
                 : snapshot.ConversationId,
             Id = historyId,
             Summary = title,
             ContextSummary = snapshot.ContextSummary,
+            OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
+            CompressionHistory = snapshot.CompressionHistory.Select(CloneCompressionCheckpoint).ToList(),
             ForkedFromConversationId = snapshot.ForkedFromConversationId ?? existing?.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId ?? existing?.ForkedFromHistoryId,
             ForkedAtMessageId = snapshot.ForkedAtMessageId ?? existing?.ForkedAtMessageId,
             WorkspaceId = snapshot.WorkspaceId ?? existing?.WorkspaceId,
+            Draft = snapshot.Draft,
+            IsPinned = snapshot.IsPinned || existing?.IsPinned == true,
+            RuntimeStatus = snapshot.RuntimeStatus,
             MessageCount = messages.Count(ConversationArchiveStore.IsCountableMessage),
             Messages = messages,
             CreatedAt = existing?.CreatedAt ?? messages.FirstOrDefault()?.Timestamp ?? snapshot.CapturedAt,
@@ -250,6 +285,26 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             ContinuityStatus = turn.ContinuityStatus,
             Warning = turn.Warning,
             CreatedAt = turn.CreatedAt
+        };
+    }
+
+    private static CompressionCheckpointRecord CloneCompressionCheckpoint(CompressionCheckpointRecord checkpoint)
+    {
+        return new CompressionCheckpointRecord
+        {
+            CompressionId = checkpoint.CompressionId,
+            AppliedRevision = checkpoint.AppliedRevision,
+            MessageIds = checkpoint.MessageIds.ToList(),
+            SummaryBefore = checkpoint.SummaryBefore,
+            SummaryAfter = checkpoint.SummaryAfter,
+            SummaryAfterHash = checkpoint.SummaryAfterHash,
+            Mode = checkpoint.Mode,
+            CompressionModelFingerprint = checkpoint.CompressionModelFingerprint,
+            PromptVersion = checkpoint.PromptVersion,
+            PreCompressionTokens = checkpoint.PreCompressionTokens,
+            PostCompressionTokens = checkpoint.PostCompressionTokens,
+            UsedLocalFallback = checkpoint.UsedLocalFallback,
+            CreatedAt = checkpoint.CreatedAt
         };
     }
 

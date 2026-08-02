@@ -215,7 +215,6 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly SemaphoreSlim _repositoryRefreshGate = new(1, 1);
     private bool _refreshFilesPending;
     private bool _refreshGitStatePending;
-    private bool _suppressGitChangeSelectionOpen;
     private int _gitChangeSelectionVersion;
     private WorkspaceProfile? _workspace;
     private WorkspaceFileNodeViewModel? _renamingFile;
@@ -288,16 +287,18 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     public bool HasEditorTabs => EditorTabs.Count > 0;
     public int GitChangeCount => GitChanges.Count;
 
-    partial void OnSelectedGitChangeChanged(GitChangeFileViewModel? value)
+    [RelayCommand]
+    private async Task OpenGitChangeAsync(GitChangeFileViewModel? change)
     {
+        if (change == null) return;
+
         var selectionVersion = ++_gitChangeSelectionVersion;
         var previous = Interlocked.Exchange(ref _gitChangeOpenCts, null);
         previous?.Cancel();
-        if (_suppressGitChangeSelectionOpen || value == null) return;
 
         var cts = new CancellationTokenSource();
         _gitChangeOpenCts = cts;
-        _ = OpenGitChangeTrackedAsync(value, selectionVersion, cts);
+        await OpenGitChangeTrackedAsync(change, selectionVersion, cts);
     }
 
     public async Task SetWorkspaceAsync(WorkspaceProfile? workspace)
@@ -457,20 +458,12 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         var selectedPath = SelectedGitChange?.RelativePath;
         var changes = ParseGitStatus(status.Output, _repositoryRoot);
         var previousCount = GitChanges.Count;
-        _suppressGitChangeSelectionOpen = true;
-        try
-        {
-            ReconcileGitChanges(GitChanges, changes);
-            var selectedChange = selectedPath == null
-                ? null
-                : GitChanges.FirstOrDefault(change => string.Equals(change.RelativePath, selectedPath, PathComparison));
-            if (!ReferenceEquals(SelectedGitChange, selectedChange))
-                SelectedGitChange = selectedChange;
-        }
-        finally
-        {
-            _suppressGitChangeSelectionOpen = false;
-        }
+        ReconcileGitChanges(GitChanges, changes);
+        var selectedChange = selectedPath == null
+            ? null
+            : GitChanges.FirstOrDefault(change => string.Equals(change.RelativePath, selectedPath, PathComparison));
+        if (!ReferenceEquals(SelectedGitChange, selectedChange))
+            SelectedGitChange = selectedChange;
         HasStagedChanges = changes.Any(change => change.HasStagedChange);
         GitStatusText = changes.Count == 0 ? "工作树干净" : $"{changes.Count} 个文件有更改";
         if (previousCount != GitChanges.Count)
@@ -677,7 +670,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            await OpenGitChangeAsync(change, selectionVersion, cts.Token);
+            await OpenGitChangeCoreAsync(change, selectionVersion, cts.Token);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -689,7 +682,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task OpenGitChangeAsync(
+    private async Task OpenGitChangeCoreAsync(
         GitChangeFileViewModel change,
         int selectionVersion,
         CancellationToken cancellationToken)

@@ -1,48 +1,60 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using System;
 
 namespace Athena.UI.Services;
 
-/// <summary>
-/// 供应商在一次 API 响应中回报的真实 token 用量快照。
-/// 由 OpenAI 兼容协议的 <c>usage</c> 字段而来，是上下文占用的权威值（供应商自身分词器计得）。
-/// </summary>
 public readonly record struct TokenUsageSnapshot(
-    int InputTokens,
-    int CachedInputTokens,
-    int OutputTokens,
-    int TotalTokens);
+    long InputTokens,
+    long CachedInputTokens,
+    long OutputTokens,
+    long TotalTokens,
+    string? RequestId = null,
+    string? ProviderId = null,
+    string? ModelId = null,
+    DateTimeOffset? ObservedAtUtc = null);
 
-/// <summary>
-/// 跨页面共享的 Token 统计服务。
-/// 采用「真实锚点优先，估算兜底」模型：一旦拿到某轮 API 的真实 usage，
-/// 上下文大小即以 <c>InputTokens + OutputTokens</c>（当前上下文全量，含本轮回复）为准，
-/// 估算漂移随每次响应清零、不再累积。仅在冷启动/供应商不回 usage/压缩回滚等
-/// 尚无真实值的时刻，才以整段上下文估算作为降级基准。
-/// </summary>
+public enum TokenMeasurementKind
+{
+    Unanchored,
+    ApiExact,
+    CalibratedEstimate,
+    HeuristicAfterAnchor
+}
+
+public sealed record ConversationUsageState(
+    bool HasEverReceivedValidUsage,
+    TokenMeasurementKind Kind,
+    long CurrentTokens,
+    long CachedInputTokens,
+    DateTimeOffset? LastUsageAt,
+    string? LastRequestId,
+    string ModelFingerprint,
+    double Confidence,
+    long ContextRevision);
+
 public interface ITokenService
 {
-    /// <summary>当前上下文占用（派生：真实锚点或估算兜底）。只读——写入请走下列方法。</summary>
-    int CurrentTokens { get; }
-    int MaxTokens { get; set; }
-    /// <summary>最近一次真实 usage 中的缓存命中输入 token（纯展示；缓存只省钱不省窗口）。</summary>
-    int CachedInputTokens { get; }
-    /// <summary>当前显示的数值是否来自真实 usage（false=估算兜底）。</summary>
+    long CurrentTokens { get; }
+    long MaxTokens { get; set; }
+    long CompressionThresholdTokens { get; set; }
+    long CachedInputTokens { get; }
     bool IsRealUsage { get; }
+    bool HasVisibleUsage { get; }
+    TokenMeasurementKind MeasurementKind { get; }
+    ConversationUsageState State { get; }
     string CompressionPreview { get; set; }
     string TokenInfoText { get; }
     bool IsWarningLimit { get; }
     bool IsNearLimit { get; }
 
-    /// <summary>写入一次真实用量锚点（每轮 API 响应回来时调用）。此后估算不再覆盖它。</summary>
+    bool TryApplyUsage(
+        TokenUsageSnapshot usage,
+        string? expectedProviderId = null,
+        string? expectedModelId = null,
+        long contextRevision = 0);
     void ApplyUsage(TokenUsageSnapshot usage);
-
-    /// <summary>估算刷新：仅在尚无真实锚点时以整段上下文估算填充显示，真实锚点存在时忽略。</summary>
-    void RefreshEstimate(int estimatedTotalTokens);
-
-    /// <summary>强制以估算作为基准（压缩/回滚/fork 改了上下文却未发 API 时），下一次真实响应会自动重锚。</summary>
-    void ApplyEstimatedBaseline(int estimatedTotalTokens);
-
-    /// <summary>会话重置：清空所有统计。</summary>
+    void RefreshEstimate(long estimatedTotalTokens, long contextRevision = 0, bool calibrated = false, double confidence = 0);
+    void ApplyEstimatedBaseline(long estimatedTotalTokens, long contextRevision = 0, bool calibrated = false, double confidence = 0);
     void ResetUsage();
 }
 
@@ -52,55 +64,141 @@ public partial class TokenService : ObservableObject, ITokenService
     [NotifyPropertyChangedFor(nameof(TokenInfoText))]
     [NotifyPropertyChangedFor(nameof(IsWarningLimit))]
     [NotifyPropertyChangedFor(nameof(IsNearLimit))]
-    private int _currentTokens;
+    [NotifyPropertyChangedFor(nameof(State))]
+    private long _currentTokens;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TokenInfoText))]
     [NotifyPropertyChangedFor(nameof(IsWarningLimit))]
     [NotifyPropertyChangedFor(nameof(IsNearLimit))]
-    private int _maxTokens = 4000;
+    private long _maxTokens = 4000;
 
     [ObservableProperty]
-    private int _cachedInputTokens;
+    [NotifyPropertyChangedFor(nameof(IsWarningLimit))]
+    [NotifyPropertyChangedFor(nameof(IsNearLimit))]
+    private long _compressionThresholdTokens = 3200;
 
     [ObservableProperty]
-    private bool _isRealUsage;
+    [NotifyPropertyChangedFor(nameof(State))]
+    private long _cachedInputTokens;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TokenInfoText))]
+    [NotifyPropertyChangedFor(nameof(IsRealUsage))]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private TokenMeasurementKind _measurementKind = TokenMeasurementKind.Unanchored;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasVisibleUsage))]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private bool _hasEverReceivedValidUsage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private DateTimeOffset? _lastUsageAt;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private string? _lastRequestId;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private string _modelFingerprint = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private double _confidence;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(State))]
+    private long _contextRevision;
 
     [ObservableProperty]
     private string _compressionPreview = string.Empty;
 
-    public string TokenInfoText => $"{CurrentTokens} / {MaxTokens} tokens";
+    public bool IsRealUsage => MeasurementKind == TokenMeasurementKind.ApiExact;
+    public bool HasVisibleUsage => HasEverReceivedValidUsage;
+    public ConversationUsageState State => new(
+        HasEverReceivedValidUsage, MeasurementKind, CurrentTokens, CachedInputTokens,
+        LastUsageAt, LastRequestId, ModelFingerprint, Confidence, ContextRevision);
+    public string TokenInfoText => $"{(IsRealUsage ? string.Empty : "≈")}{Compact(CurrentTokens)} / {Compact(MaxTokens)}";
 
-    public bool IsWarningLimit => MaxTokens > 0 && CurrentTokens >= MaxTokens * 0.6 && CurrentTokens < MaxTokens * 0.8;
+    public bool IsWarningLimit => MaxTokens > 0
+                                  && CurrentTokens >= Math.Min(CompressionThresholdTokens, MaxTokens) * 8 / 10
+                                  && CurrentTokens < Math.Min(CompressionThresholdTokens, MaxTokens);
 
-    public bool IsNearLimit => MaxTokens > 0 && CurrentTokens >= MaxTokens * 0.8;
+    public bool IsNearLimit => MaxTokens > 0 && CurrentTokens >= Math.Min(CompressionThresholdTokens, MaxTokens);
 
-    public void ApplyUsage(TokenUsageSnapshot usage)
+    public bool TryApplyUsage(
+        TokenUsageSnapshot usage,
+        string? expectedProviderId = null,
+        string? expectedModelId = null,
+        long contextRevision = 0)
     {
-        // 真实锚点 = 本轮输入 + 本轮输出：等于响应后上下文的全量占用（输入已含 persona/工具/历史，输出为刚产出的回复）。
-        CurrentTokens = usage.InputTokens + usage.OutputTokens;
+        if (usage.InputTokens <= 0
+            || usage.OutputTokens < 0
+            || usage.CachedInputTokens < 0
+            || usage.TotalTokens < 0
+            || usage.CachedInputTokens > usage.InputTokens
+            || (usage.TotalTokens > 0 && usage.TotalTokens < usage.InputTokens + usage.OutputTokens)
+            || (expectedProviderId != null && !string.Equals(expectedProviderId, usage.ProviderId, StringComparison.Ordinal))
+            || (expectedModelId != null && !string.Equals(expectedModelId, usage.ModelId, StringComparison.Ordinal)))
+            return false;
+
+        long current;
+        try { current = checked(usage.InputTokens + usage.OutputTokens); }
+        catch (OverflowException) { return false; }
+        CurrentTokens = current;
         CachedInputTokens = usage.CachedInputTokens;
-        IsRealUsage = true;
+        HasEverReceivedValidUsage = true;
+        MeasurementKind = TokenMeasurementKind.ApiExact;
+        LastUsageAt = usage.ObservedAtUtc ?? DateTimeOffset.UtcNow;
+        LastRequestId = usage.RequestId;
+        ModelFingerprint = string.Join('\u001f', usage.ProviderId ?? string.Empty, usage.ModelId ?? string.Empty);
+        Confidence = 1;
+        ContextRevision = contextRevision;
+        return true;
     }
 
-    public void RefreshEstimate(int estimatedTotalTokens)
+    public void ApplyUsage(TokenUsageSnapshot usage) => _ = TryApplyUsage(usage);
+
+    public void RefreshEstimate(long estimatedTotalTokens, long contextRevision = 0, bool calibrated = false, double confidence = 0)
     {
-        // 已有真实锚点时，估算一律不覆盖——真实值永远优先。
-        if (IsRealUsage) return;
-        CurrentTokens = estimatedTotalTokens;
+        if (MeasurementKind == TokenMeasurementKind.ApiExact) return;
+        ApplyEstimate(estimatedTotalTokens, contextRevision, calibrated, confidence);
     }
 
-    public void ApplyEstimatedBaseline(int estimatedTotalTokens)
+    public void ApplyEstimatedBaseline(long estimatedTotalTokens, long contextRevision = 0, bool calibrated = false, double confidence = 0)
+        => ApplyEstimate(estimatedTotalTokens, contextRevision, calibrated, confidence);
+
+    private void ApplyEstimate(long estimate, long revision, bool calibrated, double confidence)
     {
-        CurrentTokens = estimatedTotalTokens;
+        CurrentTokens = Math.Max(0, estimate);
         CachedInputTokens = 0;
-        IsRealUsage = false;
+        ContextRevision = revision;
+        Confidence = Math.Clamp(confidence, 0, 1);
+        MeasurementKind = HasEverReceivedValidUsage
+            ? calibrated ? TokenMeasurementKind.CalibratedEstimate : TokenMeasurementKind.HeuristicAfterAnchor
+            : TokenMeasurementKind.Unanchored;
     }
 
     public void ResetUsage()
     {
         CurrentTokens = 0;
         CachedInputTokens = 0;
-        IsRealUsage = false;
+        HasEverReceivedValidUsage = false;
+        MeasurementKind = TokenMeasurementKind.Unanchored;
+        LastUsageAt = null;
+        LastRequestId = null;
+        ModelFingerprint = string.Empty;
+        Confidence = 0;
+        ContextRevision = 0;
     }
+
+    private static string Compact(long value) => Math.Abs(value) switch
+    {
+        >= 1_000_000 => $"{value / 1_000_000d:0.#}M",
+        >= 1_000 => $"{value / 1_000d:0.#}K",
+        _ => value.ToString("N0")
+    };
 }

@@ -47,7 +47,15 @@ public partial class MainConversationView : UserControl
     public MainConversationView()
     {
         InitializeComponent();
+        AddHandler(KeyDownEvent, OnContextInspectorKeyDown, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
+    }
+
+    private void OnContextInspectorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || _viewModel?.IsContextInspectorOpen != true) return;
+        _viewModel.CloseContextInspectorCommand.Execute(null);
+        e.Handled = true;
     }
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)

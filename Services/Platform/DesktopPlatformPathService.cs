@@ -45,6 +45,8 @@ public class DesktopPlatformPathService : IPlatformPathService
 
     public string GetWorkspacesDirectory() => Path.Combine(_baseDirectory, "Workspaces");
 
+    public string GetModelMetadataDirectory() => Path.Combine(_baseDirectory, "ModelMetadata");
+
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) =>
         Path.Combine(GetWorkspacesDirectory(), workspaceId, "knowledge");
 }

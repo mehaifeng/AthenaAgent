@@ -33,6 +33,7 @@ public class WorkspaceService : IWorkspaceService
     public WorkspaceProfile? ActiveWorkspace => _activeWorkspace;
 
     public event EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged;
+    public event EventHandler<string>? WorkspacePolicyChanged;
 
     public WorkspaceService(
         IPlatformPathService platformPathService,
@@ -66,7 +67,7 @@ public class WorkspaceService : IWorkspaceService
                         await EnsureKnowledgeFileAsync(workspace);
                         if (!string.Equals(previousKnowledgeFileName, workspace.KnowledgeFileName, StringComparison.Ordinal))
                         {
-                            await File.WriteAllTextAsync(file, JsonSerializer.Serialize(workspace, JsonOptions));
+                            await WriteAtomicAsync(file, JsonSerializer.Serialize(workspace, JsonOptions));
                         }
                         result.Add(workspace);
                     }
@@ -103,7 +104,7 @@ public class WorkspaceService : IWorkspaceService
                 await EnsureKnowledgeFileAsync(workspace);
                 if (!string.Equals(previousKnowledgeFileName, workspace.KnowledgeFileName, StringComparison.Ordinal))
                 {
-                    await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(workspace, JsonOptions));
+                    await WriteAtomicAsync(filePath, JsonSerializer.Serialize(workspace, JsonOptions));
                 }
             }
             return workspace;
@@ -122,9 +123,93 @@ public class WorkspaceService : IWorkspaceService
         workspace.UpdatedAt = DateTime.Now;
         var filePath = Path.Combine(_workspacesDirectory, $"{workspace.Id}.json");
         var json = JsonSerializer.Serialize(workspace, JsonOptions);
-        await File.WriteAllTextAsync(filePath, json);
+        await WriteAtomicAsync(filePath, json);
 
         _logger.Information("保存工作区: {Id} - {Name}", workspace.Id, workspace.Name);
+        WorkspacePolicyChanged?.Invoke(this, workspace.Id);
+    }
+
+    public async Task UpdateContextPolicyAsync(
+        WorkspaceProfile workspace,
+        WorkspaceContextPolicyOverride? contextPolicyOverride,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        var safeId = ValidateId(workspace.Id);
+        var committedAt = DateTime.Now;
+        var persisted = new WorkspaceProfile
+        {
+            Id = safeId,
+            Name = workspace.Name,
+            DirectoryPath = workspace.DirectoryPath,
+            KnowledgeFileName = workspace.KnowledgeFileName,
+            CreatedAt = workspace.CreatedAt,
+            UpdatedAt = committedAt,
+            ContextPolicyOverride = CloneContextPolicy(contextPolicyOverride)
+        };
+        await EnsureKnowledgeFileAsync(persisted);
+        var filePath = Path.Combine(_workspacesDirectory, $"{safeId}.json");
+        var json = JsonSerializer.Serialize(persisted, JsonOptions);
+        await WriteAtomicAsync(filePath, json, cancellationToken);
+
+        // Publish only after the durable write succeeds. Sessions hold this live object.
+        workspace.Id = safeId;
+        workspace.KnowledgeFileName = persisted.KnowledgeFileName;
+        workspace.UpdatedAt = committedAt;
+        workspace.ContextPolicyOverride = CloneContextPolicy(contextPolicyOverride);
+        _logger.Information("保存工作区上下文策略: {Id}", safeId);
+        WorkspacePolicyChanged?.Invoke(this, safeId);
+    }
+
+    private static WorkspaceContextPolicyOverride? CloneContextPolicy(WorkspaceContextPolicyOverride? source) => source == null
+        ? null
+        : new WorkspaceContextPolicyOverride
+        {
+            ContextCapTokens = source.ContextCapTokens,
+            AutoCompress = source.AutoCompress,
+            CompressionThresholdTokens = source.CompressionThresholdTokens,
+            KeepRecentRounds = source.KeepRecentRounds,
+            TargetSummaryTokens = source.TargetSummaryTokens,
+            WorkspaceKnowledgeTokenBudget = source.WorkspaceKnowledgeTokenBudget
+        };
+
+    private static async Task WriteAtomicAsync(
+        string path,
+        string content,
+        CancellationToken cancellationToken = default)
+    {
+        var directory = Path.GetDirectoryName(path)
+                        ?? throw new InvalidOperationException("Workspace path has no parent directory.");
+        Directory.CreateDirectory(directory);
+        var temp = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(
+                             temp,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             16 * 1024,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            await using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
+            {
+                await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temp)) File.Delete(temp);
+            }
+            catch
+            {
+                // Preserve the original persistence exception.
+            }
+        }
     }
 
     public Task<bool> DeleteAsync(string id)
@@ -151,6 +236,7 @@ public class WorkspaceService : IWorkspaceService
             }
 
             _logger.Information("删除工作区: {Id}", id);
+            WorkspacePolicyChanged?.Invoke(this, safeId);
             return Task.FromResult(true);
         }
         catch (Exception ex)

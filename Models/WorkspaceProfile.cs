@@ -24,4 +24,7 @@ public class WorkspaceProfile
 
     /// <summary>最后更新时间</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
+
+    /// <summary>字段级可空覆盖；null 表示逐字段继承 App。</summary>
+    public WorkspaceContextPolicyOverride? ContextPolicyOverride { get; set; }
 }

@@ -40,6 +40,45 @@ public sealed class ProviderModelDescriptor
     public ModelCapability Capability { get; set; } = ModelCapability.Unknown;
 
     public bool IsManual { get; set; }
+
+    /// <summary>最近一次供应商库存中是否存在；被引用但暂时消失的模型保留为 false。</summary>
+    public bool IsAvailable { get; set; } = true;
+}
+
+public enum ModelMetadataBindingMode
+{
+    Automatic,
+    PinnedOpenRouter,
+    CustomOnly
+}
+
+public partial class ModelMetadataOverrides : ObservableObject
+{
+    [ObservableProperty] private long? _contextWindowTokens;
+    [ObservableProperty] private long? _maxCompletionTokens;
+    [ObservableProperty] private bool? _supportsTools;
+    [ObservableProperty] private bool? _supportsReasoning;
+    [ObservableProperty] private bool? _supportsStructuredOutput;
+    [ObservableProperty] private ObservableCollection<string>? _inputModalities;
+    [ObservableProperty] private ObservableCollection<string>? _outputModalities;
+
+    public bool HasAnyValue => ContextWindowTokens.HasValue
+        || MaxCompletionTokens.HasValue
+        || SupportsTools.HasValue
+        || SupportsReasoning.HasValue
+        || SupportsStructuredOutput.HasValue
+        || InputModalities is { Count: > 0 }
+        || OutputModalities is { Count: > 0 };
+}
+
+/// <summary>仅保存用户意图；自动匹配结果不写入配置。</summary>
+public partial class ProviderModelMetadataProfile : ObservableObject
+{
+    [ObservableProperty] private string _providerId = string.Empty;
+    [ObservableProperty] private string _externalModelId = string.Empty;
+    [ObservableProperty] private ModelMetadataBindingMode _bindingMode = ModelMetadataBindingMode.Automatic;
+    [ObservableProperty] private string? _pinnedOpenRouterModelId;
+    [ObservableProperty] private ModelMetadataOverrides _overrides = new();
 }
 
 public enum ModelCapability
@@ -69,6 +108,9 @@ public partial class AiModelConfiguration : ObservableObject
     /// <summary>新配置的唯一供应商集合。角色只保存稳定 ProviderId 与 Model。</summary>
     [ObservableProperty]
     private ObservableCollection<OpenAiProviderConfiguration> _providers = new();
+
+    [ObservableProperty]
+    private ObservableCollection<ProviderModelMetadataProfile> _modelMetadataProfiles = new();
 
     [ObservableProperty]
     private ModelRoleSettings _mainConversation = new();

@@ -8,6 +8,10 @@ namespace Athena.UI.Models;
 /// </summary>
 public class ConversationDraftSnapshot
 {
+    public int SchemaVersion { get; set; } = ConversationPersistenceSnapshot.CurrentSchemaVersion;
+
+    public long Revision { get; set; }
+
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
 
     /// <summary>
@@ -24,6 +28,10 @@ public class ConversationDraftSnapshot
     /// 上下文压缩摘要
     /// </summary>
     public string? ContextSummary { get; set; }
+
+    public string? OrphanedLegacySummary { get; set; }
+
+    public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
     /// <summary>
     /// fork 元数据：当前会话若是分支，重启后仍需携带

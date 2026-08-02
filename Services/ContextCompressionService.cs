@@ -12,7 +12,7 @@ using ModelChatMessage = Athena.UI.Models.ChatMessage;
 
 namespace Athena.UI.Services;
 
-/// <summary>滚动压缩主对话上下文。模型失败时仍用本地抽取式摘要保证上下文收缩。</summary>
+/// <summary>滚动压缩主对话上下文。失败或取消时不修改会话。</summary>
 public sealed class ContextCompressionService : IContextCompressionService
 {
     private readonly OpenAiModelRuntimeFactory _modelFactory;
@@ -38,6 +38,7 @@ public sealed class ContextCompressionService : IContextCompressionService
         int keepRecentRounds = 3,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var active = messages.Where(message => !message.IsCompressed).ToList();
         var userIndices = active.Select((message, index) => (message, index))
             .Where(pair => pair.message.Role?.Equals("user", StringComparison.OrdinalIgnoreCase) == true)
@@ -48,7 +49,6 @@ public sealed class ContextCompressionService : IContextCompressionService
         if (splitIndex <= 0) return CompressionResult.None;
         var olderMessages = active.Take(splitIndex).ToList();
         string? summary = null;
-        var usedFallback = false;
 
         try
         {
@@ -63,12 +63,7 @@ public sealed class ContextCompressionService : IContextCompressionService
             }
             prompt.AppendLine(_promptService.GetPrompt(PromptType.ContextCompressionStrategy));
             prompt.AppendLine();
-            foreach (var message in olderMessages.Where(message =>
-                         message.Role == "user"
-                         || (message.Role == "assistant" && string.IsNullOrEmpty(message.ToolCallsJson))))
-            {
-                prompt.AppendLine($"[{message.Role}]: {FormatMessage(message)}");
-            }
+            prompt.Append(BuildCompressionMaterial(olderMessages));
 
             var completion = await client.CompleteChatAsync(
                 [
@@ -83,15 +78,21 @@ public sealed class ContextCompressionService : IContextCompressionService
                 cancellationToken);
             summary = completion.Value.Content.FirstOrDefault()?.Text?.Trim();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "上下文压缩模型失败，转本地兜底");
+            _logger.Warning(ex, "上下文压缩模型失败；会话保持不变");
+            return CompressionResult.None;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(summary))
         {
-            summary = BuildExtractiveFallback(existingSummary, olderMessages);
-            usedFallback = true;
+            _logger.Warning("上下文压缩模型返回空摘要；会话保持不变");
+            return CompressionResult.None;
         }
 
         foreach (var message in olderMessages) message.IsCompressed = true;
@@ -101,28 +102,25 @@ public sealed class ContextCompressionService : IContextCompressionService
             Summary = string.Format(summaryFormat, summary),
             CompressedCount = olderMessages.Count,
             CompressedMessages = olderMessages,
-            UsedFallback = usedFallback
+            UsedFallback = false
         };
     }
 
-    private string BuildExtractiveFallback(string? existingSummary, IReadOnlyList<ModelChatMessage> messages, int maxChars = 1500)
+    internal static string BuildCompressionMaterial(IReadOnlyList<ModelChatMessage> messages)
     {
         var builder = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(existingSummary))
+        foreach (var message in messages)
         {
-            builder.AppendLine(StripSummaryPrefix(existingSummary));
+            builder.Append("[role=").Append(message.Role);
+            if (!string.IsNullOrWhiteSpace(message.ToolCallId))
+            {
+                builder.Append(" tool_call_id=").Append(message.ToolCallId);
+            }
+            builder.AppendLine("]");
+            builder.AppendLine(FormatMessage(message));
+            builder.AppendLine();
         }
-        foreach (var message in messages.Where(message => message.Role == "user"))
-        {
-            var text = FormatMessage(message).Replace('\n', ' ').Trim();
-            if (string.IsNullOrWhiteSpace(text)) continue;
-            if (text.Length > 200) text = text[..200] + "…";
-            builder.Append("• ").AppendLine(text);
-            if (builder.Length >= maxChars) break;
-        }
-        var result = builder.ToString().Trim();
-        if (result.Length > maxChars) result = result[..maxChars] + "…";
-        return string.IsNullOrEmpty(result) ? GetString("History.NewConversation", "New conversation") : result;
+        return builder.ToString();
     }
 
     private string StripSummaryPrefix(string summary)
@@ -139,9 +137,14 @@ public sealed class ContextCompressionService : IContextCompressionService
     private static string FormatMessage(ModelChatMessage message)
     {
         var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(message.Content)) parts.Add(message.Content);
+        if (!string.IsNullOrWhiteSpace(message.Content)) parts.Add("content:\n" + message.Content);
+        if (!string.IsNullOrWhiteSpace(message.ReasoningContent))
+            parts.Add("reasoning_conclusions:\n" + message.ReasoningContent);
+        if (!string.IsNullOrWhiteSpace(message.ToolCallsJson))
+            parts.Add("assistant_tool_calls_json:\n" + message.ToolCallsJson);
         if (message.Attachments.Count > 0)
-            parts.Add(string.Join(" ", message.Attachments.Select(attachment => $"[{attachment.DisplayKind}: {attachment.FileName}]")));
+            parts.Add("attachments:\n" + string.Join("\n", message.Attachments.Select(attachment =>
+                $"- id={attachment.Id}; kind={attachment.Kind}; file={attachment.FileName}; stored_path={attachment.StoredPath}; mime={attachment.MimeType}; size={attachment.SizeBytes}; dimensions={attachment.Width}x{attachment.Height}")));
         return string.Join("\n", parts);
     }
 

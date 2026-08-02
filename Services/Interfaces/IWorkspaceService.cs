@@ -19,6 +19,15 @@ public interface IWorkspaceService
     /// <summary>保存（创建或更新）工作区</summary>
     Task SaveAsync(WorkspaceProfile workspace);
 
+    /// <summary>
+    /// Durably writes a draft field-level context policy, then publishes it to the live
+    /// Workspace object and raises WorkspacePolicyChanged. A failed write leaves the live object untouched.
+    /// </summary>
+    Task UpdateContextPolicyAsync(
+        WorkspaceProfile workspace,
+        WorkspaceContextPolicyOverride? contextPolicyOverride,
+        CancellationToken cancellationToken = default);
+
     /// <summary>删除工作区配置和受管知识目录；历史会话保留原工作区 ID，并在工作区不存在时显示为未分组。</summary>
     Task<bool> DeleteAsync(string id);
 
@@ -33,6 +42,9 @@ public interface IWorkspaceService
 
     /// <summary>激活工作区变更事件</summary>
     event System.EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged;
+
+    /// <summary>工作区字段级策略保存或删除后发布；会话据此重算下一请求策略。</summary>
+    event System.EventHandler<string>? WorkspacePolicyChanged;
 
     /// <summary>获取工作区受管知识文件的绝对路径</summary>
     string GetKnowledgeFilePath(WorkspaceProfile workspace);

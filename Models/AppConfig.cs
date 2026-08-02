@@ -8,9 +8,11 @@ namespace Athena.UI.Models;
 /// </summary>
 public partial class AppConfig : ObservableObject
 {
-    // v5 removes legacy provider compatibility fields and intentionally does not migrate older schemas.
     [ObservableProperty]
-    private int _configSchemaVersion = 5;
+    private int _configSchemaVersion = 6;
+
+    [ObservableProperty]
+    private AppContextPolicy _contextPolicy = new();
 
     [ObservableProperty]
     private AiModelConfiguration _aiModels = new();
@@ -58,10 +60,10 @@ public partial class AppConfig : ObservableObject
 
     // 记忆配置
     [ObservableProperty]
-    private int _maxContextTokens = 128000;
+    private int _maxContextTokens = 1000000;
 
     [ObservableProperty]
-    private int _compressionThreshold = 64000;
+    private int _compressionThreshold = 262144;
 
     [ObservableProperty]
     private bool _autoCompress = true;

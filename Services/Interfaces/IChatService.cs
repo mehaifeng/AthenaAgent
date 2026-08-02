@@ -18,7 +18,6 @@ public interface IChatService
     /// <param name="context">对话上下文</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <param name="onMessageAdded">当产生中间消息（如工具结果）时的回调</param>
-    /// <param name="onContextCompressed">中途自动压缩时的回调（摘要, 被压缩条数）</param>
     /// <param name="onUsageReported">每轮 API 响应回报真实 token 用量时的回调</param>
     /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
@@ -27,10 +26,11 @@ public interface IChatService
         IReadOnlyList<ChatAttachment>? attachments = null,
         CancellationToken cancellationToken = default,
         Action<ChatMessage>? onMessageAdded = null,
-        Action<string, int>? onContextCompressed = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
-        bool addToContext = true);
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null);
 
     /// <summary>
     /// 测试 API 连接
@@ -42,7 +42,9 @@ public interface IChatService
     /// 构建即将发送给主模型的「原始上下文」快照（按消息拆分），用于调试。
     /// 完整复用真实发送时的消息组装逻辑（系统提示、摘要、时间戳、文档/附件注入、工具调用等）。
     /// </summary>
-    IReadOnlyList<RawContextEntry> BuildRawContext(ConversationContext context);
+    IReadOnlyList<RawContextEntry> BuildRawContext(
+        ConversationContext context,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 更新配置

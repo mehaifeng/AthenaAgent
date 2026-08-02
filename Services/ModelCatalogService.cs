@@ -68,7 +68,7 @@ public sealed class ModelCatalogService : IModelCatalogService
             var models = result.Value
                 .Select(m => m.Id)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Distinct(StringComparer.Ordinal)
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -167,7 +167,7 @@ public sealed class ModelCatalogService : IModelCatalogService
             }
 
             var distinct = models
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Distinct(StringComparer.Ordinal)
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

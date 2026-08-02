@@ -9,6 +9,31 @@ namespace Athena.UI.Services;
 /// </summary>
 public static class AppConfigNormalizer
 {
+    public static void NormalizeContextPolicy(AppConfig config)
+    {
+        config.ContextPolicy ??= new AppContextPolicy();
+        var policy = config.ContextPolicy;
+        if (policy.CustomCapTokens is < 1024) policy.CustomCapTokens = 1024;
+        if (policy.CustomCompressionThresholdTokens is <= 0) policy.CustomCompressionThresholdTokens = 1;
+        if (policy.CustomCapTokens.HasValue
+            && policy.CustomCompressionThresholdTokens > policy.CustomCapTokens)
+        {
+            policy.CustomCompressionThresholdTokens = policy.CustomCapTokens;
+        }
+        policy.KeepRecentRounds = Math.Clamp(policy.KeepRecentRounds, 1, 50);
+        policy.TargetSummaryTokens = Math.Clamp(policy.TargetSummaryTokens, 128, 65_536);
+
+        // v6 过渡期兼容旧调用点；Phase 2 的 Policy Resolver 接入后删除这些镜像语义。
+        config.AutoCompress = policy.AutoCompress;
+        config.KeepRecentRounds = policy.KeepRecentRounds;
+        config.MaxContextTokens = checked((int)Math.Min(
+            policy.CustomCapTokens ?? 1_000_000,
+            int.MaxValue));
+        config.CompressionThreshold = checked((int)Math.Min(
+            policy.CustomCompressionThresholdTokens ?? 262_144,
+            config.MaxContextTokens));
+    }
+
     /// <summary>钳制浏览器相关配置到合法区间。</summary>
     public static void NormalizeBrowser(AppConfig config)
     {

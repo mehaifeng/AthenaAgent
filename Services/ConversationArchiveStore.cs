@@ -6,6 +6,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,6 +46,7 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
     public async Task<List<ConversationHistoryItem>> LoadAllAsync()
     {
         var items = new List<ConversationHistoryItem>();
+        var repairedItems = new List<ConversationHistoryItem>();
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
@@ -56,12 +59,22 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
                 var item = JsonSerializer.Deserialize<ConversationHistoryItem>(reader.GetString(0), JsonOptions);
                 if (item == null) continue;
                 if (item.Messages.Count > 0) item.MessageCount = item.Messages.Count(IsCountableMessage);
+                if (ConversationPersistenceRecovery.Repair(item))
+                {
+                    repairedItems.Add(item);
+                    _logger.Warning("已幂等修复压缩会话持久化不变量: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
+                }
                 items.Add(item);
             }
             catch (Exception ex)
             {
                 _logger.Warning(ex, "读取对话记录失败");
             }
+        }
+
+        foreach (var repairedItem in repairedItems)
+        {
+            await SaveAsync(repairedItem);
         }
         return items;
     }
@@ -76,7 +89,14 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             command.CommandText = "SELECT payload FROM conversations WHERE id = $id";
             command.Parameters.AddWithValue("$id", ValidateId(id));
             var payload = await command.ExecuteScalarAsync() as string;
-            return payload == null ? null : JsonSerializer.Deserialize<ConversationHistoryItem>(payload, JsonOptions);
+            if (payload == null) return null;
+            var item = JsonSerializer.Deserialize<ConversationHistoryItem>(payload, JsonOptions);
+            if (item != null && ConversationPersistenceRecovery.Repair(item))
+            {
+                _logger.Warning("已幂等修复压缩会话持久化不变量: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
+                await SaveAsync(item);
+            }
+            return item;
         }
         catch (Exception ex)
         {
@@ -90,19 +110,24 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         await _writeGate.WaitAsync();
         try
         {
+            var payload = JsonSerializer.Serialize(item, JsonOptions);
+            var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
             await using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, payload)
-                VALUES ($id, $conversationId, $workspaceId, $parentId, $title, $createdAt, $updatedAt, $payload)
+                INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, revision, payload_hash, payload)
+                VALUES ($id, $conversationId, $workspaceId, $parentId, $title, $createdAt, $updatedAt, $revision, $payloadHash, $payload)
                 ON CONFLICT(id) DO UPDATE SET
                     conversation_id = excluded.conversation_id,
                     workspace_id = excluded.workspace_id,
                     parent_conversation_id = excluded.parent_conversation_id,
                     title = excluded.title,
                     updated_at = excluded.updated_at,
+                    revision = excluded.revision,
+                    payload_hash = excluded.payload_hash,
                     payload = excluded.payload
+                WHERE excluded.revision > conversations.revision
                 """;
             command.Parameters.AddWithValue("$id", ValidateId(item.Id));
             command.Parameters.AddWithValue("$conversationId", item.ConversationId);
@@ -111,13 +136,52 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             command.Parameters.AddWithValue("$title", item.Summary);
             command.Parameters.AddWithValue("$createdAt", item.CreatedAt.ToUniversalTime().ToString("O"));
             command.Parameters.AddWithValue("$updatedAt", item.UpdatedAt.ToUniversalTime().ToString("O"));
-            command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(item, JsonOptions));
-            await command.ExecuteNonQueryAsync();
+            command.Parameters.AddWithValue("$revision", item.Revision);
+            command.Parameters.AddWithValue("$payloadHash", payloadHash);
+            command.Parameters.AddWithValue("$payload", payload);
+            var affected = await command.ExecuteNonQueryAsync();
+            if (affected == 0)
+            {
+                await ValidateRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash);
+            }
         }
         finally
         {
             _writeGate.Release();
         }
+    }
+
+    private static async Task ValidateRejectedWriteAsync(
+        SqliteConnection connection,
+        string id,
+        long incomingRevision,
+        string incomingPayloadHash)
+    {
+        await using var current = connection.CreateCommand();
+        current.CommandText = "SELECT revision, payload_hash FROM conversations WHERE id = $id";
+        current.Parameters.AddWithValue("$id", ValidateId(id));
+        await using var reader = await current.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            throw new InvalidOperationException("Conversation write was rejected but the current row is missing.");
+        }
+
+        var storedRevision = reader.GetInt64(0);
+        var storedHash = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+        if (storedRevision == incomingRevision
+            && string.Equals(storedHash, incomingPayloadHash, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (incomingRevision < storedRevision)
+        {
+            throw new ConversationRevisionConflictException(
+                $"Stale conversation revision {incomingRevision} cannot overwrite {storedRevision}.");
+        }
+
+        throw new ConversationRevisionConflictException(
+            $"Different conversation payloads cannot share revision {incomingRevision}.");
     }
 
     public async Task DeleteAsync(string id)
@@ -218,6 +282,8 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0,
+                payload_hash TEXT NULL,
                 payload TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_conversations_workspace_updated
@@ -230,6 +296,27 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             );
             """;
         command.ExecuteNonQuery();
+        EnsureColumn(connection, "conversations", "revision", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumn(connection, "conversations", "payload_hash", "TEXT NULL");
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string table, string column, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"PRAGMA table_info({table})";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        reader.Close();
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     public void Dispose()
@@ -239,3 +326,5 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         _writeGate.Dispose();
     }
 }
+
+public sealed class ConversationRevisionConflictException(string message) : InvalidOperationException(message);

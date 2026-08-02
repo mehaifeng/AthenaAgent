@@ -145,6 +145,7 @@
                          Classes="git-changes"
                          ItemsSource="{Binding GitChanges}"
                          SelectedItem="{Binding SelectedGitChange}"
+                         DoubleTapped="OnGitChangeDoubleTapped"
                          Margin="5,0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>

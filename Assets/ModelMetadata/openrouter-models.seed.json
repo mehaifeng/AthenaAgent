@@ -1,0 +1,43 @@
+{
+  "data": [
+    {
+      "id": "openai/gpt-4o",
+      "canonical_slug": "openai/gpt-4o",
+      "name": "OpenAI: GPT-4o",
+      "context_length": 128000,
+      "architecture": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "tokenizer": "GPT"
+      },
+      "top_provider": { "context_length": 128000, "max_completion_tokens": 16384 },
+      "supported_parameters": ["tools", "response_format"]
+    },
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "canonical_slug": "anthropic/claude-sonnet-4",
+      "name": "Anthropic: Claude Sonnet 4",
+      "context_length": 200000,
+      "architecture": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "tokenizer": "Claude"
+      },
+      "top_provider": { "context_length": 200000, "max_completion_tokens": 64000 },
+      "supported_parameters": ["tools", "reasoning"]
+    },
+    {
+      "id": "google/gemini-2.5-pro",
+      "canonical_slug": "google/gemini-2.5-pro",
+      "name": "Google: Gemini 2.5 Pro",
+      "context_length": 1048576,
+      "architecture": {
+        "input_modalities": ["text", "image", "audio", "video"],
+        "output_modalities": ["text"],
+        "tokenizer": "Gemini"
+      },
+      "top_provider": { "context_length": 1048576, "max_completion_tokens": 65536 },
+      "supported_parameters": ["tools", "reasoning", "structured_outputs"]
+    }
+  ]
+}

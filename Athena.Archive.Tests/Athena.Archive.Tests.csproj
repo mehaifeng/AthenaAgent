@@ -21,11 +21,44 @@
     <Compile Include="../Models/DocumentParserMode.cs" Link="Source/Models/DocumentParserMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/ContextPolicyModels.cs" Link="Source/Models/ContextPolicyModels.cs" />
+    <Compile Include="../Models/ModelMetadataModels.cs" Link="Source/Models/ModelMetadataModels.cs" />
+    <Compile Include="../Models/TokenCalibrationModels.cs" Link="Source/Models/TokenCalibrationModels.cs" />
+    <Compile Include="../Models/CompressionTransactionModels.cs" Link="Source/Models/CompressionTransactionModels.cs" />
     <Compile Include="../Models/ExtensionProviderCatalog.cs" Link="Source/Models/ExtensionProviderCatalog.cs" />
     <Compile Include="../Models/AiModelConfiguration.cs" Link="Source/Models/AiModelConfiguration.cs" />
     <Compile Include="../Services/ConfigService.cs" Link="Source/Services/ConfigService.cs" />
+    <Compile Include="../Services/AppConfigNormalizer.cs" Link="Source/Services/AppConfigNormalizer.cs" />
+    <Compile Include="../Services/AppConfigurationSession.cs" Link="Source/Services/AppConfigurationSession.cs" />
+    <Compile Include="../Services/ProviderCatalog.cs" Link="Source/Services/ProviderCatalog.cs" />
     <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
+    <Compile Include="../Services/ModelMetadata/ModelIdentityMatcher.cs" Link="Source/Services/ModelMetadata/ModelIdentityMatcher.cs" />
+    <Compile Include="../Services/ModelMetadata/ModelMetadataResolver.cs" Link="Source/Services/ModelMetadata/ModelMetadataResolver.cs" />
+    <Compile Include="../Services/ModelMetadata/ModelMetadataCsvExporter.cs" Link="Source/Services/ModelMetadata/ModelMetadataCsvExporter.cs" />
+    <Compile Include="../Services/ModelMetadata/OpenRouterModelMetadataStore.cs" Link="Source/Services/ModelMetadata/OpenRouterModelMetadataStore.cs" />
+    <Compile Include="../Services/ModelMetadata/OpenRouterModelMetadataCatalog.cs" Link="Source/Services/ModelMetadata/OpenRouterModelMetadataCatalog.cs" />
+    <Compile Include="../Services/Context/ModelContextPolicyResolver.cs" Link="Source/Services/Context/ModelContextPolicyResolver.cs" />
+    <Compile Include="../Services/Context/EffectiveRequestRuntimeSnapshot.cs" Link="Source/Services/Context/EffectiveRequestRuntimeSnapshot.cs" />
+    <Compile Include="../Services/Context/TokenFingerprintService.cs" Link="Source/Services/Context/TokenFingerprintService.cs" />
+    <Compile Include="../Services/Context/ContextRequestPreparer.cs" Link="Source/Services/Context/ContextRequestPreparer.cs" />
+    <Compile Include="../Services/Context/TokenCalibrationService.cs" Link="Source/Services/Context/TokenCalibrationService.cs" />
+    <Compile Include="../Services/Context/CompressionPlanner.cs" Link="Source/Services/Context/CompressionPlanner.cs" />
+    <Compile Include="../Services/Context/CompressionCandidateGenerator.cs" Link="Source/Services/Context/CompressionCandidateGenerator.cs" />
+    <Compile Include="../Services/Context/CompressionValidator.cs" Link="Source/Services/Context/CompressionValidator.cs" />
+    <Compile Include="../Services/TokenService.cs" Link="Source/Services/TokenService.cs" />
+    <Compile Include="../Services/ModelMetadata/ProviderModelInventoryMerger.cs" Link="Source/Services/ModelMetadata/ProviderModelInventoryMerger.cs" />
+    <Compile Include="../Services/ProviderErrorClassifier.cs" Link="Source/Services/ProviderErrorClassifier.cs" />
     <Compile Include="../Services/Interfaces/IModelCatalogService.cs" Link="Source/Services/Interfaces/IModelCatalogService.cs" />
+    <Compile Include="../Services/Interfaces/IOpenRouterModelMetadataCatalog.cs" Link="Source/Services/Interfaces/IOpenRouterModelMetadataCatalog.cs" />
+    <Compile Include="../Services/Interfaces/IModelMetadataResolver.cs" Link="Source/Services/Interfaces/IModelMetadataResolver.cs" />
+    <Compile Include="../Services/Interfaces/IModelContextPolicyResolver.cs" Link="Source/Services/Interfaces/IModelContextPolicyResolver.cs" />
+    <Compile Include="../Services/Interfaces/IProviderErrorClassifier.cs" Link="Source/Services/Interfaces/IProviderErrorClassifier.cs" />
+    <Compile Include="../Services/Interfaces/IContextRequestPreparer.cs" Link="Source/Services/Interfaces/IContextRequestPreparer.cs" />
+    <Compile Include="../Services/Interfaces/ITokenCalibrationService.cs" Link="Source/Services/Interfaces/ITokenCalibrationService.cs" />
+    <Compile Include="../Services/Interfaces/ICompressionPlanner.cs" Link="Source/Services/Interfaces/ICompressionPlanner.cs" />
+    <Compile Include="../Services/Interfaces/ICompressionCandidateGenerator.cs" Link="Source/Services/Interfaces/ICompressionCandidateGenerator.cs" />
+    <Compile Include="../Services/Interfaces/ICompressionValidator.cs" Link="Source/Services/Interfaces/ICompressionValidator.cs" />
+    <Compile Include="../Services/Interfaces/IContextPolicyProvider.cs" Link="Source/Services/Interfaces/IContextPolicyProvider.cs" />
     <Compile Include="../Models/ToolApproval.cs" Link="Source/Models/ToolApproval.cs" />
     <Compile Include="../Services/ToolRiskClassifier.cs" Link="Source/Services/ToolRiskClassifier.cs" />
     <Compile Include="../Services/ToolApprovalContext.cs" Link="Source/Services/ToolApprovalContext.cs" />
@@ -46,6 +79,8 @@
     <Compile Include="../Models/ToolCallDisplay.cs" Link="Source/Models/ToolCallDisplay.cs" />
     <Compile Include="../Models/ToolCallEntry.cs" Link="Source/Models/ToolCallEntry.cs" />
     <Compile Include="../Models/ConversationArchiveSnapshot.cs" Link="Source/Models/ConversationArchiveSnapshot.cs" />
+    <Compile Include="../Models/ConversationPersistenceSnapshot.cs" Link="Source/Models/ConversationPersistenceSnapshot.cs" />
+    <Compile Include="../Models/ConversationPersistenceRecovery.cs" Link="Source/Models/ConversationPersistenceRecovery.cs" />
     <Compile Include="../Models/ConversationArchiveResultEventArgs.cs" Link="Source/Models/ConversationArchiveResultEventArgs.cs" />
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
     <Compile Include="../Models/CompressionResult.cs" Link="Source/Models/CompressionResult.cs" />
@@ -64,6 +99,7 @@
     <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
     <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
     <Compile Include="../Services/ConversationArchiveStore.cs" Link="Source/Services/ConversationArchiveStore.cs" />
+    <Compile Include="../Services/ContextCompressionService.cs" Link="Source/Services/ContextCompressionService.cs" />
     <Compile Include="../Services/ConversationTitleGenerator.cs" Link="Source/Services/ConversationTitleGenerator.cs" />
     <Compile Include="../Services/OpenAiModelRuntimeFactory.cs" Link="Source/Services/OpenAiModelRuntimeFactory.cs" />
     <Compile Include="../Services/OpenAIEmbeddingService.cs" Link="Source/Services/OpenAIEmbeddingService.cs" />

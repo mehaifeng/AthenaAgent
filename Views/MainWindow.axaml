@@ -361,6 +361,9 @@
                                                         <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
+                                                        <MenuItem Header="{loc:Loc WorkspaceContext.Menu}" Command="{Binding RequestContextSettingsCommand}">
+                                                            <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconSetting}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                        </MenuItem>
                                                         <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
                                                             <MenuItem.Icon>
                                                                 <PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
