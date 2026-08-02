@@ -24,6 +24,7 @@ using System.Text;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 
 try
 {
@@ -44,6 +45,11 @@ Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceEditorRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceDiffRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceCommitAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceCommitUnstagedAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceUnstageAsync).GetAwaiter().GetResult();
+Task.Run(TestWorkspaceGenerateCommitMessageAsync).GetAwaiter().GetResult();
+TestCommitMessageGeneratorDiResolution();
 Task.Run(TestProviderRefreshOrderingAsync).GetAwaiter().GetResult();
 TestProviderMetadataUi(outputPath);
 Task.Run(TestWorkspaceContextDraftAsync).GetAwaiter().GetResult();
@@ -865,6 +871,21 @@ var diffWindow = new Window
 };
 diffWindow.Show();
 Dispatcher.UIThread.RunJobs();
+var commitSplitButton = diffWindow.GetVisualDescendants()
+                            .OfType<SplitButton>()
+                            .FirstOrDefault(button => button.Name == "CommitSplitButton")
+                        ?? throw new InvalidOperationException("Commit split button was not materialized.");
+if (!commitSplitButton.IsEnabled)
+    throw new InvalidOperationException("Commit button must be enabled when staged changes and a message are present.");
+// 动态验证：清空/恢复信息时，控件 IsEnabled 必须随状态切换（防“一直置灰”）。
+workbench.CommitMessage = string.Empty;
+Dispatcher.UIThread.RunJobs();
+if (commitSplitButton.IsEnabled)
+    throw new InvalidOperationException("Commit button must disable when the message is cleared.");
+workbench.CommitMessage = "Refine the workspace review experience";
+Dispatcher.UIThread.RunJobs();
+if (!commitSplitButton.IsEnabled)
+    throw new InvalidOperationException("Commit button must re-enable when the message is restored.");
 var workspaceFileTree = workbenchView.FindControl<TreeView>("WorkspaceFileTree")
                         ?? throw new InvalidOperationException("Workspace file tree was not created.");
 var folderTreeItem = workspaceFileTree.GetVisualDescendants()
@@ -2931,6 +2952,285 @@ static async Task TestWorkspaceGitDiffAsync()
     }
 }
 
+static async Task TestWorkspaceCommitAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-commit-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "modified.txt"), "before\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        // 真实提交路径不带 -c，必须把身份写入仓库本地配置。
+        RunGitForWorkspaceTest(root, "config", "user.name", "Athena Test");
+        RunGitForWorkspaceTest(root, "config", "user.email", "athena@example.invalid");
+        File.WriteAllText(Path.Combine(root, "modified.txt"), "before\nafter\n");
+
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            new FakeCommitMessageGenerator());
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Commit fixture",
+            DirectoryPath = root
+        });
+
+        if (!workbench.HasGitRepository)
+            throw new InvalidOperationException("Commit fixture did not detect the repository.");
+        if (workbench.MissingGitIdentity)
+            throw new InvalidOperationException("Repo-local identity was not detected by the identity probe.");
+
+        await workbench.StageAllCommand.ExecuteAsync(null);
+        if (!workbench.HasStagedChanges)
+            throw new InvalidOperationException("Staging all did not mark staged changes.");
+
+        workbench.CommitMessage = "feat: 测试提交";
+        if (!workbench.CommitCommand.CanExecute(null))
+            throw new InvalidOperationException("Commit command stayed disabled after staging and entering a message.");
+
+        await workbench.CommitCommand.ExecuteAsync(null);
+        if (!string.IsNullOrWhiteSpace(workbench.CommitMessage))
+            throw new InvalidOperationException("Commit did not clear the message after success.");
+
+        var log = RunGitForWorkspaceTestOutput(root, "log", "--oneline", "-1");
+        if (!log.Contains("feat: 测试提交"))
+            throw new InvalidOperationException($"Commit was not created: {log}");
+        if (workbench.GitChanges.Count != 0)
+            throw new InvalidOperationException("Commit did not clear the changes review.");
+
+        Console.WriteLine("[PASS] commit flow stages, enables, commits, and clears state");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static async Task TestWorkspaceCommitUnstagedAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-commit-unstaged-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        RunGitForWorkspaceTest(root, "config", "user.name", "Athena Test");
+        RunGitForWorkspaceTest(root, "config", "user.email", "athena@example.invalid");
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\nafter\n");
+        File.WriteAllText(Path.Combine(root, "new.txt"), "new\n");
+
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            new FakeCommitMessageGenerator());
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Commit unstaged fixture",
+            DirectoryPath = root
+        });
+
+        if (!workbench.HasGitRepository)
+            throw new InvalidOperationException("Commit unstaged fixture did not detect the repository.");
+        if (workbench.HasStagedChanges)
+            throw new InvalidOperationException("Fixture must start with no staged changes.");
+        if (!workbench.HasUncommittedChanges)
+            throw new InvalidOperationException("Unstaged changes must still be visible as uncommitted changes.");
+
+        workbench.CommitMessage = "feat: commit all unstaged";
+        if (!workbench.CommitCommand.CanExecute(null))
+            throw new InvalidOperationException("Commit must be enabled for unstaged changes once a message is entered.");
+        await workbench.CommitCommand.ExecuteAsync(null);
+
+        var log = RunGitForWorkspaceTestOutput(root, "log", "--oneline", "-1");
+        if (!log.Contains("feat: commit all unstaged"))
+            throw new InvalidOperationException($"Commit did not create the unstaged commit: {log}");
+        if (workbench.GitChanges.Count != 0)
+            throw new InvalidOperationException("Commit did not clear all unstaged changes.");
+        var tracked = RunGitForWorkspaceTestOutput(root, "ls-files", "new.txt");
+        if (!tracked.Contains("new.txt"))
+            throw new InvalidOperationException("Auto-staging on commit must include untracked files.");
+
+        Console.WriteLine("[PASS] commit auto-stages unstaged changes and commits everything");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static async Task TestWorkspaceUnstageAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-unstage-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        RunGitForWorkspaceTest(root, "config", "user.name", "Athena Test");
+        RunGitForWorkspaceTest(root, "config", "user.email", "athena@example.invalid");
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\nafter\n");
+
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            new FakeCommitMessageGenerator());
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Unstage fixture",
+            DirectoryPath = root
+        });
+
+        var change = workbench.GitChanges.Single(item => item.RelativePath == "file.txt");
+        await workbench.StageFileCommand.ExecuteAsync(change);
+        var staged = workbench.GitChanges.Single(item => item.RelativePath == "file.txt");
+        if (!staged.HasStagedChange || !workbench.HasStagedChanges)
+            throw new InvalidOperationException("Per-file staging did not mark the change staged.");
+
+        await workbench.UnstageFileCommand.ExecuteAsync(staged);
+        var unstaged = workbench.GitChanges.Single(item => item.RelativePath == "file.txt");
+        if (unstaged.HasStagedChange || workbench.HasStagedChanges)
+            throw new InvalidOperationException("Unstaging did not clear the staged state.");
+        if (File.ReadAllText(Path.Combine(root, "file.txt")) != "before\nafter\n")
+            throw new InvalidOperationException("Unstaging must preserve working-tree changes.");
+        if (!unstaged.HasWorkingTreeChange)
+            throw new InvalidOperationException("Unstaged file must still report a working-tree change.");
+
+        Console.WriteLine("[PASS] unstage clears the index while preserving working-tree changes");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static async Task TestWorkspaceGenerateCommitMessageAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-generate-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    WorkspaceWorkbenchViewModel? workbench = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
+        RunGitForWorkspaceTest(root, "init", "--quiet");
+        RunGitForWorkspaceTest(root, "add", ".");
+        RunGitForWorkspaceTest(
+            root,
+            "-c", "user.name=Athena Test",
+            "-c", "user.email=athena@example.invalid",
+            "commit", "--quiet", "-m", "baseline");
+        RunGitForWorkspaceTest(root, "config", "user.name", "Athena Test");
+        RunGitForWorkspaceTest(root, "config", "user.email", "athena@example.invalid");
+        File.WriteAllText(Path.Combine(root, "file.txt"), "before\nafter\n");
+
+        var generator = new FakeCommitMessageGenerator();
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            generator);
+        await workbench.SetWorkspaceAsync(new WorkspaceProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "Generate fixture",
+            DirectoryPath = root
+        });
+
+        await workbench.StageAllCommand.ExecuteAsync(null);
+        if (!workbench.HasStagedChanges)
+            throw new InvalidOperationException("Staging all did not mark staged changes.");
+
+        if (!workbench.GenerateCommitMessageCommand.CanExecute(null))
+            throw new InvalidOperationException("Generate command stayed disabled with staged changes present.");
+        await workbench.GenerateCommitMessageCommand.ExecuteAsync(null);
+
+        if (workbench.CommitMessage != "feat: test change")
+            throw new InvalidOperationException($"Generate did not populate the message: '{workbench.CommitMessage}'");
+        if (workbench.IsGeneratingCommitMessage)
+            throw new InvalidOperationException("Generate left the busy flag set.");
+        if (generator.LastBranchName == null
+            || string.IsNullOrWhiteSpace(generator.LastDiffStat)
+            || string.IsNullOrWhiteSpace(generator.LastDiffContent))
+        {
+            throw new InvalidOperationException("Generate did not pass the staged diff context to the generator.");
+        }
+
+        // 取消暂存后，生成仍应可用（基于工作区 diff，而非暂存区）。
+        workbench.CommitMessage = string.Empty;
+        await workbench.UnstageAllCommand.ExecuteAsync(null);
+        if (!workbench.GenerateCommitMessageCommand.CanExecute(null))
+            throw new InvalidOperationException("Generate must stay enabled for unstaged changes.");
+        await workbench.GenerateCommitMessageCommand.ExecuteAsync(null);
+        if (workbench.CommitMessage != "feat: test change")
+            throw new InvalidOperationException("Generate did not fill the message for unstaged changes.");
+
+        Console.WriteLine("[PASS] generate commit message fills the message box from the staged diff");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static string RunGitForWorkspaceTestOutput(string workingDirectory, params string[] arguments)
+{
+    var start = new ProcessStartInfo("git")
+    {
+        WorkingDirectory = workingDirectory,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+    foreach (var argument in arguments) start.ArgumentList.Add(argument);
+    using var process = Process.Start(start)
+                        ?? throw new InvalidOperationException("Unable to start Git for workspace test.");
+    var standardOutput = process.StandardOutput.ReadToEnd();
+    process.StandardError.ReadToEnd();
+    process.WaitForExit();
+    if (process.ExitCode != 0)
+        throw new InvalidOperationException($"Git workspace fixture failed: {standardOutput}");
+    return standardOutput;
+}
+
 static void RunGitForWorkspaceTest(string workingDirectory, params string[] arguments)
 {
     var start = new ProcessStartInfo("git")
@@ -3058,6 +3358,44 @@ static async Task RenderTerminalPanelAsync(string outputPath)
     Console.WriteLine($"[PASS] terminal panel rendered and close menus exercised at {outputPath}");
 }
 
+
+static void TestCommitMessageGeneratorDiResolution()
+{
+    var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+    var configureServices = typeof(App).GetMethod(
+        "ConfigureServices",
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+        ?? throw new InvalidOperationException("ConfigureServices was not found on App.");
+    configureServices.Invoke(null, new object[] { services });
+
+    using var provider = services.BuildServiceProvider();
+    var generator = provider.GetRequiredService<ICommitMessageGenerator>();
+    var workbench = provider.GetRequiredService<WorkspaceWorkbenchViewModel>();
+    if (generator is not CommitMessageGenerator)
+        throw new InvalidOperationException("DI did not resolve CommitMessageGenerator for ICommitMessageGenerator.");
+    if (workbench == null)
+        throw new InvalidOperationException("DI did not resolve WorkspaceWorkbenchViewModel.");
+    Console.WriteLine("[PASS] DI resolves CommitMessageGenerator and WorkspaceWorkbenchViewModel");
+}
+
+sealed class FakeCommitMessageGenerator : ICommitMessageGenerator
+{
+    public string? LastBranchName;
+    public string? LastDiffStat;
+    public string? LastDiffContent;
+
+    public Task<string?> GenerateAsync(
+        string? branchName,
+        string diffStat,
+        string diffContent,
+        CancellationToken cancellationToken = default)
+    {
+        LastBranchName = branchName;
+        LastDiffStat = diffStat;
+        LastDiffContent = diffContent;
+        return Task.FromResult<string?>("feat: test change");
+    }
+}
 
 sealed class HeadlessPathService : IPlatformPathService
 {

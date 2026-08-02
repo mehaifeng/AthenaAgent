@@ -42,7 +42,12 @@ public enum PromptType
     /// <summary>
     /// 主动消息生成
     /// </summary>
-    ProactiveMessage
+    ProactiveMessage,
+
+    /// <summary>
+    /// Git 提交信息生成 (系统提示词)
+    /// </summary>
+    CommitMessage
 }
 
 /// <summary>
@@ -247,11 +252,24 @@ public static class PromptTemplates
     /// </summary>
     public const string ProactiveMessageTemplate = """
         You are Athena. You are initiating a conversation based on a prior commitment.
-        
+
         Intent: {0}
         Time: {1}
 
         Speak naturally and directly. Do not mention that this is a "scheduled task" or "reminder." Just start the conversation as if you've been waiting for this moment to follow up.
+        """;
+
+    /// <summary>
+    /// Git 提交信息生成 (系统提示词)
+    /// </summary>
+    public const string CommitMessage = """
+        You are a Git commit message generator. Based on the staged diff provided by the user, produce a single commit message following the Conventional Commits style.
+
+        Requirements:
+        - First line is a concise subject line of at most 72 characters, using a conventional type prefix when it fits (feat:, fix:, refactor:, docs:, test:, chore:, perf:, style:). Use imperative mood.
+        - If the change has meaningful details, add a short blank line and a body summarizing what changed and why. Keep the body to 2–6 bullet points or short sentences.
+        - Match the language of the diff's commit conventions; if the diff is predominantly Chinese, write the message in Chinese.
+        - Output ONLY the commit message itself. No code fences, no leading/trailing explanation, no bullet markers around the subject line.
         """;
 
     /// <summary>
@@ -363,6 +381,7 @@ public static class PromptTemplates
         PromptType.ContextCompressionStrategy => ContextCompressionStrategy,
         PromptType.ToolCallingPolicy => ToolCallingPolicy,
         PromptType.ProactiveMessage => ProactiveMessageTemplate,
+        PromptType.CommitMessage => CommitMessage,
         _ => string.Empty
     };
 

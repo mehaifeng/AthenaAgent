@@ -70,6 +70,7 @@ public partial class GitChangeFileViewModel : ViewModelBase
     public bool HasStagedChange { get; init; }
     public bool HasWorkingTreeChange { get; init; }
     public bool CanStage => HasWorkingTreeChange || IsUntracked;
+    public bool CanUnstage => HasStagedChange;
     public string StatusGlyph
     {
         get
@@ -208,6 +209,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly WorkspaceOperationCoordinator _operations;
     private readonly IPlatformPathService _pathService;
     private readonly IUserInteractionService _interaction;
+    private readonly ICommitMessageGenerator? _commitMessageGenerator;
     private readonly ILogger _logger = Log.ForContext<WorkspaceWorkbenchViewModel>();
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _refreshDebounce;
@@ -220,15 +222,19 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private WorkspaceFileNodeViewModel? _renamingFile;
     private string? _repositoryRoot;
     private string _workspaceRepositoryPathspec = ".";
+    private string _probedGitUserName = string.Empty;
+    private string _probedGitUserEmail = string.Empty;
 
     public WorkspaceWorkbenchViewModel(
         WorkspaceOperationCoordinator operations,
         IPlatformPathService pathService,
-        IUserInteractionService interaction)
+        IUserInteractionService interaction,
+        ICommitMessageGenerator? commitMessageGenerator = null)
     {
         _operations = operations;
         _pathService = pathService;
         _interaction = interaction;
+        _commitMessageGenerator = commitMessageGenerator;
     }
 
     public ObservableCollection<WorkspaceFileNodeViewModel> Files { get; } = new();
@@ -254,9 +260,12 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private string _statusText = "未绑定工作区";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCommitEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsGenerateEnabled))]
     private bool _hasGitRepository;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CommitTargetTitle))]
     private string _currentBranchName = string.Empty;
 
     [ObservableProperty]
@@ -268,17 +277,43 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
     [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GenerateCommitMessageCommand))]
+    [NotifyPropertyChangedFor(nameof(IsCommitEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsGenerateEnabled))]
     private string _commitMessage = string.Empty;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
     [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GenerateCommitMessageCommand))]
+    [NotifyPropertyChangedFor(nameof(IsCommitEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsGenerateEnabled))]
     private bool _hasStagedChanges;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
     [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GenerateCommitMessageCommand))]
+    [NotifyPropertyChangedFor(nameof(IsCommitEnabled))]
+    [NotifyPropertyChangedFor(nameof(IsGenerateEnabled))]
     private bool _isGitBusy;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(GenerateCommitMessageCommand))]
+    [NotifyPropertyChangedFor(nameof(IsGenerateEnabled))]
+    private bool _isGeneratingCommitMessage;
+
+    [ObservableProperty]
+    private bool _missingGitIdentity;
+
+    [ObservableProperty]
+    private bool _isIdentityConfiguring;
+
+    [ObservableProperty]
+    private string _gitUserName = string.Empty;
+
+    [ObservableProperty]
+    private string _gitUserEmail = string.Empty;
 
     [ObservableProperty]
     private string _gitStatusText = string.Empty;
@@ -286,6 +321,21 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     public bool HasWorkspace => _workspace != null;
     public bool HasEditorTabs => EditorTabs.Count > 0;
     public int GitChangeCount => GitChanges.Count;
+    public int StagedChangeCount => GitChanges.Count(change => change.HasStagedChange);
+    public string CommitTargetTitle
+    {
+        get
+        {
+            var branch = string.IsNullOrWhiteSpace(CurrentBranchName) ? "HEAD" : CurrentBranchName;
+            if (GitChanges.Count == 0) return branch;
+            if (StagedChangeCount == 0) return $"{branch} · {GitChanges.Count} 个更改";
+            if (StagedChangeCount == GitChanges.Count) return $"{branch} · {StagedChangeCount} 个已暂存";
+            return $"{branch} · {StagedChangeCount}/{GitChanges.Count} 已暂存";
+        }
+    }
+    public bool IsCommitEnabled => CanCommit();
+    public bool IsGenerateEnabled => CanGenerateCommitMessage();
+    public bool HasUncommittedChanges => GitChanges.Count > 0;
 
     [RelayCommand]
     private async Task OpenGitChangeAsync(GitChangeFileViewModel? change)
@@ -326,7 +376,17 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         CommitMessage = string.Empty;
         HasStagedChanges = false;
         GitStatusText = string.Empty;
+        MissingGitIdentity = false;
+        IsIdentityConfiguring = false;
+        GitUserName = string.Empty;
+        GitUserEmail = string.Empty;
+        IsGeneratingCommitMessage = false;
         OnPropertyChanged(nameof(GitChangeCount));
+        OnPropertyChanged(nameof(StagedChangeCount));
+        OnPropertyChanged(nameof(CommitTargetTitle));
+        OnPropertyChanged(nameof(HasUncommittedChanges));
+        OnPropertyChanged(nameof(IsCommitEnabled));
+        OnPropertyChanged(nameof(IsGenerateEnabled));
         OnPropertyChanged(nameof(HasWorkspace));
         OnPropertyChanged(nameof(HasEditorTabs));
         if (workspace == null || !Directory.Exists(workspace.DirectoryPath)) return;
@@ -408,7 +468,13 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             CurrentBranchName = string.Empty;
             GitChanges.Clear();
             HasStagedChanges = false;
+            MissingGitIdentity = false;
             OnPropertyChanged(nameof(GitChangeCount));
+            OnPropertyChanged(nameof(StagedChangeCount));
+            OnPropertyChanged(nameof(CommitTargetTitle));
+            OnPropertyChanged(nameof(HasUncommittedChanges));
+            OnPropertyChanged(nameof(IsCommitEnabled));
+            OnPropertyChanged(nameof(IsGenerateEnabled));
             return;
         }
 
@@ -422,7 +488,13 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 GitChanges.Clear();
                 HasStagedChanges = false;
                 IsReviewVisible = false;
+                MissingGitIdentity = false;
                 OnPropertyChanged(nameof(GitChangeCount));
+                OnPropertyChanged(nameof(StagedChangeCount));
+                OnPropertyChanged(nameof(CommitTargetTitle));
+                OnPropertyChanged(nameof(HasUncommittedChanges));
+                OnPropertyChanged(nameof(IsCommitEnabled));
+                OnPropertyChanged(nameof(IsGenerateEnabled));
                 return;
             }
             _repositoryRoot = Path.GetFullPath(repositoryCheck.Output.Trim());
@@ -468,6 +540,32 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         GitStatusText = changes.Count == 0 ? "工作树干净" : $"{changes.Count} 个文件有更改";
         if (previousCount != GitChanges.Count)
             OnPropertyChanged(nameof(GitChangeCount));
+        OnPropertyChanged(nameof(StagedChangeCount));
+        OnPropertyChanged(nameof(CommitTargetTitle));
+        OnPropertyChanged(nameof(HasUncommittedChanges));
+        OnPropertyChanged(nameof(IsCommitEnabled));
+        OnPropertyChanged(nameof(IsGenerateEnabled));
+        CommitCommand.NotifyCanExecuteChanged();
+        CommitAndPushCommand.NotifyCanExecuteChanged();
+        GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+        await RefreshGitIdentityAsync();
+    }
+
+    private async Task RefreshGitIdentityAsync()
+    {
+        if (_repositoryRoot == null)
+        {
+            MissingGitIdentity = false;
+            return;
+        }
+
+        var name = await RunGitAsync("config", "user.name");
+        var email = await RunGitAsync("config", "user.email");
+        var nameOk = name.ExitCode == 0 && !string.IsNullOrWhiteSpace(name.Output);
+        var emailOk = email.ExitCode == 0 && !string.IsNullOrWhiteSpace(email.Output);
+        _probedGitUserName = nameOk ? name.Output.Trim() : string.Empty;
+        _probedGitUserEmail = emailOk ? email.Output.Trim() : string.Empty;
+        MissingGitIdentity = !(nameOk && emailOk);
     }
 
     [RelayCommand]
@@ -487,6 +585,25 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(change.OriginalRelativePath))
             arguments.Add(change.OriginalRelativePath);
         await RunGitOperationAsync(arguments, $"已暂存 {change.RelativePath}");
+    }
+
+    [RelayCommand]
+    private async Task UnstageFileAsync(GitChangeFileViewModel? change)
+    {
+        if (change == null || !change.HasStagedChange) return;
+        var arguments = new List<string> { "restore", "--staged", "--", change.RelativePath };
+        if (!string.IsNullOrWhiteSpace(change.OriginalRelativePath))
+            arguments.Add(change.OriginalRelativePath);
+        await RunGitOperationAsync(arguments, $"已取消暂存 {change.RelativePath}");
+    }
+
+    [RelayCommand]
+    private async Task UnstageAllAsync()
+    {
+        if (!HasGitRepository || GitChanges.Count == 0) return;
+        await RunGitOperationAsync(
+            ["restore", "--staged", "--", _workspaceRepositoryPathspec],
+            "已取消暂存全部更改");
     }
 
     [RelayCommand]
@@ -566,15 +683,33 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private bool CanCommit() =>
         HasGitRepository
-        && HasStagedChanges
+        && HasUncommittedChanges
         && !IsGitBusy
         && !string.IsNullOrWhiteSpace(CommitMessage);
 
     private async Task CommitCoreAsync(bool pushAfterCommit)
     {
+        if (MissingGitIdentity)
+        {
+            GitStatusText = "未配置 Git 用户身份，无法提交。请先填写身份信息。";
+            IsIdentityConfiguring = true;
+            return;
+        }
+
         IsGitBusy = true;
         try
         {
+            // 没有任何已暂存更改时，先把工作区改动全部暂存，保证「提交」总能提交当前改动。
+            if (!HasStagedChanges)
+            {
+                var stage = await RunGitAsync("add", "-A", "--", _workspaceRepositoryPathspec);
+                if (stage.ExitCode != 0)
+                {
+                    GitStatusText = BuildGitFailure("暂存失败", stage);
+                    return;
+                }
+            }
+
             var commit = await RunGitAsync("commit", "-m", CommitMessage.Trim());
             if (commit.ExitCode != 0)
             {
@@ -617,6 +752,104 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             IsGitBusy = false;
         }
+    }
+
+    [RelayCommand]
+    private void ConfigureIdentity()
+    {
+        IsIdentityConfiguring = !IsIdentityConfiguring;
+        if (!IsIdentityConfiguring) return;
+        if (string.IsNullOrWhiteSpace(GitUserName)) GitUserName = _probedGitUserName;
+        if (string.IsNullOrWhiteSpace(GitUserEmail)) GitUserEmail = _probedGitUserEmail;
+    }
+
+    [RelayCommand]
+    private async Task SaveGitIdentityAsync()
+    {
+        if (_repositoryRoot == null) return;
+        if (string.IsNullOrWhiteSpace(GitUserName) || string.IsNullOrWhiteSpace(GitUserEmail))
+        {
+            GitStatusText = "请填写姓名和邮箱";
+            return;
+        }
+
+        IsGitBusy = true;
+        try
+        {
+            var name = await RunGitAsync("config", "user.name", GitUserName.Trim());
+            var email = await RunGitAsync("config", "user.email", GitUserEmail.Trim());
+            if (name.ExitCode != 0 || email.ExitCode != 0)
+            {
+                GitStatusText = BuildGitFailure("身份保存失败", name.ExitCode != 0 ? name : email);
+                return;
+            }
+            MissingGitIdentity = false;
+            IsIdentityConfiguring = false;
+            GitStatusText = "Git 身份已保存";
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    private const int CommitMessageDiffBudget = 8000;
+
+    [RelayCommand(CanExecute = nameof(CanGenerateCommitMessage))]
+    private async Task GenerateCommitMessageAsync()
+    {
+        if (_repositoryRoot == null || _commitMessageGenerator == null) return;
+        IsGeneratingCommitMessage = true;
+        GitStatusText = "正在生成提交信息…";
+        try
+        {
+            // 有已暂存更改时基于暂存区生成（与提交语义一致）；否则基于工作区生成。
+            var diffScope = HasStagedChanges ? "--cached" : null;
+            var statArgs = new List<string> { "diff" };
+            if (diffScope != null) statArgs.Add(diffScope);
+            statArgs.AddRange(["--stat", "--", _workspaceRepositoryPathspec]);
+            var diffArgs = new List<string> { "diff" };
+            if (diffScope != null) diffArgs.Add(diffScope);
+            diffArgs.AddRange(["--", _workspaceRepositoryPathspec]);
+
+            var stat = await RunGitAsync(statArgs.ToArray());
+            var diff = await RunGitAsync(diffArgs.ToArray());
+            var statText = stat.ExitCode == 0 ? stat.Output : string.Empty;
+            var diffText = TruncateGitDiff(diff.ExitCode == 0 ? diff.Output : string.Empty, CommitMessageDiffBudget);
+            if (string.IsNullOrWhiteSpace(statText) && string.IsNullOrWhiteSpace(diffText))
+            {
+                GitStatusText = "没有已暂存的更改可供生成";
+                return;
+            }
+            var message = await _commitMessageGenerator.GenerateAsync(CurrentBranchName, statText, diffText);
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                GitStatusText = "生成提交信息失败，请手动输入";
+                return;
+            }
+            CommitMessage = message;
+            GitStatusText = "已生成提交信息，请审阅后提交";
+        }
+        finally
+        {
+            IsGeneratingCommitMessage = false;
+        }
+    }
+
+    private bool CanGenerateCommitMessage() =>
+        _commitMessageGenerator != null
+        && HasGitRepository
+        && HasUncommittedChanges
+        && !IsGitBusy
+        && !IsGeneratingCommitMessage;
+
+    private static string TruncateGitDiff(string diff, int budget)
+    {
+        if (string.IsNullOrEmpty(diff) || diff.Length <= budget) return diff;
+        var span = diff.AsSpan(0, budget);
+        var lastNewLine = span.LastIndexOf('\n');
+        var cut = lastNewLine > 0 ? lastNewLine : budget;
+        return diff[..cut] + "\n…（diff 过长已截断，生成结果可能不完整）";
     }
 
     private async Task<bool> RestoreTrackedChangeAsync(GitChangeFileViewModel change)

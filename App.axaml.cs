@@ -635,6 +635,11 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<ConversationExecutionCoordinator>();
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();
+        services.AddSingleton<ICommitMessageGenerator>(sp =>
+            new CommitMessageGenerator(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<IPromptService>(),
+                Log.ForContext<CommitMessageGenerator>()));
         services.AddSingleton<WorkspaceWorkbenchViewModel>();
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();

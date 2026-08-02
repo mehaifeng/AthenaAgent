@@ -288,8 +288,16 @@
     <system:String x:Key="Git.Review.Restore">Restore</system:String>
     <system:String x:Key="Git.Review.Refresh">Refresh</system:String>
     <system:String x:Key="Git.Review.Stage">Stage</system:String>
+    <system:String x:Key="Git.Review.Unstage">Unstage (keep working-tree changes)</system:String>
+    <system:String x:Key="Git.Review.UnstageAll">Unstage all</system:String>
     <system:String x:Key="Git.Review.CommitPlaceholder">Enter a commit message…</system:String>
-    <system:String x:Key="Git.Review.GenerateSoon">AI commit message (coming soon)</system:String>
+    <system:String x:Key="Git.Review.Generate">Generate AI commit message</system:String>
+    <system:String x:Key="Git.Review.CommitShortcut">⌘/Ctrl+Enter to commit</system:String>
+    <system:String x:Key="Git.Review.IdentityMissing">Git identity is not configured — cannot commit</system:String>
+    <system:String x:Key="Git.Review.IdentityConfigure">Configure</system:String>
+    <system:String x:Key="Git.Review.IdentityName">Name (user.name)</system:String>
+    <system:String x:Key="Git.Review.IdentityEmail">Email (user.email)</system:String>
+    <system:String x:Key="Git.Review.IdentitySave">Save identity</system:String>
     <system:String x:Key="Git.Review.Commit">Commit</system:String>
     <system:String x:Key="Git.Review.CommitPush">Commit and push</system:String>
 

@@ -122,6 +122,12 @@
                             <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
                         </Button>
                         <Button Classes="review-command"
+                                Command="{Binding UnstageAllCommand}"
+                                IsEnabled="{Binding !IsGitBusy}"
+                                ToolTip.Tip="{loc:Loc Git.Review.UnstageAll}">
+                            <PathIcon Data="{StaticResource SemiIconMinus}" Width="11" Height="11"/>
+                        </Button>
+                        <Button Classes="review-command"
                                 Command="{Binding RestoreAllCommand}"
                                 IsEnabled="{Binding !IsGitBusy}"
                                 ToolTip.Tip="{loc:Loc Git.Review.RestoreAll}">
@@ -155,52 +161,69 @@
                                     BorderThickness="1"
                                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                                     Background="{DynamicResource SemiGrey0}">
-                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="5">
-                                    <Border Grid.RowSpan="2"
-                                            Width="24"
-                                            Height="24"
-                                            CornerRadius="5"
-                                            Background="{DynamicResource SemiGrey1}"
-                                            VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding StatusGlyph}"
-                                                   FontFamily="Menlo, Consolas, monospace"
-                                                   FontSize="{DynamicResource App.FontSize.Caption}"
-                                                   FontWeight="Bold"
-                                                   Width="24"
-                                                   TextAlignment="Center"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                    </Border>
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding FileName}"
-                                               FontSize="{DynamicResource App.FontSize.Body}"
-                                               FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <Button Grid.Column="2" Grid.RowSpan="2"
-                                            Classes="review-command"
-                                            Command="{Binding $parent[UserControl].DataContext.StageFileCommand}"
-                                            CommandParameter="{Binding}"
-                                            IsEnabled="{Binding CanStage}"
-                                            ToolTip.Tip="{loc:Loc Git.Review.Stage}">
-                                        <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
-                                    </Button>
-                                    <Button Grid.Column="3" Grid.RowSpan="2"
-                                            Classes="review-command"
-                                            Command="{Binding $parent[UserControl].DataContext.RestoreFileCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="{loc:Loc Git.Review.Restore}">
-                                        <PathIcon Data="{StaticResource AthenaIconCancel}" Width="11" Height="11"/>
-                                    </Button>
-                                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="5">
-                                        <TextBlock Text="{Binding StatusLabel}"
-                                                   FontSize="{DynamicResource App.FontSize.Caption}"
-                                                   Foreground="{DynamicResource Chat.TimestampFg}"/>
-                                        <TextBlock Text="{Binding DirectoryName}"
-                                                   FontSize="{DynamicResource App.FontSize.Caption}"
-                                                   Opacity="0.45"
+                                <Grid ColumnDefinitions="3,*">
+                                    <Border Grid.Column="0"
+                                            CornerRadius="2"
+                                            IsVisible="{Binding HasStagedChange}"
+                                            Background="{DynamicResource App.IconAccentForeground}"/>
+                                    <Grid Grid.Column="1"
+                                          RowDefinitions="Auto,Auto"
+                                          ColumnDefinitions="Auto,*,Auto,Auto,Auto"
+                                          ColumnSpacing="5">
+                                        <Border Grid.RowSpan="2"
+                                                Width="24"
+                                                Height="24"
+                                                CornerRadius="5"
+                                                Background="{DynamicResource SemiGrey1}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusGlyph}"
+                                                       FontFamily="Menlo, Consolas, monospace"
+                                                       FontSize="{DynamicResource App.FontSize.Caption}"
+                                                       FontWeight="Bold"
+                                                       Width="24"
+                                                       TextAlignment="Center"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding FileName}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis"/>
-                                    </StackPanel>
+                                        <Button Grid.Column="2" Grid.RowSpan="2"
+                                                Classes="review-command"
+                                                Command="{Binding $parent[UserControl].DataContext.StageFileCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsEnabled="{Binding CanStage}"
+                                                ToolTip.Tip="{loc:Loc Git.Review.Stage}">
+                                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
+                                        </Button>
+                                        <Button Grid.Column="3" Grid.RowSpan="2"
+                                                Classes="review-command"
+                                                Command="{Binding $parent[UserControl].DataContext.UnstageFileCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsEnabled="{Binding CanUnstage}"
+                                                ToolTip.Tip="{loc:Loc Git.Review.Unstage}">
+                                            <PathIcon Data="{StaticResource SemiIconMinus}" Width="11" Height="11"/>
+                                        </Button>
+                                        <Button Grid.Column="4" Grid.RowSpan="2"
+                                                Classes="review-command"
+                                                Command="{Binding $parent[UserControl].DataContext.RestoreFileCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{loc:Loc Git.Review.Restore}">
+                                            <PathIcon Data="{StaticResource AthenaIconCancel}" Width="11" Height="11"/>
+                                        </Button>
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                                            <TextBlock Text="{Binding StatusLabel}"
+                                                       FontSize="{DynamicResource App.FontSize.Caption}"
+                                                       Foreground="{DynamicResource Chat.TimestampFg}"/>
+                                            <TextBlock Text="{Binding DirectoryName}"
+                                                       FontSize="{DynamicResource App.FontSize.Caption}"
+                                                       Opacity="0.45"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Grid>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -222,33 +245,81 @@
                         BorderThickness="1"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         Background="{DynamicResource App.SectionBg}">
-                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
-                        <TextBox Grid.Row="0"
-                                 Grid.ColumnSpan="2"
-                                 Text="{Binding CommitMessage}"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 MinHeight="58"
-                                 MaxHeight="100"
-                                 Padding="5,4,30,4"
-                                 PlaceholderText="{loc:Loc Git.Review.CommitPlaceholder}"/>
-                        <Button Grid.Row="0"
-                                Grid.Column="1"
-                                Classes="review-command"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Top"
-                                Margin="0,3,3,0"
-                                IsEnabled="False"
-                                ToolTip.Tip="{loc:Loc Git.Review.GenerateSoon}">
-                            <PathIcon Data="{StaticResource SemiIconStar}" Width="13" Height="13"
-                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
-                        </Button>
-                        <SplitButton Grid.Row="1"
-                                     Grid.ColumnSpan="2"
+                    <StackPanel Spacing="5">
+                        <!-- Git 身份缺失提示 -->
+                        <Border IsVisible="{Binding MissingGitIdentity}"
+                                CornerRadius="4"
+                                Padding="6,4"
+                                Background="{DynamicResource SemiGrey1}">
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                    <TextBlock Text="{loc:Loc Git.Review.IdentityMissing}"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"
+                                               Foreground="{DynamicResource App.IconDangerForeground}"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Padding="6,2"
+                                            FontSize="{DynamicResource App.FontSize.Caption}"
+                                            Command="{Binding ConfigureIdentityCommand}"
+                                            Content="{loc:Loc Git.Review.IdentityConfigure}"/>
+                                </Grid>
+                                <StackPanel IsVisible="{Binding IsIdentityConfiguring}" Spacing="4">
+                                    <TextBox Text="{Binding GitUserName}"
+                                             PlaceholderText="{loc:Loc Git.Review.IdentityName}"/>
+                                    <TextBox Text="{Binding GitUserEmail}"
+                                             PlaceholderText="{loc:Loc Git.Review.IdentityEmail}"/>
+                                    <Button Padding="6,3"
+                                            FontSize="{DynamicResource App.FontSize.Caption}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            Command="{Binding SaveGitIdentityCommand}"
+                                            Content="{loc:Loc Git.Review.IdentitySave}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding CommitTargetTitle}"
+                                       FontSize="{DynamicResource App.FontSize.Caption}"
+                                       Foreground="{DynamicResource Chat.TimestampFg}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{loc:Loc Git.Review.CommitShortcut}"
+                                       FontSize="{DynamicResource App.FontSize.Micro}"
+                                       Opacity="0.45"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Text="{Binding CommitMessage}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="58"
+                                     MaxHeight="100"
+                                     Padding="5,4,30,4"
+                                     PlaceholderText="{loc:Loc Git.Review.CommitPlaceholder}"
+                                     KeyDown="OnCommitMessageKeyDown"/>
+                            <Button x:Name="GenerateCommitMessageButton"
+                                    Grid.Column="1"
+                                    Classes="review-command"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    Margin="0,3,3,0"
+                                    Command="{Binding GenerateCommitMessageCommand}"
+                                    IsEnabled="{Binding IsGenerateEnabled}"
+                                    ToolTip.Tip="{loc:Loc Git.Review.Generate}">
+                                <PathIcon Data="{StaticResource SemiIconStar}" Width="13" Height="13"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            </Button>
+                        </Grid>
+
+                        <SplitButton x:Name="CommitSplitButton"
                                      HorizontalAlignment="Stretch"
                                      HorizontalContentAlignment="Center"
-                                     Margin="0,6,0,0"
                                      Command="{Binding CommitCommand}"
+                                     IsEnabled="{Binding IsCommitEnabled}"
                                      Content="{loc:Loc Git.Review.Commit}">
                             <SplitButton.Flyout>
                                 <MenuFlyout Placement="TopEdgeAlignedRight">
@@ -257,7 +328,7 @@
                                 </MenuFlyout>
                             </SplitButton.Flyout>
                         </SplitButton>
-                    </Grid>
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>

@@ -339,6 +339,20 @@ public partial class WorkspaceWorkbenchView : UserControl
         }
     }
 
+    private void OnCommitMessageKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter
+            || (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) == 0)
+        {
+            return;
+        }
+
+        if (DataContext is not WorkspaceWorkbenchViewModel viewModel) return;
+        e.Handled = true;
+        if (viewModel.CommitCommand.CanExecute(null))
+            viewModel.CommitCommand.Execute(null);
+    }
+
     private void OnRenameTextBoxPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Visual.IsVisibleProperty && sender is TextBox { IsVisible: true } textBox)

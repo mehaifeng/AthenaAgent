@@ -288,8 +288,16 @@
     <system:String x:Key="Git.Review.Restore">还原</system:String>
     <system:String x:Key="Git.Review.Refresh">刷新</system:String>
     <system:String x:Key="Git.Review.Stage">暂存</system:String>
+    <system:String x:Key="Git.Review.Unstage">取消暂存（保留工作区改动）</system:String>
+    <system:String x:Key="Git.Review.UnstageAll">全部取消暂存</system:String>
     <system:String x:Key="Git.Review.CommitPlaceholder">输入提交信息…</system:String>
-    <system:String x:Key="Git.Review.GenerateSoon">AI 生成提交信息（即将推出）</system:String>
+    <system:String x:Key="Git.Review.Generate">AI 生成提交信息</system:String>
+    <system:String x:Key="Git.Review.CommitShortcut">⌘/Ctrl+Enter 提交</system:String>
+    <system:String x:Key="Git.Review.IdentityMissing">未配置 Git 用户身份，无法提交</system:String>
+    <system:String x:Key="Git.Review.IdentityConfigure">配置身份</system:String>
+    <system:String x:Key="Git.Review.IdentityName">姓名（user.name）</system:String>
+    <system:String x:Key="Git.Review.IdentityEmail">邮箱（user.email）</system:String>
+    <system:String x:Key="Git.Review.IdentitySave">保存身份</system:String>
     <system:String x:Key="Git.Review.Commit">提交</system:String>
     <system:String x:Key="Git.Review.CommitPush">提交并推送</system:String>
 
