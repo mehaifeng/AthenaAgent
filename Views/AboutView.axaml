@@ -14,8 +14,8 @@
         <vm:AboutViewModel/>
     </Design.DataContext>
 
-    <ScrollViewer Padding="28">
-        <StackPanel Spacing="18" HorizontalAlignment="Stretch" MaxWidth="960">
+    <ScrollViewer>
+        <StackPanel Margin="28" Spacing="18" HorizontalAlignment="Stretch" MaxWidth="960">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc About.Header}"
                            FontWeight="SemiBold"

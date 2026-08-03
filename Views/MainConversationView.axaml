@@ -296,10 +296,11 @@
         </Border>
 
         <!-- 聊天消息列表 -->
-        <ScrollViewer Grid.Row="1" Name="ChatScrollViewer" Padding="12"
+        <ScrollViewer Grid.Row="1" Name="ChatScrollViewer"
                       IsVisible="{Binding !IsRawContextView}">
             <ItemsControl x:Name="MessagesItemsControl"
                           ItemsSource="{Binding Messages}"
+                          Margin="12"
                           MaxWidth="{DynamicResource App.ContentMaxWidth}"
                           HorizontalAlignment="Stretch">
                 <ItemsControl.ItemTemplate>
@@ -852,8 +853,8 @@
 
                 <TabControl x:Name="ContextInspectorTabs" Grid.Row="1" SelectedIndex="{Binding SelectedContextInspectorTab}">
                     <TabItem Header="{loc:Loc ContextInspector.Tab.Overview}">
-                        <ScrollViewer Padding="16">
-                            <StackPanel Spacing="14">
+                        <ScrollViewer>
+                            <StackPanel Margin="16" Spacing="14">
                                 <Border Classes="settings-card" Padding="14" BorderThickness="1"
                                         BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
                                     <StackPanel Spacing="7">
@@ -898,8 +899,8 @@
                     </TabItem>
 
                     <TabItem Header="{loc:Loc ContextInspector.Tab.Summary}">
-                        <ScrollViewer Padding="16">
-                            <StackPanel Spacing="14">
+                        <ScrollViewer>
+                            <StackPanel Margin="16" Spacing="14">
                                 <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
                                         IsVisible="{Binding HasActiveContextSummary}">
                                     <StackPanel Spacing="10">
@@ -934,8 +935,8 @@
                     </TabItem>
 
                     <TabItem Header="{loc:Loc ContextInspector.Tab.Preview}">
-                        <ScrollViewer Padding="16">
-                            <StackPanel Spacing="12">
+                        <ScrollViewer>
+                            <StackPanel Margin="16" Spacing="12">
                                 <TextBlock Text="{loc:Loc ContextInspector.Preview.Explanation}" TextWrapping="Wrap" Opacity="0.68"/>
                                 <Button Content="{loc:Loc ContextInspector.Preview.RefreshPlan}"
                                         Command="{Binding RefreshCompressionPlanCommand}"

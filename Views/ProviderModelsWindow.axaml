@@ -202,8 +202,8 @@
                             </ListBox>
 
                             <Border Grid.Column="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
-                                <ScrollViewer Padding="14" VerticalScrollBarVisibility="Auto">
-                                    <StackPanel DataContext="{Binding SelectedMetadataModel}" Spacing="12">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Margin="14" DataContext="{Binding SelectedMetadataModel}" Spacing="12">
                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Empty}"
                                                    IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"
                                                    Opacity="0.6"/>

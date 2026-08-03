@@ -27,7 +27,7 @@
                     <Button Classes="session-row"
                             Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
                             CommandParameter="{Binding}">
-                        <Grid ColumnDefinitions="12,*">
+                        <Grid ColumnDefinitions="12,Auto,*">
                             <Ellipse Grid.Column="0" Width="4" Height="4"
                                      Fill="{DynamicResource App.IconMutedForeground}"
                                      HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -49,7 +49,19 @@
                                 <TextBlock Text="✓" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiGreen6}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
                             </Grid>
-                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Body}"
+                            <!-- 分支标识：分支会话显示分支图标；分支的分支（深度≥2）在图标右侧追加 (n) -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3"
+                                        Margin="0,0,6,0" VerticalAlignment="Center"
+                                        IsVisible="{Binding ShowForkIcon}">
+                                <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="12" Height="12"
+                                          Foreground="{DynamicResource App.IconForeground}"
+                                          VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ForkBadgeText}" IsVisible="{Binding HasForkBadge}"
+                                           FontSize="{DynamicResource App.FontSize.Micro}"
+                                           Foreground="{DynamicResource App.IconMutedForeground}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Body}"
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </Grid>
                     </Button>

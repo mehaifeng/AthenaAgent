@@ -5,8 +5,8 @@
              xmlns:u="https://irihi.tech/ursa"
              x:Class="Athena.UI.Views.RuntimeDiagnosticsView"
              x:DataType="vm:RuntimeDiagnosticsViewModel">
-    <ScrollViewer Padding="28">
-        <StackPanel MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
+    <ScrollViewer>
+        <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Settings.Diagnostics.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"

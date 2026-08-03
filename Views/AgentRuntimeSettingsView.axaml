@@ -4,8 +4,8 @@
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.AgentRuntimeSettingsView"
              x:DataType="vm:AgentRuntimeSettingsViewModel">
-    <ScrollViewer Padding="28">
-        <StackPanel MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
+    <ScrollViewer>
+        <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Settings.Agent.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"

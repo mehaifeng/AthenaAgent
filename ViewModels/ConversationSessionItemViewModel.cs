@@ -24,6 +24,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public event EventHandler? ForkRequested;
     public event EventHandler? ExportRequested;
     public event EventHandler? PinChanged;
+    public event EventHandler<MessageForkRequestedEventArgs>? MessageForkRequested;
 
     public ConversationSessionItemViewModel(
         MainConversationViewModel chat,
@@ -38,6 +39,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.PropertyChanged += OnChatPropertyChanged;
         Chat.Messages.CollectionChanged += OnMessagesChanged;
         Chat.PersistenceStateChanged += OnPersistenceStateChanged;
+        Chat.MessageForkRequested += OnChatMessageForkRequested;
         Chat.AttachCompressionCommitter(this);
         Dispatcher.UIThread.Post(() => _metadataTrackingEnabled = true);
     }
@@ -57,6 +59,25 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public string? ForkedFromHistoryId { get; init; }
 
     public bool IsForked => !string.IsNullOrWhiteSpace(ForkedFromConversationId);
+
+    /// <summary>
+    /// 分支深度：0=非分支，1=直接分支（父非分支），2=分支的分支，以此类推。
+    /// 由会话树构建与分支创建时计算，驱动左侧树的分支图标与索引编号。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowForkIcon))]
+    [NotifyPropertyChangedFor(nameof(HasForkBadge))]
+    [NotifyPropertyChangedFor(nameof(ForkBadgeText))]
+    private int _forkDepth;
+
+    /// <summary>是否显示分支图标（任何分支会话都显示，图标旁再视深度追加编号）。</summary>
+    public bool ShowForkIcon => ForkDepth > 0 || IsForked;
+
+    /// <summary>分支的分支（深度 ≥ 2）才显示索引编号。</summary>
+    public bool HasForkBadge => ForkDepth > 1;
+
+    /// <summary>图标右侧的索引编号文本，如 (1)、(2)……，n = ForkDepth − 1。</summary>
+    public string? ForkBadgeText => HasForkBadge ? $"({ForkDepth - 1})" : null;
 
     [ObservableProperty]
     private string _title = "新对话";
@@ -299,6 +320,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         _ = PersistObservedAsync();
     }
 
+    private void OnChatMessageForkRequested(object? sender, MessageForkRequestedEventArgs e) =>
+        MessageForkRequested?.Invoke(this, e);
+
     private async Task PersistObservedAsync()
     {
         try
@@ -465,7 +489,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         return CompressionCommitResult.Committed(committedSnapshot.Revision);
     }
 
-    private static ConversationHistoryItem ToHistoryItem(ConversationPersistenceSnapshot snapshot)
+    internal static ConversationHistoryItem ToHistoryItem(ConversationPersistenceSnapshot snapshot)
     {
         return new ConversationHistoryItem
         {
@@ -515,6 +539,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.PropertyChanged -= OnChatPropertyChanged;
         Chat.Messages.CollectionChanged -= OnMessagesChanged;
         Chat.PersistenceStateChanged -= OnPersistenceStateChanged;
+        Chat.MessageForkRequested -= OnChatMessageForkRequested;
         _saveDebounce?.Cancel();
         _saveDebounce?.Dispose();
         _saveDebounce = null;

@@ -530,13 +530,25 @@ var forkChild = forkGroup.Conversations.ElementAtOrDefault(1);
 if (forkChild == null
     || !forkChild.IsForked
     || forkChild.IsPinned
-    || forkChild.Chat.Messages.Count != 0
+    || forkChild.Chat.Messages.Count != 1
     || !ReferenceEquals(forkViewModel.SelectedConversation, forkChild)
-    || forkStore.Items[forkChild.HistoryId].Messages.Count != 0)
-    throw new InvalidOperationException("Conversation branching must create and select an empty unpinned child directly after its parent.");
+    || forkStore.Items[forkChild.HistoryId].Messages.Count != 1
+    || forkChild.ForkDepth != 1
+    || !forkChild.ShowForkIcon
+    || forkChild.HasForkBadge)
+    throw new InvalidOperationException("Conversation branching must create and select a full-fidelity unpinned child directly after its parent.");
+await forkViewModel.ForkConversationCommand.ExecuteAsync(forkChild);
+var forkGrandchild = forkGroup.Conversations.ElementAtOrDefault(2);
+if (forkGrandchild == null
+    || forkGrandchild.ForkDepth != 2
+    || !forkGrandchild.ShowForkIcon
+    || !forkGrandchild.HasForkBadge
+    || forkGrandchild.ForkBadgeText != "(1)")
+    throw new InvalidOperationException("A branch of a branch must carry depth 2 and a (1) fork badge.");
 forkSource.Dispose();
 forkChild.Dispose();
-Console.WriteLine("[PASS] pinned-session branch placement, empty content, persistence, and selection");
+forkGrandchild.Dispose();
+Console.WriteLine("[PASS] pinned-session branch placement, full-content copy, persistence, selection, and fork-badge depth");
 
 var p0Store = new HeadlessConversationStore();
 var p0Config = new HeadlessConfigService(new AppConfig { KeepRecentRounds = 1 });
@@ -616,11 +628,28 @@ if (undoSaved.ContextSummary != null || undoSaved.Messages.Any(message => messag
 
 var forkCandidate = p0Chat.Messages.First(message => message.Role == "user");
 forkCandidate.CanRewind = true;
-if (p0Chat.ForkFromMessageCommand.CanExecute(forkCandidate))
-    throw new InvalidOperationException("Unsafe message-level fork must remain disabled during Phase 0.");
-Console.WriteLine("[TRACE] Phase 0 fork command gate verified");
+if (!p0Chat.ForkFromMessageCommand.CanExecute(forkCandidate))
+    throw new InvalidOperationException("Message-level fork should be enabled for a rewindable user message.");
+var messageCountBefore = p0Chat.Messages.Count;
+var conversationIdBefore = p0Chat.ConversationId;
+MessageForkRequestedEventArgs? raised = null;
+EventHandler<MessageForkRequestedEventArgs> handler = (_, e) => raised = e;
+p0Chat.MessageForkRequested += handler;
+try
+{
+    p0Chat.ForkFromMessageCommand.Execute(forkCandidate);
+}
+finally
+{
+    p0Chat.MessageForkRequested -= handler;
+}
+if (raised?.Message != forkCandidate
+    || p0Chat.Messages.Count != messageCountBefore
+    || p0Chat.ConversationId != conversationIdBefore)
+    throw new InvalidOperationException("Message-level fork must raise MessageForkRequested without mutating the source conversation.");
+Console.WriteLine("[TRACE] Phase 0 message fork raises MessageForkRequested without mutation");
 p0Session.Dispose();
-Console.WriteLine("[PASS] Phase 0 compression/undo snapshots persist immediately and unsafe message fork is disabled");
+Console.WriteLine("[PASS] Phase 0 compression/undo snapshots persist immediately and message fork is event-only");
 
 var responseStore = new HeadlessConversationStore();
 var responseChat = new MainConversationViewModel(
@@ -2049,6 +2078,7 @@ static void TestWorkspaceContextSettingsVisual(string outputPath)
     window.Close();
     Console.WriteLine("[PASS] Workspace context settings renders six per-field inheritance controls and provenance preview");
 }
+
 
 static async Task TestRequestRuntimeSnapshotFreezeAsync()
 {

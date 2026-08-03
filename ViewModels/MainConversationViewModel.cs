@@ -81,6 +81,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// <summary>响应封口、压缩和撤销等需要立即持久化的语义状态变化。</summary>
     public event EventHandler? PersistenceStateChanged;
 
+    /// <summary>
+    /// 消息级分支请求。会话 ViewModel 只负责校验并转发，实际分支由外层会话项转发给
+    /// 窗口 ViewModel 执行（持久化父会话、创建新分支会话并插入会话树）。
+    /// </summary>
+    public event EventHandler<MessageForkRequestedEventArgs>? MessageForkRequested;
+
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
 
@@ -1366,97 +1372,34 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 从该条用户消息处 fork 分支：原会话完整保存为历史，当前会话换新身份，
-    /// 保留 fork 点之前的上下文（附件物理克隆以与父历史解耦），fork 点消息回填输入区。
+    /// 从该条用户消息处发起分支请求：本会话不做任何原地修改，仅校验后触发
+    /// <see cref="MessageForkRequested"/>。实际分支由外层会话项转发、窗口 ViewModel 执行：
+    /// 先持久化父会话，再创建全新分支会话（保留 fork 点之前上下文、附件物理克隆、
+    /// fork 点消息回填输入区），插入会话树并选中。
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanForkFromMessage))]
-    private async Task ForkFromMessageAsync(ChatMessage? message)
+    private void ForkFromMessage(ChatMessage? message)
     {
-        if (message == null || message.Role != "user") return;
-
-        int msgIndex = Messages.IndexOf(message);
-        if (msgIndex < 0) return;
-
-        // 分支会截断 fork 点之后的消息（含刚生成的助手回复）：先取消后台语音生成并止播，
-        // 避免语音挂到即将被移除的消息或为已切走的分支继续播放。
-        CancelPendingAudio();
-
-        FinalizePendingAssistantMessages();
-        msgIndex = Messages.IndexOf(message);
-        if (msgIndex < 0) return;
-
-        // 1. 父会话完整入历史（后台归档队列）
-        var stageResult = await TryStageCurrentConversationForTransitionAsync();
-        if (stageResult == TransitionStageResult.Failed)
-        {
-            return;
-        }
-
-        var parentConversationId = _conversationId;
-        var parentHistoryId = _currentHistoryId;
-
-        // 2. 分支换新身份，防止后续归档 upsert 覆盖父历史
-        _conversationId = Guid.NewGuid().ToString("N");
-        _currentContext.ConversationId = _conversationId;
-        _currentHistoryId = null;
-        _initialConversationSignature = null;
-        _forkedFromConversationId = parentConversationId;
-        _forkedFromHistoryId = parentHistoryId;
-        _forkedAtMessageId = message.Id;
-
-        // 3. fork 点消息附件克隆后回收到输入区（父历史仍引用原文件，分支必须持有独立副本）
-        var pendingClones = await CloneAttachmentsForForkAsync(message.Attachments.ToList());
-        RestoreAttachmentsToPending(pendingClones, deleteOverflowFiles: true);
-
-        // 4. 截断：fork 点消息及其后全部移除（fork 点消息的原附件归父历史所有，不删文件）
-        message.Attachments.Clear();
-        Messages.RemoveAt(msgIndex);
-        while (Messages.Count > msgIndex)
-        {
-            // 后续消息的附件同样归父历史所有，此处仅从分支移除，不删物理文件
-            Messages.RemoveAt(msgIndex);
-        }
-
-        // 5. 保留的消息附件全部替换为物理克隆，与父历史彻底解耦
-        var clonedById = new Dictionary<string, ChatAttachment>(StringComparer.Ordinal);
-        if (_attachmentStoreService != null)
-        {
-            foreach (var kept in Messages)
-            {
-                for (int i = 0; i < kept.Attachments.Count; i++)
-                {
-                    var clone = await _attachmentStoreService.CloneStoredAttachmentAsync(kept.Attachments[i]);
-                    clone.PreviewImage = kept.Attachments[i].PreviewImage;
-                    clonedById[clone.Id] = clone;
-                    kept.Attachments[i] = clone;
-                }
-
-                kept.ResolveSegmentAttachments();
-            }
-        }
-
-        // 6. 图像会话复制到新会话身份，续作链路指向克隆后的文件
-        await CopyImageSessionForForkAsync(parentConversationId, clonedById);
-
-        InputText = message.Content;
-
-        UpdateConversationContext();
-        await ReconcileImageGenerationSessionAsync();
-        // fork 出的分支是裁剪后的上下文：强制以估算刷新，下一轮真实 usage 会重锚。
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
-        UpdateBubbleButtonVisibility();
-        _logger.Information(
-            "已从会话 {ParentId} 的消息 {MessageId} 处 fork 出分支 {BranchId}",
-            parentConversationId, message.Id, _conversationId);
+        if (message == null || !CanForkFromMessage(message)) return;
+        MessageForkRequested?.Invoke(this, new MessageForkRequestedEventArgs(message));
     }
 
-    // P0 安全止血：消息级 Fork 在外层 Session 身份事务化前禁用，避免分支继续保存到父 HistoryId。
-    private bool CanForkFromMessage() => false;
+    // 消息级分支仅在「可回滚的 user 消息、非发送/压缩中」时可用。分支创建本身在
+    // MainWindowViewModel 以「先持久化父会话、再建全新分支会话」的安全模式执行，
+    // 本会话 ViewModel 不再承担身份切换/消息截断，避免分支覆盖父历史行。
+    private bool CanForkFromMessage(ChatMessage? message) =>
+        message != null
+        && message.Role == "user"
+        && message.CanRewind
+        && !message.IsCompressed
+        && !IsSending
+        && !IsCompressing;
 
     /// <summary>
     /// 把一批附件挂回输入区待发送列表；超出上限的部分按需清理物理文件并提示。
+    /// internal：新分支会话由 MainWindowViewModel 创建，需要回填 fork 点附件克隆。
     /// </summary>
-    private void RestoreAttachmentsToPending(IReadOnlyList<ChatAttachment> attachments, bool deleteOverflowFiles = false)
+    internal void RestoreAttachmentsToPending(IReadOnlyList<ChatAttachment> attachments, bool deleteOverflowFiles = false)
     {
         if (attachments.Count == 0) return;
 
@@ -1491,6 +1434,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async Task CopyImageSessionForForkAsync(
         string parentConversationId,
+        string targetConversationId,
         IReadOnlyDictionary<string, ChatAttachment> clonedById)
     {
         if (_imageGenerationSessionService == null) return;
@@ -1500,7 +1444,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         var branchSnapshot = new ImageGenerationSessionSnapshot
         {
-            ConversationId = _conversationId,
+            ConversationId = targetConversationId,
             HistoryId = null,
             ActiveLineageId = parentSnapshot.ActiveLineageId,
             CreatedAt = parentSnapshot.CreatedAt,
@@ -2375,6 +2319,94 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         };
     }
 
+    /// <summary>
+    /// 为分支会话捕获一份快照（**不做 fork 相关的身份/消息变更**，仅按既定模式
+    /// <see cref="FinalizePendingAssistantMessages"/> 冻结未定型助手消息）：
+    /// <paramref name="forkPointMessage"/> 为空时全量复制，否则只保留 fork 点之前的消息
+    /// （fork 点消息回填为 Draft，其附件克隆作为待发送附件返回）。所有保留附件均物理克隆，
+    /// 图像生成会话复制到 <paramref name="forkConversationId"/> 下。
+    /// 父会话必须先由调用方持久化。
+    /// </summary>
+    public async Task<(ConversationPersistenceSnapshot Snapshot, IReadOnlyList<ChatAttachment> PendingAttachmentClones)>
+        CaptureForkSnapshotAsync(
+            string forkHistoryId,
+            string forkConversationId,
+            string? forkedFromHistoryId,
+            string title,
+            DateTime updatedAt,
+            bool isPinned,
+            string? workspaceId,
+            ChatMessage? forkPointMessage = null)
+    {
+        FinalizePendingAssistantMessages();
+
+        IEnumerable<ChatMessage> keptSource = Messages;
+        if (forkPointMessage != null)
+        {
+            int forkIndex = Messages.IndexOf(forkPointMessage);
+            if (forkIndex < 0)
+            {
+                throw new ArgumentException("fork 点消息不在当前会话中", nameof(forkPointMessage));
+            }
+
+            keptSource = Messages.Take(forkIndex);
+        }
+
+        var keptClones = new List<ChatMessage>();
+        var clonedById = new Dictionary<string, ChatAttachment>(StringComparer.Ordinal);
+        foreach (var original in keptSource)
+        {
+            if (!ConversationPersistenceHelper.ShouldPersistMessage(original))
+            {
+                continue;
+            }
+
+            var clone = ConversationPersistenceHelper.CloneMessage(original);
+            if (_attachmentStoreService != null)
+            {
+                for (int i = 0; i < clone.Attachments.Count; i++)
+                {
+                    var physical = await _attachmentStoreService.CloneStoredAttachmentAsync(original.Attachments[i]);
+                    physical.PreviewImage = original.Attachments[i].PreviewImage;
+                    clone.Attachments[i] = physical;
+                    clonedById[physical.Id] = physical;
+                }
+            }
+
+            clone.ResolveSegmentAttachments();
+            keptClones.Add(clone);
+        }
+
+        var pendingClones = forkPointMessage == null
+            ? new List<ChatAttachment>()
+            : await CloneAttachmentsForForkAsync(forkPointMessage.Attachments.ToList());
+
+        await CopyImageSessionForForkAsync(_conversationId, forkConversationId, clonedById);
+
+        var snapshot = new ConversationPersistenceSnapshot
+        {
+            ConversationId = forkConversationId,
+            HistoryId = forkHistoryId,
+            Revision = 0,
+            Title = title,
+            CreatedAt = keptClones.FirstOrDefault()?.Timestamp ?? updatedAt,
+            UpdatedAt = updatedAt,
+            ContextSummary = _activeContextSummary,
+            OrphanedLegacySummary = _orphanedLegacySummary,
+            CompressionHistory = CaptureCompressionHistory(),
+            ForkedFromConversationId = _conversationId,
+            ForkedFromHistoryId = forkedFromHistoryId,
+            ForkedAtMessageId = forkPointMessage?.Id,
+            Messages = keptClones,
+            WorkspaceId = workspaceId,
+            Draft = forkPointMessage?.Content ?? string.Empty,
+            IsPinned = isPinned,
+            RuntimeStatus = "idle"
+        };
+
+        return (snapshot, pendingClones);
+    }
+
     private List<CompressionCheckpointRecord> CaptureCompressionHistory()
     {
         return _compressionHistory
@@ -2544,6 +2576,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 msg.CanRewind = true;
             }
         }
+
+        // CanRewind 是逐消息状态，变化时需手动刷新命令可用性（IsSending/IsCompressing
+        // 已通过 NotifyCanExecuteChangedFor 自动刷新）。
+        ForkFromMessageCommand.NotifyCanExecuteChanged();
     }
 
     public async Task RefreshSettingsAsync()

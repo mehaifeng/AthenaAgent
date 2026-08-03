@@ -17,8 +17,8 @@
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="1" Padding="20">
-            <StackPanel Spacing="12">
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Margin="20" Spacing="12">
                 <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10" Margin="4,0">
                     <TextBlock Grid.Column="1" Text="{loc:Loc WorkspaceContext.Value}" Opacity="0.55"/>
                     <TextBlock Grid.Column="2" Text="{loc:Loc WorkspaceContext.Effective}" Opacity="0.55"/>

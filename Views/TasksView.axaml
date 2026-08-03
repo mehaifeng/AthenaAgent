@@ -53,9 +53,8 @@
                 CornerRadius="8"
                 DataContext="{Binding TaskDraft}">
             <Grid RowDefinitions="*,Auto">
-                <ScrollViewer Padding="14"
-                              VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="15">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14" Spacing="15">
                         <StackPanel Spacing="8">
                             <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
                                        FontWeight="SemiBold"/>

@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -430,7 +431,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             UpdatedAt = history.UpdatedAt,
             WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
             ForkedFromConversationId = history.ForkedFromConversationId,
-            ForkedFromHistoryId = history.ForkedFromHistoryId
+            ForkedFromHistoryId = history.ForkedFromHistoryId,
+            ForkDepth = ResolveForkDepth(history)
         };
         session.SetArchiveCompleted();
         WireSession(session);
@@ -468,6 +470,54 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         await Task.WhenAll(saves);
     }
 
+    /// <summary>
+    /// 由全部历史条目构建 historyId → 分支深度 映射（0=非分支，1=直接分支，
+    /// 2=分支的分支……）。通过 ForkedFromHistoryId 追溯父链；父不在本次加载集合
+    /// （如已删除）时按深度 1 计，保证分支图标照常显示。
+    /// </summary>
+    private static Dictionary<string, int> BuildForkDepthMap(IReadOnlyList<ConversationHistoryItem> histories)
+    {
+        var byId = histories.ToDictionary(history => history.Id);
+        var depths = new Dictionary<string, int>(histories.Count);
+
+        int DepthOf(ConversationHistoryItem history)
+        {
+            if (depths.TryGetValue(history.Id, out var cached)) return cached;
+
+            int depth = 0;
+            if (!string.IsNullOrWhiteSpace(history.ForkedFromHistoryId))
+            {
+                depth = byId.TryGetValue(history.ForkedFromHistoryId, out var parent)
+                    ? DepthOf(parent) + 1
+                    : 1;
+            }
+
+            depths[history.Id] = depth;
+            return depth;
+        }
+
+        foreach (var history in histories)
+        {
+            DepthOf(history);
+        }
+
+        return depths;
+    }
+
+    /// <summary>
+    /// 为外部归档单条插入解析分支深度：优先复用当前树中父会话的深度（父会话通常已存在，
+    /// 其深度在创建时已计算），否则按直接分支（深度 1）兜底。
+    /// </summary>
+    private int ResolveForkDepth(ConversationHistoryItem history)
+    {
+        if (string.IsNullOrWhiteSpace(history.ForkedFromHistoryId)) return 0;
+
+        var parent = ConversationGroups
+            .SelectMany(group => group.Conversations)
+            .FirstOrDefault(session => session.HistoryId == history.ForkedFromHistoryId);
+        return parent?.ForkDepth + 1 ?? 1;
+    }
+
     private async Task InitializeConversationTreeAsync()
     {
         IsConversationTreeLoading = true;
@@ -487,6 +537,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             var histories = _conversationArchiveService == null ? [] : await _conversationArchiveService.LoadAllAsync();
+            var forkDepths = BuildForkDepthMap(histories);
             foreach (var history in histories.OrderByDescending(item => item.IsPinned).ThenByDescending(item => item.UpdatedAt))
             {
                 var group = ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == history.WorkspaceId) ?? globalGroup;
@@ -502,7 +553,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     UpdatedAt = history.UpdatedAt,
                     WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
                     ForkedFromConversationId = history.ForkedFromConversationId,
-                    ForkedFromHistoryId = history.ForkedFromHistoryId
+                    ForkedFromHistoryId = history.ForkedFromHistoryId,
+                    ForkDepth = forkDepths.TryGetValue(history.Id, out var forkDepth) ? forkDepth : 0
                 };
                 WireSession(session);
                 group.Conversations.Add(session);
@@ -683,34 +735,98 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task ForkConversationAsync(ConversationSessionItemViewModel? source)
     {
         if (source == null || _conversationStore == null) return;
+
+        // 1. 持久化父会话（同时覆盖「父会话尚未归档」的场景——旧实现的 LoadByIdAsync 会
+        //    因返回 null 而中止；新流程总是先建行，血缘取自 source.Chat/source.HistoryId）。
         await source.PersistNowAsync();
-        var original = await _conversationStore.LoadByIdAsync(source.HistoryId);
-        if (original == null) return;
-        var fork = new ConversationHistoryItem
-        {
-            Id = Guid.NewGuid().ToString(),
-            ConversationId = Guid.NewGuid().ToString("N"),
-            Summary = source.Title + " · 分支",
-            CreatedAt = DateTime.Now,
-            UpdatedAt = DateTime.Now,
-            MessageCount = 0,
-            Messages = [],
-            WorkspaceId = original.WorkspaceId,
-            ForkedFromConversationId = original.ConversationId,
-            ForkedFromHistoryId = original.Id
-        };
+
+        // 2. 全量复制（forkPointMessage 为空）：完整保留消息、附件物理克隆、图像续作复制。
+        var forkHistoryId = Guid.NewGuid().ToString();
+        var forkConversationId = Guid.NewGuid().ToString("N");
+        var (snapshot, _) = await source.Chat.CaptureForkSnapshotAsync(
+            forkHistoryId, forkConversationId, source.HistoryId,
+            source.Title + " · 分支", DateTime.Now,
+            isPinned: false, workspaceId: source.WorkspaceId,
+            forkPointMessage: null);
+
+        // 3. 落库为全新历史行。
+        var fork = ConversationSessionItemViewModel.ToHistoryItem(snapshot);
         await _conversationStore.SaveAsync(fork);
+
+        // 4. 新分支会话（不修改父会话任何状态）。
         var group = ConversationGroups.First(candidate => candidate.Conversations.Contains(source));
         var chat = CreateChatSession();
         await chat.InitializeWorkspacesAsync();
         chat.RestorePersistedConversation(fork);
         chat.AssignWorkspace(group.Workspace);
+        chat.MarkPersistenceMetadataChanged();
+
+        // 5. 插入源下方并选中。
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
         {
             Title = fork.Summary,
             UpdatedAt = fork.UpdatedAt,
             ForkedFromConversationId = fork.ForkedFromConversationId,
-            ForkedFromHistoryId = fork.ForkedFromHistoryId
+            ForkedFromHistoryId = fork.ForkedFromHistoryId,
+            ForkDepth = source.ForkDepth + 1
+        };
+        WireSession(session);
+        var sourceIndex = group.Conversations.IndexOf(source);
+        group.Conversations.Insert(sourceIndex < 0 ? 0 : sourceIndex + 1, session);
+        SelectedConversation = session;
+    }
+
+    /// <summary>
+    /// 消息级分支：保留 fork 点之前的上下文、丢弃其后消息，fork 点消息回填输入区
+    /// （内容 + 附件克隆）。以「先持久化父会话、再建全新分支会话」的安全模式执行，
+    /// 父会话在树中原样保留、其历史行不被覆盖。
+    /// </summary>
+    private async Task ForkFromMessageAsync(ConversationSessionItemViewModel? source, ChatMessage? message)
+    {
+        if (source == null || message == null || _conversationStore == null) return;
+        if (message.Role != "user" || source.Chat.IsSending || source.Chat.IsCompressing) return;
+
+        // 1. 持久的父保存：分支血缘锚点必须真实存在，防止分支后续写入父历史行。
+        await source.PersistNowAsync();
+
+        // 2. 非侵入式捕获截断分支（不修改父会话）。
+        var forkHistoryId = Guid.NewGuid().ToString();
+        var forkConversationId = Guid.NewGuid().ToString("N");
+        var (snapshot, pendingClones) = await source.Chat.CaptureForkSnapshotAsync(
+            forkHistoryId, forkConversationId, source.HistoryId,
+            source.Title + " · 分支", DateTime.Now,
+            isPinned: false, workspaceId: source.WorkspaceId,
+            forkPointMessage: message);
+
+        // 3. 落库。
+        var fork = ConversationSessionItemViewModel.ToHistoryItem(snapshot);
+        await _conversationStore.SaveAsync(fork);
+
+        // 4. 新分支会话。
+        var group = ConversationGroups.First(candidate => candidate.Conversations.Contains(source));
+        var chat = CreateChatSession();
+        await chat.InitializeWorkspacesAsync();
+        chat.RestorePersistedConversation(fork);
+        chat.AssignWorkspace(group.Workspace);
+
+        // 5. 回填 fork 点：内容进输入框、附件克隆挂回待发送列表。
+        //    restore 内部会清空待发送附件，因此必须在此之后回填。
+        chat.InputText = message.Content ?? string.Empty;
+        chat.RestoreAttachmentsToPending(pendingClones, deleteOverflowFiles: false);
+
+        // 6. 把 revision 拉到 1：restore 后 _revision 为 0，若用户先编辑回填草稿再发送，
+        //    首次 autosave 仍是 revision 0 会触发「同 revision 不同 payload」冲突。
+        //    须在会话项订阅之前调用，避免触发多余的同步保存。
+        chat.MarkPersistenceMetadataChanged();
+
+        // 7. 插入源下方并选中。
+        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
+        {
+            Title = fork.Summary,
+            UpdatedAt = fork.UpdatedAt,
+            ForkedFromConversationId = fork.ForkedFromConversationId,
+            ForkedFromHistoryId = fork.ForkedFromHistoryId,
+            ForkDepth = source.ForkDepth + 1
         };
         WireSession(session);
         var sourceIndex = group.Conversations.IndexOf(source);
@@ -722,6 +838,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         session.DeleteRequested += async (_, _) => await DeleteConversationAsync(session);
         session.ForkRequested += async (_, _) => await ForkConversationAsync(session);
+        session.MessageForkRequested += async (_, e) => await ForkFromMessageAsync(session, e.Message);
         session.ExportRequested += async (_, _) => await ExportConversationAsync(session);
         session.PinChanged += (_, _) => RefreshPinnedConversations();
         RefreshApprovalStates();
