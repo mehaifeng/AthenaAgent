@@ -225,6 +225,13 @@ public class OpenAIChatService : IChatService
                 {
                     moved = await enumerator.MoveNextAsync();
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // 用户主动点"停止"：正常结束流，而不是把它误报成 API 错误气泡。
+                    // （可能发生在流式输出中途，也可能发生在工具执行被中断、本轮已通过
+                    // ProcessStreamAsync 的兜底逻辑补齐了工具结果之后。）
+                    break;
+                }
                 catch (Exception ex)
                 {
                     streamFailure = ex;
@@ -892,54 +899,96 @@ public class OpenAIChatService : IChatService
 
             messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString(), reasoningContent));
 
-            foreach (var toolCall in toolCalls)
+            var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
-                using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
-                using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
-                // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
-                using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
-                // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
-                // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
-                // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
-                using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
-                var result = _functionRegistry == null
-                    ? FunctionResult.FailureResult("Function registry is not available.")
-                    : await _functionRegistry.ExecuteAsync(toolCall.FunctionName, toolCall.Arguments);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var resultJson = result.ToJson();
-                Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}",
-                    toolCall.FunctionName,
-                    resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
-
-                if (result.GeneratedAttachments.Count > 0)
+                foreach (var toolCall in toolCalls)
                 {
-                    onMessageAdded?.Invoke(new Models.ChatMessage
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
+                    using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
+                    using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
+                    // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
+                    using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
+                    // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
+                    // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
+                    // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
+                    using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
+                    var result = _functionRegistry == null
+                        ? FunctionResult.FailureResult("Function registry is not available.")
+                        : await _functionRegistry.ExecuteAsync(toolCall.FunctionName, toolCall.Arguments);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var resultJson = result.ToJson();
+                    Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}",
+                        toolCall.FunctionName,
+                        resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
+
+                    if (result.GeneratedAttachments.Count > 0)
                     {
-                        Role = "assistant",
-                        Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(result.GeneratedAttachments),
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Role = "assistant",
+                            Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(result.GeneratedAttachments),
+                            Timestamp = DateTime.Now
+                        });
+                    }
+
+                    // 通知 UI 产生了工具结果消息
+                    var toolResultId = Guid.NewGuid().ToString("N");
+                    var toolResultMsg = new Models.ChatMessage
+                    {
+                        Id = toolResultId,
+                        Role = "tool",
+                        Content = resultJson,
+                        ToolCallId = toolCall.Id,
+                        ToolName = toolCall.FunctionName,
                         Timestamp = DateTime.Now
-                    });
+                    };
+                    onMessageAdded?.Invoke(toolResultMsg);
+
+                    messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
+                    // 保存工具结果到上下文
+                    context.AddToolMessage(resultJson, toolCall.Id, toolResultId);
+                    completedToolCallIds.Add(toolCall.Id);
                 }
-
-                // 通知 UI 产生了工具结果消息
-                var toolResultId = Guid.NewGuid().ToString("N");
-                var toolResultMsg = new Models.ChatMessage
+            }
+            catch (Exception)
+            {
+                // 工具轮被中断（用户点"停止"或某个工具抛出异常）时，本轮的 assistant(tool_calls)
+                // 已经写入上下文；任何没有拿到对应 tool 结果的调用都会破坏下一次请求的配对约束
+                // （OpenAI 兼容 API 会以 "insufficient tool messages following tool_calls" 拒绝）。
+                // 这里为每个尚未拿到结果的工具调用补齐一条"已中断"的 tool 结果，保持上下文一致，
+                // 同时让 UI 上的工具卡片标记为失败而不是一直停在"执行中"。
+                try
                 {
-                    Id = toolResultId,
-                    Role = "tool",
-                    Content = resultJson,
-                    ToolCallId = toolCall.Id,
-                    ToolName = toolCall.FunctionName,
-                    Timestamp = DateTime.Now
-                };
-                onMessageAdded?.Invoke(toolResultMsg);
+                    foreach (var toolCall in toolCalls)
+                    {
+                        if (completedToolCallIds.Contains(toolCall.Id)) continue;
 
-                messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
-                // 保存工具结果到上下文
-                context.AddToolMessage(resultJson, toolCall.Id, toolResultId);
+                        var interruptedJson = FunctionResult.FailureResult(
+                            "Tool execution was interrupted (Stop requested by user).").ToJson();
+                        var toolResultId = Guid.NewGuid().ToString("N");
+
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Id = toolResultId,
+                            Role = "tool",
+                            Content = interruptedJson,
+                            ToolCallId = toolCall.Id,
+                            ToolName = toolCall.FunctionName,
+                            Timestamp = DateTime.Now
+                        });
+
+                        messages.Add(new ToolChatMessage(toolCall.Id, interruptedJson));
+                        context.AddToolMessage(interruptedJson, toolCall.Id, toolResultId);
+                    }
+                }
+                catch (Exception repairEx)
+                {
+                    Log.Warning(repairEx, "修复被中断的工具轮失败，会话上下文可能不再满足 tool_calls 配对约束");
+                }
+                throw;
             }
         }
 
@@ -1254,7 +1303,65 @@ public class OpenAIChatService : IChatService
             }
         }
 
+        // 防御性清理：移除因中途停止、异常或旧存档遗留而失配的 tool_calls / tool 消息，
+        // 保证 assistant 的每个 tool_call 都有对应的 tool 结果紧随其后，避免 OpenAI 兼容
+        // 接口以 "insufficient tool messages following tool_calls" 拒绝请求。
+        SanitizeToolCallPairing(messages);
+
         return messages;
+    }
+
+    /// <summary>
+    /// 保证 assistant(tool_calls) 与其后的 tool 消息一一配对：
+    /// - 丢弃没有对应 assistant tool_call 的孤立 tool 消息；
+    /// - 移除声明了但没有对应 tool 结果的 tool_call（例如工具轮被"停止"中断后遗留的残缺上下文）。
+    /// 在把请求列表交给 API 之前调用，防御任何路径遗留的半截工具轮。
+    /// </summary>
+    private static void SanitizeToolCallPairing(List<OpenAI.Chat.ChatMessage> messages)
+    {
+        for (int i = 0; i < messages.Count; i++)
+        {
+            if (messages[i] is not AssistantChatMessage)
+            {
+                continue;
+            }
+
+            var assistant = (AssistantChatMessage)messages[i];
+            if (assistant.ToolCalls.Count == 0)
+            {
+                continue;
+            }
+
+            var declaredIds = assistant.ToolCalls.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+
+            int j = i + 1;
+            var answeredIds = new HashSet<string>(StringComparer.Ordinal);
+            while (j < messages.Count && messages[j] is ToolChatMessage tool)
+            {
+                if (!string.IsNullOrEmpty(tool.ToolCallId) && declaredIds.Contains(tool.ToolCallId))
+                {
+                    answeredIds.Add(tool.ToolCallId);
+                }
+                else
+                {
+                    // 孤立的 tool 消息：没有对应的 assistant tool_call，丢弃。
+                    messages.RemoveAt(j);
+                    continue;
+                }
+                j++;
+            }
+
+            if (answeredIds.Count < declaredIds.Count)
+            {
+                for (int k = assistant.ToolCalls.Count - 1; k >= 0; k--)
+                {
+                    if (!answeredIds.Contains(assistant.ToolCalls[k].Id))
+                    {
+                        assistant.ToolCalls.RemoveAt(k);
+                    }
+                }
+            }
+        }
     }
 
     private static string BuildHistoricalSummaryEnvelope(string summary)

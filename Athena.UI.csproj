@@ -104,6 +104,7 @@
   <ItemGroup>
     <PackageReference Include="LiveMarkdown.Avalonia" Version="2.2.1" />
     <PackageReference Include="LiveMarkdown.Avalonia.Math" Version="2.2.1" />
+    <PackageReference Include="LiveMarkdown.Avalonia.Svg.Skia" Version="2.2.1" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>

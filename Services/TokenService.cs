@@ -44,6 +44,7 @@ public interface ITokenService
     ConversationUsageState State { get; }
     string CompressionPreview { get; set; }
     string TokenInfoText { get; }
+    string TokenUsageBarText { get; }
     bool IsWarningLimit { get; }
     bool IsNearLimit { get; }
 
@@ -62,6 +63,7 @@ public partial class TokenService : ObservableObject, ITokenService
 {
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TokenInfoText))]
+    [NotifyPropertyChangedFor(nameof(TokenUsageBarText))]
     [NotifyPropertyChangedFor(nameof(IsWarningLimit))]
     [NotifyPropertyChangedFor(nameof(IsNearLimit))]
     [NotifyPropertyChangedFor(nameof(State))]
@@ -69,6 +71,7 @@ public partial class TokenService : ObservableObject, ITokenService
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TokenInfoText))]
+    [NotifyPropertyChangedFor(nameof(TokenUsageBarText))]
     [NotifyPropertyChangedFor(nameof(IsWarningLimit))]
     [NotifyPropertyChangedFor(nameof(IsNearLimit))]
     private long _maxTokens = 4000;
@@ -84,6 +87,7 @@ public partial class TokenService : ObservableObject, ITokenService
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TokenInfoText))]
+    [NotifyPropertyChangedFor(nameof(TokenUsageBarText))]
     [NotifyPropertyChangedFor(nameof(IsRealUsage))]
     [NotifyPropertyChangedFor(nameof(State))]
     private TokenMeasurementKind _measurementKind = TokenMeasurementKind.Unanchored;
@@ -122,6 +126,23 @@ public partial class TokenService : ObservableObject, ITokenService
         HasEverReceivedValidUsage, MeasurementKind, CurrentTokens, CachedInputTokens,
         LastUsageAt, LastRequestId, ModelFingerprint, Confidence, ContextRevision);
     public string TokenInfoText => $"{(IsRealUsage ? string.Empty : "≈")}{Compact(CurrentTokens)} / {Compact(MaxTokens)}";
+
+    private const char TokenBarFill = '▬'; // ▬ 已填充段
+    private const char TokenBarEmpty = '\\';    // \ 空白段
+    private const int TokenBarSegments = 16;
+
+    public string TokenUsageBarText
+    {
+        get
+        {
+            if (MaxTokens <= 0) return TokenInfoText;
+            double ratio = Math.Clamp((double)CurrentTokens / MaxTokens, 0d, 1d);
+            int filled = (int)Math.Round(ratio * TokenBarSegments, MidpointRounding.AwayFromZero);
+            string bar = new string(TokenBarFill, filled) + new string(TokenBarEmpty, TokenBarSegments - filled);
+            int percent = (int)Math.Round(ratio * 100, MidpointRounding.AwayFromZero);
+            return $"{(IsRealUsage ? string.Empty : "≈")}{Compact(CurrentTokens)}/{Compact(MaxTokens)}[{bar}]{percent}%";
+        }
+    }
 
     public bool IsWarningLimit => MaxTokens > 0
                                   && CurrentTokens >= Math.Min(CompressionThresholdTokens, MaxTokens) * 8 / 10

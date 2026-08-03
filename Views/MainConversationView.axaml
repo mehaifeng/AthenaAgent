@@ -292,28 +292,6 @@
                     </Panel>
                 </StackPanel>
 
-                <Border x:Name="ContextUsageStatus"
-                        Grid.Column="1"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Padding="6,3"
-                        ToolTip.Tip="{Binding ContextTokensInfo}">
-                    <!-- 仅状态展示：打开检查器的唯一入口是头部"上下文检查器"按钮。 -->
-                    <Grid x:Name="ContextUsageDisplay"
-                          Width="130" IsVisible="{Binding TokenService.HasVisibleUsage}">
-                        <ProgressBar Minimum="0"
-                                     Maximum="{Binding TokenService.MaxTokens}"
-                                     Value="{Binding TokenService.CurrentTokens}"
-                                     Height="18"
-                                     CornerRadius="4"/>
-                        <TextBlock Text="{Binding ContextTokensInfo}"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   FontSize="{DynamicResource App.FontSize.Caption}"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </Grid>
-                </Border>
-
             </Grid>
         </Border>
 
@@ -752,7 +730,7 @@
                 </TextBox>
 
                 <!-- 底部功能工具栏：左侧功能按钮，右侧模型和发送/停止 -->
-                <Grid Grid.Row="5" ColumnDefinitions="*,100,50" ColumnSpacing="10" Margin="0,6,0,0">
+                <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto,50" ColumnSpacing="10" Margin="0,6,0,0">
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 Spacing="2"
@@ -781,15 +759,30 @@
                         </u:IconSplitButton>
                     </StackPanel>
 
-                    <TextBlock Grid.Column="1"
+                    <Border x:Name="ContextUsageStatus"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="{Binding ContextTokensInfo}">
+                        <Grid x:Name="ContextUsageDisplay"
+                              IsVisible="{Binding TokenService.HasVisibleUsage}">
+                            <TextBlock Text="{Binding TokenService.TokenUsageBarText}"
+                                       FontFamily="Consolas, 'Courier New', monospace"
+                                       FontSize="{DynamicResource App.FontSize.Caption}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Column="2"
                                Text="{Binding CurrentModelName}"
+                               MaxWidth="100"
+                               HorizontalAlignment="Left"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource Chat.TimestampFg}"
                                FontSize="{DynamicResource App.FontSize.Body}"
                                TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding CurrentModelName}"/>
 
-                    <Button Grid.Column="2"
+                    <Button Grid.Column="3"
                             HorizontalAlignment="Stretch"
                             Command="{Binding SendMessageCommand}"
                             Theme="{StaticResource AccentButtonTheme}"
@@ -799,7 +792,7 @@
                         <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
                     </Button>
 
-                    <Button Grid.Column="2"
+                    <Button Grid.Column="3"
                             HorizontalAlignment="Stretch"
                             Command="{Binding StopResponseCommand}"
                             Theme="{StaticResource AccentButtonTheme}"

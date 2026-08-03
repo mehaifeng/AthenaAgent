@@ -22,6 +22,13 @@ public static class MarkdownConfiguration
             return;
         }
 
+        // SVG 图片解码器必须在任何 renderer 创建之前注册。
+        AsyncImageLoader.DefaultDecoders =
+        [
+            SvgImageDecoder.Shared,
+            DefaultBitmapDecoder.Shared,
+        ];
+
         MarkdownRenderer.ConfigurePipeline += pipeline => pipeline
             .UseEmojiAndSmiley()
             .UseMathematics()

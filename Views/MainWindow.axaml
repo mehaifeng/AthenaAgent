@@ -22,7 +22,7 @@
         <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
 
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
-            <Grid Classes="conversation-row" IsVisible="{Binding IsSearchMatch}">
+            <Grid Classes="conversation-row" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsSearchMatch}">
                 <Grid IsVisible="{Binding !IsRenaming}" ColumnDefinitions="*,Auto">
                     <Button Classes="session-row"
                             Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
@@ -34,7 +34,7 @@
                                      IsVisible="{Binding !HasStatusIndicator}"/>
                             <Grid Grid.Column="0" Width="12" ToolTip.Tip="{Binding StatusText}"
                                   IsVisible="{Binding HasStatusIndicator}">
-                                <Border Width="6" Height="6" CornerRadius="3" Background="{DynamicResource SemiGreen6}"
+                                <Border Width="6" Height="6" CornerRadius="3" Background="{DynamicResource SemiGreen6}" Classes="running-indicator" Classes.running="{Binding ShowRunningIndicator}"
                                         HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowRunningIndicator}"/>
                                 <TextBlock Text="…" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                            IsVisible="{Binding ShowQueuedIndicator}"/>
@@ -116,6 +116,20 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Background" Value="Transparent"/>
         </Style>
+        <!-- 当前打开（选中）的会话行高亮。IsSelected 由 MainWindowViewModel 随 SelectedConversation 维护。 -->
+        <Style Selector="Grid.conversation-row.selected">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+        </Style>
+        <!-- 运行中绿色指示点：仅 ShowRunningIndicator 挂载 .running 类时才运行动画，
+             避免隐藏状态下关键帧动画仍驱动合成器逐帧重绘（AvaloniaUI/Avalonia#17139）。 -->
+        <Style Selector="Border.running-indicator.running">
+            <Style.Animations>
+                <Animation Duration="0:0:0.8" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="SineEaseInOut">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1"/></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.15"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
         <Style Selector="Button.icon-plain">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -165,7 +179,7 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="40,*">
+    <Grid RowDefinitions="30,*">
         <Image Grid.RowSpan="2" x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
         <Image Grid.RowSpan="2" x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
@@ -192,7 +206,7 @@
                             VerticalAlignment="Center">
                     <Button x:Name="TitleBarThemeButton"
                             Classes="icon-plain"
-                            Margin="0,0,20,0"
+                            Margin="0,0,10,0"
                             Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
                             Tag="{Binding MainConversationViewModel.ThemeIcon}"
                             ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
@@ -207,7 +221,7 @@
                     </Button>
                     <Button x:Name="TitleBarAppSettingsButton"
                             Classes="icon-plain"
-                            Margin="0,0,8,0"
+                            Margin="0,0,10,0"
                             Command="{Binding OpenAppSettingsCommand}"
                             ToolTip.Tip="{loc:Loc Settings.Window.Title}">
                         <PathIcon Data="{StaticResource AthenaIconSettings}"
@@ -215,7 +229,8 @@
                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMinimizeButton"
-                            Classes="window-caption"
+                            Classes="icon-plain"
+                            Margin="0,0,10,0"
                             Click="OnTitleBarMinimizeClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
                         <PathIcon Width="16" Height="16"
@@ -223,7 +238,8 @@
                                   Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMaximizeButton"
-                            Classes="window-caption"
+                            Classes="icon-plain"
+                            Margin="0,0,10,0"
                             Click="OnTitleBarMaximizeRestoreClick"
                             ToolTip.Tip="{loc:Loc MainWindow.MaximizeRestore}">
                         <Panel Width="14" Height="14">
@@ -239,7 +255,7 @@
                         </Panel>
                     </Button>
                     <Button x:Name="TitleBarCloseButton"
-                            Classes="window-caption close"
+                            Classes="icon-plain"
                             Click="OnTitleBarCloseClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Close}">
                         <PathIcon Width="14" Height="14"
