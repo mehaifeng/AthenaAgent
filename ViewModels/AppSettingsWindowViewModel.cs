@@ -77,6 +77,7 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         ToolApproval.Dispose();
         ConversationContext.Dispose();
         RuntimeDiagnostics.Dispose();
+        General.Dispose();
         _state.Dispose();
     }
 

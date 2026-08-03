@@ -820,7 +820,6 @@
                 Margin="0,5"
                 CornerRadius="8"
                 IsVisible="{Binding IsContextInspectorOpen}"
-                Opacity="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShellPanelOpacity, Converter={StaticResource InverseOpacityConverter}}"
                 Background="{DynamicResource App.SectionBg}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"

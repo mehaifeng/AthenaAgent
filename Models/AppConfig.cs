@@ -29,6 +29,9 @@ public partial class AppConfig : ObservableObject
 
     [ObservableProperty]
     private string _language = "zh-CN";
+    // 全局字号档位：Tiny / Small / Medium / Large / Maximum，驱动 App.FontSize.* 语义字号整体缩放。
+    [ObservableProperty]
+    private string _fontScale = "Medium";
 
     [ObservableProperty]
     private double _topP = 1.0;

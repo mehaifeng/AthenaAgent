@@ -39,6 +39,17 @@
                         </ComboBox>
                     </Grid>
                     <Grid ColumnDefinitions="180,260,*">
+                        <TextBlock Text="{loc:Loc Settings.General.FontScale}" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="FontScaleComboBox" Grid.Column="1" Width="100"
+                                  SelectedIndex="{Binding FontScaleIndex}">
+                            <ComboBoxItem Content="{loc:Loc Settings.General.FontScale.Minimum}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.FontScale.Small}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.FontScale.Medium}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.FontScale.Large}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.FontScale.Maximum}"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.PanelOpacity}" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <Slider Minimum="0" Maximum="0.5"

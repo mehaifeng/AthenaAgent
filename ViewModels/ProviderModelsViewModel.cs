@@ -48,6 +48,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         _config = configurationSession.Current;
         RebuildFilterOptions();
         RebuildRoles();
+        SelectedProvider = Providers.FirstOrDefault();
         _configurationSession.CurrentChanged += OnCurrentConfigChanged;
         if (_metadataCatalog != null) _metadataCatalog.CatalogChanged += OnMetadataCatalogChanged;
         if (_localizationService != null) _localizationService.LanguageChanged += OnLanguageChanged;

@@ -353,6 +353,12 @@
     <system:String x:Key="Settings.General.Appearance">Appearance &amp; language</system:String>
     <system:String x:Key="Settings.General.Theme">Theme</system:String>
     <system:String x:Key="Settings.General.Language">Language</system:String>
+    <system:String x:Key="Settings.General.FontScale">Font size</system:String>
+    <system:String x:Key="Settings.General.FontScale.Minimum">Tiny</system:String>
+    <system:String x:Key="Settings.General.FontScale.Small">Small</system:String>
+    <system:String x:Key="Settings.General.FontScale.Medium">Medium</system:String>
+    <system:String x:Key="Settings.General.FontScale.Large">Large</system:String>
+    <system:String x:Key="Settings.General.FontScale.Maximum">Largest</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">Panel transparency</system:String>
     <system:String x:Key="Settings.General.PanelOpacity.Description">Let the background image gently show through the three main-window panels. 0% hides it completely (original look); 50% is the most transparent. The title bar is unaffected.</system:String>
     <system:String x:Key="Settings.General.Interaction">Interaction</system:String>

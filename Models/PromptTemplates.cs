@@ -268,7 +268,7 @@ public static class PromptTemplates
         Requirements:
         - First line is a concise subject line of at most 72 characters, using a conventional type prefix when it fits (feat:, fix:, refactor:, docs:, test:, chore:, perf:, style:). Use imperative mood.
         - If the change has meaningful details, add a short blank line and a body summarizing what changed and why. Keep the body to 2–6 bullet points or short sentences.
-        - Match the language of the diff's commit conventions; if the diff is predominantly Chinese, write the message in Chinese.
+        - Always write the commit message in English, regardless of the language of the diff.
         - Output ONLY the commit message itself. No code fences, no leading/trailing explanation, no bullet markers around the subject line.
         """;
 

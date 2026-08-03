@@ -18,6 +18,7 @@ public sealed class AppConfigurationApplier : IDisposable
     private AppConfig? _lastChatConfig;
     private AppConfig? _lastEmbeddingConfig;
     private string? _themeIdentity;
+    private string? _fontScale;
     private OpenAiModelClientIdentity? _chatClientIdentity;
     private OpenAiModelClientIdentity? _embeddingClientIdentity;
     private string _embeddingIdentity;
@@ -71,6 +72,8 @@ public sealed class AppConfigurationApplier : IDisposable
             : "Dark";
         var shouldApplyTheme = !string.Equals(_themeIdentity, nextThemeIdentity, StringComparison.Ordinal);
         _themeIdentity = nextThemeIdentity;
+        var shouldApplyFontScale = !string.Equals(_fontScale, config.FontScale, StringComparison.Ordinal);
+        _fontScale = config.FontScale;
 
         void ApplyOnUiThread()
         {
@@ -78,6 +81,8 @@ public sealed class AppConfigurationApplier : IDisposable
                 App.SetTheme(nextThemeIdentity);
             if (_localizationService?.CurrentLanguage != config.Language)
                 _localizationService?.SwitchLanguage(config.Language);
+            if (shouldApplyFontScale)
+                FontScaleService.Apply(config.FontScale);
         }
 
         if (Dispatcher.UIThread.CheckAccess()) ApplyOnUiThread();

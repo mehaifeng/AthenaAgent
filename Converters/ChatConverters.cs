@@ -146,21 +146,6 @@ public class OpacityConverter : IValueConverter
 }
 
 /// <summary>
-/// 把父级 shell 面板透明度（0.5–1.0）换算成补偿值（1/value，上限 2），
-/// 使抽屉等覆盖层在全局面板透明度开启时仍保持完全不透明。
-/// </summary>
-public class InverseOpacityConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is not double opacity || opacity <= 0 || !double.IsFinite(opacity))
-            return 1.0;
-        return Math.Clamp(1.0 / opacity, 0.5, 2.0);
-    }
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-/// <summary>
 /// Compares the tag value against the parameter; returns true for IsVisible binding.
 /// Used to show either Moon or Sun icon based on the current ThemeIcon tag.
 /// </summary>

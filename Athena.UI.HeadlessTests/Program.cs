@@ -7,7 +7,9 @@ using Avalonia.Controls.Chrome;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Athena.UI;
@@ -69,6 +71,7 @@ TestTransactionalCompressionCommitAsync().GetAwaiter().GetResult();
 Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
+TestShellPanelBackgroundThemeResolution();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
 
@@ -185,12 +188,26 @@ if (Grid.GetRow(contextInspectorDrawer) != 1 || Grid.GetRowSpan(contextInspector
     throw new InvalidOperationException("The Context inspector drawer must cover only the middle message area (below the title bar, above the prompt input).");
 if (contextInspectorDrawer.HorizontalAlignment != Avalonia.Layout.HorizontalAlignment.Center)
     throw new InvalidOperationException("The Context inspector drawer must be centered on the conversation column.");
-if (contextInspectorDrawer.Opacity < 0.99 || contextInspectorDrawer.Opacity > 2.0)
+// 面板透明度只作用于 shell 面板的背景画笔，绝不能降低面板整体 Opacity（否则内容会一起变淡）。
+var shellPanels = window.GetVisualDescendants().OfType<Border>()
+    .Where(b => b.Classes.Contains("shell-panel")).ToList();
+if (shellPanels.Count != 3)
+    throw new InvalidOperationException($"Expected 3 shell panels, got {shellPanels.Count}.");
+if (contextInspectorDrawer.Opacity < 0.99 || contextInspectorDrawer.Opacity > 1.01)
     throw new InvalidOperationException("The Context inspector drawer must be fully opaque regardless of shell panel transparency.");
 shellConfigService.Load().MainLayout.PanelTransparency = 0.5;
 Dispatcher.UIThread.RunJobs();
-if (Math.Abs(contextInspectorDrawer.Opacity - 2.0) > 0.001)
-    throw new InvalidOperationException($"The drawer must compensate shell transparency 0.5 to stay opaque (Opacity={contextInspectorDrawer.Opacity}).");
+foreach (var panel in shellPanels)
+{
+    if (panel.Opacity < 0.999)
+        throw new InvalidOperationException("Shell panels must keep Opacity=1 so their content stays opaque; only the Background brush is translucent.");
+    if (panel.Background is not ISolidColorBrush solid)
+        throw new InvalidOperationException("Shell panel Background must be a SolidColorBrush set by MainWindow.ApplyShellPanelOpacity.");
+    if (Math.Abs(solid.Opacity - 0.5) > 0.001)
+        throw new InvalidOperationException($"Shell panel Background brush opacity must follow ShellPanelOpacity (expected 0.5, got {solid.Opacity}).");
+}
+if (contextInspectorDrawer.Opacity < 0.99 || contextInspectorDrawer.Opacity > 1.01)
+    throw new InvalidOperationException("The Context inspector drawer must stay fully opaque (Opacity=1) with panel transparency enabled.");
 shellConfigService.Load().MainLayout.PanelTransparency = 0.0;
 Dispatcher.UIThread.RunJobs();
 contextInspectorButton.Command.Execute(null);
@@ -1083,6 +1100,69 @@ catch (Exception ex)
     Environment.ExitCode = 1;
 }
 
+static void TestShellPanelBackgroundThemeResolution()
+{
+    // 回归：Shell 面板背景色必须跟随当前主题变体（两参 TryFindResource 会落到 ThemeVariant.Default
+    // → Semi 的 "Default" 键映射 Light → 深色模式下错误地得到白色）。
+    Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+    Dispatcher.UIThread.RunJobs();
+
+    var shellConfigService = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(shellConfigService);
+    var vm = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        taskScheduler: null,
+        contextCompressionService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null,
+        configurationSession: session);
+    var window = new MainWindow { DataContext = vm, Width = 1200, Height = 800 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    var panels = window.GetVisualDescendants().OfType<Border>()
+        .Where(b => b.Classes.Contains("shell-panel")).ToList();
+    if (panels.Count != 3)
+        throw new InvalidOperationException($"Expected 3 shell panels, got {panels.Count}.");
+    foreach (var panel in panels)
+    {
+        if (panel.Background is not ISolidColorBrush solid)
+            throw new InvalidOperationException("Shell panel background must be a SolidColorBrush.");
+        if (solid.Color != Color.Parse("#16161A"))
+            throw new InvalidOperationException($"Shell panel must use the dark background in Dark theme, got {solid.Color}.");
+    }
+
+    // 透明度开启后颜色仍为深色，只是画笔透明度变化。
+    shellConfigService.Load().MainLayout.PanelTransparency = 0.5;
+    Dispatcher.UIThread.RunJobs();
+    foreach (var panel in panels)
+    {
+        var solid = (ISolidColorBrush)panel.Background!;
+        if (Math.Abs(solid.Opacity - 0.5) > 0.001)
+            throw new InvalidOperationException($"Dark panel background brush opacity must be 0.5, got {solid.Opacity}.");
+        if (solid.Color != Color.Parse("#16161A"))
+            throw new InvalidOperationException($"Dark panel background color changed after transparency edit, got {solid.Color}.");
+    }
+    shellConfigService.Load().MainLayout.PanelTransparency = 0.0;
+    Dispatcher.UIThread.RunJobs();
+
+    window.Close();
+    Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+    Dispatcher.UIThread.RunJobs();
+    Console.WriteLine("[PASS] shell panels use the theme-consistent background color in Dark mode");
+}
+
 static void TestConfigurationSession(string artifactDirectory)
 {
     var service = new HeadlessConfigService(new AppConfig());
@@ -1301,6 +1381,49 @@ static void TestConfigurationSession(string artifactDirectory)
     appSettings.SelectedSection = appSettings.Sections[0];
     Dispatcher.UIThread.RunJobs();
     SaveWindowFrame(appSettingsWindow, Path.Combine(artifactDirectory, "app-settings-window.png"));
+
+    // —— 字号档位：ComboBox 渲染、VM 映射、配置持久化、资源整体缩放。 ——
+    var fontScaleComboBox = appSettingsWindow.GetVisualDescendants().OfType<ComboBox>()
+        .FirstOrDefault(c => c.Name == "FontScaleComboBox")
+        ?? throw new InvalidOperationException("The General settings font-size ComboBox was not rendered.");
+    if (fontScaleComboBox.ItemCount != 5)
+        throw new InvalidOperationException($"Font-size ComboBox must offer 5 levels, got {fontScaleComboBox.ItemCount}.");
+    if (session.Current.FontScale != "Medium" || fontScaleComboBox.SelectedIndex != 2)
+        throw new InvalidOperationException($"Font-size default must be Medium/index 2 (config={session.Current.FontScale}, combo={fontScaleComboBox.SelectedIndex}).");
+    var baselineBody = Application.Current!.Resources["App.FontSize.Body"];
+    if (baselineBody is not double || Math.Abs((double)baselineBody - 11.0) > 0.01)
+        throw new InvalidOperationException($"Baseline font-size resource must be Body=11 before scaling, got {baselineBody}.");
+    service.ResetSaveCount();
+    appSettings.General.FontScaleIndex = 4; // 最大
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "font scale edit");
+    if (session.Current.FontScale != "Maximum")
+        throw new InvalidOperationException("Font scale selection did not persist to configuration.");
+    FontScaleService.Apply(session.Current.FontScale);
+    var maxBody = Application.Current.Resources["App.FontSize.Body"];
+    var maxTitle = Application.Current.Resources["App.FontSize.Title"];
+    if (maxBody is not double maxBodyD || Math.Abs(maxBodyD - 14.0) > 0.01
+        || maxTitle is not double maxTitleD || Math.Abs(maxTitleD - 18.0) > 0.01)
+        throw new InvalidOperationException($"FontScaleService did not scale resources (Body={maxBody}, Title={maxTitle}).");
+    appSettings.General.FontScaleIndex = 2; // 恢复中等
+    Thread.Sleep(650);
+    FontScaleService.Apply(session.Current.FontScale);
+    var restoredBody = Application.Current.Resources["App.FontSize.Body"];
+    if (restoredBody is not double restoredBodyD || Math.Abs(restoredBodyD - 11.0) > 0.01)
+        throw new InvalidOperationException($"Resetting to Medium must restore baseline Body=11, got {restoredBody}.");
+
+    // —— 字号档位：AppConfigurationApplier 在配置变更时应用资源。 ——
+    var applierConfigService = new HeadlessConfigService(new AppConfig());
+    using var fontApplier = new AppConfigurationApplier(applierConfigService, null, null, null, null);
+    applierConfigService.Load().FontScale = "Large";
+    applierConfigService.PublishExternal(applierConfigService.Load());
+    Dispatcher.UIThread.RunJobs();
+    Thread.Sleep(100);
+    var appliedBody = Application.Current.Resources["App.FontSize.Body"];
+    if (appliedBody is not double appliedBodyD || Math.Abs(appliedBodyD - 13.0) > 0.01)
+        throw new InvalidOperationException($"AppConfigurationApplier did not apply font scale on config change (Body={appliedBody}).");
+    FontScaleService.Apply("Medium"); // 恢复基准字号，避免影响后续测试的硬编码字号断言。
+
     appSettingsWindow.Close();
     var closedSettingsConfig = settingsState.Config;
     service.PublishExternal(new AppConfig());
@@ -1320,6 +1443,7 @@ static void TestConfigurationSession(string artifactDirectory)
     Console.WriteLine("[PASS] App Settings page VMs own approval-list revocation and browser diagnostics");
     Console.WriteLine("[PASS] App Settings uses six semantic pages, shared state, and a single content host");
     Console.WriteLine("[PASS] App Settings navigation follows live localization changes");
+    Console.WriteLine("[PASS] font-size selector persists the level, scales resources, and follows config changes");
     Console.WriteLine("[PASS] closing App Settings releases configuration and localization subscriptions");
 }
 
@@ -1900,6 +2024,8 @@ static void TestProviderMetadataUi(string outputPath)
         Height = 820
     };
     window.Show();
+    Dispatcher.UIThread.RunJobs();
+    window.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
     Dispatcher.UIThread.RunJobs();
     var list = window.FindControl<ListBox>("MetadataModelList")
                ?? throw new InvalidOperationException("Provider metadata list was not rendered.");

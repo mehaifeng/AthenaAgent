@@ -353,6 +353,12 @@
     <system:String x:Key="Settings.General.Appearance">外观与语言</system:String>
     <system:String x:Key="Settings.General.Theme">主题</system:String>
     <system:String x:Key="Settings.General.Language">语言</system:String>
+    <system:String x:Key="Settings.General.FontScale">字体大小</system:String>
+    <system:String x:Key="Settings.General.FontScale.Minimum">最小</system:String>
+    <system:String x:Key="Settings.General.FontScale.Small">小</system:String>
+    <system:String x:Key="Settings.General.FontScale.Medium">中等</system:String>
+    <system:String x:Key="Settings.General.FontScale.Large">大</system:String>
+    <system:String x:Key="Settings.General.FontScale.Maximum">最大</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">面板透明度</system:String>
     <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），50% 为最透明。标题栏不受影响。</system:String>
     <system:String x:Key="Settings.General.Interaction">交互</system:String>

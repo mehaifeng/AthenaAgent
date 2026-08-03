@@ -109,8 +109,9 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="10"/>
-            <!-- 面板透明度：1 = 完全不透明（与原观感一致），0.5 = 半透（让背景雅典娜图像淡淡透出）。默认 1 保持原观感。 -->
-            <Setter Property="Opacity" Value="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShellPanelOpacity}"/>
+            <!-- 面板透明度：只让面板 Background 画笔变透明以透出背景图像，内容（文字/图标/文件等）保持完全不透明。
+                 画笔由 MainWindow.ApplyShellPanelOpacity 按 ShellPanelOpacity 动态构造并赋值，
+                 不能对整个 Border 设 Opacity —— 那会让整个子树合成后一起变淡。 -->
         </Style>
         <Style Selector="Button.launcher">
             <Setter Property="HorizontalContentAlignment" Value="Left"/>

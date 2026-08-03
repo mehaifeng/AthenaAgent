@@ -11,6 +11,8 @@ using Avalonia.Platform;
 using Avalonia.Styling;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.ComponentModel;
 using Athena.UI.ViewModels;
@@ -43,6 +45,7 @@ public partial class MainWindow : Window
     private PathIcon? _titleBarMaximizeIcon;
     private PathIcon? _titleBarRestoreIcon;
     private MainWindowViewModel? _viewModel;
+    private readonly List<Border> _shellPanels = new();
 
     public MainWindow()
     {
@@ -62,6 +65,13 @@ public partial class MainWindow : Window
         _workspaceWorkbench = this.FindControl<WorkspaceWorkbenchView>("WorkspaceWorkbench");
         if (_workspaceWorkbench != null)
             _workspaceWorkbench.MinimumRequiredWidthChanged += OnWorkbenchMinimumRequiredWidthChanged;
+        // 收集三块 shell 面板（左/中/右），面板透明度只作用于其背景画笔。
+        _shellPanels.AddRange(_mainShellGrid?.Children.OfType<Border>()
+            .Where(b => b.Classes.Contains("shell-panel")) ?? Array.Empty<Border>());
+        // 主题变体在运行时切换时，面板背景色要立刻跟随（App.ThemeChanged 在 1.2s 过渡后才广播，太晚）。
+        if (Application.Current is INotifyPropertyChanged appNotify)
+            appNotify.PropertyChanged += OnApplicationPropertyChanged;
+        ApplyShellPanelOpacity();
         DataContextChanged += OnMainDataContextChanged;
         SizeChanged += (_, _) => ApplySavedLayout();
         // 窗口显示之前就设置好 Splash 图片的初始状态：
@@ -137,12 +147,54 @@ public partial class MainWindow : Window
         {
             _viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
             ApplySavedLayout();
+            ApplyShellPanelOpacity();
         }
     }
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
+        else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelOpacity();
+    }
+
+    private void OnApplicationPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // 运行时切换主题：RequestedThemeVariant 一落地就要重解析背景色（此时主题字典已换新）。
+        if (e.PropertyName == nameof(Application.RequestedThemeVariant))
+            ApplyShellPanelOpacity();
+    }
+
+    /// <summary>
+    /// 按 ShellPanelOpacity 重建三块 shell 面板的背景画笔：只让背景变透明使雅典娜图像透出，
+    /// 文字/图标/文件等内容保持完全不透明（对整个 Border 设 Opacity 会让整个子树一起变淡）。
+    /// </summary>
+    private void ApplyShellPanelOpacity()
+    {
+        var opacity = _viewModel?.ShellPanelOpacity ?? 1.0;
+        var color = ResolveShellPanelBackgroundColor();
+        var brush = new SolidColorBrush(color, opacity);
+        foreach (var panel in _shellPanels)
+        {
+            if (panel != null) panel.Background = brush;
+        }
+    }
+
+    /// <summary>
+    /// 解析当前主题下的面板背景色（SemiColorBackground0 是随主题切换的 SolidColorBrush）。
+    /// 必须显式传入当前主题变体：两参 TryFindResource 会落到 ThemeVariant.Default，
+    /// 而 Semi 把 "Default" 键映射到 Light（白色），深色模式下会解析出错误的白背景。
+    /// </summary>
+    private Color ResolveShellPanelBackgroundColor()
+    {
+        var variant = Application.Current?.RequestedThemeVariant;
+        if (variant != null
+            && this.TryFindResource("SemiColorBackground0", variant, out var value)
+            && value is ISolidColorBrush solid)
+        {
+            return solid.Color;
+        }
+        var isDark = variant == ThemeVariant.Dark;
+        return isDark ? Color.Parse("#16161A") : Color.Parse("#FFFFFF");
     }
 
     private void OnWorkbenchMinimumRequiredWidthChanged(object? sender, EventArgs e) =>
