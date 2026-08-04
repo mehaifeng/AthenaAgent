@@ -13,6 +13,7 @@ public partial class TasksViewModel : ViewModelBase
     private readonly ITaskScheduler? _taskScheduler;
     private readonly ILocalizationService? _localizationService;
     private readonly ObservableCollection<ScheduledTask> _localTasks = new();
+    private bool _disposed;
 
     public ObservableCollection<ScheduledTask> ScheduledTasks => _taskScheduler?.Tasks ?? _localTasks;
 
@@ -26,6 +27,18 @@ public partial class TasksViewModel : ViewModelBase
         _taskScheduler = taskScheduler;
         _localizationService = localizationService;
         _taskDraft = CreateTaskDraft();
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, System.EventArgs e)
+    {
+        foreach (var task in ScheduledTasks)
+        {
+            task.RefreshLocalizedDisplays();
+        }
     }
 
     [RelayCommand]
@@ -39,7 +52,20 @@ public partial class TasksViewModel : ViewModelBase
         if (_taskScheduler != null) await _taskScheduler.ScheduleAsync(task);
         else _localTasks.Add(task);
 
+        var oldDraft = TaskDraft;
         TaskDraft = CreateTaskDraft();
+        oldDraft.Dispose();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
+        TaskDraft.Dispose();
     }
 
     [RelayCommand]

@@ -25,7 +25,7 @@ public sealed class SubAgentLogEntry
 /// <summary>
 /// 单只"猫头鹰"子代理的实时状态。UI 直接绑定本对象；编排器/Runner 在 UI 线程更新它。
 /// </summary>
-public partial class SubAgentViewModel : ObservableObject
+public partial class SubAgentViewModel : ObservableObject, IDisposable
 {
     private enum OwlMotion
     {
@@ -129,6 +129,7 @@ public partial class SubAgentViewModel : ObservableObject
     private bool _owlFacingLeft;
 
     private readonly ILocalizationService? _localizationService;
+    private bool _disposed;
 
     public SubAgentViewModel(ILocalizationService? localizationService = null)
     {
@@ -136,6 +137,22 @@ public partial class SubAgentViewModel : ObservableObject
         var h = Math.Abs(Id.GetHashCode());
         _wanderX = (h % 31) - 15;
         _wanderY = ((h / 31) % 27) - 13;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshStatusLabel();
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
     }
 
     /// <summary>猫头鹰在小镇画布上的左上角 X（= 场所中心 - 半个身位 + 漂移）。</summary>

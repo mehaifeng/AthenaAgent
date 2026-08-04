@@ -81,6 +81,15 @@ namespace Athena.UI.Models
             _ => TaskType.ToString()
         };
 
+        /// <summary>
+        /// 语言切换后刷新本地化显示字符串（由 TasksViewModel 在 LanguageChanged 时调用）。
+        /// </summary>
+        public void RefreshLocalizedDisplays()
+        {
+            OnPropertyChanged(nameof(RecurrenceDisplay));
+            OnPropertyChanged(nameof(TaskTypeDisplay));
+        }
+
         private static string GetLocalizedString(string key, string defaultValue)
         {
             var localizationService = App.Services?.GetService(typeof(Services.Interfaces.ILocalizationService))

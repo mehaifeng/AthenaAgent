@@ -17,7 +17,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 {
     private readonly IConversationArchiveStore? _store;
     private readonly ILocalizationService? _localizationService;
-    private readonly string _newConversationTitle;
+    private string _newConversationTitle;
     private CancellationTokenSource? _saveDebounce;
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private bool _metadataTrackingEnabled;
@@ -47,10 +47,37 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.MessageForkRequested += OnChatMessageForkRequested;
         Chat.AttachCompressionCommitter(this);
         Dispatcher.UIThread.Post(() => _metadataTrackingEnabled = true);
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
     }
 
     private string L(string key, string fallback)
         => _localizationService?.GetString(key, fallback) ?? fallback;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        var previousPlaceholder = _newConversationTitle;
+        _newConversationTitle = L("Session.Title.NewConversation", "New chat");
+        if (Title == previousPlaceholder && Title != _newConversationTitle)
+        {
+            Title = _newConversationTitle;
+        }
+
+        // 归档进度/失败文本是在事件到达时固化的快照，这里按状态重新取词。
+        if (IsArchivePending && !string.IsNullOrWhiteSpace(ArchiveStatusText))
+        {
+            ArchiveStatusText = L("History.PendingStatus", "Summarizing");
+        }
+        else if (IsArchiveFailed && !string.IsNullOrWhiteSpace(ArchiveStatusText))
+        {
+            ArchiveStatusText = L("Chat.Archive.RetryLater", "Failed to archive the previous chat; will retry later.");
+        }
+
+        OnPropertyChanged(nameof(PinActionText));
+        OnPropertyChanged(nameof(StatusText));
+    }
 
     public MainConversationViewModel Chat { get; }
 
@@ -558,6 +585,10 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public void Dispose()
     {
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
         Chat.PropertyChanged -= OnChatPropertyChanged;
         Chat.Messages.CollectionChanged -= OnMessagesChanged;
         Chat.PersistenceStateChanged -= OnPersistenceStateChanged;
@@ -575,6 +606,7 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     /// <summary>注入全局对话的"历史目录"回退路径，菜单"在文件夹中显示"/"复制路径"会用到它。</summary>
     private readonly string _globalDirectoryPath;
     private readonly ILocalizationService? _localizationService;
+    private bool _disposed;
 
     public WorkspaceConversationGroupViewModel(
         WorkspaceProfile? workspace,
@@ -586,6 +618,28 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
         _localizationService = localizationService;
         Name = workspace?.Name ?? L("MainWindow.Launcher.GlobalChat", "Global chat");
         IsExpanded = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        if (Workspace == null)
+        {
+            Name = L("MainWindow.Launcher.GlobalChat", "Global chat");
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
     }
 
     private string L(string key, string fallback)

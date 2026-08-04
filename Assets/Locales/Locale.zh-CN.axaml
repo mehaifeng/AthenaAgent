@@ -1060,6 +1060,7 @@
     <system:String x:Key="Workspace.Editor.Tip.CloseEditor">关闭编辑区</system:String>
     <system:String x:Key="Workspace.Editor.Tip.CloseFile">关闭文件</system:String>
     <system:String x:Key="Workspace.Diff.Header">HEAD ↔ 当前编辑缓冲区</system:String>
+    <system:String x:Key="Workspace.Diff.BinaryPlaceholder">无法预览二进制文件</system:String>
     <system:String x:Key="Workspace.FileMenu.Open">打开</system:String>
     <system:String x:Key="Workspace.FileMenu.CopyPath">复制路径</system:String>
     <system:String x:Key="Workspace.FileMenu.CopyAbsolutePath">复制绝对路径</system:String>

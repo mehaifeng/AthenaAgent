@@ -19,6 +19,7 @@ public partial class ExtensionProviderCardViewModel : ObservableObject, IDisposa
 {
     private readonly Action<ExtensionProviderCardViewModel> _onSelected;
     private readonly ILocalizationService? _localizationService;
+    private bool _disposed;
 
     public ExtensionProviderCardViewModel(
         ExtensionProviderKind kind,
@@ -35,6 +36,20 @@ public partial class ExtensionProviderCardViewModel : ObservableObject, IDisposa
         _onSelected = onSelected;
         _localizationService = localizationService;
         Settings.PropertyChanged += OnSettingsPropertyChanged;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(ApiKeyLabel));
+        OnPropertyChanged(nameof(VoiceLabel));
+        OnPropertyChanged(nameof(BaseUrlLabel));
+        OnPropertyChanged(nameof(Description));
+        OnPropertyChanged(nameof(ModelWarning));
+        OnPropertyChanged(nameof(HasModelWarning));
     }
 
     public ExtensionProviderKind Kind { get; }
@@ -131,5 +146,14 @@ public partial class ExtensionProviderCardViewModel : ObservableObject, IDisposa
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
 
-    public void Dispose() => Settings.PropertyChanged -= OnSettingsPropertyChanged;
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Settings.PropertyChanged -= OnSettingsPropertyChanged;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
+    }
 }

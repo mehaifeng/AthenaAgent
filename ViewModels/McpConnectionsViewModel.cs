@@ -33,7 +33,13 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
     {
         _configService = configService;
         _localizationService = localizationService;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
     }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshImportStatus();
 
     private string GetString(string key, string defaultValue)
     {
@@ -152,6 +158,8 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
         _disposed = true;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
+        if (_localizationService != null)
+            _localizationService.LanguageChanged -= OnLanguageChanged;
         _configurationSession = null;
     }
 
@@ -163,13 +171,27 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _mcpImportStatus = string.Empty;
 
+    private enum ImportStatusKind
+    {
+        None,
+        Empty,
+        Success,
+        Failed
+    }
+
+    private ImportStatusKind _importStatusKind = ImportStatusKind.None;
+    private int _importStatusCount;
+    private string? _importStatusError;
+
     /// <summary>解析粘贴的 JSON，按名称合并进 McpServers（同名覆盖）。</summary>
     [RelayCommand]
     private void ImportMcpJson()
     {
         if (string.IsNullOrWhiteSpace(McpImportJson))
         {
-            McpImportStatus = GetString("Config.Mcp.ImportEmpty", "Please paste the MCP config JSON first.");
+            _importStatusKind = ImportStatusKind.Empty;
+            _importStatusError = null;
+            RefreshImportStatus();
             return;
         }
 
@@ -183,14 +205,29 @@ public partial class McpConnectionsViewModel : ViewModelBase, IDisposable
                 if (existing != null) Config.McpServers.Remove(existing);
                 Config.McpServers.Add(incoming);
             }
-            McpImportStatus = string.Format(
-                GetString("Config.Mcp.ImportSuccess", "Imported {0} server(s)."), parsed.Count);
+            _importStatusKind = ImportStatusKind.Success;
+            _importStatusCount = parsed.Count;
+            _importStatusError = null;
             McpImportJson = string.Empty;
         }
         catch (Exception ex)
         {
-            McpImportStatus = string.Format(
-                GetString("Config.Mcp.ImportFailed", "Import failed: {0}"), ex.Message);
+            _importStatusKind = ImportStatusKind.Failed;
+            _importStatusError = ex.Message;
         }
+        RefreshImportStatus();
+    }
+
+    private void RefreshImportStatus()
+    {
+        McpImportStatus = _importStatusKind switch
+        {
+            ImportStatusKind.Empty => GetString("Config.Mcp.ImportEmpty", "Please paste the MCP config JSON first."),
+            ImportStatusKind.Success => string.Format(
+                GetString("Config.Mcp.ImportSuccess", "Imported {0} server(s)."), _importStatusCount),
+            ImportStatusKind.Failed => string.Format(
+                GetString("Config.Mcp.ImportFailed", "Import failed: {0}"), _importStatusError),
+            _ => string.Empty
+        };
     }
 }

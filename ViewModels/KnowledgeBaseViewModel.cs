@@ -71,6 +71,20 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
 
     private string _rootPath = string.Empty;
 
+    private enum VectorStatusKind
+    {
+        None,
+        NoService,
+        Rebuilt,
+        Incomplete,
+        Failed
+    }
+
+    private VectorStatusKind _vectorStatusKind = VectorStatusKind.None;
+    private int _vectorVectorCount;
+    private int _vectorChunkCount;
+    private string? _vectorError;
+
     public KnowledgeBaseViewModel() : this(null, null, null, null, null, null, null) { }
 
     public KnowledgeBaseViewModel(
@@ -107,6 +121,18 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         {
             _rootPath = _pathService.GetKnowledgeBaseDirectory();
         }
+
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(SelectedFileDisplayPath));
+        UpdateMaintenanceStatus();
+        RefreshVectorIndexStatus();
     }
 
     private void OnCurrentConfigChanged(object? sender, AppConfig config) => Config = config;
@@ -174,7 +200,8 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
     {
         if (_knowledgeBaseService == null)
         {
-            VectorIndexStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
+            _vectorStatusKind = VectorStatusKind.NoService;
+            RefreshVectorIndexStatus();
             return;
         }
 
@@ -184,25 +211,40 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         {
             if (_configurationSession != null) await _configurationSession.SaveNowAsync();
             var result = await _knowledgeBaseService.RebuildVectorIndexAsync();
-            VectorIndexStatus = result.IsFullyIndexed
-                ? GetString("Config.VectorIndexRebuilt", "Vector index rebuilt")
-                : string.Format(
-                    GetString(
-                        "Config.VectorIndexRebuildIncomplete",
-                        "Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response."),
-                    result.VectorCount,
-                    result.ChunkCount);
+            _vectorStatusKind = result.IsFullyIndexed ? VectorStatusKind.Rebuilt : VectorStatusKind.Incomplete;
+            _vectorVectorCount = result.VectorCount;
+            _vectorChunkCount = result.ChunkCount;
+            _vectorError = null;
         }
         catch (Exception ex)
         {
-            VectorIndexStatus = string.Format(
-                GetString("Config.VectorIndexRebuildFailed", "Failed to rebuild vector index: {0}"),
-                ex.Message);
+            _vectorStatusKind = VectorStatusKind.Failed;
+            _vectorError = ex.Message;
         }
         finally
         {
             IsRebuildingVectorIndex = false;
+            RefreshVectorIndexStatus();
         }
+    }
+
+    private void RefreshVectorIndexStatus()
+    {
+        VectorIndexStatus = _vectorStatusKind switch
+        {
+            VectorStatusKind.NoService => GetString("Status.ServiceNotInitialized", "Service not initialized"),
+            VectorStatusKind.Rebuilt => GetString("Config.VectorIndexRebuilt", "Vector index rebuilt"),
+            VectorStatusKind.Incomplete => string.Format(
+                GetString(
+                    "Config.VectorIndexRebuildIncomplete",
+                    "Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response."),
+                _vectorVectorCount,
+                _vectorChunkCount),
+            VectorStatusKind.Failed => string.Format(
+                GetString("Config.VectorIndexRebuildFailed", "Failed to rebuild vector index: {0}"),
+                _vectorError),
+            _ => string.Empty
+        };
     }
 
     /// <summary>
@@ -503,5 +545,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         if (_maintenanceService != null)
             _maintenanceService.StateChanged -= OnMaintenanceStateChanged;
+        if (_localizationService != null)
+            _localizationService.LanguageChanged -= OnLanguageChanged;
     }
 }

@@ -26,6 +26,15 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     private string _modelOptionsSource = string.Empty;
     private bool _disposed;
 
+    private enum ModelStatusKind { None, Loading, LoadFailed, Loaded }
+    private ModelStatusKind _modelStatusKind = ModelStatusKind.None;
+    private int _modelLoadedCount;
+    private string? _modelLoadError;
+
+    private enum ConnectionStatusKind { None, EnterKey, Testing, TestSuccess, TestFailed, NextFields }
+    private ConnectionStatusKind _connectionStatusKind = ConnectionStatusKind.None;
+    private string? _connectionError;
+
     /// <summary>请求关闭窗口（由 OnboardingWindow 注入）。</summary>
     public Action? RequestClose { get; set; }
 
@@ -130,7 +139,17 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         // 主题按钮图标随已保存主题；订阅全局主题变更以同步（例如设置页也可能改）。
         ThemeIcon = Config.Theme == "Dark" ? "Moon" : "Sun";
         App.ThemeChanged += OnThemeChanged;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
         _ = LoadModelOptionsAsync();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        RefreshModelStatus();
+        RefreshConnectionStatus();
     }
 
     private void OnThemeChanged(string theme) =>
@@ -170,8 +189,12 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
                 role.Model = string.Empty;
             ConnectionStatus = string.Empty;
             ConnectionStatusDetails = string.Empty;
+            _connectionStatusKind = ConnectionStatusKind.None;
+            _connectionError = null;
         }
         IsRefreshingModelOptions = true;
+        _modelStatusKind = ModelStatusKind.Loading;
+        _modelLoadError = null;
         ModelOptionsStatus = GetString("Status.LoadingModels", "Loading model list…");
         ModelOptionsStatusDetails = string.Empty;
 
@@ -185,6 +208,8 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
 
             if (!result.Success)
             {
+                _modelStatusKind = ModelStatusKind.LoadFailed;
+                _modelLoadError = result.ErrorMessage;
                 ModelOptionsStatus = GetString("Onboarding.LoadModelsFailed", "Failed to load model list");
                 ModelOptionsStatusDetails = result.ErrorMessage ?? ModelOptionsStatus;
                 return;
@@ -215,6 +240,8 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             }
             ModelOptions = options;
             _modelOptionsSource = requestedSource;
+            _modelStatusKind = ModelStatusKind.Loaded;
+            _modelLoadedCount = options.Count;
             ModelOptionsStatus = string.Format(
                 GetString("Status.ModelsLoaded", "Loaded {0} model(s)"),
                 options.Count);
@@ -228,6 +255,8 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             if (ReferenceEquals(cts, _modelOptionsCts))
             {
                 Log.Error(ex, "Onboarding page refresh model list failed");
+                _modelStatusKind = ModelStatusKind.LoadFailed;
+                _modelLoadError = ex.Message;
                 ModelOptionsStatus = GetString("Onboarding.LoadModelsFailed", "Failed to load model list");
                 ModelOptionsStatusDetails = ex.Message;
             }
@@ -252,12 +281,15 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         if (_chatService == null) return;
         if (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey))
         {
+            _connectionStatusKind = ConnectionStatusKind.EnterKey;
+            _connectionError = null;
             ConnectionStatus = GetString("Onboarding.EnterApiKeyFirst", "> enter api key first");
             ConnectionStatusDetails = string.Empty;
             return;
         }
 
         IsTestingConnection = true;
+        _connectionStatusKind = ConnectionStatusKind.Testing;
         ConnectionStatus = GetString("Onboarding.Testing", "> consulting the oracle...");
         ConnectionStatusDetails = string.Empty;
         try
@@ -266,6 +298,8 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             await SaveAsync();
             _chatService.UpdateConfig(Config);
             var (success, message) = await _chatService.TestConnectionAsync();
+            _connectionStatusKind = success ? ConnectionStatusKind.TestSuccess : ConnectionStatusKind.TestFailed;
+            _connectionError = success ? null : message;
             ConnectionStatus = success
                 ? GetString("Onboarding.TestSuccess", "> oracle connected ✓")
                 : GetString("Onboarding.TestFailed", "Connection failed");
@@ -274,6 +308,8 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Log.Error(ex, "Onboarding page test connection failed");
+            _connectionStatusKind = ConnectionStatusKind.TestFailed;
+            _connectionError = ex.Message;
             ConnectionStatus = GetString("Onboarding.TestFailed", "Connection failed");
             ConnectionStatusDetails = ex.Message;
         }
@@ -289,6 +325,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         if (CurrentStep == 0 && (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey)
                                  || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model)))
         {
+            _connectionStatusKind = ConnectionStatusKind.NextFields;
             ConnectionStatus = "> " + GetString("Onboarding.NextRequiredFields", "Please configure the primary provider, API key, and model first.");
             return;
         }
@@ -309,6 +346,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model))
         {
             CurrentStep = 0;
+            _connectionStatusKind = ConnectionStatusKind.NextFields;
             ConnectionStatus = "> " + GetString("Onboarding.NextRequiredFields", "Please configure the primary provider, API key, and model first.");
             return;
         }
@@ -347,6 +385,36 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     private string GetString(string key, string fallback) =>
         _localizationService?.GetString(key, fallback) ?? fallback;
 
+    private void RefreshModelStatus()
+    {
+        ModelOptionsStatus = _modelStatusKind switch
+        {
+            ModelStatusKind.Loading => GetString("Status.LoadingModels", "Loading model list…"),
+            ModelStatusKind.LoadFailed => GetString("Onboarding.LoadModelsFailed", "Failed to load model list"),
+            ModelStatusKind.Loaded => string.Format(GetString("Status.ModelsLoaded", "Loaded {0} model(s)"), _modelLoadedCount),
+            _ => string.Empty
+        };
+        ModelOptionsStatusDetails = _modelStatusKind == ModelStatusKind.LoadFailed
+            ? _modelLoadError ?? ModelOptionsStatus
+            : string.Empty;
+    }
+
+    private void RefreshConnectionStatus()
+    {
+        ConnectionStatus = _connectionStatusKind switch
+        {
+            ConnectionStatusKind.EnterKey => GetString("Onboarding.EnterApiKeyFirst", "> enter api key first"),
+            ConnectionStatusKind.Testing => GetString("Onboarding.Testing", "> consulting the oracle..."),
+            ConnectionStatusKind.TestSuccess => GetString("Onboarding.TestSuccess", "> oracle connected ✓"),
+            ConnectionStatusKind.TestFailed => GetString("Onboarding.TestFailed", "Connection failed"),
+            ConnectionStatusKind.NextFields => "> " + GetString("Onboarding.NextRequiredFields", "Please configure the primary provider, API key, and model first."),
+            _ => string.Empty
+        };
+        ConnectionStatusDetails = _connectionStatusKind == ConnectionStatusKind.TestFailed
+            ? _connectionError ?? ConnectionStatus
+            : string.Empty;
+    }
+
     private string GetModelOptionsSource() =>
         $"{PrimaryProvider.ProviderPreset}\n{PrimaryProvider.BaseUrl?.Trim()}";
 
@@ -376,6 +444,10 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         App.ThemeChanged -= OnThemeChanged;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
         _modelOptionsCts?.Cancel();
         _modelOptionsCts?.Dispose();
         _modelOptionsCts = null;

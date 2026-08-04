@@ -27,6 +27,18 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
         _sessionAccessor = sessionAccessor;
         _logger = logger.ForContext<ApprovalQueueViewModel>();
         _localization = localization;
+        if (_localization != null)
+        {
+            _localization.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        foreach (var item in Pending)
+        {
+            item.RefreshLocalizedText();
+        }
     }
 
     public ObservableCollection<ApprovalQueueItemViewModel> Pending { get; } = new();
@@ -119,6 +131,12 @@ public partial class ApprovalQueueItemViewModel : ViewModelBase
     public string RiskText => Request.IsDestructive
         ? _localize("Approval.RiskHigh", "High risk")
         : Request.Risk.ToString();
+
+    public void RefreshLocalizedText()
+    {
+        OnPropertyChanged(nameof(ConversationIdLabel));
+        OnPropertyChanged(nameof(RiskText));
+    }
 
     public TaskCompletionSource<ToolApprovalScope> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

@@ -16,6 +16,7 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
     private readonly IRecurrenceService _recurrenceService;
     private RecurrenceRule _currentRule = RecurrenceRule.None();
     private DateTime? _previewTriggerTime;
+    private bool _disposed;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FullTriggerTime))]
@@ -82,34 +83,10 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             ?? App.Services?.GetService(typeof(IRecurrenceService)) as IRecurrenceService
             ?? new RecurrenceService(localizationService);
 
-        RecurrencePresetDisplayNames =
-        [
-            GetLocalizedString("Recurrence.NoneDisplay", "Once"),
-            GetLocalizedString("Recurrence.DailyDisplay", "Every day"),
-            GetLocalizedString("Recurrence.WorkdaysDisplay", "Weekdays"),
-            GetLocalizedString("Recurrence.WeeklyPresetDisplay", "Every week"),
-            GetLocalizedString("Recurrence.CustomDisplay", "Custom")
-        ];
-
-        CustomModeDisplayNames =
-        [
-            GetLocalizedString("TaskDialog.Custom.IntervalMode", "Interval"),
-            GetLocalizedString("TaskDialog.Custom.WeeklyDaysMode", "Specific weekdays")
-        ];
-
-        IntervalUnitDisplayNames =
-        [
-            GetLocalizedString("Recurrence.Unit.Minutes", "minutes"),
-            GetLocalizedString("Recurrence.Unit.Hours", "hours"),
-            GetLocalizedString("Recurrence.Unit.Days", "days"),
-            GetLocalizedString("Recurrence.Unit.Weeks", "weeks")
-        ];
-
-        TaskTypeDisplayNames =
-        [
-            GetLocalizedString("TaskType.Proactive", "Foreground (Proactive Message)"),
-            GetLocalizedString("TaskType.Background", "Background (Silent)")
-        ];
+        RecurrencePresetDisplayNames = [];
+        CustomModeDisplayNames = [];
+        IntervalUnitDisplayNames = [];
+        TaskTypeDisplayNames = [];
 
         WeekdaySelections =
         [
@@ -127,7 +104,68 @@ public partial class CreateTaskDialogViewModel : ViewModelBase
             item.PropertyChanged += OnWeekdaySelectionChanged;
         }
 
+        RebuildLocalizedNames();
+
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+
         RecalculatePreview();
+    }
+
+    /// <summary>
+    /// 重建全部本地化显示名称（语言切换时调用）。
+    /// </summary>
+    private void RebuildLocalizedNames()
+    {
+        RecurrencePresetDisplayNames.Clear();
+        RecurrencePresetDisplayNames.Add(GetLocalizedString("Recurrence.NoneDisplay", "Once"));
+        RecurrencePresetDisplayNames.Add(GetLocalizedString("Recurrence.DailyDisplay", "Every day"));
+        RecurrencePresetDisplayNames.Add(GetLocalizedString("Recurrence.WorkdaysDisplay", "Weekdays"));
+        RecurrencePresetDisplayNames.Add(GetLocalizedString("Recurrence.WeeklyPresetDisplay", "Every week"));
+        RecurrencePresetDisplayNames.Add(GetLocalizedString("Recurrence.CustomDisplay", "Custom"));
+
+        CustomModeDisplayNames.Clear();
+        CustomModeDisplayNames.Add(GetLocalizedString("TaskDialog.Custom.IntervalMode", "Interval"));
+        CustomModeDisplayNames.Add(GetLocalizedString("TaskDialog.Custom.WeeklyDaysMode", "Specific weekdays"));
+
+        IntervalUnitDisplayNames.Clear();
+        IntervalUnitDisplayNames.Add(GetLocalizedString("Recurrence.Unit.Minutes", "minutes"));
+        IntervalUnitDisplayNames.Add(GetLocalizedString("Recurrence.Unit.Hours", "hours"));
+        IntervalUnitDisplayNames.Add(GetLocalizedString("Recurrence.Unit.Days", "days"));
+        IntervalUnitDisplayNames.Add(GetLocalizedString("Recurrence.Unit.Weeks", "weeks"));
+
+        TaskTypeDisplayNames.Clear();
+        TaskTypeDisplayNames.Add(GetLocalizedString("TaskType.Proactive", "Foreground (Proactive Message)"));
+        TaskTypeDisplayNames.Add(GetLocalizedString("TaskType.Background", "Background (Silent)"));
+
+        foreach (var item in WeekdaySelections)
+        {
+            item.DisplayName = GetWeekdayLabel(item.DayOfWeek);
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        RebuildLocalizedNames();
+        RecalculatePreview();
+        OnPropertyChanged(nameof(TaskTypeDescription));
+        OnPropertyChanged(nameof(MinuteSchedulingHint));
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
+        foreach (var item in WeekdaySelections)
+        {
+            item.PropertyChanged -= OnWeekdaySelectionChanged;
+        }
     }
 
     public bool IsCustomRecurrenceVisible => SelectedRecurrencePresetIndex == 4;
@@ -363,7 +401,8 @@ public partial class WeekdaySelectionItem : ObservableObject
 
     public DayOfWeek DayOfWeek { get; }
 
-    public string DisplayName { get; }
+    [ObservableProperty]
+    private string _displayName;
 
     [ObservableProperty]
     private bool _isSelected;

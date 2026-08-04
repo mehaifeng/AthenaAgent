@@ -493,6 +493,14 @@
                                 <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Image}">
                                     <Image Source="{Binding Image}" Stretch="Uniform" Margin="12"/>
                                 </ScrollViewer>
+                                <StackPanel IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Binary}"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                    <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="28" Height="28"
+                                              Foreground="{DynamicResource App.IconMutedForeground}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{loc:Loc Workspace.Diff.BinaryPlaceholder}"
+                                               FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"
+                                               TextAlignment="Center" TextWrapping="Wrap"/>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                         </ContentControl.ContentTemplate>

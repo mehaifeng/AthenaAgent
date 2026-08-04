@@ -22,6 +22,9 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
     private readonly IUserInteractionService? _userInteraction;
     private AppConfigurationSession? _configurationSession;
     private bool _disposed;
+    private int _lastActiveCount;
+    private int _lastDisabledCount;
+    private int _lastInvalidCount;
 
     [ObservableProperty] private AppConfig _config = new();
     [ObservableProperty] private ObservableCollection<SkillItemViewModel> _skills = new();
@@ -43,6 +46,19 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
         _localization = localization;
         _userInteraction = userInteraction;
         ApplicationSkillsDirectory = catalog?.ApplicationSkillsDirectory ?? string.Empty;
+        if (_localization != null)
+        {
+            _localization.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        foreach (var item in Skills)
+        {
+            item.RefreshLocalizedText();
+        }
+        RefreshStatus();
     }
 
     public void Initialize(AppConfigurationSession configurationSession)
@@ -72,10 +88,19 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
         var snapshot = _catalog.GetSnapshot(workspacePath, forceRefresh: true);
         Skills = new ObservableCollection<SkillItemViewModel>(snapshot.Skills.Select(skill =>
             new SkillItemViewModel(skill, SetSkillEnabledAsync)));
-        var active = snapshot.EffectiveSkills.Count;
-        var invalid = snapshot.Skills.Count(skill => skill.HasErrors);
-        var disabled = snapshot.Skills.Count(skill => !skill.IsEnabled);
-        Status = string.Format(GetString("Skills.Status.Summary", "{0} active · {1} disabled · {2} issues"), active, disabled, invalid);
+        _lastActiveCount = snapshot.EffectiveSkills.Count;
+        _lastInvalidCount = snapshot.Skills.Count(skill => skill.HasErrors);
+        _lastDisabledCount = snapshot.Skills.Count(skill => !skill.IsEnabled);
+        RefreshStatus();
+    }
+
+    private void RefreshStatus()
+    {
+        Status = string.Format(
+            GetString("Skills.Status.Summary", "{0} active · {1} disabled · {2} issues"),
+            _lastActiveCount,
+            _lastDisabledCount,
+            _lastInvalidCount);
     }
 
     [RelayCommand]
@@ -198,6 +223,8 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         if (_workspaceService != null)
             _workspaceService.ActiveWorkspaceChanged -= OnActiveWorkspaceChanged;
+        if (_localization != null)
+            _localization.LanguageChanged -= OnLanguageChanged;
         _configurationSession = null;
     }
 }
@@ -238,6 +265,14 @@ public partial class SkillItemViewModel : ViewModelBase
         return svc?.GetString(key, fallback) ?? fallback;
     }
     public bool CanDelete => true;
+
+    /// <summary>语言切换后刷新本地化计算属性。</summary>
+    public void RefreshLocalizedText()
+    {
+        OnPropertyChanged(nameof(SourceLabel));
+        OnPropertyChanged(nameof(StatusLabel));
+        OnPropertyChanged(nameof(Resources));
+    }
 
     partial void OnIsEnabledChanged(bool value) => _ = _onEnabledChanged(this);
 }

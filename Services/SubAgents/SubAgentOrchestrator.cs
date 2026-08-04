@@ -53,6 +53,9 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
 
         // 惰性解析 IFunctionRegistry，断开 Registry → SubAgentFunctions → Orchestrator → Registry 的构造环。
         var functionRegistry = _serviceProvider.GetRequiredService<IFunctionRegistry>();
+        // 惰性解析本地化服务：子代理状态文本按当前语言渲染，并随语言切换刷新。
+        var localizationService = _serviceProvider.GetService(typeof(ILocalizationService))
+            as ILocalizationService;
 
         var config = _configService.Load();
         var maxParallel = Math.Max(1, config.SubAgentMaxParallel);
@@ -66,7 +69,7 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
-            var vm = new SubAgentViewModel
+            var vm = new SubAgentViewModel(localizationService)
             {
                 Title = string.IsNullOrWhiteSpace(task.Title) ? "subtask" : task.Title,
                 AgentType = SubAgentTypes.Resolve(task.AgentType).Name,
@@ -139,6 +142,7 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
                 var state = ActiveAgents[i].State;
                 if (state is SubAgentState.Done or SubAgentState.Error or SubAgentState.Cancelled)
                 {
+                    ActiveAgents[i].Dispose();
                     ActiveAgents.RemoveAt(i);
                 }
             }

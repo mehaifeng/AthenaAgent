@@ -22,6 +22,7 @@ public partial class CreateTaskDialog : Window
         if (DataContext is CreateTaskDialogViewModel vm)
         {
             vm.RequestClose = null;
+            vm.Dispose();
         }
         base.OnClosing(e);
     }

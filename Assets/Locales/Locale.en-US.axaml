@@ -1060,6 +1060,7 @@
     <system:String x:Key="Workspace.Editor.Tip.CloseEditor">Close editor pane</system:String>
     <system:String x:Key="Workspace.Editor.Tip.CloseFile">Close file</system:String>
     <system:String x:Key="Workspace.Diff.Header">HEAD ↔ current edit buffer</system:String>
+    <system:String x:Key="Workspace.Diff.BinaryPlaceholder">Cannot preview binary file</system:String>
     <system:String x:Key="Workspace.FileMenu.Open">Open</system:String>
     <system:String x:Key="Workspace.FileMenu.CopyPath">Copy path</system:String>
     <system:String x:Key="Workspace.FileMenu.CopyAbsolutePath">Copy absolute path</system:String>

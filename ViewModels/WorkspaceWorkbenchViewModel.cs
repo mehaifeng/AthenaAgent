@@ -98,7 +98,8 @@ public enum WorkspaceEditorMode
     Edit,
     Preview,
     Diff,
-    Image
+    Image,
+    Binary
 }
 
 public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
@@ -113,8 +114,14 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     public bool IsMarkdown => string.Equals(Path.GetExtension(FullPath), ".md", StringComparison.OrdinalIgnoreCase)
                               || string.Equals(Path.GetExtension(FullPath), ".markdown", StringComparison.OrdinalIgnoreCase);
     public bool IsImage => ImageExtensions.Contains(Path.GetExtension(FullPath));
-    public bool CanEdit => !IsImage;
-    public bool CanPreview => IsMarkdown;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEdit))]
+    [NotifyPropertyChangedFor(nameof(CanPreview))]
+    private bool _isBinary;
+
+    public bool CanEdit => !IsImage && !IsBinary;
+    public bool CanPreview => IsMarkdown && !IsBinary;
     [ObservableProperty]
     private bool _canDiff;
 
@@ -225,6 +232,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private string _workspaceRepositoryPathspec = ".";
     private string _probedGitUserName = string.Empty;
     private string _probedGitUserEmail = string.Empty;
+    private bool _disposed;
 
     public WorkspaceWorkbenchViewModel(
         WorkspaceOperationCoordinator operations,
@@ -238,6 +246,22 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         _interaction = interaction;
         _commitMessageGenerator = commitMessageGenerator;
         _localizationService = localizationService;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged += OnLanguageChanged;
+        }
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        if (_workspace == null)
+        {
+            WorkspaceName = L("MainWindow.Launcher.GlobalChat", "Global chat");
+            StatusText = L("Workspace.Status.GlobalChatNoFiles", "Global chat does not use workspace files");
+        }
+
+        // 重新解析 git 状态：一次性刷新 GitChanges 标签、GitStatusText 与 CommitTargetTitle。
+        _ = RefreshRepositoryStateAsync();
     }
 
     private string L(string key, string fallback)
@@ -960,15 +984,27 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     ? File.GetLastWriteTimeUtc(change.FullPath)
                     : DateTime.UtcNow;
                 tab.ReplaceFromDisk(current, changedAt);
-                tab.CanDiff = true;
+
                 var head = await ReadHeadVersionAsync(change.RelativePath);
+                var isBinary = (File.Exists(change.FullPath) && IsProbablyBinary(change.FullPath))
+                               || IsProbablyBinaryText(head);
                 if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
                 {
                     tab.Dispose();
                     return;
                 }
-                tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
-                tab.Mode = WorkspaceEditorMode.Diff;
+                if (isBinary)
+                {
+                    tab.IsBinary = true;
+                    tab.Mode = WorkspaceEditorMode.Binary;
+                    StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
+                }
+                else
+                {
+                    tab.CanDiff = true;
+                    tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
+                    tab.Mode = WorkspaceEditorMode.Diff;
+                }
             }
             if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
             {
@@ -978,7 +1014,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             EditorTabs.Add(tab);
             OnPropertyChanged(nameof(HasEditorTabs));
         }
-        else if (!tab.IsImage)
+        else if (!tab.IsImage && !tab.IsBinary)
         {
             if (!tab.IsDirty)
             {
@@ -1053,9 +1089,18 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 StatusText = L("Workspace.Status.FileTooLarge", "File exceeds 5 MB, not opened in built-in editor");
                 return;
             }
-            tab.ReplaceFromDisk(await File.ReadAllTextAsync(node.FullPath), info.LastWriteTimeUtc);
-            tab.CanDiff = await HasUncommittedChangesAsync(node.RelativePath);
-            tab.Mode = tab.IsMarkdown ? WorkspaceEditorMode.Preview : WorkspaceEditorMode.Edit;
+            if (IsProbablyBinary(node.FullPath))
+            {
+                tab.IsBinary = true;
+                tab.Mode = WorkspaceEditorMode.Binary;
+                StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
+            }
+            else
+            {
+                tab.ReplaceFromDisk(await File.ReadAllTextAsync(node.FullPath), info.LastWriteTimeUtc);
+                tab.CanDiff = await HasUncommittedChangesAsync(node.RelativePath);
+                tab.Mode = tab.IsMarkdown ? WorkspaceEditorMode.Preview : WorkspaceEditorMode.Edit;
+            }
         }
         EditorTabs.Add(tab);
         if (activate)
@@ -1071,7 +1116,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private async Task SaveFileAsync(WorkspaceEditorTabViewModel? tab)
     {
         tab ??= SelectedEditorTab;
-        if (tab == null || tab.IsImage || _workspace == null) return;
+        if (tab == null || tab.IsImage || tab.IsBinary || _workspace == null) return;
         var root = Path.GetFullPath(_workspace.DirectoryPath);
         EnsureInsideWorkspace(root, tab.FullPath);
         StatusText = L("Workspace.Status.SavingQueue", "Waiting for workspace write queue…");
@@ -1103,7 +1148,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private async Task RefreshDiffAsync(WorkspaceEditorTabViewModel? tab)
     {
         tab ??= SelectedEditorTab;
-        if (tab == null || tab.IsImage || _workspace == null) return;
+        if (tab == null || tab.IsImage || tab.IsBinary || _workspace == null) return;
         tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
         if (!tab.CanDiff)
         {
@@ -1370,17 +1415,27 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     }
                     else if (changedAt >= tab.LastLocalEditAt)
                     {
-                        tab.ReplaceFromDisk(await File.ReadAllTextAsync(tab.FullPath), changedAt);
-                        tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
-                        if (tab.CanDiff)
+                        if (IsProbablyBinary(tab.FullPath))
                         {
-                            await RefreshDiffAsync(tab);
-                            tab.Mode = WorkspaceEditorMode.Diff;
-                        }
-                        else if (tab.Mode == WorkspaceEditorMode.Diff)
-                        {
+                            tab.IsBinary = true;
                             tab.SetDiff([]);
-                            tab.Mode = WorkspaceEditorMode.Edit;
+                            tab.Mode = WorkspaceEditorMode.Binary;
+                        }
+                        else
+                        {
+                            if (tab.IsBinary) tab.IsBinary = false;
+                            tab.ReplaceFromDisk(await File.ReadAllTextAsync(tab.FullPath), changedAt);
+                            tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
+                            if (tab.CanDiff)
+                            {
+                                await RefreshDiffAsync(tab);
+                                tab.Mode = WorkspaceEditorMode.Diff;
+                            }
+                            else if (tab.Mode is WorkspaceEditorMode.Diff or WorkspaceEditorMode.Binary)
+                            {
+                                tab.SetDiff([]);
+                                tab.Mode = WorkspaceEditorMode.Edit;
+                            }
                         }
                     }
                 }
@@ -1639,6 +1694,30 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Output);
     }
 
+    private static bool IsProbablyBinary(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> buffer = stackalloc byte[8192];
+            var read = stream.Read(buffer);
+            for (var i = 0; i < read; i++)
+            {
+                if (buffer[i] == 0) return true;
+            }
+            return false;
+        }
+        catch
+        {
+            // If the file cannot be read, fall back to text handling.
+            return false;
+        }
+    }
+
+    private static bool IsProbablyBinaryText(string? text)
+        => text != null && text.IndexOf('\0') >= 0;
+
     private async Task<string?> ReadHeadVersionAsync(string relativePath)
     {
         if (_workspace == null || !HasGitRepository) return null;
@@ -1822,6 +1901,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     WorkspaceEditorMode.Preview => tab.CanPreview,
                     WorkspaceEditorMode.Diff => tab.CanDiff,
                     WorkspaceEditorMode.Image => tab.IsImage,
+                    WorkspaceEditorMode.Binary => tab.IsBinary,
                     _ => false
                 };
                 if (!canRestoreMode) continue;
@@ -1881,6 +1961,12 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+        if (_localizationService != null)
+        {
+            _localizationService.LanguageChanged -= OnLanguageChanged;
+        }
         DisposeWatcher();
         foreach (var tab in EditorTabs) tab.Dispose();
         CancelScheduledRefresh();

@@ -523,7 +523,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         IsConversationTreeLoading = true;
         try
         {
-            ConversationGroups.Clear();
+            DisposeConversationGroups();
             var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty, _localizationService);
             WireGroup(globalGroup);
             ConversationGroups.Add(globalGroup);
@@ -947,6 +947,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         ConversationGroups.Remove(group);
         foreach (var session in group.Conversations) session.Dispose();
+        group.Dispose();
         RefreshPinnedConversations();
     }
 
@@ -1026,11 +1027,18 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             session.Dispose();
         }
-        ConversationGroups.Clear();
+        DisposeConversationGroups();
         PinnedConversations.Clear();
         KnowledgeBaseViewModel.Dispose();
+        this.TasksViewModel.Dispose();
         LogsViewModel.Dispose();
         TerminalPanelViewModel.AllTerminalsClosed -= OnAllTerminalsClosed;
         TerminalPanelViewModel.Dispose();
+    }
+
+    private void DisposeConversationGroups()
+    {
+        foreach (var group in ConversationGroups) group.Dispose();
+        ConversationGroups.Clear();
     }
 }

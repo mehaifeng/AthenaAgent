@@ -342,10 +342,10 @@ workspaceMenu.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Click
 Dispatcher.UIThread.RunJobs();
 if (!workspaceMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the workspace overflow button did not open its menu.");
-var workspaceMenuItems = workspaceMenuFlyout.Items.OfType<MenuItem>().ToList();
-if (!workspaceMenuItems.Select(item => item.Header?.ToString()).SequenceEqual(["重命名", "上下文设置", "在文件夹中显示", "复制路径", "删除"])
-    || workspaceMenuItems.Any(item => item.Icon == null))
-    throw new InvalidOperationException("Workspace menu commands or icons are incomplete.");
+var workspaceMenuItems = await AwaitMenuItemsAsync(
+    workspaceMenuFlyout,
+    ["重命名", "上下文设置", "在文件夹中显示", "复制路径", "删除"],
+    "Workspace menu commands or icons are incomplete.");
 workspaceMenuFlyout.Hide();
 var conversationMenus = window.GetVisualDescendants().OfType<Button>()
     .Where(button => button.Classes.Contains("conversation-menu"))
@@ -359,11 +359,10 @@ pinnedMenuButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Cl
 Dispatcher.UIThread.RunJobs();
 if (!pinnedMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the conversation overflow button did not open its menu.");
-var pinnedMenuItems = pinnedMenuFlyout.Items.OfType<MenuItem>().ToList()
-    ?? throw new InvalidOperationException("Pinned conversation menu flyout was not created.");
-if (!pinnedMenuItems.Select(item => item.Header?.ToString()).SequenceEqual(["重命名", "Unpin", "分支", "导出", "删除"])
-    || pinnedMenuItems.Any(item => item.Icon == null))
-    throw new InvalidOperationException("Pinned conversation menu commands or icons are incomplete.");
+var pinnedMenuItems = await AwaitMenuItemsAsync(
+    pinnedMenuFlyout,
+    ["重命名", "Unpin", "分支", "导出", "删除"],
+    "Pinned conversation menu commands or icons are incomplete.");
 pinnedMenuFlyout.Hide();
 
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
@@ -3097,6 +3096,31 @@ static async Task TestWorkspaceGitDiffAsync()
             || workbench.GitChanges.Count != 0)
             throw new InvalidOperationException("Restoring a tracked change did not return the file and review state to HEAD.");
 
+        // Binary files cannot be diffed as text: double-opening such a change must land in
+        // Binary mode with an empty diff (placeholder) rather than a garbled text diff.
+        var binaryPath = Path.Combine(root, "binary.bin");
+        File.WriteAllBytes(binaryPath, [0x01, 0x00, 0x02, 0x00, 0xFF, 0xFE]);
+        await workbench.RefreshWorkbenchCommand.ExecuteAsync(null);
+        var binaryChange = workbench.GitChanges.Single(change => change.RelativePath == "binary.bin");
+        workbench.SelectedGitChange = binaryChange;
+        await workbench.OpenGitChangeCommand.ExecuteAsync(binaryChange);
+        var binaryDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (workbench.SelectedEditorTab?.RelativePath != "binary.bin")
+        {
+            if (DateTime.UtcNow >= binaryDeadline)
+                throw new InvalidOperationException("Opening a review binary change did not open its editor tab.");
+            await Task.Delay(25);
+        }
+        var binaryTab = workbench.SelectedEditorTab!;
+        if (!binaryTab.IsBinary)
+            throw new InvalidOperationException("A binary review change was not marked as binary.");
+        if (binaryTab.Mode != WorkspaceEditorMode.Binary)
+            throw new InvalidOperationException("A binary review change did not open in Binary mode.");
+        if (binaryTab.CanDiff || binaryTab.CanEdit || binaryTab.CanPreview)
+            throw new InvalidOperationException("A binary review change must not expose edit/preview/diff modes.");
+        if (binaryTab.DiffLines.Count != 0 || binaryTab.DiffAddedCount != 0 || binaryTab.DiffRemovedCount != 0)
+            throw new InvalidOperationException("A binary review change rendered a text diff.");
+
         Console.WriteLine("[PASS] workspace diff is offered only for tracked changes and untracked files");
     }
     finally
@@ -3366,6 +3390,29 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
     }
 }
 
+static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
+    MenuFlyout flyout,
+    IReadOnlyList<string> expectedHeaders,
+    string failureMessage)
+{
+    // MenuFlyout items are realized lazily and their {loc:Loc} header bindings can
+    // lag a language switch, so poll until the expected text and icons settle rather
+    // than reading the flyout a single time.
+    var deadline = DateTime.UtcNow.AddSeconds(5);
+    while (DateTime.UtcNow < deadline)
+    {
+        var items = flyout.Items.OfType<MenuItem>().ToList();
+        if (items.Select(item => item.Header?.ToString()).SequenceEqual(expectedHeaders)
+            && items.All(item => item.Icon != null))
+        {
+            return items;
+        }
+        Dispatcher.UIThread.RunJobs();
+        await Task.Delay(25);
+    }
+    throw new InvalidOperationException(failureMessage);
+}
+
 static string RunGitForWorkspaceTestOutput(string workingDirectory, params string[] arguments)
 {
     var start = new ProcessStartInfo("git")
@@ -3373,6 +3420,7 @@ static string RunGitForWorkspaceTestOutput(string workingDirectory, params strin
         WorkingDirectory = workingDirectory,
         RedirectStandardOutput = true,
         RedirectStandardError = true,
+        StandardOutputEncoding = Encoding.UTF8,
         UseShellExecute = false,
         CreateNoWindow = true
     };
