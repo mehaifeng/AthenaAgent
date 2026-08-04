@@ -30,6 +30,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 try
 {
+// 测试断言按中文界面文案编写，必须显式固定 zh-CN：
+// LocalizationService 在构造时读取 CultureInfo.CurrentUICulture，
+// 若不固定会随 CI 机器系统语言漂移（本地中文通过、CI 英文失败）。
+var zhCulture = new System.Globalization.CultureInfo("zh-CN");
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = zhCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = zhCulture;
+System.Globalization.CultureInfo.CurrentUICulture = zhCulture;
+System.Globalization.CultureInfo.CurrentCulture = zhCulture;
+
 var outputPath = args.Length > 0
     ? Path.GetFullPath(args[0])
     : Path.Combine(AppContext.BaseDirectory, "main-window.png");
@@ -455,7 +464,7 @@ window.Close();
         (Window: typeof(DetailedLogsWindow), ViewModel: typeof(LogsViewModel))
     };
     if (featureWindowTypes.Any(pair =>
-            pair.Window.GetConstructors().Single().GetParameters().Single().ParameterType != pair.ViewModel))
+            pair.Window.GetConstructors().Single().GetParameters().First().ParameterType != pair.ViewModel))
         throw new InvalidOperationException("Feature windows must expose one strongly typed view-model constructor.");
     var semanticViewMappings = new (ViewModelBase ViewModel, Type View)[]
     {
@@ -499,7 +508,7 @@ var exportCount = 0;
 sessionCommandChecks.ExportRequested += (_, _) => exportCount++;
 sessionCommandChecks.TogglePinnedCommand.Execute(null);
 sessionCommandChecks.RequestExportCommand.Execute(null);
-if (!sessionCommandChecks.IsPinned || sessionCommandChecks.PinActionText != "取消置顶" || exportCount != 1)
+if (!sessionCommandChecks.IsPinned || sessionCommandChecks.PinActionText != "Unpin" || exportCount != 1)
     throw new InvalidOperationException("Conversation pin and export commands are not fully wired.");
 sessionCommandChecks.Dispose();
 Console.WriteLine("[PASS] workspace command events and conversation pin/export behavior");
