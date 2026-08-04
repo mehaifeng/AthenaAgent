@@ -146,7 +146,7 @@ public sealed class OpenRouterModelMetadataCatalog : IOpenRouterModelMetadataCat
             if (Current.Models.Count >= 20 && unique.Count < Current.Models.Count / 2
                 && (!totalCount.HasValue || totalCount.Value >= Current.Models.Count / 2))
             {
-                _logger.Warning("OpenRouter 元数据异常缩水进入 quarantine: Old={Old}, New={New}", Current.Models.Count, unique.Count);
+                _logger.Warning("OpenRouter metadata anomalously shrunk and entered quarantine: Old={Old}, New={New}", Current.Models.Count, unique.Count);
                 return new ModelCatalogRefreshResult(ModelCatalogRefreshStatus.Quarantined, "Catalog shrank unexpectedly.", unique.Count);
             }
 
@@ -169,7 +169,7 @@ public sealed class OpenRouterModelMetadataCatalog : IOpenRouterModelMetadataCat
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "OpenRouter 元数据刷新失败，继续使用 last-known-good");
+            _logger.Warning(ex, "Failed to refresh OpenRouter metadata; continuing with last-known-good");
             return new ModelCatalogRefreshResult(ModelCatalogRefreshStatus.Failed, ex.Message, Current.Models.Count, ex);
         }
     }

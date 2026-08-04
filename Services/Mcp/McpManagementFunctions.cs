@@ -32,11 +32,11 @@ public sealed class McpManagementFunctions
     public async Task<FunctionResult> AddServerAsync(string? name, string? command, JsonElement args, JsonElement env, string? url, JsonElement headers)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return FunctionResult.FailureResult("参数 `name` 不能为空。");
+            return FunctionResult.FailureResult("The 'name' parameter is required.");
 
         var isHttp = !string.IsNullOrWhiteSpace(url);
         if (!isHttp && string.IsNullOrWhiteSpace(command))
-            return FunctionResult.FailureResult("请提供 `command`（stdio，如 npx/uvx/docker）或 `url`（http 远程服务器）之一。");
+            return FunctionResult.FailureResult("Please provide either 'command' (stdio, e.g. npx/uvx/docker) or 'url' (HTTP remote server).");
 
         var config = await _configService.LoadAsync();
 
@@ -91,7 +91,7 @@ public sealed class McpManagementFunctions
         if (!config.EnableMcp) { config.EnableMcp = true; enabledMcp = true; }
 
         await _configService.SaveAsync(config);
-        _logger.Information("MCP 服务器 {Name} 已{Action}（command={Command}）", server.Name, replaced ? "更新" : "新增", server.Command);
+        _logger.Information("MCP server {Name} {Action} (command={Command})", server.Name, replaced ? "updated" : "added", server.Command);
 
         var msg = replaced ? $"已更新 MCP 服务器 `{server.Name}`。" : $"已新增 MCP 服务器 `{server.Name}`。";
         if (enabledMcp) msg += " 已自动开启 MCP 扩展总开关。";
@@ -115,7 +115,7 @@ public sealed class McpManagementFunctions
     public async Task<FunctionResult> ImportJsonAsync(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
-            return FunctionResult.FailureResult("参数 `json` 不能为空。请传入 Claude Desktop 格式的 MCP 配置 JSON。");
+            return FunctionResult.FailureResult("The 'json' parameter is required. Please pass an MCP configuration JSON in Claude Desktop format.");
 
         IReadOnlyList<McpServerConfig> parsed;
         try
@@ -142,7 +142,7 @@ public sealed class McpManagementFunctions
         if (!config.EnableMcp) { config.EnableMcp = true; enabledMcp = true; }
 
         await _configService.SaveAsync(config);
-        _logger.Information("MCP 从 JSON 导入 {Count} 个服务器：{Names}", names.Count, string.Join(",", names));
+        _logger.Information("MCP imported {Count} server(s) from JSON: {Names}", names.Count, string.Join(",", names));
 
         var msg = $"已导入 {names.Count} 个 MCP 服务器：{string.Join("、", names)}。";
         if (enabledMcp) msg += " 已自动开启 MCP 扩展总开关。";
@@ -179,7 +179,7 @@ public sealed class McpManagementFunctions
     public async Task<FunctionResult> RemoveServerAsync(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return FunctionResult.FailureResult("参数 `name` 不能为空。");
+            return FunctionResult.FailureResult("The 'name' parameter is required.");
 
         var config = await _configService.LoadAsync();
         var existing = config.McpServers.FirstOrDefault(
@@ -189,7 +189,7 @@ public sealed class McpManagementFunctions
 
         config.McpServers.Remove(existing);
         await _configService.SaveAsync(config);
-        _logger.Information("MCP 服务器 {Name} 已移除", name);
+        _logger.Information("MCP server {Name} removed", name);
 
         return FunctionResult.SuccessResult($"已移除 MCP 服务器 `{name}`，其子进程将被关闭。", new { name });
     }

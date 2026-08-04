@@ -73,7 +73,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
             if (enUsResources != null)
             {
                 _languages["en-US"] = enUsResources;
-                _logger.Debug("已加载英文语言资源");
+                _logger.Debug("Loaded English language resources");
             }
 
             // 加载中文资源
@@ -82,7 +82,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
             if (zhCnResources != null)
             {
                 _languages["zh-CN"] = zhCnResources;
-                _logger.Debug("已加载中文语言资源");
+                _logger.Debug("Loaded Chinese language resources");
             }
 
             // 默认使用系统语言或英文
@@ -90,11 +90,11 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
             var defaultLang = _availableLanguages.Contains(systemLang) ? systemLang : "en-US";
             SwitchLanguage(defaultLang);
 
-            _logger.Information("本地化服务初始化完成，默认语言: {Language}", defaultLang);
+            _logger.Information("Localization service initialized, default language: {Language}", defaultLang);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载语言资源失败");
+            _logger.Error(ex, "Failed to load language resources");
         }
     }
 
@@ -103,7 +103,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
     {
         if (!_languages.TryGetValue(languageCode, out var resources))
         {
-            _logger.Warning("未找到语言资源: {LanguageCode}", languageCode);
+            _logger.Warning("Language resource not found: {LanguageCode}", languageCode);
             return;
         }
 
@@ -119,14 +119,14 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "设置文化信息失败: {LanguageCode}", languageCode);
+            _logger.Warning(ex, "Failed to set culture info: {LanguageCode}", languageCode);
         }
 
         // 触发属性变更通知
         OnPropertyChanged(nameof(CurrentLanguage));
         LanguageChanged?.Invoke(this, EventArgs.Empty);
 
-        _logger.Information("语言已切换为: {LanguageCode}", languageCode);
+        _logger.Information("Language switched to: {LanguageCode}", languageCode);
     }
 
     /// <inheritdoc />

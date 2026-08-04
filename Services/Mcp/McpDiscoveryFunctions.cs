@@ -71,7 +71,7 @@ public sealed class McpDiscoveryFunctions
     public Task<FunctionResult> GetToolSchemaAsync(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return Task.FromResult(FunctionResult.FailureResult("参数 `name` 不能为空。"));
+            return Task.FromResult(FunctionResult.FailureResult("The 'name' parameter is required."));
 
         var desc = _host.Find(name);
         if (desc == null)
@@ -93,7 +93,7 @@ public sealed class McpDiscoveryFunctions
     public async Task<FunctionResult> CallToolAsync(string? name, JsonElement arguments)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return FunctionResult.FailureResult("参数 `name` 不能为空。");
+            return FunctionResult.FailureResult("The 'name' parameter is required.");
 
         var desc = _host.Find(name);
         if (desc == null)

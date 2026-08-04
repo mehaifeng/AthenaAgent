@@ -11,26 +11,35 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-/// <summary>全局、非模态审批队列。任意会话可等待，其他会话和设置窗口继续工作。</summary>
+/// <summary>Global, non-modal approval queue. Any session can wait; other sessions and the settings window keep working.</summary>
 public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompter
 {
     private readonly IConversationSessionAccessor? _sessionAccessor;
+    private readonly ILocalizationService? _localization;
     private readonly ILogger _logger;
     private ApprovalQueueWindow? _window;
 
-    public ApprovalQueueViewModel(IConversationSessionAccessor? sessionAccessor, ILogger logger)
+    public ApprovalQueueViewModel(
+        IConversationSessionAccessor? sessionAccessor,
+        ILogger logger,
+        ILocalizationService? localization = null)
     {
         _sessionAccessor = sessionAccessor;
         _logger = logger.ForContext<ApprovalQueueViewModel>();
+        _localization = localization;
     }
 
     public ObservableCollection<ApprovalQueueItemViewModel> Pending { get; } = new();
+
+    private string L(string key, string fallback)
+        => _localization?.GetString(key, fallback) ?? fallback;
 
     public Task<ToolApprovalScope> PromptAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
     {
         var item = new ApprovalQueueItemViewModel(
             request,
             _sessionAccessor?.CurrentConversationId,
+            L,
             Complete);
         Dispatcher.UIThread.Post(() =>
         {
@@ -46,6 +55,10 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
 
     private void Complete(ApprovalQueueItemViewModel item, ToolApprovalScope result)
     {
+        _logger.Information(
+            "ApprovalQueue user decision: Function={Function}, Scope={Scope}",
+            item.Request?.FunctionName, result);
+        if (!item.Completion.TrySetResult(result)) return;
         if (!item.Completion.TrySetResult(result)) return;
         Pending.Remove(item);
         if (Pending.Count == 0 && _window != null)
@@ -73,28 +86,40 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
         }
         if (!_window.IsVisible) _window.Show();
         _window.Activate();
-        _logger.Information("全局审批队列新增请求，待处理={Count}", Pending.Count);
+        _logger.Information("Approval queue received new request; pending={Count}", Pending.Count);
     }
 }
 
 public partial class ApprovalQueueItemViewModel : ViewModelBase
 {
     private readonly Action<ApprovalQueueItemViewModel, ToolApprovalScope> _complete;
+    private readonly Func<string, string, string> _localize;
 
     public ApprovalQueueItemViewModel(
         ToolApprovalRequest request,
         string? conversationId,
+        Func<string, string, string> localize,
         Action<ApprovalQueueItemViewModel, ToolApprovalScope> complete)
     {
         Request = request;
-        ConversationId = conversationId ?? "未知会话";
+        ConversationId = conversationId ?? string.Empty;
+        _localize = localize;
         _complete = complete;
     }
 
     public ToolApprovalRequest Request { get; }
     public string ConversationId { get; }
+
     public string Title => Request.Summary;
-    public string RiskText => Request.IsDestructive ? "高风险" : Request.Risk.ToString();
+
+    public string ConversationIdLabel => string.IsNullOrEmpty(ConversationId)
+        ? _localize("Approval.ConversationUnknown", "Unknown conversation")
+        : string.Format(_localize("Approval.ConversationPrefix", "Conversation: {0}"), ConversationId);
+
+    public string RiskText => Request.IsDestructive
+        ? _localize("Approval.RiskHigh", "High risk")
+        : Request.Risk.ToString();
+
     public TaskCompletionSource<ToolApprovalScope> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     [RelayCommand] private void AllowOnce() => _complete(this, ToolApprovalScope.AllowOnce);

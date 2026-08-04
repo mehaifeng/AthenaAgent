@@ -44,7 +44,7 @@ public sealed class OpenRouterModelMetadataStore
             var previous = ReadSnapshot(pointer.PreviousRevision);
             if (previous != null)
             {
-                _logger.Warning("OpenRouter Current 快照损坏，已回退 Previous: {Revision}", previous.CatalogRevision);
+                _logger.Warning("OpenRouter Current snapshot corrupted; falling back to Previous: {Revision}", previous.CatalogRevision);
                 return (previous, pointer with { CurrentRevision = previous.CatalogRevision });
             }
         }
@@ -122,7 +122,7 @@ public sealed class OpenRouterModelMetadataStore
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "OpenRouter pointer 损坏，将扫描不可变快照");
+            _logger.Warning(ex, "OpenRouter pointer corrupted; will scan immutable snapshots");
             return null;
         }
     }
@@ -141,7 +141,7 @@ public sealed class OpenRouterModelMetadataStore
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "OpenRouter 快照校验失败: {Revision}", revision);
+            _logger.Warning(ex, "OpenRouter snapshot validation failed: {Revision}", revision);
             return null;
         }
     }

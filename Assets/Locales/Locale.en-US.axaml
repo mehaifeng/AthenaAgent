@@ -1014,4 +1014,225 @@
     <system:String x:Key="Config.VectorIndexRebuildIncomplete">Vector index incomplete: {0}/{1} chunks indexed. Check the embedding model or provider response.</system:String>
     <system:String x:Key="Config.VectorIndexRebuildFailed">Failed to rebuild vector index: {0}</system:String>
     <system:String x:Key="Connectors.Provider.DeprecatedModel">This model is deprecated. Recommended replacement: {0}</system:String>
+
+    <!-- MainWindow menu / launchers / tips -->
+    <system:String x:Key="MainWindow.Menu.Conversation">Conversation menu</system:String>
+    <system:String x:Key="MainWindow.Menu.Rename">Rename</system:String>
+    <system:String x:Key="MainWindow.Menu.Fork">Branch</system:String>
+    <system:String x:Key="MainWindow.Menu.Export">Export</system:String>
+    <system:String x:Key="MainWindow.Menu.Delete">Delete</system:String>
+    <system:String x:Key="MainWindow.Launcher.Providers">Providers and models</system:String>
+    <system:String x:Key="MainWindow.Launcher.KnowledgeBase">Knowledge base</system:String>
+    <system:String x:Key="MainWindow.Launcher.Tasks">Scheduled messages</system:String>
+    <system:String x:Key="MainWindow.Launcher.Skills">Skills and connectors</system:String>
+    <system:String x:Key="MainWindow.Launcher.Detailed">Detailed</system:String>
+    <system:String x:Key="MainWindow.Launcher.GlobalChat">Global chat</system:String>
+    <system:String x:Key="MainWindow.Search.Placeholder">Search workspace, title, or summary</system:String>
+    <system:String x:Key="MainWindow.Tip.AddWorkspace">Add workspace</system:String>
+    <system:String x:Key="MainWindow.Tip.ExpandCollapse">Expand / collapse</system:String>
+    <system:String x:Key="MainWindow.Tip.NewConversation">New conversation</system:String>
+    <system:String x:Key="MainWindow.Tip.GlobalMenu">Global chat menu</system:String>
+    <system:String x:Key="MainWindow.Tip.WorkspaceMenu">Workspace menu</system:String>
+    <system:String x:Key="MainWindow.Tip.ConfirmRename">Confirm rename</system:String>
+    <system:String x:Key="MainWindow.Tip.RevealInFolder">Reveal in folder</system:String>
+    <system:String x:Key="MainWindow.Tip.CopyPath">Copy path</system:String>
+    <system:String x:Key="MainWindow.Tip.SwapLayout">Swap left/right layout</system:String>
+    <system:String x:Key="MainWindow.Section.Pinned">Pinned chats</system:String>
+
+    <!-- Approval queue -->
+    <system:String x:Key="Approval.Window.Title">Tools awaiting approval</system:String>
+    <system:String x:Key="Approval.Heading">Tools awaiting approval</system:String>
+    <system:String x:Key="Approval.Description">Conversations pause at the tool call; you can handle them in any order, and other conversations are unaffected.</system:String>
+    <system:String x:Key="Approval.ConversationPrefix">Conversation: {0}</system:String>
+    <system:String x:Key="Approval.ConversationUnknown">Unknown conversation</system:String>
+    <system:String x:Key="Approval.RiskHigh">High risk</system:String>
+    <system:String x:Key="Approval.Button.AllowOnce">Once</system:String>
+    <system:String x:Key="Approval.Button.AllowSession">For this session</system:String>
+    <system:String x:Key="Approval.Button.AllowAlways">Always allow</system:String>
+    <system:String x:Key="Approval.Button.Deny">Deny</system:String>
+
+    <!-- Workspace editor + file menu -->
+    <system:String x:Key="Workspace.Editor.ModeEdit">Edit</system:String>
+    <system:String x:Key="Workspace.Editor.ModePreview">Preview</system:String>
+    <system:String x:Key="Workspace.Editor.ModeDiff">Diff</system:String>
+    <system:String x:Key="Workspace.Editor.Save">Save</system:String>
+    <system:String x:Key="Workspace.Editor.Cancel">Cancel</system:String>
+    <system:String x:Key="Workspace.Editor.Tip.CloseEditor">Close editor pane</system:String>
+    <system:String x:Key="Workspace.Editor.Tip.CloseFile">Close file</system:String>
+    <system:String x:Key="Workspace.Diff.Header">HEAD ↔ current edit buffer</system:String>
+    <system:String x:Key="Workspace.FileMenu.Open">Open</system:String>
+    <system:String x:Key="Workspace.FileMenu.CopyPath">Copy path</system:String>
+    <system:String x:Key="Workspace.FileMenu.CopyAbsolutePath">Copy absolute path</system:String>
+    <system:String x:Key="Workspace.FileMenu.Rename">Rename</system:String>
+    <system:String x:Key="Workspace.FileMenu.Delete">Delete</system:String>
+
+    <!-- Workspace status -->
+    <system:String x:Key="Workspace.Status.UnboundWorkspace">No workspace bound</system:String>
+    <system:String x:Key="Workspace.Status.GlobalChatNoFiles">Global chat does not use workspace files</system:String>
+    <system:String x:Key="Workspace.Status.ReadingFilesFailed">Could not read workspace files</system:String>
+    <system:String x:Key="Workspace.Status.ReadingGitFailed">Could not read Git status</system:String>
+    <system:String x:Key="Workspace.Status.WorkingTreeClean">Working tree clean</system:String>
+    <system:String x:Key="Workspace.Status.FilesChanged">{0} file(s) have changes</system:String>
+    <system:String x:Key="Workspace.Status.StagedAll">All changes staged</system:String>
+    <system:String x:Key="Workspace.Status.UnstagedAll">All changes unstaged</system:String>
+    <system:String x:Key="Workspace.Status.StagedFile">Staged {0}</system:String>
+    <system:String x:Key="Workspace.Status.UnstagedFile">Unstaged {0}</system:String>
+    <system:String x:Key="Workspace.Status.RestoredAll">All changes restored</system:String>
+    <system:String x:Key="Workspace.Status.RestoredFile">Restored {0}</system:String>
+    <system:String x:Key="Workspace.Status.IdentityNotConfigured">Git user identity not configured; cannot commit. Please set it first.</system:String>
+    <system:String x:Key="Workspace.Status.IdentityRequired">Please fill in name and email</system:String>
+    <system:String x:Key="Workspace.Status.IdentitySaved">Git identity saved</system:String>
+    <system:String x:Key="Workspace.Status.GeneratingCommitMessage">Generating commit message…</system:String>
+    <system:String x:Key="Workspace.Status.NoStagedForGeneration">No staged changes to generate from</system:String>
+    <system:String x:Key="Workspace.Status.GenerationFailed">Failed to generate commit message, please enter one manually</system:String>
+    <system:String x:Key="Workspace.Status.GenerationSucceeded">Generated commit message — please review before committing</system:String>
+    <system:String x:Key="Workspace.Status.CommitSuccess">Commit succeeded</system:String>
+    <system:String x:Key="Workspace.Status.CommitAndPushSuccess">Committed and pushed</system:String>
+    <system:String x:Key="Workspace.Status.BinaryDiffUnsupported">Binary file does not support text diff</system:String>
+    <system:String x:Key="Workspace.Status.FileTooLarge">File exceeds 5 MB, not opened in built-in editor</system:String>
+    <system:String x:Key="Workspace.Status.SavingQueue">Waiting for workspace write queue…</system:String>
+    <system:String x:Key="Workspace.Status.Saved">Saved {0}</system:String>
+    <system:String x:Key="Workspace.Status.EditCancelled">Discarded edits to {0}</system:String>
+    <system:String x:Key="Workspace.Status.TrashedSuccess">Moved to system trash, recoverable</system:String>
+    <system:String x:Key="Workspace.Status.TrashFailed">Moving to system trash failed: {0}</system:String>
+    <system:String x:Key="Workspace.Status.PermanentlyDeleted">Permanently deleted</system:String>
+    <system:String x:Key="Workspace.Status.RenamedTo">Renamed to {0}</system:String>
+
+    <!-- Workspace rename errors -->
+    <system:String x:Key="Workspace.Rename.Empty">Name cannot be empty</system:String>
+    <system:String x:Key="Workspace.Rename.InvalidChars">Name contains invalid characters</system:String>
+    <system:String x:Key="Workspace.Rename.Invalid">Invalid name</system:String>
+    <system:String x:Key="Workspace.Rename.Exists">"{0}" already exists</system:String>
+    <system:String x:Key="Workspace.Rename.InUse">Rename failed; the file may be in use</system:String>
+    <system:String x:Key="Workspace.Rename.NoPermission">No permission to rename this item</system:String>
+    <system:String x:Key="Workspace.Rename.UnexpectedFailed">Rename failed</system:String>
+
+    <!-- Workspace Git -->
+    <system:String x:Key="Workspace.Git.Error.Stage">Stage failed</system:String>
+    <system:String x:Key="Workspace.Git.Error.Commit">Commit failed</system:String>
+    <system:String x:Key="Workspace.Git.Error.CommitButPushFailed">Commit succeeded, but push failed</system:String>
+    <system:String x:Key="Workspace.Git.Error.Generic">Git operation failed</system:String>
+    <system:String x:Key="Workspace.Git.Error.IdentitySave">Identity save failed</system:String>
+    <system:String x:Key="Workspace.Git.Error.Restore">Restore failed</system:String>
+    <system:String x:Key="Workspace.Git.CannotStart">Could not start Git</system:String>
+    <system:String x:Key="Workspace.Git.DiffTruncated">…(diff truncated, generation may be incomplete)</system:String>
+    <system:String x:Key="Workspace.Git.Status.Untracked">Untracked</system:String>
+    <system:String x:Key="Workspace.Git.Status.Conflict">Conflict</system:String>
+    <system:String x:Key="Workspace.Git.Status.Renamed">Renamed</system:String>
+    <system:String x:Key="Workspace.Git.Status.Copied">Copied</system:String>
+    <system:String x:Key="Workspace.Git.Status.Deleted">Deleted</system:String>
+    <system:String x:Key="Workspace.Git.Status.StagedAdded">Staged addition</system:String>
+    <system:String x:Key="Workspace.Git.Status.Added">Added</system:String>
+    <system:String x:Key="Workspace.Git.Status.Staged">Staged</system:String>
+    <system:String x:Key="Workspace.Git.Status.PartiallyStaged">Partially staged</system:String>
+    <system:String x:Key="Workspace.Git.Status.Modified">Modified</system:String>
+
+    <!-- Workspace confirmations -->
+    <system:String x:Key="Workspace.Confirm.Restore.Title">Restore file</system:String>
+    <system:String x:Key="Workspace.Confirm.Restore.Message">Restore "{0}"? Uncommitted changes will be lost.</system:String>
+    <system:String x:Key="Workspace.Confirm.Restore.Yes">Restore</system:String>
+    <system:String x:Key="Workspace.Confirm.Restore.No">Cancel</system:String>
+    <system:String x:Key="Workspace.Confirm.RestoreAll.Title">Restore all changes</system:String>
+    <system:String x:Key="Workspace.Confirm.RestoreAll.Message">Restore all {0} files? All uncommitted changes will be lost.</system:String>
+    <system:String x:Key="Workspace.Confirm.RestoreAll.Yes">Restore all</system:String>
+    <system:String x:Key="Workspace.Confirm.Trash.Title">Move to trash</system:String>
+    <system:String x:Key="Workspace.Confirm.Trash.Message">Delete "{0}"?</system:String>
+    <system:String x:Key="Workspace.Confirm.Trash.Yes">Delete</system:String>
+    <system:String x:Key="Workspace.Confirm.Permanent.Title">Permanent delete</system:String>
+    <system:String x:Key="Workspace.Confirm.Permanent.Message">System trash unavailable. Permanent delete cannot be undone, continue?</system:String>
+    <system:String x:Key="Workspace.Confirm.Permanent.Yes">Permanently delete</system:String>
+    <system:String x:Key="Workspace.Confirm.CloseDirty.Title">Close file</system:String>
+    <system:String x:Key="Workspace.Confirm.CloseDirty.Message">"{0}" has unsaved changes. Close anyway?</system:String>
+    <system:String x:Key="Workspace.Confirm.CloseDirty.Yes">Close</system:String>
+    <system:String x:Key="Workspace.Commit.Format.AllStaged">{0} staged</system:String>
+    <system:String x:Key="Workspace.Commit.Format.PartialStaged">{0}/{1} staged</system:String>
+    <system:String x:Key="Workspace.Commit.Format.Changes">{0} change(s)</system:String>
+
+    <!-- MCP placeholders -->
+    <system:String x:Key="Mcp.Placeholder.Command">npx / uv / python …</system:String>
+    <system:String x:Key="Mcp.Placeholder.WorkingDir">(optional)</system:String>
+    <system:String x:Key="Mcp.Placeholder.EnvKey">KEY</system:String>
+    <system:String x:Key="Mcp.Placeholder.EnvValue">value</system:String>
+    <system:String x:Key="Mcp.Placeholder.Url">https://example.com/mcp</system:String>
+    <system:String x:Key="Mcp.Placeholder.HeaderKey">Authorization</system:String>
+    <system:String x:Key="Mcp.Placeholder.HeaderValue">Bearer …</system:String>
+
+    <!-- Onboarding -->
+    <system:String x:Key="Onboarding.BrandTitle">ΑΘΗΝΑ · Athena</system:String>
+    <system:String x:Key="Onboarding.Language.Chinese">中文</system:String>
+    <system:String x:Key="Onboarding.Language.English">EN</system:String>
+    <system:String x:Key="Onboarding.Label.BaseUrl">Base URL</system:String>
+    <system:String x:Key="Onboarding.Label.ApiKey">API Key</system:String>
+    <system:String x:Key="Onboarding.NextRequiredFields">Please configure the primary provider, API key, and model first.</system:String>
+
+    <!-- SubAgent status / actions / source labels -->
+    <system:String x:Key="SubAgent.Status.Pending">Pending</system:String>
+    <system:String x:Key="SubAgent.Status.Timeout">Timed out</system:String>
+    <system:String x:Key="SubAgent.Status.MaxSteps">Exceeded max steps</system:String>
+    <system:String x:Key="SubAgent.Status.Failed">Failed</system:String>
+    <system:String x:Key="SubAgent.Status.Cancelled">Cancelled</system:String>
+    <system:String x:Key="SubAgent.Action.BrowserTask">Browser task in progress</system:String>
+    <system:String x:Key="SubAgent.Action.WebSearch">Web search in progress</system:String>
+    <system:String x:Key="SubAgent.Action.RecallMemory">Recalling memory</system:String>
+    <system:String x:Key="SubAgent.Action.CreateMemory">Writing memory</system:String>
+    <system:String x:Key="SubAgent.Action.Terminal">Running terminal command</system:String>
+    <system:String x:Key="SubAgent.Action.GenerateImage">Generating image</system:String>
+    <system:String x:Key="SubAgent.Action.Config">Processing configuration</system:String>
+    <system:String x:Key="SubAgent.Action.Task">Processing task</system:String>
+    <system:String x:Key="SubAgent.Action.File">Processing file</system:String>
+    <system:String x:Key="SubAgent.Action.Thinking">Thinking</system:String>
+    <system:String x:Key="SubAgent.Action.Web">Web task in progress</system:String>
+    <system:String x:Key="SubAgent.Action.Memory">Processing memory</system:String>
+    <system:String x:Key="SubAgent.Action.Tools">Processing tools</system:String>
+    <system:String x:Key="SubAgent.Source.Project">Project</system:String>
+    <system:String x:Key="SubAgent.Source.App">App</system:String>
+    <system:String x:Key="SubAgent.StatusBadge.Invalid">Invalid</system:String>
+    <system:String x:Key="SubAgent.StatusBadge.Disabled">Disabled</system:String>
+    <system:String x:Key="SubAgent.StatusBadge.Shadowed">Shadowed</system:String>
+    <system:String x:Key="SubAgent.StatusBadge.Active">Active</system:String>
+    <system:String x:Key="SubAgent.Resources.Empty">No bundled resources</system:String>
+
+    <!-- Session / Conversation -->
+    <system:String x:Key="Session.Title.NewConversation">New chat</system:String>
+    <system:String x:Key="Session.Pin.Pin">Pin</system:String>
+    <system:String x:Key="Session.Pin.Unpin">Unpin</system:String>
+    <system:String x:Key="Session.Status.WaitingForApproval">Awaiting approval</system:String>
+    <system:String x:Key="Session.Status.Queued">Queued</system:String>
+    <system:String x:Key="Session.Status.Running">Running</system:String>
+    <system:String x:Key="Session.Status.Archiving">Archiving…</system:String>
+    <system:String x:Key="Session.Status.ArchiveFailed">Archive failed; retry pending</system:String>
+    <system:String x:Key="Session.Status.Interrupted">Interrupted</system:String>
+    <system:String x:Key="Session.Status.Completed">Completed</system:String>
+    <system:String x:Key="Session.Activity.Queued">Queued</system:String>
+    <system:String x:Key="Session.Activity.Running">Running</system:String>
+    <system:String x:Key="Session.Activity.Ready">Ready</system:String>
+
+    <!-- Skills -->
+    <system:String x:Key="Skills.Status.Summary">{0} active · {1} disabled · {2} issues</system:String>
+
+    <!-- Window titles -->
+    <system:String x:Key="Window.Tasks.Title">Scheduled tasks</system:String>
+    <system:String x:Key="Window.KnowledgeBase.Title">Knowledge base</system:String>
+    <system:String x:Key="Window.DetailedLogs.Title">Detailed logs</system:String>
+
+    <!-- Confirm dialog defaults -->
+    <system:String x:Key="Dialog.Confirm.Title">Confirm</system:String>
+    <system:String x:Key="Dialog.Confirm.Message">Are you sure?</system:String>
+    <system:String x:Key="Dialog.Confirm.Yes">Yes</system:String>
+    <system:String x:Key="Dialog.Confirm.No">No</system:String>
+
+    <!-- MainWindow delete / export -->
+    <system:String x:Key="MainWindow.DeleteWorkspace.Title">Delete workspace</system:String>
+    <system:String x:Key="MainWindow.DeleteWorkspace.Message">Delete "{0}"? Workspace knowledge files will be deleted, but conversation history is preserved.</system:String>
+    <system:String x:Key="MainWindow.Export.PickerTitle">Export chat</system:String>
+    <system:String x:Key="MainWindow.Export.FileExtension">Markdown</system:String>
+    <system:String x:Key="MainWindow.Export.FileFilter">*.md</system:String>
+    <system:String x:Key="MainWindow.Export.Header">Exported at: {0}</system:String>
+    <system:String x:Key="MainWindow.Export.Role.User">You</system:String>
+    <system:String x:Key="MainWindow.Export.Role.Assistant">Athena</system:String>
+    <system:String x:Key="MainWindow.Export.Role.System">System</system:String>
+    <system:String x:Key="MainWindow.Export.Attachment">- Attachment: {0} ({1})</system:String>
+
+    <!-- Tray tooltip -->
+    <system:String x:Key="Tray.ToolTip">Athena</system:String>
 </ResourceDictionary>

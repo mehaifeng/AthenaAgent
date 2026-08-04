@@ -76,7 +76,7 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "标题模型失败，使用首条用户消息兜底");
+                _logger.Warning(ex, "Title model failed; falling back to the first user message");
             }
         }
 

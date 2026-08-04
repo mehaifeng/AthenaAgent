@@ -47,11 +47,22 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
         finally { _mutex.Release(); }
 
         if (client is null)
-            return new McpCallResult(true, $"服务器 `{desc.Server}` 未连接。");
+        {
+            _logger.Warning("MCP tool call failed: server not connected, Server={Server}, Tool={Tool}", desc.Server, desc.OriginalName);
+            return new McpCallResult(true, $"Server `{desc.Server}` is not connected.");
+        }
 
         var args = FlattenArguments(arguments);
-        var result = await client.CallToolAsync(desc.OriginalName, args, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return new McpCallResult(result.IsError == true, ExtractTextContent(result));
+        try
+        {
+            var result = await client.CallToolAsync(desc.OriginalName, args, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return new McpCallResult(result.IsError == true, ExtractTextContent(result));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "MCP tool call exception: Server={Server}, Tool={Tool}", desc.Server, desc.OriginalName);
+            return new McpCallResult(true, $"Tool call failed: {ex.Message}");
+        }
     }
 
     /// <summary>按配置启动/重启单个服务器（幂等：已连接则先停止）。返回是否连接成功。</summary>
@@ -66,6 +77,8 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
             return false;
 
         await StopServerAsync(config.Name).ConfigureAwait(false);
+        _logger.Information("MCP starting server: Name={Name}, Transport={Transport}, Command={Command}, Url={Url}",
+            config.Name, config.Transport, config.Command, config.Url);
         SetStatus(config, McpConnectionStatus.Connecting, Loc("Config.Mcp.Status.Connecting", "连接中…"), 0);
 
         try
@@ -95,12 +108,12 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
             SetStatus(config, McpConnectionStatus.Connected,
                 string.Format(Loc("Config.Mcp.Status.Connected", "已发现 {0} 个工具"), descriptors.Count),
                 descriptors.Count);
-            _logger.Information("MCP 服务器 {Server} 已连接，发现 {Count} 个工具", config.Name, descriptors.Count);
+            _logger.Information("MCP server {Server} connected; discovered {Count} tool(s)", config.Name, descriptors.Count);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "MCP 服务器 {Server} 连接失败", config.Name);
+            _logger.Error(ex, "MCP server {Server} connection failed", config.Name);
             _registry.RemoveServer(config.Name);
             SetStatus(config, McpConnectionStatus.Failed, SummarizeError(ex), 0);
             return false;
@@ -109,6 +122,7 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
 
     public async Task StopServerAsync(string serverName)
     {
+        _logger.Information("MCP stopping server: {Server}", serverName);
         McpClient? client = null;
         await _mutex.WaitAsync().ConfigureAwait(false);
         try
@@ -122,7 +136,7 @@ public sealed class McpClientManager : IMcpToolHost, IMcpServerController, IAsyn
         if (client is not null)
         {
             try { await client.DisposeAsync().ConfigureAwait(false); }
-            catch (Exception ex) { _logger.Warning(ex, "关闭 MCP 服务器 {Server} 时出错", serverName); }
+            catch (Exception ex) { _logger.Warning(ex, "Failed to close MCP server {Server}", serverName); }
         }
     }
 

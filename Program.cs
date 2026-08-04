@@ -34,7 +34,7 @@ class Program
         _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool createdNew);
         if (!createdNew)
         {
-            WriteCrashLog("SingleInstance", null, "检测到已有 Athena 实例正在运行，已取消本次启动");
+            WriteCrashLog("SingleInstance", null, "Another Athena instance is already running; startup was canceled.");
             return;
         }
 
@@ -49,7 +49,7 @@ class Program
 
         try
         {
-            WriteCrashLog("Startup", null, "进程启动");
+            WriteCrashLog("Startup", null, "Process started.");
             WriteCrashLog("Startup", null, $"BaseDirectory: {AppContext.BaseDirectory}");
             WriteCrashLog("Startup", null, $"Runtime: {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}");
             WriteCrashLog("Startup", null, $"OS: {Environment.OSVersion}");

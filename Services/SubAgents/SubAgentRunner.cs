@@ -41,8 +41,13 @@ public sealed class SubAgentRunner
         var config = _configService.Load();
         var effective = SubAgentModelResolver.Resolve(config);
 
+        _logger.Information(
+            "SubAgentRunner starting: Title={Title}, AgentType={AgentType}, Model={Model}",
+            task.Title, task.AgentType, effective.Model);
+
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {
+            _logger.Warning("SubAgentRunner model not configured: Title={Title}", task.Title);
             return Fail(vm, uiPost, task, "Sub-agent model is not configured (missing API key or model).");
         }
 
@@ -56,6 +61,7 @@ public sealed class SubAgentRunner
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "SubAgentRunner client initialization failed: Title={Title}", task.Title);
             return Fail(vm, uiPost, task, $"Failed to initialize sub-agent client: {ex.Message}");
         }
 
@@ -89,6 +95,7 @@ public sealed class SubAgentRunner
         // 子代理是无人值守路径：审批闸门绝不弹窗，敏感/破坏性工具按静态策略处理。
         // 必须显式进入非交互作用域，覆盖来自主对话（dispatch_subagents 调用点）的交互式环境。
         using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterNonInteractive();
+        _logger.Debug("SubAgentRunner entered NonInteractive approval scope: Title={Title}", task.Title);
 
         try
         {
@@ -96,6 +103,7 @@ public sealed class SubAgentRunner
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                _logger.Debug("SubAgentRunner thinking iteration: Title={Title}, Iteration={Iteration}", task.Title, iteration);
                 uiPost(() =>
                 {
                     vm.RequestZone(SubAgentZone.Meditation);
@@ -114,6 +122,7 @@ public sealed class SubAgentRunner
                 }
                 catch (Exception ex)
                 {
+                    _logger.Error(ex, "SubAgentRunner model call failed: Title={Title}, Iteration={Iteration}", task.Title, iteration);
                     return Fail(vm, uiPost, task, $"Model call failed: {ex.Message}");
                 }
 
@@ -121,6 +130,9 @@ public sealed class SubAgentRunner
                 if (toolCalls == null || toolCalls.Count == 0)
                 {
                     var finalText = value.Content.Count > 0 ? value.Content[0].Text : string.Empty;
+                    _logger.Information(
+                        "SubAgentRunner completed (no tool call): Title={Title}, Length={Length}",
+                        task.Title, finalText?.Length ?? 0);
                     return Succeed(vm, uiPost, task, finalText);
                 }
 
@@ -134,6 +146,9 @@ public sealed class SubAgentRunner
                     var zone = SubAgentZones.ForTool(toolCall.FunctionName);
                     var argsText = toolCall.FunctionArguments?.ToString() ?? "{}";
 
+                    _logger.Debug(
+                        "SubAgentRunner tool call: Title={Title}, Tool={Tool}, Zone={Zone}",
+                        task.Title, toolCall.FunctionName, zone);
                     uiPost(() =>
                     {
                         vm.Step += 1;
@@ -150,6 +165,9 @@ public sealed class SubAgentRunner
                     }
                     try
                     {
+                        _logger.Debug(
+                            "SubAgentRunner executing tool: Title={Title}, Tool={Tool}",
+                            task.Title, toolCall.FunctionName);
                         toolResult = await _functionRegistry.ExecuteAsync(toolCall.FunctionName, argsText);
                     }
                     finally
@@ -158,6 +176,9 @@ public sealed class SubAgentRunner
                     }
 
                     var resultJson = toolResult.ToJson();
+                    _logger.Debug(
+                        "SubAgentRunner tool result: Title={Title}, Tool={Tool}, Preview={Preview}",
+                        task.Title, toolCall.FunctionName, Preview(resultJson));
                     uiPost(() => vm.Log.Add(new SubAgentLogEntry
                     {
                         Kind = "tool",
@@ -169,6 +190,9 @@ public sealed class SubAgentRunner
             }
 
             // 迭代用尽仍未给出最终答复。
+            _logger.Warning(
+                "SubAgentRunner iterations exhausted: Title={Title}, MaxIterations={MaxIterations}",
+                task.Title, maxIterations);
             return Succeed(vm, uiPost, task, "(Reached the maximum number of steps without a final answer.)", success: false);
         }
         catch (OperationCanceledException)
@@ -176,6 +200,9 @@ public sealed class SubAgentRunner
             var timedOut = !vm.WasCancelledByUser
                 && vm.TimeoutAt != default
                 && DateTime.UtcNow >= vm.TimeoutAt;
+            _logger.Information(
+                "SubAgentRunner terminated: Title={Title}, Reason={Reason}, TimeoutAt={TimeoutAt:o}",
+                task.Title, timedOut ? "Timeout" : "Cancelled", vm.TimeoutAt);
             uiPost(() =>
             {
                 vm.State = timedOut ? SubAgentState.Error : SubAgentState.Cancelled;
@@ -192,6 +219,7 @@ public sealed class SubAgentRunner
         }
         catch (Exception ex)
         {
+            _logger.Error(ex, "SubAgentRunner exception: Title={Title}", task.Title);
             return Fail(vm, uiPost, task, ex.Message);
         }
     }

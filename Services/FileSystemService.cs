@@ -58,10 +58,14 @@ public class FileSystemService : IFileSystemService
 
     private void ValidatePathAndSecurity(string absolutePath, bool isWriteOperation, bool isDirectoryOperation = false, long dataSize = 0)
     {
-        if (string.IsNullOrWhiteSpace(absolutePath)) throw new ArgumentException("文件路径不能为空");
+        if (string.IsNullOrWhiteSpace(absolutePath)) throw new ArgumentException("File path cannot be empty");
         var policy = _configService.Load().FileSystemPolicy;
         var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+
+        _logger.Debug(
+            "FileSystem validation started: Path={Path}, IsWrite={IsWrite}, IsDir={IsDir}, DataSize={DataSize}",
+            fullPath, isWriteOperation, isDirectoryOperation, dataSize);
 
         // 不跟随符号链接时，把路径解析到真实目标，阻止「沙箱内软链指向 /etc、~/.ssh」这类越界逃逸。
         // 字面路径与真实路径都要过黑名单：软链本身所在位置、以及它指向的目标，任一命中即拒绝。
@@ -77,7 +81,10 @@ public class FileSystemService : IFileSystemService
         {
             var configPath = Path.GetFullPath(_pathService.GetConfigFilePath());
             if (pathsToCheck.Any(p => p.Equals(configPath, comparison)))
-                throw new UnauthorizedAccessException("系统自我保护机制：禁止通过文件系统工具修改应用配置文件！");
+            {
+                _logger.Warning("FileSystem config-file write protection rejected: Path={Path}", fullPath);
+                throw new UnauthorizedAccessException("Self-protection: the application configuration file cannot be modified via filesystem tools.");
+            }
         }
 
         var platform = OperatingSystem.IsWindows() ? policy.Platforms.Windows : (OperatingSystem.IsMacOS() ? policy.Platforms.MacOS : policy.Platforms.Linux);
@@ -85,7 +92,12 @@ public class FileSystemService : IFileSystemService
 
         var blockedDirs = accessRules.BlockedDirectories.Select(dir => Path.GetFullPath(ExpandPath(dir))).ToList();
         if (pathsToCheck.Any(p => blockedDirs.Any(dir => p.StartsWith(dir, comparison))))
-            throw new UnauthorizedAccessException($"由于安全策略，系统关键目录受到保护，访问被拒绝。");
+        {
+            _logger.Warning(
+                "FileSystem blocked-directory denied: Path={Path}, BlockedDirs={BlockedDirs}",
+                fullPath, string.Join(";", blockedDirs));
+            throw new UnauthorizedAccessException("System critical directory is protected by security policy; access denied.");
+        }
 
         // 附件库为“受信读取区”：解析后的大文档/大文本是有意落盘供模型按需分块读取的，
         // 整体大小限制对它们没有意义（实际返回的是 50KB 切片）。因此对该目录下的读取
@@ -94,7 +106,12 @@ public class FileSystemService : IFileSystemService
 
         long targetLimit = isWriteOperation ? policy.Global.MaxWriteSizeBytes : policy.Global.MaxReadSizeBytes;
         if (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && !trustedRead && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit))
-            throw new InvalidOperationException($"操作超出大小限制 ({targetLimit} bytes)。");
+        {
+            _logger.Warning(
+                "FileSystem size quota exceeded: Path={Path}, DataSize={DataSize}, Limit={Limit}",
+                fullPath, dataSize, targetLimit);
+            throw new InvalidOperationException($"Operation exceeds size limit ({targetLimit} bytes).");
+        }
     }
 
     /// <summary>
@@ -181,9 +198,14 @@ public class FileSystemService : IFileSystemService
     public async Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem ReadFile: Path={Path}", fullPath);
         ValidatePathAndSecurity(fullPath, false);
 
-        if (!File.Exists(fullPath)) return null;
+        if (!File.Exists(fullPath))
+        {
+            _logger.Debug("FileSystem ReadFile target missing: Path={Path}", fullPath);
+            return null;
+        }
 
         var fileInfo = new FileInfo(fullPath);
 
@@ -234,15 +256,21 @@ public class FileSystemService : IFileSystemService
     public async Task<bool> WriteFileAsync(string absolutePath, string content)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
-        ValidatePathAndSecurity(fullPath, true, false, Encoding.UTF8.GetByteCount(content));
+        var sizeBytes = Encoding.UTF8.GetByteCount(content);
+        _logger.Information(
+            "FileSystem WriteFile started: Path={Path}, Bytes={Bytes}",
+            fullPath, sizeBytes);
+        ValidatePathAndSecurity(fullPath, true, false, sizeBytes);
         // 无 BOM 写入 + 原子替换，避免污染文件并防止写入中崩溃损坏数据。
         await AtomicWriteAsync(fullPath, EncodeUtf8(content, withBom: false));
+        _logger.Information("FileSystem WriteFile succeeded: Path={Path}", fullPath);
         return true;
     }
 
     public async Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true, bool replaceAll = false)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Information("FileSystem ModifyFile started: Path={Path}", fullPath);
         ValidatePathAndSecurity(fullPath, true);
         if (!File.Exists(fullPath)) return new FileUpdateResult { Success = false, Message = "文件不存在。" };
 
@@ -310,13 +338,17 @@ public class FileSystemService : IFileSystemService
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true);
-        if (File.Exists(fullPath)) { File.Delete(fullPath); return Task.FromResult(true); }
+        if (File.Exists(fullPath)) { File.Delete(fullPath); _logger.Information("FileSystem DeleteFile succeeded: Path={Path}", fullPath); return Task.FromResult(true); }
         if (Directory.Exists(fullPath))
         {
             if (!recursive)
+            {
+                _logger.Warning("FileSystem Delete rejected (directory without recursive): Path={Path}", fullPath);
                 throw new InvalidOperationException(
-                    $"目标是目录而非文件，删除将递归移除其全部内容。如确需删除，请显式传入 recursive=true。({absolutePath})");
+                    $"Target is a directory not a file; recursive delete would remove all its contents. Pass recursive=true to confirm. ({absolutePath})");
+            }
             Directory.Delete(fullPath, true);
+            _logger.Information("FileSystem DeleteDirectory succeeded: Path={Path}, Recursive={Recursive}", fullPath, recursive);
             return Task.FromResult(true);
         }
         return Task.FromResult(false);
@@ -334,11 +366,13 @@ public class FileSystemService : IFileSystemService
             var destDir = Path.GetDirectoryName(dest);
             if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
             File.Move(src, dest);
+            _logger.Information("FileSystem MoveFile succeeded: {Src} -> {Dest}", src, dest);
             return Task.FromResult(true);
         }
         if (Directory.Exists(src))
         {
             Directory.Move(src, dest);
+            _logger.Information("FileSystem MoveDirectory succeeded: {Src} -> {Dest}", src, dest);
             return Task.FromResult(true);
         }
         return Task.FromResult(false);
@@ -356,6 +390,7 @@ public class FileSystemService : IFileSystemService
             var destDir = Path.GetDirectoryName(dest);
             if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
             File.Copy(src, dest, true);
+            _logger.Information("FileSystem CopyFile succeeded: {Src} -> {Dest}", src, dest);
             return Task.FromResult(true);
         }
         // Directory copy logic could be added if needed, but keeping it simple for now
@@ -369,6 +404,7 @@ public class FileSystemService : IFileSystemService
         if (!Directory.Exists(fullPath))
         {
             Directory.CreateDirectory(fullPath);
+            _logger.Information("FileSystem CreateDirectory succeeded: Path={Path}", fullPath);
             return Task.FromResult(true);
         }
         return Task.FromResult(false);
@@ -377,6 +413,7 @@ public class FileSystemService : IFileSystemService
     public Task<List<FileSystemEntry>> ListDirectoryAsync(string absolutePath, bool recursive = false, string? filter = null)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem ListDirectory: Path={Path}, Recursive={Recursive}", fullPath, recursive);
         ValidatePathAndSecurity(fullPath, false, true);
         if (!Directory.Exists(fullPath)) return Task.FromResult(new List<FileSystemEntry>());
 
@@ -403,12 +440,17 @@ public class FileSystemService : IFileSystemService
             }
         }
 
+        if (allEntries.Count >= maxEntries)
+        {
+            _logger.Information("FileSystem ListDirectory truncated: Path={Path}, MaxEntries={Max}", fullPath, maxEntries);
+        }
         return Task.FromResult(allEntries);
     }
 
     public async Task<FileMetadata?> GetFileInfoAsync(string absolutePath)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem GetFileInfo: Path={Path}", fullPath);
         ValidatePathAndSecurity(fullPath, false);
         if (!File.Exists(fullPath)) return null;
 
@@ -428,6 +470,7 @@ public class FileSystemService : IFileSystemService
     public async Task<FileSearchResult> SearchInFileAsync(string absolutePath, string pattern, int contextLines = 3, int maxMatches = 10)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem SearchInFile: Path={Path}, Pattern={Pattern}", fullPath, pattern);
         ValidatePathAndSecurity(fullPath, false);
         var result = new FileSearchResult();
         if (!File.Exists(fullPath)) return result;
@@ -451,12 +494,17 @@ public class FileSystemService : IFileSystemService
             }
         }
         result.TotalMatches = result.Matches.Count;
+        if (result.Matches.Count >= maxMatches)
+        {
+            _logger.Information("FileSystem SearchInFile truncated: Path={Path}, MaxMatches={Max}", fullPath, maxMatches);
+        }
         return result;
     }
 
     public async Task<DocumentOutline> GetDocumentOutlineAsync(string absolutePath)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem GetDocumentOutline: Path={Path}", fullPath);
         ValidatePathAndSecurity(fullPath, false);
         var outline = new DocumentOutline();
         if (!File.Exists(fullPath)) return outline;

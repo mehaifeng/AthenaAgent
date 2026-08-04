@@ -69,7 +69,7 @@ public sealed class CommitMessageGenerator : ICommitMessageGenerator
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "生成提交信息失败");
+            _logger.Warning(ex, "Failed to generate commit message");
             return null;
         }
     }

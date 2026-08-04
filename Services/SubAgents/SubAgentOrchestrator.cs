@@ -79,18 +79,22 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
             Post(() => ActiveAgents.Add(vm));
         }
 
-        _logger.Information("Sub-agent batch dispatched: {Count} task(s), maxParallel={MaxParallel}", tasks.Length, maxParallel);
+        _logger.Information("Sub-agent batch dispatched: {Count} task(s), maxParallel={MaxParallel}, timeoutSeconds={Timeout}", tasks.Length, maxParallel, timeoutSeconds);
 
         var running = runs.Select(async run =>
         {
             await concurrencyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                _logger.Information(
+                    "SubAgent starting: Title={Title}, AgentType={AgentType}, TimeoutAt={TimeoutAt:o}",
+                    run.Task.Title, run.Task.AgentType, run.Vm.TimeoutAt);
                 var runner = new SubAgentRunner(_configService, functionRegistry, _logger);
                 return await runner.RunAsync(run.Task, run.Vm, GateFor, Post, run.Vm.Cts!.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                _logger.Information("SubAgent cancelled: Title={Title}", run.Task.Title);
                 return new SubAgentResult
                 {
                     Title = run.Task.Title,
@@ -116,6 +120,12 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
                 .Select(r => new SubAgentResult { Title = r.Task.Title, AgentType = r.Task.AgentType, Success = false, Summary = "Cancelled." })
                 .ToArray();
         }
+
+        var succeeded = results.Count(r => r.Success);
+        var failed = results.Length - succeeded;
+        _logger.Information(
+            "SubAgent batch completed: Total={Total}, Succeeded={Succeeded}, Failed={Failed}",
+            results.Length, succeeded, failed);
 
         return MergeResults(results);
     }

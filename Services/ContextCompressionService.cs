@@ -84,14 +84,14 @@ public sealed class ContextCompressionService : IContextCompressionService
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "上下文压缩模型失败；会话保持不变");
+            _logger.Warning(ex, "Context compression model failed; conversation remains unchanged");
             return CompressionResult.None;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(summary))
         {
-            _logger.Warning("上下文压缩模型返回空摘要；会话保持不变");
+            _logger.Warning("Context compression model returned an empty summary; conversation remains unchanged");
             return CompressionResult.None;
         }
 
@@ -188,7 +188,7 @@ public sealed class WorkspaceKnowledgeCompressor : IWorkspaceKnowledgeCompressor
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "工作区知识压缩失败");
+            _logger.Warning(ex, "Workspace knowledge compression failed");
             return null;
         }
     }

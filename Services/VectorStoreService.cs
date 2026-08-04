@@ -166,7 +166,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
 
             if (userVersion != SchemaVersion)
             {
-                _logger.Information("向量库 schema 版本 {Old} -> {New}，丢弃旧结构并重建", userVersion, SchemaVersion);
+                _logger.Information("Vector store schema version {Old} -> {New}; discarding old structure and rebuilding", userVersion, SchemaVersion);
                 using var dropCmd = new SqliteCommand(
                     @"DROP TABLE IF EXISTS document_vectors;
                       DROP TABLE IF EXISTS file_status;
@@ -231,7 +231,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
                 await setVersion.ExecuteNonQueryAsync();
             }
 
-            _logger.Information("向量存储及全文本索引数据库初始化完成: {Path}", _dbPath);
+            _logger.Information("Vector store and full-text index database initialized: {Path}", _dbPath);
         }
         finally
         {
@@ -273,11 +273,11 @@ public class VectorStoreService : IVectorStoreService, IDisposable
                 });
             }
 
-            _logger.Information("从数据库加载 {Count} 个向量", vectors.Count);
+            _logger.Information("Loaded {Count} vector(s) from database", vectors.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载向量失败");
+            _logger.Error(ex, "Failed to load vectors");
         }
         finally
         {
@@ -369,7 +369,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "FTS 搜索失败 (Query: {Query})", query);
+            _logger.Warning(ex, "FTS search failed (Query: {Query})", query);
             return new List<(string FilePath, int ChunkIndex, string Content, double Score)>();
         }
         finally
@@ -571,7 +571,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
                 }
 
                 transaction.Commit();
-                _logger.Debug("保存 {Count} 个本地文本分块及 FTS 索引: {FilePath}", chunks.Count, filePath);
+                _logger.Debug("Saved {Count} local text chunk(s) and FTS index: {FilePath}", chunks.Count, filePath);
             }
             catch
             {
@@ -699,7 +699,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
                 }
 
                 transaction.Commit();
-                _logger.Debug("删除文件向量及全文本索引: {FilePath}", filePath);
+                _logger.Debug("Deleted file vector and full-text index: {FilePath}", filePath);
             }
             catch
             {
@@ -726,7 +726,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
                 connection);
             await command.ExecuteNonQueryAsync();
 
-            _logger.Information("已清除所有向量数据，保留本地分块及 FTS 索引");
+            _logger.Information("All vectors cleared; keeping local chunks and FTS index");
         }
         finally
         {
@@ -782,7 +782,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "读取嵌入模型指纹失败");
+            _logger.Warning(ex, "Failed to read embedding model fingerprint");
             return null;
         }
         finally

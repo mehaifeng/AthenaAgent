@@ -179,11 +179,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             _watcher.EnableRaisingEvents = true;
 
             _debounceTimer = new Timer(ProcessPendingUpdates, null, Timeout.Infinite, Timeout.Infinite);
-            _logger.Information("知识库文件监控已启动");
+            _logger.Information("Knowledge base file watcher started");
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "初始化知识库监控失败");
+            _logger.Error(ex, "Failed to initialize knowledge base watcher");
         }
     }
 
@@ -201,7 +201,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         {
             if (_pendingUpdates.TryRemove(relativePath, out _))
             {
-                _logger.Information("检测到外部文件变更，正在后台更新索引: {File}", relativePath);
+                _logger.Information("External file change detected; updating index in background: {File}", relativePath);
                 await UpdateFileIndexAsync(relativePath);
             }
         }
@@ -251,10 +251,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "更新文件向量失败");
+                _logger.Warning(ex, "Failed to update file vector");
             }
 
-            _logger.Information("创建知识文件: {Path}", relativePath);
+            _logger.Information("Created knowledge file: {Path}", relativePath);
         }
         finally
         {
@@ -296,10 +296,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "更新文件向量失败");
+                _logger.Warning(ex, "Failed to update file vector");
             }
 
-            _logger.Information("追加内容到知识文件: {Path}", relativePath);
+            _logger.Information("Appended content to knowledge file: {Path}", relativePath);
         }
         finally
         {
@@ -332,10 +332,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "更新文件向量失败");
+                _logger.Warning(ex, "Failed to update file vector");
             }
 
-            _logger.Information("替换知识文件内容: {Path}", relativePath);
+            _logger.Information("Replaced knowledge file content: {Path}", relativePath);
         }
         finally
         {
@@ -389,11 +389,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning(ex, "删除文件索引失败");
+                    _logger.Warning(ex, "Failed to delete file index");
                 }
             });
 
-            _logger.Information("删除知识文件: {Path}", relativePath);
+            _logger.Information("Deleted knowledge file: {Path}", relativePath);
         }
         finally
         {
@@ -433,11 +433,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning(ex, "删除目录向量失败");
+                    _logger.Warning(ex, "Failed to delete directory vectors");
                 }
             });
 
-            _logger.Information("删除知识库目录: {Path}", relativePath);
+            _logger.Information("Deleted knowledge base directory: {Path}", relativePath);
         }
         finally
         {
@@ -523,7 +523,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             {
                 survivors = candidates.Where(x => !double.IsNaN(x.Sim) && x.Sim >= MinSimilarity);
                 var topSim = candidates.Where(x => !double.IsNaN(x.Sim)).Select(x => x.Sim).DefaultIfEmpty(0).Max();
-                _logger.Debug("检索 '{Query}': 候选 {Cand}，门控阈值 {Tau}，最高相似度 {Sim:F3}",
+                _logger.Debug("Search '{Query}': candidates {Cand}, gating threshold {Tau}, top similarity {Sim:F3}",
                     query, candidates.Count, MinSimilarity, topSim);
             }
 
@@ -567,7 +567,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "混合检索失败");
+            _logger.Error(ex, "Hybrid retrieval failed");
             return new List<KnowledgeSearchResult>();
         }
     }
@@ -614,7 +614,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "查重检索失败");
+            _logger.Error(ex, "Duplicate-check retrieval failed");
             return new List<SimilarKnowledgeFile>();
         }
     }
@@ -688,7 +688,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "重复文件聚类失败");
+            _logger.Error(ex, "Duplicate file clustering failed");
             return new List<DuplicateFileCluster>();
         }
     }
@@ -721,7 +721,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 {
                     embeddingsOn = false;
                     _logger.Warning(
-                        "Embedding 探测失败，跳过本次向量生成并保留 FTS：{Model}",
+                        "Embedding probe failed; skipping this round of vector generation and keeping FTS: {Model}",
                         currentModel);
                 }
 
@@ -734,7 +734,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                     foreach (var document in indexedDocuments) document.Embedding = null;
                     vectorStatuses.Clear();
                     _logger.Information(
-                        "Embedding 指纹变化（{OldModel}/{OldDim} -> {NewModel}/{NewDim}），保留 FTS 并重建向量",
+                        "Embedding fingerprint changed ({OldModel}/{OldDim} -> {NewModel}/{NewDim}); keeping FTS and rebuilding vectors",
                         stored?.Model ?? "(none)", stored?.Dimension ?? 0, currentModel, currentDim);
                 }
 
@@ -793,12 +793,12 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
             _vectorCacheInitialized = true;
             var stats = await _vectorStoreService.GetStatisticsAsync();
-            _logger.Information("知识库索引初始化完成：{FileCount} 个文件，{VectorCount} 个向量，Embedding={Enabled}",
+            _logger.Information("Knowledge base index initialized: {FileCount} file(s), {VectorCount} vector(s), embedding={Enabled}",
                 stats.FileCount, stats.VectorCount, embeddingsOn);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载知识库索引失败");
+            _logger.Error(ex, "Failed to load knowledge base index");
             _vectorCacheInitialized = false;
         }
         finally
@@ -826,7 +826,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             await _vectorStoreService.ClearEmbeddingsAsync();
             _vectorCache.Clear();
             _vectorCacheInitialized = false;
-            _logger.Information("已清空向量层并保留本地 FTS，开始使用当前 Embedding 配置重建向量");
+            _logger.Information("Vector layer cleared while keeping local FTS; rebuilding vectors with the current embedding configuration");
         }
         finally
         {
@@ -849,7 +849,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         if (!result.IsFullyIndexed)
         {
             _logger.Warning(
-                "向量索引重建不完整：EmbeddingConfigured={Configured}, Files={Files}, Chunks={Chunks}, Vectors={Vectors}, FullyIndexedFiles={FullyIndexedFiles}",
+                "Vector index rebuild incomplete: EmbeddingConfigured={Configured}, Files={Files}, Chunks={Chunks}, Vectors={Vectors}, FullyIndexedFiles={FullyIndexedFiles}",
                 result.EmbeddingConfigured, result.FileCount, result.ChunkCount, result.VectorCount, result.FullyIndexedFileCount);
         }
 
@@ -865,11 +865,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         {
             await RefreshVectorCacheAsync();
             await LoadOrRefreshVectorsAsync();
-            _logger.Debug("已更新本地 FTS 及可选向量索引: {FilePath}", relativePath);
+            _logger.Debug("Updated local FTS and optional vector index: {FilePath}", relativePath);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "增量更新知识库索引失败: {FilePath}", relativePath);
+            _logger.Error(ex, "Failed to incrementally update knowledge base index: {FilePath}", relativePath);
         }
     }
 
@@ -925,7 +925,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         if (generated.Count != chunks.Count || generated.Any(embedding => embedding == null))
         {
             _logger.Warning(
-                "Embedding 批量响应不完整：{FilePath} 返回 {Returned}/{Expected}，将逐条重试",
+                "Embedding batch response incomplete: {FilePath} returned {Returned}/{Expected}; will retry per item",
                 relativePath, generated.Count, chunks.Count);
             generated = new List<float[]?>();
             foreach (var text in embedTexts)
@@ -1203,7 +1203,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             ValidateContent(modifiedContent);
             await File.WriteAllTextAsync(fullPath, modifiedContent);
 
-            _logger.Information("SEARCH/REPLACE 更新文件成功: {Path}, 应用 {Count} 个修改块",
+            _logger.Information("SEARCH/REPLACE update succeeded: {Path}, applied {Count} block(s)",
                 relativePath, appliedCount);
 
             // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
@@ -1213,7 +1213,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "更新文件向量失败");
+                _logger.Warning(ex, "Failed to update file vector");
             }
 
             return new FileUpdateResult
@@ -1225,7 +1225,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "SEARCH/REPLACE 更新失败: {Path}", relativePath);
+            _logger.Error(ex, "SEARCH/REPLACE update failed: {Path}", relativePath);
             return new FileUpdateResult
             {
                 Success = false,

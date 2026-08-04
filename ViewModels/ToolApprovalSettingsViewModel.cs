@@ -2,6 +2,7 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -14,14 +15,17 @@ public sealed partial class ToolApprovalSettingsViewModel : ViewModelBase, IDisp
 {
     private AppConfig _observedConfig;
     private readonly ILocalizationService? _localizationService;
+    private readonly ILogger? _logger;
     private bool _disposed;
 
     public ToolApprovalSettingsViewModel(
         AppSettingsState state,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        ILogger? logger = null)
     {
         State = state;
         _localizationService = localizationService;
+        _logger = logger;
         Modes =
         [
             new(ToolApprovalMode.Balanced,
@@ -66,14 +70,20 @@ public sealed partial class ToolApprovalSettingsViewModel : ViewModelBase, IDisp
     private async Task RevokeAutoAllowedToolAsync(string? tool)
     {
         if (!string.IsNullOrEmpty(tool) && State.Config.AutoAllowedTools.Remove(tool))
+        {
+            _logger?.Information("ToolApprovalSettings user revoked auto-allowed tool: Tool={Tool}", tool);
             await State.SaveNowAsync();
+        }
     }
 
     [RelayCommand]
     private async Task RevokeTerminalAllowlistAsync(string? command)
     {
         if (!string.IsNullOrEmpty(command) && State.Config.TerminalAllowlist.Remove(command))
+        {
+            _logger?.Information("ToolApprovalSettings user revoked terminal allowlist entry: Command={Command}", command);
             await State.SaveNowAsync();
+        }
     }
 
     private ToolApprovalModeOption FindMode(ToolApprovalMode mode) =>

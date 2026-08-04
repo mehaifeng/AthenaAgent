@@ -128,7 +128,7 @@ public class OpenAIChatService : IChatService
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning(ex, "主对话执行策略刷新失败；下一请求将报告配置错误");
+                    Log.Warning(ex, "Main-conversation execution policy refresh failed; the next request will report a configuration error");
                     _mainModel = null;
                 }
                 return;
@@ -148,17 +148,17 @@ public class OpenAIChatService : IChatService
             var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, _config.Timeout);
             if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
             {
-                Log.Information("主对话使用供应商 {Provider}: {BaseUrl}", effective.ProviderDisplayName, effective.BaseUrl);
+                Log.Information("Main conversation using provider {Provider}: {BaseUrl}", effective.ProviderDisplayName, effective.BaseUrl);
             }
 
             _client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
             _chatClient = _client.GetChatClient(effective.Model);
             _mainModel = effective;
-            Log.Information("主对话客户端初始化成功，模型: {Model}", effective.Model);
+            Log.Information("Main conversation client initialized successfully, model: {Model}", effective.Model);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "OpenAI 客户端初始化失败");
+            Log.Error(ex, "OpenAI client initialization failed");
             _client = null;
             _chatClient = null;
             _mainModel = null;
@@ -189,7 +189,7 @@ public class OpenAIChatService : IChatService
         }
         if (runtimeFailure != null || runtime == null)
         {
-            Log.Error(runtimeFailure, "无法创建主对话请求运行时快照");
+            Log.Error(runtimeFailure, "Failed to create main-conversation request runtime snapshot");
             yield return $"[错误] {runtimeFailure?.Message ?? "主对话运行时不可用"}";
             yield break;
         }
@@ -200,14 +200,14 @@ public class OpenAIChatService : IChatService
             context.AddUserMessage(userMessage, attachments: attachments);
         }
 
-        Log.Information("开始处理消息，用户输入长度: {Length}, 附件数: {AttachmentCount}",
+        Log.Information("Starting message processing, user input length: {Length}, attachments: {AttachmentCount}",
             userMessage?.Length ?? 0,
             attachments?.Count ?? 0);
 
         // BuildMessages 会重建整个消息列表并对图片附件做 base64 编码，属于 CPU/内存密集的同步工作。
         // 放到后台线程执行，避免阻塞 UI 线程（context 是本次请求的独立克隆，无并发访问问题）。
         var messages = await Task.Run(() => BuildMessages(context, runtime), cancellationToken);
-        Log.Information("构建消息列表完成，消息数: {Count}", messages.Count);
+        Log.Information("Message list built, count: {Count}", messages.Count);
 
         var contentBuilder = new StringBuilder();
         using var conversationScope = _conversationSessionAccessor?.Enter(context.ConversationId);
@@ -257,7 +257,7 @@ public class OpenAIChatService : IChatService
                 yield break;
             }
 
-            Log.Warning(streamFailure, "主对话模型明确拒绝图像输入，开始图像识别降级链");
+            Log.Warning(streamFailure, "Main-conversation model explicitly rejected image input; starting image-recognition fallback chain");
             var description = await TryDescribeImagesAsync(context, runtime, cancellationToken);
             var fallbackMessages = await Task.Run(() => BuildMessages(context, runtime, includeImageBinary: false), cancellationToken);
             var fallbackInstruction = new UserChatMessage(string.IsNullOrWhiteSpace(description)
@@ -284,7 +284,7 @@ public class OpenAIChatService : IChatService
             }
         }
 
-        Log.Debug("StreamMessageAsync 迭代处理完成");
+        Log.Debug("StreamMessageAsync iteration completed");
     }
 
     private async Task<EffectiveRequestRuntimeSnapshot> CreateRequestRuntimeSnapshotAsync(
@@ -370,7 +370,7 @@ public class OpenAIChatService : IChatService
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // A deleted/unreadable workspace safely inherits App policy for this next request.
-                Log.Warning(ex, "工作区策略加载失败，回退 App 策略: {WorkspaceId}", context.WorkspaceId);
+                Log.Warning(ex, "Failed to load workspace policy, falling back to App policy: {WorkspaceId}", context.WorkspaceId);
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
@@ -529,7 +529,7 @@ public class OpenAIChatService : IChatService
             if (runtime.ContextPolicy.AutoCompress
                 && currentTokens > runtime.ContextPolicy.CompressionThresholdTokens)
             {
-                Log.Information("工具循环保守 Token 上界超过阈值 ({Tokens} > {Threshold})",
+                Log.Information("Tool-loop conservative token upper bound exceeded threshold ({Tokens} > {Threshold})",
                     currentTokens, runtime.ContextPolicy.CompressionThresholdTokens);
                 // A semantic Revision is the cache boundary. Transient retry instructions may
                 // change the prepared-request fingerprint without changing any compressible
@@ -603,16 +603,16 @@ public class OpenAIChatService : IChatService
                                     messages.AddRange(rebuildTail);
                                     requestWasRebuilt = true;
                                     onContextWarning?.Invoke(string.Empty);
-                                    Log.Information("工具循环事务化压缩已提交，按 ID 移除 {Count} 条消息", transition.MessageIds.Count);
+                                    Log.Information("Tool-loop transactional compression committed; removed {Count} messages by ID", transition.MessageIds.Count);
                                 }
                                 else
                                 {
-                                    Log.Warning("工具循环压缩提交失败且未修改请求上下文: {Error}", commit.Error);
+                                    Log.Warning("Tool-loop compression commit failed and request context is unchanged: {Error}", commit.Error);
                                 }
                             }
                             else
                             {
-                                Log.Warning("工具循环压缩候选验证失败且未修改状态: {Error}", validation.Error);
+                                Log.Warning("Tool-loop compression candidate validation failed without modifying state: {Error}", validation.Error);
                             }
                         }
                     }
@@ -621,7 +621,7 @@ public class OpenAIChatService : IChatService
                 else if (!notCompressibleSnapshots.Contains(cacheKey))
                 {
                     notCompressibleSnapshots.Add(cacheKey);
-                    Log.Warning("工具循环压缩管线不可用；当前 Revision 保持原上下文");
+                    Log.Warning("Tool-loop compression pipeline is unavailable; current revision keeps the original context");
                 }
 
                 if (!requestWasRebuilt && currentTokens > runtime.ContextPolicy.AvailableInputBudgetTokens)
@@ -657,7 +657,7 @@ public class OpenAIChatService : IChatService
 
             if (error != null)
             {
-                Log.Error("API 调用失败: {Error}", error);
+                Log.Error("API call failed: {Error}", error);
                 yield return $"[API 错误: {error}]";
                 yield break;
             }
@@ -759,13 +759,13 @@ public class OpenAIChatService : IChatService
                 }
             }
 
-            Log.Debug("流式响应第 {Iteration} 轮, {Tools} tool calls", iteration, toolCallBuilders.Count);
+            Log.Debug("Streaming response iteration {Iteration}, {Tools} tool calls", iteration, toolCallBuilders.Count);
             if (usage != null)
             {
                 var cached = usage.InputTokenDetails?.CachedTokenCount ?? 0;
                 var reasoning = usage.OutputTokenDetails?.ReasoningTokenCount ?? 0;
                 Log.Information(
-                    "用量 {Model}: 输入 {Input} (缓存 {Cached}), 输出 {Output} (推理 {Reasoning}), 合计 {Total} tokens (第 {Iteration} 轮)",
+                    "Usage {Model}: input {Input} (cached {Cached}), output {Output} (reasoning {Reasoning}), total {Total} tokens (iteration {Iteration})",
                     runtime.MainModel.Model,
                     usage.InputTokenCount, cached,
                     usage.OutputTokenCount, reasoning,
@@ -792,7 +792,7 @@ public class OpenAIChatService : IChatService
             }
             else
             {
-                Log.Warning("用量: 第 {Iteration} 轮未收到 usage（供应商可能未在流式响应中回报）", iteration);
+                Log.Warning("Usage: no usage received in iteration {Iteration} (the provider may not report it in streaming responses)", iteration);
             }
             var reasoningContent = assistantReasoning.Length > 0 ? assistantReasoning.ToString() : null;
             // 输出被 MaxTokens 截断时，toolCallBuilders 中的参数 JSON 很可能不完整；
@@ -808,7 +808,7 @@ public class OpenAIChatService : IChatService
                 if (truncatedByLength || incomplete.Count > 0)
                 {
                     var reason = truncatedByLength ? "finishReason=Length" : "参数 JSON 不完整";
-                    Log.Warning("流式响应工具调用疑似被截断（{Reason}），丢弃 {Count} 个可能不完整的工具调用: {Names}",
+                    Log.Warning("Streaming-response tool calls appear truncated ({Reason}); dropping {Count} possibly incomplete tool calls: {Names}",
                         reason, toolCallBuilders.Count,
                         string.Join(", ", toolCallBuilders.Values.Select(b => b.FunctionName)));
                     var retryInstruction = new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated (likely due to max token limit) and produced invalid JSON. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]");
@@ -874,7 +874,7 @@ public class OpenAIChatService : IChatService
                 return new ToolCallInfo(id, b.FunctionName, b.Arguments.ToString());
             }).ToList();
 
-            Log.Information("检测到 {Count} 个工具调用", toolCalls.Count);
+            Log.Information("Detected {Count} tool call(s)", toolCalls.Count);
 
             // 保存带工具调用的助手消息到上下文
             var toolCallsJson = JsonSerializer.Serialize(toolCalls);
@@ -905,7 +905,7 @@ public class OpenAIChatService : IChatService
                 foreach (var toolCall in toolCalls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    Log.Information("执行工具: {Name} | 参数: {Args}", toolCall.FunctionName, toolCall.Arguments);
+                    Log.Information("Executing tool: {Name} | args: {Args}", toolCall.FunctionName, toolCall.Arguments);
                     using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
                     using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
                     // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
@@ -920,7 +920,7 @@ public class OpenAIChatService : IChatService
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var resultJson = result.ToJson();
-                    Log.Information("工具 {Name} 执行完成 | 结果预览: {Result}",
+                    Log.Information("Tool {Name} execution completed | result preview: {Result}",
                         toolCall.FunctionName,
                         resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
 
@@ -986,13 +986,13 @@ public class OpenAIChatService : IChatService
                 }
                 catch (Exception repairEx)
                 {
-                    Log.Warning(repairEx, "修复被中断的工具轮失败，会话上下文可能不再满足 tool_calls 配对约束");
+                    Log.Warning(repairEx, "Failed to repair an interrupted tool round; the conversation context may no longer satisfy tool_calls pairing constraints");
                 }
                 throw;
             }
         }
 
-        Log.Debug("循环自然结束，迭代次数: {Iteration}", iteration);
+        Log.Debug("Loop ended naturally, iterations: {Iteration}", iteration);
     }
 
     private static AssistantChatMessage CreateAssistantMessageWithToolCalls(
@@ -1113,7 +1113,7 @@ public class OpenAIChatService : IChatService
         {
             foreach (var tool in _functionRegistry!.GetToolDefinitions().OfType<ChatTool>())
                 options.Tools.Add(tool);
-            Log.Debug("主对话携带已注册工具定义");
+            Log.Debug("Main conversation carries registered tool definitions");
             return;
         }
 
@@ -1291,7 +1291,7 @@ public class OpenAIChatService : IChatService
                         }
                         catch (Exception ex)
                         {
-                            Log.Warning(ex, "解析工具调用 JSON 失败");
+                            Log.Warning(ex, "Failed to parse tool call JSON");
                         }
                     }
                     messages.Add(assistantMsg);
@@ -1718,7 +1718,7 @@ public class OpenAIChatService : IChatService
     {
         if (runtime.ImageRecognitionModel is not { } effective)
         {
-            Log.Information("请求快照中没有可用的图像识别模型，降级为仅发送附件元数据");
+            Log.Information("No image-recognition model available in the request snapshot; falling back to sending attachment metadata only");
             return null;
         }
 
@@ -1757,7 +1757,7 @@ public class OpenAIChatService : IChatService
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "图像识别模型降级失败，继续仅发送附件元数据");
+            Log.Warning(ex, "Image-recognition model fallback failed; continuing with attachment metadata only");
             return null;
         }
     }
@@ -1825,12 +1825,12 @@ public class OpenAIChatService : IChatService
 
             var content = response.Value.Content[0].Text;
 
-            Log.Information("API 连接测试成功");
+            Log.Information("API connection test succeeded");
             return (true, _localizationService?.GetString("History.ConnectionSuccess"));
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "API 连接测试失败");
+            Log.Error(ex, "API connection test failed");
             return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
         }
     }
@@ -1880,7 +1880,7 @@ public class OpenAIChatService : IChatService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "音频输出测试失败");
+            Log.Error(ex, "Audio output test failed");
             return new AudioOutputTestResult
             {
                 Success = false,
@@ -1956,7 +1956,7 @@ public class OpenAIChatService : IChatService
         }
         catch (ClientResultException ex)
         {
-            Log.Error(ex, "独立音频输出 SDK 请求失败，Provider={Provider}, Model={Model}, Status={Status}",
+            Log.Error(ex, "Standalone audio output SDK request failed, Provider={Provider}, Model={Model}, Status={Status}",
                 audioConfig.Provider, audioConfig.Model, ex.Status);
             return (null, string.Format(
                 GetLocalized("Audio.RequestFailed", "Audio output request failed: {0}"),
@@ -1964,7 +1964,7 @@ public class OpenAIChatService : IChatService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "独立音频输出生成失败");
+            Log.Error(ex, "Standalone audio output generation failed");
             return (null, string.Format(GetLocalized("Audio.GenerationFailed", "Audio output generation failed: {0}"), ex.Message));
         }
     }
@@ -2238,7 +2238,7 @@ public class OpenAIChatService : IChatService
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "保存 assistant 音频附件失败");
+            Log.Warning(ex, "Failed to save assistant audio attachment");
             return (null, string.Format(GetLocalized("Audio.SaveFailed", "Failed to save audio output: {0}"), ex.Message));
         }
     }

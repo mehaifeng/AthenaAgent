@@ -119,7 +119,7 @@ public partial class TerminalPanelViewModel : ViewModelBase, IDisposable
         {
             _logger.Error(
                 ex,
-                "创建终端失败: Scope={Scope}, WorkingDirectory={WorkingDirectory}",
+                "Failed to create terminal: Scope={Scope}, WorkingDirectory={WorkingDirectory}",
                 ActiveScopeKey,
                 ActiveWorkingDirectory);
         }

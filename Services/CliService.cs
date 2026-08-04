@@ -29,7 +29,7 @@ public class CliService : ICliService
         var argsForLog = argsText.Length > maxArgsLogLength
             ? argsText.Substring(0, maxArgsLogLength) + $"…(+{argsText.Length - maxArgsLogLength} chars)"
             : argsText;
-        _logger.Information("执行命令: {Command} {Arguments} (dir={Dir}, wait={Wait})",
+        _logger.Information("Executing command: {Command} {Arguments} (dir={Dir}, wait={Wait})",
             command, argsForLog, workingDirectory ?? "default", waitForExit);
 
         try
@@ -80,7 +80,7 @@ public class CliService : ICliService
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                _logger.Warning("命令执行超时被强制终止: {Command} {Arguments} (timeout={Timeout}s)", command, argsForLog, effectiveTimeout);
+                _logger.Warning("Command execution forcibly terminated due to timeout: {Command} {Arguments} (timeout={Timeout}s)", command, argsForLog, effectiveTimeout);
                 return new CliResult
                 {
                     ExitCode = -2,

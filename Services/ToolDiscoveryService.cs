@@ -198,7 +198,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             await LoadOrGenerateToolVectorsAsync();
 
             _initialized = true;
-            _logger.Information("工具发现服务初始化完成，共 {Count} 个工具", _allTools.Count);
+            _logger.Information("Tool discovery service initialized, {Count} tool(s) total", _allTools.Count);
         }
         finally
         {
@@ -220,7 +220,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             // 如果 Embedding 服务不可用，返回空
             if (!_embeddingService.IsConfigured || _toolVectors.Count == 0)
             {
-                _logger.Warning("Embedding 服务不可用或工具向量为空，返回空工具列表");
+                _logger.Warning("Embedding service unavailable or tool vectors empty; returning empty tool list");
                 return results;
             }
 
@@ -228,7 +228,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             var intentEmbedding = await _embeddingService.GenerateEmbeddingAsync(intent);
             if (intentEmbedding == null)
             {
-                _logger.Warning("生成意图向量失败");
+                _logger.Warning("Failed to generate intent vector");
                 return results;
             }
 
@@ -252,15 +252,15 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
                 if (toolDef != null)
                 {
                     results.Add(toolDef);
-                    _logger.Debug("发现工具: {Name}, 相似度: {Score:F3}", toolDef.Name, item.Similarity);
+                    _logger.Debug("Discovered tool: {Name}, similarity: {Score:F3}", toolDef.Name, item.Similarity);
                 }
             }
 
-            _logger.Information("工具发现完成: intent='{Intent}', 找到 {Count} 个工具", intent, results.Count);
+            _logger.Information("Tool discovery completed: intent='{Intent}', found {Count} tool(s)", intent, results.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "工具发现失败");
+            _logger.Error(ex, "Tool discovery failed");
         }
 
         return results;
@@ -415,7 +415,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             using var command = new SqliteCommand(createTableSql, connection);
             await command.ExecuteNonQueryAsync();
 
-            _logger.Debug("工具向量数据库初始化完成");
+            _logger.Debug("Tool vector database initialized");
         }
         finally
         {
@@ -427,7 +427,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
     {
         if (!_embeddingService.IsConfigured)
         {
-            _logger.Warning("Embedding 服务未配置，跳过工具向量生成");
+            _logger.Warning("Embedding service not configured; skipping tool vector generation");
             return;
         }
 
@@ -441,12 +441,12 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             if (storedVectors.Count == _allTools.Count)
             {
                 _toolVectors = storedVectors;
-                _logger.Information("从数据库加载 {Count} 个工具向量", _toolVectors.Count);
+                _logger.Information("Loaded {Count} tool vector(s) from database", _toolVectors.Count);
                 return;
             }
 
             // 重新生成所有向量
-            _logger.Information("开始生成工具向量...");
+            _logger.Information("Starting tool vector generation...");
 
             _toolVectors.Clear();
             var embeddingTexts = _allTools.Select(t => t.GetEmbeddingText()).ToList();
@@ -467,7 +467,7 @@ public class ToolDiscoveryService : IToolDiscoveryService, IDisposable
             // 保存到数据库
             await SaveToolVectorsToDbAsync();
 
-            _logger.Information("工具向量生成完成，共 {Count} 个", _toolVectors.Count);
+            _logger.Information("Tool vector generation completed, {Count} total", _toolVectors.Count);
         }
         finally
         {

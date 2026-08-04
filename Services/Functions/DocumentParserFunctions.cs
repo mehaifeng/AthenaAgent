@@ -57,7 +57,7 @@ public class DocumentParserFunctions
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "parse_office_document 解析失败: {FileName}", fileName);
+            _logger.Warning(ex, "parse_office_document failed: {FileName}", fileName);
             return FunctionResult.FailureResult($"Document parsing failed: {ex.Message}");
         }
 

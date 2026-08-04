@@ -71,7 +71,7 @@ public class ConfigurationFunctions
             // 同步更新 ChatService
             ChatService.UpdateConfig(config);
 
-            _logger.Information("Function: 修改配置 {Key} = {Value}", key, value);
+            _logger.Information("Function: updated configuration {Key} = {Value}", key, value);
 
             return FunctionResult.SuccessResult(
                 $"已更新 {key} = {value}",
@@ -83,7 +83,7 @@ public class ConfigurationFunctions
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "修改配置失败");
+            _logger.Error(ex, "Failed to update configuration");
             return FunctionResult.FailureResult($"修改失败: {ex.Message}");
         }
     }
@@ -162,13 +162,13 @@ public class ConfigurationFunctions
                 }
             }
 
-            _logger.Information("Function: 获取配置 section={Section}", section ?? "All");
+            _logger.Information("Function: retrieved configuration section={Section}", section ?? "All");
 
             return FunctionResult.SuccessResult("获取配置成功", result);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "获取配置失败");
+            _logger.Error(ex, "Failed to retrieve configuration");
             return FunctionResult.FailureResult($"获取失败: {ex.Message}");
         }
     }

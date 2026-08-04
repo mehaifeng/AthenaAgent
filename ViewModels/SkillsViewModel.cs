@@ -75,7 +75,7 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
         var active = snapshot.EffectiveSkills.Count;
         var invalid = snapshot.Skills.Count(skill => skill.HasErrors);
         var disabled = snapshot.Skills.Count(skill => !skill.IsEnabled);
-        Status = $"{active} active · {disabled} disabled · {invalid} issues";
+        Status = string.Format(GetString("Skills.Status.Summary", "{0} active · {1} disabled · {2} issues"), active, disabled, invalid);
     }
 
     [RelayCommand]
@@ -216,10 +216,27 @@ public partial class SkillItemViewModel : ViewModelBase
         _onEnabledChanged = onEnabledChanged;
     }
 
-    public string SourceLabel => Skill.SourceScope == SkillSourceScope.Project ? "Project" : "Athena";
-    public string StatusLabel => Skill.HasErrors ? "Invalid" : !IsEnabled ? "Disabled" : !Skill.IsEffective ? "Shadowed" : "Active";
+    public string SourceLabel => Skill.SourceScope == SkillSourceScope.Project
+        ? Loc("SubAgent.Source.Project", "Project")
+        : Loc("SubAgent.Source.App", "App");
+    public string StatusLabel => Skill.HasErrors
+        ? Loc("SubAgent.StatusBadge.Invalid", "Invalid")
+        : !IsEnabled
+            ? Loc("SubAgent.StatusBadge.Disabled", "Disabled")
+            : !Skill.IsEffective
+                ? Loc("SubAgent.StatusBadge.Shadowed", "Shadowed")
+                : Loc("SubAgent.StatusBadge.Active", "Active");
     public string Diagnostics => string.Join(Environment.NewLine, Skill.ValidationIssues.Select(issue => issue.Message));
-    public string Resources => Skill.ResourceDirectories.Count == 0 ? "No bundled resources" : string.Join(", ", Skill.ResourceDirectories);
+    public string Resources => Skill.ResourceDirectories.Count == 0
+        ? Loc("SubAgent.Resources.Empty", "No bundled resources")
+        : string.Join(", ", Skill.ResourceDirectories);
+
+    private static string Loc(string key, string fallback)
+    {
+        var svc = App.Services?.GetService(typeof(Athena.UI.Services.Interfaces.ILocalizationService))
+            as Athena.UI.Services.Interfaces.ILocalizationService;
+        return svc?.GetString(key, fallback) ?? fallback;
+    }
     public bool CanDelete => true;
 
     partial void OnIsEnabledChanged(bool value) => _ = _onEnabledChanged(this);

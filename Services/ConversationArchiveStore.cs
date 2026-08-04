@@ -62,13 +62,13 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
                 if (ConversationPersistenceRecovery.Repair(item))
                 {
                     repairedItems.Add(item);
-                    _logger.Warning("已幂等修复压缩会话持久化不变量: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
+                    _logger.Warning("Idempotently repaired compression session persistence invariant: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
                 }
                 items.Add(item);
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "读取对话记录失败");
+                _logger.Warning(ex, "Failed to read conversation record");
             }
         }
 
@@ -93,14 +93,14 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             var item = JsonSerializer.Deserialize<ConversationHistoryItem>(payload, JsonOptions);
             if (item != null && ConversationPersistenceRecovery.Repair(item))
             {
-                _logger.Warning("已幂等修复压缩会话持久化不变量: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
+                _logger.Warning("Idempotently repaired compression session persistence invariant: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
                 await SaveAsync(item);
             }
             return item;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载对话历史失败: {Id}", id);
+            _logger.Error(ex, "Failed to load conversation history: {Id}", id);
             return null;
         }
     }
@@ -233,7 +233,7 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载主对话草稿失败");
+            _logger.Error(ex, "Failed to load main conversation draft");
             return null;
         }
     }

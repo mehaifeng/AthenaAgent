@@ -358,21 +358,21 @@
                                 IsVisible="{Binding SelectedEditorTab.CanEdit}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <PathIcon Data="{StaticResource AthenaIconEdit}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="编辑"/>
+                                <TextBlock Text="{loc:Loc Workspace.Editor.ModeEdit}"/>
                             </StackPanel>
                         </Button>
                         <Button Classes="editor-command" Command="{Binding SetEditorModeCommand}" CommandParameter="Preview"
                                 IsVisible="{Binding SelectedEditorTab.CanPreview}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <PathIcon Data="{StaticResource AthenaIconPreview}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="预览"/>
+                                <TextBlock Text="{loc:Loc Workspace.Editor.ModePreview}"/>
                             </StackPanel>
                         </Button>
                         <Button Classes="editor-command" Command="{Binding SetEditorModeCommand}" CommandParameter="Diff"
                                 IsVisible="{Binding SelectedEditorTab.CanDiff}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <PathIcon Data="{StaticResource AthenaIconBranch}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="Diff"/>
+                                <TextBlock Text="{loc:Loc Workspace.Editor.ModeDiff}"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="SaveEditorButton" Classes="editor-command"
@@ -380,7 +380,7 @@
                                 IsVisible="{Binding SelectedEditorTab.CanModify}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <PathIcon Data="{StaticResource AthenaIconSave}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="保存"/>
+                                <TextBlock Text="{loc:Loc Workspace.Editor.Save}"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="CancelEditorButton" Classes="editor-command"
@@ -388,11 +388,11 @@
                                 IsVisible="{Binding SelectedEditorTab.CanModify}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <PathIcon Data="{StaticResource AthenaIconCancel}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="取消"/>
+                                <TextBlock Text="{loc:Loc Workspace.Editor.Cancel}"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
-                    <Button Grid.Column="1" Classes="editor-command" ToolTip.Tip="关闭编辑区" Command="{Binding CloseEditorPaneCommand}">
+                    <Button Grid.Column="1" Classes="editor-command" ToolTip.Tip="{loc:Loc Workspace.Editor.Tip.CloseEditor}" Command="{Binding CloseEditorPaneCommand}">
                         <PathIcon Data="{StaticResource AthenaIconClose}" Width="10" Height="10" Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
                 </Grid>
@@ -416,7 +416,7 @@
                                 <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"/>
                                 <TextBlock Text="●" Foreground="{DynamicResource SemiOrange5}" IsVisible="{Binding IsDirty}"
                                            VerticalAlignment="Center"/>
-                                <Button ToolTip.Tip="关闭文件"
+                                <Button ToolTip.Tip="{loc:Loc Workspace.Editor.Tip.CloseFile}"
                                         Classes="editor-tab-close"
                                         Command="{Binding $parent[UserControl].DataContext.CloseEditorTabCommand}"
                                         CommandParameter="{Binding}">
@@ -444,7 +444,7 @@
                                       RowDefinitions="Auto,*">
                                     <Border Padding="8,5" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SemiGreyLowBrush}">
                                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                                            <TextBlock Text="HEAD  ↔  当前编辑缓冲区" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{loc:Loc Workspace.Diff.Header}" FontSize="{DynamicResource App.FontSize.Body}" FontWeight="SemiBold"/>
                                             <TextBlock Grid.Column="1" Text="{Binding DiffAddedCount, StringFormat=+{0}}"
                                                        Foreground="{DynamicResource SemiGreen6}" FontSize="{DynamicResource App.FontSize.Body}"/>
                                             <TextBlock Grid.Column="2" Text="{Binding DiffRemovedCount, StringFormat=−{0}}"
@@ -589,27 +589,27 @@
                                            Margin="3,1,0,2"/>
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
-                                        <MenuItem Header="打开"
+                                        <MenuItem Header="{loc:Loc Workspace.FileMenu.Open}"
                                                   Command="{Binding $parent[UserControl].DataContext.OpenFileCommand}"
                                                   CommandParameter="{Binding}">
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconOpenFile}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="复制路径"
+                                        <MenuItem Header="{loc:Loc Workspace.FileMenu.CopyPath}"
                                                   Command="{Binding $parent[UserControl].DataContext.CopyRelativePathCommand}"
                                                   CommandParameter="{Binding}">
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="复制绝对路径"
+                                        <MenuItem Header="{loc:Loc Workspace.FileMenu.CopyAbsolutePath}"
                                                   Command="{Binding $parent[UserControl].DataContext.CopyAbsolutePathCommand}"
                                                   CommandParameter="{Binding}">
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="重命名"
+                                        <MenuItem Header="{loc:Loc Workspace.FileMenu.Rename}"
                                                   Command="{Binding $parent[UserControl].DataContext.BeginRenameFileCommand}"
                                                   CommandParameter="{Binding}">
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                         </MenuItem>
-                                        <MenuItem Header="删除"
+                                        <MenuItem Header="{loc:Loc Workspace.FileMenu.Delete}"
                                                   Command="{Binding $parent[UserControl].DataContext.DeleteFileCommand}"
                                                   CommandParameter="{Binding}">
                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>

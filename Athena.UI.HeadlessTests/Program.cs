@@ -361,7 +361,7 @@ if (!pinnedMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the conversation overflow button did not open its menu.");
 var pinnedMenuItems = pinnedMenuFlyout.Items.OfType<MenuItem>().ToList()
     ?? throw new InvalidOperationException("Pinned conversation menu flyout was not created.");
-if (!pinnedMenuItems.Select(item => item.Header?.ToString()).SequenceEqual(["重命名", "取消置顶", "分支", "导出", "删除"])
+if (!pinnedMenuItems.Select(item => item.Header?.ToString()).SequenceEqual(["重命名", "Unpin", "分支", "导出", "删除"])
     || pinnedMenuItems.Any(item => item.Icon == null))
     throw new InvalidOperationException("Pinned conversation menu commands or icons are incomplete.");
 pinnedMenuFlyout.Hide();

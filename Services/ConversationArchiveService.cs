@@ -127,7 +127,7 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
         File.Move(tempFilePath, finalFilePath, overwrite: true);
         await _channel.Writer.WriteAsync(finalFilePath, ct);
         ArchiveStaged?.Invoke(this, new ConversationArchiveResultEventArgs(stagedSnapshot, finalFilePath));
-        _logger.Information("对话归档已写入待处理队列: {Path}", finalFilePath);
+        _logger.Information("Conversation archive written to pending queue: {Path}", finalFilePath);
     }
 
     private void EnqueuePendingFiles()
@@ -169,7 +169,7 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             var historyItem = await UpsertFromSnapshotAsync(snapshot, ct);
             File.Delete(stagedFilePath);
             ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, stagedFilePath, historyItem));
-            _logger.Information("后台归档完成: {HistoryId}", historyItem.Id);
+            _logger.Information("Background archive completed: {HistoryId}", historyItem.Id);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -182,12 +182,12 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             {
                 File.Delete(stagedFilePath);
                 ArchiveCompleted?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, stagedFilePath, current));
-                _logger.Information(ex, "旧 Revision 归档已安全淘汰: {HistoryId}, Incoming={Incoming}, Current={Current}",
+                _logger.Information(ex, "Stale revision archive safely retired: {HistoryId}, Incoming={Incoming}, Current={Current}",
                     current.Id, snapshot.Revision, current.Revision);
                 return;
             }
 
-            _logger.Warning(ex, "归档 Revision 冲突且无法定位当前会话，保留待处理文件: {Path}", stagedFilePath);
+            _logger.Warning(ex, "Archive revision conflict and current session cannot be located; keeping pending file: {Path}", stagedFilePath);
         }
         catch (Exception ex)
         {
@@ -196,7 +196,7 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             {
                 ArchiveFailed?.Invoke(this, new ConversationArchiveResultEventArgs(snapshot, stagedFilePath, exception: ex));
             }
-            _logger.Error(ex, "后台归档失败，待重试文件已保留: {Path}", stagedFilePath);
+            _logger.Error(ex, "Background archive failed; pending file kept for retry: {Path}", stagedFilePath);
         }
     }
 

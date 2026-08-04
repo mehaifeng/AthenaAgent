@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Interfaces;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -127,8 +128,11 @@ public partial class SubAgentViewModel : ObservableObject
     private int _owlFrameIndex;
     private bool _owlFacingLeft;
 
-    public SubAgentViewModel()
+    private readonly ILocalizationService? _localizationService;
+
+    public SubAgentViewModel(ILocalizationService? localizationService = null)
     {
+        _localizationService = localizationService;
         var h = Math.Abs(Id.GetHashCode());
         _wanderX = (h % 31) - 15;
         _wanderY = ((h / 31) % 27) - 13;
@@ -264,17 +268,20 @@ public partial class SubAgentViewModel : ObservableObject
     /// <summary>小镇中展示在猫头鹰头部的业务状态；成功后不再显示，避免干扰归巢画面。</summary>
     public string StatusLabel => State switch
     {
-        SubAgentState.Pending => "等待执行",
+        SubAgentState.Pending => L("SubAgent.Status.Pending", "Pending"),
         SubAgentState.Running => RunningStatusLabel(),
         SubAgentState.Error => CurrentAction switch
         {
-            "timeout" => "执行超时",
-            "incomplete" => "超过最大步数",
-            _ => "执行失败"
+            "timeout" => L("SubAgent.Status.Timeout", "Timed out"),
+            "incomplete" => L("SubAgent.Status.MaxSteps", "Exceeded max steps"),
+            _ => L("SubAgent.Status.Failed", "Failed")
         },
-        SubAgentState.Cancelled => "已取消",
+        SubAgentState.Cancelled => L("SubAgent.Status.Cancelled", "Cancelled"),
         _ => string.Empty
     };
+
+    private string L(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
 
     public bool HasStatusLabel => !string.IsNullOrWhiteSpace(StatusLabel);
 
@@ -384,17 +391,17 @@ public partial class SubAgentViewModel : ObservableObject
 
     private string RunningStatusLabel()
     {
-        if (CurrentAction.StartsWith("run_browser_task", StringComparison.Ordinal)) return "浏览器任务中";
-        if (CurrentAction.StartsWith("web_search", StringComparison.Ordinal)) return "网页搜索中";
-        if (CurrentAction.StartsWith("recall_from_memory", StringComparison.Ordinal)) return "记忆检索中";
-        if (CurrentAction.StartsWith("create_new_memory", StringComparison.Ordinal)) return "记忆写入中";
-        if (CurrentAction.StartsWith("execute_terminal_command", StringComparison.Ordinal)) return "终端执行中";
-        if (CurrentAction.StartsWith("generate_image", StringComparison.Ordinal)) return "图像生成中";
+        if (CurrentAction.StartsWith("run_browser_task", StringComparison.Ordinal)) return L("SubAgent.Action.BrowserTask", "Browser task in progress");
+        if (CurrentAction.StartsWith("web_search", StringComparison.Ordinal)) return L("SubAgent.Action.WebSearch", "Web search in progress");
+        if (CurrentAction.StartsWith("recall_from_memory", StringComparison.Ordinal)) return L("SubAgent.Action.RecallMemory", "Recalling memory");
+        if (CurrentAction.StartsWith("create_new_memory", StringComparison.Ordinal)) return L("SubAgent.Action.CreateMemory", "Writing memory");
+        if (CurrentAction.StartsWith("execute_terminal_command", StringComparison.Ordinal)) return L("SubAgent.Action.Terminal", "Running terminal command");
+        if (CurrentAction.StartsWith("generate_image", StringComparison.Ordinal)) return L("SubAgent.Action.GenerateImage", "Generating image");
         if (CurrentAction.StartsWith("view_self_configuration", StringComparison.Ordinal)
-            || CurrentAction.StartsWith("modify_self_configuration", StringComparison.Ordinal)) return "配置处理中";
+            || CurrentAction.StartsWith("modify_self_configuration", StringComparison.Ordinal)) return L("SubAgent.Action.Config", "Processing configuration");
         if (CurrentAction.StartsWith("create_task", StringComparison.Ordinal)
             || CurrentAction.StartsWith("list_tasks", StringComparison.Ordinal)
-            || CurrentAction.StartsWith("cancel_task", StringComparison.Ordinal)) return "任务处理中";
+            || CurrentAction.StartsWith("cancel_task", StringComparison.Ordinal)) return L("SubAgent.Action.Task", "Processing task");
         if (CurrentAction.StartsWith("get_file_info", StringComparison.Ordinal)
             || CurrentAction.StartsWith("search_in_file", StringComparison.Ordinal)
             || CurrentAction.StartsWith("get_document_outline", StringComparison.Ordinal)
@@ -405,15 +412,15 @@ public partial class SubAgentViewModel : ObservableObject
             || CurrentAction.StartsWith("list_system_directory", StringComparison.Ordinal)
             || CurrentAction.StartsWith("create_directory", StringComparison.Ordinal)
             || CurrentAction.StartsWith("move_system_file", StringComparison.Ordinal)
-            || CurrentAction.StartsWith("copy_system_file", StringComparison.Ordinal)) return "文件处理中";
+            || CurrentAction.StartsWith("copy_system_file", StringComparison.Ordinal)) return L("SubAgent.Action.File", "Processing file");
 
         return Zone switch
         {
-            SubAgentZone.Files => "文件处理中",
-            SubAgentZone.Web => "网页任务中",
-            SubAgentZone.Library => "记忆处理中",
-            SubAgentZone.Workshop => "任务处理中",
-            _ => "思考中"
+            SubAgentZone.Files => L("SubAgent.Action.File", "Processing file"),
+            SubAgentZone.Web => L("SubAgent.Action.Web", "Web task in progress"),
+            SubAgentZone.Library => L("SubAgent.Action.Memory", "Processing memory"),
+            SubAgentZone.Workshop => L("SubAgent.Action.Tools", "Processing tools"),
+            _ => L("SubAgent.Action.Thinking", "Thinking")
         };
     }
 

@@ -30,7 +30,7 @@ public class PromptService : IPromptService
             "prompts.json"
         );
         _ = LoadCustomPromptsAsync();
-        Log.Information("Prompt 服务初始化");
+        Log.Information("Prompt service initialized");
     }
 
     /// <summary>
@@ -66,7 +66,7 @@ public class PromptService : IPromptService
         {
             PromptUpdated?.Invoke(this, type);
         }
-        Log.Information("Prompt 已重新加载");
+        Log.Information("Prompts reloaded");
     }
 
     /// <summary>
@@ -91,11 +91,11 @@ public class PromptService : IPromptService
                     }
                 }
             }
-            Log.Information("加载了 {Count} 个自定义 Prompt", _customPrompts.Count);
+            Log.Information("Loaded {Count} custom prompt(s)", _customPrompts.Count);
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "加载自定义 Prompts 失败");
+            Log.Warning(ex, "Failed to load custom prompts");
         }
     }
 }

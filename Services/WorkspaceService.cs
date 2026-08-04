@@ -74,16 +74,16 @@ public class WorkspaceService : IWorkspaceService
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning(ex, "加载工作区配置失败: {File}", file);
+                    _logger.Warning(ex, "Failed to load workspace configuration: {File}", file);
                 }
             }
 
             result = result.OrderBy(w => w.Name).ToList();
-            _logger.Information("加载了 {Count} 个工作区", result.Count);
+            _logger.Information("Loaded {Count} workspace(s)", result.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载工作区列表失败");
+            _logger.Error(ex, "Failed to load workspace list");
         }
 
         return result;
@@ -111,7 +111,7 @@ public class WorkspaceService : IWorkspaceService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载工作区失败: {Id}", id);
+            _logger.Error(ex, "Failed to load workspace: {Id}", id);
             return null;
         }
     }
@@ -125,7 +125,7 @@ public class WorkspaceService : IWorkspaceService
         var json = JsonSerializer.Serialize(workspace, JsonOptions);
         await WriteAtomicAsync(filePath, json);
 
-        _logger.Information("保存工作区: {Id} - {Name}", workspace.Id, workspace.Name);
+        _logger.Information("Saved workspace: {Id} - {Name}", workspace.Id, workspace.Name);
         WorkspacePolicyChanged?.Invoke(this, workspace.Id);
     }
 
@@ -157,7 +157,7 @@ public class WorkspaceService : IWorkspaceService
         workspace.KnowledgeFileName = persisted.KnowledgeFileName;
         workspace.UpdatedAt = committedAt;
         workspace.ContextPolicyOverride = CloneContextPolicy(contextPolicyOverride);
-        _logger.Information("保存工作区上下文策略: {Id}", safeId);
+        _logger.Information("Saved workspace context policy: {Id}", safeId);
         WorkspacePolicyChanged?.Invoke(this, safeId);
     }
 
@@ -235,13 +235,13 @@ public class WorkspaceService : IWorkspaceService
                 SetActiveWorkspace(null);
             }
 
-            _logger.Information("删除工作区: {Id}", id);
+            _logger.Information("Deleted workspace: {Id}", id);
             WorkspacePolicyChanged?.Invoke(this, safeId);
             return Task.FromResult(true);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "删除工作区失败: {Id}", id);
+            _logger.Error(ex, "Failed to delete workspace: {Id}", id);
             return Task.FromResult(false);
         }
     }
@@ -268,7 +268,7 @@ public class WorkspaceService : IWorkspaceService
     {
         _activeWorkspace = workspace;
         ActiveWorkspaceChanged?.Invoke(this, workspace);
-        _logger.Information("激活工作区: {Name}", workspace?.Name ?? "(none)");
+        _logger.Information("Activated workspace: {Name}", workspace?.Name ?? "(none)");
     }
 
     public string GetKnowledgeFilePath(WorkspaceProfile workspace)
@@ -317,7 +317,7 @@ public class WorkspaceService : IWorkspaceService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "构建工作区知识上下文失败: {WorkspaceId}", workspaceId);
+            _logger.Error(ex, "Failed to build workspace knowledge context: {WorkspaceId}", workspaceId);
             return null;
         }
     }
@@ -336,7 +336,7 @@ public class WorkspaceService : IWorkspaceService
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "读取工作区知识文件以检查预算失败: {Path}", fullPath);
+            _logger.Warning(ex, "Failed to read workspace knowledge file for budget check: {Path}", fullPath);
             return;
         }
 
@@ -348,7 +348,7 @@ public class WorkspaceService : IWorkspaceService
         var compressed = await _knowledgeCompressor.CompressAsync(content, contentBudget, ct);
         if (string.IsNullOrWhiteSpace(compressed))
         {
-            _logger.Warning("工作区知识超出预算但压缩未成功，保留原文件: {Path} ({Tokens}/{Budget})",
+            _logger.Warning("Workspace knowledge exceeds budget but compression failed; keeping original file: {Path} ({Tokens}/{Budget})",
                 fullPath, originalTokens, budget);
             return;
         }
@@ -357,12 +357,12 @@ public class WorkspaceService : IWorkspaceService
         try
         {
             await File.WriteAllTextAsync(fullPath, bounded, ct);
-            _logger.Information("工作区知识文件已压缩: {Path} ({Before} -> {After}, budget {Budget})",
+            _logger.Information("Workspace knowledge file compressed: {Path} ({Before} -> {After}, budget {Budget})",
                 fullPath, originalTokens, ConversationContext.EstimateTokens(bounded), contentBudget);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "写入压缩后的工作区知识文件失败: {Path}", fullPath);
+            _logger.Error(ex, "Failed to write compressed workspace knowledge file: {Path}", fullPath);
         }
     }
 

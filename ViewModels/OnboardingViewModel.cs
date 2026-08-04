@@ -227,7 +227,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         {
             if (ReferenceEquals(cts, _modelOptionsCts))
             {
-                Log.Error(ex, "引导页刷新模型列表失败");
+                Log.Error(ex, "Onboarding page refresh model list failed");
                 ModelOptionsStatus = GetString("Onboarding.LoadModelsFailed", "Failed to load model list");
                 ModelOptionsStatusDetails = ex.Message;
             }
@@ -273,7 +273,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "引导页测试连接失败");
+            Log.Error(ex, "Onboarding page test connection failed");
             ConnectionStatus = GetString("Onboarding.TestFailed", "Connection failed");
             ConnectionStatusDetails = ex.Message;
         }
@@ -289,7 +289,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         if (CurrentStep == 0 && (string.IsNullOrWhiteSpace(PrimaryProvider.ApiKey)
                                  || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model)))
         {
-            ConnectionStatus = "> 请先配置 API Key 和主对话模型";
+            ConnectionStatus = "> " + GetString("Onboarding.NextRequiredFields", "Please configure the primary provider, API key, and model first.");
             return;
         }
         if (CurrentStep < 2) CurrentStep++;
@@ -309,7 +309,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             || string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model))
         {
             CurrentStep = 0;
-            ConnectionStatus = "> 主对话供应商、API Key 和模型是必填项";
+            ConnectionStatus = "> " + GetString("Onboarding.NextRequiredFields", "Please configure the primary provider, API key, and model first.");
             return;
         }
         NormalizeRoleAssignments(reuseMainModel: true);
@@ -340,7 +340,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "引导页保存配置失败");
+            Log.Error(ex, "Onboarding page save configuration failed");
         }
     }
 

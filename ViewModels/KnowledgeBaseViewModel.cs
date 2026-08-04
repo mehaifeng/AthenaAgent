@@ -215,7 +215,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         if (!Directory.Exists(_rootPath))
         {
             Directory.CreateDirectory(_rootPath);
-            _logger.Information("初始化: 创建知识库根目录 {Path}", _rootPath);
+            _logger.Information("Initialization: creating knowledge base root directory {Path}", _rootPath);
         }
 
         await RefreshFilesAsync();
@@ -243,7 +243,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "加载文件失败: {File}", absolutePath);
+            _logger.Error(ex, "Failed to load file: {File}", absolutePath);
             EditingFileContent = string.Format(GetString("Knowledge.LoadFailed", "Failed to load: {0}"), ex.Message);
         }
     }
@@ -278,7 +278,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "构建文件树失败");
+            _logger.Error(ex, "Failed to build file tree");
         }
     }
 
@@ -320,6 +320,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
     private async Task NewFolderAsync()
     {
         if (string.IsNullOrWhiteSpace(NewFolderName)) return;
+        _logger.Information("KnowledgeBase creating folder: Name={Name}", NewFolderName);
         try
         {
             var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
@@ -335,13 +336,14 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             NewFolderName = string.Empty;
             await RefreshFilesAsync();
         }
-        catch (Exception ex) { _logger.Error(ex, "创建文件夹失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to create folder"); }
     }
 
     [RelayCommand]
     private async Task NewFileAsync()
     {
         if (_fileSystemService == null || string.IsNullOrWhiteSpace(NewFileName)) return;
+        _logger.Information("KnowledgeBase creating file: Name={Name}", NewFileName);
         try
         {
             var baseDir = SelectedFile?.IsDirectory == true ? SelectedFile.FullPath : _rootPath;
@@ -355,13 +357,14 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             NewFileName = string.Empty;
             await RefreshFilesAsync();
         }
-        catch (Exception ex) { _logger.Error(ex, "创建文件失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to create file"); }
     }
 
     [RelayCommand]
     private async Task DeleteFileAsync()
     {
         if (SelectedFile == null) return;
+        _logger.Information("KnowledgeBase deleting file: Path={Path}", SelectedFile.FullPath);
 
         var name = SelectedFile.Name;
         var msgTemplate = _localizationService?.GetString("Dialog.ConfirmDeleteFile") ?? "Are you sure you want to delete \"{0}\"? This cannot be undone.";
@@ -391,13 +394,14 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             IsEditingFile = false;
             await RefreshFilesAsync();
         }
-        catch (Exception ex) { _logger.Error(ex, "删除失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to delete"); }
     }
 
     [RelayCommand]
     private async Task ViewFileAsync()
     {
         if (SelectedFile == null || SelectedFile.IsDirectory) return;
+        _logger.Information("KnowledgeBase viewing file: Path={Path}", SelectedFile.FullPath);
         await LoadFileContentAsync(SelectedFile.FullPath);
     }
 
@@ -405,6 +409,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
     private async Task SaveFileAsync()
     {
         if (_fileSystemService == null || SelectedFile == null || SelectedFile.IsDirectory) return;
+        _logger.Information("KnowledgeBase saving file: Path={Path}", SelectedFile.FullPath);
         try
         {
             await _fileSystemService.WriteFileAsync(SelectedFile.FullPath, EditingFileContent);
@@ -416,7 +421,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
                 await _knowledgeBaseService.RefreshVectorCacheAsync();
             }
         }
-        catch (Exception ex) { _logger.Error(ex, "保存文件失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to save file"); }
     }
 
     [RelayCommand]
@@ -448,7 +453,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
                 var content = await File.ReadAllTextAsync(file);
                 await _fileSystemService.WriteFileAsync(Path.Combine(baseDir, Path.GetFileName(file)), content);
             }
-            catch (Exception ex) { _logger.Error(ex, "导入失败: {File}", file); }
+            catch (Exception ex) { _logger.Error(ex, "Failed to import: {File}", file); }
         }
         await RefreshFilesAsync();
     }
@@ -464,7 +469,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             // 简单实现：将 KnowledgeBase 整个复制过去
             CopyDirectory(_rootPath, Path.Combine(targetPath, "KnowledgeBase_Export"));
         }
-        catch (Exception ex) { _logger.Error(ex, "导出失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to export"); }
     }
 
     private static void CopyDirectory(string sourceDir, string destinationDir)

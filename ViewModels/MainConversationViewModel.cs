@@ -115,10 +115,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private bool _isQueued;
 
     public string ActivityStatusText => IsQueued
-        ? "排队中"
+        ? GetString("Session.Activity.Queued", "Queued")
         : IsSending
-            ? "运行中"
-            : "就绪";
+            ? GetString("Session.Activity.Running", "Running")
+            : GetString("Session.Activity.Ready", "Ready");
 
     public string ConversationId => _conversationId;
 
@@ -350,7 +350,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _currentModelName = string.Empty;
 
-    public string InputPlaceholder => "Chat.InputPlaceholder";
+    public string InputPlaceholder => GetString("Chat.InputPlaceholder", "Type a message…");
 
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
@@ -886,7 +886,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "空闲会话有效上下文策略刷新失败");
+            _logger.Warning(ex, "Idle session effective context policy refresh failed");
         }
     }
 
@@ -944,7 +944,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private void StopResponse()
     {
         if (!IsSending) return;
-        _logger.Information("用户请求停止当前回复");
+        _logger.Information("User requested to stop the current reply");
         _responseCts?.Cancel();
     }
 
@@ -1228,7 +1228,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "构建 raw 上下文失败");
+            _logger.Warning(ex, "Failed to build RAW context");
             RawContextStatus = string.Format(
                 GetString("ContextInspector.Raw.Failed", "Failed to build RAW context: {0}"),
                 ex.Message);
@@ -1368,7 +1368,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 回滚裁掉了后续消息：强制以估算刷新，下一轮真实 usage 会重锚。
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
-        _logger.Information("会话已回滚到消息 {MessageId} 之前", message.Id);
+        _logger.Information("Conversation rolled back to before message {MessageId}", message.Id);
     }
 
     /// <summary>
@@ -1572,7 +1572,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "添加附件失败");
+            _logger.Warning(ex, "Failed to add attachment");
             AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
         }
     }
@@ -1697,7 +1697,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "截图失败");
+            _logger.Warning(ex, "Screenshot capture failed");
             AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
         }
         finally
@@ -1742,7 +1742,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "后台轮询截图剪贴板失败");
+            _logger.Warning(ex, "Background polling of screenshot clipboard failed");
         }
         finally
         {
@@ -1768,7 +1768,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "粘贴图片失败");
+            _logger.Warning(ex, "Failed to paste image");
             AttachmentStatusMessage = ToAttachmentErrorMessage(ex);
         }
     }
@@ -1780,17 +1780,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         if (_chatService == null || _promptService == null)
         {
-            _logger.Warning("忽略主动消息触发：服务未初始化");
+            _logger.Warning("Ignoring proactive message trigger: service not initialized");
             return TaskExecutionResult.Failed("Chat service or prompt service is not available.");
         }
 
         if (IsSending || IsCompressing)
         {
-            _logger.Warning("延后主动消息触发：当前正忙 (IsSending={IsSending}, IsCompressing={IsCompressing})", IsSending, IsCompressing);
+            _logger.Warning("Delaying proactive message trigger: currently busy (IsSending={IsSending}, IsCompressing={IsCompressing})", IsSending, IsCompressing);
             return TaskExecutionResult.Busy("Foreground chat is busy.");
         }
 
-        _logger.Information("开始处理主动消息逻辑: {Intent}", intent);
+        _logger.Information("Starting proactive message processing: {Intent}", intent);
 
         // 构造主动触发指令
         var proactivePrompt = _promptService.GetProactiveMessagePrompt(intent, DateTime.Now);
@@ -2169,7 +2169,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             if (IsCurrentConversationEpoch(epoch))
             {
-                _logger.Information("当前回复已停止");
+                _logger.Information("Current reply stopped");
             }
             outcome = TaskExecutionResult.Interrupted("Response was interrupted.");
         }
@@ -2604,19 +2604,19 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 || _compressionCandidateGenerator == null
                 || _compressionValidator == null)
             {
-                CompressionStatusMessage = "Transactional compression is unavailable; the conversation remains unchanged.";
+                CompressionStatusMessage = GetString("ContextInspector.Preview.Unavailable", "Transactional compression is unavailable.");
                 return;
             }
             if (_compressionCommitter == null)
             {
-                CompressionStatusMessage = "Conversation persistence is unavailable; compression was not applied.";
+                CompressionStatusMessage = GetString("Audio.StorageUnavailable", "Storage unavailable; the operation was not applied.");
                 return;
             }
             var main = _effectiveContextPolicy ?? _contextPolicyProvider?.Resolve(CurrentWorkspace?.ContextPolicyOverride);
             var compression = _contextPolicyProvider?.ResolveRole(AiModelRole.ContextCompression);
             if (main == null || compression == null)
             {
-                CompressionStatusMessage = "Compression model policy is unavailable; the conversation remains unchanged.";
+                CompressionStatusMessage = GetString("ContextInspector.Preview.ModelUnavailable", "Compression model policy is unavailable.");
                 return;
             }
 
@@ -2678,7 +2678,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 return;
             }
             CompressionStatusMessage = string.Empty;
-            _logger.Information("事务化上下文压缩已提交: Revision={Revision}, Messages={Count}",
+            _logger.Information("Transactional context compression committed: Revision={Revision}, Messages={Count}",
                 committed.Revision, transition.MessageIds.Count);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2868,7 +2868,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "通知任务调度器重新检查到期任务失败");
+            _logger.Warning(ex, "Failed to notify task scheduler to re-check due tasks");
         }
     }
 
@@ -2941,7 +2941,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UndoCompressionCommand.NotifyCanExecuteChanged();
         MarkPersistenceStateChanged();
 
-        _logger.Information("已撤销上一次上下文压缩，恢复 {Count} 条消息", checkpoint.Batch.Count);
+        _logger.Information("Previous context compression reverted; restored {Count} message(s)", checkpoint.Batch.Count);
         return true;
     }
 
@@ -3009,7 +3009,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
         UndoCompressionCommand.NotifyCanExecuteChanged();
-        _logger.Information("已原子撤销上下文压缩，恢复 {Count} 条消息", batch.Count);
+        _logger.Information("Context compression atomically reverted; restored {Count} message(s)", batch.Count);
         return true;
     }
 
@@ -3144,7 +3144,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "后台回填附件预览失败");
+            _logger.Warning(ex, "Background attachment preview backfill failed");
         }
         finally
         {
@@ -3183,7 +3183,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "写入待归档队列失败");
+            _logger.Error(ex, "Failed to write to pending archive queue");
             SetBackgroundArchiveStatus(
                 string.Format(
                     GetString("Chat.Archive.StageFailed", "Failed to queue the previous conversation: {0}"),
@@ -3296,7 +3296,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
         UpdateContextTokensDisplay();
         UpdateBubbleButtonVisibility();
-        _logger.Information("已恢复主对话草稿，消息数: {Count}", Messages.Count);
+        _logger.Information("Main conversation draft restored, message count: {Count}", Messages.Count);
     }
 
     private bool HasConversationStateToPersist()
@@ -3636,7 +3636,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "后台生成助手语音失败");
+            _logger.Warning(ex, "Background generation of assistant voice failed");
         }
         finally
         {
@@ -3663,7 +3663,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "自动播放 assistant 音频失败");
+            _logger.Warning(ex, "Auto-play of assistant audio failed");
             message.AudioErrorMessage = GetString("Chat.Audio.PlaybackFailed", "Failed to start audio playback.");
         }
     }

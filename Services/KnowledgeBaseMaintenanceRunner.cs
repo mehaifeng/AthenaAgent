@@ -124,7 +124,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "整理 Agent 模型调用失败");
+                    _logger.Error(ex, "Maintenance agent model invocation failed");
                     return (false, string.Format(GetLocalized("KbMaint.ModelCallFailed", "Model call failed: {0}"), ex.Message));
                 }
 
@@ -152,7 +152,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
                         toolResult = FunctionResult.FailureResult($"工具执行异常: {ex.Message}");
                     }
 
-                    _logger.Information("整理 Agent 调用 {Tool} → {Ok}", toolCall.FunctionName, toolResult.Success);
+                    _logger.Information("Maintenance agent called {Tool} -> {Ok}", toolCall.FunctionName, toolResult.Success);
                     messages.Add(new ToolChatMessage(toolCall.Id, toolResult.ToJson()));
                 }
             }
@@ -165,7 +165,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "整理 Agent 运行异常");
+            _logger.Error(ex, "Maintenance agent run exception");
             return (false, string.Format(GetLocalized("KbMaint.Exception", "Maintenance exception: {0}"), ex.Message));
         }
     }

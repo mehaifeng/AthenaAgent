@@ -16,6 +16,8 @@ namespace Athena.UI.ViewModels;
 public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposable, IConversationCompressionCommitter
 {
     private readonly IConversationArchiveStore? _store;
+    private readonly ILocalizationService? _localizationService;
+    private readonly string _newConversationTitle;
     private CancellationTokenSource? _saveDebounce;
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private bool _metadataTrackingEnabled;
@@ -30,12 +32,15 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         MainConversationViewModel chat,
         WorkspaceProfile? workspace,
         IConversationArchiveStore? store,
-        string? historyId = null)
+        string? historyId = null,
+        ILocalizationService? localizationService = null)
     {
         Chat = chat;
         Workspace = workspace;
         HistoryId = string.IsNullOrWhiteSpace(historyId) ? Guid.NewGuid().ToString() : historyId;
         _store = store;
+        _localizationService = localizationService;
+        _newConversationTitle = L("Session.Title.NewConversation", "New chat");
         Chat.PropertyChanged += OnChatPropertyChanged;
         Chat.Messages.CollectionChanged += OnMessagesChanged;
         Chat.PersistenceStateChanged += OnPersistenceStateChanged;
@@ -43,6 +48,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         Chat.AttachCompressionCommitter(this);
         Dispatcher.UIThread.Post(() => _metadataTrackingEnabled = true);
     }
+
+    private string L(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
 
     public MainConversationViewModel Chat { get; }
 
@@ -80,13 +88,23 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public string? ForkBadgeText => HasForkBadge ? $"({ForkDepth - 1})" : null;
 
     [ObservableProperty]
-    private string _title = "新对话";
+    private string _title = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PinActionText))]
     private bool _isPinned;
 
-    public string PinActionText => IsPinned ? "取消置顶" : "置顶";
+    public string PinActionText => IsPinned
+        ? L("Session.Pin.Unpin", "Unpin")
+        : L("Session.Pin.Pin", "Pin");
+
+    partial void OnTitleChanged(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            Title = _newConversationTitle;
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
@@ -173,19 +191,23 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && !WasInterrupted && HasUnreadCompletion;
 
     public string StatusText => IsWaitingForApproval
-        ? "等待审批"
+        ? L("Session.Status.WaitingForApproval", "Awaiting approval")
         : IsQueued
-            ? "排队中"
+            ? L("Session.Status.Queued", "Queued")
             : IsRunning
-                ? "运行中"
+                ? L("Session.Status.Running", "Running")
                 : IsArchivePending
-                    ? string.IsNullOrWhiteSpace(ArchiveStatusText) ? "正在归档" : ArchiveStatusText
+                    ? string.IsNullOrWhiteSpace(ArchiveStatusText)
+                        ? L("Session.Status.Archiving", "Archiving…")
+                        : ArchiveStatusText
                     : IsArchiveFailed
-                        ? string.IsNullOrWhiteSpace(ArchiveStatusText) ? "归档失败，等待重试" : ArchiveStatusText
+                        ? string.IsNullOrWhiteSpace(ArchiveStatusText)
+                            ? L("Session.Status.ArchiveFailed", "Archive failed; retry pending")
+                            : ArchiveStatusText
                         : WasInterrupted
-                            ? "已中断"
+                            ? L("Session.Status.Interrupted", "Interrupted")
                             : HasUnreadCompletion
-                                ? "已完成"
+                                ? L("Session.Status.Completed", "Completed")
                                 : string.Empty;
 
     public string StatusGlyph => IsWaitingForApproval
@@ -301,7 +323,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         UpdatedAt = DateTime.Now;
-        if (Title == "新对话")
+        if (Title == _newConversationTitle)
         {
             var firstUserMessage = Chat.Messages.FirstOrDefault(message => message.Role == "user" && !string.IsNullOrWhiteSpace(message.Content));
             if (firstUserMessage != null)
@@ -552,14 +574,22 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
 {
     /// <summary>注入全局对话的"历史目录"回退路径，菜单"在文件夹中显示"/"复制路径"会用到它。</summary>
     private readonly string _globalDirectoryPath;
+    private readonly ILocalizationService? _localizationService;
 
-    public WorkspaceConversationGroupViewModel(WorkspaceProfile? workspace, string globalDirectoryPath = "")
+    public WorkspaceConversationGroupViewModel(
+        WorkspaceProfile? workspace,
+        string globalDirectoryPath = "",
+        ILocalizationService? localizationService = null)
     {
         Workspace = workspace;
         _globalDirectoryPath = globalDirectoryPath;
-        Name = workspace?.Name ?? "全局对话";
+        _localizationService = localizationService;
+        Name = workspace?.Name ?? L("MainWindow.Launcher.GlobalChat", "Global chat");
         IsExpanded = true;
     }
+
+    private string L(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
 
     public WorkspaceProfile? Workspace { get; }
 

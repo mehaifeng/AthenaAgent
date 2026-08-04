@@ -33,7 +33,7 @@ public class CliFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(command))
-                return FunctionResult.FailureResult("错误: 必须提供 command 参数。");
+                return FunctionResult.FailureResult("Error: the 'command' parameter is required.");
 
             // 检查是否为简单的文件系统操作
             if (RestrictedCommands.Contains(command.ToLower().Trim()))
@@ -77,12 +77,12 @@ public class CliFunctions
         }
         catch (OperationCanceledException)
         {
-            _logger.Information("终端命令执行被用户停止请求取消。");
-            return FunctionResult.FailureResult("终端命令执行已被用户取消。");
+            _logger.Information("Terminal command execution cancelled by user stop request.");
+            return FunctionResult.FailureResult("Terminal command execution was cancelled by the user.");
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "CLI 工具执行异常");
+            _logger.Error(ex, "CLI tool execution exception");
             return FunctionResult.FailureResult($"执行过程中出现异常: {ex.Message}");
         }
     }

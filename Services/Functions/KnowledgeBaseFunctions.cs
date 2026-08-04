@@ -66,13 +66,13 @@ public class KnowledgeBaseFunctions
                     ? null
                     : await _workspaceService.GetKnowledgeFilePathAsync(activeWorkspaceId);
                 return FunctionResult.FailureResult(
-                    "工作区知识文件由系统创建和管理，不能用 create_new_memory 新建。请使用 modify_system_file 修改返回的绝对路径。",
+                    "Workspace knowledge files are created and managed by the system; they cannot be created via create_new_memory. Please use modify_system_file to modify the absolute path returned by the system.",
                     new { scope = "workspace", workspaceId = activeWorkspaceId, fullPath = managedPath });
             }
 
             if (workspaceScoped)
             {
-                return FunctionResult.FailureResult("未选择工作区，无法新建工作区知识文件。请选择工作区后，使用其 system prompt 中提供的知识文件路径进行修改。");
+                return FunctionResult.FailureResult("No workspace is selected; workspace knowledge files cannot be created. Please select a workspace and use the knowledge file path provided in its system prompt to modify it.");
             }
 
             // --- 全局知识库路径（现有逻辑） ---
@@ -92,7 +92,7 @@ public class KnowledgeBaseFunctions
                 if (similar.Count > 0)
                 {
                     var listText = string.Join("; ", similar.Select(s => $"{s.FilePath} (相似度 {s.Similarity:F2})"));
-                    _logger.Information("Function: create_new_memory 命中疑似重复并拦截。最相近: {File} ({Sim:F2})",
+                    _logger.Information("Function: create_new_memory hit suspected duplicate and blocked. Closest: {File} ({Sim:F2})",
                         similar[0].FilePath, similar[0].Similarity);
 
                     return FunctionResult.FailureResult(
@@ -106,7 +106,7 @@ public class KnowledgeBaseFunctions
 
             await _knowledgeBase.CreateFileAsync(filePath, content);
 
-            _logger.Information("Function: 创建知识记录 {FilePath} (global)", filePath);
+            _logger.Information("Function: created knowledge record {FilePath} (global)", filePath);
 
             return FunctionResult.SuccessResult(
                 $"已成功存入知识库: {filePath}",
@@ -114,7 +114,7 @@ public class KnowledgeBaseFunctions
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "创建知识记录失败");
+            _logger.Error(ex, "Failed to create knowledge record");
             return FunctionResult.FailureResult($"创建失败: {ex.Message}");
         }
     }
@@ -151,7 +151,7 @@ public class KnowledgeBaseFunctions
                     : (double?)null
             }).ToList();
 
-            _logger.Information("Function: 知识库检索 '{Query}' 找到 {Count} 个结果",
+            _logger.Information("Function: knowledge base search '{Query}' returned {Count} result(s)",
                 query, results.Count);
 
             return FunctionResult.SuccessResult(
@@ -160,7 +160,7 @@ public class KnowledgeBaseFunctions
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "搜索知识库失败");
+            _logger.Error(ex, "Failed to search knowledge base");
             return FunctionResult.FailureResult($"检索失败: {ex.Message}");
         }
     }

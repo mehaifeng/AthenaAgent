@@ -73,7 +73,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
         }
         catch (InvalidOperationException ex)
         {
-            _logger.Warning("Embedding 未完整配置，服务保持禁用: {Reason}", ex.Message);
+            _logger.Warning("Embedding not fully configured; service remains disabled: {Reason}", ex.Message);
             return;
         }
 
@@ -83,7 +83,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.Warning("Embedding API Key 为空，服务未初始化");
+            _logger.Warning("Embedding API key is empty; service not initialized");
             return;
         }
 
@@ -92,7 +92,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
             var options = OpenAiClientOptionsFactory.Create(baseUrl, _config.Timeout);
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
-                _logger.Information("Embedding 使用自定义 Base URL: {BaseUrl}", baseUrl);
+                _logger.Information("Embedding using custom Base URL: {BaseUrl}", baseUrl);
             }
 
             _client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
@@ -101,18 +101,18 @@ public class OpenAIEmbeddingService : IEmbeddingService
             {
                 _embeddingClient = _client.GetEmbeddingClient(effective.Model);
                 _effectiveModelId = effective.Model;
-                _logger.Information("Embedding 客户端初始化成功，提供商: {Provider}, 模型: {Model}", provider, effective.Model);
+                _logger.Information("Embedding client initialized successfully, provider: {Provider}, model: {Model}", provider, effective.Model);
             }
             else
             {
                 _embeddingClient = null;
                 _effectiveModelId = null;
-                _logger.Warning("Embedding 模型未配置");
+                _logger.Warning("Embedding model not configured");
             }
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Embedding 客户端初始化失败");
+            _logger.Error(ex, "Embedding client initialization failed");
             _client = null;
             _embeddingClient = null;
             _effectiveModelId = null;
@@ -135,16 +135,16 @@ public class OpenAIEmbeddingService : IEmbeddingService
             if (result?.Value != null && result.Value.Count > 0)
             {
                 var embedding = NormalizeL2(result.Value[0].ToFloats().ToArray());
-                _logger.Debug("生成 Embedding 成功，维度: {Dimension}", embedding.Length);
+                _logger.Debug("Embedding generated successfully, dimension: {Dimension}", embedding.Length);
                 return embedding;
             }
 
-            _logger.Warning("生成 Embedding 返回结果为空");
+            _logger.Warning("Embedding generation returned an empty result");
             return null;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "生成 Embedding 失败 (文本长度: {Length})", text.Length);
+            _logger.Error(ex, "Failed to generate embedding (text length: {Length})", text.Length);
             return null;
         }
     }
@@ -168,12 +168,12 @@ public class OpenAIEmbeddingService : IEmbeddingService
                 results.Add(NormalizeL2(embedding.ToFloats().ToArray()));
             }
 
-            _logger.Debug("批量生成 Embedding 成功，数量: {Count}", results.Count);
+            _logger.Debug("Batch embedding generation succeeded, count: {Count}", results.Count);
             return results;
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "批量生成 Embedding 失败");
+            _logger.Error(ex, "Batch embedding generation failed");
             return new List<float[]?>();
         }
     }
@@ -201,7 +201,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
         if (a.Length != b.Length)
         {
-            _logger.Warning("Embedding 维度不匹配: Query({QLen}) vs Doc({DLen})。建议刷新知识库缓存。", a.Length, b.Length);
+            _logger.Warning("Embedding dimension mismatch: Query({QLen}) vs Doc({DLen}). Consider refreshing the knowledge base cache.", a.Length, b.Length);
             return 0f;
         }
 
@@ -211,7 +211,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
             if (float.IsNaN(similarity))
             {
-                _logger.Warning("CosineSimilarity 返回了 NaN (向量 A 为空或 B 为空)");
+                _logger.Warning("CosineSimilarity returned NaN (vector A or vector B is empty)");
                 return 0f;
             }
 
@@ -219,7 +219,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "计算余弦相似度失败");
+            _logger.Error(ex, "Failed to compute cosine similarity");
             return 0f;
         }
     }

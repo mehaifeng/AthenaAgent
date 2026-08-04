@@ -83,6 +83,10 @@ public class BrowserSessionManager : IBrowserSessionManager
             await CloseAsync(sessionId, cancellationToken);
         }
 
+        if (expiredIds.Count > 0)
+        {
+            _logger.Information("BrowserSessionManager cleaned up expired sessions: Count={Count}", expiredIds.Count);
+        }
         return expiredIds.Count;
     }
 

@@ -50,14 +50,22 @@ public class BrowserAgentService : IBrowserAgentService
         }
 
         var config = _configService.Load();
+        _logger.Information(
+            "BrowserAgent task started: Instruction={Preview}, MaxSteps={MaxSteps}",
+            Trim(request.Instruction, 200), ResolveMaxSteps(request, config));
+
         if (!config.BrowserEnabled)
         {
+            _logger.Warning("BrowserAgent rejected: Browser is disabled in settings");
             return Failure("Browser is disabled in settings.");
         }
 
         var runtimeStatus = await _browserService.GetRuntimeStatusAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
         {
+            _logger.Warning(
+                "BrowserAgent rejected: Runtime not ready, State={State}, Message={Message}",
+                runtimeStatus.State, runtimeStatus.Message);
             return Failure(runtimeStatus.Details == null
                 ? runtimeStatus.Message
                 : $"{runtimeStatus.Message} {runtimeStatus.Details}");
@@ -79,6 +87,7 @@ public class BrowserAgentService : IBrowserAgentService
         {
             session = await BrowserSession.CreateAsync(_browserService, CreateSessionOptions(config), _logger, cancellationToken);
             await session.StartAsync(cancellationToken);
+            _logger.Information("BrowserAgent session created: SessionId={SessionId}", session.SessionId);
 
             var initialActions = BuildInitialActions(request);
             if (initialActions.Count > 0)
@@ -111,6 +120,9 @@ public class BrowserAgentService : IBrowserAgentService
                 for (var step = 1; step <= maxSteps; step++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    _logger.Debug(
+                        "BrowserAgent step start: Step={Step}/{Max}, ConsecutiveFailures={Fails}",
+                        step, maxSteps, consecutiveFailures);
                     var useVision = config.BrowserObservationMode != BrowserObservationMode.DomOnly;
                     finalState = await session.GetStateAsync(useVision, cancellationToken);
 
@@ -160,6 +172,9 @@ public class BrowserAgentService : IBrowserAgentService
 
                     if (LooksLikeRepeatedOpenLoop(history))
                     {
+                        _logger.Warning(
+                            "BrowserAgent open-loop detected: Step={Step}, HistoryCount={HistoryCount}",
+                            step, history.Count);
                         if (openLoopRecoveryAttempted)
                         {
                             var loopFailure = BrowserActionFailure(BrowserActionType.Finish, session.SessionId, "Browser task stopped due to repeated new-tab opening without progress.");
@@ -196,6 +211,9 @@ public class BrowserAgentService : IBrowserAgentService
 
                     if (consecutiveFailures >= MaxConsecutiveFailures)
                     {
+                        _logger.Warning(
+                            "BrowserAgent consecutive failures: Count={Count}, Threshold={Threshold}",
+                            consecutiveFailures, MaxConsecutiveFailures);
                         var failure = BrowserActionFailure(BrowserActionType.Finish, session.SessionId, $"Browser task stopped after {MaxConsecutiveFailures} consecutive action failures.");
                         failure.IsDone = true;
                         failure.CompletionSuccess = false;
@@ -207,6 +225,7 @@ public class BrowserAgentService : IBrowserAgentService
                     if (step == maxSteps)
                     {
                         reachedMaxSteps = true;
+                        _logger.Information("BrowserAgent reached MaxSteps: Max={Max}", maxSteps);
                     }
                 }
             }
@@ -224,6 +243,12 @@ public class BrowserAgentService : IBrowserAgentService
             }
 
             var finalObservation = finalState?.Observation ?? history.LastOrDefault(item => item.Observation != null)?.Observation;
+            _logger.Information(
+                "BrowserAgent task completed: Status={Status}, Success={Success}, Actions={Actions}, FinalUrl={Url}",
+                completionStatus,
+                completionStatus is BrowserTaskCompletionStatus.Completed or BrowserTaskCompletionStatus.CompletedWithRecoverableFailures,
+                history.Count,
+                finalObservation?.Url);
             return new BrowserTaskResult
             {
                 Success = completionStatus is BrowserTaskCompletionStatus.Completed or BrowserTaskCompletionStatus.CompletedWithRecoverableFailures,

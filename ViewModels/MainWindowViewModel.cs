@@ -290,7 +290,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             taskScheduler.ProactiveMessageTriggered += OnProactiveMessageTriggered;
         }
 
-        _logger.Information("MainWindowViewModel 初始化完成");
+        _logger.Information("MainWindowViewModel initialized");
 
         _ = InitializeConversationTreeAsync();
         _ = RefreshCompactLogsAsync();
@@ -312,7 +312,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
         {
             var executionResult = TaskExecutionResult.Failed("Proactive task did not start.");
-            _logger.Information("收到主动消息触发事件: {Intent}", e.Intent);
+            _logger.Information("Proactive message trigger event received: {Intent}", e.Intent);
 
             try
             {
@@ -322,7 +322,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             catch (Exception ex)
             {
                 executionResult = TaskExecutionResult.Failed(ex.Message);
-                _logger.Error(ex, "处理主动消息时发生异常: {TaskId}", e.TaskId);
+                _logger.Error(ex, "Exception while processing proactive message: {TaskId}", e.TaskId);
             }
             finally
             {
@@ -339,7 +339,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         RunOnUiThread(() =>
         {
             FindConversation(e.Snapshot)?.SetArchivePending(
-                _localizationService?.GetString("History.PendingStatus", "正在总结中") ?? "正在总结中");
+                _localizationService?.GetString("History.PendingStatus", "Summarizing") ?? "Summarizing");
         });
     }
 
@@ -362,7 +362,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "会话树同步归档完成事件失败: {HistoryId}", historyId);
+            _logger.Error(ex, "Session tree sync after archive completion event failed: {HistoryId}", historyId);
         }
     }
 
@@ -371,8 +371,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         RunOnUiThread(() =>
         {
             FindConversation(e.Snapshot)?.SetArchiveFailed(
-                _localizationService?.GetString("Chat.Archive.RetryLater", "归档失败，已保留并等待重试")
-                ?? "归档失败，已保留并等待重试");
+                _localizationService?.GetString("Chat.Archive.RetryLater", "Failed to archive the previous chat; will retry later.")
+                ?? "Failed to archive the previous chat; will retry later.");
         });
     }
 
@@ -418,15 +418,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     ?? GlobalConversationGroup;
         if (group == null) return;
 
-        _logger.Information("会话树正在插入外部归档: {HistoryId}", history.Id);
+        _logger.Information("Session tree inserting external archive: {HistoryId}", history.Id);
         var chat = CreateChatSession();
         await chat.InitializeWorkspacesAsync();
         chat.RestorePersistedConversation(history);
         chat.AssignWorkspace(group.Workspace);
         chat.InputText = history.Draft;
-        session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id)
+        session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id, _localizationService)
         {
-            Title = string.IsNullOrWhiteSpace(history.Summary) ? "新对话" : history.Summary,
+            Title = string.IsNullOrWhiteSpace(history.Summary) ? _localizationService?.GetString("Session.Title.NewConversation", "New chat") ?? "New chat" : history.Summary,
             IsPinned = history.IsPinned,
             UpdatedAt = history.UpdatedAt,
             WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
@@ -439,7 +439,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         group.Conversations.Insert(0, session);
         RefreshPinnedConversations();
         OnConversationSearchTextChanged(ConversationSearchText);
-        _logger.Information("会话树已插入外部归档: {HistoryId}", history.Id);
+        _logger.Information("Session tree inserted external archive: {HistoryId}", history.Id);
     }
 
     private MainConversationViewModel CreateChatSession() =>
@@ -524,14 +524,14 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             ConversationGroups.Clear();
-            var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty);
+            var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty, _localizationService);
             WireGroup(globalGroup);
             ConversationGroups.Add(globalGroup);
 
             var workspaces = _workspaceService == null ? [] : await _workspaceService.LoadAllAsync();
             foreach (var workspace in workspaces)
             {
-                var group = new WorkspaceConversationGroupViewModel(workspace);
+                var group = new WorkspaceConversationGroupViewModel(workspace, string.Empty, _localizationService);
                 WireGroup(group);
                 ConversationGroups.Add(group);
             }
@@ -546,9 +546,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 chat.RestorePersistedConversation(history);
                 chat.AssignWorkspace(group.Workspace);
                 chat.InputText = history.Draft;
-                var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id)
+                var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id, _localizationService)
                 {
-                    Title = string.IsNullOrWhiteSpace(history.Summary) ? "新对话" : history.Summary,
+                    Title = string.IsNullOrWhiteSpace(history.Summary) ? _localizationService?.GetString("Session.Title.NewConversation", "New chat") ?? "New chat" : history.Summary,
                     IsPinned = history.IsPinned,
                     UpdatedAt = history.UpdatedAt,
                     WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
@@ -570,10 +570,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "初始化多会话树失败");
+            _logger.Error(ex, "Failed to initialize multi-session tree");
             if (ConversationGroups.Count == 0)
             {
-                var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty);
+                var globalGroup = new WorkspaceConversationGroupViewModel(null, _platformPathService?.GetHistoryDirectory() ?? string.Empty, _localizationService);
                 WireGroup(globalGroup);
                 ConversationGroups.Add(globalGroup);
             }
@@ -598,7 +598,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         var chat = CreateChatSession();
         await chat.InitializeWorkspacesAsync();
         chat.AssignWorkspace(group.Workspace);
-        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore);
+        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, null, _localizationService);
         WireSession(session);
         group.Conversations.Insert(0, session);
         return session;
@@ -614,7 +614,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task AddWorkspaceAsync()
     {
         if (_workspaceService == null || _userInteractionService == null) return;
-        var path = await _userInteractionService.PickFolderAsync("选择工作区目录");
+        var path = await _userInteractionService.PickFolderAsync(_localizationService?.GetString("Chat.Workspace.SelectFolder", "Select workspace directory") ?? "Select workspace directory");
         if (string.IsNullOrWhiteSpace(path)) return;
         var existing = await _workspaceService.FindByDirectoryAsync(path);
         var group = existing == null ? null : ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == existing.Id);
@@ -626,7 +626,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 DirectoryPath = path
             };
             if (existing == null) await _workspaceService.SaveAsync(workspace);
-            group = new WorkspaceConversationGroupViewModel(workspace);
+            group = new WorkspaceConversationGroupViewModel(workspace, string.Empty, _localizationService);
             WireGroup(group);
             ConversationGroups.Add(group);
         }
@@ -637,11 +637,20 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task DeleteConversationAsync(ConversationSessionItemViewModel? session)
     {
         if (session == null) return;
+        _logger.Information("MainWindow deleting conversation: Id={Id}, Title={Title}", session.HistoryId, session.Title);
         if (session.IsRunning) session.Chat.StopResponseCommand.Execute(null);
         var group = ConversationGroups.FirstOrDefault(candidate => candidate.Conversations.Contains(session));
         group?.Conversations.Remove(session);
         RefreshPinnedConversations();
-        if (_conversationStore != null) await _conversationStore.DeleteAsync(session.HistoryId);
+        if (_conversationStore != null)
+        {
+            await _conversationStore.DeleteAsync(session.HistoryId);
+            _logger.Information("MainWindow conversation deleted: Id={Id}", session.HistoryId);
+        }
+        else
+        {
+            _logger.Warning("MainWindow conversation delete not persisted (no store): Id={Id}", session.HistoryId);
+        }
         session.Dispose();
         if (ReferenceEquals(SelectedConversation, session))
         {
@@ -665,13 +674,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task OpenKnowledgeBaseAsync()
     {
-        if (MainOwner is { } owner) await new KnowledgeBaseWindow(KnowledgeBaseViewModel).ShowDialog(owner);
+        if (MainOwner is { } owner) await new KnowledgeBaseWindow(KnowledgeBaseViewModel, _localizationService).ShowDialog(owner);
     }
 
     [RelayCommand]
     private async Task OpenTasksAsync()
     {
-        if (MainOwner is { } owner) await new TasksWindow(TasksViewModel).ShowDialog(owner);
+        if (MainOwner is { } owner) await new TasksWindow(TasksViewModel, _localizationService).ShowDialog(owner);
     }
 
     [RelayCommand]
@@ -684,6 +693,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task OpenAppSettingsAsync()
     {
+        _logger.Information("MainWindow opening AppSettings");
         if (MainOwner is { } owner && _appSettingsFactory?.Invoke() is { } viewModel)
             await new AppSettingsWindow { DataContext = viewModel }.ShowDialog(owner);
     }
@@ -692,7 +702,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task OpenDetailedLogsAsync()
     {
         await LogsViewModel.RefreshLogsAsync();
-        if (MainOwner is { } owner) await new DetailedLogsWindow(LogsViewModel).ShowDialog(owner);
+        if (MainOwner is { } owner) await new DetailedLogsWindow(LogsViewModel, _localizationService).ShowDialog(owner);
     }
 
     [RelayCommand]
@@ -700,6 +710,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         if (Config == null || _configurationSession == null) return;
         Config.MainLayout.SidePanelsSwapped = !Config.MainLayout.SidePanelsSwapped;
+        _logger.Information("MainWindow toggled side panels: NewValue={Value}", Config.MainLayout.SidePanelsSwapped);
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
         await _configurationSession.SaveNowAsync();
     }
@@ -762,7 +773,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         chat.MarkPersistenceMetadataChanged();
 
         // 5. 插入源下方并选中。
-        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
+        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id, _localizationService)
         {
             Title = fork.Summary,
             UpdatedAt = fork.UpdatedAt,
@@ -820,7 +831,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         chat.MarkPersistenceMetadataChanged();
 
         // 7. 插入源下方并选中。
-        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id)
+        var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, fork.Id, _localizationService)
         {
             Title = fork.Summary,
             UpdatedAt = fork.UpdatedAt,
@@ -908,12 +919,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private async Task DeleteWorkspaceAsync(WorkspaceConversationGroupViewModel group)
     {
+        _logger.Information("MainWindow deleting workspace: Name={Name}", group?.Name);
         if (group.Workspace == null || _workspaceService == null) return;
         if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
-                "删除工作区",
-                $"确定要删除“{group.Name}”吗？工作区知识文件将被删除，会话历史仍会保留。",
-                "删除",
-                "取消")) return;
+                _localizationService?.GetString("MainWindow.DeleteWorkspace.Title", "Delete workspace") ?? "Delete workspace",
+                string.Format(_localizationService?.GetString("MainWindow.DeleteWorkspace.Message", "Delete \"{0}\"? Workspace knowledge files will be deleted, but conversation history is preserved.") ?? "Delete \"{0}\"? Workspace knowledge files will be deleted, but conversation history is preserved.", group.Name),
+                _localizationService?.GetString("MainWindow.Menu.Delete", "Delete") ?? "Delete",
+                _localizationService?.GetString("Common.Cancel", "Cancel") ?? "Cancel")) return;
         if (!await _workspaceService.DeleteAsync(group.Workspace.Id)) return;
         await TerminalPanelViewModel.CloseScopeAsync(group.Workspace.Id);
 
@@ -944,24 +956,24 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         var safeTitle = string.Concat(session.Title.Select(character =>
             Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
         var target = await _userInteractionService.PickSaveFileAsync(
-            "导出对话",
+            _localizationService?.GetString("MainWindow.Export.PickerTitle", "Export chat") ?? "Export chat",
             $"{safeTitle}.md",
-            "Markdown",
-            ["*.md"]);
+            _localizationService?.GetString("MainWindow.Export.FileExtension", "Markdown") ?? "Markdown",
+            new[] { _localizationService?.GetString("MainWindow.Export.FileFilter", "*.md") ?? "*.md" });
         if (string.IsNullOrWhiteSpace(target)) return;
 
         var markdown = new StringBuilder()
             .Append("# ").AppendLine(session.Title)
             .AppendLine()
-            .Append("> 导出时间：").AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+            .Append("> ").AppendLine(string.Format(_localizationService?.GetString("MainWindow.Export.Header", "Exported at: {0}") ?? "Exported at: {0}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")))
             .AppendLine();
         foreach (var message in session.Chat.Messages.Where(message => message.IsVisibleToUser))
         {
             var role = message.Role switch
             {
-                "user" => "用户",
-                "assistant" => "Athena",
-                "system" => "系统",
+                "user" => _localizationService?.GetString("MainWindow.Export.Role.User", "You") ?? "You",
+                "assistant" => _localizationService?.GetString("MainWindow.Export.Role.Assistant", "Athena") ?? "Athena",
+                "system" => _localizationService?.GetString("MainWindow.Export.Role.System", "System") ?? "System",
                 _ => message.Role
             };
             markdown.Append("## ").Append(role).Append(" · ")
@@ -971,8 +983,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 .AppendLine();
             foreach (var attachment in message.Attachments)
             {
-                markdown.Append("- 附件：").Append(attachment.DisplayName)
-                    .Append("（").Append(attachment.DisplayKind).AppendLine("）");
+                markdown.Append(string.Format(_localizationService?.GetString("MainWindow.Export.Attachment", "- Attachment: {0} ({1})") ?? "- Attachment: {0} ({1})", attachment.DisplayName, attachment.DisplayKind))
+                    .AppendLine();
             }
             if (message.Attachments.Count > 0) markdown.AppendLine();
         }

@@ -33,12 +33,12 @@ public class WebSearchFunctions
         {
             if (string.IsNullOrWhiteSpace(query))
             {
-                return FunctionResult.FailureResult("搜索关键词不能为空");
+                return FunctionResult.FailureResult("Search query cannot be empty.");
             }
 
             if (!_webSearchService.IsConfigured)
             {
-                return FunctionResult.FailureResult("Web Search 服务未配置或未启用，请在设置中配置后再使用");
+                return FunctionResult.FailureResult("Web Search service is not configured or enabled; please configure it in Settings before using.");
             }
 
             // 读取主对话循环经 AsyncLocal 透传的取消令牌，使用户点"停止"能中断网络搜索请求。
@@ -59,7 +59,7 @@ public class WebSearchFunctions
                 score = r.Score
             }).ToList();
 
-            _logger.Information("Function: Web Search '{Query}' 找到 {Count} 个结果", query, results.Count);
+            _logger.Information("Function: Web Search '{Query}' returned {Count} result(s)", query, results.Count);
 
             return FunctionResult.SuccessResult(
                 $"网络搜索找到 {results.Count} 条相关结果",
@@ -67,12 +67,12 @@ public class WebSearchFunctions
         }
         catch (OperationCanceledException)
         {
-            _logger.Information("Web Search 执行被用户停止请求取消。");
-            return FunctionResult.FailureResult("网络搜索已被用户取消。");
+            _logger.Information("Web Search execution cancelled by user stop request.");
+            return FunctionResult.FailureResult("Web search was cancelled by the user.");
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Web Search 执行失败");
+            _logger.Error(ex, "Web Search execution failed");
             return FunctionResult.FailureResult($"搜索失败: {ex.Message}");
         }
     }

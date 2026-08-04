@@ -91,7 +91,7 @@ public class ProactiveMessagingFunctions
 
             await _taskScheduler.ScheduleAsync(task);
 
-            _logger.Information("Function: 安排主动消息 {TaskId} 于 {TriggerTime}",
+            _logger.Information("Function: scheduled proactive message {TaskId} at {TriggerTime}",
                 task.Id, normalizedTrigger.Value);
 
             return FunctionResult.SuccessResult(
@@ -108,7 +108,7 @@ public class ProactiveMessagingFunctions
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "安排主动消息失败");
+            _logger.Error(ex, "Failed to schedule proactive message");
             return FunctionResult.FailureResult($"安排失败: {ex.Message}",
                 new
                 {
@@ -149,15 +149,15 @@ public class ProactiveMessagingFunctions
 
             if (success)
             {
-                _logger.Information("Function: 取消任务 {TaskId}", taskId);
+                _logger.Information("Function: cancelled task {TaskId}", taskId);
                 return FunctionResult.SuccessResult("任务已取消");
             }
 
-            return FunctionResult.FailureResult("未找到该任务");
+            return FunctionResult.FailureResult("Task not found.");
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "取消任务失败");
+            _logger.Error(ex, "Failed to cancel task");
             return FunctionResult.FailureResult($"取消失败: {ex.Message}");
         }
     }
@@ -185,7 +185,7 @@ public class ProactiveMessagingFunctions
                 lastExecutionNote = t.LastExecutionNote
             }).ToList();
 
-            _logger.Information("Function: 列出 {Count} 个计划任务", taskList.Count);
+            _logger.Information("Function: listed {Count} scheduled task(s)", taskList.Count);
 
             return FunctionResult.SuccessResult(
                 $"共有 {taskList.Count} 个活动任务",
@@ -193,7 +193,7 @@ public class ProactiveMessagingFunctions
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "列出任务失败");
+            _logger.Error(ex, "Failed to list tasks");
             return FunctionResult.FailureResult($"查询失败: {ex.Message}");
         }
     }

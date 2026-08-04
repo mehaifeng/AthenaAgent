@@ -1,17 +1,18 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
         x:Class="Athena.UI.Views.ApprovalQueueWindow"
         x:DataType="vm:ApprovalQueueViewModel"
-        Title="待审批工具"
+        Title="{loc:Loc Approval.Window.Title}"
         Width="520" Height="420" MinWidth="440" MinHeight="260"
         Topmost="True"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False">
     <Grid Margin="14" RowDefinitions="Auto,*">
         <StackPanel>
-            <TextBlock Text="待审批工具" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-            <TextBlock Text="会话会停在工具调用处；你可以按任意顺序处理，其他会话不受影响。" Opacity="0.65" TextWrapping="Wrap"/>
+            <TextBlock Text="{loc:Loc Approval.Heading}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+            <TextBlock Text="{loc:Loc Approval.Description}" Opacity="0.65" TextWrapping="Wrap"/>
         </StackPanel>
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
             <ItemsControl ItemsSource="{Binding Pending}">
@@ -23,13 +24,13 @@
                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                     <TextBlock Grid.Column="1" Text="{Binding RiskText}" Foreground="{DynamicResource SemiOrange5}"/>
                                 </Grid>
-                                <TextBlock Text="{Binding ConversationId, StringFormat=会话：{0}}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
+                                <TextBlock Text="{Binding ConversationIdLabel}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
                                 <TextBlock Text="{Binding Request.PrettyArguments}" FontFamily="Menlo, Consolas, monospace" FontSize="{DynamicResource App.FontSize.Body}" MaxHeight="100" TextWrapping="Wrap"/>
                                 <WrapPanel>
-                                    <Button Content="允许一次" Command="{Binding AllowOnceCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="本会话允许" Command="{Binding AllowSessionCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="始终允许" Command="{Binding AllowAlwaysCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="拒绝" Command="{Binding DenyCommand}"/>
+                                    <Button Content="{loc:Loc Approval.Button.AllowOnce}" Command="{Binding AllowOnceCommand}" Margin="0,0,6,0"/>
+                                    <Button Content="{loc:Loc Approval.Button.AllowSession}" Command="{Binding AllowSessionCommand}" Margin="0,0,6,0"/>
+                                    <Button Content="{loc:Loc Approval.Button.AllowAlways}" Command="{Binding AllowAlwaysCommand}" Margin="0,0,6,0"/>
+                                    <Button Content="{loc:Loc Approval.Button.Deny}" Command="{Binding DenyCommand}"/>
                                 </WrapPanel>
                             </StackPanel>
                         </Border>

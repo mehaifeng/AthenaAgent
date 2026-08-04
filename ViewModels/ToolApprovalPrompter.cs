@@ -45,7 +45,7 @@ public class ToolApprovalPrompter : IToolApprovalPrompter, IDisposable
         if (owner == null)
         {
             // 没有可作 owner 的主窗口（异常情况）：安全起见拒绝。
-            _logger.Warning("无主窗口可弹审批窗，默认拒绝 {Function}", request.FunctionName);
+            _logger.Warning("No main window available to show approval dialog; defaulting to deny {Function}", request.FunctionName);
             return ToolApprovalScope.Deny;
         }
 

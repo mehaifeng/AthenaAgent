@@ -60,7 +60,7 @@ public partial class App : Application, IAsyncDisposable
         var dbPath = Path.Combine(logDir, "logs.db");
 
         Log.Logger = SerilogConfiguration.CreateLogger(dbPath);
-        Log.Information("应用程序启动中... 平台: Desktop");
+        Log.Information("Application starting... Platform: Desktop");
 
         AvaloniaXamlLoader.Load(this);
     }
@@ -116,7 +116,7 @@ public partial class App : Application, IAsyncDisposable
             {
                 if (desktop.MainWindow.IsVisible && desktop.MainWindow.IsActive)
                 {
-                    Log.Debug("窗口正处于前台活跃状态，跳过闪烁提示");
+                    Log.Debug("Window is in the foreground active state; skipping flash notification");
                     return;
                 }
             }
@@ -168,7 +168,7 @@ public partial class App : Application, IAsyncDisposable
 
                     if (isActive)
                     {
-                        Log.Debug("窗口已激活，停止托盘闪烁");
+                        Log.Debug("Window activated; stopping tray flashing");
                         break;
                     }
 
@@ -183,7 +183,7 @@ public partial class App : Application, IAsyncDisposable
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Log.Error(ex, "托盘闪烁循环发生错误");
+                Log.Error(ex, "Tray flashing loop encountered an error");
             }
             finally
             {
@@ -201,7 +201,7 @@ public partial class App : Application, IAsyncDisposable
                             }
                             catch (Exception ex)
                             {
-                                Log.Warning(ex, "恢复托盘图标失败");
+                                Log.Warning(ex, "Failed to restore tray icon");
                             }
                         }
                         trayIcon.IsVisible = true;
@@ -220,7 +220,7 @@ public partial class App : Application, IAsyncDisposable
 
     public override void OnFrameworkInitializationCompleted()
     {
-        Log.Information("开始初始化框架...");
+        Log.Information("Starting framework initialization...");
 
         // 配置依赖注入
         var services = new ServiceCollection();
@@ -244,7 +244,7 @@ public partial class App : Application, IAsyncDisposable
                 {
                     var result = await metadataCatalog.RefreshAsync(force: false);
                     if (result.Status == Athena.UI.Models.ModelCatalogRefreshStatus.Failed)
-                        Log.Warning("OpenRouter 元数据后台刷新失败，继续使用本地目录: {Message}", result.Message);
+                        Log.Warning("OpenRouter metadata background refresh failed; continuing with local catalog: {Message}", result.Message);
                 });
             }
 
@@ -261,13 +261,17 @@ public partial class App : Application, IAsyncDisposable
                 _ = Task.Run(async () =>
                 {
                     try { await mcpLifecycle.StartAsync(); }
-                    catch (Exception ex) { Log.Error(ex, "MCP 生命周期启动失败"); }
+                    catch (Exception ex) { Log.Error(ex, "Failed to start MCP lifecycle"); }
                 });
             }
 
             // 异步服务已在 OnShutdownRequested 中随 DI 容器释放；
             // 最终退出事件只负责等待日志管线冲刷余量。
-            desktop.Exit += (_, _) => Log.CloseAndFlush();
+            desktop.Exit += (_, _) =>
+            {
+                Log.Information("Application exiting");
+                Log.CloseAndFlush();
+            };
 
             if (!config.OnboardingCompleted)
             {
@@ -311,7 +315,7 @@ public partial class App : Application, IAsyncDisposable
                     mainWindow.Show();
                     // 部分平台在 Show 后会按启动策略重定位，再钉一次确保与引导窗原位重合
                     mainWindow.Position = onboarding.Position;
-                    Log.Information("主窗口创建完成（引导交接）");
+                    Log.Information("Main window created (onboarding handoff)");
 
                     onboarding.Close();
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
@@ -332,7 +336,7 @@ public partial class App : Application, IAsyncDisposable
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
                 };
                 onboarding.Show();
-                Log.Information("首次启动引导窗口已显示");
+                Log.Information("First-launch onboarding window shown");
             }
             else
             {
@@ -341,7 +345,7 @@ public partial class App : Application, IAsyncDisposable
         }
 
         base.OnFrameworkInitializationCompleted();
-        Log.Information("框架初始化完成");
+        Log.Information("Framework initialization completed");
     }
 
     /// <summary>
@@ -351,7 +355,7 @@ public partial class App : Application, IAsyncDisposable
     {
         var mainWindow = CreateMainWindow(desktop, initialTheme, onboardingHandoff);
         mainWindow.Show();
-        Log.Information("主窗口创建完成");
+        Log.Information("Main window created");
     }
 
     /// <summary>
@@ -447,7 +451,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "保存主对话会话状态失败");
+            Log.Error(ex, "Failed to save main conversation session state");
         }
     }
 
@@ -467,13 +471,13 @@ public partial class App : Application, IAsyncDisposable
             if (winner != cleanup)
             {
                 Log.Warning(
-                    "退出清理超过 {TimeoutSeconds} 秒未完成，强制继续退出流程",
+                    "Shutdown cleanup exceeded {TimeoutSeconds} seconds; forcing exit to continue",
                     ShutdownCleanupTimeout.TotalSeconds);
                 _ = cleanup.ContinueWith(
                     static (task, _) =>
                     {
                         if (task.IsFaulted)
-                            Log.Error(task.Exception, "退出清理后台任务最终失败");
+                            Log.Error(task.Exception, "Background shutdown task finally failed");
                     },
                     System.Threading.Tasks.TaskScheduler.Default);
             }
@@ -485,7 +489,7 @@ public partial class App : Application, IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "退出清理失败");
+                    Log.Error(ex, "Shutdown cleanup failed");
                 }
             }
         }
@@ -506,7 +510,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "保存主对话会话状态失败");
+            Log.Error(ex, "Failed to save main conversation session state");
         }
 
         try
@@ -516,7 +520,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "释放主窗口 ViewModel 时出错");
+            Log.Error(ex, "Failed to dispose main window ViewModel");
         }
 
         try
@@ -525,7 +529,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "释放应用服务时出错");
+            Log.Error(ex, "Failed to dispose application services");
         }
     }
 
@@ -551,7 +555,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "更新托盘菜单文本失败");
+            Log.Warning(ex, "Failed to update tray menu text");
         }
     }
 
@@ -581,7 +585,7 @@ public partial class App : Application, IAsyncDisposable
             // 非桌面环境或窗口未就绪时直接切换
             Current.RequestedThemeVariant = theme;
         }
-        Log.Information("主题已切换为: {Theme}", theme);
+        Log.Information("Theme switched to: {Theme}", theme);
 
         // 广播给所有订阅者（配置会话 / 对话视图模型同步按钮状态）
         ThemeChanged?.Invoke(themeName ?? "Dark");
@@ -592,7 +596,7 @@ public partial class App : Application, IAsyncDisposable
     /// </summary>
     private static void ConfigureServices(IServiceCollection services)
     {
-        Log.Debug("配置依赖注入服务...");
+        Log.Debug("Configuring dependency injection services...");
 
         // 平台路径服务（单例）
         services.AddSingleton<IPlatformPathService>(_platformPathService!);
@@ -604,7 +608,8 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<IRecurrenceService>(sp =>
         {
             var localizationService = sp.GetRequiredService<ILocalizationService>();
-            return new RecurrenceService(localizationService);
+            var logger = Log.ForContext<RecurrenceService>();
+            return new RecurrenceService(localizationService, logger);
         });
 
         // 日志服务（单例）
@@ -640,7 +645,13 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
                 sp.GetRequiredService<IPromptService>(),
                 Log.ForContext<CommitMessageGenerator>()));
-        services.AddSingleton<WorkspaceWorkbenchViewModel>();
+        services.AddSingleton<WorkspaceWorkbenchViewModel>(sp =>
+            new WorkspaceWorkbenchViewModel(
+                sp.GetRequiredService<WorkspaceOperationCoordinator>(),
+                sp.GetRequiredService<IPlatformPathService>(),
+                sp.GetRequiredService<IUserInteractionService>(),
+                sp.GetService<ICommitMessageGenerator>(),
+                sp.GetService<ILocalizationService>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
@@ -689,7 +700,7 @@ public partial class App : Application, IAsyncDisposable
             var recurrenceService = sp.GetRequiredService<IRecurrenceService>();
             var scheduler = new Services.TaskScheduler(logger, pathService, recurrenceService);
             scheduler.Start(); // 启动调度器
-            Log.Information("任务调度器已启动");
+            Log.Information("Task scheduler started");
             return scheduler;
         });
 
@@ -729,11 +740,11 @@ public partial class App : Application, IAsyncDisposable
                 try
                 {
                     await service.InitializeAsync();
-                    Log.Information("知识库服务初始化完成");
+                    Log.Information("Knowledge base service initialized");
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "知识库服务初始化失败");
+                    Log.Error(ex, "Failed to initialize knowledge base service");
                 }
             });
 
@@ -951,7 +962,8 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<ApprovalQueueViewModel>(sp =>
             new ApprovalQueueViewModel(
                 sp.GetService<IConversationSessionAccessor>(),
-                Log.ForContext<ApprovalQueueViewModel>()));
+                Log.ForContext<ApprovalQueueViewModel>(),
+                sp.GetService<ILocalizationService>()));
         services.AddSingleton<IToolApprovalPrompter>(sp => sp.GetRequiredService<ApprovalQueueViewModel>());
 
         // 工具审批服务（策略大脑 + 审计）。被 FunctionRegistry 这个唯一 chokepoint 调用。
@@ -1128,7 +1140,7 @@ public partial class App : Application, IAsyncDisposable
             var config = configService.Load();
             var mainProvider = config.AiModels.Providers.FirstOrDefault(provider =>
                 provider.Id == config.AiModels.MainConversation.ProviderId);
-            Log.Information("AI 服务初始化，供应商配置: {ProviderId}, 模型: {Model}, FunctionCalling: {Enabled}",
+            Log.Information("AI service initialized, provider configuration: {ProviderId}, model: {Model}, FunctionCalling: {Enabled}",
                 mainProvider?.ProviderPreset ?? "(not configured)",
                 config.AiModels.MainConversation.Model,
                 true);
@@ -1241,6 +1253,6 @@ public partial class App : Application, IAsyncDisposable
                 contextPolicyProvider);
         });
 
-        Log.Debug("依赖注入服务配置完成");
+        Log.Debug("Dependency injection services configured");
     }
 }

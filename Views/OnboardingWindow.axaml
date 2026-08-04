@@ -150,7 +150,7 @@
                     <Image Source="avares://Athena.UI/Assets/AthenaAgent.png" Width="54" Height="54" Stretch="Fill"/>
                 </Border>
                 <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="ΑΘΗΝΑ · Athena" FontSize="{DynamicResource App.FontSize.Brand}" FontWeight="SemiBold" LetterSpacing="1"/>
+                    <TextBlock Text="{loc:Loc Onboarding.BrandTitle}" FontSize="{DynamicResource App.FontSize.Brand}" FontWeight="SemiBold" LetterSpacing="1"/>
                     <TextBlock Classes="mono" Text="{loc:Loc Onboarding.Motto}"/>
                 </StackPanel>
             </StackPanel>
@@ -172,10 +172,10 @@
 
                 <StackPanel Orientation="Horizontal" Spacing="0">
                     <Border BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1,1,0,1" CornerRadius="2,0,0,2">
-                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding IsChineseSelected}"><TextBlock Text="中文"/></ToggleButton>
+                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding IsChineseSelected}"><TextBlock Text="{loc:Loc Onboarding.Language.Chinese}"/></ToggleButton>
                     </Border>
                     <Border BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1" CornerRadius="0,2,2,0">
-                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding !IsChineseSelected}"><TextBlock Text="EN"/></ToggleButton>
+                        <ToggleButton Width="60" Classes="lang" IsChecked="{Binding !IsChineseSelected}"><TextBlock Text="{loc:Loc Onboarding.Language.English}"/></ToggleButton>
                     </Border>
                 </StackPanel>
             </StackPanel>
@@ -189,11 +189,11 @@
                           SelectedItem="{Binding PrimaryProvider.ProviderPreset}" HorizontalAlignment="Stretch" Margin="0,0,0,8"
                           SelectionChanged="OnProviderSelectionChanged"/>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Opacity="0.8"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Onboarding.Label.BaseUrl}" VerticalAlignment="Center" Opacity="0.8"/>
                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PrimaryProvider.BaseUrl}"
                          FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}" Margin="0,0,0,8"/>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key" VerticalAlignment="Center" Opacity="0.8"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Onboarding.Label.ApiKey}" VerticalAlignment="Center" Opacity="0.8"/>
                 <Grid Grid.Row="2" Grid.Column="1"
                       ColumnDefinitions="*,Auto" RowDefinitions="Auto,18"
                       ColumnSpacing="8" Margin="0,0,0,8">

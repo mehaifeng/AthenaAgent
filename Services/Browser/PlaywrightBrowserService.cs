@@ -162,10 +162,12 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             });
 
             await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+            _logger.Information("Browser Navigate succeeded: SessionId={SessionId}, Url={Url}", sessionId, runtimeSession.Page.Url);
             return BrowserActionSuccess(BrowserActionType.Navigate, sessionId, "Navigation completed.", runtimeSession.Page.Url);
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Navigate failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Navigate, sessionId, $"Navigation failed: {ex.Message}");
         }
     }
@@ -191,6 +193,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             }
             catch (Exception ex) when (IsTransientNavigationException(ex))
             {
+                _logger.Warning(ex, "Browser Observe persistent navigation: SessionId={SessionId}", sessionId);
                 throw new InvalidOperationException($"Observation failed because the page kept navigating: {ex.Message}", ex);
             }
         }
@@ -288,6 +291,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Click failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Click, sessionId, $"Click failed: {ex.Message}");
         }
     }
@@ -365,6 +369,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Type failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Type failed: {ex.Message}");
         }
     }
@@ -423,6 +428,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Select failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Select failed: {ex.Message}");
         }
     }
@@ -480,6 +486,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser SetChecked failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Click, sessionId, $"Set checked failed: {ex.Message}");
         }
     }
@@ -570,6 +577,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Upload failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Upload, sessionId, $"Upload failed: {ex.Message}");
         }
     }
@@ -593,6 +601,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser PressKey failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.PressKey, sessionId, $"Key press failed: {ex.Message}");
         }
     }
@@ -608,6 +617,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Scroll failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Scroll, sessionId, $"Scroll failed: {ex.Message}");
         }
     }
@@ -623,6 +633,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Wait failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Wait, sessionId, $"Wait failed: {ex.Message}");
         }
     }
@@ -720,6 +731,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         }
         catch (Exception ex)
         {
+            _logger.Warning(ex, "Browser Evaluate failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Evaluate, sessionId, $"Evaluate failed: {ex.Message}");
         }
     }

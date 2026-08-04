@@ -38,13 +38,14 @@ public sealed class McpLifecycleService : IAsyncDisposable
         if (_started) return;
         _started = true;
         _configService.ConfigChanged += OnConfigChanged;
+        _logger.Information("McpLifecycleService starting: applying initial configuration");
         await ApplyAsync(_configService.Load()).ConfigureAwait(false);
     }
 
     private async void OnConfigChanged(object? sender, AppConfig config)
     {
         try { await ApplyAsync(config).ConfigureAwait(false); }
-        catch (Exception ex) { _logger.Error(ex, "应用 MCP 配置变更失败"); }
+        catch (Exception ex) { _logger.Error(ex, "Failed to apply MCP configuration change"); }
     }
 
     /// <summary>
@@ -59,9 +60,11 @@ public sealed class McpLifecycleService : IAsyncDisposable
             var plan = McpConfigDiff.Diff(_applied, desired);
             if (plan.ToStart.Count == 0 && plan.ToStop.Count == 0)
                 return;
+            _logger.Debug("McpLifecycleService apply plan: ToStart={Start}, ToStop={Stop}", plan.ToStart.Count, plan.ToStop.Count);
 
             foreach (var name in plan.ToStop)
             {
+                _logger.Information("McpLifecycleService stopping server: {Server}", name);
                 await _controller.StopServerAsync(name).ConfigureAwait(false);
             }
 
@@ -81,15 +84,17 @@ public sealed class McpLifecycleService : IAsyncDisposable
                 {
                     nextApplied[name] = desired[name]; // 仅成功者入册
                     succeeded++;
+                    _logger.Information("McpLifecycleService started server successfully: {Server}", name);
                 }
                 else
                 {
                     failed++; // 失败者不入册 → 下次 apply 会重试
+                    _logger.Warning("McpLifecycleService failed to start server: {Server}", name);
                 }
             }
 
             _applied = nextApplied;
-            _logger.Information("MCP 配置已应用：成功 {Started} 失败 {Failed} 停止 {Stopped}", succeeded, failed, plan.ToStop.Count);
+            _logger.Information("MCP configuration applied: started {Started}, failed {Failed}, stopped {Stopped}", succeeded, failed, plan.ToStop.Count);
         }
         finally
         {
@@ -100,6 +105,7 @@ public sealed class McpLifecycleService : IAsyncDisposable
     /// <summary>手动重连一个服务器：清掉其已应用记录，再触发一次 apply。用于失败后重试。</summary>
     public async Task ReconnectAsync(string serverName)
     {
+        _logger.Information("McpLifecycleService manual reconnect: {Server}", serverName);
         await _applyLock.WaitAsync().ConfigureAwait(false);
         try { _applied.Remove(serverName); }
         finally { _applyLock.Release(); }

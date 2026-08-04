@@ -53,7 +53,7 @@ public sealed class ModelCatalogService : IModelCatalogService
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "构造 OpenAIModelClient 失败");
+            _logger.Warning(ex, "Failed to construct OpenAIModelClient");
             return ModelCatalogResult.Fail(ex.Message);
         }
 
@@ -72,7 +72,7 @@ public sealed class ModelCatalogService : IModelCatalogService
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            _logger.Information("模型列表拉取成功，共 {Count} 个 (endpoint={Endpoint})", models.Count, baseUrl ?? "default");
+            _logger.Information("Model list fetched successfully, {Count} total (endpoint={Endpoint})", models.Count, baseUrl ?? "default");
             return ModelCatalogResult.Ok(models);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -87,12 +87,12 @@ public sealed class ModelCatalogService : IModelCatalogService
         }
         catch (ClientResultException ex)
         {
-            _logger.Warning(ex, "拉取模型列表失败 (HTTP {Status})", ex.Status);
+            _logger.Warning(ex, "Failed to fetch model list (HTTP {Status})", ex.Status);
             return ModelCatalogResult.Fail($"HTTP {ex.Status}: {ex.Message}");
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "拉取模型列表失败");
+            _logger.Warning(ex, "Failed to fetch model list");
             return ModelCatalogResult.Fail(ex.Message);
         }
     }
@@ -171,7 +171,7 @@ public sealed class ModelCatalogService : IModelCatalogService
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            _logger.Information("OpenRouter {Modality} 模型列表拉取成功，共 {Count} 个", outputModality, distinct.Count);
+            _logger.Information("OpenRouter {Modality} model list fetched successfully, {Count} total", outputModality, distinct.Count);
             return ModelCatalogResult.Ok(distinct);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -184,7 +184,7 @@ public sealed class ModelCatalogService : IModelCatalogService
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "拉取 OpenRouter {Modality} 模型列表失败", outputModality);
+            _logger.Warning(ex, "Failed to fetch OpenRouter {Modality} model list", outputModality);
             return ModelCatalogResult.Fail(ex.Message);
         }
     }

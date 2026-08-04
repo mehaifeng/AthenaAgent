@@ -59,6 +59,10 @@ public class ToolApprovalService : IToolApprovalService
         // 会话放行键含当前对话 ID：不同对话互不影响。
         var sessionKey = BuildSessionKey(approvalKey);
 
+        _logger.Debug(
+            "ToolApproval evaluation started: Function={Function}, Risk={Risk}, Reason={Reason}, Mode={Mode}, ExecMode={ExecMode}",
+            functionName, risk, riskReason ?? "(none)", mode, execMode);
+
         var decision = Decide(functionName, argumentsJson, risk, riskReason, mode, execMode, config, isTerminal, commandName, approvalKey, sessionKey);
 
         // 交互模式下命中「需询问」分支会返回 null，交由弹窗流程处理。
@@ -75,6 +79,9 @@ public class ToolApprovalService : IToolApprovalService
             var automatic = _aiEvaluator == null
                 ? ToolApprovalDecision.Deny("自动审批模型不可用")
                 : await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+            _logger.Information(
+                "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Reason={Reason}",
+                functionName, automatic.Approved, automatic.Reason);
             Audit(functionName, risk, execMode, automatic);
             return automatic;
         }
@@ -83,6 +90,9 @@ public class ToolApprovalService : IToolApprovalService
         if (execMode != ToolApprovalContext.ExecutionMode.Interactive || _prompter == null)
         {
             var nonInteractive = ResolveNonInteractive(risk, execMode, config);
+            _logger.Information(
+                "ToolApproval non-interactive path decision: Function={Function}, Risk={Risk}, ExecMode={ExecMode}, Approved={Approved}, Reason={Reason}",
+                functionName, risk, execMode, nonInteractive.Approved, nonInteractive.Reason);
             Audit(functionName, risk, execMode, nonInteractive);
             return nonInteractive;
         }
@@ -100,6 +110,7 @@ public class ToolApprovalService : IToolApprovalService
         catch (OperationCanceledException)
         {
             var cancelled = ToolApprovalDecision.Deny("用户取消了本轮回复");
+            _logger.Information("ToolApproval prompt cancelled by user: Function={Function}", functionName);
             Audit(functionName, risk, execMode, cancelled);
             return cancelled;
         }
@@ -111,9 +122,15 @@ public class ToolApprovalService : IToolApprovalService
             {
                 _sessionAllowed.Add(sessionKey);
             }
+            _logger.Information(
+                "ToolApproval user chose AllowForSession: Function={Function}, SessionKey={SessionKey}",
+                functionName, sessionKey);
         }
         else if (scope == ToolApprovalScope.AllowAlways)
         {
+            _logger.Information(
+                "ToolApproval user chose AllowAlways: Function={Function}, IsTerminal={IsTerminal}, Command={Command}",
+                functionName, isTerminal, commandName);
             await PersistAlwaysAllowAsync(isTerminal, commandName, functionName);
         }
 
@@ -137,24 +154,28 @@ public class ToolApprovalService : IToolApprovalService
         // 受信任的第一方例程（知识库定期整理）：自动放行，避免破坏例程功能。
         if (execMode == ToolApprovalContext.ExecutionMode.Trusted)
         {
+            _logger.Debug("ToolApproval trusted background routine auto-allow: Function={Function}", functionName);
             return ToolApprovalDecision.AllowOnce("受信任的后台例程，自动放行");
         }
 
         // 全局关闭：一切自动放行。
         if (mode == ToolApprovalMode.Off)
         {
+            _logger.Debug("ToolApproval mode=Off auto-allow: Function={Function}", functionName);
             return ToolApprovalDecision.AllowOnce("审批模式=Off，全部放行");
         }
 
         // 只读工具在非严格模式下自动放行。
         if (risk == ToolRisk.ReadOnly && mode != ToolApprovalMode.Strict)
         {
+            _logger.Debug("ToolApproval read-only auto-allow: Function={Function}, Mode={Mode}", functionName, mode);
             return ToolApprovalDecision.AllowOnce("只读工具自动放行");
         }
 
         // 用户已永久放行该工具。
         if (config.AutoAllowedTools.Contains(functionName, StringComparer.OrdinalIgnoreCase))
         {
+            _logger.Debug("ToolApproval hit permanent allowlist: Function={Function}", functionName);
             return ToolApprovalDecision.AllowOnce("命中永久放行清单");
         }
 
@@ -162,6 +183,7 @@ public class ToolApprovalService : IToolApprovalService
         if (isTerminal && !string.IsNullOrEmpty(commandName)
             && config.TerminalAllowlist.Contains(commandName, StringComparer.OrdinalIgnoreCase))
         {
+            _logger.Debug("ToolApproval terminal command in whitelist: Command={Command}", commandName);
             return ToolApprovalDecision.AllowOnce($"终端命令 '{commandName}' 在白名单中");
         }
 
@@ -170,6 +192,7 @@ public class ToolApprovalService : IToolApprovalService
         {
             if (_sessionAllowed.Contains(sessionKey))
             {
+                _logger.Debug("ToolApproval session-scoped allow hit: SessionKey={SessionKey}", sessionKey);
                 return ToolApprovalDecision.AllowOnce("本对话内已放行");
             }
         }
@@ -237,10 +260,13 @@ public class ToolApprovalService : IToolApprovalService
                 config.AutoAllowedTools.Add(functionName);
             }
             await _configService.SaveAsync(config);
+            _logger.Information(
+                "ToolApproval always-allow persisted: Function={Function}, IsTerminal={IsTerminal}, Command={Command}",
+                functionName, isTerminal, commandName);
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "持久化永久放行失败：{Function}", functionName);
+            _logger.Warning(ex, "Failed to persist always-allow: {Function}", functionName);
         }
     }
 
@@ -248,7 +274,7 @@ public class ToolApprovalService : IToolApprovalService
     {
         // 审计日志：谁（模式）、放行/拒绝、工具、风险、原因。便于事后追溯。
         _logger.Information(
-            "工具审批 | 工具={Function} 风险={Risk} 执行={ExecMode} 决策={Scope} 放行={Approved} 原因={Reason}",
+            "ToolApproval | function={Function} risk={Risk} exec={ExecMode} decision={Scope} approved={Approved} reason={Reason}",
             functionName, risk, execMode, decision.Scope, decision.Approved, decision.Reason);
     }
 

@@ -7,7 +7,7 @@
         mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="200"
         x:Class="Athena.UI.Views.ConfirmDialog"
         x:DataType="vm:ConfirmDialogViewModel"
-        Title="{Binding Title}"
+        Title="{Binding TitleDisplay}"
         Width="400" Height="200"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
@@ -15,7 +15,7 @@
     <Grid RowDefinitions="*,Auto,Auto" Margin="20">
         <!-- 消息内容 -->
         <ScrollViewer Grid.Row="0">
-            <TextBlock Text="{Binding Message}"
+            <TextBlock Text="{Binding MessageDisplay}"
                       TextWrapping="Wrap"
                       FontSize="{DynamicResource App.FontSize.Heading}"/>
         </ScrollViewer>
@@ -35,11 +35,11 @@
                    Margin="0,16,0,0">
             <Button Command="{Binding CancelCommand}"
                     MinWidth="80"
-                    Content="{Binding CancelText}"/>
+                    Content="{Binding CancelTextDisplay}"/>
             <Button Command="{Binding ConfirmCommand}"
                     Theme="{StaticResource AccentButtonTheme}"
                     MinWidth="80"
-                    Content="{Binding ConfirmText}"/>
+                    Content="{Binding ConfirmTextDisplay}"/>
         </StackPanel>
     </Grid>
 </Window>

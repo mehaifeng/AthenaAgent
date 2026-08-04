@@ -29,9 +29,9 @@ public partial class ToolApprovalDialogViewModel : ObservableObject
 
         RiskLabel = request.Risk switch
         {
-            ToolRisk.ReadOnly => localize("Dialog.ToolApproval.Risk.ReadOnly", "只读"),
-            ToolRisk.Sensitive => localize("Dialog.ToolApproval.Risk.Sensitive", "敏感"),
-            ToolRisk.Destructive => localize("Dialog.ToolApproval.Risk.Destructive", "破坏性"),
+            ToolRisk.ReadOnly => localize("Dialog.ToolApproval.Risk.ReadOnly", "Read-only"),
+            ToolRisk.Sensitive => localize("Dialog.ToolApproval.Risk.Sensitive", "Sensitive"),
+            ToolRisk.Destructive => localize("Dialog.ToolApproval.Risk.Destructive", "Destructive"),
             _ => string.Empty
         };
     }

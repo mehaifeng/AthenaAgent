@@ -65,27 +65,27 @@
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
-                    <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="会话菜单"
+                    <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="{loc:Loc MainWindow.Menu.Conversation}"
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnOverflowMenuClick">
                         <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Foreground="{DynamicResource App.IconMutedForeground}"/>
                         <Button.ContextFlyout>
                             <MenuFlyout>
-                                <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
+                                <MenuItem Header="{loc:Loc MainWindow.Menu.Rename}" Command="{Binding StartRenameCommand}">
                                     <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="{Binding PinActionText}" Command="{Binding TogglePinnedCommand}">
                                     <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="分支" Command="{Binding RequestForkCommand}">
+                                <MenuItem Header="{loc:Loc MainWindow.Menu.Fork}" Command="{Binding RequestForkCommand}">
                                     <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="导出" Command="{Binding RequestExportCommand}">
+                                <MenuItem Header="{loc:Loc MainWindow.Menu.Export}" Command="{Binding RequestExportCommand}">
                                     <MenuItem.Icon>
                                         <PathIcon Data="{StaticResource SemiIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
+                                <MenuItem Header="{loc:Loc MainWindow.Menu.Delete}" Command="{Binding RequestDeleteCommand}">
                                     <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
                                 </MenuItem>
                             </MenuFlyout>
@@ -94,7 +94,7 @@
                 </Grid>
                 <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="4,2">
                     <TextBox Text="{Binding RenameText}" FontSize="{DynamicResource App.FontSize.Body}" MinHeight="28"/>
-                    <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="确认重命名" Command="{Binding CommitRenameCommand}">
+                    <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.ConfirmRename}" Command="{Binding CommitRenameCommand}">
                         <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
                 </Grid>
@@ -297,34 +297,34 @@
                         <Button Classes="launcher" Command="{Binding OpenProviderModelsCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource AthenaIconModelProvider}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="供应商模型"/>
+                                <TextBlock Text="{loc:Loc MainWindow.Launcher.Providers}"/>
                             </StackPanel>
                         </Button>
                         <Button Grid.Column="1" Classes="launcher" Command="{Binding OpenKnowledgeBaseCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource AthenaIconKnowledgeBase}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="知识库"/>
+                                <TextBlock Text="{loc:Loc MainWindow.Launcher.KnowledgeBase}"/>
                             </StackPanel>
                         </Button>
                         <Button Grid.Row="1" Classes="launcher" Command="{Binding OpenTasksCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource AthenaIconScheduledMessages}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="定时消息"/>
+                                <TextBlock Text="{loc:Loc MainWindow.Launcher.Tasks}"/>
                             </StackPanel>
                         </Button>
                         <Button Grid.Row="1" Grid.Column="1" Classes="launcher" Command="{Binding OpenSkillsConnectorsCommand}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <PathIcon Data="{StaticResource AthenaIconSkillsConnectors}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="技能与连接器"/>
+                                <TextBlock Text="{loc:Loc MainWindow.Launcher.Skills}"/>
                             </StackPanel>
                         </Button>
                     </Grid>
 
                     <Grid Grid.Row="1" Margin="10,0,10,7" ColumnDefinitions="*,Auto" ColumnSpacing="6">
                         <TextBox x:Name="WorkspaceSearchBox"
-                                 PlaceholderText="搜索工作区、标题或摘要"
+                                 PlaceholderText="{loc:Loc MainWindow.Search.Placeholder}"
                                  Text="{Binding ConversationSearchText}"/>
-                        <Button x:Name="AddWorkspaceButton" Grid.Column="1" Classes="icon-plain" ToolTip.Tip="添加工作区" Command="{Binding AddWorkspaceCommand}">
+                        <Button x:Name="AddWorkspaceButton" Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.AddWorkspace}" Command="{Binding AddWorkspaceCommand}">
                             <Path Data="{StaticResource AthenaIconWorkspaceAdd}" Width="16" Height="16" Stretch="Uniform"
                                   Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="2"
                                   StrokeLineCap="Round" StrokeJoin="Round"/>
@@ -333,7 +333,7 @@
 
                     <StackPanel x:Name="PinnedConversationsSection" Grid.Row="2" Margin="8,0,8,4"
                                 IsVisible="{Binding HasPinnedConversations}" Spacing="0">
-                        <TextBlock Text="置顶对话" FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.55" Margin="6,0,0,2"/>
+                        <TextBlock Text="{loc:Loc MainWindow.Section.Pinned}" FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.55" Margin="6,0,0,2"/>
                         <ItemsControl x:Name="PinnedConversationsList"
                                       ItemsSource="{Binding PinnedConversations}"
                                       ItemTemplate="{StaticResource ConversationSessionItemTemplate}"/>
@@ -346,7 +346,7 @@
                                     <StackPanel Classes="nav-group" IsVisible="{Binding IsSearchMatch}" Margin="0,0,0,1">
                                         <Grid Classes="nav-group-header" ColumnDefinitions="Auto,*,Auto,Auto">
                                             <Button Grid.Column="0" Classes="icon-plain nav-expand"
-                                                    ToolTip.Tip="展开/收起"
+                                                    ToolTip.Tip="{loc:Loc MainWindow.Tip.ExpandCollapse}"
                                                     Command="{Binding ToggleExpandedCommand}">
                                                 <TextBlock Text="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"
                                                            FontSize="{DynamicResource App.FontSize.Title}" VerticalAlignment="Center"/>
@@ -357,57 +357,57 @@
                                             <TextBox Grid.Column="1" Text="{Binding RenameText}" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"
                                                      Margin="2,1" IsVisible="{Binding IsRenaming}"/>
                                             <Button Grid.Column="2" Classes="icon-plain workspace-add-conversation"
-                                                    ToolTip.Tip="新建对话"
+                                                    ToolTip.Tip="{loc:Loc MainWindow.Tip.NewConversation}"
                                                     Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
                                                     CommandParameter="{Binding}">
                                                 <Path Data="{StaticResource AthenaIconConversationAdd}" Width="14" Height="14" Stretch="Uniform"
                                                       Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
                                                       StrokeLineCap="Round" StrokeJoin="Round"/>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain global-menu" ToolTip.Tip="全局对话菜单"
+                                            <Button Grid.Column="3" Classes="icon-plain global-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.GlobalMenu}"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     Click="OnOverflowMenuClick"
                                                     IsVisible="{Binding !IsWorkspace}">
                                             <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="13" Height="13" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                             <Button.ContextFlyout>
                                                 <MenuFlyout>
-                                                    <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
+                                                    <MenuItem Header="{loc:Loc MainWindow.Tip.RevealInFolder}" Command="{Binding RequestRevealCommand}">
                                                         <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                     </MenuItem>
-                                                    <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
+                                                    <MenuItem Header="{loc:Loc MainWindow.Tip.CopyPath}" Command="{Binding RequestCopyPathCommand}">
                                                         <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                     </MenuItem>
                                                 </MenuFlyout>
                                             </Button.ContextFlyout>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain workspace-menu" ToolTip.Tip="工作区菜单"
+                                            <Button Grid.Column="3" Classes="icon-plain workspace-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.WorkspaceMenu}"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     Click="OnOverflowMenuClick"
                                                     IsVisible="{Binding IsWorkspace}">
                                                 <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="13" Height="13" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                                 <Button.ContextFlyout>
                                                     <MenuFlyout>
-                                                        <MenuItem Header="重命名" Command="{Binding StartRenameCommand}">
+                                                        <MenuItem Header="{loc:Loc MainWindow.Menu.Rename}" Command="{Binding StartRenameCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
                                                         <MenuItem Header="{loc:Loc WorkspaceContext.Menu}" Command="{Binding RequestContextSettingsCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconSetting}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
-                                                        <MenuItem Header="在文件夹中显示" Command="{Binding RequestRevealCommand}">
+                                                        <MenuItem Header="{loc:Loc MainWindow.Tip.RevealInFolder}" Command="{Binding RequestRevealCommand}">
                                                             <MenuItem.Icon>
                                                                 <PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                                             </MenuItem.Icon>
                                                         </MenuItem>
-                                                        <MenuItem Header="复制路径" Command="{Binding RequestCopyPathCommand}">
+                                                        <MenuItem Header="{loc:Loc MainWindow.Tip.CopyPath}" Command="{Binding RequestCopyPathCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
-                                                        <MenuItem Header="删除" Command="{Binding RequestDeleteCommand}">
+                                                        <MenuItem Header="{loc:Loc MainWindow.Menu.Delete}" Command="{Binding RequestDeleteCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
                                                     </MenuFlyout>
                                                 </Button.ContextFlyout>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain" ToolTip.Tip="确认重命名"
+                                            <Button Grid.Column="3" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.ConfirmRename}"
                                                     IsVisible="{Binding IsRenaming}" Command="{Binding CommitRenameCommand}">
                                                 <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                             </Button>
@@ -428,10 +428,10 @@
                                 <Path Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Stretch="Uniform"
                                       Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
                                       StrokeLineCap="Round" StrokeJoin="Round"/>
-                                <TextBlock Text="全局对话"/>
+                                <TextBlock Text="{loc:Loc MainWindow.Launcher.GlobalChat}"/>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="左右布局对调" Command="{Binding ToggleSidePanelsCommand}">
+                        <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.SwapLayout}" Command="{Binding ToggleSidePanelsCommand}">
                             <PathIcon Data="{StaticResource SemiIconSidebar}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
@@ -509,7 +509,7 @@
                                                       Width="14"
                                                       Height="14"
                                                       Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                            <TextBlock Text="详细"/>
+                                            <TextBlock Text="{loc:Loc MainWindow.Launcher.Detailed}"/>
                                         </StackPanel>
                                     </Button>
                                     <ListBox x:Name="CompactLogsList"

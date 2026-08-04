@@ -68,7 +68,7 @@ public class MinerUDocumentParserService : IDocumentParserService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "MinerU 文档解析失败: {FileName}", fileName);
+            _logger.Warning(ex, "MinerU document parsing failed: {FileName}", fileName);
             return DocumentParseResult.Fail(ex.Message);
         }
     }

@@ -68,7 +68,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         if (_started || _disposed) return;
         _started = true;
         _timer.Change(StartupDelay, CheckPeriod);
-        _logger.Information("知识库整理服务已启动（每 {Period} 检查一次）", CheckPeriod);
+        _logger.Information("Knowledge base maintenance service started (checking every {Period})", CheckPeriod);
     }
 
     public void Stop()
@@ -76,7 +76,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         if (!_started) return;
         _started = false;
         _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        _logger.Information("知识库整理服务已停止");
+        _logger.Information("Knowledge base maintenance service stopped");
     }
 
     private void OnTimerTick(object? state)
@@ -97,12 +97,12 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
                       || (DateTime.UtcNow - State.LastRunUtc.Value) >= TimeSpan.FromDays(intervalDays);
             if (!due) return;
 
-            _logger.Information("知识库整理到期，开始自动整理");
+            _logger.Information("Knowledge base maintenance due; starting automatic consolidation");
             await RunNowAsync();
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "知识库整理定时检查失败");
+            _logger.Error(ex, "Scheduled knowledge base maintenance check failed");
         }
     }
 
@@ -129,7 +129,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
             if (clusters.Count == 0)
             {
                 UpdateState("NoDuplicates", "未发现疑似重复文件，无需整理。", 0);
-                _logger.Information("知识库整理：未发现疑似重复文件");
+                _logger.Information("Knowledge base maintenance: no suspected duplicate files found");
                 return State;
             }
 
@@ -143,7 +143,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
             try { await _knowledgeBase.RefreshVectorCacheAsync(); } catch { /* 忽略 */ }
 
             UpdateState(success ? "Succeeded" : "Failed", summary, clusters.Count);
-            _logger.Information("知识库整理完成：{Outcome}，涉及 {Groups} 组。{Summary}",
+            _logger.Information("Knowledge base maintenance completed: {Outcome}, touching {Groups} group(s). {Summary}",
                 success ? "Succeeded" : "Failed", clusters.Count, summary);
             return State;
         }
@@ -154,7 +154,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "知识库整理运行失败");
+            _logger.Error(ex, "Knowledge base maintenance run failed");
             UpdateState("Failed", ex.Message, 0);
             return State;
         }
@@ -216,12 +216,12 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
                 File.Copy(file, target, overwrite: true);
             }
 
-            _logger.Information("知识库整理前已备份 {Count} 个文件到 {Dest}", files.Length, dest);
+            _logger.Information("Backed up {Count} file(s) to {Dest} before maintenance", files.Length, dest);
             PruneOldBackups(backupRoot);
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "知识库备份失败（继续整理）");
+            _logger.Warning(ex, "Knowledge base backup failed (continuing maintenance)");
         }
     }
 
@@ -240,7 +240,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "清理旧备份失败");
+            _logger.Warning(ex, "Failed to clean up old backups");
         }
     }
 
@@ -264,7 +264,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "读取知识库整理状态失败，使用默认状态");
+            _logger.Warning(ex, "Failed to read knowledge base maintenance status; using default status");
         }
     }
 
@@ -277,7 +277,7 @@ public sealed class KnowledgeBaseMaintenanceService : IKnowledgeBaseMaintenanceS
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "保存知识库整理状态失败");
+            _logger.Warning(ex, "Failed to save knowledge base maintenance status");
         }
     }
 

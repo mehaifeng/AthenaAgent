@@ -1,5 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -10,10 +11,12 @@ namespace Athena.UI.Services;
 public class RecurrenceService : IRecurrenceService
 {
     private readonly ILocalizationService? _localizationService;
+    private readonly ILogger? _logger;
 
-    public RecurrenceService(ILocalizationService? localizationService = null)
+    public RecurrenceService(ILocalizationService? localizationService = null, ILogger? logger = null)
     {
         _localizationService = localizationService;
+        _logger = logger;
     }
 
     public RecurrenceRule Normalize(RecurrenceRule? rule)
@@ -42,6 +45,7 @@ public class RecurrenceService : IRecurrenceService
             return RecurrenceRule.None();
         }
 
+        _logger?.Debug("Recurrence Normalize(input): Mode={Mode}, Interval={Interval}, Unit={Unit}", input.Mode, input.Interval, input.Unit);
         var normalized = new RecurrenceRule();
         switch (input.Mode.Trim().ToLowerInvariant())
         {
@@ -62,6 +66,7 @@ public class RecurrenceService : IRecurrenceService
                 break;
 
             default:
+                _logger?.Warning("Recurrence unsupported mode: Mode={Mode}", input.Mode);
                 validation.Issues.Add(new RecurrenceValidationIssue
                 {
                     Code = "unsupported_mode",
@@ -127,6 +132,9 @@ public class RecurrenceService : IRecurrenceService
     {
         var validation = new RecurrenceValidationResult();
         var normalized = Normalize(rule);
+        _logger?.Debug(
+            "Recurrence Validate: Mode={Mode}, Interval={Interval}, Unit={Unit}, DaysOfWeek={Days}",
+            normalized.Mode, normalized.Interval, normalized.Unit, normalized.DaysOfWeek?.Count ?? 0);
 
         switch (normalized.Mode)
         {
@@ -240,13 +248,21 @@ public class RecurrenceService : IRecurrenceService
 
     private DateTime? GetNextOccurrence(DateTime scheduleBoundary, RecurrenceRule rule, DateTime afterTime)
     {
-        return rule.Mode switch
+        _logger?.Debug(
+            "Recurrence GetNextOccurrence: Boundary={Boundary:o}, After={After:o}, Mode={Mode}",
+            scheduleBoundary, afterTime, rule.Mode);
+        var result = rule.Mode switch
         {
             RecurrenceMode.None => scheduleBoundary > afterTime ? scheduleBoundary : null,
             RecurrenceMode.Interval => GetNextIntervalOccurrence(scheduleBoundary, rule, afterTime),
             RecurrenceMode.WeeklyDays => GetNextWeeklyDaysOccurrence(scheduleBoundary, rule, afterTime),
             _ => null
         };
+        if (result == null)
+        {
+            _logger?.Information("Recurrence no next occurrence: After={After:o}, Mode={Mode}", afterTime, rule.Mode);
+        }
+        return result;
     }
 
     private DateTime? GetNextIntervalOccurrence(DateTime scheduleBoundary, RecurrenceRule rule, DateTime afterTime)
@@ -364,6 +380,7 @@ public class RecurrenceService : IRecurrenceService
             return unit;
         }
 
+        _logger?.Warning("Recurrence unsupported unit: Value={Value}", value);
         validation.Issues.Add(new RecurrenceValidationIssue
         {
             Code = "unsupported_unit",
@@ -388,6 +405,7 @@ public class RecurrenceService : IRecurrenceService
             }
             else
             {
+                _logger?.Warning("Recurrence unsupported day of week: Value={Value}", value);
                 validation.Issues.Add(new RecurrenceValidationIssue
                 {
                     Code = "unsupported_day_of_week",

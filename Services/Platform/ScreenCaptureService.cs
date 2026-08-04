@@ -61,7 +61,7 @@ public class ScreenCaptureService : IScreenCaptureService
                     }
                 }
 
-                _logger.Warning("未找到可用的 Linux 截图工具（flameshot/gnome-screenshot/spectacle）");
+                _logger.Warning("No available Linux screenshot tool found (flameshot/gnome-screenshot/spectacle)");
                 return ScreenCaptureLaunchResult.Failed;
             }
 
@@ -73,7 +73,7 @@ public class ScreenCaptureService : IScreenCaptureService
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "启动截图工具失败");
+            _logger.Error(ex, "Failed to launch screenshot tool");
             return ScreenCaptureLaunchResult.Failed;
         }
     }
@@ -116,7 +116,7 @@ public class ScreenCaptureService : IScreenCaptureService
         if (overlay == null)
         {
             // 未捕获到覆盖层进程：回退到异步语义，由调用方长轮询剪贴板兜底。
-            _logger.Debug("未捕获到 ms-screenclip 覆盖层进程，回退为异步轮询模式");
+            _logger.Debug("ms-screenclip overlay process not captured; falling back to async polling mode");
             return ScreenCaptureLaunchResult.LaunchedAsync;
         }
 
@@ -129,7 +129,7 @@ public class ScreenCaptureService : IScreenCaptureService
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.Warning("等待截图覆盖层进程退出超时");
+            _logger.Warning("Timeout waiting for screenshot overlay process to exit");
         }
         finally
         {
@@ -185,7 +185,7 @@ public class ScreenCaptureService : IScreenCaptureService
         // ExitCode -1 是 CliService 对"命令无法启动/不存在"的约定返回；据此判定该工具不可用。
         if (result.ExitCode == -1)
         {
-            _logger.Debug("截图命令不可用: {Command} ({Error})", command, result.StandardError);
+            _logger.Debug("Screenshot command unavailable: {Command} ({Error})", command, result.StandardError);
             return ScreenCaptureLaunchResult.Failed;
         }
 
@@ -193,7 +193,7 @@ public class ScreenCaptureService : IScreenCaptureService
         // flameshot、gnome-screenshot 均如此），据此让调用方立即结束而非空轮询剪贴板。
         if (result.ExitCode != 0)
         {
-            _logger.Debug("截图被用户取消: {Command} (ExitCode={ExitCode})", command, result.ExitCode);
+            _logger.Debug("Screenshot cancelled by user: {Command} (ExitCode={ExitCode})", command, result.ExitCode);
             return ScreenCaptureLaunchResult.Cancelled;
         }
 

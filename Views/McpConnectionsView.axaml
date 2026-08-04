@@ -138,9 +138,9 @@
                                             <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}, ConverterParameter=Stdio}">
                                                 <Grid ColumnDefinitions="90,*" ColumnSpacing="10" RowDefinitions="Auto,Auto">
                                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.Mcp.Command}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Text="{Binding Command}" PlaceholderText="npx / uv / python …"/>
+                                                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Text="{Binding Command}" PlaceholderText="{loc:Loc Mcp.Placeholder.Command}"/>
                                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.Mcp.WorkingDir}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkingDirectory}" PlaceholderText="(optional)"/>
+                                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkingDirectory}" PlaceholderText="{loc:Loc Mcp.Placeholder.WorkingDir}"/>
                                                 </Grid>
 
                                                 <!-- 启动参数列表 -->
@@ -174,8 +174,8 @@
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
                                                             <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
-                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="KEY"/>
-                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="value"/>
+                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="{loc:Loc Mcp.Placeholder.EnvKey}"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="{loc:Loc Mcp.Placeholder.EnvValue}"/>
                                                                 <Button Grid.Column="2" Content="✕"
                                                                         Command="{Binding #McpRoot.DataContext.RemoveMcpEnvCommand}"
                                                                         CommandParameter="{Binding}"/>
@@ -189,7 +189,7 @@
                                             <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}">
                                                 <Grid ColumnDefinitions="90,*" ColumnSpacing="10">
                                                     <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center" Opacity="0.8"/>
-                                                    <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="https://example.com/mcp"/>
+                                                    <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="{loc:Loc Mcp.Placeholder.Url}"/>
                                                 </Grid>
 
                                                 <!-- 请求头列表 -->
@@ -203,8 +203,8 @@
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
                                                             <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6" Margin="0,0,0,2">
-                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="Authorization"/>
-                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="Bearer …"/>
+                                                                <TextBox Grid.Column="0" Text="{Binding Key}" PlaceholderText="{loc:Loc Mcp.Placeholder.HeaderKey}"/>
+                                                                <TextBox Grid.Column="1" Text="{Binding Value}" PlaceholderText="{loc:Loc Mcp.Placeholder.HeaderValue}"/>
                                                                 <Button Grid.Column="2" Content="✕"
                                                                         Command="{Binding #McpRoot.DataContext.RemoveMcpHeaderCommand}"
                                                                         CommandParameter="{Binding}"/>

@@ -31,8 +31,10 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
         var fallbackPlan = CreateFallbackPlan(request);
         var config = _configService.Load();
         var effectiveConfig = BrowserAgentModelResolver.Resolve(config);
+        _logger.Information("BrowserTaskPlanner creating plan: Instruction={Preview}", TrimInstruction(request.Instruction));
         if (string.IsNullOrWhiteSpace(effectiveConfig.ApiKey) || string.IsNullOrWhiteSpace(effectiveConfig.Model))
         {
+            _logger.Warning("BrowserTaskPlanner model not configured, using fallback plan: Instruction={Preview}", TrimInstruction(request.Instruction));
             return fallbackPlan;
         }
 
@@ -307,6 +309,12 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string TrimInstruction(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Length <= 200 ? value : value.Substring(0, 200);
+    }
 
     private sealed class PlannerResponse
     {

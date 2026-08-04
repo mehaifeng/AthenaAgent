@@ -18,7 +18,7 @@
     <TrayIcon.Icons>
         <TrayIcons>
             <TrayIcon Icon="/Assets/Athena.ico" 
-                      ToolTipText="Athena"
+                      ToolTipText="{loc:Loc Tray.ToolTip}"
                       Clicked="TrayIcon_OnClicked">
                 <TrayIcon.Menu>
                     <NativeMenu>

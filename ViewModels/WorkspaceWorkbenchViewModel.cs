@@ -210,6 +210,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly IPlatformPathService _pathService;
     private readonly IUserInteractionService _interaction;
     private readonly ICommitMessageGenerator? _commitMessageGenerator;
+    private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<WorkspaceWorkbenchViewModel>();
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _refreshDebounce;
@@ -229,13 +230,18 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         WorkspaceOperationCoordinator operations,
         IPlatformPathService pathService,
         IUserInteractionService interaction,
-        ICommitMessageGenerator? commitMessageGenerator = null)
+        ICommitMessageGenerator? commitMessageGenerator = null,
+        ILocalizationService? localizationService = null)
     {
         _operations = operations;
         _pathService = pathService;
         _interaction = interaction;
         _commitMessageGenerator = commitMessageGenerator;
+        _localizationService = localizationService;
     }
+
+    private string L(string key, string fallback)
+        => _localizationService?.GetString(key, fallback) ?? fallback;
 
     public ObservableCollection<WorkspaceFileNodeViewModel> Files { get; } = new();
     public ObservableCollection<WorkspaceEditorTabViewModel> EditorTabs { get; } = new();
@@ -254,10 +260,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private bool _isLoadingFiles;
 
     [ObservableProperty]
-    private string _workspaceName = "全局对话";
+    private string _workspaceName = string.Empty;
 
     [ObservableProperty]
-    private string _statusText = "未绑定工作区";
+    private string _statusText = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCommitEnabled))]
@@ -328,9 +334,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             var branch = string.IsNullOrWhiteSpace(CurrentBranchName) ? "HEAD" : CurrentBranchName;
             if (GitChanges.Count == 0) return branch;
-            if (StagedChangeCount == 0) return $"{branch} · {GitChanges.Count} 个更改";
-            if (StagedChangeCount == GitChanges.Count) return $"{branch} · {StagedChangeCount} 个已暂存";
-            return $"{branch} · {StagedChangeCount}/{GitChanges.Count} 已暂存";
+            if (StagedChangeCount == 0) return string.Format(L("Workspace.Commit.Format.Changes", "{0} change(s)"), $"{branch} · {GitChanges.Count}");
+            if (StagedChangeCount == GitChanges.Count) return string.Format(L("Workspace.Commit.Format.AllStaged", "{0} staged"), $"{branch} · {StagedChangeCount}");
+            return string.Format(L("Workspace.Commit.Format.PartialStaged", "{0}/{1} staged"), $"{branch} · {StagedChangeCount}", GitChanges.Count);
         }
     }
     public bool IsCommitEnabled => CanCommit();
@@ -367,8 +373,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         _workspace = workspace;
         _repositoryRoot = null;
         _workspaceRepositoryPathspec = ".";
-        WorkspaceName = workspace?.Name ?? "全局对话";
-        StatusText = workspace == null ? "全局对话不使用工作区文件" : workspace.DirectoryPath;
+        WorkspaceName = workspace?.Name ?? L("MainWindow.Launcher.GlobalChat", "Global chat");
+        StatusText = workspace == null
+            ? L("Workspace.Status.GlobalChatNoFiles", "Global chat does not use workspace files")
+            : workspace.DirectoryPath;
         HasGitRepository = false;
         CurrentBranchName = string.Empty;
         IsReviewVisible = false;
@@ -438,8 +446,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "刷新工作区文件树失败: {Workspace}", _workspace.DirectoryPath);
-            StatusText = "无法读取工作区文件";
+            _logger.Warning(ex, "Failed to refresh workspace file tree: {Workspace}", _workspace.DirectoryPath);
+            StatusText = L("Workspace.Status.ReadingFilesFailed", "Could not read workspace files");
         }
         finally
         {
@@ -523,7 +531,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             _workspaceRepositoryPathspec);
         if (status.ExitCode != 0)
         {
-            GitStatusText = string.IsNullOrWhiteSpace(status.Error) ? "无法读取 Git 状态" : status.Error.Trim();
+            GitStatusText = string.IsNullOrWhiteSpace(status.Error)
+                ? L("Workspace.Status.ReadingGitFailed", "Could not read Git status")
+                : status.Error.Trim();
             return;
         }
 
@@ -537,7 +547,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (!ReferenceEquals(SelectedGitChange, selectedChange))
             SelectedGitChange = selectedChange;
         HasStagedChanges = changes.Any(change => change.HasStagedChange);
-        GitStatusText = changes.Count == 0 ? "工作树干净" : $"{changes.Count} 个文件有更改";
+        GitStatusText = changes.Count == 0
+            ? L("Workspace.Status.WorkingTreeClean", "Working tree clean")
+            : string.Format(L("Workspace.Status.FilesChanged", "{0} file(s) have changes"), changes.Count);
         if (previousCount != GitChanges.Count)
             OnPropertyChanged(nameof(GitChangeCount));
         OnPropertyChanged(nameof(StagedChangeCount));
@@ -574,7 +586,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (!HasGitRepository || GitChanges.Count == 0) return;
         await RunGitOperationAsync(
             ["add", "-A", "--", _workspaceRepositoryPathspec],
-            "已暂存全部更改");
+            L("Workspace.Status.StagedAll", "All changes staged"));
     }
 
     [RelayCommand]
@@ -584,7 +596,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         var arguments = new List<string> { "add", "-A", "--", change.RelativePath };
         if (!string.IsNullOrWhiteSpace(change.OriginalRelativePath))
             arguments.Add(change.OriginalRelativePath);
-        await RunGitOperationAsync(arguments, $"已暂存 {change.RelativePath}");
+        await RunGitOperationAsync(arguments, string.Format(L("Workspace.Status.StagedFile", "Staged {0}"), change.RelativePath));
     }
 
     [RelayCommand]
@@ -594,7 +606,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         var arguments = new List<string> { "restore", "--staged", "--", change.RelativePath };
         if (!string.IsNullOrWhiteSpace(change.OriginalRelativePath))
             arguments.Add(change.OriginalRelativePath);
-        await RunGitOperationAsync(arguments, $"已取消暂存 {change.RelativePath}");
+        await RunGitOperationAsync(arguments, string.Format(L("Workspace.Status.UnstagedFile", "Unstaged {0}"), change.RelativePath));
     }
 
     [RelayCommand]
@@ -603,7 +615,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (!HasGitRepository || GitChanges.Count == 0) return;
         await RunGitOperationAsync(
             ["restore", "--staged", "--", _workspaceRepositoryPathspec],
-            "已取消暂存全部更改");
+            L("Workspace.Status.UnstagedAll", "All changes unstaged"));
     }
 
     [RelayCommand]
@@ -611,10 +623,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (change == null || _workspace == null) return;
         if (!await _interaction.ConfirmAsync(
-                "还原文件",
-                $"确定还原“{change.RelativePath}”吗？当前未提交的更改将丢失。",
-                "还原",
-                "取消",
+                L("Workspace.Confirm.Restore.Title", "Restore file"),
+                string.Format(L("Workspace.Confirm.Restore.Message", "Restore \"{0}\"? Uncommitted changes will be lost."), change.RelativePath),
+                L("Workspace.Confirm.Restore.Yes", "Restore"),
+                L("Workspace.Confirm.Restore.No", "Cancel"),
                 showDontAskAgain: false)) return;
 
         IsGitBusy = true;
@@ -628,7 +640,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             {
                 return;
             }
-            GitStatusText = $"已还原 {change.RelativePath}";
+            GitStatusText = string.Format(L("Workspace.Status.RestoredFile", "Restored {0}"), change.RelativePath);
             await RefreshFilesAsync();
             await RefreshRepositoryStateAsync();
             await RefreshOpenTabGitStateAsync();
@@ -644,10 +656,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (_workspace == null || GitChanges.Count == 0) return;
         if (!await _interaction.ConfirmAsync(
-                "还原全部更改",
-                $"确定还原全部 {GitChanges.Count} 个文件吗？所有未提交的更改将丢失。",
-                "全部还原",
-                "取消",
+                L("Workspace.Confirm.RestoreAll.Title", "Restore all changes"),
+                string.Format(L("Workspace.Confirm.RestoreAll.Message", "Restore all {0} files? All uncommitted changes will be lost."), GitChanges.Count),
+                L("Workspace.Confirm.RestoreAll.Yes", "Restore all"),
+                L("Common.Cancel", "Cancel"),
                 showDontAskAgain: false)) return;
 
         IsGitBusy = true;
@@ -664,7 +676,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     return;
                 }
             }
-            GitStatusText = "已还原全部更改";
+            GitStatusText = L("Workspace.Status.RestoredAll", "All changes restored");
             await RefreshFilesAsync();
             await RefreshRepositoryStateAsync();
             await RefreshOpenTabGitStateAsync();
@@ -691,7 +703,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (MissingGitIdentity)
         {
-            GitStatusText = "未配置 Git 用户身份，无法提交。请先填写身份信息。";
+            GitStatusText = L("Workspace.Status.IdentityNotConfigured", "Git user identity not configured; cannot commit. Please set it first.");
             IsIdentityConfiguring = true;
             return;
         }
@@ -705,7 +717,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 var stage = await RunGitAsync("add", "-A", "--", _workspaceRepositoryPathspec);
                 if (stage.ExitCode != 0)
                 {
-                    GitStatusText = BuildGitFailure("暂存失败", stage);
+                    GitStatusText = BuildGitFailure(L("Workspace.Git.Error.Stage", "Stage failed"), stage);
                     return;
                 }
             }
@@ -713,7 +725,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var commit = await RunGitAsync("commit", "-m", CommitMessage.Trim());
             if (commit.ExitCode != 0)
             {
-                GitStatusText = BuildGitFailure("提交失败", commit);
+                GitStatusText = BuildGitFailure(L("Workspace.Git.Error.Commit", "Commit failed"), commit);
                 return;
             }
 
@@ -722,13 +734,15 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 var push = await RunGitAsync("push");
                 if (push.ExitCode != 0)
                 {
-                    GitStatusText = BuildGitFailure("提交成功，但推送失败", push);
+                    GitStatusText = BuildGitFailure(L("Workspace.Git.Error.CommitButPushFailed", "Commit succeeded, but push failed"), push);
                     await RefreshRepositoryStateAsync();
                     return;
                 }
             }
 
-            GitStatusText = pushAfterCommit ? "已提交并推送" : "提交成功";
+            GitStatusText = pushAfterCommit
+                ? L("Workspace.Status.CommitAndPushSuccess", "Committed and pushed")
+                : L("Workspace.Status.CommitSuccess", "Commit succeeded");
             CommitMessage = string.Empty;
             await RefreshRepositoryStateAsync();
             await RefreshOpenTabGitStateAsync();
@@ -745,7 +759,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         try
         {
             var result = await RunGitAsync(arguments.ToArray());
-            GitStatusText = result.ExitCode == 0 ? successMessage : BuildGitFailure("Git 操作失败", result);
+            GitStatusText = result.ExitCode == 0 ? successMessage : BuildGitFailure(L("Workspace.Git.Error.Generic", "Git operation failed"), result);
             await RefreshRepositoryStateAsync();
         }
         finally
@@ -769,7 +783,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (_repositoryRoot == null) return;
         if (string.IsNullOrWhiteSpace(GitUserName) || string.IsNullOrWhiteSpace(GitUserEmail))
         {
-            GitStatusText = "请填写姓名和邮箱";
+            GitStatusText = L("Workspace.Status.IdentityRequired", "Please fill in name and email");
             return;
         }
 
@@ -780,12 +794,12 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var email = await RunGitAsync("config", "user.email", GitUserEmail.Trim());
             if (name.ExitCode != 0 || email.ExitCode != 0)
             {
-                GitStatusText = BuildGitFailure("身份保存失败", name.ExitCode != 0 ? name : email);
+                GitStatusText = BuildGitFailure(L("Workspace.Git.Error.IdentitySave", "Identity save failed"), name.ExitCode != 0 ? name : email);
                 return;
             }
             MissingGitIdentity = false;
             IsIdentityConfiguring = false;
-            GitStatusText = "Git 身份已保存";
+            GitStatusText = L("Workspace.Status.IdentitySaved", "Git identity saved");
         }
         finally
         {
@@ -800,7 +814,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         if (_repositoryRoot == null || _commitMessageGenerator == null) return;
         IsGeneratingCommitMessage = true;
-        GitStatusText = "正在生成提交信息…";
+        GitStatusText = L("Workspace.Status.GeneratingCommitMessage", "Generating commit message…");
         try
         {
             // 有已暂存更改时基于暂存区生成（与提交语义一致）；否则基于工作区生成。
@@ -818,17 +832,17 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var diffText = TruncateGitDiff(diff.ExitCode == 0 ? diff.Output : string.Empty, CommitMessageDiffBudget);
             if (string.IsNullOrWhiteSpace(statText) && string.IsNullOrWhiteSpace(diffText))
             {
-                GitStatusText = "没有已暂存的更改可供生成";
+                GitStatusText = L("Workspace.Status.NoStagedForGeneration", "No staged changes to generate from");
                 return;
             }
             var message = await _commitMessageGenerator.GenerateAsync(CurrentBranchName, statText, diffText);
             if (string.IsNullOrWhiteSpace(message))
             {
-                GitStatusText = "生成提交信息失败，请手动输入";
+                GitStatusText = L("Workspace.Status.GenerationFailed", "Failed to generate commit message, please enter one manually");
                 return;
             }
             CommitMessage = message;
-            GitStatusText = "已生成提交信息，请审阅后提交";
+            GitStatusText = L("Workspace.Status.GenerationSucceeded", "Generated commit message — please review before committing");
         }
         finally
         {
@@ -843,13 +857,13 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         && !IsGitBusy
         && !IsGeneratingCommitMessage;
 
-    private static string TruncateGitDiff(string diff, int budget)
+    private string TruncateGitDiff(string diff, int budget)
     {
         if (string.IsNullOrEmpty(diff) || diff.Length <= budget) return diff;
         var span = diff.AsSpan(0, budget);
         var lastNewLine = span.LastIndexOf('\n');
         var cut = lastNewLine > 0 ? lastNewLine : budget;
-        return diff[..cut] + "\n…（diff 过长已截断，生成结果可能不完整）";
+        return diff[..cut] + "\n" + L("Workspace.Git.DiffTruncated", "…(diff truncated, generation may be incomplete)");
     }
 
     private async Task<bool> RestoreTrackedChangeAsync(GitChangeFileViewModel change)
@@ -874,7 +888,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     path);
                 if (restore.ExitCode != 0)
                 {
-                    GitStatusText = BuildGitFailure("还原失败", restore);
+                    GitStatusText = BuildGitFailure(L("Workspace.Git.Error.Restore", "Restore failed"), restore);
                     return false;
                 }
                 continue;
@@ -885,7 +899,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var unstage = await RunGitAsync("rm", "--cached", "-r", "--ignore-unmatch", "--", path);
             if (unstage.ExitCode != 0)
             {
-                GitStatusText = BuildGitFailure("还原失败", unstage);
+                GitStatusText = BuildGitFailure(L("Workspace.Git.Error.Restore", "Restore failed"), unstage);
                 return false;
             }
             var fullPath = Path.GetFullPath(
@@ -935,7 +949,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 tab.Image = new Bitmap(change.FullPath);
                 tab.Mode = WorkspaceEditorMode.Image;
                 tab.CanDiff = true;
-                StatusText = "二进制文件不支持文本 Diff";
+                StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
             }
             else
             {
@@ -1036,7 +1050,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             var info = new FileInfo(node.FullPath);
             if (info.Length > 5 * 1024 * 1024)
             {
-                StatusText = "文件超过 5 MB，未在内置编辑器中打开";
+                StatusText = L("Workspace.Status.FileTooLarge", "File exceeds 5 MB, not opened in built-in editor");
                 return;
             }
             tab.ReplaceFromDisk(await File.ReadAllTextAsync(node.FullPath), info.LastWriteTimeUtc);
@@ -1060,14 +1074,14 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (tab == null || tab.IsImage || _workspace == null) return;
         var root = Path.GetFullPath(_workspace.DirectoryPath);
         EnsureInsideWorkspace(root, tab.FullPath);
-        StatusText = "等待工作区写入队列…";
+        StatusText = L("Workspace.Status.SavingQueue", "Waiting for workspace write queue…");
         await _operations.RunAsync(_workspace.Id, async cancellationToken =>
         {
             Directory.CreateDirectory(Path.GetDirectoryName(tab.FullPath)!);
             await File.WriteAllTextAsync(tab.FullPath, tab.Text, cancellationToken);
         });
         tab.MarkSaved();
-        StatusText = "已保存 " + tab.RelativePath;
+        StatusText = string.Format(L("Workspace.Status.Saved", "Saved {0}"), tab.RelativePath);
         tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
         if (tab.CanDiff)
         {
@@ -1082,7 +1096,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         tab ??= SelectedEditorTab;
         if (tab == null || !tab.IsEditMode || !tab.IsDirty) return;
         tab.CancelEdits();
-        StatusText = "已取消对 " + tab.RelativePath + " 的修改";
+        StatusText = string.Format(L("Workspace.Status.EditCancelled", "Discarded edits to {0}"), tab.RelativePath);
     }
 
     [RelayCommand]
@@ -1119,7 +1133,11 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private async Task CloseEditorTabAsync(WorkspaceEditorTabViewModel? tab)
     {
         if (tab == null) return;
-        if (tab.IsDirty && !await _interaction.ConfirmAsync("关闭文件", $"“{tab.FileName}”包含未保存内容，仍要关闭吗？", "关闭", "取消")) return;
+        if (tab.IsDirty && !await _interaction.ConfirmAsync(
+                L("Workspace.Confirm.CloseDirty.Title", "Close file"),
+                string.Format(L("Workspace.Confirm.CloseDirty.Message", "\"{0}\" has unsaved changes. Close anyway?"), tab.FileName),
+                L("Workspace.Confirm.CloseDirty.Yes", "Close"),
+                L("Common.Cancel", "Cancel"))) return;
         if (SelectedGitChange != null
             && string.Equals(SelectedGitChange.RelativePath, tab.RelativePath, PathComparison))
         {
@@ -1149,7 +1167,11 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private async Task DeleteFileAsync(WorkspaceFileNodeViewModel? node)
     {
         if (node == null || _workspace == null) return;
-        if (!await _interaction.ConfirmAsync("移到废纸篓", $"确定删除“{node.RelativePath}”吗？", "删除", "取消")) return;
+        if (!await _interaction.ConfirmAsync(
+                L("Workspace.Confirm.Trash.Title", "Move to trash"),
+                string.Format(L("Workspace.Confirm.Trash.Message", "Delete \"{0}\"?"), node.RelativePath),
+                L("Workspace.Confirm.Trash.Yes", "Delete"),
+                L("Common.Cancel", "Cancel"))) return;
         var root = Path.GetFullPath(_workspace.DirectoryPath);
         EnsureInsideWorkspace(root, node.FullPath);
         EnsureLinkTargetInsideWorkspace(root, node.FullPath);
@@ -1164,19 +1186,23 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 else File.Move(node.FullPath, destination);
                 return Task.CompletedTask;
             });
-            StatusText = "已移到系统废纸篓，可恢复";
+            StatusText = L("Workspace.Status.TrashedSuccess", "Moved to system trash, recoverable");
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "移到系统废纸篓失败: {Path}", node.FullPath);
-            if (!await _interaction.ConfirmAsync("永久删除", "系统废纸篓不可用。永久删除无法恢复，是否继续？", "永久删除", "取消")) return;
+            _logger.Warning(ex, "Failed to move to system trash: {Path}", node.FullPath);
+            if (!await _interaction.ConfirmAsync(
+                L("Workspace.Confirm.Permanent.Title", "Permanent delete"),
+                L("Workspace.Confirm.Permanent.Message", "System trash unavailable. Permanent delete cannot be undone, continue?"),
+                L("Workspace.Confirm.Permanent.Yes", "Permanently delete"),
+                L("Common.Cancel", "Cancel"))) return;
             await _operations.RunAsync(_workspace.Id, _ =>
             {
                 if (node.IsDirectory) Directory.Delete(node.FullPath, recursive: true);
                 else File.Delete(node.FullPath);
                 return Task.CompletedTask;
             });
-            StatusText = "已永久删除";
+            StatusText = L("Workspace.Status.PermanentlyDeleted", "Permanently deleted");
         }
         await RefreshFilesAsync();
     }
@@ -1232,10 +1258,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
         var trimmedName = newName?.Trim() ?? string.Empty;
         if (trimmedName.Length == 0)
-            return RejectRename(node, "名称不能为空");
+            return RejectRename(node, L("Workspace.Rename.Empty", "Name cannot be empty"));
         if (trimmedName is "." or ".."
             || trimmedName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            return RejectRename(node, "名称包含无效字符");
+            return RejectRename(node, L("Workspace.Rename.InvalidChars", "Name contains invalid characters"));
         if (string.Equals(trimmedName, node.Name, StringComparison.Ordinal))
             return true;
 
@@ -1253,8 +1279,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                                    or PathTooLongException
                                    or InvalidOperationException)
         {
-            _logger.Warning(ex, "工作区重命名名称无效: {Path} -> {Name}", node.FullPath, trimmedName);
-            return RejectRename(node, "名称无效");
+            _logger.Warning(ex, "Workspace rename failed: invalid name {Path} -> {Name}", node.FullPath, trimmedName);
+            return RejectRename(node, L("Workspace.Rename.Invalid", "Invalid name"));
         }
 
         try
@@ -1271,28 +1297,28 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 else File.Move(node.FullPath, destination);
                 return Task.CompletedTask;
             });
-            if (destinationExists) return RejectRename(node, $"“{trimmedName}”已存在");
+            if (destinationExists) return RejectRename(node, string.Format(L("Workspace.Rename.Exists", "\"{0}\" already exists"), trimmedName));
         }
         catch (IOException ex)
         {
-            _logger.Warning(ex, "工作区重命名失败: {Source} -> {Destination}", node.FullPath, destination);
+            _logger.Warning(ex, "Workspace rename failed: {Source} -> {Destination}", node.FullPath, destination);
             var message = File.Exists(destination) || Directory.Exists(destination)
-                ? $"“{trimmedName}”已存在"
-                : "重命名失败，请检查文件是否正在使用";
+                ? string.Format(L("Workspace.Rename.Exists", "\"{0}\" already exists"), trimmedName)
+                : L("Workspace.Rename.InUse", "Rename failed; the file may be in use");
             return RejectRename(node, message);
         }
         catch (UnauthorizedAccessException ex)
         {
-            _logger.Warning(ex, "工作区重命名权限不足: {Source} -> {Destination}", node.FullPath, destination);
-            return RejectRename(node, "没有权限重命名此项目");
+            _logger.Warning(ex, "Workspace rename permission denied: {Source} -> {Destination}", node.FullPath, destination);
+            return RejectRename(node, L("Workspace.Rename.NoPermission", "No permission to rename this item"));
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "工作区重命名发生意外错误: {Source} -> {Destination}", node.FullPath, destination);
-            return RejectRename(node, "重命名失败");
+            _logger.Error(ex, "Unexpected error during workspace rename: {Source} -> {Destination}", node.FullPath, destination);
+            return RejectRename(node, L("Workspace.Rename.UnexpectedFailed", "Rename failed"));
         }
 
-        StatusText = $"已重命名为 {trimmedName}";
+        StatusText = string.Format(L("Workspace.Status.RenamedTo", "Renamed to {0}"), trimmedName);
         // 打开的 Tab 不追随移动；保存时会按原路径新建，符合工作区编辑器约定。
         var renamedRelativePath = Path.GetRelativePath(root, destination);
         await RefreshFilesAsync();
@@ -1413,7 +1439,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "刷新工作区状态失败");
+            _logger.Error(ex, "Failed to refresh workspace state");
         }
         finally
         {
@@ -1655,7 +1681,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static IReadOnlyList<GitChangeFileViewModel> ParseGitStatus(string output, string workspaceRoot)
+    private IReadOnlyList<GitChangeFileViewModel> ParseGitStatus(string output, string workspaceRoot)
     {
         var result = new List<GitChangeFileViewModel>();
         var records = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
@@ -1693,16 +1719,20 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             .ToList();
     }
 
-    private static string DescribeGitStatus(char indexStatus, char workTreeStatus)
+    private string DescribeGitStatus(char indexStatus, char workTreeStatus)
     {
-        if (indexStatus == '?' && workTreeStatus == '?') return "未跟踪";
-        if (indexStatus == 'U' || workTreeStatus == 'U') return "有冲突";
-        if (indexStatus == 'R' || workTreeStatus == 'R') return "已重命名";
-        if (indexStatus == 'C' || workTreeStatus == 'C') return "已复制";
-        if (indexStatus == 'D' || workTreeStatus == 'D') return "已删除";
-        if (indexStatus == 'A') return workTreeStatus == ' ' ? "已暂存新增" : "新增";
-        if (indexStatus != ' ') return workTreeStatus == ' ' ? "已暂存" : "部分暂存";
-        return "已修改";
+        if (indexStatus == '?' && workTreeStatus == '?') return L("Workspace.Git.Status.Untracked", "Untracked");
+        if (indexStatus == 'U' || workTreeStatus == 'U') return L("Workspace.Git.Status.Conflict", "Conflict");
+        if (indexStatus == 'R' || workTreeStatus == 'R') return L("Workspace.Git.Status.Renamed", "Renamed");
+        if (indexStatus == 'C' || workTreeStatus == 'C') return L("Workspace.Git.Status.Copied", "Copied");
+        if (indexStatus == 'D' || workTreeStatus == 'D') return L("Workspace.Git.Status.Deleted", "Deleted");
+        if (indexStatus == 'A') return workTreeStatus == ' '
+            ? L("Workspace.Git.Status.StagedAdded", "Staged addition")
+            : L("Workspace.Git.Status.Added", "Added");
+        if (indexStatus != ' ') return workTreeStatus == ' '
+            ? L("Workspace.Git.Status.Staged", "Staged")
+            : L("Workspace.Git.Status.PartiallyStaged", "Partially staged");
+        return L("Workspace.Git.Status.Modified", "Modified");
     }
 
     private static void DeleteUntrackedPath(string fullPath, string workspaceRoot)
@@ -1720,7 +1750,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     {
         var detail = string.IsNullOrWhiteSpace(result.Error) ? result.Output : result.Error;
         detail = detail.Trim();
-        return string.IsNullOrWhiteSpace(detail) ? prefix : $"{prefix}：{detail}";
+        return string.IsNullOrWhiteSpace(detail) ? prefix : $"{prefix}: {detail}";
     }
 
     private string GetWorkspaceSecurityRoot()
@@ -1764,7 +1794,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             };
             await File.WriteAllTextAsync(StatePath, JsonSerializer.Serialize(state));
         }
-        catch (Exception ex) { _logger.Debug(ex, "保存编辑器工作区状态失败"); }
+        catch (Exception ex) { _logger.Debug(ex, "Failed to save editor workspace state"); }
     }
 
     private async Task RestoreStateAsync()
@@ -1805,7 +1835,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                                 ?? EditorTabs.FirstOrDefault();
             IsEditorVisible = state.IsEditorVisible && EditorTabs.Count > 0;
         }
-        catch (Exception ex) { _logger.Debug(ex, "恢复编辑器工作区状态失败"); }
+        catch (Exception ex) { _logger.Debug(ex, "Failed to restore editor workspace state"); }
     }
 
     private static void EnsureInsideWorkspace(string root, string path)
