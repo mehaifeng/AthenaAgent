@@ -81,6 +81,10 @@ Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestShellPanelBackgroundThemeResolution();
+TestColorSchemeSwitching();
+TestColorSchemeApplyCounting();
+TestColorSchemeShellPanelRepaint();
+TestColorSchemeThumbnail();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
 
@@ -1169,6 +1173,262 @@ static void TestShellPanelBackgroundThemeResolution()
     Application.Current.RequestedThemeVariant = ThemeVariant.Light;
     Dispatcher.UIThread.RunJobs();
     Console.WriteLine("[PASS] shell panels use the theme-consistent background color in Dark mode");
+}
+
+static void TestColorSchemeSwitching()
+{
+    var app = (App)Application.Current!;
+    var builtInDark = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Dark];
+    var builtInLight = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Light];
+    var eventCount = 0;
+    void OnColorSchemeChanged(string _) => eventCount++;
+    App.ColorSchemeChanged += OnColorSchemeChanged;
+    try
+    {
+        App.SetColorScheme("Solarized");
+        if (eventCount != 1)
+            throw new InvalidOperationException($"Solarized switch must fire ColorSchemeChanged once, got {eventCount}.");
+        var dark = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Dark];
+        var light = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Light];
+        if (ReferenceEquals(dark, builtInDark) || ReferenceEquals(light, builtInLight))
+            throw new InvalidOperationException("Scheme dictionaries must replace the built-in Dark/Light providers.");
+
+        AssertBrushColor(dark, "SemiColorBackground0", "#FF002B36");
+        AssertBrushColor(light, "SemiColorBackground0", "#FFFDF6E3");
+
+        // 仅容器背景风格化：icon（主色/强调色）与文字键的解析结果必须与内置字典完全一致
+        // （复制段保留原值，或两者都缺失 → 回落 SemiTheme 默认）。
+        foreach (var key in new[]
+                 {
+                     "SemiColorPrimary", "SemiColorPrimaryLight", "App.EmphasisForeground",
+                     "App.InverseForeground", "App.SelectedBackground", "App.ToggleCheckedBackground",
+                     "ButtonSolidPrimaryBackground", // StaticResource 别名链
+                     "SemiColorText0", "SemiColorBorder", "SemiGrey0", "SemiColorFocusBorder",
+                     "SemiColorSecondary", "SemiColorLink", "AvaloniaTerminalCaretBrush",
+                     "Chat.ArchivedFg", "Markdown.HeadingFg", "CodeInlineColor", "Chat.TimestampFg",
+                     "ForegroundColor",
+                 })
+        {
+            AssertKeyKeepsDefault(dark, builtInDark, key);
+        }
+        // 容器背景类键按方案定制。
+        AssertBrushColor(dark, "App.SectionBg", "#FF073642");
+        AssertBrushColor(dark, "Chat.UserBubbleBg", "#FF0A4653");
+        AssertBrushColor(dark, "AvaloniaTerminalColor0", "#FF002B36");
+
+        // 键集对齐：内置字典每个键在方案字典中必须存在且 CLR 类型一致（防复制漏键/键名笔误）。
+        var missing = new List<string>();
+        foreach (var key in builtInDark.Keys.Cast<object>().OfType<string>())
+        {
+            if (!dark.TryGetResource(key, ThemeVariant.Dark, out var schemeValue)
+                || !builtInDark.TryGetResource(key, ThemeVariant.Dark, out var builtInValue))
+            {
+                missing.Add(key);
+                continue;
+            }
+            if (schemeValue?.GetType() != builtInValue?.GetType())
+                throw new InvalidOperationException($"Key '{key}' type mismatch: built-in {builtInValue?.GetType()} vs scheme {schemeValue?.GetType()}.");
+        }
+        if (missing.Count > 0)
+            throw new InvalidOperationException($"Scheme dictionary misses built-in keys: {string.Join(", ", missing)}");
+
+        // 大小写不敏感幂等：同方案重复调用不重发事件。
+        App.SetColorScheme("solarized");
+        if (eventCount != 1)
+            throw new InvalidOperationException($"Case-insensitive duplicate switch must be a no-op, got {eventCount} fires.");
+
+        // 还原 Default：恢复内置字典实例。
+        App.SetColorScheme("Default");
+        if (!ReferenceEquals(app.Resources.ThemeDictionaries[ThemeVariant.Dark], builtInDark)
+            || !ReferenceEquals(app.Resources.ThemeDictionaries[ThemeVariant.Light], builtInLight))
+            throw new InvalidOperationException("Default scheme must restore the built-in dictionary instances.");
+    }
+    finally
+    {
+        App.ColorSchemeChanged -= OnColorSchemeChanged;
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] color scheme switching replaces theme dictionaries, aliases resolve, and Default restores");
+}
+
+static void TestColorSchemeApplyCounting()
+{
+    var config = new AppConfig { Theme = "Light", ColorScheme = "Tokyo" };
+    var configService = new HeadlessConfigService(config);
+    var themeApplyCount = 0;
+    var schemeApplyCount = 0;
+    void OnThemeChanged(string _) => themeApplyCount++;
+    void OnColorSchemeChanged(string _) => schemeApplyCount++;
+    App.ThemeChanged += OnThemeChanged;
+    App.ColorSchemeChanged += OnColorSchemeChanged;
+    try
+    {
+        using var applier = new AppConfigurationApplier(
+            configService,
+            chatService: null,
+            embeddingService: null,
+            knowledgeBaseService: null,
+            localizationService: null);
+        if (themeApplyCount != 1 || schemeApplyCount != 1)
+            throw new InvalidOperationException($"Initial apply must fire theme+scheme once each, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+
+        config.MainLayout.LeftWidth += 20;
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 1 || schemeApplyCount != 1)
+            throw new InvalidOperationException("Saving layout changes reapplied an unchanged color scheme.");
+
+        config.ColorScheme = "Monokai";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 1 || schemeApplyCount != 2)
+            throw new InvalidOperationException($"A scheme change must re-fire only ColorSchemeChanged, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+
+        config.Theme = "Dark";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 2 || schemeApplyCount != 2)
+            throw new InvalidOperationException($"A theme change must re-fire only ThemeChanged, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+    }
+    finally
+    {
+        App.ThemeChanged -= OnThemeChanged;
+        App.ColorSchemeChanged -= OnColorSchemeChanged;
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] configuration saves apply color scheme exactly once and independently of theme");
+}
+
+static void TestColorSchemeShellPanelRepaint()
+{
+    Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+    Dispatcher.UIThread.RunJobs();
+
+    var shellConfigService = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(shellConfigService);
+    var vm = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        taskScheduler: null,
+        contextCompressionService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null,
+        configurationSession: session);
+    var window = new MainWindow { DataContext = vm, Width = 1200, Height = 800 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    try
+    {
+        var panels = window.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.Classes.Contains("shell-panel")).ToList();
+        if (panels.Count != 3)
+            throw new InvalidOperationException($"Expected 3 shell panels, got {panels.Count}.");
+
+        App.SetColorScheme("Cyberpunk");
+        Dispatcher.UIThread.RunJobs();
+        foreach (var panel in panels)
+        {
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF0A0914"))
+                throw new InvalidOperationException($"Shell panel must repaint to Cyberpunk dark after scheme switch, got {panel.Background}.");
+        }
+
+        App.SetColorScheme("Default");
+        Dispatcher.UIThread.RunJobs();
+        foreach (var panel in panels)
+        {
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF16161A"))
+                throw new InvalidOperationException($"Shell panel must restore the built-in dark background, got {panel.Background}.");
+        }
+    }
+    finally
+    {
+        window.Close();
+        App.SetColorScheme("Default");
+        Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+        Dispatcher.UIThread.RunJobs();
+    }
+    Console.WriteLine("[PASS] shell panels repaint immediately on color scheme switch");
+}
+
+static void TestColorSchemeThumbnail()
+{
+    try
+    {
+        var thumbnail = new ColorSchemeThumbnailView { SchemeName = "Solarized" };
+        var darkDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Dark];
+        var lightDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Light];
+        AssertBrushColor(darkDict, "SemiColorBackground0", "#FF002B36");
+        AssertBrushColor(lightDict, "SemiColorBackground0", "#FFFDF6E3");
+        // icon 与文字统一默认：复制段保留应用内置默认（Light 主色 = 近黑 #111111），文字键回落 SemiTheme。
+        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF111111");
+        // 文字色统一默认：方案缺 SemiColorText* 键 → 缩略图回落 SemiTheme 默认文字色。
+        if (!thumbnail.Resources.TryGetResource("SemiColorText0", ThemeVariant.Light, out var lightText))
+            throw new InvalidOperationException("Thumbnail Light variant must resolve SemiColorText0.");
+        if (lightText is not ISolidColorBrush lightTextBrush || lightTextBrush.Color != Color.Parse("#FF1C1F23"))
+            throw new InvalidOperationException($"Thumbnail Light text must fall back to the default text color, got {lightText}.");
+
+        // Default 方案缺 SemiColorBackground0 等键：必须回落 SemiTheme 内置值（且不受 App 当前方案污染）。
+        var defaultThumbnail = new ColorSchemeThumbnailView { SchemeName = "Default" };
+        if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Dark, out var defaultDark)
+            || defaultDark is not ISolidColorBrush defaultDarkBrush
+            || defaultDarkBrush.Color != Color.Parse("#FF16161A"))
+            throw new InvalidOperationException($"Default thumbnail must fall back to the built-in dark background, got {defaultDark}.");
+        if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Light, out var defaultLight)
+            || defaultLight is not ISolidColorBrush defaultLightBrush
+            || defaultLightBrush.Color != Color.Parse("#FFFFFFFF"))
+            throw new InvalidOperationException($"Default thumbnail must fall back to the built-in light background, got {defaultLight}.");
+    }
+    finally
+    {
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] thumbnail control clones scheme palettes, follows variants, and falls back for Default");
+}
+
+static void AssertBrushColor(ResourceDictionary dictionary, string key, string expectedArgb)
+{
+    // 普通 ResourceDictionary（无 ThemeDictionaries）的变体参数不影响结果，只取自身条目。
+    if (!dictionary.TryGetResource(key, ThemeVariant.Dark, out var value))
+        throw new InvalidOperationException($"Scheme dictionary misses key '{key}'.");
+    var actual = value switch
+    {
+        ISolidColorBrush brush => brush.Color,
+        Color color => color,
+        _ => throw new InvalidOperationException($"Key '{key}' must resolve to a brush or color, got {value?.GetType()}.")
+    };
+    if (actual != Color.Parse(expectedArgb))
+        throw new InvalidOperationException($"Key '{key}' expected {expectedArgb}, got {actual}.");
+}
+
+/// <summary>断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。</summary>
+static void AssertKeyKeepsDefault(ResourceDictionary scheme, ResourceDictionary builtIn, string key)
+{
+    var schemeHas = scheme.TryGetResource(key, ThemeVariant.Dark, out var schemeValue);
+    var builtInHas = builtIn.TryGetResource(key, ThemeVariant.Dark, out var builtInValue);
+    if (schemeHas != builtInHas)
+        throw new InvalidOperationException($"Key '{key}' presence must match the built-in dictionary (scheme {schemeHas}, built-in {builtInHas}).");
+    if (!schemeHas)
+        return;
+    if (schemeValue is ISolidColorBrush schemeBrush && builtInValue is ISolidColorBrush builtInBrush)
+    {
+        if (schemeBrush.Color != builtInBrush.Color || Math.Abs(schemeBrush.Opacity - builtInBrush.Opacity) > 0.001)
+            throw new InvalidOperationException($"Key '{key}' must keep the built-in brush value ({schemeBrush.Color} vs {builtInBrush.Color}).");
+        return;
+    }
+    if (schemeValue is Color schemeColor && builtInValue is Color builtInColor)
+    {
+        if (schemeColor != builtInColor)
+            throw new InvalidOperationException($"Key '{key}' must keep the built-in color value ({schemeColor} vs {builtInColor}).");
+        return;
+    }
+    throw new InvalidOperationException($"Key '{key}' resolved to unexpected types {schemeValue?.GetType()} vs {builtInValue?.GetType()}.");
 }
 
 static void TestConfigurationSession(string artifactDirectory)

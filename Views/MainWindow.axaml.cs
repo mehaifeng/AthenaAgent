@@ -71,6 +71,8 @@ public partial class MainWindow : Window
         // 主题变体在运行时切换时，面板背景色要立刻跟随（App.ThemeChanged 在 1.2s 过渡后才广播，太晚）。
         if (Application.Current is INotifyPropertyChanged appNotify)
             appNotify.PropertyChanged += OnApplicationPropertyChanged;
+        // 配色方案切换不改 RequestedThemeVariant，必须单独订阅重解析面板背景。
+        App.ColorSchemeChanged += OnColorSchemeChanged;
         ApplyShellPanelOpacity();
         DataContextChanged += OnMainDataContextChanged;
         SizeChanged += (_, _) => ApplySavedLayout();
@@ -163,6 +165,8 @@ public partial class MainWindow : Window
         if (e.PropertyName == nameof(Application.RequestedThemeVariant))
             ApplyShellPanelOpacity();
     }
+
+    private void OnColorSchemeChanged(string _) => ApplyShellPanelOpacity();
 
     /// <summary>
     /// 按 ShellPanelOpacity 重建三块 shell 面板的背景画笔：只让背景变透明使雅典娜图像透出，

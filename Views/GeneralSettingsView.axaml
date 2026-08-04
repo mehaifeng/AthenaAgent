@@ -1,9 +1,38 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.GeneralSettingsView"
              x:DataType="vm:GeneralSettingsViewModel">
+    <UserControl.Styles>
+        <!-- 配色方案缩略图画廊：透明 ListBoxItem 外壳，选中/悬停态画在缩略图卡片边框上 -->
+        <Style Selector="ListBox.color-schemes">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="ListBox.color-schemes > ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:pointerover Border.thumb-card">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:selected Border.thumb-card">
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorPrimary}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+    </UserControl.Styles>
     <ScrollViewer>
         <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
@@ -31,6 +60,23 @@
                             <x:String>Light</x:String>
                         </ComboBox>
                     </Grid>
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{loc:Loc Settings.General.ColorScheme}" VerticalAlignment="Center"/>
+                        <ListBox Classes="color-schemes"
+                                 ItemsSource="{Binding ColorSchemes}"
+                                 SelectedItem="{Binding State.Config.ColorScheme}">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="5" HorizontalAlignment="Stretch"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <views:ColorSchemeThumbnailView SchemeName="{Binding}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
                     <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.Language}" VerticalAlignment="Center"/>
                         <ComboBox Grid.Column="1" Width="100"  SelectedItem="{Binding State.Config.Language}">
