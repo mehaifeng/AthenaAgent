@@ -657,6 +657,62 @@ silentTitleSession.Dispose();
 silentTitleOther.Dispose();
 Console.WriteLine("[PASS] silent background title generation on conversation switch, dedup, and manual-rename protection");
 
+// ---- 静默标题生成去重：生成结果与当前标题相同时也不得反复生成（回归） ----
+var sameTitleGen = new StubTitleGenerator("AI标题:");
+var sameTitleVm = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: null,
+    imageGenerationSessionService: null,
+    conversationStore: new HeadlessConversationStore(),
+    titleGenerator: sameTitleGen);
+PumpUntil(() => !sameTitleVm.IsConversationTreeLoading, failureMessage: "Same-title tree initialization did not complete.");
+sameTitleVm.ConversationGroups.Clear();
+var sameTitleGroup = new WorkspaceConversationGroupViewModel(null);
+sameTitleVm.ConversationGroups.Add(sameTitleGroup);
+var sameTitleChat = new MainConversationViewModel();
+var sameTitleSession = new ConversationSessionItemViewModel(sameTitleChat, null, null)
+{
+    // 与生成结果相同：模拟模型回退到首条消息/确定性输出时标题未变化。
+    Title = "AI标题:第一条用户消息"
+};
+sameTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第一条用户消息" });
+sameTitleChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "第一条回复" });
+sameTitleGroup.Conversations.Add(sameTitleSession);
+var sameTitleOther = new ConversationSessionItemViewModel(new MainConversationViewModel(), null, null)
+{
+    Title = "另一个会话"
+};
+sameTitleGroup.Conversations.Add(sameTitleOther);
+sameTitleVm.SelectedConversation = sameTitleSession;
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleOther;
+PumpUntil(() => sameTitleGen.CallCount >= 1, failureMessage: "Silent title generation did not run.");
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleSession;
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleOther;
+Dispatcher.UIThread.RunJobs();
+Thread.Sleep(50);
+Dispatcher.UIThread.RunJobs();
+if (sameTitleGen.CallCount != 1)
+    throw new InvalidOperationException($"生成结果与当前标题相同时仍被重复生成: {sameTitleGen.CallCount} 次调用");
+sameTitleSession.Dispose();
+sameTitleOther.Dispose();
+Console.WriteLine("[PASS] title regeneration suppressed when the generated title is unchanged");
+
 var p0Store = new HeadlessConversationStore();
 var p0Config = new HeadlessConfigService(new AppConfig { KeepRecentRounds = 1 });
 var p0Chat = new MainConversationViewModel(
@@ -3961,11 +4017,14 @@ sealed class FakeCommitMessageGenerator : ICommitMessageGenerator
 
 sealed class StubTitleGenerator(string prefix = "AI:") : IConversationTitleGenerator
 {
+    public int CallCount { get; private set; }
+
     public Task<string> GenerateAsync(
         IReadOnlyList<ChatMessage> messages,
         bool useAi,
         CancellationToken cancellationToken = default)
     {
+        CallCount++;
         var firstUser = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? string.Empty;
         return Task.FromResult(prefix + firstUser);
     }

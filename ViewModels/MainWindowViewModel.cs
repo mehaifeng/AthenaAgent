@@ -187,9 +187,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 // 生成期间会话可能已被删除：已不在树中则放弃写入（含持久化复活）。
                 if (!ConversationGroups.Any(group => group.Conversations.Contains(session))) return;
+                // 无论标题是否变化，本次生成的结果都代表当前内容，必须先标记——
+                // 否则生成结果与当前标题相同时（模型回退到首条消息等）每次切换都会重复生成。
+                session.MarkSilentTitleGenerated();
                 if (string.Equals(title, session.Title, StringComparison.Ordinal)) return;
                 session.Title = title;
-                session.MarkSilentTitleGenerated();
                 // 提升 revision 并触发直接持久化，让 AI 标题落库（旧 revision 会被存储层拒绝）。
                 session.Chat.MarkPersistenceMetadataChanged();
             });
