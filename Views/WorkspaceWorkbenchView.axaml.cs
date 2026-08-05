@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Athena.UI.Controls;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.ViewModels;
 using System;
@@ -44,6 +45,7 @@ public partial class WorkspaceWorkbenchView : UserControl
     public WorkspaceWorkbenchView()
     {
         InitializeComponent();
+        OfficePreviewBridge.Failed += OnOfficePreviewFailed;
         var grid = this.FindControl<Grid>("WorkbenchGrid");
         _reviewColumn = grid?.ColumnDefinitions[0];
         _reviewSplitterColumn = grid?.ColumnDefinitions[1];
@@ -71,6 +73,16 @@ public partial class WorkspaceWorkbenchView : UserControl
     }
 
     public event EventHandler? MinimumRequiredWidthChanged;
+
+    /// <summary>NativeWebView 创建/加载失败：回退为二进制占位并提示（OfficePreviewBridge 静态事件）。</summary>
+    private void OnOfficePreviewFailed(Border border, Exception? error)
+    {
+        if (border.DataContext is not WorkspaceEditorTabViewModel tab) return;
+        if (DataContext is WorkspaceWorkbenchViewModel workbench)
+        {
+            workbench.MarkOfficePreviewFailed(tab);
+        }
+    }
 
     public double MinimumRequiredWidth
     {

@@ -1,0 +1,24 @@
+{
+  "name": "athena-preview-vendor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Office 文档预览前端库的 vendoring 工具（开发期使用，产出提交进仓库 Assets/Preview/lib，不进入运行时）",
+  "scripts": {
+    "vendor": "npm run vendor:pdf && npm run vendor:docx && npm run vendor:pptx && npm run vendor:xlsx",
+    "vendor:pdf": "node vendor-pdf.mjs",
+    "vendor:docx": "esbuild entry-docx.mjs --bundle --format=esm --minify --outfile=../../Assets/Preview/lib/docx-viewer.bundle.mjs",
+    "vendor:pptx": "node vendor-pptx.mjs",
+    "vendor:xlsx": "node vendor-xlsx.mjs"
+  },
+  "dependencies": {
+    "docx-preview": "^0.4.0",
+    "jszip": "^3.10.1",
+    "pdfjs-dist": "^6.2.108",
+    "pptx-vanilla-viewer": "^1.14.0",
+    "three": "^0.185.1",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,7 +1,10 @@
 using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.Preview;
+using Avalonia;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
@@ -99,7 +102,10 @@ public enum WorkspaceEditorMode
     Preview,
     Diff,
     Image,
-    Binary
+    Binary,
+    // 注意：该枚举经 JSON 数字序列化持久化，新值只能追加在末尾，
+    // 任何中间插入都会破坏既有存档的语义（见 RestoreStateAsync 的兼容兜底）。
+    Office
 }
 
 public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
@@ -114,16 +120,36 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     public bool IsMarkdown => string.Equals(Path.GetExtension(FullPath), ".md", StringComparison.OrdinalIgnoreCase)
                               || string.Equals(Path.GetExtension(FullPath), ".markdown", StringComparison.OrdinalIgnoreCase);
     public bool IsImage => ImageExtensions.Contains(Path.GetExtension(FullPath));
+    public bool IsOffice => OfficePreviewTypes.IsPreviewable(FullPath);
+    public bool IsOfficeLegacy => OfficePreviewTypes.IsLegacyOffice(FullPath);
+
+    /// <summary>Office 预览的 NativeWebView 加载地址（仅 Office 模式下非空）。</summary>
+    public string? PreviewUrl { get; set; }
+
+    /// <summary>Office 预览服务器会话 ID，关闭 tab 时用于释放只读会话。</summary>
+    public string? PreviewSessionId { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanEdit))]
     [NotifyPropertyChangedFor(nameof(CanPreview))]
     private bool _isBinary;
 
-    public bool CanEdit => !IsImage && !IsBinary;
+    public bool CanEdit => !IsImage && !IsBinary && !IsOffice;
     public bool CanPreview => IsMarkdown && !IsBinary;
-    [ObservableProperty]
+
     private bool _canDiff;
+
+    /// <summary>Office 文件是二进制预览，不提供文本 Diff（任何路径设置 CanDiff 对 Office 均无效）。</summary>
+    public bool CanDiff
+    {
+        get => _canDiff && !IsOffice;
+        set
+        {
+            if (_canDiff == value) return;
+            _canDiff = value;
+            OnPropertyChanged();
+        }
+    }
 
     [ObservableProperty]
     private string _text = string.Empty;
@@ -220,6 +246,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<WorkspaceWorkbenchViewModel>();
     private const long MaxEditableFileSize = 5 * 1024 * 1024;
+    private const long MaxOfficePreviewFileSize = 100L * 1024 * 1024;
+    private readonly OfficePreviewHost? _previewHost;
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _refreshDebounce;
     private CancellationTokenSource? _gitChangeOpenCts;
@@ -240,13 +268,15 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         IPlatformPathService pathService,
         IUserInteractionService interaction,
         ICommitMessageGenerator? commitMessageGenerator = null,
-        ILocalizationService? localizationService = null)
+        ILocalizationService? localizationService = null,
+        OfficePreviewHost? previewHost = null)
     {
         _operations = operations;
         _pathService = pathService;
         _interaction = interaction;
         _commitMessageGenerator = commitMessageGenerator;
         _localizationService = localizationService;
+        _previewHost = previewHost;
         if (_localizationService != null)
         {
             _localizationService.LanguageChanged += OnLanguageChanged;
@@ -389,6 +419,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         DisposeWatcher();
         CancelScheduledRefresh();
         CancelRenameFile(_renamingFile);
+        _previewHost?.ReleaseAll();
         foreach (var tab in EditorTabs) tab.Dispose();
         EditorTabs.Clear();
         SelectedEditorTab = null;
@@ -976,6 +1007,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                 tab.CanDiff = true;
                 StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
             }
+            else if (tab.IsOffice && File.Exists(change.FullPath))
+            {
+                if (!OpenOfficePreview(tab)) return;
+            }
             else
             {
                 var currentExists = File.Exists(change.FullPath);
@@ -1042,7 +1077,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             EditorTabs.Add(tab);
             OnPropertyChanged(nameof(HasEditorTabs));
         }
-        else if (!tab.IsImage && !tab.IsBinary)
+        else if (!tab.IsImage && !tab.IsBinary && !tab.IsOffice)
         {
             if (!tab.IsDirty)
             {
@@ -1109,6 +1144,15 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             tab.Image = new Bitmap(node.FullPath);
             tab.Mode = WorkspaceEditorMode.Image;
         }
+        else if (tab.IsOffice)
+        {
+            // Office 预览判定先于文本大小上限与二进制嗅探：docx/xlsx/pptx/pdf 走 WebView 预览
+            if (!OpenOfficePreview(tab)) return;
+        }
+        else if (tab.IsOfficeLegacy)
+        {
+            FallbackToBinaryPlaceholder(tab, "Workspace.Status.OfficeFormatUnsupported", "This format cannot be previewed (supports .docx/.xlsx/.pptx/.pdf)");
+        }
         else
         {
             var info = new FileInfo(node.FullPath);
@@ -1138,6 +1182,46 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
         OnPropertyChanged(nameof(HasEditorTabs));
         if (persist) await PersistStateAsync();
+    }
+
+    /// <summary>
+    /// 注册 Office 预览会话并切换到 Office 模式。
+    /// 预览服务器按请求现读磁盘，因此外部修改后刷新页面即可看到最新内容，
+    /// 无需在此缓存文件内容。返回 false 表示文件过大未打开（调用方应中止）；
+    /// 组件不可用时回退为二进制占位并照常打开 tab。
+    /// </summary>
+    private bool OpenOfficePreview(WorkspaceEditorTabViewModel tab)
+    {
+        var type = OfficePreviewTypes.PreviewType(tab.FullPath);
+        if (type == null || _previewHost == null)
+        {
+            MarkOfficePreviewFailed(tab);
+            return true;
+        }
+        if (new FileInfo(tab.FullPath).Length > MaxOfficePreviewFileSize)
+        {
+            StatusText = L("Workspace.Status.OfficeFileTooLarge", "File too large to preview");
+            return false;
+        }
+        var sessionId = _previewHost.RegisterSession(tab.FullPath);
+        // 主题取打开时刻的值（前端页面不跟随运行时主题切换）
+        var isDark = Equals(Application.Current?.RequestedThemeVariant, ThemeVariant.Dark);
+        var lang = _localizationService?.CurrentLanguage ?? "zh-CN";
+        tab.PreviewSessionId = sessionId;
+        tab.PreviewUrl = _previewHost.BuildPreviewUrl(sessionId, type, isDark ? "dark" : "light", lang, tab.FileName);
+        tab.Mode = WorkspaceEditorMode.Office;
+        return true;
+    }
+
+    /// <summary>WebView 创建/加载失败时由视图层调用：回退为二进制占位。</summary>
+    public void MarkOfficePreviewFailed(WorkspaceEditorTabViewModel tab)
+        => FallbackToBinaryPlaceholder(tab, "Workspace.Status.OfficePreviewUnavailable", "Preview component unavailable, showing placeholder");
+
+    private void FallbackToBinaryPlaceholder(WorkspaceEditorTabViewModel tab, string messageKey, string fallback)
+    {
+        tab.IsBinary = true;
+        tab.Mode = WorkspaceEditorMode.Binary;
+        StatusText = L(messageKey, fallback);
     }
 
     [RelayCommand]
@@ -1194,6 +1278,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private void SetEditorMode(string? mode)
     {
         if (SelectedEditorTab == null || !Enum.TryParse<WorkspaceEditorMode>(mode, true, out var parsed)) return;
+        if (SelectedEditorTab.IsOffice) return; // Office 预览为只读展示，不可切换模式
         if (parsed == WorkspaceEditorMode.Edit && !SelectedEditorTab.CanEdit) return;
         if (parsed == WorkspaceEditorMode.Preview && !SelectedEditorTab.CanPreview) return;
         if (parsed == WorkspaceEditorMode.Diff && !SelectedEditorTab.CanDiff) return;
@@ -1218,6 +1303,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         }
         var index = EditorTabs.IndexOf(tab);
         EditorTabs.Remove(tab);
+        if (tab.PreviewSessionId != null) _previewHost?.ReleaseSession(tab.PreviewSessionId);
         tab.Dispose();
         SelectedEditorTab = EditorTabs.Count == 0 ? null : EditorTabs[Math.Clamp(index, 0, EditorTabs.Count - 1)];
         if (EditorTabs.Count == 0) IsEditorVisible = false;
@@ -1441,6 +1527,11 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                         tab.Image?.Dispose();
                         tab.Image = new Bitmap(tab.FullPath);
                     }
+                    else if (tab.IsOffice)
+                    {
+                        // Office 预览由服务器按请求现读磁盘，外部修改后刷新页面即可看到最新内容，
+                        // 保持 Office 模式，不翻牌为二进制占位。
+                    }
                     else if (changedAt >= tab.LastLocalEditAt)
                     {
                         if (IsProbablyBinary(tab.FullPath))
@@ -1541,7 +1632,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private async Task RefreshOpenTabGitStateAsync()
     {
-        foreach (var tab in EditorTabs.Where(tab => !tab.IsImage).ToList())
+        // Office 预览不参与文本 Diff，跳过其 git 状态查询
+        foreach (var tab in EditorTabs.Where(tab => !tab.IsImage && !tab.IsOffice).ToList())
         {
             tab.CanDiff = await HasUncommittedChangesAsync(tab.RelativePath);
             if (tab.Mode != WorkspaceEditorMode.Diff) continue;
@@ -1943,6 +2035,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
                     WorkspaceEditorMode.Diff => tab.CanDiff,
                     WorkspaceEditorMode.Image => tab.IsImage,
                     WorkspaceEditorMode.Binary => tab.IsBinary,
+                    WorkspaceEditorMode.Office => tab.IsOffice,
                     _ => false
                 };
                 if (!canRestoreMode) continue;
@@ -2009,6 +2102,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             _localizationService.LanguageChanged -= OnLanguageChanged;
         }
         DisposeWatcher();
+        _previewHost?.ReleaseAll();
         foreach (var tab in EditorTabs) tab.Dispose();
         CancelScheduledRefresh();
         var gitChangeOpen = Interlocked.Exchange(ref _gitChangeOpenCts, null);

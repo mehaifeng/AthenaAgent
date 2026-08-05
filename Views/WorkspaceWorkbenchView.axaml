@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:services="using:Athena.UI.Services"
+             xmlns:local="using:Athena.UI.Controls"
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
              x:Class="Athena.UI.Views.WorkspaceWorkbenchView"
@@ -412,17 +413,19 @@
                         </ListBox.ItemsPanel>
                         <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:WorkspaceEditorTabViewModel">
-                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"/>
-                                <TextBlock Text="●" Foreground="{DynamicResource SemiOrange5}" IsVisible="{Binding IsDirty}"
+                            <Grid Width="130" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="5" VerticalAlignment="Center"
+                                  ToolTip.Tip="{Binding FileName}">
+                                <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource SemiOrange5}" IsVisible="{Binding IsDirty}"
                                            VerticalAlignment="Center"/>
-                                <Button ToolTip.Tip="{loc:Loc Workspace.Editor.Tip.CloseFile}"
+                                <Button Grid.Column="2" ToolTip.Tip="{loc:Loc Workspace.Editor.Tip.CloseFile}"
                                         Classes="editor-tab-close"
                                         Command="{Binding $parent[UserControl].DataContext.CloseEditorTabCommand}"
                                         CommandParameter="{Binding}">
                                     <PathIcon Data="{StaticResource AthenaIconClose}" Width="8" Height="8" Foreground="{DynamicResource App.IconMutedForeground}"/>
                                 </Button>
-                            </StackPanel>
+                            </Grid>
                         </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -493,6 +496,9 @@
                                 <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Image}">
                                     <Image Source="{Binding Image}" Stretch="Uniform" Margin="12"/>
                                 </ScrollViewer>
+                                <!-- Office 预览：NativeWebView 由附加属性惰性创建（Url 为空时不创建任何平台控件） -->
+                                <Border IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Office}"
+                                        local:OfficePreviewBridge.Url="{Binding PreviewUrl}"/>
                                 <StackPanel IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Binary}"
                                             HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                                     <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="28" Height="28"

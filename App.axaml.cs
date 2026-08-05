@@ -13,6 +13,7 @@ using Athena.UI.Views;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Functions;
+using Athena.UI.Services.Preview;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.Platform;
@@ -745,13 +746,15 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
                 sp.GetRequiredService<IPromptService>(),
                 Log.ForContext<CommitMessageGenerator>()));
+        services.AddSingleton<OfficePreviewHost>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>(sp =>
             new WorkspaceWorkbenchViewModel(
                 sp.GetRequiredService<WorkspaceOperationCoordinator>(),
                 sp.GetRequiredService<IPlatformPathService>(),
                 sp.GetRequiredService<IUserInteractionService>(),
                 sp.GetService<ICommitMessageGenerator>(),
-                sp.GetService<ILocalizationService>()));
+                sp.GetService<ILocalizationService>(),
+                sp.GetService<OfficePreviewHost>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();

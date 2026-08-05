@@ -17,6 +17,7 @@ using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Context;
+using Athena.UI.Services.Preview;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
@@ -120,7 +121,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("mcp: importer detects http url + headers", TestMcpImporterHttpAsync),
     ("mcp: diff honors http url/headers and validity", TestMcpHttpDiffAsync),
     ("mcp: import_json adds servers from pasted blob and enables MCP", TestMcpImportJsonToolAsync),
-    ("mcp: add_server coerces json-string env/args (weak-model resilience)", TestMcpAddServerCoerceAsync)
+    ("mcp: add_server coerces json-string env/args (weak-model resilience)", TestMcpAddServerCoerceAsync),
+    ("office preview: range parser handles all single-segment forms", TestOfficeRangeParserAsync),
+    ("office preview: type classification and mime mapping stay correct", TestOfficeTypeAndMimeAsync),
+    ("office preview: session store enforces token and releases sessions", TestOfficeSessionStoreAsync)
 };
 
 var failures = new List<string>();
@@ -3793,6 +3797,108 @@ static void AssertFalse(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static Task TestOfficeRangeParserAsync()
+{
+    // 无 Range 头 → 整文件 200
+    AssertEqual(OfficeRangeResult.None, OfficeRangeParser.TryParse(null, 1000, out _, out _), "null range ignored");
+    AssertEqual(OfficeRangeResult.None, OfficeRangeParser.TryParse("", 1000, out _, out _), "empty range ignored");
+    AssertEqual(OfficeRangeResult.None, OfficeRangeParser.TryParse("items=0-1", 1000, out _, out _), "non-bytes unit ignored");
+
+    // 三种合法单段形态
+    AssertEqual(OfficeRangeResult.Valid, OfficeRangeParser.TryParse("bytes=0-99", 1000, out var start, out var end), "closed range valid");
+    AssertEqual(0, start, "closed range start");
+    AssertEqual(99, end, "closed range end");
+    AssertEqual(OfficeRangeResult.Valid, OfficeRangeParser.TryParse("bytes=100-", 1000, out start, out end), "open-ended range valid");
+    AssertEqual(100, start, "open-ended start");
+    AssertEqual(999, end, "open-ended end clamped to total-1");
+    AssertEqual(OfficeRangeResult.Valid, OfficeRangeParser.TryParse("bytes=-50", 1000, out start, out end), "suffix range valid");
+    AssertEqual(950, start, "suffix start");
+    AssertEqual(999, end, "suffix end");
+    AssertEqual(OfficeRangeResult.Valid, OfficeRangeParser.TryParse("bytes=0-2000", 1000, out start, out end), "end beyond total clamps");
+    AssertEqual(999, end, "clamped end");
+
+    // 不可满足 → 416
+    AssertEqual(OfficeRangeResult.Invalid, OfficeRangeParser.TryParse("bytes=1000-2000", 1000, out _, out _), "start beyond total is 416");
+    AssertEqual(OfficeRangeResult.Invalid, OfficeRangeParser.TryParse("bytes=500-400", 1000, out _, out _), "empty range is 416");
+    AssertEqual(OfficeRangeResult.Invalid, OfficeRangeParser.TryParse("bytes=", 1000, out _, out _), "malformed empty value is 416");
+    AssertEqual(OfficeRangeResult.Invalid, OfficeRangeParser.TryParse("bytes=abc-def", 1000, out _, out _), "non-numeric is 416");
+    AssertEqual(OfficeRangeResult.Invalid, OfficeRangeParser.TryParse("bytes=-50", 0, out _, out _), "zero-length file cannot range");
+
+    // 多段 → 忽略 Range（整文件 200，对 PDF.js 最安全）
+    AssertEqual(OfficeRangeResult.None, OfficeRangeParser.TryParse("bytes=0-1,3-4", 1000, out _, out _), "multi-segment ignored");
+
+    // 大小写不敏感的单位
+    AssertEqual(OfficeRangeResult.Valid, OfficeRangeParser.TryParse("BYTES=0-9", 1000, out start, out end), "unit case-insensitive");
+    AssertEqual(9, end, "case-insensitive end");
+    return Task.CompletedTask;
+}
+
+static Task TestOfficeTypeAndMimeAsync()
+{
+    // 可预览类型（含宏格式与大小写不敏感）
+    foreach (var ext in new[] { ".docx", ".xlsx", ".pptx", ".pdf", ".docm", ".xlsm", ".pptm", ".DOCX", ".PDF" })
+        AssertEqual(true, OfficePreviewTypes.IsPreviewable($"C:/docs/report{ext}"), $"{ext} previewable");
+    AssertEqual(false, OfficePreviewTypes.IsPreviewable("C:/docs/report.doc"), ".doc not previewable");
+    AssertEqual(false, OfficePreviewTypes.IsPreviewable("C:/docs/readme.md"), ".md not previewable");
+    AssertEqual(false, OfficePreviewTypes.IsPreviewable("C:/docs/notes.txt"), ".txt not previewable");
+
+    // 老格式分类
+    foreach (var ext in new[] { ".doc", ".xls", ".ppt", ".pps" })
+        AssertEqual(true, OfficePreviewTypes.IsLegacyOffice($"C:/docs/old{ext}"), $"{ext} legacy");
+    AssertEqual(false, OfficePreviewTypes.IsLegacyOffice("C:/docs/new.docx"), "docx not legacy");
+
+    // 前端分派类型键
+    AssertEqual("pdf", OfficePreviewTypes.PreviewType("a.pdf"), "pdf type key");
+    AssertEqual("docx", OfficePreviewTypes.PreviewType("a.docx"), "docx type key");
+    AssertEqual("docx", OfficePreviewTypes.PreviewType("a.docm"), "docm maps to docx");
+    AssertEqual("xlsx", OfficePreviewTypes.PreviewType("a.xlsm"), "xlsm maps to xlsx");
+    AssertEqual("pptx", OfficePreviewTypes.PreviewType("a.pptm"), "pptm maps to pptx");
+    AssertEqual(null, OfficePreviewTypes.PreviewType("a.doc"), "legacy yields no type key");
+    AssertEqual(null, OfficePreviewTypes.PreviewType("a.txt"), "text yields no type key");
+
+    // MIME 映射（ES module 的 .mjs 是重点）
+    AssertEqual("application/javascript; charset=utf-8", OfficeMimeMap.ForPath("pdf.worker.min.mjs"), ".mjs javascript mime");
+    AssertEqual("application/javascript; charset=utf-8", OfficeMimeMap.ForPath("app.js"), ".js javascript mime");
+    AssertEqual("text/css; charset=utf-8", OfficeMimeMap.ForPath("theme.css"), ".css mime");
+    AssertEqual("text/html; charset=utf-8", OfficeMimeMap.ForPath("index.html"), ".html mime");
+    AssertEqual("application/pdf", OfficeMimeMap.ForPath("a.pdf"), ".pdf mime");
+    AssertEqual("application/vnd.openxmlformats-officedocument.wordprocessingml.document", OfficeMimeMap.ForPath("a.docx"), ".docx mime");
+    AssertEqual("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", OfficeMimeMap.ForPath("a.xlsx"), ".xlsx mime");
+    AssertEqual("application/vnd.openxmlformats-officedocument.presentationml.presentation", OfficeMimeMap.ForPath("a.pptx"), ".pptx mime");
+    AssertEqual("application/octet-stream", OfficeMimeMap.ForPath("a.unknown"), "unknown falls back to octet-stream");
+    return Task.CompletedTask;
+}
+
+static Task TestOfficeSessionStoreAsync()
+{
+    var store = new OfficePreviewSessionStore();
+    AssertEqual(false, store.ValidateToken(null), "null token rejected");
+    AssertEqual(false, store.ValidateToken(""), "empty token rejected");
+    AssertEqual(false, store.ValidateToken(store.Token + "x"), "mutated token rejected");
+
+    var id = store.CreateSession("/tmp/report.pdf");
+    AssertEqual(1, store.SessionCount, "session created");
+    AssertEqual(true, store.TryGetSession(id, out var path), "session resolvable");
+    AssertEqual("/tmp/report.pdf", path, "session resolves to registered path");
+    AssertEqual(true, store.ValidateToken(store.Token), "valid token accepted");
+
+    var resolved = store.CreateSession("/tmp/other.xlsx");
+    AssertEqual(2, store.SessionCount, "second session");
+    store.ReleaseSession(id);
+    AssertEqual(false, store.TryGetSession(id, out _), "released session gone");
+    AssertEqual(true, store.TryGetSession(resolved, out _), "other session survives release");
+    AssertEqual(1, store.SessionCount, "session count after release");
+
+    store.ReleaseAll();
+    AssertEqual(0, store.SessionCount, "release all clears");
+    AssertEqual(false, store.TryGetSession(resolved, out _), "released all gone");
+
+    // 进程级令牌随机性：两个 store 不应共享令牌
+    var other = new OfficePreviewSessionStore();
+    AssertEqual(false, other.ValidateToken(store.Token), "tokens are instance-specific");
+    return Task.CompletedTask;
 }
 
 static void AssertEqual<T>(T expected, T actual, string message)

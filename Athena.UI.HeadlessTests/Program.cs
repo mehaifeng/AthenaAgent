@@ -18,6 +18,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.Preview;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using System.Diagnostics;
@@ -1273,6 +1274,63 @@ Dispatcher.UIThread.RunJobs();
 if (saveButton.IsVisible || cancelButton.IsVisible)
     throw new InvalidOperationException("Save and cancel commands must hide again when edit mode is clean.");
 Console.WriteLine("[PASS] edit-only save/cancel commands, cancel restore, compact link styling, and horizontal tabs");
+
+// ---- Office 预览：预览资源已嵌入 + 服务器会话/令牌 URL + Range 解析 ----
+using (var previewStream = Avalonia.Platform.AssetLoader.Open(new Uri("avares://Athena.UI/Assets/Preview/index.html")))
+{
+    if (previewStream == null || previewStream.Length == 0)
+        throw new InvalidOperationException("Office preview index.html was not embedded in the assembly.");
+}
+using (var previewWorker = Avalonia.Platform.AssetLoader.Open(new Uri("avares://Athena.UI/Assets/Preview/lib/pdf.worker.min.mjs")))
+{
+    if (previewWorker == null || previewWorker.Length == 0)
+        throw new InvalidOperationException("Office preview worker was not embedded in the assembly.");
+}
+var previewHost = new OfficePreviewHost();
+using (previewHost)
+{
+    var sessionId = previewHost.RegisterSession("/tmp/sample.pdf");
+    var previewUrl = previewHost.BuildPreviewUrl(sessionId, "pdf", "dark", "zh-CN", "sample.pdf");
+    if (!previewUrl.Contains("type=pdf") || !previewUrl.Contains($"file={sessionId}") || !previewUrl.Contains("theme=dark"))
+        throw new InvalidOperationException("Office preview URL did not carry type/file/token/theme parameters.");
+    if (OfficeRangeParser.TryParse("bytes=0-99", 1000, out var rangeStart, out var rangeEnd) != OfficeRangeResult.Valid
+        || rangeStart != 0 || rangeEnd != 99)
+        throw new InvalidOperationException("Office preview Range parser regressed.");
+    if (OfficeRangeParser.TryParse("bytes=2000-3000", 1000, out _, out _) != OfficeRangeResult.Invalid)
+        throw new InvalidOperationException("Office preview Range parser must reject out-of-range requests.");
+
+    // HTTP 路由：页面与全部静态资源必须可达（index.html 相对引用的 viewer.js 是页面 JS 入口）。
+    // 用同步调用而非 await：headless 主线程 await 会经 Dispatcher 上下文排队（死锁），
+    // 而 ConfigureAwait(false) 会把后续 Avalonia 操作切到线程池（跨线程异常）。
+    // 本地回环请求毫秒级，同步阻塞安全。
+    var baseUrl = previewUrl.Split('?')[0];
+    using var previewHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+    var indexResponse = previewHttp.GetAsync(baseUrl).GetAwaiter().GetResult();
+    if (indexResponse.StatusCode != HttpStatusCode.OK
+        || !indexResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult().Contains("viewer.js"))
+        throw new InvalidOperationException("Office preview index page was not served from the root route.");
+    var viewerResponse = previewHttp.GetAsync(baseUrl + "viewer.js").GetAwaiter().GetResult();
+    if (viewerResponse.StatusCode != HttpStatusCode.OK)
+        throw new InvalidOperationException("Office preview viewer.js was not served (page script would 404).");
+    var libResponse = previewHttp.GetAsync(baseUrl + "libs/xlsx.full.min.js").GetAwaiter().GetResult();
+    if (libResponse.StatusCode != HttpStatusCode.OK
+        || libResponse.Content.Headers.ContentType?.MediaType == null
+        || !libResponse.Content.Headers.ContentType.MediaType.Contains("javascript"))
+        throw new InvalidOperationException("Office preview lib asset was not served with a JavaScript mime type.");
+
+    // 失败路径：未知路由与路径遍历尝试必须返回 404（而不是 200 空响应）
+    var unknownRoute = previewHttp.GetAsync(baseUrl + "does-not-exist.js").GetAwaiter().GetResult();
+    if (unknownRoute.StatusCode != HttpStatusCode.NotFound)
+        throw new InvalidOperationException("Office preview unknown route must return 404.");
+    var traversalRoute = previewHttp.GetAsync(baseUrl + "libs/../config.json").GetAwaiter().GetResult();
+    if (traversalRoute.StatusCode != HttpStatusCode.NotFound)
+        throw new InvalidOperationException("Office preview path traversal must be rejected with 404.");
+
+    previewHost.ReleaseSession(sessionId);
+    if (previewHost.SessionCount != 0)
+        throw new InvalidOperationException("Office preview session release failed to remove the session.");
+}
+Console.WriteLine("[PASS] office preview assets embedded, routes served, and preview session/token URL built");
 diffWindow.Close();
 workbench.Dispose();
 sessionCommandChecks.Dispose();

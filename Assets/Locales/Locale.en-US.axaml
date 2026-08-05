@@ -1092,6 +1092,12 @@
     <system:String x:Key="Workspace.Status.CommitAndPushSuccess">Committed and pushed</system:String>
     <system:String x:Key="Workspace.Status.BinaryDiffUnsupported">Binary file does not support text diff</system:String>
     <system:String x:Key="Workspace.Status.FileTooLarge">File exceeds 5 MB, not opened in built-in editor</system:String>
+    <system:String x:Key="Workspace.Editor.OfficeLoading">Loading preview…</system:String>
+    <system:String x:Key="Workspace.Editor.OfficeLoadFailed">Preview failed to load</system:String>
+    <system:String x:Key="Workspace.Editor.OfficeFormatUnsupported">This format cannot be previewed (supports .docx/.xlsx/.pptx/.pdf)</system:String>
+    <system:String x:Key="Workspace.Editor.OfficeFileTooLarge">File too large to preview</system:String>
+    <system:String x:Key="Workspace.Editor.OfficePreviewUnavailable">Preview component unavailable, showing placeholder</system:String>
+    <system:String x:Key="Workspace.Editor.OfficeRetry">Retry</system:String>
     <system:String x:Key="Workspace.Status.SavingQueue">Waiting for workspace write queue…</system:String>
     <system:String x:Key="Workspace.Status.Saved">Saved {0}</system:String>
     <system:String x:Key="Workspace.Status.EditCancelled">Discarded edits to {0}</system:String>

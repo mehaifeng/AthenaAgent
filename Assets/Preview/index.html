@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Office Preview</title>
+<style>
+  :root {
+    --chrome-bg: #f5f5f5;
+    --chrome-fg: #303030;
+    --chrome-muted: #909090;
+    --accent: #4a6cf7;
+    --error-fg: #d33;
+  }
+  [data-theme="dark"] {
+    --chrome-bg: #1f1f1f;
+    --chrome-fg: #e0e0e0;
+    --chrome-muted: #7a7a7a;
+    --accent: #6c8cff;
+    --error-fg: #ff8080;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--chrome-bg);
+    color: var(--chrome-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #statusbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--chrome-muted);
+    border-bottom: 1px solid rgba(128,128,128,.18);
+    user-select: none;
+  }
+  #statusbar .name { color: var(--chrome-fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #statusbar .spacer { flex: 1; }
+  #container { flex: 1 1 auto; position: relative; overflow: auto; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; background: var(--chrome-bg); z-index: 100;
+  }
+  #overlay.hidden { display: none; }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid rgba(128,128,128,.25); border-top-color: var(--accent);
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button.retry {
+    padding: 6px 18px; border-radius: 6px; border: 1px solid rgba(128,128,128,.4);
+    background: transparent; color: var(--chrome-fg); cursor: pointer; font-size: 13px;
+  }
+  button.retry:hover { border-color: var(--accent); color: var(--accent); }
+  #msg { font-size: 13px; max-width: 80%; text-align: center; }
+  #progress { cursor: pointer; user-select: none; }
+  /* PDF 页容器 */
+  #pdfPages { padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .pdf-page { background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+  .pdf-page canvas { display: block; }
+  /* docx 分页 */
+  #container .docx-wrapper { background: transparent; padding: 12px; }
+  #container .docx-wrapper > section.docx { background: #fff; margin: 0 auto 12px; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+  /* XLSX 只读表格 */
+  .sheet-tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid rgba(128,128,128,.2); overflow-x: auto; }
+  .sheet-tab {
+    padding: 4px 14px; border: 1px solid transparent; border-bottom: none;
+    background: transparent; color: var(--chrome-muted); font-size: 12px;
+    border-radius: 6px 6px 0 0; cursor: pointer; white-space: nowrap;
+  }
+  .sheet-tab.active { color: var(--chrome-fg); border-color: rgba(128,128,128,.25); background: var(--chrome-bg); }
+  .sheet-table-host { overflow: auto; height: 100%; }
+  .sheet-table-host table { border-collapse: collapse; font-size: 13px; background: var(--chrome-bg); }
+  .sheet-table-host th, .sheet-table-host td {
+    border: 1px solid rgba(128,128,128,.22); padding: 3px 8px;
+    white-space: nowrap; text-align: left; max-width: 480px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sheet-table-host th {
+    background: var(--chrome-bg); color: var(--chrome-muted); font-weight: 600;
+    position: sticky; top: 0; z-index: 2; min-width: 80px;
+  }
+  .sheet-table-host th.corner { left: 0; z-index: 3; }
+  .sheet-table-host th.rowhead { position: sticky; left: 0; z-index: 1; min-width: 44px; text-align: center; }
+  .sheet-table-host td { color: var(--chrome-fg); }
+</style>
+</head>
+<body data-theme="light">
+  <div id="statusbar">
+    <span class="name" id="fileName"></span>
+    <span id="fileMeta"></span>
+    <span class="spacer"></span>
+    <span id="progress" title="缩放百分比，点击重置为 100%"></span>
+  </div>
+  <div id="container"></div>
+  <div id="overlay">
+    <div class="spinner" id="spinner"></div>
+    <div id="msg"></div>
+    <button class="retry hidden" id="retryBtn"></button>
+  </div>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>

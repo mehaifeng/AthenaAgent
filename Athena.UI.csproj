@@ -57,9 +57,10 @@
 
   <ItemGroup>
     <!-- Avalonia UI -->
-    <PackageReference Include="Avalonia" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <PackageReference Include="AvaloniaTerminal" Version="1.0.0" />
 
     <PackageReference Include="CliWrap" Version="3.10.2" />
@@ -82,7 +83,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0-preview.6.26359.118" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0-preview.6.26359.118" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.6.26359.118" />
-    <PackageReference Include="Semi.Avalonia" Version="12.1.0" />
+    <PackageReference Include="Semi.Avalonia" Version="12.1.0.1" />
 
     <!-- Serilog 日志 -->
     <PackageReference Include="Serilog" Version="4.4.0" />
@@ -105,7 +106,7 @@
     <PackageReference Include="LiveMarkdown.Avalonia" Version="2.2.1" />
     <PackageReference Include="LiveMarkdown.Avalonia.Math" Version="2.2.1" />
     <PackageReference Include="LiveMarkdown.Avalonia.Svg.Skia" Version="2.2.1" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>
 </Project>
