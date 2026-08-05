@@ -95,6 +95,13 @@
     <system:String x:Key="Chat.Archive.RetryLater">上一段对话归档失败，稍后重试。</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型不支持图像理解，请换用支持视觉的模型后再试。</system:String>
+    <system:String x:Key="Chat.Link.OpenFile">打开文件</system:String>
+    <system:String x:Key="Chat.Link.OpenWith">打开方式</system:String>
+    <system:String x:Key="Chat.Link.OpenWith.Prompt">选择用于打开此文件的应用程序</system:String>
+    <system:String x:Key="Chat.Link.CopyPath">复制路径</system:String>
+    <system:String x:Key="Chat.Link.RevealInFolder">在文件夹中显示</system:String>
+    <system:String x:Key="Chat.Link.OpenUrl">打开链接</system:String>
+    <system:String x:Key="Chat.Link.CopyUrl">复制链接地址</system:String>
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">当前设备无法播放音频。</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">音频播放失败。</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailedDetail">音频播放失败: {0}</system:String>

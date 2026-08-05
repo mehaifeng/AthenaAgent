@@ -1110,6 +1110,25 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         && SelectedGitChange != null
         && string.Equals(SelectedGitChange.RelativePath, change.RelativePath, PathComparison);
 
+    /// <summary>
+    /// 按绝对路径把文件打开到右侧编辑区（Markdown 本地文件链接点击入口）。
+    /// 无需激活工作区：全局对话中也可直接打开预览；文件不存在时无操作。
+    /// </summary>
+    public async Task OpenFileByPathAsync(string fullPath)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath)) return;
+        var node = new WorkspaceFileNodeViewModel
+        {
+            Name = Path.GetFileName(fullPath),
+            FullPath = fullPath,
+            // 无工作区时没有相对路径概念，直接以绝对路径作展示路径（文件名仍取自末段）。
+            RelativePath = _workspace != null
+                ? Path.GetRelativePath(_workspace.DirectoryPath, fullPath)
+                : fullPath
+        };
+        await OpenFileAsync(node, activate: true, persist: true);
+    }
+
     [RelayCommand]
     private async Task OpenFileAsync(WorkspaceFileNodeViewModel? node)
     {
@@ -1122,7 +1141,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         bool persist)
     {
         node ??= SelectedFile;
-        if (node == null || node.IsDirectory || _workspace == null) return;
+        // 无工作区（全局对话）也可打开编辑区；HasUncommittedChangesAsync / PersistStateAsync 内部已判空。
+        if (node == null || node.IsDirectory) return;
         var existing = EditorTabs.FirstOrDefault(tab => string.Equals(tab.FullPath, node.FullPath, StringComparison.Ordinal));
         if (existing != null)
         {

@@ -204,3 +204,22 @@ public class LocConverter : IValueConverter
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
+
+/// <summary>
+/// 链接 HRef(Uri) 的 scheme 匹配：参数 file → file:// 本地文件链接；http → http/https 网络链接。
+/// </summary>
+public class LinkSchemeConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not Uri { IsAbsoluteUri: true } uri) return false;
+        return parameter?.ToString() switch
+        {
+            "file" => uri.Scheme == Uri.UriSchemeFile,
+            "http" => uri.Scheme is "http" or "https",
+            _ => false
+        };
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.ClientModel;
 using System.Text.Json;
@@ -18,6 +20,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using LiveMarkdown.Avalonia;
 using System.Collections.Specialized;
 using System.Security.Cryptography;
 using System.Text;
@@ -1469,6 +1472,184 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         if (_userInteractionService != null)
             await _userInteractionService.ShowImagePreviewAsync(attachment);
+    }
+
+    /// <summary>
+    /// 打开 Markdown 气泡中的超链接：http/https 走系统浏览器，
+    /// file:// 本地文件优先在右侧文件编辑区打开（全局对话无工作区也可）。
+    /// 其他 scheme 一律忽略，防止注入。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenMarkdownLinkAsync(LinkClickedEventArgs? args)
+    {
+        if (args?.HRef is { IsAbsoluteUri: true } uri) await OpenMarkdownLinkUriAsync(uri);
+    }
+
+    /// <summary>
+    /// Markdown 链接统一分派（左键点击与右键“打开文件/打开链接”共用）。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenMarkdownLinkUriAsync(Uri? href)
+    {
+        if (href is not { IsAbsoluteUri: true } uri) return;
+        if (uri.Scheme == Uri.UriSchemeFile)
+        {
+            await OpenLocalFileAsync(uri.LocalPath);
+            return;
+        }
+        if (uri.Scheme is "http" or "https") LaunchExternally(uri.AbsoluteUri);
+    }
+
+    /// <summary>
+    /// 右键菜单：本地文件“打开方式”——系统选择可用应用打开。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenMarkdownLinkWithAsync(Uri? href)
+    {
+        if (href is not { IsAbsoluteUri: true } || href.Scheme != Uri.UriSchemeFile) return;
+        await OpenWithSystemPickerAsync(href.LocalPath);
+    }
+
+    /// <summary>
+    /// 右键菜单：复制本地文件路径或网络链接地址。
+    /// </summary>
+    [RelayCommand]
+    private async Task CopyMarkdownLinkAddressAsync(Uri? href)
+    {
+        string? text = href is { IsAbsoluteUri: true }
+            ? href.Scheme == Uri.UriSchemeFile ? href.LocalPath : href.AbsoluteUri
+            : null;
+        if (text == null) return;
+
+        var clipboard = GetMainWindow()?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(text);
+    }
+
+    /// <summary>
+    /// 右键菜单：在系统文件管理器中显示本地文件。
+    /// </summary>
+    [RelayCommand]
+    private void RevealMarkdownLink(Uri? href)
+    {
+        if (href is not { IsAbsoluteUri: true } || href.Scheme != Uri.UriSchemeFile) return;
+        RevealInFolder(href.LocalPath);
+    }
+
+    /// <summary>
+    /// 在应用内文件编辑区打开本地文件（全局对话无工作区也可打开）；文件不存在时回退系统默认应用。
+    /// </summary>
+    private async Task OpenLocalFileAsync(string path)
+    {
+        var workbench = App.Services?.GetService(typeof(WorkspaceWorkbenchViewModel)) as WorkspaceWorkbenchViewModel;
+        if (workbench != null && File.Exists(path))
+        {
+            await workbench.OpenFileByPathAsync(path);
+            return;
+        }
+        LaunchExternally(path);
+    }
+
+    /// <summary>
+    /// 交给系统按默认方式打开（文件用默认应用，URL 用默认浏览器）。
+    /// </summary>
+    private void LaunchExternally(string target)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = target,
+                UseShellExecute = true
+            });
+            _logger.Information("Opened externally: {Target}", target);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to open externally: {Target}", target);
+        }
+    }
+
+    /// <summary>
+    /// “打开方式”：Windows 弹系统打开方式对话框；macOS 用 osascript 弹系统应用选择器后 open -a；
+    /// Linux 无系统选择器，退化为默认应用打开。
+    /// </summary>
+    private async Task OpenWithSystemPickerAsync(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(path) { Verb = "openas", UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Failed to show open-with picker for {Path}", path);
+            }
+            return;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                var script = $"choose application with prompt \"{GetString("Chat.Link.OpenWith.Prompt", "Choose an application to open this file")}\"";
+                var psi = new ProcessStartInfo("osascript")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false
+                };
+                psi.ArgumentList.Add("-e");
+                psi.ArgumentList.Add(script);
+                using var process = Process.Start(psi);
+                if (process == null) return;
+
+                var output = (await process.StandardOutput.ReadToEndAsync()).Trim().Trim('"');
+                await process.WaitForExitAsync();
+                if (process.ExitCode != 0 || output.Length == 0) return;
+                // 输出可能是 application "TextEdit" 前缀、应用名（TextEdit）或应用路径
+                // （/System/Applications/TextEdit.app），open -a 对后两者都接受。
+                if (output.StartsWith("application ", StringComparison.Ordinal))
+                    output = output["application ".Length..].Trim().Trim('"');
+                if (output.Length == 0) return;
+                var open = new ProcessStartInfo("open") { UseShellExecute = true };
+                open.ArgumentList.Add("-a");
+                open.ArgumentList.Add(output);
+                open.ArgumentList.Add(path);
+                Process.Start(open);
+                _logger.Information("Opened {Path} with app {App} via macOS picker", path, output);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Failed to run open-with picker for {Path}", path);
+            }
+            return;
+        }
+
+        LaunchExternally(path);
+    }
+
+    /// <summary>
+    /// 在系统文件管理器中选中并显示文件。
+    /// </summary>
+    private void RevealInFolder(string path)
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            else if (OperatingSystem.IsMacOS())
+                Process.Start(new ProcessStartInfo("open", $"-R \"{path}\"") { UseShellExecute = true });
+            else
+                Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\"") { UseShellExecute = true });
+            _logger.Information("Revealed in folder: {Path}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to reveal in folder: {Path}", path);
+        }
     }
 
     /// <summary>

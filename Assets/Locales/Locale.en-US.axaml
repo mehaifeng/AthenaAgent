@@ -95,6 +95,13 @@
     <system:String x:Key="Chat.Archive.RetryLater">Failed to archive the previous chat; will retry later.</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">Archive service unavailable.</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">The current primary model does not support image understanding. Please switch to a vision-capable model and try again.</system:String>
+    <system:String x:Key="Chat.Link.OpenFile">Open file</system:String>
+    <system:String x:Key="Chat.Link.OpenWith">Open with…</system:String>
+    <system:String x:Key="Chat.Link.OpenWith.Prompt">Choose an application to open this file</system:String>
+    <system:String x:Key="Chat.Link.CopyPath">Copy path</system:String>
+    <system:String x:Key="Chat.Link.RevealInFolder">Show in Folder</system:String>
+    <system:String x:Key="Chat.Link.OpenUrl">Open link</system:String>
+    <system:String x:Key="Chat.Link.CopyUrl">Copy link address</system:String>
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">Audio playback is not supported on this device.</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">Audio playback failed.</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailedDetail">Audio playback failed: {0}</system:String>

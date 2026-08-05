@@ -26,6 +26,48 @@
     <UserControl.Resources>
         <!-- 徽标 alpha 蒙版刷：按图片 alpha 裁剪染色层，只染徽标、不形成整块色板 -->
         <ImageBrush x:Key="LogoMaskBrush" Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
+
+        <!-- Markdown 超链接右键菜单：DataContext 由 LiveMarkdown 库设为当前 Link，
+             按 HRef scheme 分显本地文件组与网络链接组，命令经 $parent 路由到会话 VM。 -->
+        <ContextMenu x:Key="MarkdownLinkContextMenu">
+            <MenuItem Header="{loc:Loc Chat.Link.OpenFile}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkUriCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconOpenFile}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc Chat.Link.OpenWith}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkWithCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDetails}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc Chat.Link.CopyPath}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).CopyMarkdownLinkAddressCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc Chat.Link.RevealInFolder}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).RevealMarkdownLinkCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconFolderReveal}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <Separator IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"/>
+            <MenuItem Header="{loc:Loc Chat.Link.OpenUrl}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=http, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkUriCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconOpenFile}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc Chat.Link.CopyUrl}"
+                      IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=http, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).CopyMarkdownLinkAddressCommand, x:DataType=lmd:Link}"
+                      CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
     </UserControl.Resources>
 
     <UserControl.KeyBindings>
@@ -351,6 +393,8 @@
                                                 <DataTemplate x:DataType="models:ChatMessage">
                                                     <lmd:MarkdownRenderer
                                                         loc:MarkdownHelper.Text="{Binding DisplayText}"
+                                                        LinkCommand="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkCommand}"
+                                                        LinkContextMenu="{StaticResource MarkdownLinkContextMenu}"
                                                         HorizontalAlignment="Stretch" />
                                                 </DataTemplate>
                                             </ContentControl.ContentTemplate>
@@ -365,6 +409,8 @@
                                                                 <DataTemplate x:DataType="models:ChatMessageSegment">
                                                                     <lmd:MarkdownRenderer
                                                                         loc:MarkdownHelper.Text="{Binding Text}"
+                                                                        LinkCommand="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkCommand}"
+                                                                        LinkContextMenu="{StaticResource MarkdownLinkContextMenu}"
                                                                         HorizontalAlignment="Stretch" />
                                                                 </DataTemplate>
                                                             </ContentControl.ContentTemplate>
