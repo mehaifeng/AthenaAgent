@@ -1350,7 +1350,8 @@ public partial class App : Application, IAsyncDisposable
                 skillsConnectorsFactory,
                 appSettingsFactory,
                 terminalPanelViewModel,
-                contextPolicyProvider);
+                contextPolicyProvider,
+                sp.GetRequiredService<IConversationTitleGenerator>());
         });
 
         Log.Debug("Dependency injection services configured");

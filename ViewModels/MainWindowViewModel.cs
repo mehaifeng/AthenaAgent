@@ -39,6 +39,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly ILogService? _logService;
     private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
     private readonly Func<AppSettingsWindowViewModel>? _appSettingsFactory;
+    private readonly IConversationTitleGenerator? _titleGenerator;
     private bool _disposed;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
@@ -148,7 +149,65 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             newValue.Workspace?.DirectoryPath);
         if (SelectedUtilityTabIndex == 1)
             _ = TerminalPanelViewModel.EnsureTerminalAsync();
+
+        // 切走旧会话时，静默在后台生成/更新其标题（无 UI 提示，仅日志），
+        // 完成后立即回写到会话树。空会话已在上方被移除，删除中的会话不在树中，均不会触发。
+        if (oldValue != null
+            && !ReferenceEquals(oldValue, newValue)
+            && ConversationGroups.Any(group => group.Conversations.Contains(oldValue)))
+        {
+            _ = GenerateSilentTitleAsync(oldValue);
+        }
     }
+
+    /// <summary>
+    /// 静默后台生成会话标题：不显示任何生成中/失败提示，仅记录日志；
+    /// 标题生成后立即更新到树中对应会话，并触发一次持久化（revision 提升后写入，保证落库）。
+    /// </summary>
+    private async Task GenerateSilentTitleAsync(ConversationSessionItemViewModel session)
+    {
+        if (_titleGenerator == null || !session.ShouldGenerateTitleSilently) return;
+        try
+        {
+            List<ChatMessage> messages;
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                messages = CaptureTitleMessages(session);
+            }
+            else
+            {
+                messages = await Dispatcher.UIThread.InvokeAsync(() => CaptureTitleMessages(session));
+            }
+            if (messages.Count == 0) return;
+
+            var title = await _titleGenerator.GenerateAsync(messages, useAi: true);
+            if (string.IsNullOrWhiteSpace(title)) return;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // 生成期间会话可能已被删除：已不在树中则放弃写入（含持久化复活）。
+                if (!ConversationGroups.Any(group => group.Conversations.Contains(session))) return;
+                if (string.Equals(title, session.Title, StringComparison.Ordinal)) return;
+                session.Title = title;
+                session.MarkSilentTitleGenerated();
+                // 提升 revision 并触发直接持久化，让 AI 标题落库（旧 revision 会被存储层拒绝）。
+                session.Chat.MarkPersistenceMetadataChanged();
+            });
+            _logger.Information("Silent background title generated for conversation {ConversationId}: {Title}",
+                session.ConversationId, title);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Silent background title generation failed for conversation {ConversationId}",
+                session.ConversationId);
+        }
+    }
+
+    private static List<ChatMessage> CaptureTitleMessages(ConversationSessionItemViewModel session)
+        => session.Chat.Messages
+            .Where(ConversationPersistenceHelper.ShouldPersistMessage)
+            .Select(ConversationPersistenceHelper.CloneMessage)
+            .ToList();
 
     private void OnAllTerminalsClosed(object? sender, EventArgs e) =>
         SelectedUtilityTabIndex = 0;
@@ -234,8 +293,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
         Func<AppSettingsWindowViewModel>? appSettingsFactory = null,
         TerminalPanelViewModel? terminalPanelViewModel = null,
-        IContextPolicyProvider? contextPolicyProvider = null)
+        IContextPolicyProvider? contextPolicyProvider = null,
+        IConversationTitleGenerator? titleGenerator = null)
     {
+        _titleGenerator = titleGenerator;
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
         _conversationArchiveService = archiveService;
@@ -781,6 +842,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             ForkedFromHistoryId = fork.ForkedFromHistoryId,
             ForkDepth = source.ForkDepth + 1
         };
+        // 分支标题（"父标题 · 分支"）是显式命名，静默标题生成不再覆盖。
+        session.DisableSilentTitleGeneration();
         WireSession(session);
         var sourceIndex = group.Conversations.IndexOf(source);
         group.Conversations.Insert(sourceIndex < 0 ? 0 : sourceIndex + 1, session);
@@ -839,6 +902,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             ForkedFromHistoryId = fork.ForkedFromHistoryId,
             ForkDepth = source.ForkDepth + 1
         };
+        // 分支标题（"父标题 · 分支"）是显式命名，静默标题生成不再覆盖。
+        session.DisableSilentTitleGeneration();
         WireSession(session);
         var sourceIndex = group.Conversations.IndexOf(source);
         group.Conversations.Insert(sourceIndex < 0 ? 0 : sourceIndex + 1, session);

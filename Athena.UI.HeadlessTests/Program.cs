@@ -299,8 +299,8 @@ if (window.WindowState != WindowState.Minimized)
     throw new InvalidOperationException("The title-bar minimize button did not minimize the window.");
 window.WindowState = WindowState.Normal;
 Dispatcher.UIThread.RunJobs();
-if (window.GetVisualDescendants().OfType<Button>()
-    .Any(button => ReferenceEquals(button.Command, mainViewModel.MainConversationViewModel.NewConversationCommand)))
+if (mainConversationView.GetVisualDescendants().OfType<Button>()
+    .Any(button => ReferenceEquals(button.Command, mainViewModel.CreateConversationCommand)))
     throw new InvalidOperationException("The main conversation view must not expose a new-conversation button.");
 var globalConversationButton = window.FindControl<Button>("GlobalConversationButton")
                                ?? throw new InvalidOperationException("Global conversation command was not created.");
@@ -536,11 +536,7 @@ var forkViewModel = new MainWindowViewModel(
     archiveService: null,
     imageGenerationSessionService: null,
     conversationStore: forkStore);
-while (forkViewModel.IsConversationTreeLoading)
-{
-    await Task.Delay(10);
-    Dispatcher.UIThread.RunJobs();
-}
+PumpUntil(() => !forkViewModel.IsConversationTreeLoading, failureMessage: "Fork tree initialization did not complete.");
 forkViewModel.ConversationGroups.Clear();
 var forkWorkspace = new WorkspaceProfile { Name = "Fork workspace", DirectoryPath = "/tmp/fork-workspace" };
 var forkGroup = new WorkspaceConversationGroupViewModel(forkWorkspace);
@@ -578,6 +574,88 @@ forkSource.Dispose();
 forkChild.Dispose();
 forkGrandchild.Dispose();
 Console.WriteLine("[PASS] pinned-session branch placement, full-content copy, persistence, selection, and fork-badge depth");
+
+// ---- 静默标题生成：切换会话后后台生成标题并立即回写会话树，无任何 UI 状态提示 ----
+var silentTitleStore = new HeadlessConversationStore();
+var silentTitleVm = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: null,
+    imageGenerationSessionService: null,
+    conversationStore: silentTitleStore,
+    titleGenerator: new StubTitleGenerator("AI标题:"));
+// 注意：此处不能用 await Task.Delay——无头环境的主线程装有 DispatcherSynchronizationContext，
+// await 续延会投递到 dispatcher 队列，而 RunJobs 在 await 之后才执行，形成死锁。
+// 必须用同步 Sleep + RunJobs 手动泵送。
+while (silentTitleVm.IsConversationTreeLoading)
+{
+    Thread.Sleep(10);
+    Dispatcher.UIThread.RunJobs();
+}
+silentTitleVm.ConversationGroups.Clear();
+var silentTitleGroup = new WorkspaceConversationGroupViewModel(null);
+silentTitleVm.ConversationGroups.Add(silentTitleGroup);
+var silentTitleChat = new MainConversationViewModel();
+var silentTitleSession = new ConversationSessionItemViewModel(silentTitleChat, null, silentTitleStore)
+{
+    Title = "切走前的标题"
+};
+silentTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第一条用户消息" });
+silentTitleChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "第一条回复" });
+silentTitleGroup.Conversations.Add(silentTitleSession);
+var silentTitleOther = new ConversationSessionItemViewModel(new MainConversationViewModel(), null, silentTitleStore)
+{
+    Title = "另一个会话"
+};
+silentTitleGroup.Conversations.Add(silentTitleOther);
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+for (var i = 0; i < 50 && silentTitleSession.Title == "切走前的标题"; i++)
+{
+    Thread.Sleep(20);
+    Dispatcher.UIThread.RunJobs();
+}
+if (silentTitleSession.Title != "AI标题:第一条用户消息")
+    throw new InvalidOperationException($"切换会话后未静默生成标题，实际标题: {silentTitleSession.Title}");
+// 同一会话被再次切走（内容未变）时不得重复生成。
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+Dispatcher.UIThread.RunJobs();
+Thread.Sleep(20);
+Dispatcher.UIThread.RunJobs();
+if (silentTitleSession.Title != "AI标题:第一条用户消息")
+    throw new InvalidOperationException("内容未变时再次切走会话不应重新生成标题。");
+// 手动重命名后不再被静默覆盖。
+silentTitleSession.RenameCommand.Execute("手动标题");
+if (silentTitleSession.ShouldGenerateTitleSilently)
+    throw new InvalidOperationException("手动重命名后静默标题生成应被禁用。");
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+for (var i = 0; i < 50 && silentTitleSession.Title == "手动标题"; i++)
+{
+    Thread.Sleep(20);
+    Dispatcher.UIThread.RunJobs();
+}
+if (silentTitleSession.Title != "手动标题")
+    throw new InvalidOperationException("手动重命名的标题不应被静默生成覆盖。");
+silentTitleSession.Dispose();
+silentTitleOther.Dispose();
+Console.WriteLine("[PASS] silent background title generation on conversation switch, dedup, and manual-rename protection");
 
 var p0Store = new HeadlessConversationStore();
 var p0Config = new HeadlessConfigService(new AppConfig { KeepRecentRounds = 1 });
@@ -744,11 +822,7 @@ var archiveTreeViewModel = new MainWindowViewModel(
     imageGenerationSessionService: null,
     workspaceService: archiveWorkspaceService,
     conversationStore: archiveTreeStore);
-while (archiveTreeViewModel.IsConversationTreeLoading)
-{
-    await Task.Delay(10);
-    Dispatcher.UIThread.RunJobs();
-}
+PumpUntil(() => !archiveTreeViewModel.IsConversationTreeLoading, failureMessage: "Archive tree initialization did not complete.");
 
 var archiveGroup = archiveTreeViewModel.ConversationGroups
     .Single(group => group.Workspace?.Id == archiveWorkspace.Id);
@@ -777,15 +851,10 @@ archivedHistory.UpdatedAt = DateTime.Now;
 await archiveTreeStore.SaveAsync(archivedHistory);
 archiveServiceChecks.PublishStaged(archiveSnapshot);
 archiveServiceChecks.PublishCompleted(archiveSnapshot, archivedHistory);
-for (var attempt = 0; attempt < 50; attempt++)
-{
-    Dispatcher.UIThread.RunJobs();
-    if (!archiveSession.IsArchivePending
-        && !archiveSession.IsArchiveFailed
-        && archiveSession.Title == archivedHistory.Summary)
-        break;
-    await Task.Delay(10);
-}
+PumpUntil(() => !archiveSession.IsArchivePending
+               && !archiveSession.IsArchiveFailed
+               && archiveSession.Title == archivedHistory.Summary,
+    failureMessage: "Archived conversation did not settle into its completed title state.");
 if (archiveSession.IsArchivePending
     || archiveSession.IsArchiveFailed
     || archiveSession.Title != archivedHistory.Summary)
@@ -810,16 +879,10 @@ var externalSnapshot = new ConversationArchiveSnapshot
     Messages = ConversationPersistenceHelper.CloneMessages(externalHistory.Messages)
 };
 archiveServiceChecks.PublishCompleted(externalSnapshot, externalHistory);
-ConversationSessionItemViewModel? externalSession =
-    archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
-for (var attempt = 0; attempt < 50 && externalSession == null; attempt++)
-{
-    Dispatcher.UIThread.RunJobs();
-    externalSession = archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
-    await Task.Delay(10);
-}
-if (externalSession == null)
-    throw new InvalidOperationException("Externally completed archive was not inserted into its workspace group.");
+ConversationSessionItemViewModel? externalSession = null;
+PumpUntil(() => (externalSession = archiveGroup.Conversations
+        .FirstOrDefault(session => session.HistoryId == externalHistory.Id)) != null,
+    failureMessage: "Externally completed archive was not inserted into its workspace group.");
 
 archiveTreeViewModel.ConversationSearchText = "externally completed body";
 if (!externalSession.IsSearchMatch || archiveSession.IsSearchMatch)
@@ -1110,6 +1173,32 @@ catch (Exception ex)
     Console.Error.WriteLine("[FAIL] Headless test run failed:");
     Console.Error.WriteLine(ex);
     Environment.ExitCode = 1;
+}
+
+if (Environment.ExitCode == 0)
+    Console.WriteLine("[ALL HEADLESS TESTS PASSED]");
+Console.Out.Flush();
+Console.Error.Flush();
+// 无头 Avalonia 应用从未 Shutdown，平台线程会让进程挂住不退出（基线版本同样如此）。
+// 显式退出并携带退出码，使套件可被脚本/CI 判定。
+Serilog.Log.CloseAndFlush();
+Environment.Exit(Environment.ExitCode);
+
+/// <summary>
+/// 无头环境安全等待：同步轮询 + 手动泵送 dispatcher，超时抛异常。
+/// 不要在主线程写「await Task.Delay + RunJobs」——await 续延会投进 dispatcher 队列，
+/// 而 RunJobs 在 await 之后才执行，形成死锁。轮询等待一律用本函数。
+/// </summary>
+static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
+{
+    var deadline = Environment.TickCount + timeoutMs;
+    while (!done())
+    {
+        if (Environment.TickCount > deadline)
+            throw new InvalidOperationException(failureMessage ?? "Timed out waiting for the condition while pumping the dispatcher.");
+        Dispatcher.UIThread.RunJobs();
+        Thread.Sleep(10);
+    }
 }
 
 static void TestShellPanelBackgroundThemeResolution()
@@ -3867,6 +3956,18 @@ sealed class FakeCommitMessageGenerator : ICommitMessageGenerator
         LastDiffStat = diffStat;
         LastDiffContent = diffContent;
         return Task.FromResult<string?>("feat: test change");
+    }
+}
+
+sealed class StubTitleGenerator(string prefix = "AI:") : IConversationTitleGenerator
+{
+    public Task<string> GenerateAsync(
+        IReadOnlyList<ChatMessage> messages,
+        bool useAi,
+        CancellationToken cancellationToken = default)
+    {
+        var firstUser = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? string.Empty;
+        return Task.FromResult(prefix + firstUser);
     }
 }
 
