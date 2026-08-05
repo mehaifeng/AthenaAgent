@@ -713,6 +713,21 @@ sameTitleSession.Dispose();
 sameTitleOther.Dispose();
 Console.WriteLine("[PASS] title regeneration suppressed when the generated title is unchanged");
 
+// ---- 新会话初始标题：占位符（无本地化服务时为 fallback "New chat"），首条用户消息后改为前 32 字符 ----
+var freshTitleChat = new MainConversationViewModel();
+var freshTitleSession = new ConversationSessionItemViewModel(freshTitleChat, null, new HeadlessConversationStore());
+if (freshTitleSession.Title != "New chat")
+    throw new InvalidOperationException($"新会话初始标题应为占位符 \"New chat\"，实际: {freshTitleSession.Title}");
+var longPrompt = new string('长', 40);
+freshTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = longPrompt });
+if (freshTitleSession.Title != longPrompt[..32] + "…")
+    throw new InvalidOperationException($"首条用户消息应生成前 32 字符标题，实际: {freshTitleSession.Title}");
+freshTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第二条消息" });
+if (freshTitleSession.Title != longPrompt[..32] + "…")
+    throw new InvalidOperationException($"占位符只应在第一条消息时替换一次，实际: {freshTitleSession.Title}");
+freshTitleSession.Dispose();
+Console.WriteLine("[PASS] new conversation starts with the New-chat placeholder and adopts the first user prompt (32 chars)");
+
 var p0Store = new HeadlessConversationStore();
 var p0Config = new HeadlessConfigService(new AppConfig { KeepRecentRounds = 1 });
 var p0Chat = new MainConversationViewModel(

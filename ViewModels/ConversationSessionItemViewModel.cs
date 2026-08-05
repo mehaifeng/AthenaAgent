@@ -47,6 +47,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         _store = store;
         _localizationService = localizationService;
         _newConversationTitle = L("Session.Title.NewConversation", "New chat");
+        // 新会话初始标题为占位符（"新对话"）；第一条用户消息发出后由 OnMessagesChanged 替换为前 32 字符。
+        Title = _newConversationTitle;
         Chat.PropertyChanged += OnChatPropertyChanged;
         Chat.Messages.CollectionChanged += OnMessagesChanged;
         Chat.PersistenceStateChanged += OnPersistenceStateChanged;
