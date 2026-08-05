@@ -169,8 +169,11 @@ public partial class MainWindow : Window
     private void OnColorSchemeChanged(string _) => ApplyShellPanelOpacity();
 
     /// <summary>
-    /// 按 ShellPanelOpacity 重建三块 shell 面板的背景画笔：只让背景变透明使雅典娜图像透出，
-    /// 文字/图标/文件等内容保持完全不透明（对整个 Border 设 Opacity 会让整个子树一起变淡）。
+    /// 按 ShellPanelOpacity 重建所有受全局透明度控制的背景画笔：三块 shell 面板 +
+    /// 右侧工作区的差异审查/文件编辑/文件树区域（App.PanelBackgroundBrush）+
+    /// 主对话气泡（Chat.UserBubbleBg / Chat.AssistantBubbleBg）。
+    /// 只让背景变透明使雅典娜图像透出，文字/图标/文件等内容保持完全不透明
+    /// （对整个 Border 设 Opacity 会让整个子树一起变淡）。
     /// </summary>
     private void ApplyShellPanelOpacity()
     {
@@ -181,6 +184,25 @@ public partial class MainWindow : Window
         {
             if (panel != null) panel.Background = brush;
         }
+
+        // 右侧工作区区域通过窗口级动态资源跟随同一透明度；
+        // 气泡背景色定义在各主题字典里，需在 Application 作用域解析原始颜色后重建带透明度的画笔
+        // （窗口级覆盖会遮蔽主题字典，因此不能从 this 作用域解析）。
+        Resources["App.PanelBackgroundBrush"] = brush;
+        Resources["Chat.UserBubbleBg"] = RebuildBrushWithOpacity("Chat.UserBubbleBg", opacity);
+        Resources["Chat.AssistantBubbleBg"] = RebuildBrushWithOpacity("Chat.AssistantBubbleBg", opacity);
+    }
+
+    private SolidColorBrush RebuildBrushWithOpacity(string resourceKey, double opacity)
+    {
+        var variant = Application.Current?.RequestedThemeVariant;
+        if (variant != null
+            && Application.Current?.TryFindResource(resourceKey, variant, out var value) == true
+            && value is ISolidColorBrush solid)
+        {
+            return new SolidColorBrush(solid.Color, opacity);
+        }
+        return new SolidColorBrush(Color.Parse("#2E2E30"), opacity);
     }
 
     /// <summary>

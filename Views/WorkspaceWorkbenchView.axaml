@@ -100,7 +100,7 @@
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
                 CornerRadius="8"
-                Background="{DynamicResource SemiColorBackground0}">
+                Background="{DynamicResource App.PanelBackgroundBrush}">
             <Grid RowDefinitions="Auto,*,Auto,Auto">
                 <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,8,8,5">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -350,7 +350,7 @@
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
                 CornerRadius="8"
-                Background="{DynamicResource SemiColorBackground0}">
+                Background="{DynamicResource App.PanelBackgroundBrush}">
             <Grid RowDefinitions="Auto,*,Auto">
                 <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="6,5">
                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left">
@@ -527,7 +527,7 @@
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
                 CornerRadius="8"
-                Background="{DynamicResource SemiColorBackground0}">
+                Background="{DynamicResource App.PanelBackgroundBrush}">
             <Grid RowDefinitions="Auto,*">
                 <Grid Margin="10,8">
                     <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">

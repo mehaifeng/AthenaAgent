@@ -227,8 +227,23 @@ foreach (var panel in shellPanels)
 }
 if (contextInspectorDrawer.Opacity < 0.99 || contextInspectorDrawer.Opacity > 1.01)
     throw new InvalidOperationException("The Context inspector drawer must stay fully opaque (Opacity=1) with panel transparency enabled.");
+// 全局透明度还须作用于右侧工作区区域（差异审查/文件编辑/文件树）与主对话气泡的背景画笔。
+var windowResources = window.Resources;
+if (windowResources["App.PanelBackgroundBrush"] is not ISolidColorBrush panelBrush
+    || Math.Abs(panelBrush.Opacity - 0.5) > 0.001)
+    throw new InvalidOperationException("App.PanelBackgroundBrush (workbench diff/editor/file-tree areas) must follow ShellPanelOpacity.");
+if (windowResources["Chat.UserBubbleBg"] is not ISolidColorBrush userBubbleBrush
+    || Math.Abs(userBubbleBrush.Opacity - 0.5) > 0.001
+    || windowResources["Chat.AssistantBubbleBg"] is not ISolidColorBrush assistantBubbleBrush
+    || Math.Abs(assistantBubbleBrush.Opacity - 0.5) > 0.001)
+    throw new InvalidOperationException("Chat bubble background brushes must follow ShellPanelOpacity.");
 shellConfigService.Load().MainLayout.PanelTransparency = 0.0;
 Dispatcher.UIThread.RunJobs();
+if (windowResources["App.PanelBackgroundBrush"] is not ISolidColorBrush resetPanelBrush
+    || Math.Abs(resetPanelBrush.Opacity - 1.0) > 0.001
+    || windowResources["Chat.UserBubbleBg"] is not ISolidColorBrush resetBubbleBrush
+    || Math.Abs(resetBubbleBrush.Opacity - 1.0) > 0.001)
+    throw new InvalidOperationException("Panel and bubble background brushes must return to full opacity after transparency reset.");
 contextInspectorButton.Command.Execute(null);
 Dispatcher.UIThread.RunJobs();
 if (contextInspectorDrawer.IsVisible)
@@ -427,6 +442,26 @@ window.Close();
     if (connectorNavigation.ItemCount != 6
         || skillsWindow.GetVisualDescendants().OfType<ContentControl>().Count(control => control.Name == "ConnectorContentHost") != 1)
         throw new InvalidOperationException("Skills/Connectors must expose six navigation items and one content host.");
+
+    // 导航项文案（无本地化服务时为 fallback）与 Semi 图标资源 key。
+    var expectedTitles = new[]
+    {
+        "Skills", "Connectors", "Speech generation", "Image generation", "Web Search", "Document parsing"
+    };
+    var expectedIcons = new[]
+    {
+        "SemiIconWrench", "SemiIconLink", "SemiIconVolume2", "SemiIconImage", "SemiIconSearch", "SemiIconScan"
+    };
+    for (var section = 0; section < connectorViewModel.Sections.Count; section++)
+    {
+        if (connectorViewModel.Sections[section].Title != expectedTitles[section])
+            throw new InvalidOperationException($"Connector section {section} title mismatch: {connectorViewModel.Sections[section].Title}");
+        if (connectorViewModel.Sections[section].IconKey != expectedIcons[section])
+            throw new InvalidOperationException($"Connector section {section} icon mismatch: {connectorViewModel.Sections[section].IconKey}");
+        if (Application.Current?.TryGetResource(expectedIcons[section], null, out var iconResource) != true
+            || iconResource is not Geometry)
+            throw new InvalidOperationException($"Connector nav icon resource missing: {expectedIcons[section]}");
+    }
 
     var expectedViews = new[]
     {
