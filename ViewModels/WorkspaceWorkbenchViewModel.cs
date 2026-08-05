@@ -309,6 +309,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private WorkspaceFileNodeViewModel? _selectedFile;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowWorkbenchPane))]
+    [NotifyPropertyChangedFor(nameof(LogGridRow))]
+    [NotifyPropertyChangedFor(nameof(LogGridRowSpan))]
+    [NotifyPropertyChangedFor(nameof(ShowRowSplitter))]
     private bool _isEditorVisible;
 
     [ObservableProperty]
@@ -380,6 +384,19 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private string _gitStatusText = string.Empty;
 
     public bool HasWorkspace => _workspace != null;
+
+    /// <summary>右侧栏是否显示工作台面板：有工作区，或无工作区但编辑区已打开（全局对话中打开本地文件）。</summary>
+    public bool ShowWorkbenchPane => HasWorkspace || IsEditorVisible;
+
+    /// <summary>日志区在右侧栏网格中的行位置：占满 = 0；否则 = 2（编辑区上方、分割条下方）。</summary>
+    public int LogGridRow => ShowWorkbenchPane ? 2 : 0;
+
+    /// <summary>日志区跨越行数：占满 = 3；否则 = 1。</summary>
+    public int LogGridRowSpan => ShowWorkbenchPane ? 1 : 3;
+
+    /// <summary>工作台与日志之间的行分割条：面板显示时均可见，可上下拖动调整编辑区/日志高度。</summary>
+    public bool ShowRowSplitter => ShowWorkbenchPane;
+
     public bool HasEditorTabs => EditorTabs.Count > 0;
     public int GitChangeCount => GitChanges.Count;
     public int StagedChangeCount => GitChanges.Count(change => change.HasStagedChange);
@@ -452,6 +469,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(IsCommitEnabled));
         OnPropertyChanged(nameof(IsGenerateEnabled));
         OnPropertyChanged(nameof(HasWorkspace));
+        OnPropertyChanged(nameof(ShowWorkbenchPane));
+        OnPropertyChanged(nameof(LogGridRow));
+        OnPropertyChanged(nameof(LogGridRowSpan));
+        OnPropertyChanged(nameof(ShowRowSplitter));
         OnPropertyChanged(nameof(HasEditorTabs));
         if (workspace == null || !Directory.Exists(workspace.DirectoryPath)) return;
         await RefreshFilesAsync();

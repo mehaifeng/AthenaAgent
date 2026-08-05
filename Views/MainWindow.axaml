@@ -476,15 +476,21 @@
                         <RowDefinition Height="190" MinHeight="120"/>
                     </Grid.RowDefinitions>
                     <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
-                                                  DataContext="{Binding Workbench}"/>
+                                                  DataContext="{Binding Workbench}"
+                                                  IsVisible="{Binding ShowWorkbenchPane}"/>
                     <GridSplitter Grid.Row="1"
                                   Classes="layout-splitter"
                                   Height="5"
+                                  IsVisible="{Binding Workbench.ShowRowSplitter}"
                                   ResizeDirection="Rows"
                                   ResizeBehavior="PreviousAndNext"
                                   ShowsPreview="False"
                                   DragCompleted="OnRightRowSplitterDragCompleted"/>
-                    <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                    <Border Grid.Row="{Binding Workbench.LogGridRow}"
+                            Grid.RowSpan="{Binding Workbench.LogGridRowSpan}"
+                            BorderThickness="1"
+                            BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                            CornerRadius="8">
                         <TabControl x:Name="UtilityTabControl"
                                     SelectedIndex="{Binding SelectedUtilityTabIndex}">
                             <TabItem>

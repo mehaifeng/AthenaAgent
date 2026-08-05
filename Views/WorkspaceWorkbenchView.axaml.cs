@@ -118,7 +118,8 @@ public partial class WorkspaceWorkbenchView : UserControl
     {
         if (e.PropertyName is not (
             nameof(WorkspaceWorkbenchViewModel.IsReviewVisible)
-            or nameof(WorkspaceWorkbenchViewModel.IsEditorVisible)))
+            or nameof(WorkspaceWorkbenchViewModel.IsEditorVisible)
+            or nameof(WorkspaceWorkbenchViewModel.HasWorkspace)))
         {
             return;
         }
@@ -164,6 +165,14 @@ public partial class WorkspaceWorkbenchView : UserControl
             || _editorSplitterColumn == null
             || _fileTreeColumn == null)
         {
+            return;
+        }
+
+        // 全局对话（无工作区）：不参与窗格宽度分配，直接走无工作区列布局。
+        if (_viewModel?.HasWorkspace == false)
+        {
+            ApplyColumns();
+            _lastWorkbenchWidth = Bounds.Width;
             return;
         }
 
@@ -238,6 +247,26 @@ public partial class WorkspaceWorkbenchView : UserControl
         _isApplyingLayout = true;
         try
         {
+            if (_viewModel?.HasWorkspace == false)
+            {
+                // 全局对话：无文件树列；review 面板按自身可见性布局（与工作区模式一致），
+                // 编辑区打开时占满剩余内容区。
+                SetColumn(_reviewColumn, IsReviewVisible ? _actualReviewWidth : 0, IsReviewVisible ? ReviewPaneMinWidth : 0);
+                SetColumn(_reviewSplitterColumn, IsReviewVisible ? SplitterWidth : 0, IsReviewVisible ? SplitterWidth : 0);
+                SetColumn(_fileTreeColumn, 0, 0);
+                SetColumn(_editorSplitterColumn, 0, 0);
+                if (IsEditorVisible)
+                {
+                    _editorColumn.MinWidth = EditorPaneMinWidth;
+                    _editorColumn.Width = GridLength.Star;
+                }
+                else
+                {
+                    SetColumn(_editorColumn, 0, 0);
+                }
+                return;
+            }
+
             SetColumn(_reviewColumn, IsReviewVisible ? _actualReviewWidth : 0, IsReviewVisible ? ReviewPaneMinWidth : 0);
             SetColumn(_reviewSplitterColumn, IsReviewVisible ? SplitterWidth : 0, IsReviewVisible ? SplitterWidth : 0);
 
