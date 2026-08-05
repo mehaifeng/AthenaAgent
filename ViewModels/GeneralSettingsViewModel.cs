@@ -16,6 +16,9 @@ public sealed class GeneralSettingsViewModel : ViewModelBase, IDisposable
 
     public AppSettingsState State { get; }
 
+    /// <summary>可选配色方案（与 Config.ColorScheme 一一对应；专有名词不本地化）。</summary>
+    public string[] ColorSchemes { get; } = ["Default", "Solarized", "Cyberpunk", "Tokyo", "Monokai"];
+
     /// <summary>字号档位在 ComboBox 中的索引（0=最小 … 4=最大），映射到 Config.FontScale 字符串。</summary>
     public int FontScaleIndex
     {

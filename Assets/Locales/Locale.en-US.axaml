@@ -352,6 +352,7 @@
     <system:String x:Key="Settings.General.Description">Adjust the app appearance, language, and common interaction preferences.</system:String>
     <system:String x:Key="Settings.General.Appearance">Appearance &amp; language</system:String>
     <system:String x:Key="Settings.General.Theme">Theme</system:String>
+    <system:String x:Key="Settings.General.ColorScheme">Color scheme</system:String>
     <system:String x:Key="Settings.General.Language">Language</system:String>
     <system:String x:Key="Settings.General.FontScale">Font size</system:String>
     <system:String x:Key="Settings.General.FontScale.Minimum">Tiny</system:String>

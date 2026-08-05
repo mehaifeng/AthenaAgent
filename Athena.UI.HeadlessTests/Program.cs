@@ -30,9 +30,24 @@ using Microsoft.Extensions.DependencyInjection;
 
 try
 {
-var outputPath = args.Length > 0
+// 测试断言按中文界面文案编写，必须显式固定 zh-CN：
+// LocalizationService 在构造时读取 CultureInfo.CurrentUICulture，
+// 若不固定会随 CI 机器系统语言漂移（本地中文通过、CI 英文失败）。
+var zhCulture = new System.Globalization.CultureInfo("zh-CN");
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = zhCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = zhCulture;
+System.Globalization.CultureInfo.CurrentUICulture = zhCulture;
+System.Globalization.CultureInfo.CurrentCulture = zhCulture;
+
+// Guard: a flag-like first argument (e.g. "--nologo" leaked from a dotnet
+// command line) must never be interpreted as the output path — otherwise the
+// main-window render and every derived screenshot get dumped into the current
+// working directory instead of the build output folder.
+var outputPath = args.Length > 0 && !args[0].StartsWith("-")
     ? Path.GetFullPath(args[0])
     : Path.Combine(AppContext.BaseDirectory, "main-window.png");
+if (args.Length > 0 && args[0].StartsWith("-"))
+    Console.Error.WriteLine($"[WARN] Ignoring flag-like output path argument '{args[0]}'; defaulting to {outputPath}");
 
 AppBuilder.Configure<App>()
     .UseSkia()
@@ -72,6 +87,10 @@ Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestShellPanelBackgroundThemeResolution();
+TestColorSchemeSwitching();
+TestColorSchemeApplyCounting();
+TestColorSchemeShellPanelRepaint();
+TestColorSchemeThumbnail();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestLifecycle();
 
@@ -286,8 +305,8 @@ if (window.WindowState != WindowState.Minimized)
     throw new InvalidOperationException("The title-bar minimize button did not minimize the window.");
 window.WindowState = WindowState.Normal;
 Dispatcher.UIThread.RunJobs();
-if (window.GetVisualDescendants().OfType<Button>()
-    .Any(button => ReferenceEquals(button.Command, mainViewModel.MainConversationViewModel.NewConversationCommand)))
+if (mainConversationView.GetVisualDescendants().OfType<Button>()
+    .Any(button => ReferenceEquals(button.Command, mainViewModel.CreateConversationCommand)))
     throw new InvalidOperationException("The main conversation view must not expose a new-conversation button.");
 var globalConversationButton = window.FindControl<Button>("GlobalConversationButton")
                                ?? throw new InvalidOperationException("Global conversation command was not created.");
@@ -455,7 +474,7 @@ window.Close();
         (Window: typeof(DetailedLogsWindow), ViewModel: typeof(LogsViewModel))
     };
     if (featureWindowTypes.Any(pair =>
-            pair.Window.GetConstructors().Single().GetParameters().Single().ParameterType != pair.ViewModel))
+            pair.Window.GetConstructors().Single().GetParameters().First().ParameterType != pair.ViewModel))
         throw new InvalidOperationException("Feature windows must expose one strongly typed view-model constructor.");
     var semanticViewMappings = new (ViewModelBase ViewModel, Type View)[]
     {
@@ -499,7 +518,7 @@ var exportCount = 0;
 sessionCommandChecks.ExportRequested += (_, _) => exportCount++;
 sessionCommandChecks.TogglePinnedCommand.Execute(null);
 sessionCommandChecks.RequestExportCommand.Execute(null);
-if (!sessionCommandChecks.IsPinned || sessionCommandChecks.PinActionText != "取消置顶" || exportCount != 1)
+if (!sessionCommandChecks.IsPinned || sessionCommandChecks.PinActionText != "Unpin" || exportCount != 1)
     throw new InvalidOperationException("Conversation pin and export commands are not fully wired.");
 sessionCommandChecks.Dispose();
 Console.WriteLine("[PASS] workspace command events and conversation pin/export behavior");
@@ -523,11 +542,7 @@ var forkViewModel = new MainWindowViewModel(
     archiveService: null,
     imageGenerationSessionService: null,
     conversationStore: forkStore);
-while (forkViewModel.IsConversationTreeLoading)
-{
-    await Task.Delay(10);
-    Dispatcher.UIThread.RunJobs();
-}
+PumpUntil(() => !forkViewModel.IsConversationTreeLoading, failureMessage: "Fork tree initialization did not complete.");
 forkViewModel.ConversationGroups.Clear();
 var forkWorkspace = new WorkspaceProfile { Name = "Fork workspace", DirectoryPath = "/tmp/fork-workspace" };
 var forkGroup = new WorkspaceConversationGroupViewModel(forkWorkspace);
@@ -565,6 +580,159 @@ forkSource.Dispose();
 forkChild.Dispose();
 forkGrandchild.Dispose();
 Console.WriteLine("[PASS] pinned-session branch placement, full-content copy, persistence, selection, and fork-badge depth");
+
+// ---- 静默标题生成：切换会话后后台生成标题并立即回写会话树，无任何 UI 状态提示 ----
+var silentTitleStore = new HeadlessConversationStore();
+var silentTitleVm = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: null,
+    imageGenerationSessionService: null,
+    conversationStore: silentTitleStore,
+    titleGenerator: new StubTitleGenerator("AI标题:"));
+// 注意：此处不能用 await Task.Delay——无头环境的主线程装有 DispatcherSynchronizationContext，
+// await 续延会投递到 dispatcher 队列，而 RunJobs 在 await 之后才执行，形成死锁。
+// 必须用同步 Sleep + RunJobs 手动泵送。
+while (silentTitleVm.IsConversationTreeLoading)
+{
+    Thread.Sleep(10);
+    Dispatcher.UIThread.RunJobs();
+}
+silentTitleVm.ConversationGroups.Clear();
+var silentTitleGroup = new WorkspaceConversationGroupViewModel(null);
+silentTitleVm.ConversationGroups.Add(silentTitleGroup);
+var silentTitleChat = new MainConversationViewModel();
+var silentTitleSession = new ConversationSessionItemViewModel(silentTitleChat, null, silentTitleStore)
+{
+    Title = "切走前的标题"
+};
+silentTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第一条用户消息" });
+silentTitleChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "第一条回复" });
+silentTitleGroup.Conversations.Add(silentTitleSession);
+var silentTitleOther = new ConversationSessionItemViewModel(new MainConversationViewModel(), null, silentTitleStore)
+{
+    Title = "另一个会话"
+};
+silentTitleGroup.Conversations.Add(silentTitleOther);
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+for (var i = 0; i < 50 && silentTitleSession.Title == "切走前的标题"; i++)
+{
+    Thread.Sleep(20);
+    Dispatcher.UIThread.RunJobs();
+}
+if (silentTitleSession.Title != "AI标题:第一条用户消息")
+    throw new InvalidOperationException($"切换会话后未静默生成标题，实际标题: {silentTitleSession.Title}");
+// 同一会话被再次切走（内容未变）时不得重复生成。
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+Dispatcher.UIThread.RunJobs();
+Thread.Sleep(20);
+Dispatcher.UIThread.RunJobs();
+if (silentTitleSession.Title != "AI标题:第一条用户消息")
+    throw new InvalidOperationException("内容未变时再次切走会话不应重新生成标题。");
+// 手动重命名后不再被静默覆盖。
+silentTitleSession.RenameCommand.Execute("手动标题");
+if (silentTitleSession.ShouldGenerateTitleSilently)
+    throw new InvalidOperationException("手动重命名后静默标题生成应被禁用。");
+silentTitleVm.SelectedConversation = silentTitleSession;
+Dispatcher.UIThread.RunJobs();
+silentTitleVm.SelectedConversation = silentTitleOther;
+for (var i = 0; i < 50 && silentTitleSession.Title == "手动标题"; i++)
+{
+    Thread.Sleep(20);
+    Dispatcher.UIThread.RunJobs();
+}
+if (silentTitleSession.Title != "手动标题")
+    throw new InvalidOperationException("手动重命名的标题不应被静默生成覆盖。");
+silentTitleSession.Dispose();
+silentTitleOther.Dispose();
+Console.WriteLine("[PASS] silent background title generation on conversation switch, dedup, and manual-rename protection");
+
+// ---- 静默标题生成去重：生成结果与当前标题相同时也不得反复生成（回归） ----
+var sameTitleGen = new StubTitleGenerator("AI标题:");
+var sameTitleVm = new MainWindowViewModel(
+    chatService: null,
+    configService: null,
+    taskScheduler: null,
+    contextCompressionService: null,
+    promptService: null,
+    logService: null,
+    knowledgeBaseService: null,
+    localizationService: null,
+    fileSystemService: null,
+    platformPathService: null,
+    functionRegistry: null,
+    tokenService: null,
+    attachmentStoreService: null,
+    systemAudioService: null,
+    archiveService: null,
+    imageGenerationSessionService: null,
+    conversationStore: new HeadlessConversationStore(),
+    titleGenerator: sameTitleGen);
+PumpUntil(() => !sameTitleVm.IsConversationTreeLoading, failureMessage: "Same-title tree initialization did not complete.");
+sameTitleVm.ConversationGroups.Clear();
+var sameTitleGroup = new WorkspaceConversationGroupViewModel(null);
+sameTitleVm.ConversationGroups.Add(sameTitleGroup);
+var sameTitleChat = new MainConversationViewModel();
+var sameTitleSession = new ConversationSessionItemViewModel(sameTitleChat, null, null)
+{
+    // 与生成结果相同：模拟模型回退到首条消息/确定性输出时标题未变化。
+    Title = "AI标题:第一条用户消息"
+};
+sameTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第一条用户消息" });
+sameTitleChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "第一条回复" });
+sameTitleGroup.Conversations.Add(sameTitleSession);
+var sameTitleOther = new ConversationSessionItemViewModel(new MainConversationViewModel(), null, null)
+{
+    Title = "另一个会话"
+};
+sameTitleGroup.Conversations.Add(sameTitleOther);
+sameTitleVm.SelectedConversation = sameTitleSession;
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleOther;
+PumpUntil(() => sameTitleGen.CallCount >= 1, failureMessage: "Silent title generation did not run.");
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleSession;
+Dispatcher.UIThread.RunJobs();
+sameTitleVm.SelectedConversation = sameTitleOther;
+Dispatcher.UIThread.RunJobs();
+Thread.Sleep(50);
+Dispatcher.UIThread.RunJobs();
+if (sameTitleGen.CallCount != 1)
+    throw new InvalidOperationException($"生成结果与当前标题相同时仍被重复生成: {sameTitleGen.CallCount} 次调用");
+sameTitleSession.Dispose();
+sameTitleOther.Dispose();
+Console.WriteLine("[PASS] title regeneration suppressed when the generated title is unchanged");
+
+// ---- 新会话初始标题：占位符（无本地化服务时为 fallback "New chat"），首条用户消息后改为前 32 字符 ----
+var freshTitleChat = new MainConversationViewModel();
+var freshTitleSession = new ConversationSessionItemViewModel(freshTitleChat, null, new HeadlessConversationStore());
+if (freshTitleSession.Title != "New chat")
+    throw new InvalidOperationException($"新会话初始标题应为占位符 \"New chat\"，实际: {freshTitleSession.Title}");
+var longPrompt = new string('长', 40);
+freshTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = longPrompt });
+if (freshTitleSession.Title != longPrompt[..32] + "…")
+    throw new InvalidOperationException($"首条用户消息应生成前 32 字符标题，实际: {freshTitleSession.Title}");
+freshTitleChat.Messages.Add(new ChatMessage { Role = "user", Content = "第二条消息" });
+if (freshTitleSession.Title != longPrompt[..32] + "…")
+    throw new InvalidOperationException($"占位符只应在第一条消息时替换一次，实际: {freshTitleSession.Title}");
+freshTitleSession.Dispose();
+Console.WriteLine("[PASS] new conversation starts with the New-chat placeholder and adopts the first user prompt (32 chars)");
 
 var p0Store = new HeadlessConversationStore();
 var p0Config = new HeadlessConfigService(new AppConfig { KeepRecentRounds = 1 });
@@ -731,11 +899,7 @@ var archiveTreeViewModel = new MainWindowViewModel(
     imageGenerationSessionService: null,
     workspaceService: archiveWorkspaceService,
     conversationStore: archiveTreeStore);
-while (archiveTreeViewModel.IsConversationTreeLoading)
-{
-    await Task.Delay(10);
-    Dispatcher.UIThread.RunJobs();
-}
+PumpUntil(() => !archiveTreeViewModel.IsConversationTreeLoading, failureMessage: "Archive tree initialization did not complete.");
 
 var archiveGroup = archiveTreeViewModel.ConversationGroups
     .Single(group => group.Workspace?.Id == archiveWorkspace.Id);
@@ -764,15 +928,10 @@ archivedHistory.UpdatedAt = DateTime.Now;
 await archiveTreeStore.SaveAsync(archivedHistory);
 archiveServiceChecks.PublishStaged(archiveSnapshot);
 archiveServiceChecks.PublishCompleted(archiveSnapshot, archivedHistory);
-for (var attempt = 0; attempt < 50; attempt++)
-{
-    Dispatcher.UIThread.RunJobs();
-    if (!archiveSession.IsArchivePending
-        && !archiveSession.IsArchiveFailed
-        && archiveSession.Title == archivedHistory.Summary)
-        break;
-    await Task.Delay(10);
-}
+PumpUntil(() => !archiveSession.IsArchivePending
+               && !archiveSession.IsArchiveFailed
+               && archiveSession.Title == archivedHistory.Summary,
+    failureMessage: "Archived conversation did not settle into its completed title state.");
 if (archiveSession.IsArchivePending
     || archiveSession.IsArchiveFailed
     || archiveSession.Title != archivedHistory.Summary)
@@ -797,16 +956,10 @@ var externalSnapshot = new ConversationArchiveSnapshot
     Messages = ConversationPersistenceHelper.CloneMessages(externalHistory.Messages)
 };
 archiveServiceChecks.PublishCompleted(externalSnapshot, externalHistory);
-ConversationSessionItemViewModel? externalSession =
-    archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
-for (var attempt = 0; attempt < 50 && externalSession == null; attempt++)
-{
-    Dispatcher.UIThread.RunJobs();
-    externalSession = archiveGroup.Conversations.FirstOrDefault(session => session.HistoryId == externalHistory.Id);
-    await Task.Delay(10);
-}
-if (externalSession == null)
-    throw new InvalidOperationException("Externally completed archive was not inserted into its workspace group.");
+ConversationSessionItemViewModel? externalSession = null;
+PumpUntil(() => (externalSession = archiveGroup.Conversations
+        .FirstOrDefault(session => session.HistoryId == externalHistory.Id)) != null,
+    failureMessage: "Externally completed archive was not inserted into its workspace group.");
 
 archiveTreeViewModel.ConversationSearchText = "externally completed body";
 if (!externalSession.IsSearchMatch || archiveSession.IsSearchMatch)
@@ -1099,6 +1252,32 @@ catch (Exception ex)
     Environment.ExitCode = 1;
 }
 
+if (Environment.ExitCode == 0)
+    Console.WriteLine("[ALL HEADLESS TESTS PASSED]");
+Console.Out.Flush();
+Console.Error.Flush();
+// 无头 Avalonia 应用从未 Shutdown，平台线程会让进程挂住不退出（基线版本同样如此）。
+// 显式退出并携带退出码，使套件可被脚本/CI 判定。
+Serilog.Log.CloseAndFlush();
+Environment.Exit(Environment.ExitCode);
+
+/// <summary>
+/// 无头环境安全等待：同步轮询 + 手动泵送 dispatcher，超时抛异常。
+/// 不要在主线程写「await Task.Delay + RunJobs」——await 续延会投进 dispatcher 队列，
+/// 而 RunJobs 在 await 之后才执行，形成死锁。轮询等待一律用本函数。
+/// </summary>
+static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
+{
+    var deadline = Environment.TickCount + timeoutMs;
+    while (!done())
+    {
+        if (Environment.TickCount > deadline)
+            throw new InvalidOperationException(failureMessage ?? "Timed out waiting for the condition while pumping the dispatcher.");
+        Dispatcher.UIThread.RunJobs();
+        Thread.Sleep(10);
+    }
+}
+
 static void TestShellPanelBackgroundThemeResolution()
 {
     // 回归：Shell 面板背景色必须跟随当前主题变体（两参 TryFindResource 会落到 ThemeVariant.Default
@@ -1160,6 +1339,262 @@ static void TestShellPanelBackgroundThemeResolution()
     Application.Current.RequestedThemeVariant = ThemeVariant.Light;
     Dispatcher.UIThread.RunJobs();
     Console.WriteLine("[PASS] shell panels use the theme-consistent background color in Dark mode");
+}
+
+static void TestColorSchemeSwitching()
+{
+    var app = (App)Application.Current!;
+    var builtInDark = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Dark];
+    var builtInLight = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Light];
+    var eventCount = 0;
+    void OnColorSchemeChanged(string _) => eventCount++;
+    App.ColorSchemeChanged += OnColorSchemeChanged;
+    try
+    {
+        App.SetColorScheme("Solarized");
+        if (eventCount != 1)
+            throw new InvalidOperationException($"Solarized switch must fire ColorSchemeChanged once, got {eventCount}.");
+        var dark = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Dark];
+        var light = (ResourceDictionary)app.Resources.ThemeDictionaries[ThemeVariant.Light];
+        if (ReferenceEquals(dark, builtInDark) || ReferenceEquals(light, builtInLight))
+            throw new InvalidOperationException("Scheme dictionaries must replace the built-in Dark/Light providers.");
+
+        AssertBrushColor(dark, "SemiColorBackground0", "#FF002B36");
+        AssertBrushColor(light, "SemiColorBackground0", "#FFFDF6E3");
+
+        // 仅容器背景风格化：icon（主色/强调色）与文字键的解析结果必须与内置字典完全一致
+        // （复制段保留原值，或两者都缺失 → 回落 SemiTheme 默认）。
+        foreach (var key in new[]
+                 {
+                     "SemiColorPrimary", "SemiColorPrimaryLight", "App.EmphasisForeground",
+                     "App.InverseForeground", "App.SelectedBackground", "App.ToggleCheckedBackground",
+                     "ButtonSolidPrimaryBackground", // StaticResource 别名链
+                     "SemiColorText0", "SemiColorBorder", "SemiGrey0", "SemiColorFocusBorder",
+                     "SemiColorSecondary", "SemiColorLink", "AvaloniaTerminalCaretBrush",
+                     "Chat.ArchivedFg", "Markdown.HeadingFg", "CodeInlineColor", "Chat.TimestampFg",
+                     "ForegroundColor",
+                 })
+        {
+            AssertKeyKeepsDefault(dark, builtInDark, key);
+        }
+        // 容器背景类键按方案定制。
+        AssertBrushColor(dark, "App.SectionBg", "#FF073642");
+        AssertBrushColor(dark, "Chat.UserBubbleBg", "#FF0A4653");
+        AssertBrushColor(dark, "AvaloniaTerminalColor0", "#FF002B36");
+
+        // 键集对齐：内置字典每个键在方案字典中必须存在且 CLR 类型一致（防复制漏键/键名笔误）。
+        var missing = new List<string>();
+        foreach (var key in builtInDark.Keys.Cast<object>().OfType<string>())
+        {
+            if (!dark.TryGetResource(key, ThemeVariant.Dark, out var schemeValue)
+                || !builtInDark.TryGetResource(key, ThemeVariant.Dark, out var builtInValue))
+            {
+                missing.Add(key);
+                continue;
+            }
+            if (schemeValue?.GetType() != builtInValue?.GetType())
+                throw new InvalidOperationException($"Key '{key}' type mismatch: built-in {builtInValue?.GetType()} vs scheme {schemeValue?.GetType()}.");
+        }
+        if (missing.Count > 0)
+            throw new InvalidOperationException($"Scheme dictionary misses built-in keys: {string.Join(", ", missing)}");
+
+        // 大小写不敏感幂等：同方案重复调用不重发事件。
+        App.SetColorScheme("solarized");
+        if (eventCount != 1)
+            throw new InvalidOperationException($"Case-insensitive duplicate switch must be a no-op, got {eventCount} fires.");
+
+        // 还原 Default：恢复内置字典实例。
+        App.SetColorScheme("Default");
+        if (!ReferenceEquals(app.Resources.ThemeDictionaries[ThemeVariant.Dark], builtInDark)
+            || !ReferenceEquals(app.Resources.ThemeDictionaries[ThemeVariant.Light], builtInLight))
+            throw new InvalidOperationException("Default scheme must restore the built-in dictionary instances.");
+    }
+    finally
+    {
+        App.ColorSchemeChanged -= OnColorSchemeChanged;
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] color scheme switching replaces theme dictionaries, aliases resolve, and Default restores");
+}
+
+static void TestColorSchemeApplyCounting()
+{
+    var config = new AppConfig { Theme = "Light", ColorScheme = "Tokyo" };
+    var configService = new HeadlessConfigService(config);
+    var themeApplyCount = 0;
+    var schemeApplyCount = 0;
+    void OnThemeChanged(string _) => themeApplyCount++;
+    void OnColorSchemeChanged(string _) => schemeApplyCount++;
+    App.ThemeChanged += OnThemeChanged;
+    App.ColorSchemeChanged += OnColorSchemeChanged;
+    try
+    {
+        using var applier = new AppConfigurationApplier(
+            configService,
+            chatService: null,
+            embeddingService: null,
+            knowledgeBaseService: null,
+            localizationService: null);
+        if (themeApplyCount != 1 || schemeApplyCount != 1)
+            throw new InvalidOperationException($"Initial apply must fire theme+scheme once each, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+
+        config.MainLayout.LeftWidth += 20;
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 1 || schemeApplyCount != 1)
+            throw new InvalidOperationException("Saving layout changes reapplied an unchanged color scheme.");
+
+        config.ColorScheme = "Monokai";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 1 || schemeApplyCount != 2)
+            throw new InvalidOperationException($"A scheme change must re-fire only ColorSchemeChanged, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+
+        config.Theme = "Dark";
+        configService.SaveAsync(config).GetAwaiter().GetResult();
+        if (themeApplyCount != 2 || schemeApplyCount != 2)
+            throw new InvalidOperationException($"A theme change must re-fire only ThemeChanged, got theme {themeApplyCount}, scheme {schemeApplyCount}.");
+    }
+    finally
+    {
+        App.ThemeChanged -= OnThemeChanged;
+        App.ColorSchemeChanged -= OnColorSchemeChanged;
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] configuration saves apply color scheme exactly once and independently of theme");
+}
+
+static void TestColorSchemeShellPanelRepaint()
+{
+    Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+    Dispatcher.UIThread.RunJobs();
+
+    var shellConfigService = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(shellConfigService);
+    var vm = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        taskScheduler: null,
+        contextCompressionService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null,
+        configurationSession: session);
+    var window = new MainWindow { DataContext = vm, Width = 1200, Height = 800 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    try
+    {
+        var panels = window.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.Classes.Contains("shell-panel")).ToList();
+        if (panels.Count != 3)
+            throw new InvalidOperationException($"Expected 3 shell panels, got {panels.Count}.");
+
+        App.SetColorScheme("Cyberpunk");
+        Dispatcher.UIThread.RunJobs();
+        foreach (var panel in panels)
+        {
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF0A0914"))
+                throw new InvalidOperationException($"Shell panel must repaint to Cyberpunk dark after scheme switch, got {panel.Background}.");
+        }
+
+        App.SetColorScheme("Default");
+        Dispatcher.UIThread.RunJobs();
+        foreach (var panel in panels)
+        {
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF16161A"))
+                throw new InvalidOperationException($"Shell panel must restore the built-in dark background, got {panel.Background}.");
+        }
+    }
+    finally
+    {
+        window.Close();
+        App.SetColorScheme("Default");
+        Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+        Dispatcher.UIThread.RunJobs();
+    }
+    Console.WriteLine("[PASS] shell panels repaint immediately on color scheme switch");
+}
+
+static void TestColorSchemeThumbnail()
+{
+    try
+    {
+        var thumbnail = new ColorSchemeThumbnailView { SchemeName = "Solarized" };
+        var darkDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Dark];
+        var lightDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Light];
+        AssertBrushColor(darkDict, "SemiColorBackground0", "#FF002B36");
+        AssertBrushColor(lightDict, "SemiColorBackground0", "#FFFDF6E3");
+        // icon 与文字统一默认：复制段保留应用内置默认（Light 主色 = 近黑 #111111），文字键回落 SemiTheme。
+        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF111111");
+        // 文字色统一默认：方案缺 SemiColorText* 键 → 缩略图回落 SemiTheme 默认文字色。
+        if (!thumbnail.Resources.TryGetResource("SemiColorText0", ThemeVariant.Light, out var lightText))
+            throw new InvalidOperationException("Thumbnail Light variant must resolve SemiColorText0.");
+        if (lightText is not ISolidColorBrush lightTextBrush || lightTextBrush.Color != Color.Parse("#FF1C1F23"))
+            throw new InvalidOperationException($"Thumbnail Light text must fall back to the default text color, got {lightText}.");
+
+        // Default 方案缺 SemiColorBackground0 等键：必须回落 SemiTheme 内置值（且不受 App 当前方案污染）。
+        var defaultThumbnail = new ColorSchemeThumbnailView { SchemeName = "Default" };
+        if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Dark, out var defaultDark)
+            || defaultDark is not ISolidColorBrush defaultDarkBrush
+            || defaultDarkBrush.Color != Color.Parse("#FF16161A"))
+            throw new InvalidOperationException($"Default thumbnail must fall back to the built-in dark background, got {defaultDark}.");
+        if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Light, out var defaultLight)
+            || defaultLight is not ISolidColorBrush defaultLightBrush
+            || defaultLightBrush.Color != Color.Parse("#FFFFFFFF"))
+            throw new InvalidOperationException($"Default thumbnail must fall back to the built-in light background, got {defaultLight}.");
+    }
+    finally
+    {
+        App.SetColorScheme("Default");
+    }
+    Console.WriteLine("[PASS] thumbnail control clones scheme palettes, follows variants, and falls back for Default");
+}
+
+static void AssertBrushColor(ResourceDictionary dictionary, string key, string expectedArgb)
+{
+    // 普通 ResourceDictionary（无 ThemeDictionaries）的变体参数不影响结果，只取自身条目。
+    if (!dictionary.TryGetResource(key, ThemeVariant.Dark, out var value))
+        throw new InvalidOperationException($"Scheme dictionary misses key '{key}'.");
+    var actual = value switch
+    {
+        ISolidColorBrush brush => brush.Color,
+        Color color => color,
+        _ => throw new InvalidOperationException($"Key '{key}' must resolve to a brush or color, got {value?.GetType()}.")
+    };
+    if (actual != Color.Parse(expectedArgb))
+        throw new InvalidOperationException($"Key '{key}' expected {expectedArgb}, got {actual}.");
+}
+
+/// <summary>断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。</summary>
+static void AssertKeyKeepsDefault(ResourceDictionary scheme, ResourceDictionary builtIn, string key)
+{
+    var schemeHas = scheme.TryGetResource(key, ThemeVariant.Dark, out var schemeValue);
+    var builtInHas = builtIn.TryGetResource(key, ThemeVariant.Dark, out var builtInValue);
+    if (schemeHas != builtInHas)
+        throw new InvalidOperationException($"Key '{key}' presence must match the built-in dictionary (scheme {schemeHas}, built-in {builtInHas}).");
+    if (!schemeHas)
+        return;
+    if (schemeValue is ISolidColorBrush schemeBrush && builtInValue is ISolidColorBrush builtInBrush)
+    {
+        if (schemeBrush.Color != builtInBrush.Color || Math.Abs(schemeBrush.Opacity - builtInBrush.Opacity) > 0.001)
+            throw new InvalidOperationException($"Key '{key}' must keep the built-in brush value ({schemeBrush.Color} vs {builtInBrush.Color}).");
+        return;
+    }
+    if (schemeValue is Color schemeColor && builtInValue is Color builtInColor)
+    {
+        if (schemeColor != builtInColor)
+            throw new InvalidOperationException($"Key '{key}' must keep the built-in color value ({schemeColor} vs {builtInColor}).");
+        return;
+    }
+    throw new InvalidOperationException($"Key '{key}' resolved to unexpected types {schemeValue?.GetType()} vs {builtInValue?.GetType()}.");
 }
 
 static void TestConfigurationSession(string artifactDirectory)
@@ -3598,6 +4033,21 @@ sealed class FakeCommitMessageGenerator : ICommitMessageGenerator
         LastDiffStat = diffStat;
         LastDiffContent = diffContent;
         return Task.FromResult<string?>("feat: test change");
+    }
+}
+
+sealed class StubTitleGenerator(string prefix = "AI:") : IConversationTitleGenerator
+{
+    public int CallCount { get; private set; }
+
+    public Task<string> GenerateAsync(
+        IReadOnlyList<ChatMessage> messages,
+        bool useAi,
+        CancellationToken cancellationToken = default)
+    {
+        CallCount++;
+        var firstUser = messages.FirstOrDefault(message => message.Role == "user")?.Content ?? string.Empty;
+        return Task.FromResult(prefix + firstUser);
     }
 }
 

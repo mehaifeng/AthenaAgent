@@ -219,6 +219,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private readonly ICommitMessageGenerator? _commitMessageGenerator;
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger = Log.ForContext<WorkspaceWorkbenchViewModel>();
+    private const long MaxEditableFileSize = 5 * 1024 * 1024;
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _refreshDebounce;
     private CancellationTokenSource? _gitChangeOpenCts;
@@ -977,33 +978,60 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                var current = File.Exists(change.FullPath)
-                    ? await File.ReadAllTextAsync(change.FullPath, cancellationToken)
-                    : string.Empty;
-                var changedAt = File.Exists(change.FullPath)
-                    ? File.GetLastWriteTimeUtc(change.FullPath)
-                    : DateTime.UtcNow;
-                tab.ReplaceFromDisk(current, changedAt);
-
-                var head = await ReadHeadVersionAsync(change.RelativePath);
-                var isBinary = (File.Exists(change.FullPath) && IsProbablyBinary(change.FullPath))
-                               || IsProbablyBinaryText(head);
-                if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
+                var currentExists = File.Exists(change.FullPath);
+                if (currentExists && new FileInfo(change.FullPath).Length > MaxEditableFileSize)
                 {
-                    tab.Dispose();
+                    StatusText = L("Workspace.Status.FileTooLarge", "File exceeds 5 MB, not opened in built-in editor");
                     return;
                 }
-                if (isBinary)
+
+                // 二进制判定必须优先于整文件读取：大体积二进制文件只需嗅探前 8KB，
+                // 不应先把整个文件解码成字符串、再把整个 HEAD blob 物化后才判定。
+                if ((currentExists && IsProbablyBinary(change.FullPath))
+                    || await IsHeadBlobOversizedAsync(change.RelativePath))
                 {
+                    if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
+                    {
+                        tab.Dispose();
+                        return;
+                    }
                     tab.IsBinary = true;
                     tab.Mode = WorkspaceEditorMode.Binary;
                     StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
                 }
                 else
                 {
-                    tab.CanDiff = true;
-                    tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
-                    tab.Mode = WorkspaceEditorMode.Diff;
+                    var current = currentExists
+                        ? await File.ReadAllTextAsync(change.FullPath, cancellationToken)
+                        : string.Empty;
+                    var changedAt = currentExists
+                        ? File.GetLastWriteTimeUtc(change.FullPath)
+                        : DateTime.UtcNow;
+                    if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
+                    {
+                        tab.Dispose();
+                        return;
+                    }
+                    tab.ReplaceFromDisk(current, changedAt);
+
+                    var head = await ReadHeadVersionAsync(change.RelativePath);
+                    if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
+                    {
+                        tab.Dispose();
+                        return;
+                    }
+                    if (IsProbablyBinaryText(head))
+                    {
+                        tab.IsBinary = true;
+                        tab.Mode = WorkspaceEditorMode.Binary;
+                        StatusText = L("Workspace.Status.BinaryDiffUnsupported", "Binary file does not support text diff");
+                    }
+                    else
+                    {
+                        tab.CanDiff = true;
+                        tab.SetDiff(WorkspaceDiffBuilder.Build(head ?? string.Empty, current));
+                        tab.Mode = WorkspaceEditorMode.Diff;
+                    }
                 }
             }
             if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken))
@@ -1084,7 +1112,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         else
         {
             var info = new FileInfo(node.FullPath);
-            if (info.Length > 5 * 1024 * 1024)
+            if (info.Length > MaxEditableFileSize)
             {
                 StatusText = L("Workspace.Status.FileTooLarge", "File exceeds 5 MB, not opened in built-in editor");
                 return;
@@ -1717,6 +1745,19 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     private static bool IsProbablyBinaryText(string? text)
         => text != null && text.IndexOf('\0') >= 0;
+
+    /// <summary>
+    /// 判断 HEAD 侧的 blob 是否体积过大而应视为二进制/不可 Diff，
+    /// 避免 <c>git cat-file --filters</c> 把整个大体积 blob 物化进内存。
+    /// </summary>
+    private async Task<bool> IsHeadBlobOversizedAsync(string relativePath)
+    {
+        if (_workspace == null || !HasGitRepository) return false;
+        var normalized = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+        var result = await RunGitAsync("cat-file", "-s", $"HEAD:{normalized}");
+        if (result.ExitCode != 0) return false;
+        return long.TryParse(result.Output.Trim(), out var size) && size > MaxEditableFileSize;
+    }
 
     private async Task<string?> ReadHeadVersionAsync(string relativePath)
     {

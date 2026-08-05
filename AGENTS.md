@@ -24,6 +24,7 @@ The repository is a multi-project solution (`Athena.UI.sln`):
 - **Athena.UI** — the main desktop application (source lives at the repository root).
 - **Athena.Updater** — standalone in-app updater executable (downloads/extracts GitHub releases; packaged alongside the app).
 - **Athena.Archive.Tests** — test project covering conversation archive/history logic.
+- **Athena.UI.HeadlessTests** — Avalonia headless UI assertion suite (see "Headless Tests" below).
 
 Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README_CN.md`. Longer-form docs live in `Docs/` (user guides, `PrivacyPolicy.md`, `MinerU_API.md`). Release tooling lives in `release.sh` and `Scripts/`.
 
@@ -54,6 +55,17 @@ Ensure you have the .NET 10 SDK installed.
 | **Build** | `dotnet build` |
 | **Run** | `dotnet run` |
 | **Release** | `dotnet build -c Release` |
+| **Headless Tests** | `Scripts/run-headless-tests.ps1` (PowerShell) or `Scripts/run-headless-tests.sh` (Git Bash/CI) |
+
+### Headless Tests (`Athena.UI.HeadlessTests`)
+
+Avalonia headless assertion suite — a console program with 60+ sequential cases (~2 min total). Assertion messages are written in zh-CN because the harness pins the zh-CN culture at startup.
+
+- **Always run via `Scripts/run-headless-tests.ps1` / `.sh`, never `dotnet run`**: `dotnet run` rebuilds the whole solution, and a running Athena.UI instance locks `bin\Debug\net10.0\Athena.UI.exe`, failing the build (MSB3027). The scripts build with `-p:UseAppHost=false` (DLL only) and execute the suite DLL directly.
+- **Exit code is meaningful**: the suite ends with `Environment.Exit(exitCode)` (headless Avalonia never shuts down on its own and the process would otherwise hang forever). All passing prints `[ALL HEADLESS TESTS PASSED]` and exits 0 — CI-able.
+- **Never poll with `await Task.Delay` + `RunJobs` on the main thread**: the await continuation is posted to the dispatcher queue, and `RunJobs()` only runs after the await → deadlock. Use the `PumpUntil(done, timeoutMs, failureMessage)` helper for any condition waiting. The workbench tests still contain legacy `await Task.Delay` polling that happens to pass because their timers pump the dispatcher — **do not copy that pattern into new tests**.
+- **Iterate with a minimal repro first**: cases run sequentially in file order, so a test inserted mid-file takes ~100 s per full-suite iteration to reach. Validate new logic in isolation (construct VM + stub directly) before merging into the suite.
+- Redirect output to a file and tail it — piping to `tail` block-buffers and hides live progress.
 
 ## 🏗️ Architecture & Structure
 

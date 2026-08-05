@@ -27,6 +27,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _theme = "Dark";
 
+    // 配色方案：Default / Solarized / Cyberpunk / Tokyo / Monokai（与明暗主题正交）。
+    [ObservableProperty]
+    private string _colorScheme = "Default";
+
     [ObservableProperty]
     private string _language = "zh-CN";
     // 全局字号档位：Tiny / Small / Medium / Large / Maximum，驱动 App.FontSize.* 语义字号整体缩放。

@@ -352,6 +352,7 @@
     <system:String x:Key="Settings.General.Description">调整应用外观、语言和常用交互偏好。</system:String>
     <system:String x:Key="Settings.General.Appearance">外观与语言</system:String>
     <system:String x:Key="Settings.General.Theme">主题</system:String>
+    <system:String x:Key="Settings.General.ColorScheme">配色方案</system:String>
     <system:String x:Key="Settings.General.Language">语言</system:String>
     <system:String x:Key="Settings.General.FontScale">字体大小</system:String>
     <system:String x:Key="Settings.General.FontScale.Minimum">最小</system:String>

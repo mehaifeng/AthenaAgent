@@ -24,7 +24,7 @@ public class ConfigurationFunctions
     // 可修改的配置项白名单
     private static readonly string[] AllowedConfigKeys =
     {
-        "TopP", "Theme", "Language",
+        "TopP", "Theme", "ColorScheme", "Language",
         "MaxContextTokens", "CompressionThreshold", "AutoCompress"
     };
 
@@ -119,6 +119,7 @@ public class ConfigurationFunctions
                     Appearance = new
                     {
                         Theme = config.Theme,
+                        ColorScheme = config.ColorScheme,
                         Language = config.Language
                     },
                     // 记忆配置
@@ -145,6 +146,7 @@ public class ConfigurationFunctions
                     "appearance" => new
                     {
                         Theme = config.Theme,
+                        ColorScheme = config.ColorScheme,
                         Language = config.Language
                     },
                     "memory" => new

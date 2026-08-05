@@ -141,7 +141,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public string? ForkedAtMessageId => _forkedAtMessageId;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(NewConversationCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     private bool _isResetting;
@@ -1281,32 +1280,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ContextInspectorWarningsText));
         OnPropertyChanged(nameof(HasContextInspectorWarnings));
         OnPropertyChanged(nameof(CompressionSummaryDetails));
-    }
-
-    private bool CanStartNewConversation() => !IsResetting;
-
-    [RelayCommand(CanExecute = nameof(CanStartNewConversation))]
-    private async Task NewConversationAsync()
-    {
-        await _conversationTransitionLock.WaitAsync();
-        try
-        {
-            IsResetting = true;
-            BeginConversationTransition();
-
-            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
-            if (stagedSnapshot == TransitionStageResult.Failed)
-            {
-                return;
-            }
-
-            ResetConversationState();
-        }
-        finally
-        {
-            IsResetting = false;
-            _conversationTransitionLock.Release();
-        }
     }
 
     /// <summary>

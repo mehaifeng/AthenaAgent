@@ -18,6 +18,7 @@ public sealed class AppConfigurationApplier : IDisposable
     private AppConfig? _lastChatConfig;
     private AppConfig? _lastEmbeddingConfig;
     private string? _themeIdentity;
+    private string? _colorSchemeIdentity;
     private string? _fontScale;
     private OpenAiModelClientIdentity? _chatClientIdentity;
     private OpenAiModelClientIdentity? _embeddingClientIdentity;
@@ -72,6 +73,9 @@ public sealed class AppConfigurationApplier : IDisposable
             : "Dark";
         var shouldApplyTheme = !string.Equals(_themeIdentity, nextThemeIdentity, StringComparison.Ordinal);
         _themeIdentity = nextThemeIdentity;
+        var nextSchemeIdentity = App.NormalizeColorScheme(config.ColorScheme);
+        var shouldApplyColorScheme = !string.Equals(_colorSchemeIdentity, nextSchemeIdentity, StringComparison.Ordinal);
+        _colorSchemeIdentity = nextSchemeIdentity;
         var shouldApplyFontScale = !string.Equals(_fontScale, config.FontScale, StringComparison.Ordinal);
         _fontScale = config.FontScale;
 
@@ -79,6 +83,8 @@ public sealed class AppConfigurationApplier : IDisposable
         {
             if (shouldApplyTheme)
                 App.SetTheme(nextThemeIdentity);
+            if (shouldApplyColorScheme)
+                App.SetColorScheme(nextSchemeIdentity);
             if (_localizationService?.CurrentLanguage != config.Language)
                 _localizationService?.SwitchLanguage(config.Language);
             if (shouldApplyFontScale)

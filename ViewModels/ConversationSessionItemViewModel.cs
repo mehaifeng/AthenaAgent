@@ -22,6 +22,12 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private bool _metadataTrackingEnabled;
 
+    /// <summary>手动重命名/分支等显式指定标题后，不再静默覆盖（粘性）。</summary>
+    private bool _autoTitleDisabled;
+
+    /// <summary>当前消息内容已生成过静默标题；消息一旦变更即失效，下次切换会话时重新生成。</summary>
+    private bool _titleGeneratedForContent;
+
     public event EventHandler? DeleteRequested;
     public event EventHandler? ForkRequested;
     public event EventHandler? ExportRequested;
@@ -41,6 +47,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         _store = store;
         _localizationService = localizationService;
         _newConversationTitle = L("Session.Title.NewConversation", "New chat");
+        // 新会话初始标题为占位符（"新对话"）；第一条用户消息发出后由 OnMessagesChanged 替换为前 32 字符。
+        Title = _newConversationTitle;
         Chat.PropertyChanged += OnChatPropertyChanged;
         Chat.Messages.CollectionChanged += OnMessagesChanged;
         Chat.PersistenceStateChanged += OnPersistenceStateChanged;
@@ -132,6 +140,15 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             Title = _newConversationTitle;
         }
     }
+
+    /// <summary>切换会话时是否需要在后台静默生成/更新标题。</summary>
+    public bool ShouldGenerateTitleSilently => !_autoTitleDisabled && !_titleGeneratedForContent;
+
+    /// <summary>静默标题已生成完毕（消息变更时由 <see cref="OnMessagesChanged"/> 重置）。</summary>
+    public void MarkSilentTitleGenerated() => _titleGeneratedForContent = true;
+
+    /// <summary>显式指定标题（手动重命名/分支命名）后调用：此后不再静默覆盖。</summary>
+    public void DisableSilentTitleGeneration() => _autoTitleDisabled = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
@@ -295,6 +312,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         if (!string.IsNullOrWhiteSpace(title))
         {
             Title = title.Trim();
+            // 手动重命名是用户显式选择，静默标题生成不再覆盖。
+            _autoTitleDisabled = true;
             Chat.MarkPersistenceMetadataChanged();
         }
         ScheduleSave();
@@ -360,6 +379,8 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
                     : firstUserMessage.Content;
             }
         }
+        // 消息内容已变化，此前生成的静默标题失效，下次切换会话时重新生成。
+        _titleGeneratedForContent = false;
         ScheduleSave();
     }
 

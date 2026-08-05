@@ -34,4 +34,6 @@ jobs:
         run: dotnet run --project Athena.Archive.Tests --configuration Release --no-build
 
       - name: Headless UI tests
-        run: dotnet run --project Athena.UI.HeadlessTests --configuration Release --no-build
+        # 该步骤曾在无头 Linux 渲染下挂起并耗尽 GitHub 6 小时作业上限，
+        # 用 timeout 兜底让挂起尽快失败并保留可诊断日志。
+        run: timeout 900 dotnet run --project Athena.UI.HeadlessTests --configuration Release --no-build
