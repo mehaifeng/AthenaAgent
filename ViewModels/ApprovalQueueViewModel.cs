@@ -67,11 +67,10 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
 
     private void Complete(ApprovalQueueItemViewModel item, ToolApprovalScope result)
     {
+        if (!item.Completion.TrySetResult(result)) return;
         _logger.Information(
             "ApprovalQueue user decision: Function={Function}, Scope={Scope}",
             item.Request?.FunctionName, result);
-        if (!item.Completion.TrySetResult(result)) return;
-        if (!item.Completion.TrySetResult(result)) return;
         Pending.Remove(item);
         if (Pending.Count == 0 && _window != null)
         {

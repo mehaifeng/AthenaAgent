@@ -39,9 +39,15 @@ System.Globalization.CultureInfo.DefaultThreadCurrentCulture = zhCulture;
 System.Globalization.CultureInfo.CurrentUICulture = zhCulture;
 System.Globalization.CultureInfo.CurrentCulture = zhCulture;
 
-var outputPath = args.Length > 0
+// Guard: a flag-like first argument (e.g. "--nologo" leaked from a dotnet
+// command line) must never be interpreted as the output path — otherwise the
+// main-window render and every derived screenshot get dumped into the current
+// working directory instead of the build output folder.
+var outputPath = args.Length > 0 && !args[0].StartsWith("-")
     ? Path.GetFullPath(args[0])
     : Path.Combine(AppContext.BaseDirectory, "main-window.png");
+if (args.Length > 0 && args[0].StartsWith("-"))
+    Console.Error.WriteLine($"[WARN] Ignoring flag-like output path argument '{args[0]}'; defaulting to {outputPath}");
 
 AppBuilder.Configure<App>()
     .UseSkia()
