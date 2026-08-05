@@ -727,12 +727,12 @@
     <system:String x:Key="Config.WebSearch">网络搜索</system:String>
     <system:String x:Key="Config.TestConnection">测试连接</system:String>
     <system:String x:Key="Config.Test">测试</system:String>
-    <system:String x:Key="Connectors.Window.Title">技能与连接器</system:String>
-    <system:String x:Key="Connectors.Nav.Skills">Skills</system:String>
-    <system:String x:Key="Connectors.Nav.Mcp">MCP</system:String>
-    <system:String x:Key="Connectors.Nav.Speech">语音</system:String>
+    <system:String x:Key="Connectors.Window.Title">技能与扩展</system:String>
+    <system:String x:Key="Connectors.Nav.Skills">技能</system:String>
+    <system:String x:Key="Connectors.Nav.Connectors">连接器</system:String>
+    <system:String x:Key="Connectors.Nav.Speech">语音生成</system:String>
     <system:String x:Key="Connectors.Nav.Image">图像生成</system:String>
-    <system:String x:Key="Connectors.Nav.WebSearch">Web Search</system:String>
+    <system:String x:Key="Connectors.Nav.WebSearch">网页搜索</system:String>
     <system:String x:Key="Connectors.Nav.Document">文档解析</system:String>
     <system:String x:Key="Connectors.Speech.Title">语音合成</system:String>
     <system:String x:Key="Connectors.Speech.Enabled">启用助手语音</system:String>
@@ -1025,7 +1025,7 @@
     <system:String x:Key="MainWindow.Launcher.Providers">供应商模型</system:String>
     <system:String x:Key="MainWindow.Launcher.KnowledgeBase">知识库</system:String>
     <system:String x:Key="MainWindow.Launcher.Tasks">定时消息</system:String>
-    <system:String x:Key="MainWindow.Launcher.Skills">技能与连接器</system:String>
+    <system:String x:Key="MainWindow.Launcher.Skills">技能与扩展</system:String>
     <system:String x:Key="MainWindow.Launcher.Detailed">详细</system:String>
     <system:String x:Key="MainWindow.Launcher.GlobalChat">全局对话</system:String>
     <system:String x:Key="MainWindow.Search.Placeholder">搜索工作区、标题或摘要</system:String>

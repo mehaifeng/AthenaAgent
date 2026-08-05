@@ -11,7 +11,8 @@
         MinHeight="640"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="5" ColumnDefinitions="3*,5,7*">
-        <Border Padding="8"
+        <!-- 导航项样式与 AppSettingsWindow 左侧一致；上下边距拉开（Padding 纵向 16） -->
+        <Border Padding="8,16"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
                 BorderThickness="1"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
@@ -23,7 +24,19 @@
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:SkillsConnectorSection">
-                        <TextBlock Text="{Binding Title}"/>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="2,4">
+                            <PathIcon Grid.Column="0"
+                                      Width="16"
+                                      Height="16"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"
+                                      IsVisible="{Binding IconKey, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Data="{Binding IconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding Title}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>

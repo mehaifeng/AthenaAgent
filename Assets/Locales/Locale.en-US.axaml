@@ -727,10 +727,10 @@
     <system:String x:Key="Config.WebSearch">Web search</system:String>
     <system:String x:Key="Config.TestConnection">Test connection</system:String>
     <system:String x:Key="Config.Test">Test</system:String>
-    <system:String x:Key="Connectors.Window.Title">Skills and connectors</system:String>
+    <system:String x:Key="Connectors.Window.Title">Skills and extensions</system:String>
     <system:String x:Key="Connectors.Nav.Skills">Skills</system:String>
-    <system:String x:Key="Connectors.Nav.Mcp">MCP</system:String>
-    <system:String x:Key="Connectors.Nav.Speech">Speech</system:String>
+    <system:String x:Key="Connectors.Nav.Connectors">Connectors</system:String>
+    <system:String x:Key="Connectors.Nav.Speech">Speech generation</system:String>
     <system:String x:Key="Connectors.Nav.Image">Image generation</system:String>
     <system:String x:Key="Connectors.Nav.WebSearch">Web Search</system:String>
     <system:String x:Key="Connectors.Nav.Document">Document parsing</system:String>
@@ -1025,7 +1025,7 @@
     <system:String x:Key="MainWindow.Launcher.Providers">Providers and models</system:String>
     <system:String x:Key="MainWindow.Launcher.KnowledgeBase">Knowledge base</system:String>
     <system:String x:Key="MainWindow.Launcher.Tasks">Scheduled messages</system:String>
-    <system:String x:Key="MainWindow.Launcher.Skills">Skills and connectors</system:String>
+    <system:String x:Key="MainWindow.Launcher.Skills">Skills and extensions</system:String>
     <system:String x:Key="MainWindow.Launcher.Detailed">Detailed</system:String>
     <system:String x:Key="MainWindow.Launcher.GlobalChat">Global chat</system:String>
     <system:String x:Key="MainWindow.Search.Placeholder">Search workspace, title, or summary</system:String>
