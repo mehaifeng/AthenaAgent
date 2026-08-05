@@ -42,6 +42,16 @@ public class IntEqualsConverter : IValueConverter
         => throw new NotImplementedException();
 }
 
+/// <summary>消息计数 == 0 → true(空会话占位可见性)。</summary>
+public class EmptyCountToBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is int count && count == 0;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 public class EnumEqualsConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

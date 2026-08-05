@@ -23,6 +23,11 @@
         <vm:MainConversationViewModel/>
     </Design.DataContext>
 
+    <UserControl.Resources>
+        <!-- 徽标 alpha 蒙版刷：按图片 alpha 裁剪染色层，只染徽标、不形成整块色板 -->
+        <ImageBrush x:Key="LogoMaskBrush" Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
+    </UserControl.Resources>
+
     <UserControl.KeyBindings>
         <KeyBinding Gesture="Escape" Command="{Binding CloseContextInspectorCommand}"/>
     </UserControl.KeyBindings>
@@ -566,6 +571,52 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
+
+        <!-- 空会话占位：新对话无消息时居中显示 Athena 徽标锁标。
+             图片上叠一层轻微透明度的蒙版 —— OpacityMask 按图片 alpha 裁剪，只染徽标、不形成整块色板；
+             蒙版颜色用聊天区容器背景色(SemiColorBackground0，即 shell-panel 的 Background)，
+             轻微染色(0.35)只为压柔和纯黑白的突兀感，仍保留原图轮廓。
+             图片底部平直，故下方配一条中置菱形装饰线与加粗宽字距 ATHENA 字标补全构图。 -->
+        <Border Grid.Row="1"
+                ZIndex="40"
+                IsHitTestVisible="False"
+                IsVisible="{Binding Messages.Count, Converter={StaticResource EmptyCountToBoolConverter}}">
+            <StackPanel MaxWidth="{DynamicResource App.ContentMaxWidth}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="14">
+                <Panel Width="104" Height="104">
+                    <Image Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
+                    <Rectangle Fill="{DynamicResource SemiColorBackground0}" Opacity="0.6"
+                               OpacityMask="{StaticResource LogoMaskBrush}"/>
+                </Panel>
+
+                <!-- 装饰分隔线：细线 + 中置菱形，颜色与字标一致 -->
+                <Grid ColumnDefinitions="*,Auto,*" Width="200" VerticalAlignment="Center">
+                    <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
+                               Fill="{DynamicResource SemiColorText2}"/>
+                    <Border Grid.Column="1"
+                            Width="4" Height="4"
+                            CornerRadius="1"
+                            Margin="8,0"
+                            Background="{DynamicResource SemiColorText2}"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <RotateTransform Angle="45"/>
+                        </Border.RenderTransform>
+                    </Border>
+                    <Rectangle Grid.Column="2" Height="1" VerticalAlignment="Center"
+                               Fill="{DynamicResource SemiColorText2}"/>
+                </Grid>
+
+                <TextBlock Text="ATHENA"
+                           FontSize="22"
+                           FontWeight="Bold"
+                           LetterSpacing="8"
+                           Foreground="{DynamicResource SemiColorText2}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->
         <Border Grid.Row="2"

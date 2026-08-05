@@ -315,6 +315,7 @@
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
             <conv:SubAgentStateToBrushConverter x:Key="SubAgentStateToBrushConverter"/>
             <conv:CountToBoolConverter x:Key="CountToBoolConverter"/>
+            <conv:EmptyCountToBoolConverter x:Key="EmptyCountToBoolConverter"/>
             <conv:StringToTransformConverter x:Key="StringToTransformConverter"/>
 
             <!-- 字体设置 -->
