@@ -250,37 +250,72 @@ public class OpenAIChatService : IChatService
                 "ProviderErrorClassified RequestId={RequestId} Category={Category}",
                 runtime.RequestId,
                 classification.Category);
-            if (classification.Category != ProviderErrorCategory.UnsupportedModality
-                || !context.Messages.Any(HasImageAttachment))
+
+            // 模型拒绝图片时不要把错误直接抛成气泡：只要本次请求带图且错误疑似
+            // 图片输入问题（明确的 UnsupportedModality 分类，或 400/415/422 +
+            // 图片相关消息），就降级为「图片路径文本」重发一次，让模型至少能拿到
+            // 路径（配合文件工具按需读取）继续处理任务。
+            var imageInputRejected = context.Messages.Any(HasImageAttachment)
+                && (classification.Category == ProviderErrorCategory.UnsupportedModality
+                    || IsLikelyImageInputFailure(streamFailure));
+
+            if (!imageInputRejected)
             {
                 yield return $"[API 错误: {FormatApiError(classification, runtime)}]";
                 yield break;
             }
 
-            Log.Warning(streamFailure, "Main-conversation model explicitly rejected image input; starting image-recognition fallback chain");
+            Log.Warning(streamFailure, "Main-conversation model rejected image input; retrying with image paths as plain text");
             var description = await TryDescribeImagesAsync(context, runtime, cancellationToken);
             var fallbackMessages = await Task.Run(() => BuildMessages(context, runtime, includeImageBinary: false), cancellationToken);
-            var fallbackInstruction = new UserChatMessage(string.IsNullOrWhiteSpace(description)
-                ? "[Image fallback] The image bytes could not be sent. Continue using only the attachment metadata already present in the conversation. Clearly state any limitation when visual details are required."
-                : "[Image recognition fallback] A separately configured vision model described the attached images as follows. Use this description together with the original request:\n\n" + description);
+            var fallbackInstruction = BuildImagePathFallbackInstruction(context, description);
             fallbackMessages.Add(fallbackInstruction);
 
-            await foreach (var text in ProcessStreamAsync(
-                               runtime,
-                               fallbackMessages,
-                               contentBuilder,
-                               context,
-                               cancellationToken,
-                               onMessageAdded,
-                               onUsageReported,
-                               onToolCallArgumentsStreaming,
-                               imageBinaryIncluded: false,
-                               isImageFallback: true,
-                               onCompressionTransition: onCompressionTransition,
-                               onContextWarning: onContextWarning,
-                               transientRequestMessages: [fallbackInstruction]))
+            // 降级重试也失败时，以文本形式告知结果，不再向上抛成异常气泡。
+            Exception? fallbackFailure = null;
+            await using (var fallbackEnumerator = ProcessStreamAsync(
+                                                   runtime,
+                                                   fallbackMessages,
+                                                   contentBuilder,
+                                                   context,
+                                                   cancellationToken,
+                                                   onMessageAdded,
+                                                   onUsageReported,
+                                                   onToolCallArgumentsStreaming,
+                                                   imageBinaryIncluded: false,
+                                                   isImageFallback: true,
+                                                   onCompressionTransition: onCompressionTransition,
+                                                   onContextWarning: onContextWarning,
+                                                   transientRequestMessages: [fallbackInstruction])
+                                               .GetAsyncEnumerator(cancellationToken))
             {
-                yield return text;
+                while (true)
+                {
+                    bool moved;
+                    try
+                    {
+                        moved = await fallbackEnumerator.MoveNextAsync();
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        fallbackFailure = fallbackEx;
+                        break;
+                    }
+
+                    if (!moved) break;
+                    yield return fallbackEnumerator.Current;
+                }
+            }
+
+            if (fallbackFailure != null)
+            {
+                Log.Warning(fallbackFailure, "Image-path fallback re-request failed as well");
+                var fallbackClassification = _providerErrorClassifier.Classify(fallbackFailure);
+                yield return $"[API 错误: {FormatApiError(fallbackClassification, runtime)}]（图片已降级为路径文本后仍失败）";
             }
         }
 
@@ -1760,6 +1795,56 @@ public class OpenAIChatService : IChatService
             Log.Warning(ex, "Image-recognition model fallback failed; continuing with attachment metadata only");
             return null;
         }
+    }
+
+    /// <summary>
+    /// 启发式判定错误是否来自「模型不接受图片输入」。主对话模型拒绝图片时，
+    /// 常见于 HTTP 400/415/422 或消息里带 image/vision/multimodal 等字样；
+    /// 这类错误不应直接冒泡成气泡，而应降级为图片路径文本重发。
+    /// </summary>
+    private static bool IsLikelyImageInputFailure(Exception ex)
+    {
+        if (ex is ClientResultException clientException
+            && clientException.Status is 400 or 415 or 422)
+        {
+            return true;
+        }
+
+        var normalized = ex.Message.ToLowerInvariant();
+        return normalized.Contains("image", StringComparison.Ordinal)
+               || normalized.Contains("vision", StringComparison.Ordinal)
+               || normalized.Contains("modal", StringComparison.Ordinal)
+               || normalized.Contains("unsupported", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 构建图片降级指令：把图片字节替换为本地路径的纯文本，让不支持视觉输入的主模型
+    /// 至少能拿到路径（配合文件工具按需读取）；若视觉模型可用，附上其描述一起重发。
+    /// </summary>
+    private static UserChatMessage BuildImagePathFallbackInstruction(ConversationContext context, string? description)
+    {
+        var paths = context.Messages
+            .SelectMany(message => message.Attachments)
+            .Where(attachment => attachment.Kind == AttachmentKind.Image)
+            .Select(attachment => attachment.StoredPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct()
+            .ToList();
+
+        var pathBlock = paths.Count == 0
+            ? "(no image path available)"
+            : string.Join(Environment.NewLine, paths.Select(path => "- " + path));
+
+        var text = string.IsNullOrWhiteSpace(description)
+            ? "[Image fallback] The main model rejected the image bytes, so they were replaced with their local paths as plain text.\n"
+              + "Image paths:\n" + pathBlock
+              + "\n\nUse the available file tools to read an image when the task requires it. Clearly state any limitation when visual details are needed."
+            : "[Image recognition fallback] The main model rejected the image bytes, so they were replaced with their local paths as plain text. "
+              + "A separately configured vision model described the attached images as follows. Use the description together with the image paths and the original request:\n\n"
+              + description
+              + "\n\nImage paths:\n" + pathBlock;
+
+        return new UserChatMessage(text);
     }
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);
