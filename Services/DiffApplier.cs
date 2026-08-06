@@ -68,6 +68,9 @@ internal static class DiffApplier
 
     private const int NearestHintMaxLines = 20000; // 超大文件跳过近似诊断
     private const int MaxMatchPreviews = 5;
+    private const int RegionContextLines = 2; // 区域预览中落点前后的上下文行数
+    private const int RegionMaxInsertedLines = 25; // 单块替换内容最多展示的行数
+    private const int RegionMaxLineLength = 200; // 预览单行最长截断长度
 
     #region 解析
 
@@ -151,6 +154,11 @@ internal static class DiffApplier
         int applied = 0;
         var bestTier = DiffMatchTier.None;
 
+        // 记录每个块的替换事件（起点、行数差）与最小起点处的最终插入行，成功后据此生成区域预览。
+        var blockEvents = new List<List<(int Start, int Delta)>>(blocks.Count);
+        var firstStart = new List<int>(blocks.Count);
+        var firstInserted = new List<List<string>>(blocks.Count);
+
         for (int b = 0; b < blocks.Count; b++)
         {
             var block = blocks[b];
@@ -180,6 +188,9 @@ internal static class DiffApplier
             }
 
             // 从后往前应用，保证较小起点的索引不因前面的增删而失效。
+            var events = new List<(int Start, int Delta)>(match.Starts.Count);
+            int minStart = int.MaxValue;
+            List<string>? smallestReplacement = null;
             foreach (var start in match.Starts.OrderByDescending(s => s))
             {
                 var replacement = match.Tier == DiffMatchTier.Trimmed
@@ -187,7 +198,12 @@ internal static class DiffApplier
                     : block.ReplaceLines;
                 working.RemoveRange(start, block.SearchLines.Count);
                 working.InsertRange(start, replacement);
+                events.Add((start, replacement.Count - block.SearchLines.Count));
+                if (start < minStart) { minStart = start; smallestReplacement = replacement; }
             }
+            blockEvents.Add(events);
+            firstStart.Add(minStart);
+            firstInserted.Add(smallestReplacement!);
 
             applied++;
             if ((int)match.Tier > (int)bestTier) bestTier = match.Tier;
@@ -197,12 +213,26 @@ internal static class DiffApplier
         lines.Clear();
         lines.AddRange(working);
 
+        // 计算每个块最小起点在最终行空间中的位置：后应用的块若落点 ≤ 当前累计位置，
+        // 其行数差就会平移该位置。插入/删除保持相对顺序不变，因此逐块累加即得最终位置，
+        // 即使块的落点顺序与文件顺序不一致也成立。
+        var finalPos = new int[blocks.Count];
+        for (int k = 0; k < blocks.Count; k++)
+        {
+            int pos = firstStart[k];
+            for (int j = k + 1; j < blocks.Count; j++)
+                foreach (var (s, d) in blockEvents[j])
+                    if (s <= pos) pos += d;
+            finalPos[k] = pos;
+        }
+
         return new FileUpdateResult
         {
             Success = true,
             AppliedBlocks = applied,
             MatchTier = bestTier,
-            Message = $"已成功应用 {applied} 个修改块。"
+            Message = $"已成功应用 {applied} 个修改块。",
+            RegionPreview = BuildRegionPreview(working, finalPos, firstInserted, blockEvents.Select(e => e.Count).ToList())
         };
     }
 
@@ -320,6 +350,44 @@ internal static class DiffApplier
         var t = line.Trim();
         return t.Length <= 80 ? t : t.Substring(0, 80) + "…";
     }
+
+    /// <summary>
+    /// 为每个成功应用的块生成「落点区域预览」：上下文 + 新内容 + 上下文，行号前缀与
+    /// read_system_file 的格式一致（"N | 内容"），便于模型对照读取结果自检编辑位置。
+    /// </summary>
+    private static string? BuildRegionPreview(List<string> finalLines, int[] finalPos, List<List<string>> inserted, List<int> occurrenceCounts)
+    {
+        if (finalPos.Length == 0) return null;
+        var sb = new StringBuilder();
+        for (int b = 0; b < finalPos.Length; b++)
+        {
+            int pos = finalPos[b];
+            int lineNo = pos + 1;
+            var lines = inserted[b];
+            int count = occurrenceCounts[b];
+
+            if (b > 0) sb.Append('\n');
+            sb.Append(count > 1
+                ? $"块 #{b + 1} 修改后区域（第 {lineNo} 行起，共替换 {count} 处）:\n"
+                : $"块 #{b + 1} 修改后区域（第 {lineNo} 行起）:\n");
+
+            for (int i = Math.Max(0, pos - RegionContextLines); i < pos; i++)
+                sb.Append($"{i + 1} | {Clip(finalLines[i])}\n");
+
+            int shown = Math.Min(lines.Count, RegionMaxInsertedLines);
+            for (int i = 0; i < shown; i++)
+                sb.Append($"{lineNo + i} | {Clip(lines[i])}\n");
+            if (lines.Count > RegionMaxInsertedLines)
+                sb.Append($"…（该处替换共 {lines.Count} 行，仅显示前 {RegionMaxInsertedLines} 行）\n");
+
+            int afterEnd = Math.Min(finalLines.Count, pos + lines.Count + RegionContextLines);
+            for (int i = pos + lines.Count; i < afterEnd; i++)
+                sb.Append($"{i + 1} | {Clip(finalLines[i])}\n");
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    private static string Clip(string s) => s.Length <= RegionMaxLineLength ? s : s.Substring(0, RegionMaxLineLength) + "…";
 
     /// <summary>
     /// 未命中时，做一次有界的行级相似度扫描，返回最接近窗口的位置与实际内容。

@@ -10,7 +10,7 @@ namespace Athena.UI.Services.Interfaces;
 /// </summary>
 public interface IFileSystemService
 {
-    Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null);
+    Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null, bool includeLineNumbers = false);
     Task<bool> WriteFileAsync(string absolutePath, string content);
     Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true, bool replaceAll = false);
     Task<bool> DeleteFileAsync(string absolutePath, bool recursive = false);

@@ -235,24 +235,24 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
-            "Modifies supported application parameters (for example Language, Theme, or context limits) after an explicit user request.",
+            $"Modifies supported application parameters after an explicit user request. Call view_self_configuration first to inspect current values. Valid keys: {configFunctions.ModifiableKeysText}",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    key = new { type = "string", description = "Parameter name (for example 'Language', 'Theme', or 'MaxContextTokens')." },
-                    value = new { type = "string", description = "New value for the parameter." }
+                    key = new { type = "string", description = $"Parameter name. Valid keys: {configFunctions.ModifiableKeysText}" },
+                    value = new { type = "string", description = "New value for the parameter. Boolean: 'true'/'false'. Integer/Long: decimal number. Number: decimal with optional fraction. Enum: one of the allowed values (case-insensitive). NullableLong: number or empty string to clear. StringList: JSON array of strings or comma-separated list." }
                 },
                 required = new[] { "key", "value" }
             });
 
         RegisterFunction("view_self_configuration", configFunctions.GetAppConfig,
-            "Views your current operational configuration. Use this to check your internal state.",
+            "Views your current operational configuration as a curated projection (sections with typed fields plus a summary of providers, role bindings, and runtime state). Use this to check your internal state before modifying anything. API keys and tokens are redacted; the OpenRouter model catalog is only summarized, never dumped.",
             new
             {
                 type = "object",
-                properties = new { section = new { type = "string", description = "Category: 'AI', 'Appearance', 'Memory', or 'All'.", @default = "All" } }
+                properties = new { section = new { type = "string", description = $"Category: {configFunctions.SectionsText}, or 'All'. 'Memory' is accepted as an alias for 'Context'.", @default = "All" } }
             });
 
         // --- File System Control ---
@@ -290,7 +290,7 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
-            "Reads file content. Behavior adapts to file size automatically: files under 50KB are returned in full; larger files are split into chunks and require chunkIndex. For code files, use startLine/endLine after locating the target with search_in_file. For structured documents, use sectionTitle. For unstructured text, use chunkIndex to paginate.",
+            "Reads file content. Every returned line is prefixed with its 1-based line number in the format '12 | content' — the prefix is for locating content only and is NOT part of the file. Behavior adapts to file size automatically: files under 50KB are returned in full (line-numbered); larger files are split into chunks and require chunkIndex. For code files, use startLine/endLine after locating the target with search_in_file. For structured documents, use sectionTitle. For unstructured text, use chunkIndex to paginate.",
             new
             {
                 type = "object",
@@ -319,7 +319,7 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("modify_system_file", fileSystemFunctions.ModifySystemFileAsync,
-            "Modifies an existing file using one or more SEARCH/REPLACE blocks. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target. Whitespace, indentation and line-ending (LF/CRLF) differences are tolerated by default. To delete code, leave the REPLACE side empty. If a SEARCH block matches multiple locations the edit fails and reports each location—add surrounding context to disambiguate, or set replaceAll=true to change every occurrence. For creating a new file or replacing entire content, use write_system_file instead.",
+            "Modifies an existing file using one or more SEARCH/REPLACE blocks. Use this for all partial edits to avoid overwriting unrelated content. The SEARCH block must uniquely identify the target. IMPORTANT: line-number prefixes shown by read_system_file (e.g. '12 | ...') are for locating content only — SEARCH blocks must contain the file's RAW lines exactly as written in the file, WITHOUT the line-number prefix. Run search_in_file first to pin down the exact target lines before editing. Whitespace, indentation and line-ending (LF/CRLF) differences are tolerated by default. To delete code, leave the REPLACE side empty. If a SEARCH block matches multiple locations the edit fails and reports each location—add surrounding context to disambiguate, or set replaceAll=true to change every occurrence. When a multi-block edit fails, only the failed block needs to be resent. For creating a new file or replacing entire content, use write_system_file instead.",
             new
             {
                 type = "object",

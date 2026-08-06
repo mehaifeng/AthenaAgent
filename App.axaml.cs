@@ -20,6 +20,7 @@ using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Context;
+using Athena.UI.Services.ConfigSurface;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
@@ -888,8 +889,9 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<ConfigurationFunctions>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
+            var configSurface = sp.GetRequiredService<IConfigSurfaceService>();
             var logger = Log.ForContext<ConfigurationFunctions>();
-            return new ConfigurationFunctions(configService, sp, logger);
+            return new ConfigurationFunctions(configService, configSurface, sp, logger);
         });
 
         services.AddSingleton<FileSystemFunctions>(sp =>
@@ -1191,6 +1193,8 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<ModelIdentityMatcher>();
         services.AddSingleton<ModelMetadataResolver>();
         services.AddSingleton<IModelMetadataResolver>(sp => sp.GetRequiredService<ModelMetadataResolver>());
+        services.AddSingleton<IConfigSurfaceService>(sp =>
+            new ConfigSurfaceService(sp.GetService<IOpenRouterModelMetadataCatalog>()));
         services.AddSingleton<ModelContextPolicyResolver>();
         services.AddSingleton<IModelContextPolicyResolver>(sp => sp.GetRequiredService<ModelContextPolicyResolver>());
         services.AddSingleton<IProviderErrorClassifier, ProviderErrorClassifier>();

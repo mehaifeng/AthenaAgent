@@ -195,7 +195,7 @@ public class FileSystemService : IFileSystemService
         }
     }
 
-    public async Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null)
+    public async Task<string?> ReadFileAsync(string absolutePath, int? startLine = null, int? endLine = null, string? sectionTitle = null, int? chunkIndex = null, bool includeLineNumbers = false)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         _logger.Debug("FileSystem ReadFile: Path={Path}", fullPath);
@@ -214,19 +214,24 @@ public class FileSystemService : IFileSystemService
         {
             var lines = await File.ReadAllLinesAsync(fullPath);
             var sectionLines = new List<string>();
+            int sectionStart = -1;
             bool inSection = false;
-            foreach (var line in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
+                var line = lines[i];
                 if (line.Trim().StartsWith("#") && line.Contains(sectionTitle, StringComparison.OrdinalIgnoreCase))
                 {
                     inSection = true;
+                    sectionStart = i;
                     sectionLines.Add(line);
                     continue;
                 }
                 if (inSection && line.Trim().StartsWith("#")) break;
                 if (inSection) sectionLines.Add(line);
             }
-            return string.Join(Environment.NewLine, sectionLines);
+            return includeLineNumbers
+                ? NumberLines(sectionLines, sectionStart + 1)
+                : string.Join(Environment.NewLine, sectionLines);
         }
 
         // Handle Line Ranges
@@ -236,21 +241,74 @@ public class FileSystemService : IFileSystemService
             int start = Math.Max(0, startLine.Value - 1);
             int end = endLine.HasValue ? Math.Min(lines.Length, endLine.Value) : lines.Length;
             if (start >= lines.Length) return string.Empty;
-            return string.Join(Environment.NewLine, lines.Skip(start).Take(end - start));
+            var range = lines.Skip(start).Take(end - start).ToList();
+            return includeLineNumbers
+                ? NumberLines(range, start + 1)
+                : string.Join(Environment.NewLine, range);
         }
 
         // Handle Chunking for large files
         if (fileInfo.Length > 50 * 1024 || chunkIndex.HasValue)
         {
             int idx = chunkIndex ?? 0;
+            long offset = (long)idx * ChunkSizeBytes;
             using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
-            stream.Seek(idx * ChunkSizeBytes, SeekOrigin.Begin);
+            stream.Seek(offset, SeekOrigin.Begin);
             byte[] buffer = new byte[ChunkSizeBytes];
             int read = await stream.ReadAsync(buffer, 0, ChunkSizeBytes);
-            return Encoding.UTF8.GetString(buffer, 0, read);
+            var text = Encoding.UTF8.GetString(buffer, 0, read);
+            if (!includeLineNumbers) return text;
+
+            // 分块按字节偏移，需先统计块起点之前的换行数，才能给出行号。
+            long prefixNewlines = await CountNewlinesInPrefixAsync(fullPath, offset);
+            var chunkLines = text.Split('\n').ToList();
+            if (chunkLines.Count > 0 && chunkLines[^1].Length == 0) chunkLines.RemoveAt(chunkLines.Count - 1); // 块以换行结尾时的空尾元素
+            return NumberLines(chunkLines, (int)prefixNewlines + 1);
+        }
+
+        if (includeLineNumbers)
+        {
+            var lines = await File.ReadAllLinesAsync(fullPath);
+            return NumberLines(lines, 1);
         }
 
         return await File.ReadAllTextAsync(fullPath, Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// 为每行加 1-based 行号前缀（格式 "N | 内容"），供模型精确定位后再编辑。
+    /// </summary>
+    private static string NumberLines(IEnumerable<string> lines, int firstLineNumber)
+    {
+        var sb = new StringBuilder();
+        int n = firstLineNumber;
+        foreach (var line in lines)
+        {
+            sb.Append(n).Append(" | ").Append(line).Append('\n');
+            n++;
+        }
+        if (sb.Length > 0) sb.Length--; // 去掉末尾换行，与原有输出保持一致
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 统计文件前 offset 字节内的换行符数量（LF/CRLF 均可，按 '\n' 计数）。
+    /// </summary>
+    private static async Task<long> CountNewlinesInPrefixAsync(string fullPath, long offset)
+    {
+        long count = 0;
+        var buffer = new byte[64 * 1024];
+        using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
+        long remaining = Math.Min(offset, stream.Length);
+        while (remaining > 0)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+            if (read <= 0) break;
+            for (int i = 0; i < read; i++)
+                if (buffer[i] == (byte)'\n') count++;
+            remaining -= read;
+        }
+        return count;
     }
 
     public async Task<bool> WriteFileAsync(string absolutePath, string content)

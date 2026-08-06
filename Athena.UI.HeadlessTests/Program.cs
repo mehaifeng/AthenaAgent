@@ -18,6 +18,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Preview;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
@@ -27,6 +28,7 @@ using System.Text;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Net;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 try
@@ -93,6 +95,7 @@ TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
+TestSelfConfigurationSurface();
 TestLifecycle();
 
 var shellConfigService = new HeadlessConfigService(new AppConfig());
@@ -2568,6 +2571,96 @@ static void TestProviderMetadataUi(string outputPath)
     SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "provider-model-metadata.png"));
     window.Close();
     Console.WriteLine("[PASS] Provider Models virtualizes 336 rows and separates derived facts from explicit binding/overrides");
+}
+
+static void TestSelfConfigurationSurface()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "provider-deepseek",
+        DisplayName = "Deepseek",
+        ProviderPreset = "Deepseek",
+        BaseUrl = "https://api.deepseek.com/v1",
+        ApiKey = "sk-test"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "deepseek-v4-flash", DisplayName = "deepseek-v4-flash", Capability = ModelCapability.Text });
+    provider.Models.Add(new ProviderModelDescriptor { Id = "deepseek-v4-pro", DisplayName = "deepseek-v4-pro", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "deepseek-v4-flash";
+    config.DocumentParserToken = "mineru-secret-token";
+    var surface = new ConfigSurfaceService();
+
+    // —— view 投影 ——
+    var view = JsonSerializer.SerializeToNode(surface.BuildView(config, null))!;
+    var sections = view["sections"]!.AsArray();
+    var names = sections.Select(section => section!["name"]!.GetValue<string>()).ToList();
+    if (!names.Contains("AI") || !names.Contains("Context") || !names.Contains("Browser")
+        || !names.Contains("Security") || !names.Contains("Runtime"))
+        throw new InvalidOperationException($"View must expose the full section list, got: {string.Join(", ", names)}");
+    var aiFields = sections.First(section => section!["name"]!.GetValue<string>() == "AI")!["fields"]!.AsArray();
+    var roleField = aiFields.First(field => field!["key"]!.GetValue<string>() == "MainConversation.Model");
+    if (roleField!["value"]!.GetValue<string>() != "deepseek-v4-flash")
+        throw new InvalidOperationException("Role model field must reflect the configured model.");
+    if (!roleField["note"]!.GetValue<string>().Contains("Deepseek"))
+        throw new InvalidOperationException("Role model field must annotate the bound provider.");
+    var tokenField = sections.SelectMany(section => section!["fields"]!.AsArray())
+        .First(field => field!["key"]!.GetValue<string>() == "DocumentParser.Token");
+    if (tokenField!["value"]!.GetValue<string>() != "(redacted)")
+        throw new InvalidOperationException("Sensitive fields must be redacted in the view.");
+    var providers = view["summary"]!["providers"]!.AsArray();
+    if (providers.Count != 1 || providers[0]!["id"]!.GetValue<string>() != provider.Id
+        || providers[0]!["apiKeySet"]!.GetValue<bool>() != true)
+        throw new InvalidOperationException("Summary must list providers with id and key-presence, never the key itself.");
+    var roleBindings = view["summary"]!["roleBindings"]!.AsArray();
+    if (roleBindings.Count != 9 || roleBindings[0]!["role"]!.GetValue<string>() != "MainConversation")
+        throw new InvalidOperationException("Summary must enumerate all nine role bindings.");
+
+    // 旧分区名别名
+    var memoryView = JsonSerializer.SerializeToNode(surface.BuildView(config, "Memory"))!;
+    var memoryNames = memoryView["sections"]!.AsArray().Select(section => section!["name"]!.GetValue<string>()).ToList();
+    if (memoryNames.Count != 1 || memoryNames[0] != "Context")
+        throw new InvalidOperationException("Legacy 'Memory' section alias must resolve to Context.");
+
+    // —— modify 应用 ——
+    void Apply(string key, string value, bool expectSuccess)
+    {
+        var result = surface.Apply(config, key, value);
+        if (result.Success != expectSuccess)
+            throw new InvalidOperationException($"Apply({key}={value}) expected success={expectSuccess}, got {result.Message}");
+    }
+
+    Apply("Theme", "Light", true);
+    if (config.Theme != "Light") throw new InvalidOperationException("Theme apply did not stick.");
+    Apply("Browser.MaxSteps", "7", true);
+    if (config.BrowserMaxSteps != 7) throw new InvalidOperationException("Browser.MaxSteps apply did not stick.");
+    Apply("Browser.MaxSteps", "999", false);
+    Apply("Theme", "Neon", false);
+    Apply("NoSuchKey", "1", false);
+    Apply("Runtime.ConfigSchemaVersion", "9", false);
+    Apply("MaxContextTokens", "200000", true);
+    if (config.ContextPolicy.Mode != ContextPolicyMode.CustomCap || config.ContextPolicy.CustomCapTokens != 200000)
+        throw new InvalidOperationException("Legacy MaxContextTokens alias must map onto ContextPolicy CustomCap semantics.");
+    Apply("ContextPolicy.Mode", "Auto", true);
+    if (config.ContextPolicy.Mode != ContextPolicyMode.Auto) throw new InvalidOperationException("ContextPolicy.Mode enum apply did not stick.");
+    Apply("ContextPolicy.CustomCapTokens", "", true);
+    if (config.ContextPolicy.CustomCapTokens != null) throw new InvalidOperationException("Empty NullableLong must clear the value.");
+    Apply("Security.AutoAllowedTools", "[\"create_directory\", \"modify_system_file\"]", true);
+    if (config.AutoAllowedTools.Count != 2 || config.AutoAllowedTools[0] != "create_directory")
+        throw new InvalidOperationException("JSON array string list apply did not stick.");
+    Apply("Security.TerminalAllowlist", "git, node", true);
+    if (config.TerminalAllowlist.Count != 2 || config.TerminalAllowlist[1] != "node")
+        throw new InvalidOperationException("Comma-separated string list apply did not stick.");
+    Apply("Security.ToolApprovalMode", "Strict", true);
+    if (config.ToolApprovalMode != ToolApprovalMode.Strict) throw new InvalidOperationException("ToolApprovalMode enum apply did not stick.");
+    Apply("MainConversation.Model", "deepseek-v4-pro", true);
+    if (config.AiModels.MainConversation.Model != "deepseek-v4-pro") throw new InvalidOperationException("Role model apply did not stick.");
+    Apply("Browser.ScreenshotScale", "1.5", true);
+    if (Math.Abs(config.BrowserScreenshotScale - 1.5) > 1e-9) throw new InvalidOperationException("Number apply did not stick.");
+    Apply("Browser.ScreenshotScale", "3.0", false);
+
+    Console.WriteLine("[PASS] Self-configuration surface is declarative: projection redacts secrets; modify enforces types, ranges, aliases");
 }
 
 static async Task TestWorkspaceContextDraftAsync()

@@ -109,7 +109,7 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
-            var content = await _fileSystemService.ReadFileAsync(path, startLine, endLine, sectionTitle, chunkIndex);
+            var content = await _fileSystemService.ReadFileAsync(path, startLine, endLine, sectionTitle, chunkIndex, includeLineNumbers: true);
             if (content == null) return FunctionResult.FailureResult($"Error: file not found ({path})");
 
             var info = await _fileSystemService.GetFileInfoAsync(path);
@@ -120,7 +120,7 @@ public class FileSystemFunctions
                 endLine,
                 chunkIndex,
                 totalChunks = info?.ChunkCount ?? 1,
-                truncated = !string.IsNullOrEmpty(content) && content.Length >= 50 * 1024
+                truncated = (info?.ChunkCount ?? 1) > 1
             });
         }
         catch (UnauthorizedAccessException ex)
@@ -180,11 +180,18 @@ public class FileSystemFunctions
             {
                 await TryUpdateKnowledgeBaseVectorsAsync(path);
                 return FunctionResult.SuccessResult(result.Message,
-                    new { path, appliedBlocks = result.AppliedBlocks, matchTier = result.MatchTier.ToString() });
+                    new { path, appliedBlocks = result.AppliedBlocks, matchTier = result.MatchTier.ToString(), editedRegions = result.RegionPreview });
             }
 
             var sb = new StringBuilder(result.Message);
-            if (result.FailedBlockIndex is int blockIndex) sb.Append($"\nFailed block: #{blockIndex}");
+            if (result.FailedBlockIndex is int blockIndex)
+            {
+                sb.Append($"\nFailed block: #{blockIndex}");
+                // 多块编辑全有全无：失败块之前的块已全部匹配成功，只需重发失败块本身，勿整份重发。
+                sb.Append(blockIndex > 1
+                    ? $"\nRetry hint: blocks #1-#{blockIndex - 1} already matched — resend ONLY block #{blockIndex} with a corrected SEARCH (fix the text or add surrounding context). Do not resend the whole diff."
+                    : $"\nRetry hint: resend ONLY block #{blockIndex} with a corrected SEARCH (fix the text or add surrounding context). Do not resend the whole diff.");
+            }
             if (!string.IsNullOrEmpty(result.NearestHint)) sb.Append('\n').Append(result.NearestHint);
             if (result.MultipleMatches != null && result.MultipleMatches.Any())
                 sb.Append("\nConflicting matches (add more context to make SEARCH unique, or set replaceAll=true):\n")

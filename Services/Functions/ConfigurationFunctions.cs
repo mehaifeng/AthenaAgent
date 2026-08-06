@@ -1,71 +1,62 @@
-using Athena.UI.Models;
+using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using System;
-using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
 
 /// <summary>
-/// 配置管理相关的 Function Calling 实现
+/// 配置管理相关的 Function Calling 实现。
+/// 可改的配置面由 <see cref="ConfigFieldCatalog"/> 声明式目录驱动：
+/// 视图 = 目录投影 + 摘要（不暴露 config.json 原文与派生数据），修改 = 目录驱动的类型安全赋值。
 /// </summary>
 public class ConfigurationFunctions
 {
     private readonly IConfigService _configService;
+    private readonly IConfigSurfaceService _configSurface;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger _logger;
 
     // 延迟获取 ChatService 以避免循环依赖
     private IChatService? _chatService;
 
-    // 可修改的配置项白名单
-    private static readonly string[] AllowedConfigKeys =
-    {
-        "TopP", "Theme", "ColorScheme", "Language",
-        "MaxContextTokens", "CompressionThreshold", "AutoCompress"
-    };
-
-    public ConfigurationFunctions(IConfigService configService, IServiceProvider serviceProvider, ILogger logger)
+    public ConfigurationFunctions(
+        IConfigService configService,
+        IConfigSurfaceService configSurface,
+        IServiceProvider serviceProvider,
+        ILogger logger)
     {
         _configService = configService;
+        _configSurface = configSurface;
         _serviceProvider = serviceProvider;
         _logger = logger.ForContext<ConfigurationFunctions>();
     }
 
-    /// <summary>
-    /// 获取 ChatService（延迟加载）
-    /// </summary>
+    /// <summary>供 FunctionRegistry 生成 schema 时枚举合法键。</summary>
+    public string ModifiableKeysText => string.Join(", ", _configSurface.ModifiableKeys);
+
+    /// <summary>供 FunctionRegistry 生成 schema 时枚举合法分区。</summary>
+    public string SectionsText => string.Join(", ", _configSurface.Sections);
+
     private IChatService ChatService => _chatService ??= _serviceProvider.GetRequiredService<IChatService>();
 
     /// <summary>
-    /// 修改应用配置
+    /// 修改应用配置。key 必须在 <see cref="ConfigFieldCatalog"/> 中登记且可修改；
+    /// value 按字段类型解析（bool/整数/浮点/枚举名/字符串/JSON 数组或逗号分隔列表），并做取值与范围校验。
     /// </summary>
-    /// <param name="key">配置项名称</param>
-    /// <param name="value">新值</param>
-    /// <returns>操作结果</returns>
     public async Task<FunctionResult> ModifyAppConfig(string key, string value)
     {
         try
         {
-            // 安全检查：只允许修改白名单中的配置项
-            if (!Array.Exists(AllowedConfigKeys, k => k.Equals(key, StringComparison.OrdinalIgnoreCase)))
-            {
-                return FunctionResult.FailureResult(
-                    $"不允许修改配置项: {key}。允许的配置项: {string.Join(", ", AllowedConfigKeys)}");
-            }
-
             var config = await _configService.LoadAsync();
-            var property = typeof(AppConfig).GetProperty(key, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-            if (property == null)
+            var result = _configSurface.Apply(config, key, value);
+            if (!result.Success)
             {
-                return FunctionResult.FailureResult($"未找到配置项: {key}");
+                return FunctionResult.FailureResult(result.Message, result.Data);
             }
-            property.SetValue(config, ConvertValue(value, property.PropertyType));
 
-            // 保存配置
             await _configService.SaveAsync(config);
 
             // 同步更新 ChatService
@@ -73,13 +64,7 @@ public class ConfigurationFunctions
 
             _logger.Information("Function: updated configuration {Key} = {Value}", key, value);
 
-            return FunctionResult.SuccessResult(
-                $"已更新 {key} = {value}",
-                new { key, value, updated = true });
-        }
-        catch (FormatException)
-        {
-            return FunctionResult.FailureResult($"值格式错误: {value} 无法转换为 {key} 的类型");
+            return FunctionResult.SuccessResult(result.Message, result.Data);
         }
         catch (Exception ex)
         {
@@ -89,136 +74,27 @@ public class ConfigurationFunctions
     }
 
     /// <summary>
-    /// 获取当前配置
+    /// 获取当前配置投影（分区 = AI / Context / Appearance / ...，或 All）。
+    /// 投影由目录生成，绝不包含 API Key / Token / 模型目录全文；派生数据只以摘要形式出现。
     /// </summary>
-    /// <param name="section">配置部分（可选，如 "AI", "Appearance", "Memory"）</param>
-    /// <returns>配置信息</returns>
     public async Task<FunctionResult> GetAppConfig(string? section = null)
     {
         try
         {
             var config = await _configService.LoadAsync();
-
-            object? result;
-
-            if (string.IsNullOrEmpty(section) || section.ToLower() == "all")
+            var resolved = ConfigFieldCatalog.ResolveSection(section);
+            if (section != null && resolved == null)
             {
-                // 返回所有配置（但隐藏敏感信息）
-                result = new
-                {
-                    // AI 配置（不返回 API Key / BaseUrl）
-                    AI = new
-                    {
-                        Provider = GetMainProvider(config),
-                        Roles = GetSanitizedRoles(config),
-                        TopP = config.TopP,
-                        Timeout = config.Timeout,
-                        ApprovalMode = config.ToolApprovalMode.ToString()
-                    },
-                    // 外观配置
-                    Appearance = new
-                    {
-                        Theme = config.Theme,
-                        ColorScheme = config.ColorScheme,
-                        Language = config.Language
-                    },
-                    // 记忆配置
-                    Memory = new
-                    {
-                        MaxContextTokens = config.MaxContextTokens,
-                        CompressionThreshold = config.CompressionThreshold,
-                        AutoCompress = config.AutoCompress
-                    }
-                };
-            }
-            else
-            {
-                result = section.ToLower() switch
-                {
-                    "ai" => new
-                    {
-                        Provider = GetMainProvider(config),
-                        Roles = GetSanitizedRoles(config),
-                        TopP = config.TopP,
-                        Timeout = config.Timeout,
-                        ApprovalMode = config.ToolApprovalMode.ToString()
-                    },
-                    "appearance" => new
-                    {
-                        Theme = config.Theme,
-                        ColorScheme = config.ColorScheme,
-                        Language = config.Language
-                    },
-                    "memory" => new
-                    {
-                        MaxContextTokens = config.MaxContextTokens,
-                        CompressionThreshold = config.CompressionThreshold,
-                        AutoCompress = config.AutoCompress
-                    },
-                    _ => (object?)null
-                };
-
-                if (result == null)
-                {
-                    return FunctionResult.FailureResult($"未知的配置部分: {section}。可选: AI, Appearance, Memory, All");
-                }
+                return FunctionResult.FailureResult(
+                    $"未知的配置部分: {section}。可选: All, {SectionsText}");
             }
 
-            _logger.Information("Function: retrieved configuration section={Section}", section ?? "All");
-
-            return FunctionResult.SuccessResult("获取配置成功", result);
+            return FunctionResult.SuccessResult("获取配置成功", _configSurface.BuildView(config, section));
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Failed to retrieve configuration");
             return FunctionResult.FailureResult($"获取失败: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// 转换值类型
-    /// </summary>
-    private object ConvertValue(string value, Type targetType)
-    {
-        if (targetType == typeof(string))
-            return value;
-
-        if (targetType == typeof(int))
-            return int.Parse(value);
-
-        if (targetType == typeof(double))
-            return double.Parse(value);
-
-        if (targetType == typeof(bool))
-            return bool.Parse(value);
-
-        // 尝试其他类型
-        return System.Convert.ChangeType(value, targetType);
-    }
-
-    private static object GetSanitizedRoles(AppConfig config) => new
-    {
-        MainConversation = Sanitize(config.AiModels.MainConversation),
-        TitleGeneration = Sanitize(config.AiModels.TitleGeneration),
-        ContextCompression = Sanitize(config.AiModels.ContextCompression),
-        Approval = Sanitize(config.AiModels.Approval),
-        Embedding = Sanitize(config.AiModels.Embedding),
-        BrowserAgent = Sanitize(config.AiModels.BrowserAgent),
-        SubAgent = Sanitize(config.AiModels.SubAgent),
-        KnowledgeMaintenance = Sanitize(config.AiModels.KnowledgeMaintenance)
-    };
-
-    private static object Sanitize(ModelRoleSettings role) => new
-    {
-        role.Model
-    };
-
-    private static object? GetMainProvider(AppConfig config)
-    {
-        var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
-            candidate.Id == config.AiModels.MainConversation.ProviderId);
-        return provider == null
-            ? null
-            : new { provider.ProviderPreset, provider.DisplayName };
     }
 }

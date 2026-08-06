@@ -106,4 +106,9 @@ public class FileUpdateResult
     /// 未命中时给出的最接近位置提示，便于模型修正下一次尝试。
     /// </summary>
     public string? NearestHint { get; set; }
+
+    /// <summary>
+    /// 成功应用后每个修改块落点区域的预览（带行号与上下文），供模型自检编辑位置与结果。
+    /// </summary>
+    public string? RegionPreview { get; set; }
 }
