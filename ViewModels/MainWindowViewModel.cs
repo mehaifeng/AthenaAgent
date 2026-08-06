@@ -987,7 +987,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task DeleteWorkspaceAsync(WorkspaceConversationGroupViewModel group)
     {
         _logger.Information("MainWindow deleting workspace: Name={Name}", group?.Name);
-        if (group.Workspace == null || _workspaceService == null) return;
+        if (group?.Workspace == null || _workspaceService == null) return;
         if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
                 _localizationService?.GetString("MainWindow.DeleteWorkspace.Title", "Delete workspace") ?? "Delete workspace",
                 string.Format(_localizationService?.GetString("MainWindow.DeleteWorkspace.Message", "Delete \"{0}\"? Workspace knowledge files will be deleted, but conversation history is preserved.") ?? "Delete \"{0}\"? Workspace knowledge files will be deleted, but conversation history is preserved.", group.Name),

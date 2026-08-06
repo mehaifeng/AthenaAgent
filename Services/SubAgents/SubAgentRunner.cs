@@ -129,10 +129,10 @@ public sealed class SubAgentRunner
                 var toolCalls = value.ToolCalls;
                 if (toolCalls == null || toolCalls.Count == 0)
                 {
-                    var finalText = value.Content.Count > 0 ? value.Content[0].Text : string.Empty;
+                    var finalText = value.Content.Count > 0 ? value.Content[0].Text ?? string.Empty : string.Empty;
                     _logger.Information(
                         "SubAgentRunner completed (no tool call): Title={Title}, Length={Length}",
-                        task.Title, finalText?.Length ?? 0);
+                        task.Title, finalText.Length);
                     return Succeed(vm, uiPost, task, finalText);
                 }
 

@@ -998,7 +998,8 @@ PumpUntil(() => (externalSession = archiveGroup.Conversations
     failureMessage: "Externally completed archive was not inserted into its workspace group.");
 
 archiveTreeViewModel.ConversationSearchText = "externally completed body";
-if (!externalSession.IsSearchMatch || archiveSession.IsSearchMatch)
+// PumpUntil 超时即抛异常，此处 externalSession 必已赋值
+if (!externalSession!.IsSearchMatch || archiveSession.IsSearchMatch)
     throw new InvalidOperationException("Conversation-tree search did not replace the legacy History keyword filter.");
 
 archiveTreeViewModel.SelectedConversation = externalSession;
@@ -1354,11 +1355,10 @@ Console.Error.Flush();
 Serilog.Log.CloseAndFlush();
 Environment.Exit(Environment.ExitCode);
 
-/// <summary>
-/// 无头环境安全等待：同步轮询 + 手动泵送 dispatcher，超时抛异常。
-/// 不要在主线程写「await Task.Delay + RunJobs」——await 续延会投进 dispatcher 队列，
-/// 而 RunJobs 在 await 之后才执行，形成死锁。轮询等待一律用本函数。
-/// </summary>
+// 无头环境安全等待：同步轮询 + 手动泵送 dispatcher，超时抛异常。
+// 不要在主线程写「await Task.Delay + RunJobs」——await 续延会投进 dispatcher 队列，
+// 而 RunJobs 在 await 之后才执行，形成死锁。轮询等待一律用本函数。
+// （局部函数不能带 /// XML 文档注释，故用普通注释。）
 static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
 {
     var deadline = Environment.TickCount + timeoutMs;
@@ -1666,7 +1666,7 @@ static void AssertBrushColor(ResourceDictionary dictionary, string key, string e
         throw new InvalidOperationException($"Key '{key}' expected {expectedArgb}, got {actual}.");
 }
 
-/// <summary>断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。</summary>
+// 断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。
 static void AssertKeyKeepsDefault(ResourceDictionary scheme, ResourceDictionary builtIn, string key)
 {
     var schemeHas = scheme.TryGetResource(key, ThemeVariant.Dark, out var schemeValue);
