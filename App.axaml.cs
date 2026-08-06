@@ -23,6 +23,7 @@ using Athena.UI.Services.Context;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
+using Athena.UI.Controls;
 using Avalonia.Styling;
 
 namespace Athena.UI;
@@ -224,6 +225,11 @@ public partial class App : Application, IAsyncDisposable
     {
         Log.Information("Starting framework initialization...");
 
+        // WebView 原生宿主（Office 预览）挂载失败发生在 async-void 调度器延续里，
+        // 业务代码无法 try/catch。仅对原生挂载类失败标记已处理并回退二进制占位；
+        // 其余未处理异常保持原有崩溃路径（AppDomain.UnhandledException → crash.log）。
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
+
         // 配置依赖注入
         var services = new ServiceCollection();
         ConfigureServices(services);
@@ -351,6 +357,13 @@ public partial class App : Application, IAsyncDisposable
 
         base.OnFrameworkInitializationCompleted();
         Log.Information("Framework initialization completed");
+    }
+
+    private static void OnDispatcherUnhandledException(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        if (!OfficePreviewBridge.HandleAttachFailure(e.Exception)) return;
+        Log.Warning(e.Exception, "Office preview native host attach failed; falling back to binary placeholder");
+        e.Handled = true;
     }
 
     /// <summary>

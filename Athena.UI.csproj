@@ -6,6 +6,8 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\Athena.ico</ApplicationIcon>
+    <!-- supportedOS 清单：缺失时 Windows 套用兼容层，NativeControlHost（WebView2）创建子窗口失败 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- macOS 打包配置 -->
     <CFBundleName>Athena</CFBundleName>

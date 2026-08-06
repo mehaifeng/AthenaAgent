@@ -46,6 +46,9 @@ public static class OfficePreviewBridge
 
     private static readonly ConditionalWeakTable<Border, WebViewState> States = new();
 
+    /// <summary>正在挂载（已 attach 但尚未完成首次导航）的 WebView 状态；仅 UI 线程访问。</summary>
+    private static WebViewState? _pendingAttach;
+
     static OfficePreviewBridge()
     {
         UrlProperty.Changed.AddClassHandler<Border>(OnUrlChanged);
@@ -94,6 +97,9 @@ public static class OfficePreviewBridge
         States.Add(border, state);
         webView.NavigationCompleted += OnNavigationCompleted;
         App.ThemeChanged += OnThemeChanged;
+        // 挂载是异步的（NativeWebView.OnAttached 经调度器回抛），
+        // 挂载失败时靠 _pendingAttach 定位失败的 WebView（HandleAttachFailure）。
+        _pendingAttach = state;
         border.Child = webView;
         border.DetachedFromVisualTree += OnBorderDetached;
     }
@@ -101,6 +107,7 @@ public static class OfficePreviewBridge
     private static void Detach(Border border)
     {
         if (!States.TryGetValue(border, out var state)) return;
+        if (ReferenceEquals(_pendingAttach, state)) _pendingAttach = null;
         States.Remove(border);
         state.WebView.NavigationCompleted -= OnNavigationCompleted;
         App.ThemeChanged -= OnThemeChanged;
@@ -127,6 +134,7 @@ public static class OfficePreviewBridge
             return;
         }
         state.Loaded = true;
+        if (ReferenceEquals(_pendingAttach, state)) _pendingAttach = null;
         PushTheme(state);
     }
 
@@ -170,5 +178,48 @@ public static class OfficePreviewBridge
             if (ReferenceEquals(state.WebView, webView)) return border;
         }
         return null;
+    }
+
+    /// <summary>
+    /// 处理 NativeWebView 原生挂载阶段的失败。挂载发生在 async-void 调度器延续里
+    /// （NativeWebView.OnAttached 经 Dispatcher 回抛），附加属性代码无法 try/catch，
+    /// 只能由 App 的 Dispatcher.UnhandledException 兜底回调本方法。
+    /// 命中原生挂载类失败时清理 WebView 并触发 <see cref="Failed"/> 回退为二进制占位。
+    /// </summary>
+    /// <returns>异常是否属于原生挂载失败（调用方据此决定是否标记为已处理）。</returns>
+    internal static bool HandleAttachFailure(Exception? ex)
+    {
+        if (!IsNativeAttachFailure(ex)) return false;
+        try
+        {
+            var pending = _pendingAttach;
+            if (pending == null) return true;
+            var border = FindBorder(pending.WebView);
+            if (border == null) return true;
+            Detach(border);
+            Failed?.Invoke(border, ex);
+        }
+        catch (Exception secondary)
+        {
+            // 兜底清理自身不能再抛，否则会重新变成未处理异常
+            Logger.Debug(secondary, "Failed to clean up office preview webview after attach failure");
+        }
+        return true;
+    }
+
+    private static bool IsNativeAttachFailure(Exception? ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            // Win32NativeControlHost.DumbWindow：应用清单缺少 supportedOS 时 CreateWindowEx 失败
+            if (current is InvalidOperationException
+                && current.Message.Contains("native control host", StringComparison.OrdinalIgnoreCase))
+                return true;
+            // WebView2 运行时缺失 / 环境初始化失败（同样发生在挂载阶段）
+            if (current.GetType().Name.Contains("WebView2", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("WebView2", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }
