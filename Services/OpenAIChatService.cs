@@ -2195,7 +2195,7 @@ public class OpenAIChatService : IChatService
                 start.ArgumentList.Add("--voice");
                 start.ArgumentList.Add(string.IsNullOrWhiteSpace(config.Voice) ? "en-US-AriaNeural" : config.Voice.Trim());
                 start.ArgumentList.Add("--rate");
-                start.ArgumentList.Add($"{(int)Math.Round((config.Speed - 1) * 100):+0;-0;0}%");
+                start.ArgumentList.Add($"{(int)Math.Round((config.Speed - 1) * 100):+0;-0;+0}%");
                 start.ArgumentList.Add("--text");
                 start.ArgumentList.Add(text.Length > 4096 ? text[..4096] : text);
                 start.ArgumentList.Add("--write-media");
