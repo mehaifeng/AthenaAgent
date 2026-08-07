@@ -98,7 +98,7 @@
                     <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.PanelOpacity}" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Slider Minimum="0" Maximum="0.5"
+                            <Slider Minimum="0" Maximum="0.8"
                                     TickFrequency="0.01"
                                     IsSnapToTickEnabled="False"
                                     Width="200"

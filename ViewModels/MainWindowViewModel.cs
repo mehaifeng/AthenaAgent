@@ -48,10 +48,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public bool IsSidePanelsSwapped => Config?.MainLayout.SidePanelsSwapped == true;
 
-    /// <summary>用户配置的"面板透明度"分率（0 = 完全不透明，0.5 = 50% 透明）。</summary>
+    /// <summary>用户配置的"面板透明度"分率（0 = 完全不透明，0.8 = 80% 透明）。</summary>
     public double PanelTransparency => Config?.MainLayout.PanelTransparency ?? 0.0;
 
-    /// <summary>XAML 直接消费的 Border.Opacity 值：透明度 0 对应不透明（Opacity=1），透明度 0.5 对应半透（Opacity=0.5）。</summary>
+    /// <summary>XAML 直接消费的 Border.Opacity 值：透明度 0 对应不透明（Opacity=1），透明度 0.8 对应 20% 不透明（Opacity=0.2）。</summary>
     public double ShellPanelOpacity => 1.0 - PanelTransparency;
 
     private MainLayoutSettings? _trackedMainLayout;

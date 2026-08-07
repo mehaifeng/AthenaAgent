@@ -368,7 +368,7 @@
     <system:String x:Key="Settings.General.FontScale.Large">Large</system:String>
     <system:String x:Key="Settings.General.FontScale.Maximum">Largest</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">Panel transparency</system:String>
-    <system:String x:Key="Settings.General.PanelOpacity.Description">Let the background image gently show through the three main-window panels. 0% hides it completely (original look); 50% is the most transparent. The title bar is unaffected.</system:String>
+    <system:String x:Key="Settings.General.PanelOpacity.Description">Let the background image gently show through the three main-window panels. 0% hides it completely (original look); 80% is the most transparent. The title bar is unaffected.</system:String>
     <system:String x:Key="Settings.General.Interaction">Interaction</system:String>
     <system:String x:Key="Settings.General.RewindHint">When enabled, rewinding a conversation happens immediately without a confirmation prompt.</system:String>
     <system:String x:Key="Settings.Context.Title">Conversation &amp; context</system:String>
