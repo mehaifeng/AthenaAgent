@@ -47,4 +47,10 @@ public static class AppConfigNormalizer
         config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
     }
 
+    /// <summary>钳制终端输出截断上限到合法区间（1K~1M 字符，防止手滑填 0 或超大值）。</summary>
+    public static void NormalizeSecurity(AppConfig config)
+    {
+        config.MaxTerminalOutputChars = Math.Clamp(config.MaxTerminalOutputChars, 1_000, 1_000_000);
+    }
+
 }

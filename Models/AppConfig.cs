@@ -184,6 +184,12 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private ObservableCollection<string> _terminalAllowlist = new();
 
+    // 终端命令单次返回的 stdout/stderr 各自的最大字符数。超出上限的输出会先做智能压缩
+    // （清 ANSI 码、折叠重复行/空行、保留首尾），再在结果中标注省略量——
+    // 防止 git grep 这类全仓搜索把百万级 token 的原始输出直接灌入上下文。
+    [ObservableProperty]
+    private int _maxTerminalOutputChars = 30_000;
+
     // 子代理等无人值守路径是否沿用永久放行清单（true）。破坏性操作无论如何都拒绝。
     [ObservableProperty]
     private bool _subAgentsInheritApproval = false;

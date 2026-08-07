@@ -919,6 +919,8 @@
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">Sub-agents inherit primary chat approval</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">Always-allowed tools</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">Terminal command allowlist</system:String>
+    <system:String x:Key="Config.ToolApproval.MaxTerminalOutputChars">Terminal output cap (chars)</system:String>
+    <system:String x:Key="Settings.Approval.MaxOutputHint">stdout/stderr beyond this limit is smartly trimmed first (ANSI cleanup, repeated-block and blank-line collapse, head/tail retention), then the omitted amount is flagged in the tool result, preventing large outputs (e.g. whole-repo grep) from exhausting the context window.</system:String>
     <system:String x:Key="Config.ToolApproval.Revoke">Revoke</system:String>
     <system:String x:Key="Config.ToolApproval.Empty">(none)</system:String>
 

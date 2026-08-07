@@ -906,8 +906,9 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<CliFunctions>(sp =>
         {
             var cliService = sp.GetRequiredService<ICliService>();
+            var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<CliFunctions>();
-            return new CliFunctions(cliService, logger);
+            return new CliFunctions(cliService, configService, logger);
         });
 
         // Web Search 服务

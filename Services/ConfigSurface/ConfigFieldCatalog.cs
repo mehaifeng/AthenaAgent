@@ -328,6 +328,10 @@ public static class ConfigFieldCatalog
                 c => c.TerminalAllowlist.ToList(),
                 (c, v) => ReplaceStringList(c.TerminalAllowlist, v),
                 "Terminal commands allowed without approval (JSON array or comma-separated)."),
+            Field("Security.MaxTerminalOutputChars", "Security", ConfigFieldType.Integer,
+                c => c.MaxTerminalOutputChars, (c, v) => c.MaxTerminalOutputChars = (int)v!,
+                "Max chars per stdout/stderr returned by execute_terminal_command after smart trimming (ANSI cleanup, repeated-block collapse, head/tail retention); longer output is truncated and flagged in the result.",
+                range: (1_000, 1_000_000)),
 
             // —— Extensions ——
             Field("Extensions.EnableMcp", "Extensions", ConfigFieldType.Boolean,

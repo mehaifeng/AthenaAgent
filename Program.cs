@@ -1,6 +1,7 @@
 using Avalonia;
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,6 +26,10 @@ class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // 注册代码页提供程序：Windows 上的 PowerShell/cmd 按系统 OEM 代码页（中文系统为 GBK/936）
+        // 向管道写输出，.NET Core 默认不内置这些代码页，注册后 CliService 才能按它们解码。
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
         // 启动早期崩溃日志（Serilog 尚未初始化前的异常兜底）
         CrashLogPath = Path.Combine(AppContext.BaseDirectory, "AthenaData", "Logs", "crash.log");
         Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);

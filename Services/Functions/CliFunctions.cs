@@ -14,14 +14,16 @@ namespace Athena.UI.Services.Functions;
 public class CliFunctions
 {
     private readonly ICliService _cliService;
+    private readonly IConfigService _configService;
     private readonly ILogger _logger;
 
     // 禁止在终端中使用的文件系统操作命令（AI 应优先使用现有的文件系统工具）
     private static readonly string[] RestrictedCommands = { "mkdir", "rm", "rmdir", "ls", "dir", "cp", "mv", "copy", "move", "del", "erase" };
 
-    public CliFunctions(ICliService cliService, ILogger logger)
+    public CliFunctions(ICliService cliService, IConfigService configService, ILogger logger)
     {
         _cliService = cliService;
+        _configService = configService;
         _logger = logger.ForContext<CliFunctions>();
     }
 
@@ -49,11 +51,19 @@ public class CliFunctions
 
             if (result.IsSuccess)
             {
+                var maxChars = _configService.Load().MaxTerminalOutputChars;
+                var stdout = TerminalOutputTruncator.Process(result.StandardOutput, maxChars);
+                var stderr = TerminalOutputTruncator.Process(result.StandardError, maxChars);
                 var msg = waitForExit ? $"命令执行成功 (ExitCode: {result.ExitCode})" : $"进程已在后台启动 (PID: {result.ProcessId})";
+                msg += TruncationNote(stdout.OmittedChars + stderr.OmittedChars, stdout.CollapsedLines + stderr.CollapsedLines);
                 return FunctionResult.SuccessResult(msg, new
                 {
-                    stdout = result.StandardOutput,
-                    stderr = result.StandardError,
+                    stdout = stdout.Text,
+                    stderr = stderr.Text,
+                    stdoutOmitted = stdout.OmittedChars,
+                    stderrOmitted = stderr.OmittedChars,
+                    stdoutCollapsedLines = stdout.CollapsedLines,
+                    stderrCollapsedLines = stderr.CollapsedLines,
                     runTime = result.RunTime.TotalSeconds + "s",
                     pid = result.ProcessId
                 });
@@ -63,14 +73,22 @@ public class CliFunctions
                 var msg = result.ExitCode == -2
                     ? "命令执行超时被终止"
                     : $"命令执行失败 (ExitCode: {result.ExitCode})";
+                var maxChars = _configService.Load().MaxTerminalOutputChars;
+                var stdout = TerminalOutputTruncator.Process(result.StandardOutput, maxChars);
+                var stderr = TerminalOutputTruncator.Process(result.StandardError, maxChars);
+                msg += TruncationNote(stdout.OmittedChars + stderr.OmittedChars, stdout.CollapsedLines + stderr.CollapsedLines);
                 return new FunctionResult
                 {
                     Success = false,
                     Message = msg,
                     Data = new
                     {
-                        stdout = result.StandardOutput,
-                        stderr = result.StandardError
+                        stdout = stdout.Text,
+                        stderr = stderr.Text,
+                        stdoutOmitted = stdout.OmittedChars,
+                        stderrOmitted = stderr.OmittedChars,
+                        stdoutCollapsedLines = stdout.CollapsedLines,
+                        stderrCollapsedLines = stderr.CollapsedLines
                     }
                 };
             }
@@ -86,4 +104,13 @@ public class CliFunctions
             return FunctionResult.FailureResult($"执行过程中出现异常: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// 输出被智能压缩（省略字符或折叠重复行）时，在消息里显式标注，让模型知道
+    /// 看到的是不完整摘要、应缩小搜索范围重试而不是盲目重复同一命令。
+    /// </summary>
+    private static string TruncationNote(int omittedChars, int collapsedLines) =>
+        omittedChars > 0 || collapsedLines > 0
+            ? $" 输出过大，已智能压缩（省略 {omittedChars} 字符、折叠 {collapsedLines} 行重复内容）。如需完整信息，请缩小搜索范围后重试。"
+            : string.Empty;
 }

@@ -919,6 +919,8 @@
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">子代理沿用主对话授权</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">始终允许的工具</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">终端命令白名单</system:String>
+    <system:String x:Key="Config.ToolApproval.MaxTerminalOutputChars">终端输出上限（字符）</system:String>
+    <system:String x:Key="Settings.Approval.MaxOutputHint">超过上限的 stdout/stderr 会先智能压缩（清理颜色码、折叠重复块与空行、保留首尾内容），再在结果中标注省略量，防止大输出（如全仓 grep）耗尽上下文窗口。</system:String>
     <system:String x:Key="Config.ToolApproval.Revoke">撤销</system:String>
     <system:String x:Key="Config.ToolApproval.Empty">（无）</system:String>
 

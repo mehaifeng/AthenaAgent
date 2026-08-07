@@ -1,10 +1,12 @@
 using Athena.UI.Services.Interfaces;
 using CliWrap;
-using CliWrap.Buffered;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -68,13 +70,19 @@ public class CliService : ICliService
 
             try
             {
-                var result = await cmd.ExecuteBufferedAsync(linkedCts.Token);
+                // 流式捕获原始字节而非直接取字符串：解码策略见 DecodeOutput。
+                using var stdoutBuffer = new MemoryStream();
+                using var stderrBuffer = new MemoryStream();
+                var result = await cmd
+                    .WithStandardOutputPipe(PipeTarget.ToStream(stdoutBuffer))
+                    .WithStandardErrorPipe(PipeTarget.ToStream(stderrBuffer))
+                    .ExecuteAsync(linkedCts.Token);
 
                 return new CliResult
                 {
                     ExitCode = result.ExitCode,
-                    StandardOutput = result.StandardOutput,
-                    StandardError = result.StandardError,
+                    StandardOutput = DecodeOutput(stdoutBuffer.ToArray()),
+                    StandardError = DecodeOutput(stderrBuffer.ToArray()),
                     RunTime = result.RunTime
                 };
             }
@@ -100,6 +108,33 @@ public class CliService : ICliService
                 ExitCode = -1,
                 StandardError = ex.Message
             };
+        }
+    }
+
+    // 子进程输出的解码策略：Windows 上的 PowerShell/cmd 按系统 OEM 代码页（中文系统为 GBK/936）
+    // 向管道写字节，而 .NET 默认按 UTF-8 解码，中文内容会全部乱码（字节恰好是合法 UTF-8 序列时
+    // 显示成 Ŀ¼ 这类字符，否则显示为替换符 �）。因此先按严格 UTF-8 解码，字节流不合法
+    // （说明来自本地代码页，如 git 的 UTF-8 内容永远是合法序列、不会误回退）时改用系统 OEM 代码页。
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    private static string DecodeOutput(byte[] bytes)
+    {
+        try
+        {
+            return StrictUtf8.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            // 回退路径依赖代码页提供程序（Program.cs 已注册）；若未注册（如测试环境），
+            // 退化为带替换符的 UTF-8，避免直接抛异常导致命令执行整体失败。
+            try
+            {
+                return Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage).GetString(bytes);
+            }
+            catch (ArgumentException)
+            {
+                return Encoding.UTF8.GetString(bytes);
+            }
         }
     }
 }

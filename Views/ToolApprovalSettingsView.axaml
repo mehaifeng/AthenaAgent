@@ -117,6 +117,19 @@
                                    TextWrapping="Wrap"
                                    Opacity="0.58"/>
                     </StackPanel>
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Config.ToolApproval.MaxTerminalOutputChars}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1000"
+                                       Maximum="1000000"
+                                       Increment="5000"
+                                       Value="{Binding State.Config.MaxTerminalOutputChars}"/>
+                    </Grid>
+                    <TextBlock Text="{loc:Loc Settings.Approval.MaxOutputHint}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                     <ItemsControl ItemsSource="{Binding State.Config.TerminalAllowlist}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>

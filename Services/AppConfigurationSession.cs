@@ -320,6 +320,7 @@ public sealed class AppConfigurationSession : IDisposable
     {
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeBrowser(config);
+        AppConfigNormalizer.NormalizeSecurity(config);
     }
 
     private static IEnumerable<ModelRoleSettings> GetRoleSettings(AiModelConfiguration models)
