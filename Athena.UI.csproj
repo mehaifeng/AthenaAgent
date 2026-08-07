@@ -57,6 +57,21 @@
     <Message Text="AthenaSoul.md copied to $(AthenaDataPath)" Importance="high" />
   </Target>
 
+  <!-- 编译时将内置 Skills（BuiltInSkills/ 下的权威源）复制到输出目录的 AthenaData/Skills，
+       随安装包/zip 分发：全新安装即预装这些技能（启用开关见 AppConfig.EnableSkills）。 -->
+  <Target Name="CopyBuiltInSkills" AfterTargets="Build">
+    <PropertyGroup>
+      <BuiltInSkillsSource>$(MSBuildProjectDirectory)/BuiltInSkills</BuiltInSkillsSource>
+      <BuiltInSkillsTarget>$(TargetDir)AthenaData/Skills</BuiltInSkillsTarget>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*" />
+    </ItemGroup>
+    <MakeDir Directories="$(BuiltInSkillsTarget)" />
+    <Copy SourceFiles="@(BuiltInSkill)" DestinationFiles="$(BuiltInSkillsTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
+    <Message Text="Built-in Skills copied to $(BuiltInSkillsTarget)" Importance="high" />
+  </Target>
+
   <ItemGroup>
     <!-- Avalonia UI -->
     <PackageReference Include="Avalonia" Version="12.1.1" />

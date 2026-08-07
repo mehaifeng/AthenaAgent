@@ -197,8 +197,9 @@ public partial class AppConfig : ObservableObject
     private ObservableCollection<McpServerConfig> _mcpServers = new();
 
     // Agent Skills — local, progressively disclosed workflow instructions.
+    // 默认开启：全新安装随包预装内置 Skills（见 BuiltInSkills/），开箱即用。
     [ObservableProperty]
-    private bool _enableSkills = false;
+    private bool _enableSkills = true;
 
     // Source scope + canonical directory. This avoids disabling a same-named Skill from another scope.
     [ObservableProperty]
@@ -247,17 +248,17 @@ public partial class MainLayoutSettings : ObservableObject
     private bool _sidePanelsSwapped;
 
     // 三块 shell-panel 的背景透明度：0 = 完全不透明（图像被压住，与原观感一致），
-    // 0.5 = 50% 透明（雅典娜图像从面板后淡淡透出）。标题栏与设置窗口不受影响。
-    // 这里存的是"透明度"分率（0–0.5），VM 会转成 `Opacity = 1 - PanelTransparency` 给 XAML。
+    // 0.8 = 80% 透明（雅典娜图像从面板后透出）。标题栏与设置窗口不受影响。
+    // 这里存的是"透明度"分率（0–0.8），VM 会转成 `Opacity = 1 - PanelTransparency` 给 XAML。
     [ObservableProperty]
     private double _panelTransparency;
 
     partial void OnPanelTransparencyChanged(double value)
     {
-        // 越界值直接夹回区间 [0, 0.5]，避免外部写入导致 Shell-panel 完全消失或过度穿透。
+        // 越界值直接夹回区间 [0, 0.8]，避免外部写入导致 Shell-panel 完全消失或过度穿透。
         if (value < 0.0)
             PanelTransparency = 0.0;
-        else if (value > 0.5)
-            PanelTransparency = 0.5;
+        else if (value > 0.8)
+            PanelTransparency = 0.8;
     }
 }
