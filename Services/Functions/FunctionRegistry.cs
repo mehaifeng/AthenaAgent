@@ -235,7 +235,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
-            $"Modifies supported application parameters after an explicit user request. Call view_self_configuration first to inspect current values. Valid keys: {configFunctions.ModifiableKeysText}",
+            $"Modifies supported application parameters. Use ONLY when the user explicitly asks to change a setting — never preemptively or speculatively. First call view_self_configuration to read current values, then change exactly the parameter the user asked for in a single call. Changes persist and apply to live runtime services; the call is approval-gated. Valid keys: {configFunctions.ModifiableKeysText}",
             new
             {
                 type = "object",
@@ -248,7 +248,7 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("view_self_configuration", configFunctions.GetAppConfig,
-            "Views your current operational configuration as a curated projection (sections with typed fields plus a summary of providers, role bindings, and runtime state). Use this to check your internal state before modifying anything. API keys and tokens are redacted; the OpenRouter model catalog is only summarized, never dumped.",
+            "Views your current operational configuration as a curated projection (typed fields grouped by section, plus a summary of providers, role bindings, and runtime state). Call this proactively BEFORE: (1) answering any question about how the app is set up (limits, model roles, approval mode, which features are enabled); (2) diagnosing a failed tool call where configuration may be the cause (provider/endpoint errors, approval denials, disabled features, unexpected compression behavior); (3) relying on a capability that might be disabled (browser, sub-agents, web search, image generation, document parsing); (4) modifying a setting, and again AFTER the change to verify it took effect. API keys and tokens are redacted; the OpenRouter model catalog is only summarized, never dumped.",
             new
             {
                 type = "object",

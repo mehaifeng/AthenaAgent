@@ -82,8 +82,7 @@ public class ConfigurationFunctions
         try
         {
             var config = await _configService.LoadAsync();
-            var resolved = ConfigFieldCatalog.ResolveSection(section);
-            if (section != null && resolved == null)
+            if (!ConfigFieldCatalog.TryResolveSection(section, out _))
             {
                 return FunctionResult.FailureResult(
                     $"未知的配置部分: {section}。可选: All, {SectionsText}");

@@ -19,6 +19,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.ConfigSurface;
+using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
@@ -2622,6 +2623,24 @@ static void TestSelfConfigurationSurface()
     var memoryNames = memoryView["sections"]!.AsArray().Select(section => section!["name"]!.GetValue<string>()).ToList();
     if (memoryNames.Count != 1 || memoryNames[0] != "Context")
         throw new InvalidOperationException("Legacy 'Memory' section alias must resolve to Context.");
+
+    // 字面量 "All" 必须与省略参数等价（schema 默认值即 All，传进去也必须被接受）
+    var allView = JsonSerializer.SerializeToNode(surface.BuildView(config, "All"))!;
+    if (allView["sections"]!.AsArray().Count != sections.Count)
+        throw new InvalidOperationException("Literal 'All' must return all sections, same as omitting the parameter.");
+    if (!ConfigFieldCatalog.TryResolveSection("All", out var allResolved) || allResolved != null)
+        throw new InvalidOperationException("TryResolveSection must accept 'All' as all-sections.");
+    if (!ConfigFieldCatalog.TryResolveSection(null, out var omittedResolved) || omittedResolved != null)
+        throw new InvalidOperationException("TryResolveSection must accept an omitted section as all-sections.");
+    if (ConfigFieldCatalog.TryResolveSection("Bogus", out _))
+        throw new InvalidOperationException("TryResolveSection must reject unknown sections.");
+    var configFunctions = new ConfigurationFunctions(new HeadlessConfigService(config), surface, null!, Serilog.Log.Logger);
+    var allResult = configFunctions.GetAppConfig("All").GetAwaiter().GetResult();
+    if (!allResult.Success)
+        throw new InvalidOperationException("view_self_configuration('All') must succeed, got: " + allResult.Message);
+    var unknownResult = configFunctions.GetAppConfig("Bogus").GetAwaiter().GetResult();
+    if (unknownResult.Success)
+        throw new InvalidOperationException("view_self_configuration('Bogus') must fail.");
 
     // —— modify 应用 ——
     void Apply(string key, string value, bool expectSuccess)

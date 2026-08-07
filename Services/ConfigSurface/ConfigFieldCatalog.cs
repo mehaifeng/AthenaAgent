@@ -83,15 +83,27 @@ public static class ConfigFieldCatalog
         return field != null;
     }
 
-    /// <summary>把分区名（含别名、大小写不敏感）解析为规范名；"All"/空 → null。</summary>
-    public static string? ResolveSection(string? section)
+    /// <summary>
+    /// 把分区名（含别名、大小写不敏感）解析为规范名。
+    /// 返回 true 且 resolved == null 表示「全部」（空 / "All" 字面量）；
+    /// 返回 true 且 resolved 非空表示命中某分区；返回 false 表示未知分区。
+    /// 注意：「全部」与「未知」必须区分——"All" 是 schema 中合法可传的值。
+    /// </summary>
+    public static bool TryResolveSection(string? section, out string? resolved)
     {
+        resolved = null;
         if (string.IsNullOrWhiteSpace(section) || string.Equals(section, "All", StringComparison.OrdinalIgnoreCase))
-            return null;
+            return true;
         if (SectionAliases.TryGetValue(section, out var alias))
-            return alias;
-        return Sections.FirstOrDefault(candidate =>
+        {
+            resolved = alias;
+            return true;
+        }
+        var match = Sections.FirstOrDefault(candidate =>
             string.Equals(candidate, section, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return false;
+        resolved = match;
+        return true;
     }
 
     private static IReadOnlyList<ConfigFieldDescriptor> Build()

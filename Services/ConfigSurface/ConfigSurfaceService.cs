@@ -31,7 +31,7 @@ public sealed class ConfigSurfaceService : IConfigSurfaceService
 
     public object BuildView(AppConfig config, string? section)
     {
-        var sectionName = ConfigFieldCatalog.ResolveSection(section);
+        ConfigFieldCatalog.TryResolveSection(section, out var sectionName);
         var sections = ConfigFieldCatalog.Fields
             .Where(field => sectionName == null
                             || string.Equals(field.Section, sectionName, StringComparison.Ordinal))
