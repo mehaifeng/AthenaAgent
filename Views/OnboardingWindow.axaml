@@ -247,20 +247,20 @@
         </StackPanel>
 
         <!-- Step 2：可选模型分工，默认留空即在完成时复用主模型。 -->
-        <ScrollViewer Grid.Row="1" IsVisible="{Binding IsStep2}" Margin="0,20,0,0">
+        <ScrollViewer Grid.Row="1" IsVisible="{Binding IsStep2}" Margin="0,20,0,0" HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel Spacing="12">
                 <TextBlock Text="{loc:Loc Onboarding.ModelRolesHint}" Opacity="0.65"/>
-                <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                     <TextBlock Text="{loc:Loc Config.ModelRole.Title}" VerticalAlignment="Center"/>
-                    <ComboBox Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True"/>
+                    <ComboBox Grid.Column="1" Width="200" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.TitleGeneration.Model}" IsEditable="True"/>
                     <TextBlock Grid.Row="1" Text="{loc:Loc Config.ModelRole.Compression}" VerticalAlignment="Center"/>
-                    <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True"/>
+                    <ComboBox Grid.Row="1" Grid.Column="1" Width="200"  ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.ContextCompression.Model}" IsEditable="True"/>
                     <TextBlock Grid.Row="2" Text="{loc:Loc Config.ModelRole.Approval}" VerticalAlignment="Center"/>
-                    <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True"/>
+                    <ComboBox Grid.Row="2" Grid.Column="1" Width="200"  ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.Approval.Model}" IsEditable="True"/>
                     <TextBlock Grid.Row="3" Text="{loc:Loc Config.ModelRole.SubAgent}" VerticalAlignment="Center"/>
-                    <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.SubAgent.Model}" IsEditable="True"/>
+                    <ComboBox Grid.Row="3" Grid.Column="1" Width="200"  ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.SubAgent.Model}" IsEditable="True"/>
                     <TextBlock Grid.Row="4" Text="{loc:Loc Config.ModelRole.Maintenance}" VerticalAlignment="Center"/>
-                    <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.KnowledgeMaintenance.Model}" IsEditable="True"/>
+                    <ComboBox Grid.Row="4" Grid.Column="1" Width="200"  ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding Config.AiModels.KnowledgeMaintenance.Model}" IsEditable="True"/>
                 </Grid>
             </StackPanel>
         </ScrollViewer>
