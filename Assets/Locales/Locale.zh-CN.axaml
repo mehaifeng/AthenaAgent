@@ -614,6 +614,7 @@
     <system:String x:Key="About.Framework">框架：</system:String>
     <system:String x:Key="About.License">许可证：</system:String>
     <system:String x:Key="About.Author">作者：</system:String>
+    <system:String x:Key="About.StartupTime">本次启动：</system:String>
     <system:String x:Key="About.Quote">"智慧始于好奇"</system:String>
     <system:String x:Key="About.BtnChkUpdates">检查更新</system:String>
     <system:String x:Key="About.BtnViewDocs">查看文档</system:String>

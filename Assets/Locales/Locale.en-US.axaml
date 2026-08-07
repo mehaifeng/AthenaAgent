@@ -614,6 +614,7 @@
     <system:String x:Key="About.Framework">Framework:</system:String>
     <system:String x:Key="About.License">License:</system:String>
     <system:String x:Key="About.Author">Author:</system:String>
+    <system:String x:Key="About.StartupTime">Startup time:</system:String>
     <system:String x:Key="About.Quote">"Wisdom begins in wonder"</system:String>
     <system:String x:Key="About.BtnChkUpdates">Check for updates</system:String>
     <system:String x:Key="About.BtnViewDocs">View docs</system:String>

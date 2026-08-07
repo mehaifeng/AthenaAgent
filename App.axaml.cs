@@ -51,6 +51,15 @@ public partial class App : Application, IAsyncDisposable
     /// </summary>
     private static IPlatformPathService? _platformPathService;
 
+    /// <summary>
+    /// 本次启动耗时（进程启动 → 框架初始化完成、主窗口已创建）。
+    /// 供 About 页展示启动性能，用户可直接感知原生应用的启动速度。
+    /// </summary>
+    public static TimeSpan? StartupDuration { get; private set; }
+
+    /// <summary>启动计时起点：App 类型首次加载时记录（≈进程启动瞬间）。</summary>
+    private static readonly DateTime StartupTimestamp = DateTime.UtcNow;
+
     public override void Initialize()
     {
         // Optional parsers and nodes must be registered before XAML creates a renderer.
@@ -357,7 +366,11 @@ public partial class App : Application, IAsyncDisposable
         }
 
         base.OnFrameworkInitializationCompleted();
-        Log.Information("Framework initialization completed");
+
+        // 主窗口已创建并显示，记录本次启动耗时（About 页展示）。
+        StartupDuration = DateTime.UtcNow - StartupTimestamp;
+        Log.Information("Framework initialization completed in {StartupMs}ms",
+            StartupDuration.HasValue ? StartupDuration.Value.TotalMilliseconds.ToString("0") : "?");
     }
 
     private static void OnDispatcherUnhandledException(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
@@ -402,10 +415,11 @@ public partial class App : Application, IAsyncDisposable
         }
 
         // 启动动画：等待窗口完全加载后播放。
-        // Opened 会在每次从托盘重新 Show() 时再次触发。启动闪屏只应在
-        // 首次启动播放一次：否则它会用启动时捕获的旧 initialTheme 调用
-        // ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
+        // Opened 会在每次从托盘重新 Show() 时再次触发。启动动画只应在
+        // 首次启动播放一次：否则引导交接路径会用启动时捕获的旧 initialTheme
+        // 调用 ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
         // 绕过 App.SetTheme 不触发 ThemeChanged，导致按钮图标/配置选中项失同步。
+        // （普通启动路径播的入场动画不切换主题，无此风险，但仍按首次保护。）
         var initialSplashShown = false;
         mainWindow.Opened += async (s, e) =>
         {
@@ -413,9 +427,18 @@ public partial class App : Application, IAsyncDisposable
             {
                 initialSplashShown = true;
                 await Task.Delay(100); // 等待UI完全渲染
-                // 引导交接路径强制播放：即使主题与当前一致也要完成"停留→揭幕"，
-                // 否则覆盖层会永远留在屏幕上/或完全不播导致生硬切换。
-                await mainWindow.ShowThemeSplashAsync(initialTheme, force: onboardingHandoff);
+                if (onboardingHandoff)
+                {
+                    // 引导交接路径强制播放：即使主题与当前一致也要完成"停留→揭幕"，
+                    // 否则覆盖层会永远留在屏幕上/或完全不播导致生硬切换。
+                    await mainWindow.ShowThemeSplashAsync(initialTheme, force: true);
+                }
+                else
+                {
+                    // 普通启动：播放一次极简"景深聚焦"入场，盖住首帧后
+                    // 会话树异步填充的瞬间，让启动过程显得一气呵成。
+                    await mainWindow.PlayStartupFocusEntranceAsync();
+                }
             }
         };
 

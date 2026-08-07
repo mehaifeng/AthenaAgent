@@ -40,6 +40,10 @@ public partial class AboutViewModel : ViewModelBase
     [ObservableProperty]
     private string _updateProgressStatus = string.Empty;
 
+    /// <summary>本次启动耗时文案（如 "486 ms"）；设计时或未记录时为 "—"。</summary>
+    [ObservableProperty]
+    private string _startupDurationText;
+
     public bool CanCheckForUpdates => !IsCheckingUpdates;
 
     public AboutViewModel() : this(null, null) { }
@@ -49,6 +53,9 @@ public partial class AboutViewModel : ViewModelBase
         _localizationService = localizationService;
         _updateService = updateService;
         _currentVersion = _updateService?.GetCurrentVersion() ?? "0.0.0";
+        _startupDurationText = App.StartupDuration is { } duration
+            ? $"{duration.TotalMilliseconds:0} ms"
+            : "—";
     }
 
     partial void OnIsCheckingUpdatesChanged(bool value)

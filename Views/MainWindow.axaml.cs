@@ -470,6 +470,9 @@ public partial class MainWindow : Window
     // 景深聚焦过渡时长
     private const int FocusTransitionMs = 1200;
 
+    // 启动入场的景深聚焦时长（比主题切换短，避免拖沓）
+    private const int StartupFocusEntranceMs = 700;
+
     // 景深聚焦：旧背景失焦的模糊终值 / 新背景落定的缩放起点
     private const double FocusBlurRadius = 26d;
     private const double FocusSettleScale = 1.06;
@@ -547,6 +550,42 @@ public partial class MainWindow : Window
             _themeTransitionImage.Opacity = 0;
             _themeTransitionImage.Effect = null;
             _themeTransitionImage.Source = null;
+            _baseBackgroundImage.RenderTransform = null;
+            _focusTransitionRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// 普通启动的极简"景深聚焦"入场：背景从失焦+微缩放落定为清晰，
+    /// 与运行期主题切换的聚焦过渡同一视觉语言，但不切换主题、不用过渡层，
+    /// 用于盖住首帧后会话树异步填充的瞬间。
+    /// </summary>
+    public async Task PlayStartupFocusEntranceAsync()
+    {
+        if (_baseBackgroundImage == null || !IsLoaded || _focusTransitionRunning) return;
+
+        _focusTransitionRunning = true;
+        try
+        {
+            // 与 RunFocusTransitionAsync 同一陷阱：局部值必须预置为动画终值，
+            // 且置值与挂动画在同一同步块内完成，避免收尾闪出一帧突变。
+            var blur = new BlurEffect { Radius = FocusBlurRadius };
+            var settle = new ScaleTransform(1.0, 1.0);
+            _baseBackgroundImage.Effect = blur;
+            _baseBackgroundImage.RenderTransform = settle;
+
+            await Task.WhenAll(
+                AnimateAsync(blur, BlurEffect.RadiusProperty, FocusBlurRadius, 0d, StartupFocusEntranceMs, new CubicEaseOut()),
+                AnimateAsync(settle, ScaleTransform.ScaleXProperty, FocusSettleScale, 1.0, StartupFocusEntranceMs, new CubicEaseOut()),
+                AnimateAsync(settle, ScaleTransform.ScaleYProperty, FocusSettleScale, 1.0, StartupFocusEntranceMs, new CubicEaseOut()));
+        }
+        catch (Exception)
+        {
+            // 静默处理：入场动画失败不影响主流程
+        }
+        finally
+        {
+            _baseBackgroundImage.Effect = null;
             _baseBackgroundImage.RenderTransform = null;
             _focusTransitionRunning = false;
         }

@@ -1,6 +1,7 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -129,13 +130,17 @@ public class KnowledgeBaseFunctions
         string query,
         int maxResults = 5)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var results = await _knowledgeBase.SearchAsync(query, maxResults);
+            stopwatch.Stop();
 
             if (results.Count == 0)
             {
-                return FunctionResult.SuccessResult("未在知识库中找到相关背景信息", Array.Empty<object>());
+                return FunctionResult.SuccessResult(
+                    $"未在知识库中找到相关背景信息（用时 {stopwatch.ElapsedMilliseconds}ms）",
+                    Array.Empty<object>());
             }
 
             var formattedResults = results.Select(r => new
@@ -151,11 +156,11 @@ public class KnowledgeBaseFunctions
                     : (double?)null
             }).ToList();
 
-            _logger.Information("Function: knowledge base search '{Query}' returned {Count} result(s)",
-                query, results.Count);
+            _logger.Information("Function: knowledge base search '{Query}' returned {Count} result(s) in {ElapsedMs}ms",
+                query, results.Count, stopwatch.ElapsedMilliseconds);
 
             return FunctionResult.SuccessResult(
-                $"从知识库检索到 {results.Count} 条相关背景",
+                $"从知识库检索到 {results.Count} 条相关背景（用时 {stopwatch.ElapsedMilliseconds}ms）",
                 formattedResults);
         }
         catch (Exception ex)
