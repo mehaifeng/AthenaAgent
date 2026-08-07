@@ -68,6 +68,11 @@ Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesToolLoopAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesTruncatedToolCallRetryAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesReasoningTextAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesThirdPartyNoIncludeAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesReasoningEffortAsync).GetAwaiter().GetResult();
+Task.Run(TestChatReasoningEffortAsync).GetAwaiter().GetResult();
+TestReasoningBubbleState();
+Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackResponsesAsync).GetAwaiter().GetResult();
@@ -3443,6 +3448,216 @@ static async Task TestResponsesReasoningTextAsync()
     Console.WriteLine("[PASS] responses reasoning_text deltas flow into ChatMessage.ReasoningContent");
 }
 
+static async Task TestResponsesThirdPartyNoIncludeAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-thirdparty-provider",
+        DisplayName = "Responses third-party provider",
+        ProviderPreset = "OpenRouter",
+        BaseUrl = "https://responses-thirdparty.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-thirdparty-model", DisplayName = "Responses third-party model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-thirdparty-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.SummaryOnly);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var context = new ConversationContext { ConversationId = "responses-thirdparty" };
+    await foreach (var _ in service.StreamMessageAsync("think", context))
+    {
+    }
+
+    var requestBody = handler.RequestBodies[0];
+    if (requestBody.Contains("\"include\"", StringComparison.Ordinal))
+        throw new InvalidOperationException("Third-party /responses request must not carry include (OpenRouter rejects any include value with 400 invalid_prompt).");
+
+    var reasoning = context.Messages
+        .Where(message => message.Role == "assistant")
+        .Select(message => message.ReasoningContent)
+        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    if (reasoning != "summary one summary two")
+        throw new InvalidOperationException($"Summary fallback channel did not flow into ReasoningContent: '{reasoning}'");
+    Console.WriteLine("[PASS] third-party /responses skips include=reasoning and falls back to summary events");
+}
+
+static async Task TestResponsesReasoningEffortAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-effort-provider",
+        DisplayName = "Responses effort provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-effort.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-effort-model", DisplayName = "Responses effort model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-effort-model";
+    config.AiModels.ModelMetadataProfiles.Add(new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "responses-effort-model",
+        Overrides = new ModelMetadataOverrides { ReasoningEffort = ReasoningEffort.High }
+    });
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.TextOnly);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var context = new ConversationContext { ConversationId = "responses-effort" };
+    await foreach (var _ in service.StreamMessageAsync("hi", context))
+    {
+    }
+
+    var requestBody = handler.RequestBodies[0];
+    if (!requestBody.Contains("\"reasoning\":{\"effort\":\"high\"}", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Responses request must carry reasoning.effort when configured: {requestBody}");
+
+    // 新档位（max / xhigh）以字符串直通 wire 格式。
+    config.AiModels.ModelMetadataProfiles[0].Overrides.ReasoningEffort = ReasoningEffort.Max;
+    using var handlerMax = new ResponsesSseHandler(ResponsesSseHandler.Mode.TextOnly);
+    using var httpClientMax = new HttpClient(handlerMax);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClientMax));
+    var contextMax = new ConversationContext { ConversationId = "responses-effort-max" };
+    await foreach (var _ in service.StreamMessageAsync("hi", contextMax))
+    {
+    }
+    if (!handlerMax.RequestBodies[0].Contains("\"reasoning\":{\"effort\":\"max\"}", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Responses request must carry reasoning.effort=max: {handlerMax.RequestBodies[0]}");
+
+    // Auto（未配置）时不携带 reasoning 参数，由端点默认。
+    config.AiModels.ModelMetadataProfiles.Clear();
+    using var handlerAuto = new ResponsesSseHandler(ResponsesSseHandler.Mode.TextOnly);
+    using var httpClientAuto = new HttpClient(handlerAuto);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClientAuto));
+    var contextAuto = new ConversationContext { ConversationId = "responses-effort-auto" };
+    await foreach (var _ in service.StreamMessageAsync("hi", contextAuto))
+    {
+    }
+    if (handlerAuto.RequestBodies[0].Contains("\"reasoning\":{", StringComparison.Ordinal))
+        throw new InvalidOperationException("Auto effort must not send a reasoning parameter.");
+
+    Console.WriteLine("[PASS] responses reasoning effort (high/max) wired into request; Auto sends none");
+}
+
+static async Task TestChatReasoningEffortAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "chat-effort-provider",
+        DisplayName = "Chat effort provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://chat-effort.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.ChatCompletions
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "chat-effort-model", DisplayName = "Chat effort model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "chat-effort-model";
+    config.AiModels.ModelMetadataProfiles.Add(new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "chat-effort-model",
+        Overrides = new ModelMetadataOverrides { ReasoningEffort = ReasoningEffort.Low }
+    });
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ChatBodyCaptureHandler();
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("chat-effort-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var context = new ConversationContext { ConversationId = "chat-effort" };
+    await foreach (var _ in service.StreamMessageAsync("hi", context))
+    {
+    }
+
+    var requestBody = handler.RequestBodies[0];
+    if (!requestBody.Contains("\"reasoning_effort\":\"low\"", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Chat request must carry reasoning_effort when configured: {requestBody}");
+    Console.WriteLine("[PASS] chat reasoning_effort (low) wired into request");
+}
+
+static void TestReasoningBubbleState()
+{
+    var message = new ChatMessage { Role = "assistant", ReasoningContent = " step one " };
+    if (!message.HasReasoningContent)
+        throw new InvalidOperationException("HasReasoningContent must be true when reasoning text is present");
+    if (message.IsReasoningExpanded)
+        throw new InvalidOperationException("Reasoning panel must start collapsed");
+    message.ToggleReasoningCommand.Execute(null);
+    if (!message.IsReasoningExpanded)
+        throw new InvalidOperationException("ToggleReasoning must expand the panel");
+    message.ToggleReasoningCommand.Execute(null);
+    if (message.IsReasoningExpanded)
+        throw new InvalidOperationException("ToggleReasoning must collapse the panel");
+    message.ReasoningContent = null;
+    if (message.HasReasoningContent)
+        throw new InvalidOperationException("HasReasoningContent must clear with the reasoning text");
+    Console.WriteLine("[PASS] reasoning bubble state: HasReasoningContent and ToggleReasoning");
+}
+
+static async Task TestReasoningStreamingInBubbleAsync()
+{
+    var chat = new MainConversationViewModel(
+        new ReasoningStreamingChatService(), null, null, null, null, null, null, null);
+    chat.InputText = "think";
+    var task = chat.SendMessageCommand.ExecuteAsync(null);
+    while (!task.IsCompleted)
+    {
+        Dispatcher.UIThread.RunJobs();
+        Thread.Sleep(1);
+    }
+    task.GetAwaiter().GetResult();
+    Dispatcher.UIThread.RunJobs();
+
+    var bubble = chat.Messages.LastOrDefault(message => message.Role == "assistant" && !message.IsHidden);
+    if (bubble == null)
+        throw new InvalidOperationException("No visible assistant bubble after a reasoning streaming turn.");
+    var expected = "round one reasoning continues" + ReasoningStreamingChatService.Separator + "round two reasoning";
+    if (bubble.ReasoningContent != expected)
+        throw new InvalidOperationException($"Reasoning must stream with a separator between rounds: '{bubble.ReasoningContent}'");
+    if (bubble.IsReasoningExpanded)
+        throw new InvalidOperationException("Reasoning panel must auto-collapse when the round ends.");
+    Console.WriteLine("[PASS] reasoning streams into the bubble across rounds with a separator and auto-collapses");
+}
+
 static async Task TestResponsesEndpointUnsupportedFallbackAsync()
 {
     var config = new AppConfig();
@@ -5186,10 +5401,83 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
 #pragma warning restore CA2000
 }
 
+/// <summary>chat 格式夹具：记录请求体并返回单轮终态（用于断言请求侧参数，如 reasoning_effort）。</summary>
+sealed class ChatBodyCaptureHandler : HttpMessageHandler
+{
+    public List<string> RequestBodies { get; } = new();
+
+#pragma warning disable CA2000
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Content != null)
+        {
+            RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+        }
+        const string body = """
+            data: {"id":"chatcmpl-effort","object":"chat.completion.chunk","created":1785580001,"model":"chat-effort-model","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+
+            data: {"id":"chatcmpl-effort","object":"chat.completion.chunk","created":1785580001,"model":"chat-effort-model","choices":[],"usage":{"prompt_tokens":80,"completion_tokens":2,"total_tokens":82}}
+
+            data: [DONE]
+
+            """;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        };
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>推理流式夹具：两轮推理（中间夹一轮工具调用），推理增量经 onReasoningDelta 逐片发出。</summary>
+sealed class ReasoningStreamingChatService : HeadlessChatService
+{
+    public const string Separator = "\n\n────────────\n\n";
+
+    public override async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null)
+    {
+        // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
+        // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
+        // 第一轮：推理增量 → 带工具调用的助手消息（回合结束）
+        onReasoningDelta?.Invoke("round one reasoning ");
+        onReasoningDelta?.Invoke("continues");
+        onMessageAdded?.Invoke(new ChatMessage
+        {
+            Role = "assistant",
+            Content = string.Empty,
+            ToolCallsJson = """[{"id":"call_probe","name":"probe"}]""",
+            ReasoningContent = "round one reasoning continues"
+        });
+        onMessageAdded?.Invoke(new ChatMessage { Role = "tool", ToolCallId = "call_probe", ToolName = "probe", Content = "{}" });
+        // 第二轮：推理增量 → 最终正文
+        onReasoningDelta?.Invoke("round two reasoning");
+        onMessageAdded?.Invoke(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "final answer",
+            ReasoningContent = "round two reasoning"
+        });
+        // 不 yield 真实正文：VM 收到非空正文会在回合结束时触发 App.StartTrayFlashing()，
+        // 其后台任务向 UI 线程投递 InvokeAsync 作业，池线程 RunJobs 泵执行时会因线程
+        // 所有权校验崩溃（headless 套件环境限制，与生产逻辑无关）。
+        yield return string.Empty;
+    }
+}
+
 sealed class FinalOnlySseHandler : HttpMessageHandler
 {
     public int RequestCount { get; private set; }
-
 #pragma warning disable CA2000
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -5250,6 +5538,7 @@ sealed class ResponsesSseHandler : HttpMessageHandler
         ToolLoop,
         ToolTruncated,
         Reasoning,
+        SummaryOnly,
         Fallback404
     }
 
@@ -5298,6 +5587,7 @@ sealed class ResponsesSseHandler : HttpMessageHandler
             Mode.ToolTruncated when RequestCount == 1 => TruncatedToolRoundBody,
             Mode.ToolTruncated => FinalRoundBody,
             Mode.Reasoning => ReasoningBody,
+            Mode.SummaryOnly => SummaryOnlyBody,
             Mode.Fallback404 => ChatFinalBody,
             _ => FinalRoundBody
         };
@@ -5382,6 +5672,29 @@ sealed class ResponsesSseHandler : HttpMessageHandler
 
         """;
 
+    private static string SummaryOnlyBody => """
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"responses-model","output":[],"usage":null}}
+
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":1,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"summary one "}
+
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":2,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"summary two"}
+
+        data: {"type":"response.reasoning_summary_text.done","sequence_number":3,"item_id":"rs_1","output_index":0,"content_index":0,"text":"summary one summary two"}
+
+        data: {"type":"response.output_item.added","sequence_number":4,"output_index":0,"item":{"id":"msg_3","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+        data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_3","output_index":0,"content_index":0,"delta":"done"}
+
+        data: {"type":"response.output_text.done","sequence_number":6,"item_id":"msg_3","output_index":0,"content_index":0,"text":"done"}
+
+        data: {"type":"response.output_item.done","sequence_number":7,"output_index":0,"item":{"id":"msg_3","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}}
+
+        data: {"type":"response.completed","sequence_number":8,"response":{"id":"resp_summary","object":"response","created_at":1785580002,"status":"completed","model":"responses-model","output":[{"id":"msg_3","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}],"usage":{"input_tokens":68,"input_tokens_details":{"cached_tokens":0},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":9},"total_tokens":70}}}
+
+        data: [DONE]
+
+        """;
+
     internal const string ChatFinalBody = """
         data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1785580003,"model":"responses-fallback-model","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
 
@@ -5391,7 +5704,6 @@ sealed class ResponsesSseHandler : HttpMessageHandler
 
         """;
 }
-
 /// <summary>图片降级夹具：请求 1 返回 400「不支持图片输入」，请求 2 起返回正常终态（chat 或 responses 格式）。</summary>
 sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
 {
@@ -5435,7 +5747,7 @@ class HeadlessChatService : IChatService
     public AudioOutputTestResult AudioResult { get; set; } = new() { Success = true, Message = "ok" };
     public int UpdateConfigCount { get; private set; }
 
-    public async IAsyncEnumerable<string> StreamMessageAsync(
+    public virtual async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
         ConversationContext context,
         IReadOnlyList<ChatAttachment>? attachments = null,
@@ -5443,6 +5755,7 @@ class HeadlessChatService : IChatService
         Action<ChatMessage>? onMessageAdded = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null)

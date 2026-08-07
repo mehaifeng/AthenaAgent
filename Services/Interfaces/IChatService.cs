@@ -28,6 +28,7 @@ public interface IChatService
         Action<ChatMessage>? onMessageAdded = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null);

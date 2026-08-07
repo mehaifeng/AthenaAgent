@@ -110,7 +110,8 @@ public sealed record ResolvedModelMetadata(
     IReadOnlySet<string> OutputModalities,
     IReadOnlyList<string> Warnings,
     string? TokenizerHint = null,
-    ResolvedMetadataValue<CapabilitySupport>? SupportsResponses = null);
+    ResolvedMetadataValue<CapabilitySupport>? SupportsResponses = null,
+    ResolvedMetadataValue<ReasoningEffort>? ReasoningEffort = null);
 
 public enum ModelCatalogRefreshStatus
 {

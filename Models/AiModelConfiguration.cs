@@ -64,6 +64,19 @@ public enum ModelMetadataBindingMode
     CustomOnly
 }
 
+/// <summary>模型推理强度（reasoning.effort）。Auto 表示不显式设置、由端点默认。</summary>
+public enum ReasoningEffort
+{
+    Auto,
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max
+}
+
 public partial class ModelMetadataOverrides : ObservableObject
 {
     [ObservableProperty] private long? _contextWindowTokens;
@@ -72,6 +85,7 @@ public partial class ModelMetadataOverrides : ObservableObject
     [ObservableProperty] private bool? _supportsReasoning;
     [ObservableProperty] private bool? _supportsStructuredOutput;
     [ObservableProperty] private bool? _supportsResponses;
+    [ObservableProperty] private ReasoningEffort _reasoningEffort = ReasoningEffort.Auto;
     [ObservableProperty] private ObservableCollection<string>? _inputModalities;
     [ObservableProperty] private ObservableCollection<string>? _outputModalities;
 
@@ -81,6 +95,7 @@ public partial class ModelMetadataOverrides : ObservableObject
         || SupportsReasoning.HasValue
         || SupportsStructuredOutput.HasValue
         || SupportsResponses.HasValue
+        || ReasoningEffort != ReasoningEffort.Auto
         || InputModalities is { Count: > 0 }
         || OutputModalities is { Count: > 0 };
 }

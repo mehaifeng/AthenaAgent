@@ -10,7 +10,7 @@ namespace Athena.UI.Services.Protocol;
 ///   1) 官方 OpenAI 端点 + 推理模型（元数据确认 SupportsReasoning）；
 ///   2) 模型元数据确认 SupportsResponses（如 OpenRouter 目录 supported_parameters 含 "responses"）；
 /// - 未知/手动 provider、非推理模型、无元数据一律走 Chat Completions（最稳）。
-/// 不做网络探测；端点不支持由调用方在请求期按错误分类自动降级（见 ResponsesApi_Compatibility_Design_CN.md §6.3）。
+/// 不做网络探测；端点不支持由调用方在请求期按错误分类自动降级。
 /// </summary>
 public static class ResponsesProtocolResolver
 {

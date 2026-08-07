@@ -492,6 +492,15 @@
     <system:String x:Key="ProviderModels.Metadata.Reasoning">Reasoning:</system:String>
     <system:String x:Key="ProviderModels.Metadata.StructuredOutputs">Structured outputs:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Responses">Responses:</system:String>
+    <system:String x:Key="ProviderModels.Metadata.ReasoningEffort">Reasoning effort:</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Auto">Auto</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.None">None</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Minimal">Minimal</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Low">Low</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Medium">Medium</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.High">High</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.XHigh">X-High</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Max">Max</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">Input modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">Output modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">input modalities: text, image</system:String>
@@ -1013,6 +1022,9 @@
     <system:String x:Key="KbMaint.Exception">Error: {0}</system:String>
 
     <system:String x:Key="Chat.Archived">Archived</system:String>
+    <system:String x:Key="Chat.Reasoning.Header">Reasoning</system:String>
+    <system:String x:Key="Chat.Reasoning.Show">Show reasoning</system:String>
+    <system:String x:Key="Chat.Reasoning.Hide">Hide reasoning</system:String>
     <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>
     <system:String x:Key="Knowledge.SelectFile">Select a file to view</system:String>
     <system:String x:Key="Knowledge.LoadFailed">Failed to load: {0}</system:String>

@@ -148,6 +148,39 @@
             </Style.Animations>
         </Style>
 
+        <!-- 推理过程折叠面板：头部为无边框轻量按钮，面板为灰底卡片，正文弱化显示 -->
+        <Style Selector="Button.reasoning-toggle">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="Button.reasoning-toggle:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SemiGreyLowBrush}"/>
+        </Style>
+        <Style Selector="Border.reasoning-panel">
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+        <Style Selector="PathIcon.reasoning-chevron">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Setter Property="RenderTransform">
+                <RotateTransform/>
+            </Setter>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="RotateTransform.Angle" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
+            <Style Selector="^.reasoning-expanded">
+                <Setter Property="RotateTransform.Angle" Value="90"/>
+            </Style>
+        </Style>
+
         <!-- 消息气泡基础样式 -->
         <Style Selector="Border.message-bubble">
             <Setter Property="CornerRadius" Value="8"/>
@@ -387,6 +420,29 @@
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
+                                        <!-- 推理过程折叠面板：默认收起，点击头部展开/收起。
+                                             流式回复中推理文本在每轮结束时到达，跨工具轮累计展示完整思考链。 -->
+                                        <StackPanel IsVisible="{Binding HasReasoningContent}" Margin="0,0,0,8" Spacing="4">
+                                            <Button Classes="reasoning-toggle" Padding="8,4" HorizontalAlignment="Left"
+                                                    Command="{Binding ToggleReasoningCommand}"
+                                                    ToolTip.Tip="{loc:Loc Chat.Reasoning.Header}"
+                                                    AutomationProperties.Name="{loc:Loc Chat.Reasoning.Header}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <PathIcon Data="{StaticResource SemiIconBulb}" Width="13" Height="13" Opacity="0.7" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{loc:Loc Chat.Reasoning.Header}" FontSize="{DynamicResource App.FontSize.Body}"/>
+                                                    <PathIcon Data="{StaticResource SemiIconChevronRight}" Width="11" Height="11" Opacity="0.7" VerticalAlignment="Center"
+                                                              Classes="reasoning-chevron"
+                                                              Classes.reasoning-expanded="{Binding IsReasoningExpanded}"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Border Classes="reasoning-panel" IsVisible="{Binding IsReasoningExpanded}">
+                                                <TextBlock Text="{Binding ReasoningContent}"
+                                                           TextWrapping="Wrap"
+                                                           FontSize="{DynamicResource App.FontSize.Body}"
+                                                           Foreground="{DynamicResource SemiColorText3}"/>
+                                            </Border>
+                                        </StackPanel>
+
                                         <!-- Content 为 null 时不实例化重型 Markdown 模板。 -->
                                         <ContentControl Content="{Binding LegacyMarkdownContent}">
                                             <ContentControl.ContentTemplate>

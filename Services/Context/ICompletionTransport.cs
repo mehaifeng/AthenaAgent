@@ -7,7 +7,7 @@ namespace Athena.UI.Services.Context;
 /// <summary>
 /// 一次请求的传输无关输入：由各 transport 自行把内部消息形状翻译为协议请求，并把协议事件流
 /// 归一化为 <see cref="NormalizedUpdate"/>。主对话流式环（ProcessStreamAsync）只消费该形状。
-/// 实现：ChatCompletionsTransport / ResponsesTransport。设计见 Docs/ResponsesApi_Compatibility_Design_CN.md §5。
+/// 实现：ChatCompletionsTransport / ResponsesTransport。
 /// </summary>
 public interface ICompletionTransport
 {

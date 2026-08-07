@@ -492,6 +492,15 @@
     <system:String x:Key="ProviderModels.Metadata.Reasoning">Reasoning：</system:String>
     <system:String x:Key="ProviderModels.Metadata.StructuredOutputs">Structured outputs：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Responses">Responses：</system:String>
+    <system:String x:Key="ProviderModels.Metadata.ReasoningEffort">推理强度：</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Auto">自动</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.None">无（none）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Minimal">最低（minimal）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Low">低（low）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Medium">中（medium）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.High">高（high）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.XHigh">超高（xhigh）</system:String>
+    <system:String x:Key="ProviderModels.ReasoningEffort.Max">最高（max）</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">输入模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">输出模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">输入模态：text, image</system:String>
@@ -1013,6 +1022,9 @@
     <system:String x:Key="KbMaint.Exception">出错：{0}</system:String>
 
     <system:String x:Key="Chat.Archived">已归档</system:String>
+    <system:String x:Key="Chat.Reasoning.Header">思考过程</system:String>
+    <system:String x:Key="Chat.Reasoning.Show">展开思考过程</system:String>
+    <system:String x:Key="Chat.Reasoning.Hide">收起思考过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
     <system:String x:Key="Knowledge.SelectFile">选择文件以查看</system:String>
     <system:String x:Key="Knowledge.LoadFailed">加载失败：{0}</system:String>

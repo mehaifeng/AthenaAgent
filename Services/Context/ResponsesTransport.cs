@@ -2,6 +2,7 @@
 #pragma warning disable OPENAI001
 
 using Athena.UI.Models;
+using Athena.UI.Services.Protocol;
 using OpenAI.Chat;
 using OpenAI.Responses;
 using Serilog;
@@ -30,7 +31,7 @@ public static class ResponsesUnsupportedRegistry
 
 /// <summary>
 /// Responses API 传输实现：把主环的规范请求形状（List&lt;ChatMessage&gt;）翻译为 input items，
-/// 并把响应事件流归一化为 <see cref="NormalizedUpdate"/>。设计见 Docs/ResponsesApi_Compatibility_Design_CN.md §7。
+/// 并把响应事件流归一化为 <see cref="NormalizedUpdate"/>。
 /// 规则：
 /// - 无状态（store: false），每次请求全量重发 items，永不使用 previous_response_id（Athena 自管上下文）；
 /// - 工具全部经自有 FunctionRegistry 执行，不使用内置工具；
@@ -221,13 +222,48 @@ public sealed class ResponsesTransport : ICompletionTransport
             });
         }
 
-        // 完整推理文本（官方模型思考文本的唯一路径；第三方忽略时退化为摘要通道）。
-        options.IncludedProperties.Add("reasoning");
+        // 完整推理文本：官方 OpenAI 端点经 include=reasoning 获取（responses 协议下完整思考
+        // 文本的唯一通道）。第三方 /responses 端点（OpenRouter 实测）对 include 支持面极窄，
+        // 除 reasoning.encrypted_content 外的任何取值都会 400 invalid_prompt，因此只在官方
+        // 端点携带；第三方端点的推理文本靠默认摘要事件（response.reasoning_summary_text.delta，
+        // 推理模型无需任何参数即可产出）走回退通道并入 ReasoningContent。
+        if (ResponsesProtocolResolver.IsOfficialOpenAi(runtime.MainModel.ProviderPreset, runtime.MainModel.BaseUrl))
+        {
+            options.IncludedProperties.Add("reasoning");
+        }
+        else
+        {
+            Log.Debug(
+                "Skipping include=reasoning for third-party /responses endpoint. Provider={Provider} BaseUrl={BaseUrl}",
+                runtime.MainModel.ProviderPreset,
+                runtime.MainModel.BaseUrl);
+        }
+
+        // 推理强度：仅在显式配置时发送（Auto = 端点默认），wire 名 effort。
+        if (runtime.MainModel.Effort != ReasoningEffort.Auto)
+        {
+            options.ReasoningOptions = new ResponseReasoningOptions
+            {
+                ReasoningEffortLevel = MapEffort(runtime.MainModel.Effort)
+            };
+        }
 
         ResponsesCallHelpers.AddInputItems(options, messages);
 
         return options;
     }
+
+    private static ResponseReasoningEffortLevel MapEffort(ReasoningEffort effort) => effort switch
+    {
+        ReasoningEffort.None => ResponseReasoningEffortLevel.None,
+        ReasoningEffort.Minimal => ResponseReasoningEffortLevel.Minimal,
+        ReasoningEffort.Low => ResponseReasoningEffortLevel.Low,
+        ReasoningEffort.Medium => ResponseReasoningEffortLevel.Medium,
+        ReasoningEffort.High => ResponseReasoningEffortLevel.High,
+        ReasoningEffort.XHigh => (ResponseReasoningEffortLevel)"xhigh",
+        ReasoningEffort.Max => (ResponseReasoningEffortLevel)"max",
+        _ => ResponseReasoningEffortLevel.Medium
+    };
 
     private static string BuildInstructions(IReadOnlyList<OpenAI.Chat.ChatMessage> messages)
     {

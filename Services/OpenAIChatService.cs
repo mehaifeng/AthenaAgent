@@ -188,6 +188,7 @@ public class OpenAIChatService : IChatService
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null)
@@ -230,7 +231,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -297,6 +298,7 @@ public class OpenAIChatService : IChatService
                                                    onMessageAdded,
                                                    onUsageReported,
                                                    onToolCallArgumentsStreaming,
+                                                   onReasoningDelta,
                                                    imageBinaryIncluded: false,
                                                    isImageFallback: true,
                                                    onCompressionTransition: onCompressionTransition,
@@ -466,6 +468,23 @@ public class OpenAIChatService : IChatService
             MaxOutputTokenCount = checked((int)policy.OutputReserveTokens),
             TopP = (float)topP
         };
+        // 推理强度：仅在显式配置时发送（Auto = 端点默认）。OpenAI 官方 chat 端点
+        // 的 o 系列/gpt-5 模型支持 reasoning_effort；第三方端点不接受时请勿配置。
+        if (mainModel.Effort != ReasoningEffort.Auto)
+        {
+#pragma warning disable OPENAI001
+            options.ReasoningEffortLevel = mainModel.Effort switch
+            {
+                ReasoningEffort.None => ChatReasoningEffortLevel.None,
+                ReasoningEffort.Minimal => ChatReasoningEffortLevel.Minimal,
+                ReasoningEffort.Low => ChatReasoningEffortLevel.Low,
+                ReasoningEffort.High => ChatReasoningEffortLevel.High,
+                ReasoningEffort.XHigh => (ChatReasoningEffortLevel)"xhigh",
+                ReasoningEffort.Max => (ChatReasoningEffortLevel)"max",
+                _ => ChatReasoningEffortLevel.Medium
+            };
+#pragma warning restore OPENAI001
+        }
         if (functionCallingEnabled)
         {
             foreach (var tool in tools) options.Tools.Add(tool);
@@ -553,6 +572,7 @@ public class OpenAIChatService : IChatService
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
         bool imageBinaryIncluded = true,
         bool isImageFallback = false,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
@@ -774,6 +794,7 @@ public class OpenAIChatService : IChatService
                 if (!string.IsNullOrEmpty(update.ReasoningText))
                 {
                     assistantReasoning.Append(update.ReasoningText);
+                    onReasoningDelta?.Invoke(update.ReasoningText);
                 }
 
                 if (!string.IsNullOrEmpty(update.Text))

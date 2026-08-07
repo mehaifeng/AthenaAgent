@@ -330,6 +330,7 @@
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Reasoning}"/><TextBlock Text="{Binding ReasoningText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.StructuredOutputs}"/><TextBlock Text="{Binding StructuredOutputText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Responses}"/><TextBlock Text="{Binding ResponsesText}" TextWrapping="Wrap"/></StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.ReasoningEffort}"/><TextBlock Text="{Binding ReasoningEffortText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Input}"/><TextBlock Text="{Binding InputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Output}"/><TextBlock Text="{Binding OutputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
                                                         <TextBlock Text="{Binding WarningText}" IsVisible="{Binding HasWarnings}" TextWrapping="Wrap"
@@ -377,6 +378,18 @@
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.Reasoning}" IsThreeState="True" IsChecked="{Binding SupportsReasoningOverride}"/>
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.StructuredOutputs}" IsThreeState="True" IsChecked="{Binding SupportsStructuredOutputOverride}"/>
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.Responses}" IsThreeState="True" IsChecked="{Binding SupportsResponsesOverride}"/>
+                                                        <StackPanel>
+                                                            <TextBlock Text="{loc:Loc ProviderModels.Metadata.ReasoningEffort}"/>
+                                                            <ComboBox ItemsSource="{Binding ReasoningEffortOptions}"
+                                                                      SelectedItem="{Binding SelectedEffortOption}"
+                                                                      HorizontalAlignment="Stretch">
+                                                                <ComboBox.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:ReasoningEffortOption">
+                                                                        <TextBlock Text="{Binding Label}"/>
+                                                                    </DataTemplate>
+                                                                </ComboBox.ItemTemplate>
+                                                            </ComboBox>
+                                                        </StackPanel>
                                                         <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.InputPlaceholder}" Text="{Binding InputModalitiesOverride}"/>
                                                         <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.OutputPlaceholder}" Text="{Binding OutputModalitiesOverride}"/>
                                                     </StackPanel>

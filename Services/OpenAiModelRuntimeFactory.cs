@@ -50,6 +50,11 @@ public sealed class OpenAiModelRuntimeFactory
             throw new InvalidOperationException($"Provider for model role '{role}' is not configured.");
         }
 
+        var profile = config.AiModels.ModelMetadataProfiles.FirstOrDefault(candidate =>
+            string.Equals(candidate.ProviderId, settings.ProviderId, StringComparison.Ordinal)
+            && string.Equals(candidate.ExternalModelId, settings.Model, StringComparison.Ordinal));
+        var effort = profile?.Overrides.ReasoningEffort ?? ReasoningEffort.Auto;
+
         return new EffectiveOpenAiModel(
             provider.ProviderPreset,
             provider.DisplayName,
@@ -58,7 +63,8 @@ public sealed class OpenAiModelRuntimeFactory
             settings.Model,
             GetInternalTemperature(role),
             GetInternalMaxOutputTokens(role),
-            provider.Protocol);
+            provider.Protocol,
+            effort);
     }
 
     internal static OpenAiModelClientIdentity ComputeClientIdentity(AppConfig config, AiModelRole role)
@@ -132,6 +138,7 @@ public sealed class OpenAiModelRuntimeFactory
             profile.Overrides.SupportsReasoning,
             profile.Overrides.SupportsStructuredOutput,
             profile.Overrides.SupportsResponses,
+            profile.Overrides.ReasoningEffort,
             string.Join('\u001e', profile.Overrides.InputModalities ?? []),
             string.Join('\u001e', profile.Overrides.OutputModalities ?? []));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(values))).ToLowerInvariant();
@@ -244,7 +251,8 @@ public readonly record struct EffectiveOpenAiModel(
     string Model,
     double Temperature,
     int MaxOutputTokens,
-    ProviderProtocol Protocol = ProviderProtocol.Auto)
+    ProviderProtocol Protocol = ProviderProtocol.Auto,
+    ReasoningEffort Effort = ReasoningEffort.Auto)
 {
     public void ValidateChatRole(AiModelRole role)
     {

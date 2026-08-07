@@ -522,7 +522,7 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 
 | # | 问题 | 影响 | 对策/建议 |
 |---|---|---|---|
-| A | 第三方 /responses 端点的推理实现差异（只给摘要不给完整文本；`include` 被忽略） | 推理文本可能为空或只到摘要 | 摘要事件作为回退通道（§7.4）；以各家文档为准，文档记录已验证端点 |
+| A | 第三方 /responses 端点的推理实现差异（只给摘要不给完整文本；`include` 被忽略） | 推理文本可能为空或只到摘要 | 摘要事件作为回退通道（§7.4）；以各家文档为准，文档记录已验证端点。**实测 OpenRouter `/v1/responses` 对 `include` 支持面极窄：除 `reasoning.encrypted_content` 外的任何取值（含 `reasoning`/`reasoning.summary`/`usage`）直接 `400 invalid_prompt`**——已改为仅官方 OpenAI 端点携带 `include=reasoning`，第三方端点靠默认摘要事件回退（见 §13 决策变更） |
 | B | `generate_summary` SDK 仅 internal，需 Patch 设置 | 关闭摘要生成需额外 Patch 代码 | 默认不关；如需省 token 再补 Patch 路径并加测试 |
 | C | 第三方 /responses 事件顺序/usage 字段偏差 | 归一化错乱、压缩判断失真 | 归一化层宽容处理（缺失字段走缺省）；文档记录已验证端点 |
 | D | `Experimental("OPENAI001")` API 面演进 | SDK 升级时类型/属性变动 | 升级前查 CHANGELOG（`openai-dotnet/CHANGELOG.md` 488–491 等条目）；Responses 相关集中在 transport 内部，隔离面小 |
@@ -542,3 +542,6 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | 2026-08-07 | 浏览器角色走 `EffectiveBrowserAgentConfig.ToEffectiveOpenAiModel()` 转换进辅助类 | 浏览器有独立解析配置类型，辅助类统一吃 `EffectiveOpenAiModel` | 无 |
 | 2026-08-07 | `OPENAI001` 在本项目为编译错误（非警告），涉及 Responses 类型的文件统一文件级 `#pragma warning disable OPENAI001` | 该诊断被配置为 error；响应面类型全部为 Experimental | 新文件需遵循同一约定 |
 | 2026-08-07 | `Athena.Archive.Tests` 的 office preview 会话测试在 Windows 上因 `/tmp` 路径归一化失败（`D:\tmp\report.pdf`） | 环境路径行为，与本次改动无关 | 已确认非本特性引入；CI/Linux 无此问题 |
+| 2026-08-07 | `include: ["reasoning"]` 改为仅官方 OpenAI 端点发送（`ResponsesProtocolResolver.IsOfficialOpenAi`），第三方 /responses 端点不携带 | 实测 OpenRouter `/v1/responses` 对 `include` 只接受 `reasoning.encrypted_content`，其余取值全部 `400 invalid_prompt`，主对话流式请求 100% 失败 | 第三方端点的推理文本退化为摘要事件回退通道（`ReasoningSummaryTextDelta`，§7.4 已实现）；官方端点行为不变；新增 HeadlessTests 用例 `TestResponsesThirdPartyNoIncludeAsync` 覆盖 |
+| 2026-08-07 | 推理文本气泡展示 + 推理强度配置落地：`ChatMessage` 增加 `HasReasoningContent`/`IsReasoningExpanded`/`ToggleReasoning`，气泡内新增可折叠「思考过程」面板（默认收起，跨工具轮累计）；推理强度以 `ReasoningEffort` 枚举挂在 `ModelMetadataOverrides`（供应商模型配置页元数据区），经 `EffectiveOpenAiModel.Effort` 透传到 responses（`reasoning.effort`）与 chat（`reasoning_effort`）双传输，Auto 不发送 | 推理文本此前只存不显示；设计文档声称 reasoning effort 已透传但代码零使用 | 仅显式配置才发送（第三方端点不支持时不会误发）；新用例 `TestResponsesReasoningEffortAsync`/`TestChatReasoningEffortAsync`/`TestReasoningBubbleState` 覆盖 |
+| 2026-08-07 | 推理文本流式化 + 档位扩展：`StreamMessageAsync` 新增 `onReasoningDelta` 回调，推理增量在正文前实时流入气泡（容器自动展开，回合结束自动收起，新一轮推理自动展开并在隔断符下续写）；`ReasoningEffort` 档位扩至 `max/xhigh/high/medium/low/minimal/none`（追加枚举值不破坏既有数字持久化），OpenRouter 实测全部 7 档 + `none` 均接受（200） | 推理文本此前只在回合结束时随 onMessageAdded 一次性到达，无法流式展示 | `ICompletionTransport` 归一化层早已逐片产出 `ReasoningText`，仅需服务层透传；新用例 `TestReasoningStreamingInBubbleAsync` 覆盖跨轮隔断符与自动展开/收起 |

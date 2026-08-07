@@ -13,7 +13,7 @@ using System.Linq;
 namespace Athena.UI.Services.Context;
 
 /// <summary>
-/// 非流式调用点的 Responses API 通用映射（设计见 Docs/ResponsesApi_Compatibility_Design_CN.md §8）。
+/// 非流式调用点的 Responses API 通用映射。
 /// 约定：
 /// - 协议跟随 <see cref="EffectiveOpenAiModel.Protocol"/>；Auto 在非主对话角色一律走 Chat Completions
 ///   （主对话的 Auto 判定才接模型元数据，见 ResponsesProtocolResolver）。
@@ -79,8 +79,27 @@ public static class ResponsesCallHelpers
                 TextFormat = ResponseTextFormat.CreateJsonObjectFormat(),
             };
         }
+        if (effective.Effort != ReasoningEffort.Auto)
+        {
+            options.ReasoningOptions = new ResponseReasoningOptions
+            {
+                ReasoningEffortLevel = MapEffort(effective.Effort)
+            };
+        }
         return options;
     }
+
+    private static ResponseReasoningEffortLevel MapEffort(ReasoningEffort effort) => effort switch
+    {
+        ReasoningEffort.None => ResponseReasoningEffortLevel.None,
+        ReasoningEffort.Minimal => ResponseReasoningEffortLevel.Minimal,
+        ReasoningEffort.Low => ResponseReasoningEffortLevel.Low,
+        ReasoningEffort.Medium => ResponseReasoningEffortLevel.Medium,
+        ReasoningEffort.High => ResponseReasoningEffortLevel.High,
+        ReasoningEffort.XHigh => (ResponseReasoningEffortLevel)"xhigh",
+        ReasoningEffort.Max => (ResponseReasoningEffortLevel)"max",
+        _ => ResponseReasoningEffortLevel.Medium
+    };
 
     /// <summary>把 chat 形状的消息列表转换为 input items（system 并入 Instructions 由调用方负责）。</summary>
     public static void AddInputItems(CreateResponseOptions options, IEnumerable<OpenAI.Chat.ChatMessage> messages)

@@ -68,7 +68,11 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
 
         if (match.Status == ModelMatchStatus.PinnedModelMissing) warnings.Add("PinnedOpenRouterModelMissing");
         if (isCatalogStale) warnings.Add("OpenRouterCatalogStale");
-        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer, responses);
+        var effortOverride = profile?.Overrides.ReasoningEffort ?? ReasoningEffort.Auto;
+        ResolvedMetadataValue<ReasoningEffort>? effort = effortOverride != ReasoningEffort.Auto
+            ? new ResolvedMetadataValue<ReasoningEffort>(effortOverride, MetadataValueSource.UserOverride)
+            : null;
+        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer, responses, effort);
     }
 
     private static ResolvedMetadataValue<CapabilitySupport> ResolveCapability(

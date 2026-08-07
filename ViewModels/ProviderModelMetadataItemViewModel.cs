@@ -29,6 +29,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     private bool? _supportsReasoningOverride;
     private bool? _supportsStructuredOutputOverride;
     private bool? _supportsResponsesOverride;
+    private ReasoningEffort _reasoningEffortOverride = ReasoningEffort.Auto;
     private string _inputModalitiesOverride = string.Empty;
     private string _outputModalitiesOverride = string.Empty;
     private OpenRouterModelMetadata? _selectedPinnedModel;
@@ -51,6 +52,19 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         _findProfile = findProfile;
         _ensureProfile = ensureProfile;
         _getString = getString;
+        // 展示顺序按强度从高到低；Auto 放最后表示"不设置"。枚举新增档位不得改变既有数字含义
+        // （config.json 以数字持久化），新档位一律追加在末尾。
+        ReasoningEffortOptions =
+        [
+            new ReasoningEffortOption(ReasoningEffort.Max, GetEffortLabel(ReasoningEffort.Max)),
+            new ReasoningEffortOption(ReasoningEffort.XHigh, GetEffortLabel(ReasoningEffort.XHigh)),
+            new ReasoningEffortOption(ReasoningEffort.High, GetEffortLabel(ReasoningEffort.High)),
+            new ReasoningEffortOption(ReasoningEffort.Medium, GetEffortLabel(ReasoningEffort.Medium)),
+            new ReasoningEffortOption(ReasoningEffort.Low, GetEffortLabel(ReasoningEffort.Low)),
+            new ReasoningEffortOption(ReasoningEffort.Minimal, GetEffortLabel(ReasoningEffort.Minimal)),
+            new ReasoningEffortOption(ReasoningEffort.None, GetEffortLabel(ReasoningEffort.None)),
+            new ReasoningEffortOption(ReasoningEffort.Auto, GetEffortLabel(ReasoningEffort.Auto))
+        ];
         ReloadFromProfile();
     }
 
@@ -82,6 +96,10 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     public string ResponsesText => Resolved.SupportsResponses is { } responses
         ? $"{FormatSupport(responses.Value)} · {FormatSource(responses.Source)}"
         : "—";
+    public string ReasoningEffortText => Resolved.ReasoningEffort is { } effort
+        ? $"{GetEffortLabel(effort.Value)} · {FormatSource(effort.Source)}"
+        : "—";
+    public IReadOnlyList<ReasoningEffortOption> ReasoningEffortOptions { get; }
     public string InputModalitiesText => Resolved.InputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.InputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string OutputModalitiesText => Resolved.OutputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.OutputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string WarningText
@@ -190,6 +208,21 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         set => SetOverride(ref _supportsResponsesOverride, value, (overrides, next) => overrides.SupportsResponses = next);
     }
 
+    public ReasoningEffort ReasoningEffortOverride
+    {
+        get => _reasoningEffortOverride;
+        set => SetOverride(ref _reasoningEffortOverride, value, (overrides, next) => overrides.ReasoningEffort = next);
+    }
+
+    public ReasoningEffortOption? SelectedEffortOption
+    {
+        get => ReasoningEffortOptions.FirstOrDefault(option => option.Value == ReasoningEffortOverride);
+        set
+        {
+            if (value != null) ReasoningEffortOverride = value.Value;
+        }
+    }
+
     public string InputModalitiesOverride
     {
         get => _inputModalitiesOverride;
@@ -250,6 +283,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         _supportsReasoningOverride = profile?.Overrides.SupportsReasoning;
         _supportsStructuredOutputOverride = profile?.Overrides.SupportsStructuredOutput;
         _supportsResponsesOverride = profile?.Overrides.SupportsResponses;
+        _reasoningEffortOverride = profile?.Overrides.ReasoningEffort ?? ReasoningEffort.Auto;
         _inputModalitiesOverride = Join(profile?.Overrides.InputModalities);
         _outputModalitiesOverride = Join(profile?.Overrides.OutputModalities);
         _loading = false;
@@ -260,6 +294,8 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(SupportsReasoningOverride));
         OnPropertyChanged(nameof(SupportsStructuredOutputOverride));
         OnPropertyChanged(nameof(SupportsResponsesOverride));
+        OnPropertyChanged(nameof(ReasoningEffortOverride));
+        OnPropertyChanged(nameof(SelectedEffortOption));
         OnPropertyChanged(nameof(InputModalitiesOverride));
         OnPropertyChanged(nameof(OutputModalitiesOverride));
     }
@@ -304,6 +340,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(ReasoningText));
         OnPropertyChanged(nameof(StructuredOutputText));
         OnPropertyChanged(nameof(ResponsesText));
+        OnPropertyChanged(nameof(ReasoningEffortText));
         OnPropertyChanged(nameof(InputModalitiesText));
         OnPropertyChanged(nameof(OutputModalitiesText));
         OnPropertyChanged(nameof(WarningText));
@@ -321,12 +358,17 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
 
     private static string Join(IEnumerable<string>? values) => values == null ? string.Empty : string.Join(", ", values);
 
+    private string GetEffortLabel(ReasoningEffort effort) =>
+        _getString($"ProviderModels.ReasoningEffort.{effort}", effort.ToString());
+
     private string FormatSource(MetadataValueSource source) =>
         _getString($"ProviderModels.Source.{source}", source.ToString());
 
     private string FormatSupport(CapabilitySupport support) =>
         _getString($"ProviderModels.Support.{support}", support.ToString());
 }
+
+public sealed record ReasoningEffortOption(ReasoningEffort Value, string Label);
 
 public sealed record ProviderMetadataFilterOption<T>(T Value, string Label);
 
