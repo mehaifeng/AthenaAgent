@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI.Chat;
 using Serilog;
@@ -42,22 +43,36 @@ public sealed class CommitMessageGenerator : ICommitMessageGenerator
 
         try
         {
-            var client = _modelFactory.CreateChatClient(AiModelRole.MainConversation);
+            var effective = _modelFactory.Resolve(AiModelRole.MainConversation);
             var messages = new OpenAI.Chat.ChatMessage[]
             {
                 new SystemChatMessage(_promptService.GetPrompt(PromptType.CommitMessage)),
                 new UserChatMessage(BuildContext(branchName, diffStat, diffContent))
             };
-            var completion = await client.CompleteChatAsync(
-                messages,
-                new ChatCompletionOptions
-                {
-                    Temperature = Temperature,
-                    MaxOutputTokenCount = MaxOutputTokens
-                },
-                cancellationToken);
 
-            var text = completion.Value.Content.FirstOrDefault()?.Text;
+            string? text;
+            if (ResponsesCallHelpers.ShouldUseResponses(effective))
+            {
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var options = ResponsesCallHelpers.CreateOptions(effective, _promptService.GetPrompt(PromptType.CommitMessage), Temperature, MaxOutputTokens);
+                ResponsesCallHelpers.AddInputItems(options, messages.Skip(1));
+                var result = await responses.CreateResponseAsync(options, cancellationToken);
+                text = ResponsesCallHelpers.GetFirstOutputText(result.Value);
+            }
+            else
+            {
+                var client = _modelFactory.CreateChatClient(AiModelRole.MainConversation);
+                var completion = await client.CompleteChatAsync(
+                    messages,
+                    new ChatCompletionOptions
+                    {
+                        Temperature = Temperature,
+                        MaxOutputTokenCount = MaxOutputTokens
+                    },
+                    cancellationToken);
+                text = completion.Value.Content.FirstOrDefault()?.Text;
+            }
+
             if (string.IsNullOrWhiteSpace(text)) return null;
 
             var message = text.Trim().Trim('"', '\'', '“', '”');

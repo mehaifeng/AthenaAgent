@@ -1,8 +1,12 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using System;
 using System.Collections.Generic;
+
+// ResponsesClient 为 OpenAI SDK 的 Experimental(OPENAI001) 面；Archive.Tests 把该诊断视为错误。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services.Context;
 
@@ -26,4 +30,6 @@ public sealed record EffectiveRequestRuntimeSnapshot(
     int TimeoutSeconds,
     int RequestFormatVersion,
     DateTimeOffset CapturedAtUtc,
-    EffectiveContextPolicySnapshot? CompressionPolicySnapshot = null);
+    EffectiveContextPolicySnapshot? CompressionPolicySnapshot = null,
+    ResponsesClient? ResponsesClient = null,
+    ICompletionTransport? Transport = null);

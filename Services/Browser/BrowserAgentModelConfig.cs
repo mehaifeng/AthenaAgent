@@ -15,6 +15,11 @@ internal sealed class EffectiveBrowserAgentConfig
     public double Temperature { get; init; }
     public string BaseUrlSource { get; init; } = string.Empty;
     public string ApiKeySource { get; init; } = string.Empty;
+    public ProviderProtocol Protocol { get; init; } = ProviderProtocol.Auto;
+
+    /// <summary>转成统一运行时模型（供 Responses 辅助类使用；协议跟随 provider 配置）。</summary>
+    public EffectiveOpenAiModel ToEffectiveOpenAiModel()
+        => new(Provider, Provider, BaseUrl, ApiKey, Model, Temperature, MaxTokens, Protocol);
 }
 
 /// <summary>
@@ -36,7 +41,8 @@ internal static class BrowserAgentModelResolver
             MaxTokens = effective.MaxOutputTokens,
             Temperature = effective.Temperature,
             BaseUrlSource = effective.ProviderDisplayName,
-            ApiKeySource = effective.ProviderDisplayName
+            ApiKeySource = effective.ProviderDisplayName,
+            Protocol = effective.Protocol
         };
     }
 }

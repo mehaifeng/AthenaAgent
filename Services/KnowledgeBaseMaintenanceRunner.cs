@@ -1,6 +1,8 @@
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using System;
 using System.ClientModel;
@@ -8,6 +10,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+// OpenAI SDK Experimental 面（OPENAI001）：本文件直接使用 Responses 类型。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services;
 
@@ -71,13 +75,19 @@ public sealed class KnowledgeBaseMaintenanceRunner
             return (false, GetLocalized("KbMaint.ModelNotConfigured", "Maintenance model is not configured (missing API Key or model)."));
         }
 
-        ChatClient chatClient;
+        var isResponses = ResponsesCallHelpers.ShouldUseResponses(effective.ToEffectiveOpenAiModel());
+        ChatClient chatClient = null!;
+        ResponsesClient responsesClient = null!;
         try
         {
             var clientOptions = OpenAiClientOptionsFactory.Create(effective.BaseUrl, config.Timeout);
 
             var client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), clientOptions);
             chatClient = client.GetChatClient(effective.Model);
+            if (isResponses)
+            {
+                responsesClient = ResponsesCallHelpers.CreateResponsesClient(effective.ToEffectiveOpenAiModel(), config.Timeout);
+            }
         }
         catch (Exception ex)
         {
@@ -112,11 +122,20 @@ public sealed class KnowledgeBaseMaintenanceRunner
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                ChatCompletion value;
+                ChatCompletion? value = null;
+                ResponseResult? responsesValue = null;
                 try
                 {
-                    var completion = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-                    value = completion.Value;
+                    if (isResponses)
+                    {
+                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), SystemPrompt, (float)effective.Temperature, effective.MaxOutputTokens, tools);
+                        ResponsesCallHelpers.AddInputItems(responsesOptions, messages.Skip(1));
+                        responsesValue = (await responsesClient.CreateResponseAsync(responsesOptions, cancellationToken)).Value;
+                    }
+                    else
+                    {
+                        value = (await chatClient.CompleteChatAsync(messages, options, cancellationToken)).Value;
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -128,20 +147,38 @@ public sealed class KnowledgeBaseMaintenanceRunner
                     return (false, string.Format(GetLocalized("KbMaint.ModelCallFailed", "Model call failed: {0}"), ex.Message));
                 }
 
-                var toolCalls = value.ToolCalls;
-                if (toolCalls == null || toolCalls.Count == 0)
+                var toolCalls = isResponses
+                    ? ResponsesCallHelpers.GetFunctionCalls(responsesValue!)
+                    : value!.ToolCalls
+                        .Select(call => new ToolCallInfo(call.Id, call.FunctionName, call.FunctionArguments?.ToString() ?? string.Empty))
+                        .ToList();
+                if (toolCalls.Count == 0)
                 {
-                    var finalText = value.Content.Count > 0 ? value.Content[0].Text : string.Empty;
+                    var finalText = isResponses
+                        ? ResponsesCallHelpers.GetFirstOutputText(responsesValue!) ?? string.Empty
+                        : (value!.Content.Count > 0 ? value.Content[0].Text : string.Empty);
                     return (true, string.IsNullOrWhiteSpace(finalText) ? GetLocalized("KbMaint.CompletedNoSummary", "(Maintenance completed, no summary)") : finalText.Trim());
                 }
 
-                messages.Add(new AssistantChatMessage(value));
+                if (isResponses)
+                {
+                    var assistant = new AssistantChatMessage(ResponsesCallHelpers.GetConcatenatedOutputText(responsesValue!));
+                    foreach (var call in toolCalls)
+                    {
+                        assistant.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(call.Id, call.FunctionName, BinaryData.FromString(call.Arguments)));
+                    }
+                    messages.Add(assistant);
+                }
+                else
+                {
+                    messages.Add(new AssistantChatMessage(value!));
+                }
 
                 foreach (var toolCall in toolCalls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var argsText = toolCall.FunctionArguments?.ToString() ?? "{}";
+                    var argsText = string.IsNullOrEmpty(toolCall.Arguments) ? "{}" : toolCall.Arguments;
                     FunctionResult toolResult;
                     try
                     {

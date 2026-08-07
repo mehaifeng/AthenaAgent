@@ -1,6 +1,8 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using System;
 using System.Linq;
@@ -8,6 +10,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+// OpenAI SDK Experimental 面（OPENAI001）：本文件直接使用 Responses 类型。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services;
 
@@ -38,7 +42,6 @@ public sealed class AiToolApprovalEvaluator : IAiToolApprovalEvaluator
         {
             var effective = _modelFactory.Resolve(AiModelRole.Approval);
             effective.ValidateChatRole(AiModelRole.Approval);
-            var client = _modelFactory.CreateChatClient(AiModelRole.Approval);
             var payload = JsonSerializer.Serialize(new
             {
                 delegatedTask = ToolApprovalContext.CurrentDelegatedTask,
@@ -49,17 +52,37 @@ public sealed class AiToolApprovalEvaluator : IAiToolApprovalEvaluator
                 request.CommandLine,
                 request.RiskReason
             });
-            var options = new ChatCompletionOptions
+
+            string? text;
+            if (ResponsesCallHelpers.ShouldUseResponses(effective))
             {
-                Temperature = 0,
-                MaxOutputTokenCount = Math.Clamp(effective.MaxOutputTokens, 64, 512),
-                ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
-            };
-            var response = await client.CompleteChatAsync(
-                [new SystemChatMessage(SystemPrompt), new UserChatMessage(payload)],
-                options,
-                cancellationToken);
-            var text = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : null;
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var options = ResponsesCallHelpers.CreateOptions(
+                    effective,
+                    SystemPrompt,
+                    temperature: 0,
+                    Math.Clamp(effective.MaxOutputTokens, 64, 512),
+                    jsonObjectFormat: true);
+                options.InputItems.Add(ResponseItem.CreateUserMessageItem(payload));
+                var result = await responses.CreateResponseAsync(options, cancellationToken);
+                text = ResponsesCallHelpers.GetFirstOutputText(result.Value);
+            }
+            else
+            {
+                var client = _modelFactory.CreateChatClient(AiModelRole.Approval);
+                var chatOptions = new ChatCompletionOptions
+                {
+                    Temperature = 0,
+                    MaxOutputTokenCount = Math.Clamp(effective.MaxOutputTokens, 64, 512),
+                    ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
+                };
+                var response = await client.CompleteChatAsync(
+                    [new SystemChatMessage(SystemPrompt), new UserChatMessage(payload)],
+                    chatOptions,
+                    cancellationToken);
+                text = response.Value.Content.Count > 0 ? response.Value.Content[0].Text : null;
+            }
+
             if (string.IsNullOrWhiteSpace(text))
             {
                 return ToolApprovalDecision.Deny("自动审批模型未返回裁决");

@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI.Chat;
 using Serilog;
@@ -47,7 +48,6 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
             try
             {
                 var effective = _modelFactory.Resolve(AiModelRole.TitleGeneration);
-                var client = _modelFactory.CreateChatClient(AiModelRole.TitleGeneration);
                 var context = BuildContext(messages);
                 if (context.Count > 0)
                 {
@@ -62,15 +62,30 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
                             : new AssistantChatMessage(entry.Content));
                     }
                     openAiMessages.Add(new UserChatMessage(_promptService.GetPrompt(PromptType.SummaryInstruction)));
-                    var completion = await client.CompleteChatAsync(
-                        openAiMessages,
-                        new ChatCompletionOptions
-                        {
-                            Temperature = (float)effective.Temperature,
-                            MaxOutputTokenCount = effective.MaxOutputTokens
-                        },
-                        cancellationToken);
-                    var title = completion.Value.Content.FirstOrDefault()?.Text?.Trim().Trim('"', '\'', ' ', '。', '.');
+
+                    string? title;
+                    if (ResponsesCallHelpers.ShouldUseResponses(effective))
+                    {
+                        var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                        var options = ResponsesCallHelpers.CreateOptions(effective, _promptService.GetPrompt(PromptType.SummaryGeneration), (float)effective.Temperature, effective.MaxOutputTokens);
+                        ResponsesCallHelpers.AddInputItems(options, openAiMessages.Skip(1));
+                        var result = await responses.CreateResponseAsync(options, cancellationToken);
+                        title = ResponsesCallHelpers.GetFirstOutputText(result.Value)?.Trim().Trim('"', '\'', ' ', '。', '.');
+                    }
+                    else
+                    {
+                        var client = _modelFactory.CreateChatClient(AiModelRole.TitleGeneration);
+                        var completion = await client.CompleteChatAsync(
+                            openAiMessages,
+                            new ChatCompletionOptions
+                            {
+                                Temperature = (float)effective.Temperature,
+                                MaxOutputTokenCount = effective.MaxOutputTokens
+                            },
+                            cancellationToken);
+                        title = completion.Value.Content.FirstOrDefault()?.Text?.Trim().Trim('"', '\'', ' ', '。', '.');
+                    }
+
                     if (!string.IsNullOrWhiteSpace(title)) return Truncate(title, TitleMaxChars);
                 }
             }

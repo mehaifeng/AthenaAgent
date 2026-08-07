@@ -146,6 +146,23 @@
                                                  Text="{Binding SelectedProvider.ApiKey, UpdateSourceTrigger=PropertyChanged}"
                                                  PasswordChar="●"/>
                                     </Grid>
+                                    <Grid ColumnDefinitions="160,460,*" ColumnSpacing="8">
+                                        <TextBlock Text="{loc:Loc ProviderModels.Protocol}"
+                                                   VerticalAlignment="Center"
+                                                   ToolTip.Tip="{loc:Loc ProviderModels.Protocol.Hint}"/>
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding ProtocolOptions}"
+                                                  SelectedItem="{Binding SelectedProtocolOption}"
+                                                  HorizontalAlignment="Left"
+                                                  MinWidth="220"
+                                                  ToolTip.Tip="{loc:Loc ProviderModels.Protocol.Hint}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </Grid>
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="168,2,0,0">
                                         <u:IconButton Content="{loc:Loc ProviderModels.RefreshInventory}"
                                                       Command="{Binding RefreshModelsCommand}"
@@ -312,6 +329,7 @@
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Tools}"/><TextBlock Text="{Binding ToolsText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Reasoning}"/><TextBlock Text="{Binding ReasoningText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.StructuredOutputs}"/><TextBlock Text="{Binding StructuredOutputText}" TextWrapping="Wrap"/></StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Responses}"/><TextBlock Text="{Binding ResponsesText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Input}"/><TextBlock Text="{Binding InputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.Output}"/><TextBlock Text="{Binding OutputModalitiesText}" TextWrapping="Wrap"/></StackPanel>
                                                         <TextBlock Text="{Binding WarningText}" IsVisible="{Binding HasWarnings}" TextWrapping="Wrap"
@@ -358,6 +376,7 @@
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.Tools}" IsThreeState="True" IsChecked="{Binding SupportsToolsOverride}"/>
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.Reasoning}" IsThreeState="True" IsChecked="{Binding SupportsReasoningOverride}"/>
                                                         <CheckBox Content="{loc:Loc ProviderModels.Metadata.StructuredOutputs}" IsThreeState="True" IsChecked="{Binding SupportsStructuredOutputOverride}"/>
+                                                        <CheckBox Content="{loc:Loc ProviderModels.Metadata.Responses}" IsThreeState="True" IsChecked="{Binding SupportsResponsesOverride}"/>
                                                         <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.InputPlaceholder}" Text="{Binding InputModalitiesOverride}"/>
                                                         <TextBox PlaceholderText="{loc:Loc ProviderModels.Metadata.OutputPlaceholder}" Text="{Binding OutputModalitiesOverride}"/>
                                                     </StackPanel>

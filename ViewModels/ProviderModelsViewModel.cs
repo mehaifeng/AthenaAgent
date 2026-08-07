@@ -63,6 +63,10 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     private readonly List<ProviderModelMetadataItemViewModel> _allMetadataModels = [];
     public ObservableCollection<ProviderMetadataFilterOption<ProviderMetadataCapabilityFilter>> CapabilityFilters { get; } = new();
     public ObservableCollection<ProviderMetadataFilterOption<ProviderMetadataMatchFilter>> MatchFilters { get; } = new();
+    public ObservableCollection<ProviderMetadataFilterOption<ProviderProtocol>> ProtocolOptions { get; } = new();
+
+    [ObservableProperty]
+    private ProviderMetadataFilterOption<ProviderProtocol>? _selectedProtocolOption;
 
     [ObservableProperty]
     private string _metadataSearchText = string.Empty;
@@ -289,7 +293,19 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     }
 
     partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? value)
-        => RebuildMetadataModels();
+    {
+        RebuildMetadataModels();
+        SelectedProtocolOption = value == null
+            ? null
+            : ProtocolOptions.FirstOrDefault(option => option.Value == value.Protocol);
+    }
+
+    partial void OnSelectedProtocolOptionChanged(ProviderMetadataFilterOption<ProviderProtocol>? value)
+    {
+        if (SelectedProvider == null || value == null) return;
+        if (SelectedProvider.Protocol == value.Value) return;
+        SelectedProvider.Protocol = value.Value;
+    }
 
     partial void OnMetadataSearchTextChanged(string value) => ApplyMetadataFilters();
     partial void OnSelectedCapabilityFilterChanged(ProviderMetadataFilterOption<ProviderMetadataCapabilityFilter>? value) => ApplyMetadataFilters();
@@ -491,6 +507,13 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         MatchFilters.Add(new(ProviderMetadataMatchFilter.CustomOnly, "CustomOnly"));
         SelectedCapabilityFilter = CapabilityFilters.First(option => option.Value == selectedCapability);
         SelectedMatchFilter = MatchFilters.First(option => option.Value == selectedMatch);
+
+        var selectedProtocol = SelectedProvider?.Protocol ?? ProviderProtocol.Auto;
+        ProtocolOptions.Clear();
+        ProtocolOptions.Add(new(ProviderProtocol.Auto, GetString("ProviderModels.Protocol.Auto", "Auto")));
+        ProtocolOptions.Add(new(ProviderProtocol.ChatCompletions, GetString("ProviderModels.Protocol.ChatCompletions", "Chat Completions")));
+        ProtocolOptions.Add(new(ProviderProtocol.Responses, GetString("ProviderModels.Protocol.Responses", "Responses")));
+        SelectedProtocolOption = ProtocolOptions.First(option => option.Value == selectedProtocol);
     }
 
     private string GetString(string key, string fallback) => _localizationService?.GetString(key, fallback) ?? fallback;

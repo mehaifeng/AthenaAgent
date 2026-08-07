@@ -1,6 +1,8 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -9,6 +11,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ModelChatMessage = Athena.UI.Models.ChatMessage;
+// OpenAI SDK Experimental 面（OPENAI001）：本文件直接使用 Responses 类型。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services;
 
@@ -53,7 +57,6 @@ public sealed class ContextCompressionService : IContextCompressionService
         try
         {
             var effective = _modelFactory.Resolve(AiModelRole.ContextCompression);
-            var client = _modelFactory.CreateChatClient(AiModelRole.ContextCompression);
             var prompt = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(existingSummary))
             {
@@ -65,18 +68,31 @@ public sealed class ContextCompressionService : IContextCompressionService
             prompt.AppendLine();
             prompt.Append(BuildCompressionMaterial(olderMessages));
 
-            var completion = await client.CompleteChatAsync(
-                [
-                    new SystemChatMessage(_promptService.GetPrompt(PromptType.ContextCompression)),
-                    new UserChatMessage(prompt.ToString())
-                ],
-                new ChatCompletionOptions
-                {
-                    Temperature = (float)effective.Temperature,
-                    MaxOutputTokenCount = effective.MaxOutputTokens
-                },
-                cancellationToken);
-            summary = completion.Value.Content.FirstOrDefault()?.Text?.Trim();
+            var systemPrompt = _promptService.GetPrompt(PromptType.ContextCompression);
+            if (ResponsesCallHelpers.ShouldUseResponses(effective))
+            {
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, effective.MaxOutputTokens);
+                options.InputItems.Add(ResponseItem.CreateUserMessageItem(prompt.ToString()));
+                var result = await responses.CreateResponseAsync(options, cancellationToken);
+                summary = ResponsesCallHelpers.GetFirstOutputText(result.Value)?.Trim();
+            }
+            else
+            {
+                var client = _modelFactory.CreateChatClient(AiModelRole.ContextCompression);
+                var completion = await client.CompleteChatAsync(
+                    [
+                        new SystemChatMessage(systemPrompt),
+                        new UserChatMessage(prompt.ToString())
+                    ],
+                    new ChatCompletionOptions
+                    {
+                        Temperature = (float)effective.Temperature,
+                        MaxOutputTokenCount = effective.MaxOutputTokens
+                    },
+                    cancellationToken);
+                summary = completion.Value.Content.FirstOrDefault()?.Text?.Trim();
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -169,20 +185,31 @@ public sealed class WorkspaceKnowledgeCompressor : IWorkspaceKnowledgeCompressor
         try
         {
             var effective = _modelFactory.Resolve(AiModelRole.ContextCompression);
+            var maxOutput = Math.Min(
+                Math.Clamp(tokenBudget, 32, 8192),
+                effective.MaxOutputTokens > 0 ? effective.MaxOutputTokens : 8192);
+            const string systemPrompt = "Compress this workspace knowledge file. Preserve facts, commands, paths, decisions, constraints, and code identifiers. Return Markdown only and invent nothing.";
+            if (ResponsesCallHelpers.ShouldUseResponses(effective))
+            {
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, maxOutput);
+                options.InputItems.Add(ResponseItem.CreateUserMessageItem(content));
+                var result = await responses.CreateResponseAsync(options, cancellationToken);
+                return ResponsesCallHelpers.GetFirstOutputText(result.Value)?.Trim();
+            }
+
             var client = _modelFactory.CreateChatClient(AiModelRole.ContextCompression);
-            var options = new ChatCompletionOptions
+            var chatOptions = new ChatCompletionOptions
             {
                 Temperature = (float)effective.Temperature,
-                MaxOutputTokenCount = Math.Min(
-                    Math.Clamp(tokenBudget, 32, 8192),
-                    effective.MaxOutputTokens > 0 ? effective.MaxOutputTokens : 8192)
+                MaxOutputTokenCount = maxOutput
             };
             var response = await client.CompleteChatAsync(
                 [
-                    new SystemChatMessage("Compress this workspace knowledge file. Preserve facts, commands, paths, decisions, constraints, and code identifiers. Return Markdown only and invent nothing."),
+                    new SystemChatMessage(systemPrompt),
                     new UserChatMessage(content)
                 ],
-                options,
+                chatOptions,
                 cancellationToken);
             return response.Value.Content.FirstOrDefault()?.Text?.Trim();
         }

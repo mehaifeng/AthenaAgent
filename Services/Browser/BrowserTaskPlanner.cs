@@ -1,4 +1,5 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
 using OpenAI.Chat;
@@ -51,25 +52,34 @@ public class BrowserTaskPlanner : IBrowserTaskPlanner
                 Start URL:
                 {request.StartUrl ?? "(none)"}
                 """;
-            var completion = await BrowserStructuredOutput.CompleteAsync(
-                chatClient,
-                new OpenAI.Chat.ChatMessage[]
-                {
-                    new SystemChatMessage(BrowserPrompts.TaskPlanningPrompt),
-                    new UserChatMessage(userPrompt)
-                },
-                new ChatCompletionOptions
-                {
-                    Temperature = 0,
-                    MaxOutputTokenCount = Math.Max(800, Math.Min(effectiveConfig.MaxTokens, 2000))
-                },
-                config.BrowserStructuredOutputMode,
-                effectiveConfig.BaseUrl,
-                effectiveConfig.Model,
-                _logger,
-                cancellationToken);
-
-            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var browserMessages = new OpenAI.Chat.ChatMessage[]
+            {
+                new SystemChatMessage(BrowserPrompts.TaskPlanningPrompt),
+                new UserChatMessage(userPrompt)
+            };
+            var content = ResponsesCallHelpers.ShouldUseResponses(effectiveConfig.ToEffectiveOpenAiModel())
+                ? await BrowserStructuredOutput.CompleteResponsesTextAsync(
+                    effectiveConfig,
+                    browserMessages,
+                    temperature: 0,
+                    Math.Max(800, Math.Min(effectiveConfig.MaxTokens, 2000)),
+                    config.BrowserStructuredOutputMode,
+                    config.Timeout,
+                    _logger,
+                    cancellationToken)
+                : (await BrowserStructuredOutput.CompleteAsync(
+                    chatClient,
+                    browserMessages,
+                    new ChatCompletionOptions
+                    {
+                        Temperature = 0,
+                        MaxOutputTokenCount = Math.Max(800, Math.Min(effectiveConfig.MaxTokens, 2000))
+                    },
+                    config.BrowserStructuredOutputMode,
+                    effectiveConfig.BaseUrl,
+                    effectiveConfig.Model,
+                    _logger,
+                    cancellationToken)).Content.FirstOrDefault()?.Text ?? string.Empty;
             var plan = ParsePlan(content, request);
             if (plan.Goals.Count == 0)
             {

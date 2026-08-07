@@ -443,6 +443,11 @@
     <system:String x:Key="ProviderModels.PresetPlaceholder">OpenAI / OpenRouter / Custom</system:String>
     <system:String x:Key="ProviderModels.ApiRoot">API Root</system:String>
     <system:String x:Key="ProviderModels.ApiKey">API Key</system:String>
+    <system:String x:Key="ProviderModels.Protocol">协议</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Hint">传输协议。自动：仅当端点为官方 OpenAI 且模型为推理模型，或模型元数据确认支持 Responses 时使用 Responses，否则使用 Chat Completions。</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Auto">自动</system:String>
+    <system:String x:Key="ProviderModels.Protocol.ChatCompletions">Chat Completions</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Responses">Responses</system:String>
     <system:String x:Key="ProviderModels.RefreshInventory">刷新供应商库存</system:String>
     <system:String x:Key="ProviderModels.ManualModelId">手动模型 ID</system:String>
     <system:String x:Key="ProviderModels.Roles">业务模型分工</system:String>
@@ -486,6 +491,7 @@
     <system:String x:Key="ProviderModels.Metadata.Tools">Tools：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Reasoning">Reasoning：</system:String>
     <system:String x:Key="ProviderModels.Metadata.StructuredOutputs">Structured outputs：</system:String>
+    <system:String x:Key="ProviderModels.Metadata.Responses">Responses：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">输入模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">输出模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">输入模态：text, image</system:String>

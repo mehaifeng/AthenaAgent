@@ -1,12 +1,18 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using System;
 using System.ClientModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
+// OpenAI SDK Experimental 面（OPENAI001）在浏览器协商层集中使用。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services.Browser;
 
@@ -61,6 +67,80 @@ internal static class BrowserStructuredOutput
             var result = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
             return result.Value;
         }
+    }
+
+    /// <summary>
+    /// Responses 传输下的等价调用：同一套 json_object 协商（TextOptions + 400/404/422 降级重试）。
+    /// messages 不含 system（system 提示经 <paramref name="systemPrompt"/> 进 Instructions）。
+    /// </summary>
+    public static async Task<ResponseResult> CompleteResponsesAsync(
+        EffectiveBrowserAgentConfig effective,
+        IEnumerable<OpenAI.Chat.ChatMessage> messages,
+        string systemPrompt,
+        float temperature,
+        int maxOutputTokens,
+        BrowserStructuredOutputMode mode,
+        int timeoutSeconds,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var model = effective.ToEffectiveOpenAiModel();
+        var useJsonObject = ShouldUseJsonObject(mode, model.BaseUrl, model.Model);
+        var responses = ResponsesCallHelpers.CreateResponsesClient(model, timeoutSeconds);
+        var options = ResponsesCallHelpers.CreateOptions(
+            model,
+            systemPrompt,
+            temperature,
+            maxOutputTokens,
+            jsonObjectFormat: useJsonObject);
+        ResponsesCallHelpers.AddInputItems(options, messages);
+
+        try
+        {
+            return (await responses.CreateResponseAsync(options, cancellationToken)).Value;
+        }
+        catch (Exception ex) when (useJsonObject
+            && mode == BrowserStructuredOutputMode.Auto
+            && IsResponseFormatRejection(ex))
+        {
+            logger.Warning(
+                ex,
+                "Browser model rejected response_format=json_object (responses); downgrading to prompt-only and remembering. Model={Model}, BaseUrl={BaseUrl}",
+                model.Model,
+                model.BaseUrl);
+            _jsonObjectUnsupported[Key(model.BaseUrl, model.Model)] = true;
+            options.TextOptions = null;
+            return (await responses.CreateResponseAsync(options, cancellationToken)).Value;
+        }
+    }
+
+    /// <summary>Responses 传输的文本化调用：messages 首条 system 进 Instructions，返回首个 output_text。</summary>
+    public static async Task<string> CompleteResponsesTextAsync(
+        EffectiveBrowserAgentConfig effective,
+        IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        float temperature,
+        int maxOutputTokens,
+        BrowserStructuredOutputMode mode,
+        int timeoutSeconds,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var system = messages.FirstOrDefault() is SystemChatMessage systemMessage
+            ? string.Concat(systemMessage.Content
+                .Where(part => part.Kind == ChatMessageContentPartKind.Text)
+                .Select(part => part.Text))
+            : string.Empty;
+        var result = await CompleteResponsesAsync(
+            effective,
+            messages.Skip(1),
+            system,
+            temperature,
+            maxOutputTokens,
+            mode,
+            timeoutSeconds,
+            logger,
+            cancellationToken);
+        return ResponsesCallHelpers.GetFirstOutputText(result) ?? string.Empty;
     }
 
     private static bool ShouldUseJsonObject(BrowserStructuredOutputMode mode, string baseUrl, string model)

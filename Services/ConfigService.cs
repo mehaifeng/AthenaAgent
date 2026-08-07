@@ -93,6 +93,7 @@ public class ConfigService : IConfigService
     {
         config.ConfigSchemaVersion = 6;
         AppConfigNormalizer.NormalizeContextPolicy(config);
+        AppConfigNormalizer.NormalizeProtocol(config);
         await WriteAtomicallyAsync(config).ConfigureAwait(false);
         try { StoreCache(config, File.GetLastWriteTimeUtc(ConfigFilePath)); }
         catch { InvalidateCache(); }
@@ -191,12 +192,14 @@ public class ConfigService : IConfigService
             };
             config.ConfigSchemaVersion = 6;
             AppConfigNormalizer.NormalizeContextPolicy(config);
+            AppConfigNormalizer.NormalizeProtocol(config);
             migrated = true;
             return config;
         }
 
         config.ConfigSchemaVersion = 6;
         AppConfigNormalizer.NormalizeContextPolicy(config);
+        AppConfigNormalizer.NormalizeProtocol(config);
         migrated = false;
         return config;
     }

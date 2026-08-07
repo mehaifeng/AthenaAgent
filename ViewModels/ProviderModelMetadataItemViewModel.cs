@@ -28,6 +28,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     private bool? _supportsToolsOverride;
     private bool? _supportsReasoningOverride;
     private bool? _supportsStructuredOutputOverride;
+    private bool? _supportsResponsesOverride;
     private string _inputModalitiesOverride = string.Empty;
     private string _outputModalitiesOverride = string.Empty;
     private OpenRouterModelMetadata? _selectedPinnedModel;
@@ -78,6 +79,9 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     public string ToolsText => $"{FormatSupport(Resolved.SupportsTools.Value)} · {FormatSource(Resolved.SupportsTools.Source)}";
     public string ReasoningText => $"{FormatSupport(Resolved.SupportsReasoning.Value)} · {FormatSource(Resolved.SupportsReasoning.Source)}";
     public string StructuredOutputText => $"{FormatSupport(Resolved.SupportsStructuredOutput.Value)} · {FormatSource(Resolved.SupportsStructuredOutput.Source)}";
+    public string ResponsesText => Resolved.SupportsResponses is { } responses
+        ? $"{FormatSupport(responses.Value)} · {FormatSource(responses.Source)}"
+        : "—";
     public string InputModalitiesText => Resolved.InputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.InputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string OutputModalitiesText => Resolved.OutputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.OutputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string WarningText
@@ -180,6 +184,12 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         set => SetOverride(ref _supportsStructuredOutputOverride, value, (overrides, next) => overrides.SupportsStructuredOutput = next);
     }
 
+    public bool? SupportsResponsesOverride
+    {
+        get => _supportsResponsesOverride;
+        set => SetOverride(ref _supportsResponsesOverride, value, (overrides, next) => overrides.SupportsResponses = next);
+    }
+
     public string InputModalitiesOverride
     {
         get => _inputModalitiesOverride;
@@ -239,6 +249,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         _supportsToolsOverride = profile?.Overrides.SupportsTools;
         _supportsReasoningOverride = profile?.Overrides.SupportsReasoning;
         _supportsStructuredOutputOverride = profile?.Overrides.SupportsStructuredOutput;
+        _supportsResponsesOverride = profile?.Overrides.SupportsResponses;
         _inputModalitiesOverride = Join(profile?.Overrides.InputModalities);
         _outputModalitiesOverride = Join(profile?.Overrides.OutputModalities);
         _loading = false;
@@ -248,6 +259,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(SupportsToolsOverride));
         OnPropertyChanged(nameof(SupportsReasoningOverride));
         OnPropertyChanged(nameof(SupportsStructuredOutputOverride));
+        OnPropertyChanged(nameof(SupportsResponsesOverride));
         OnPropertyChanged(nameof(InputModalitiesOverride));
         OnPropertyChanged(nameof(OutputModalitiesOverride));
     }
@@ -291,6 +303,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(ToolsText));
         OnPropertyChanged(nameof(ReasoningText));
         OnPropertyChanged(nameof(StructuredOutputText));
+        OnPropertyChanged(nameof(ResponsesText));
         OnPropertyChanged(nameof(InputModalitiesText));
         OnPropertyChanged(nameof(OutputModalitiesText));
         OnPropertyChanged(nameof(WarningText));

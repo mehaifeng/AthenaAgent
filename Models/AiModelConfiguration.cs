@@ -4,6 +4,14 @@ using System.Collections.ObjectModel;
 
 namespace Athena.UI.Models;
 
+/// <summary>传输协议：Chat Completions（默认）/ Responses / 自动判定。</summary>
+public enum ProviderProtocol
+{
+    Auto,
+    ChatCompletions,
+    Responses
+}
+
 /// <summary>
 /// 一个可复用的 OpenAI SDK 兼容连接。业务模型只引用此配置，不重复保存 BaseUrl/API Key。
 /// </summary>
@@ -23,6 +31,10 @@ public partial class OpenAiProviderConfiguration : ObservableObject
 
     [ObservableProperty]
     private string _apiKey = string.Empty;
+
+    /// <summary>请求传输协议。Auto 时按端点身份与模型元数据保守判定（见 ResponsesProtocolResolver）。</summary>
+    [ObservableProperty]
+    private ProviderProtocol _protocol = ProviderProtocol.Auto;
 
     [ObservableProperty]
     private ObservableCollection<ProviderModelDescriptor> _models = new();
@@ -59,6 +71,7 @@ public partial class ModelMetadataOverrides : ObservableObject
     [ObservableProperty] private bool? _supportsTools;
     [ObservableProperty] private bool? _supportsReasoning;
     [ObservableProperty] private bool? _supportsStructuredOutput;
+    [ObservableProperty] private bool? _supportsResponses;
     [ObservableProperty] private ObservableCollection<string>? _inputModalities;
     [ObservableProperty] private ObservableCollection<string>? _outputModalities;
 
@@ -67,6 +80,7 @@ public partial class ModelMetadataOverrides : ObservableObject
         || SupportsTools.HasValue
         || SupportsReasoning.HasValue
         || SupportsStructuredOutput.HasValue
+        || SupportsResponses.HasValue
         || InputModalities is { Count: > 0 }
         || OutputModalities is { Count: > 0 };
 }

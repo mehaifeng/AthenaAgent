@@ -57,7 +57,8 @@ public sealed class OpenAiModelRuntimeFactory
             provider.ApiKey,
             settings.Model,
             GetInternalTemperature(role),
-            GetInternalMaxOutputTokens(role));
+            GetInternalMaxOutputTokens(role),
+            provider.Protocol);
     }
 
     internal static OpenAiModelClientIdentity ComputeClientIdentity(AppConfig config, AiModelRole role)
@@ -69,7 +70,8 @@ public sealed class OpenAiModelRuntimeFactory
                 effective.BaseUrl,
                 effective.ApiKey,
                 effective.Model,
-                config.Timeout);
+                config.Timeout,
+                effective.Protocol);
         }
         catch
         {
@@ -86,6 +88,8 @@ public sealed class OpenAiModelRuntimeFactory
         int requestFormatVersion)
     {
         var settings = GetRoleSettings(config, role);
+        var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, settings.ProviderId, StringComparison.Ordinal));
         var profile = config.AiModels.ModelMetadataProfiles.FirstOrDefault(candidate =>
             string.Equals(candidate.ProviderId, settings.ProviderId, StringComparison.Ordinal)
             && string.Equals(candidate.ExternalModelId, settings.Model, StringComparison.Ordinal));
@@ -96,7 +100,8 @@ public sealed class OpenAiModelRuntimeFactory
             catalogRevision,
             policy.ContextWindowTokens,
             policy.OutputReserveTokens,
-            requestFormatVersion);
+            requestFormatVersion,
+            provider?.Protocol ?? ProviderProtocol.Auto);
     }
 
     private static ModelRoleSettings GetRoleSettings(AppConfig config, AiModelRole role) => role switch
@@ -126,6 +131,7 @@ public sealed class OpenAiModelRuntimeFactory
             profile.Overrides.SupportsTools,
             profile.Overrides.SupportsReasoning,
             profile.Overrides.SupportsStructuredOutput,
+            profile.Overrides.SupportsResponses,
             string.Join('\u001e', profile.Overrides.InputModalities ?? []),
             string.Join('\u001e', profile.Overrides.OutputModalities ?? []));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(values))).ToLowerInvariant();
@@ -153,6 +159,9 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.ImageRecognition => 4096,
         _ => 16000
     };
+
+    /// <summary>应用级请求超时（秒），供 Responses 客户端等非 OpenAIClient 路径复用。</summary>
+    public int TimeoutSeconds => _configService.Load().Timeout;
 
     public ChatClient CreateChatClient(AiModelRole role)
     {
@@ -214,7 +223,8 @@ internal readonly record struct OpenAiModelClientIdentity(
     string? BaseUrl,
     string? ApiKey,
     string? Model,
-    int Timeout);
+    int Timeout,
+    ProviderProtocol Protocol);
 
 public readonly record struct OpenAiModelExecutionPolicyIdentity(
     string ProviderId,
@@ -223,7 +233,8 @@ public readonly record struct OpenAiModelExecutionPolicyIdentity(
     string CatalogRevision,
     long EffectiveContextWindow,
     long EffectiveMaxOutput,
-    int RequestFormatVersion);
+    int RequestFormatVersion,
+    ProviderProtocol Protocol = ProviderProtocol.Auto);
 
 public readonly record struct EffectiveOpenAiModel(
     string ProviderPreset,
@@ -232,7 +243,8 @@ public readonly record struct EffectiveOpenAiModel(
     string ApiKey,
     string Model,
     double Temperature,
-    int MaxOutputTokens)
+    int MaxOutputTokens,
+    ProviderProtocol Protocol = ProviderProtocol.Auto)
 {
     public void ValidateChatRole(AiModelRole role)
     {

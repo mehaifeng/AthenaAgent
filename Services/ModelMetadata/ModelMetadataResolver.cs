@@ -58,6 +58,7 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
         var tools = ResolveCapability(profile?.Overrides.SupportsTools, matched, openRouterSource, "tools");
         var reasoning = ResolveCapability(profile?.Overrides.SupportsReasoning, matched, openRouterSource, "reasoning", "include_reasoning");
         var structured = ResolveCapability(profile?.Overrides.SupportsStructuredOutput, matched, openRouterSource, "structured_outputs", "response_format");
+        var responses = ResolveCapability(profile?.Overrides.SupportsResponses, matched, openRouterSource, "responses");
         var inputs = profile?.Overrides.InputModalities is { Count: > 0 } overriddenInputs
             ? overriddenInputs.ToHashSet(StringComparer.OrdinalIgnoreCase)
             : matched?.Architecture.InputModalities ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -67,7 +68,7 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
 
         if (match.Status == ModelMatchStatus.PinnedModelMissing) warnings.Add("PinnedOpenRouterModelMissing");
         if (isCatalogStale) warnings.Add("OpenRouterCatalogStale");
-        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer);
+        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer, responses);
     }
 
     private static ResolvedMetadataValue<CapabilitySupport> ResolveCapability(

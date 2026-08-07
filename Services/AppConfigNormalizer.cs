@@ -53,4 +53,19 @@ public static class AppConfigNormalizer
         config.MaxTerminalOutputChars = Math.Clamp(config.MaxTerminalOutputChars, 1_000, 1_000_000);
     }
 
+    /// <summary>协议枚举归一化：config.json 手改出非法数字时钳回 Auto。</summary>
+    public static void NormalizeProtocol(AppConfig config)
+    {
+        if (config.AiModels?.Providers == null) return;
+        foreach (var provider in config.AiModels.Providers)
+        {
+            if (provider.Protocol is not (ProviderProtocol.Auto
+                or ProviderProtocol.ChatCompletions
+                or ProviderProtocol.Responses))
+            {
+                provider.Protocol = ProviderProtocol.Auto;
+            }
+        }
+    }
+
 }

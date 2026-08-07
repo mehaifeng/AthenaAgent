@@ -4,9 +4,11 @@ using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.SubAgents;
+using Athena.UI.Services.Protocol;
 using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using Serilog.Context;
 using System;
@@ -57,6 +59,10 @@ public class OpenAIChatService : IChatService
     private AppConfig _config;
     private OpenAIClient? _client;
     private ChatClient? _chatClient;
+    // OpenAI SDK Experimental 面（OPENAI001）：字段与 CreateResponsesClient 方法签名统一压制。
+#pragma warning disable OPENAI001
+    private ResponsesClient? _responsesClient;
+#pragma warning restore OPENAI001
     private EffectiveOpenAiModel? _mainModel;
     private OpenAiModelClientIdentity _clientIdentity;
 
@@ -148,11 +154,13 @@ public class OpenAIChatService : IChatService
             var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, _config.Timeout);
             if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
             {
-                Log.Information("Main conversation using provider {Provider}: {BaseUrl}", effective.ProviderDisplayName, effective.BaseUrl);
+                Log.Information("Main conversation using provider {Provider}: {BaseUrl} (protocol {Protocol})",
+                    effective.ProviderDisplayName, effective.BaseUrl, effective.Protocol);
             }
 
             _client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
             _chatClient = _client.GetChatClient(effective.Model);
+            _responsesClient = CreateResponsesClient(effective, _config.Timeout);
             _mainModel = effective;
             Log.Information("Main conversation client initialized successfully, model: {Model}", effective.Model);
         }
@@ -161,9 +169,16 @@ public class OpenAIChatService : IChatService
             Log.Error(ex, "OpenAI client initialization failed");
             _client = null;
             _chatClient = null;
+            _responsesClient = null;
             _mainModel = null;
         }
     }
+
+    /// <summary>Responses 客户端：与 chat 客户端共用 BaseUrl/密钥/重试与超时策略，请求打到 {BaseUrl}/responses。</summary>
+#pragma warning disable OPENAI001
+    private static ResponsesClient CreateResponsesClient(EffectiveOpenAiModel effective, int timeoutSeconds)
+        => ResponsesCallHelpers.CreateResponsesClient(effective, timeoutSeconds);
+#pragma warning restore OPENAI001
 
     public async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -340,6 +355,7 @@ public class OpenAIChatService : IChatService
         int appWorkspaceKnowledgeBudget;
         bool enableMcp;
         bool enableSkills;
+        ProviderProtocol resolvedProtocol;
 
         lock (_runtimeGate)
         {
@@ -373,6 +389,12 @@ public class OpenAIChatService : IChatService
                 profile,
                 catalogSnapshot,
                 _metadataCatalog?.IsStale == true);
+            // 传输协议保守判定：Auto 只在「能确认支持」时切 Responses；未知/手动 provider 走 Chat Completions。
+            resolvedProtocol = ResponsesProtocolResolver.Resolve(
+                provider.Protocol,
+                provider.ProviderPreset,
+                provider.BaseUrl,
+                metadata);
 
             appPolicy = ClonePolicy(config.ContextPolicy);
             providerId = provider.Id;
@@ -413,6 +435,15 @@ public class OpenAIChatService : IChatService
         var policyResolver = _contextPolicyResolver ?? new ModelContextPolicyResolver();
         var policy = policyResolver.Resolve(metadata, appPolicy, workspacePolicy, AiModelRole.MainConversation);
         var compressionPolicySnapshot = _contextPolicyProvider?.ResolveRole(AiModelRole.ContextCompression);
+        // 端点不支持记忆（首次 404/405 降级后置位）优先于协议判定，保证后续请求直接走 chat。
+        ICompletionTransport transport = resolvedProtocol == ProviderProtocol.Responses
+            ? (ResponsesUnsupportedRegistry.IsMarked(providerId)
+                ? ChatCompletionsTransport.Instance
+                : ResponsesTransport.Instance)
+            : ChatCompletionsTransport.Instance;
+        Log.Information(
+            "ProtocolResolved Provider={Provider} Model={Model} Resolved={Protocol} Transport={Transport}",
+            providerId, externalModelId, resolvedProtocol, transport.TransportId);
         var executionIdentity = new OpenAiModelExecutionPolicyIdentity(
             providerId,
             externalModelId,
@@ -420,7 +451,8 @@ public class OpenAIChatService : IChatService
             catalogSnapshot.CatalogRevision,
             policy.ContextWindowTokens,
             policy.OutputReserveTokens,
-            RequestFormatVersion);
+            RequestFormatVersion,
+            resolvedProtocol);
 
         var tools = (_functionRegistry?.HasFunctions == true
                 ? _functionRegistry.GetToolDefinitions().OfType<ChatTool>()
@@ -467,7 +499,9 @@ public class OpenAIChatService : IChatService
             timeoutSeconds,
             RequestFormatVersion,
             DateTimeOffset.UtcNow,
-            compressionPolicySnapshot);
+            compressionPolicySnapshot,
+            _responsesClient,
+            transport);
         Log.Information(
             "ContextPolicyResolved RequestId={RequestId} Provider={ProviderId} Model={Model} CatalogRevision={CatalogRevision} W={Window} B={Budget} T={Threshold}",
             snapshot.RequestId, providerId, externalModelId, catalogSnapshot.CatalogRevision,
@@ -672,18 +706,17 @@ public class OpenAIChatService : IChatService
                 }
             }
 
-            var options = runtime.ChatOptions;
             var prepared = !requestWasRebuilt
                 ? preparedForDecision
                 : _requestPreparer?.Prepare(
                     runtime, messages, context, apiRequestId, context.Revision, imageBinaryIncluded, isImageFallback);
 
-            IAsyncEnumerable<StreamingChatCompletionUpdate>? stream = null;
+            IAsyncEnumerable<NormalizedUpdate>? stream = null;
             string? error = null;
 
             try
             {
-                stream = runtime.ChatClient.CompleteChatStreamingAsync(messages, options, cancellationToken);
+                stream = runtime.Transport!.StreamUpdatesAsync(runtime, messages, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -704,22 +737,25 @@ public class OpenAIChatService : IChatService
             }
 
             var toolCallBuilders = new Dictionary<int, ToolCallBuilder>();
-            ChatFinishReason? finishReason = null;
+            TransportFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
             var assistantReasoning = new StringBuilder();
-            ChatTokenUsage? usage = null;
+            TokenUsageSnapshot? usage = null;
+            long reasoningTokens = 0;
             ProviderInputModalityUsage? inputModalityUsage = null;
+            var anyIncompleteToolCall = false;
             (long Input, long Cached, long Output, long Total)? lastReportedUsage = null;
 
             await foreach (var update in stream.WithCancellation(cancellationToken))
             {
-                // 供应商回报的真实 token 用量随最后一个 chunk 到达（SDK 已自动开启 include_usage）。
-                if (update.Usage != null)
+                // 供应商回报的真实 token 用量随最后一个 chunk 到达（chat：SDK 自动开启 include_usage；
+                // responses：随 response.completed 事件到达）。
+                if (update.Usage is { } snapshotUsage)
                 {
-                    usage = update.Usage;
-                    inputModalityUsage = ExtractInputModalityUsage(update, usage);
-                    var cached = usage.InputTokenDetails?.CachedTokenCount ?? 0;
-                    var observed = ((long)usage.InputTokenCount, (long)cached, (long)usage.OutputTokenCount, (long)usage.TotalTokenCount);
+                    usage = snapshotUsage;
+                    reasoningTokens = update.ReasoningTokenCount ?? 0;
+                    inputModalityUsage = update.InputModalityUsage;
+                    var observed = (snapshotUsage.InputTokens, snapshotUsage.CachedInputTokens, snapshotUsage.OutputTokens, snapshotUsage.TotalTokens);
                     if (lastReportedUsage != observed)
                     {
                         lastReportedUsage = observed;
@@ -735,57 +771,52 @@ public class OpenAIChatService : IChatService
                     }
                 }
 
-                AppendReasoningContent(update, assistantReasoning);
-
-                foreach (var contentPart in update.ContentUpdate)
+                if (!string.IsNullOrEmpty(update.ReasoningText))
                 {
-                    if (!string.IsNullOrEmpty(contentPart.Text))
-                    {
-                        var text = contentPart.Text;
-                        contentBuilder.Append(text);
-                        assistantContent.Append(text);
-                        yield return text;
-                    }
+                    assistantReasoning.Append(update.ReasoningText);
                 }
 
-                foreach (var toolCallUpdate in update.ToolCallUpdates)
+                if (!string.IsNullOrEmpty(update.Text))
                 {
-                    var index = toolCallUpdate.Index;
+                    var text = update.Text;
+                    contentBuilder.Append(text);
+                    assistantContent.Append(text);
+                    yield return text;
+                }
 
+                if (update.ToolCallIndex is { } index)
+                {
                     if (!toolCallBuilders.ContainsKey(index))
                     {
                         toolCallBuilders[index] = new ToolCallBuilder
                         {
-                            Id = toolCallUpdate.ToolCallId ?? string.Empty,
-                            FunctionName = toolCallUpdate.FunctionName ?? string.Empty
+                            Id = update.ToolCallId ?? string.Empty,
+                            FunctionName = update.ToolCallName ?? string.Empty
                         };
                     }
                     else
                     {
                         var builder = toolCallBuilders[index];
-                        if (!string.IsNullOrEmpty(toolCallUpdate.ToolCallId))
+                        if (!string.IsNullOrEmpty(update.ToolCallId))
                         {
-                            builder.Id = toolCallUpdate.ToolCallId;
+                            builder.Id = update.ToolCallId;
                         }
-                        if (!string.IsNullOrEmpty(toolCallUpdate.FunctionName))
+                        if (!string.IsNullOrEmpty(update.ToolCallName))
                         {
-                            builder.FunctionName = toolCallUpdate.FunctionName;
+                            builder.FunctionName = update.ToolCallName;
                         }
                     }
 
-                    if (toolCallUpdate.FunctionArgumentsUpdate != null && toolCallUpdate.FunctionArgumentsUpdate.ToMemory().Length > 0)
+                    if (!string.IsNullOrEmpty(update.ToolCallArgumentsDelta))
                     {
-                        try
-                        {
-                            var argsText = toolCallUpdate.FunctionArgumentsUpdate.ToString();
-                            if (!string.IsNullOrEmpty(argsText))
-                            {
-                                toolCallBuilders[index].Arguments.Append(argsText);
-                                onToolCallArgumentsStreaming?.Invoke(toolCallBuilders[index].FunctionName);
-                            }
-                        }
-                        catch (ArgumentNullException) { }
+                        toolCallBuilders[index].Arguments.Append(update.ToolCallArgumentsDelta);
+                        onToolCallArgumentsStreaming?.Invoke(toolCallBuilders[index].FunctionName);
                     }
+                }
+
+                if (update.ToolCallIncomplete == true)
+                {
+                    anyIncompleteToolCall = true;
                 }
 
                 if (update.FinishReason != null)
@@ -795,24 +826,23 @@ public class OpenAIChatService : IChatService
             }
 
             Log.Debug("Streaming response iteration {Iteration}, {Tools} tool calls", iteration, toolCallBuilders.Count);
-            if (usage != null)
+            if (usage is { } reportedUsage)
             {
-                var cached = usage.InputTokenDetails?.CachedTokenCount ?? 0;
-                var reasoning = usage.OutputTokenDetails?.ReasoningTokenCount ?? 0;
+                var cached = reportedUsage.CachedInputTokens;
                 Log.Information(
                     "Usage {Model}: input {Input} (cached {Cached}), output {Output} (reasoning {Reasoning}), total {Total} tokens (iteration {Iteration})",
                     runtime.MainModel.Model,
-                    usage.InputTokenCount, cached,
-                    usage.OutputTokenCount, reasoning,
-                    usage.TotalTokenCount, iteration);
+                    reportedUsage.InputTokens, cached,
+                    reportedUsage.OutputTokens, reasoningTokens,
+                    reportedUsage.TotalTokens, iteration);
 
                 // 供应商权威值：作下一轮压缩判断的真实基准；UI 已在 usage chunk 到达当刻回调。
-                lastRealInputTokens = usage.InputTokenCount;
-                if (prepared != null && IsValidCalibrationUsage(usage))
+                lastRealInputTokens = (int)Math.Min(reportedUsage.InputTokens, int.MaxValue);
+                if (prepared != null && IsValidCalibrationUsage(reportedUsage))
                 {
                     var trained = _tokenCalibration?.Observe(
                         prepared.Features,
-                        usage.InputTokenCount,
+                        reportedUsage.InputTokens,
                         allowCleanDelta: !isImageFallback,
                         inputModalityUsage) == true;
                     Log.Debug(
@@ -833,12 +863,13 @@ public class OpenAIChatService : IChatService
             // 输出被 MaxTokens 截断时，toolCallBuilders 中的参数 JSON 很可能不完整；
             // 直接执行会导致 JsonException，模型反复重试同样的截断模式。丢弃并引导模型精简参数。
             // 不能只信 finishReason==Length：不少 OpenAI 兼容供应商在截断工具调用时会把 finish_reason
-            // 报成 tool_calls / stop / null，此时必须靠参数 JSON 的完整性自行判断。
+            // 报成 tool_calls / stop / null，此时必须靠参数 JSON 的完整性自行判断
+            // （responses 传输则由服务端 status=incomplete 权威标记，见 NormalizedUpdate.ToolCallIncomplete）。
             if (toolCallBuilders.Count > 0)
             {
-                var truncatedByLength = finishReason == ChatFinishReason.Length;
+                var truncatedByLength = finishReason == TransportFinishReason.Length || anyIncompleteToolCall;
                 var incomplete = toolCallBuilders.Values
-                    .Where(b => !IsCompleteJsonArguments(b.Arguments.ToString()))
+                    .Where(b => !runtime.Transport!.IsToolCallArgumentsComplete(b.Arguments.ToString()))
                     .ToList();
                 if (truncatedByLength || incomplete.Count > 0)
                 {
@@ -853,7 +884,7 @@ public class OpenAIChatService : IChatService
                 }
             }
 
-            var hasToolCalls = finishReason == ChatFinishReason.ToolCalls || toolCallBuilders.Count > 0;
+            var hasToolCalls = finishReason == TransportFinishReason.ToolCalls || toolCallBuilders.Count > 0;
 
             if (!runtime.FunctionCallingEnabled && hasToolCalls)
             {
@@ -932,7 +963,7 @@ public class OpenAIChatService : IChatService
             };
             onMessageAdded?.Invoke(intermediateAssistantMsg);
 
-            messages.Add(CreateAssistantMessageWithToolCalls(toolCalls, assistantContent.ToString(), reasoningContent));
+            runtime.Transport!.AppendAssistantWithTools(messages, assistantContent.ToString(), toolCalls, reasoningContent);
 
             var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
             try
@@ -982,7 +1013,7 @@ public class OpenAIChatService : IChatService
                     };
                     onMessageAdded?.Invoke(toolResultMsg);
 
-                    messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
+                    runtime.Transport!.AppendToolResult(messages, toolCall.Id, resultJson);
                     // 保存工具结果到上下文
                     context.AddToolMessage(resultJson, toolCall.Id, toolResultId);
                     completedToolCallIds.Add(toolCall.Id);
@@ -1015,7 +1046,7 @@ public class OpenAIChatService : IChatService
                             Timestamp = DateTime.Now
                         });
 
-                        messages.Add(new ToolChatMessage(toolCall.Id, interruptedJson));
+                        runtime.Transport!.AppendToolResult(messages, toolCall.Id, interruptedJson);
                         context.AddToolMessage(interruptedJson, toolCall.Id, toolResultId);
                     }
                 }
@@ -1030,116 +1061,23 @@ public class OpenAIChatService : IChatService
         Log.Debug("Loop ended naturally, iterations: {Iteration}", iteration);
     }
 
-    private static AssistantChatMessage CreateAssistantMessageWithToolCalls(
-        IEnumerable<ToolCallInfo> toolCalls,
-        string? content = null,
-        string? reasoningContent = null)
+    private static bool IsValidCalibrationUsage(TokenUsageSnapshot usage)
     {
-        var message = new AssistantChatMessage(content ?? "");
-
-        foreach (var tc in toolCalls)
-        {
-            message.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
-                tc.Id,
-                tc.FunctionName,
-                BinaryData.FromString(tc.Arguments)
-            ));
-        }
-
-        ApplyReasoningContent(message, reasoningContent);
-        return message;
-    }
-
-    private static void AppendReasoningContent(StreamingChatCompletionUpdate update, StringBuilder reasoningBuilder)
-    {
-#pragma warning disable SCME0001
-        if (update.Patch.TryGetValue("$.choices[0].delta.reasoning_content"u8, out string? reasoningChunk)
-            && reasoningChunk != null)
-        {
-            reasoningBuilder.Append(reasoningChunk);
-        }
-#pragma warning restore SCME0001
-    }
-
-    private static void ApplyReasoningContent(AssistantChatMessage message, string? reasoningContent)
-    {
-        if (reasoningContent == null)
-        {
-            return;
-        }
-
-#pragma warning disable SCME0001
-        message.Patch.Set("$.reasoning_content"u8, reasoningContent);
-#pragma warning restore SCME0001
-    }
-
-    private static bool IsValidCalibrationUsage(ChatTokenUsage usage)
-    {
-        var cached = usage.InputTokenDetails?.CachedTokenCount ?? 0;
+        var cached = usage.CachedInputTokens;
         long expectedTotal;
-        try { expectedTotal = checked((long)usage.InputTokenCount + usage.OutputTokenCount); }
+        try { expectedTotal = checked(usage.InputTokens + usage.OutputTokens); }
         catch (OverflowException) { return false; }
-        return usage.InputTokenCount > 0
-               && usage.OutputTokenCount >= 0
-               && usage.TotalTokenCount >= 0
+        return usage.InputTokens > 0
+               && usage.OutputTokens >= 0
+               && usage.TotalTokens >= 0
                && cached >= 0
-               && cached <= usage.InputTokenCount
-               && (usage.TotalTokenCount == 0 || usage.TotalTokenCount >= expectedTotal);
+               && cached <= usage.InputTokens
+               && (usage.TotalTokens == 0 || usage.TotalTokens >= expectedTotal);
     }
-
-    private static ProviderInputModalityUsage? ExtractInputModalityUsage(
-        StreamingChatCompletionUpdate update,
-        ChatTokenUsage usage)
-    {
-        long? audioTokens = usage.InputTokenDetails?.AudioTokenCount is > 0
-            ? usage.InputTokenDetails.AudioTokenCount
-            : null;
-        var imageTokens = TryGetUsageDetail(update, "image_tokens");
-        var textTokens = TryGetUsageDetail(update, "text_tokens");
-        return audioTokens.HasValue || imageTokens.HasValue || textTokens.HasValue
-            ? new ProviderInputModalityUsage(textTokens, imageTokens, audioTokens)
-            : null;
-    }
-
-    private static long? TryGetUsageDetail(StreamingChatCompletionUpdate update, string fieldName)
-    {
-#pragma warning disable SCME0001
-        var promptPath = System.Text.Encoding.UTF8.GetBytes($"$.usage.prompt_tokens_details.{fieldName}");
-        if (update.Patch.TryGetValue(promptPath, out long promptValue) && promptValue >= 0)
-            return promptValue;
-        var inputPath = System.Text.Encoding.UTF8.GetBytes($"$.usage.input_tokens_details.{fieldName}");
-        return update.Patch.TryGetValue(inputPath, out long inputValue) && inputValue >= 0
-            ? inputValue
-            : null;
-#pragma warning restore SCME0001
-    }
-
-    private record ToolCallInfo(string Id, string FunctionName, string Arguments);
 
     private bool IsFunctionCallingEnabled()
     {
         return _functionRegistry?.HasFunctions == true;
-    }
-
-    // 校验流式累积出来的工具参数是否为完整 JSON。截断的工具调用（如被 MaxTokens 切断）会得到
-    // 半截 JSON（例如缺少收尾的 }），直接执行会在解析阶段抛异常并让模型陷入同样的重试循环。
-    // 空串 / "{}" 视为合法（无参工具的常见输出）；只有能完整解析的对象/数组才算完整。
-    private static bool IsCompleteJsonArguments(string? arguments)
-    {
-        if (string.IsNullOrWhiteSpace(arguments))
-        {
-            return true;
-        }
-
-        try
-        {
-            using var _ = JsonDocument.Parse(arguments);
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
     }
 
     private void ApplyToolOptions(ChatCompletionOptions options)
@@ -1299,7 +1237,7 @@ public class OpenAIChatService : IChatService
                     break;
                 case "assistant":
                     var assistantMsg = new AssistantChatMessage(msg.Content);
-                    ApplyReasoningContent(assistantMsg, msg.ReasoningContent);
+                    ChatCompletionsTransport.ApplyReasoningContent(assistantMsg, msg.ReasoningContent);
                     if (!string.IsNullOrWhiteSpace(msg.OutputAudioReferenceId))
                     {
 #pragma warning disable OPENAI001
@@ -1773,21 +1711,39 @@ public class OpenAIChatService : IChatService
             }
             if (parts.Count == 1) return null;
 
-            var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, runtime.TimeoutSeconds);
-            var client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options).GetChatClient(effective.Model);
-            var completion = await client.CompleteChatAsync(
-                new OpenAI.Chat.ChatMessage[]
-                {
-                    new SystemChatMessage("You are an image recognition fallback. Return factual visual observations only."),
-                    new UserChatMessage(parts)
-                },
-                new ChatCompletionOptions
-                {
-                    Temperature = (float)effective.Temperature,
-                    MaxOutputTokenCount = effective.MaxOutputTokens
-                },
-                cancellationToken);
-            var description = string.Concat(completion.Value.Content.Select(part => part.Text));
+            string description;
+            if (ResponsesCallHelpers.ShouldUseResponses(effective))
+            {
+#pragma warning disable OPENAI001
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, runtime.TimeoutSeconds);
+                var responsesOptions = ResponsesCallHelpers.CreateOptions(
+                    effective,
+                    "You are an image recognition fallback. Return factual visual observations only.",
+                    (float)effective.Temperature,
+                    effective.MaxOutputTokens);
+                responsesOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(ResponsesCallHelpers.BuildContentParts(parts)));
+                var result = await responses.CreateResponseAsync(responsesOptions, cancellationToken);
+                description = ResponsesCallHelpers.GetConcatenatedOutputText(result.Value);
+#pragma warning restore OPENAI001
+            }
+            else
+            {
+                var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, runtime.TimeoutSeconds);
+                var client = new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options).GetChatClient(effective.Model);
+                var completion = await client.CompleteChatAsync(
+                    new OpenAI.Chat.ChatMessage[]
+                    {
+                        new SystemChatMessage("You are an image recognition fallback. Return factual visual observations only."),
+                        new UserChatMessage(parts)
+                    },
+                    new ChatCompletionOptions
+                    {
+                        Temperature = (float)effective.Temperature,
+                        MaxOutputTokenCount = effective.MaxOutputTokens
+                    },
+                    cancellationToken);
+                description = string.Concat(completion.Value.Content.Select(part => part.Text));
+            }
             return string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         }
         catch (Exception ex)

@@ -1,4 +1,5 @@
 #pragma warning disable CA2000 // Test composition root transfers ownership to windows/aggregate VMs; lifecycle cases dispose explicitly.
+#pragma warning disable OPENAI001 // Responses API 为 OpenAI SDK Experimental 面；测试夹具与其直接交互。
 
 using Avalonia;
 using Avalonia.Automation;
@@ -21,8 +22,10 @@ using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
+using Athena.UI.Services.Protocol;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
+using OpenAI.Responses;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -61,6 +64,14 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesToolLoopAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesTruncatedToolCallRetryAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesReasoningTextAsync).GetAwaiter().GetResult();
+Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
+Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
+Task.Run(TestImageFallbackResponsesAsync).GetAwaiter().GetResult();
+TestResponsesProtocolAutoResolution();
 TestWorkspaceInlineRenameVisual();
 Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceEditorRestoreAsync).GetAwaiter().GetResult();
@@ -3249,6 +3260,420 @@ static async Task TestToolLoopTransactionalCompressionAsync()
     Console.WriteLine("[PASS] large tool-result delta triggers ID-based transactional compression before the next API request");
 }
 
+static async Task TestResponsesStreamingTextAndUsageAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-stream-provider",
+        DisplayName = "Responses provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-stream.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-model", DisplayName = "Responses model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-model";
+
+    var output = new StringBuilder();
+    var usageEvents = new List<string>();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.TextOnly);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var context = new ConversationContext { ConversationId = "responses-stream" };
+    await foreach (var chunk in service.StreamMessageAsync("hi", context,
+                       onUsageReported: usage => usageEvents.Add($"usage:{usage.InputTokens}")))
+    {
+        output.Append(chunk);
+    }
+
+    if (output.ToString() != "done")
+        throw new InvalidOperationException($"Responses streaming text mismatch: '{output}'");
+    if (usageEvents.Count != 1 || usageEvents[0] != "usage:68")
+        throw new InvalidOperationException($"Responses usage mismatch: {string.Join(",", usageEvents)}");
+    if (handler.RequestBodies.Count != 1)
+        throw new InvalidOperationException("Responses transport must issue exactly one request for a single-round turn.");
+    var requestBody = handler.RequestBodies[0];
+    if (!requestBody.Contains("\"include\":[\"reasoning\"]", StringComparison.Ordinal)
+        || !requestBody.Contains("\"store\":false", StringComparison.Ordinal))
+        throw new InvalidOperationException("Responses request must carry include=reasoning and stateless store=false.");
+    Console.WriteLine("[PASS] responses streaming text, usage, include=reasoning and stateless store=false");
+}
+
+static async Task TestResponsesToolLoopAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-tool-provider",
+        DisplayName = "Responses tool provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-tool.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-tool-model", DisplayName = "Responses tool model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-tool-model";
+
+    var events = new List<string>();
+    var registry = new ImmediateUsageFunctionRegistry(events);
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: registry,
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.ToolLoop);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var context = new ConversationContext { ConversationId = "responses-tool" };
+    await foreach (var _ in service.StreamMessageAsync("run probe", context,
+                       onUsageReported: usage => events.Add($"usage:{usage.InputTokens}")))
+    {
+    }
+
+    if (handler.RequestCount != 2
+        || events.Count(entry => entry.StartsWith("usage:", StringComparison.Ordinal)) != 2)
+        throw new InvalidOperationException("Each responses tool-loop request must report its own Usage.");
+    var firstUsage = events.IndexOf("usage:41");
+    var toolExecution = events.IndexOf("tool:probe");
+    var finalUsage = events.IndexOf("usage:68");
+    if (firstUsage < 0 || toolExecution <= firstUsage || finalUsage <= toolExecution)
+        throw new InvalidOperationException("First responses Usage was not delivered before tool execution and the final API round.");
+    Console.WriteLine("[PASS] responses tool loop executes the registered function between two API rounds");
+}
+
+static async Task TestResponsesTruncatedToolCallRetryAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-trunc-provider",
+        DisplayName = "Responses truncation provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-trunc.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-trunc-model", DisplayName = "Responses truncation model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-trunc-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.ToolTruncated);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var output = new StringBuilder();
+    var context = new ConversationContext { ConversationId = "responses-trunc" };
+    await foreach (var chunk in service.StreamMessageAsync("run probe", context))
+    {
+        output.Append(chunk);
+    }
+
+    if (handler.RequestCount != 2 || output.ToString() != "done")
+        throw new InvalidOperationException($"Status-incomplete tool call did not retry over a fresh request (requests={handler.RequestCount}, output='{output}')");
+    if (handler.RequestBodies.Count < 2
+        || !handler.RequestBodies[1].Contains("previous tool call arguments were truncated", StringComparison.Ordinal))
+        throw new InvalidOperationException("Retry request must carry the truncated-arguments instruction.");
+    Console.WriteLine("[PASS] responses status=incomplete tool call drops the call and retries with a truncation instruction");
+}
+
+static async Task TestResponsesReasoningTextAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-reasoning-provider",
+        DisplayName = "Responses reasoning provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-reasoning.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-reasoning-model", DisplayName = "Responses reasoning model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-reasoning-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.Reasoning);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var context = new ConversationContext { ConversationId = "responses-reasoning" };
+    await foreach (var _ in service.StreamMessageAsync("think", context))
+    {
+    }
+
+    var reasoning = context.Messages
+        .Where(message => message.Role == "assistant")
+        .Select(message => message.ReasoningContent)
+        .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    if (reasoning != "step one step two")
+        throw new InvalidOperationException($"Responses reasoning text was not carried into ReasoningContent: '{reasoning}'");
+    Console.WriteLine("[PASS] responses reasoning_text deltas flow into ChatMessage.ReasoningContent");
+}
+
+static async Task TestResponsesEndpointUnsupportedFallbackAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "responses-fallback-provider",
+        DisplayName = "Responses fallback provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://responses-fallback.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-fallback-model", DisplayName = "Responses fallback model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "responses-fallback-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ResponsesSseHandler(ResponsesSseHandler.Mode.Fallback404);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+    // 降级后由 ChatCompletionsTransport 重发，_chatClient 必须指向同一假管道。
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("responses-fallback-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var output = new StringBuilder();
+    var context = new ConversationContext { ConversationId = "responses-fallback" };
+    await foreach (var chunk in service.StreamMessageAsync("hi", context))
+    {
+        output.Append(chunk);
+    }
+
+    if (handler.RequestCount != 2 || output.ToString() != "done")
+        throw new InvalidOperationException($"404 fallback did not re-issue the request over Chat Completions (requests={handler.RequestCount}, output='{output}')");
+    if (!ResponsesUnsupportedRegistry.IsMarked(provider.Id))
+        throw new InvalidOperationException("Provider must be marked as not supporting /responses after the fallback.");
+    Console.WriteLine("[PASS] /responses 404 falls back to Chat Completions once and marks the provider");
+}
+
+static async Task TestImageFallbackChatAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "image-fallback-chat-provider",
+        DisplayName = "Image fallback chat provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://image-fallback-chat.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "image-fallback-chat-model", DisplayName = "Image fallback chat model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "image-fallback-chat-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ImageRejectThenFinalSseHandler(responsesFormat: false);
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("image-fallback-chat-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var pngPath = Path.Combine(Path.GetTempPath(), $"athena-image-probe-{Guid.NewGuid():N}.png");
+    try
+    {
+        File.WriteAllBytes(pngPath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        var attachment = new ChatAttachment
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Kind = AttachmentKind.Image,
+            FileName = "probe.png",
+            StoredPath = pngPath,
+            MimeType = "image/png",
+            SizeBytes = 8,
+            Width = 1,
+            Height = 1
+        };
+        var context = new ConversationContext { ConversationId = "image-fallback-chat" };
+        context.AddUserMessage("describe this image", attachments: [attachment]);
+
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync("describe this image", context))
+        {
+            output.Append(chunk);
+        }
+
+        if (handler.RequestCount != 2 || output.ToString() != "done")
+            throw new InvalidOperationException($"Image rejection did not retry as text paths (requests={handler.RequestCount}, output='{output}')");
+        if (handler.RequestBodies.Count != 2
+            || !handler.RequestBodies[0].Contains("data:image", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal))
+            throw new InvalidOperationException("First request must carry the image bytes; the fallback request must not.");
+    }
+    finally
+    {
+        File.Delete(pngPath);
+    }
+
+    Console.WriteLine("[PASS] chat image rejection retries with image paths as plain text");
+}
+
+static async Task TestImageFallbackResponsesAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "image-fallback-responses-provider",
+        DisplayName = "Image fallback responses provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://image-fallback-responses.invalid/v1",
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "image-fallback-responses-model", DisplayName = "Image fallback responses model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "image-fallback-responses-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ImageRejectThenFinalSseHandler(responsesFormat: true);
+    using var httpClient = new HttpClient(handler);
+    InjectResponsesClient(service, ResponsesSseHandler.CreateClient(provider.BaseUrl, httpClient));
+
+    var pngPath = Path.Combine(Path.GetTempPath(), $"athena-image-probe-{Guid.NewGuid():N}.png");
+    try
+    {
+        File.WriteAllBytes(pngPath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        var attachment = new ChatAttachment
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Kind = AttachmentKind.Image,
+            FileName = "probe.png",
+            StoredPath = pngPath,
+            MimeType = "image/png",
+            SizeBytes = 8,
+            Width = 1,
+            Height = 1
+        };
+        var context = new ConversationContext { ConversationId = "image-fallback-responses" };
+        context.AddUserMessage("describe this image", attachments: [attachment]);
+
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync("describe this image", context))
+        {
+            output.Append(chunk);
+        }
+
+        if (handler.RequestCount != 2 || output.ToString() != "done")
+            throw new InvalidOperationException($"Responses image rejection did not retry as text items (requests={handler.RequestCount}, output='{output}')");
+        if (handler.RequestBodies.Count != 2
+            || !handler.RequestBodies[0].Contains("\"type\":\"input_image\"", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains("\"type\":\"input_image\"", StringComparison.Ordinal))
+            throw new InvalidOperationException("First responses request must carry an input_image part; the fallback request must not.");
+    }
+    finally
+    {
+        File.Delete(pngPath);
+    }
+
+    Console.WriteLine("[PASS] responses image rejection retries with image paths as plain text");
+}
+
+static void TestResponsesProtocolAutoResolution()
+{
+    // 显式配置直接生效。
+    if (ResponsesProtocolResolver.Resolve(ProviderProtocol.Responses, "OpenAI", "https://api.openai.com/v1", null) != ProviderProtocol.Responses
+        || ResponsesProtocolResolver.Resolve(ProviderProtocol.ChatCompletions, "OpenAI", "https://api.openai.com/v1", null) != ProviderProtocol.ChatCompletions)
+        throw new InvalidOperationException("Explicit protocol configuration must win.");
+    // 官方 OpenAI + 推理模型 → Responses。
+    var reasoningMetadata = FixtureMetadata(supportsReasoning: CapabilitySupport.Supported, supportsResponses: CapabilitySupport.Unknown);
+    if (ResponsesProtocolResolver.Resolve(ProviderProtocol.Auto, "OpenAI", "https://api.openai.com/v1", reasoningMetadata) != ProviderProtocol.Responses)
+        throw new InvalidOperationException("Official OpenAI endpoint with a reasoning model must resolve to Responses.");
+    // 目录元数据确认支持 → Responses。
+    var catalogResponses = FixtureMetadata(supportsReasoning: CapabilitySupport.Unknown, supportsResponses: CapabilitySupport.Supported);
+    if (ResponsesProtocolResolver.Resolve(ProviderProtocol.Auto, "Custom", "https://custom.invalid/v1", catalogResponses) != ProviderProtocol.Responses)
+        throw new InvalidOperationException("Catalog-confirmed /responses support must resolve to Responses.");
+    // 未知 provider / 非推理模型 / 无元数据 → Chat Completions（保守）。
+    if (ResponsesProtocolResolver.Resolve(ProviderProtocol.Auto, "Custom", "https://custom.invalid/v1", null) != ProviderProtocol.ChatCompletions)
+        throw new InvalidOperationException("Unknown provider must stay on Chat Completions.");
+    var nonReasoning = FixtureMetadata(supportsReasoning: CapabilitySupport.Unsupported, supportsResponses: CapabilitySupport.Unknown);
+    if (ResponsesProtocolResolver.Resolve(ProviderProtocol.Auto, "OpenAI", "https://api.openai.com/v1", nonReasoning) != ProviderProtocol.ChatCompletions)
+        throw new InvalidOperationException("Official endpoint without a reasoning model must stay on Chat Completions.");
+    Console.WriteLine("[PASS] responses protocol Auto resolution is conservative and metadata-driven");
+}
+
+static ResolvedModelMetadata FixtureMetadata(CapabilitySupport supportsReasoning, CapabilitySupport supportsResponses)
+    => new(
+        "provider", "model", new ModelMatchResult(ModelMatchStatus.Unmatched, null, null, null, null, null, false, [], [], "empty", false, false),
+        new ResolvedMetadataValue<long>(1_000_000, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<long?>(null, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(CapabilitySupport.Unknown, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(supportsReasoning, MetadataValueSource.ApplicationDefault),
+        new ResolvedMetadataValue<CapabilitySupport>(CapabilitySupport.Unknown, MetadataValueSource.ApplicationDefault),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        [],
+        TokenizerHint: null,
+        SupportsResponses: new ResolvedMetadataValue<CapabilitySupport>(supportsResponses, MetadataValueSource.ApplicationDefault));
+
+static void InjectResponsesClient(OpenAIChatService service, ResponsesClient responsesClient)
+{
+    var field = typeof(OpenAIChatService).GetField("_responsesClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("OpenAIChatService._responsesClient field was not found.");
+    field.SetValue(service, responsesClient);
+}
+
 static async Task TestTransactionalCompressionCommitAsync()
 {
     static ConversationHistoryItem Fixture(string id) => new()
@@ -4810,6 +5235,197 @@ sealed class TruncatedThenFinalSseHandler : HttpMessageHandler
         {
             Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
         });
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>Responses 协议 SSE 夹具：输出 response.* 事件（SDK 按 data 行 JSON 的 type 字段分发）。
+/// 注意：C# 原始字符串会剥离首尾纯空白行，因此每个 body 必须写成单一原始字符串，事件间用空行分隔，
+/// 禁止跨字符串拼接（否则事件粘连导致 JSON 解析失败）。</summary>
+sealed class ResponsesSseHandler : HttpMessageHandler
+{
+    public enum Mode
+    {
+        TextOnly,
+        ToolLoop,
+        ToolTruncated,
+        Reasoning,
+        Fallback404
+    }
+
+    public int RequestCount { get; private set; }
+    public List<string> RequestBodies { get; } = new();
+
+    private readonly Mode _mode;
+
+    public ResponsesSseHandler(Mode mode) => _mode = mode;
+
+    public static ResponsesClient CreateClient(string baseUrl, HttpClient httpClient)
+    {
+        var options = new ResponsesClientOptions
+        {
+            Endpoint = new Uri(baseUrl),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        };
+        return new ResponsesClient(new ApiKeyCredential("test-key"), options);
+    }
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        if (request.Content != null)
+        {
+            RequestBodies.Add(request.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult());
+        }
+
+        if (_mode == Mode.Fallback404 && RequestCount == 1)
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(
+                    "{\"error\":{\"message\":\"Not Found: /v1/responses\",\"type\":\"invalid_request_error\",\"code\":\"not_found\"}}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        }
+
+        var body = _mode switch
+        {
+            Mode.TextOnly => FinalRoundBody,
+            Mode.ToolLoop when RequestCount == 1 => ToolRoundBody,
+            Mode.ToolLoop => FinalRoundBody,
+            Mode.ToolTruncated when RequestCount == 1 => TruncatedToolRoundBody,
+            Mode.ToolTruncated => FinalRoundBody,
+            Mode.Reasoning => ReasoningBody,
+            Mode.Fallback404 => ChatFinalBody,
+            _ => FinalRoundBody
+        };
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
+
+    private static string ToolRoundBody => """
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"responses-model","output":[],"usage":null}}
+
+        data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_1","type":"function_call","status":"in_progress","call_id":"call_probe","name":"probe","arguments":"","output":null}}
+
+        data: {"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_1","output_index":0,"delta":"{}"}
+
+        data: {"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_1","output_index":0,"arguments":"{}"}
+
+        data: {"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"id":"fc_1","type":"function_call","status":"completed","call_id":"call_probe","name":"probe","arguments":"{}","output":null}}
+
+        data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_tool","object":"response","created_at":1785580000,"status":"completed","model":"responses-model","output":[{"id":"fc_1","type":"function_call","status":"completed","call_id":"call_probe","name":"probe","arguments":"{}","output":null}],"usage":{"input_tokens":41,"input_tokens_details":{"cached_tokens":3,"image_tokens":17},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":46}}}
+
+        data: [DONE]
+
+        """;
+
+    private static string TruncatedToolRoundBody => """
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"responses-model","output":[],"usage":null}}
+
+        data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_trunc","type":"function_call","status":"in_progress","call_id":"call_trunc","name":"probe","arguments":"","output":null}}
+
+        data: {"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_trunc","output_index":0,"delta":"{"}
+
+        data: {"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_trunc","output_index":0,"arguments":"{"}
+
+        data: {"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"id":"fc_trunc","type":"function_call","status":"incomplete","call_id":"call_trunc","name":"probe","arguments":"{","output":null}}
+
+        data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_trunc","object":"response","created_at":1785580000,"status":"completed","model":"responses-model","output":[{"id":"fc_trunc","type":"function_call","status":"incomplete","call_id":"call_trunc","name":"probe","arguments":"{","output":null}],"usage":{"input_tokens":41,"input_tokens_details":{"cached_tokens":0},"output_tokens":5,"total_tokens":46}}}
+
+        data: [DONE]
+
+        """;
+
+    internal static string FinalRoundBody => """
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"responses-model","output":[],"usage":null}}
+
+        data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+        data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_1","output_index":0,"content_index":0,"delta":"done"}
+
+        data: {"type":"response.output_text.done","sequence_number":3,"item_id":"msg_1","output_index":0,"content_index":0,"text":"done"}
+
+        data: {"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}}
+
+        data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_final","object":"response","created_at":1785580001,"status":"completed","model":"responses-model","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}],"usage":{"input_tokens":68,"input_tokens_details":{"cached_tokens":0,"image_tokens":19},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":70}}}
+
+        data: [DONE]
+
+        """;
+
+    private static string ReasoningBody => """
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"responses-model","output":[],"usage":null}}
+
+        data: {"type":"response.reasoning_text.delta","sequence_number":1,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"step one "}
+
+        data: {"type":"response.reasoning_text.delta","sequence_number":2,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"step two"}
+
+        data: {"type":"response.reasoning_text.done","sequence_number":3,"item_id":"rs_1","output_index":0,"content_index":0,"text":"step one step two"}
+
+        data: {"type":"response.output_item.added","sequence_number":4,"output_index":0,"item":{"id":"msg_2","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+        data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_2","output_index":0,"content_index":0,"delta":"done"}
+
+        data: {"type":"response.output_text.done","sequence_number":6,"item_id":"msg_2","output_index":0,"content_index":0,"text":"done"}
+
+        data: {"type":"response.output_item.done","sequence_number":7,"output_index":0,"item":{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}}
+
+        data: {"type":"response.completed","sequence_number":8,"response":{"id":"resp_reason","object":"response","created_at":1785580002,"status":"completed","model":"responses-model","output":[{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":[]}]}],"usage":{"input_tokens":68,"input_tokens_details":{"cached_tokens":0},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":9},"total_tokens":70}}}
+
+        data: [DONE]
+
+        """;
+
+    internal const string ChatFinalBody = """
+        data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1785580003,"model":"responses-fallback-model","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+
+        data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1785580003,"model":"responses-fallback-model","choices":[],"usage":{"prompt_tokens":68,"completion_tokens":2,"total_tokens":70}}
+
+        data: [DONE]
+
+        """;
+}
+
+/// <summary>图片降级夹具：请求 1 返回 400「不支持图片输入」，请求 2 起返回正常终态（chat 或 responses 格式）。</summary>
+sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
+{
+    private readonly bool _responsesFormat;
+    public int RequestCount { get; private set; }
+    public List<string> RequestBodies { get; } = new();
+
+    public ImageRejectThenFinalSseHandler(bool responsesFormat) => _responsesFormat = responsesFormat;
+
+#pragma warning disable CA2000
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        if (request.Content != null)
+        {
+            RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+        }
+
+        if (RequestCount == 1)
+        {
+            return new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(
+                    "{\"error\":{\"message\":\"This model does not support image input\",\"type\":\"invalid_request_error\"}}",
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        }
+
+        var body = _responsesFormat ? ResponsesSseHandler.FinalRoundBody : ResponsesSseHandler.ChatFinalBody;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        };
     }
 #pragma warning restore CA2000
 }

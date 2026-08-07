@@ -147,6 +147,7 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
             runtime.ExecutionPolicyIdentity.ExternalModelId,
             runtime.ModelMetadata.TokenizerHint ?? "unknown-tokenizer",
             runtime.RequestFormatVersion,
+            runtime.ExecutionPolicyIdentity.Protocol,
             ImageEncodingVersion,
             runtime.ToolFingerprint);
     }

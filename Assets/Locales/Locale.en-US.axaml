@@ -443,6 +443,11 @@
     <system:String x:Key="ProviderModels.PresetPlaceholder">OpenAI / OpenRouter / Custom</system:String>
     <system:String x:Key="ProviderModels.ApiRoot">API root</system:String>
     <system:String x:Key="ProviderModels.ApiKey">API key</system:String>
+    <system:String x:Key="ProviderModels.Protocol">Protocol</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Hint">Request transport. Auto: use Responses only when the endpoint is official OpenAI with a reasoning model, or the model metadata confirms Responses support; otherwise use Chat Completions.</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Auto">Auto</system:String>
+    <system:String x:Key="ProviderModels.Protocol.ChatCompletions">Chat Completions</system:String>
+    <system:String x:Key="ProviderModels.Protocol.Responses">Responses</system:String>
     <system:String x:Key="ProviderModels.RefreshInventory">Refresh inventory</system:String>
     <system:String x:Key="ProviderModels.ManualModelId">Manual model ID</system:String>
     <system:String x:Key="ProviderModels.Roles">Business roles</system:String>
@@ -486,6 +491,7 @@
     <system:String x:Key="ProviderModels.Metadata.Tools">Tools:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Reasoning">Reasoning:</system:String>
     <system:String x:Key="ProviderModels.Metadata.StructuredOutputs">Structured outputs:</system:String>
+    <system:String x:Key="ProviderModels.Metadata.Responses">Responses:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">Input modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">Output modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">input modalities: text, image</system:String>

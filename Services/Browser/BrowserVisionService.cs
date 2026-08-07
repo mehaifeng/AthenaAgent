@@ -1,7 +1,9 @@
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
 using OpenAI.Chat;
+using OpenAI.Responses;
 using Serilog;
 using System;
 using System.ClientModel;
@@ -12,6 +14,8 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+// OpenAI SDK Experimental 面（OPENAI001）：本文件直接使用 Responses 类型。
+#pragma warning disable OPENAI001
 
 namespace Athena.UI.Services.Browser;
 
@@ -69,16 +73,25 @@ public class BrowserVisionService : IBrowserVisionService
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
-            var completion = await BrowserStructuredOutput.CompleteAsync(
-                chatClient,
-                messages,
-                options,
-                config.BrowserStructuredOutputMode,
-                effectiveConfig.BaseUrl,
-                effectiveConfig.Model,
-                _logger,
-                cancellationToken);
-            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var content = ResponsesCallHelpers.ShouldUseResponses(effectiveConfig.ToEffectiveOpenAiModel())
+                ? await BrowserStructuredOutput.CompleteResponsesTextAsync(
+                    effectiveConfig,
+                    messages,
+                    (float)effectiveConfig.Temperature,
+                    effectiveConfig.MaxTokens,
+                    config.BrowserStructuredOutputMode,
+                    config.Timeout,
+                    _logger,
+                    cancellationToken)
+                : (await BrowserStructuredOutput.CompleteAsync(
+                    chatClient,
+                    messages,
+                    options,
+                    config.BrowserStructuredOutputMode,
+                    effectiveConfig.BaseUrl,
+                    effectiveConfig.Model,
+                    _logger,
+                    cancellationToken)).Content.FirstOrDefault()?.Text ?? string.Empty;
             var output = ParseAgentOutput(content);
             if (output.Action.Count == 0)
             {
@@ -142,16 +155,25 @@ public class BrowserVisionService : IBrowserVisionService
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
-            var completion = await BrowserStructuredOutput.CompleteAsync(
-                chatClient,
-                messages,
-                options,
-                config.BrowserStructuredOutputMode,
-                effectiveConfig.BaseUrl,
-                effectiveConfig.Model,
-                _logger,
-                cancellationToken);
-            var content = completion.Content.FirstOrDefault()?.Text ?? string.Empty;
+            var content = ResponsesCallHelpers.ShouldUseResponses(effectiveConfig.ToEffectiveOpenAiModel())
+                ? await BrowserStructuredOutput.CompleteResponsesTextAsync(
+                    effectiveConfig,
+                    messages,
+                    (float)effectiveConfig.Temperature,
+                    effectiveConfig.MaxTokens,
+                    config.BrowserStructuredOutputMode,
+                    config.Timeout,
+                    _logger,
+                    cancellationToken)
+                : (await BrowserStructuredOutput.CompleteAsync(
+                    chatClient,
+                    messages,
+                    options,
+                    config.BrowserStructuredOutputMode,
+                    effectiveConfig.BaseUrl,
+                    effectiveConfig.Model,
+                    _logger,
+                    cancellationToken)).Content.FirstOrDefault()?.Text ?? string.Empty;
             var decision = ParseDecision(content, task, observation);
             _logger.Information(
                 "Browser vision decision received. Model={Model}, Action={Action}, ElementId={ElementId}, Url={Url}, Confidence={Confidence}, ResponseLength={ResponseLength}",
@@ -202,31 +224,70 @@ public class BrowserVisionService : IBrowserVisionService
             // SoM 模式真正依赖图像输入：附带一张 1×1 测试图，以验证该模型确实支持视觉，
             // 而不仅仅是文本可达。DomOnly 模式只需文本推理，发纯文本即可。
             var needsVision = config.BrowserObservationMode != BrowserObservationMode.DomOnly;
-            UserChatMessage userMessage = needsVision
-                ? new UserChatMessage(
-                    ChatMessageContentPart.CreateTextPart("Reply with OK only."),
-                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(VisionProbePngBytes), "image/png", ChatImageDetailLevel.Low))
-                : new UserChatMessage("test");
-
             // 上限给足：reasoning 模型的思考 token 也计入 max_tokens，给太小会在
             // 输出可见内容前被截断，表现为"空响应"。Temperature 留空用服务端默认值，
             // 避免个别下游供应商拒绝显式参数。
-            var response = await chatClient.CompleteChatAsync(
-                new OpenAI.Chat.ChatMessage[]
+            var effectiveModel = effectiveConfig.ToEffectiveOpenAiModel();
+            string? text;
+            if (ResponsesCallHelpers.ShouldUseResponses(effectiveModel))
+            {
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effectiveModel, config.Timeout);
+                var responsesOptions = ResponsesCallHelpers.CreateOptions(
+                    effectiveModel,
+                    "Reply with OK only.",
+                    temperature: null,
+                    maxOutputTokens: 512);
+                if (needsVision)
                 {
-                    new SystemChatMessage("Reply with OK only."),
-                    userMessage
-                },
-                new ChatCompletionOptions { MaxOutputTokenCount = 512 },
-                cancellationToken);
+                    responsesOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(new[]
+                    {
+                        ResponseContentPart.CreateInputTextPart("Reply with OK only."),
+                        ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(VisionProbePngBytes), ResponseImageDetailLevel.Low)
+                    }));
+                }
+                else
+                {
+                    responsesOptions.InputItems.Add(ResponseItem.CreateUserMessageItem("test"));
+                }
 
-            var text = response.Value.Content.FirstOrDefault()?.Text;
+                var result = await responses.CreateResponseAsync(responsesOptions, cancellationToken);
+                text = ResponsesCallHelpers.GetFirstOutputText(result.Value);
+                if (string.IsNullOrWhiteSpace(text)
+                    && result.Value.Status == ResponseStatus.Incomplete
+                    && result.Value.IncompleteStatusDetails?.Reason == ResponseIncompleteStatusReason.MaxOutputTokens)
+                {
+                    return (false, "Browser agent model output was truncated by max_tokens before any visible content (likely a reasoning model burning tokens on hidden thinking).");
+                }
+            }
+            else
+            {
+                UserChatMessage userMessage = needsVision
+                    ? new UserChatMessage(
+                        ChatMessageContentPart.CreateTextPart("Reply with OK only."),
+                        ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(VisionProbePngBytes), "image/png", ChatImageDetailLevel.Low))
+                    : new UserChatMessage("test");
+                var response = await chatClient.CompleteChatAsync(
+                    new OpenAI.Chat.ChatMessage[]
+                    {
+                        new SystemChatMessage("Reply with OK only."),
+                        userMessage
+                    },
+                    new ChatCompletionOptions { MaxOutputTokenCount = 512 },
+                    cancellationToken);
+
+                text = response.Value.Content.FirstOrDefault()?.Text;
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return response.Value.FinishReason == ChatFinishReason.Length
+                        ? (false, "Browser agent model output was truncated by max_tokens before any visible content (likely a reasoning model burning tokens on hidden thinking).")
+                        : (false, "Browser agent model returned an empty response.");
+                }
+            }
+
             var capability = needsVision ? "vision (image input verified)" : "text-only";
             if (string.IsNullOrWhiteSpace(text))
             {
-                return response.Value.FinishReason == ChatFinishReason.Length
-                    ? (false, "Browser agent model output was truncated by max_tokens before any visible content (likely a reasoning model burning tokens on hidden thinking).")
-                    : (false, "Browser agent model returned an empty response.");
+                return (false, "Browser agent model returned an empty response.");
             }
 
             return (true, $"Browser agent model connection succeeded [{capability}]. ApiKeySource={effectiveConfig.ApiKeySource}, BaseUrlSource={effectiveConfig.BaseUrlSource}, Model={effectiveConfig.Model}.");
