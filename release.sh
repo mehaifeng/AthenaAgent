@@ -210,6 +210,16 @@ create_app_bundle() {
   # and break the browser feature for DMG installs.
   cp -R "$package_dir"/. "$app_bundle/Contents/MacOS/"
 
+  # The Playwright driver (.playwright) contains a Mach-O node binary; codesign
+  # treats it as a nested code object and fails ("bundle format unrecognized")
+  # when it lives in Contents/MacOS. Ship it under Contents/Resources instead,
+  # where codesign seals it as plain data. The app points the Playwright driver
+  # search path at it via PLAYWRIGHT_DRIVER_SEARCH_PATH (see Program.cs).
+  if [ -d "$app_bundle/Contents/MacOS/.playwright" ]; then
+    mkdir -p "$app_bundle/Contents/Resources"
+    mv "$app_bundle/Contents/MacOS/.playwright" "$app_bundle/Contents/Resources/.playwright"
+  fi
+
   # Generate Info.plist from csproj CFBundle properties
   cat > "$app_bundle/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -253,9 +263,12 @@ PLIST
   # downloads as "app is damaged" and refuses to launch.
   # codesign -s - (ad-hoc, no identity) over the whole bundle fixes
   # this without requiring a Developer ID.
+  # NOTE: signing failure must abort the build. Shipping a bundle whose
+  # signature is missing or invalid makes Gatekeeper report the app as
+  # damaged; never tolerate that with a warning.
   if command -v codesign >/dev/null 2>&1; then
-    codesign --force --deep --sign - "$app_bundle" >/dev/null 2>&1 || \
-      echo "Warning: ad-hoc codesign of $app_bundle failed"
+    codesign --force --deep --sign - "$app_bundle" || \
+      die "ad-hoc codesign of $app_bundle failed"
   fi
 }
 create_dmg() {

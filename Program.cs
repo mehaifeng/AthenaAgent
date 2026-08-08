@@ -30,6 +30,20 @@ class Program
         // 向管道写输出，.NET Core 默认不内置这些代码页，注册后 CliService 才能按它们解码。
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
+        // macOS DMG 安装：Playwright 驱动打包在 Contents/Resources/.playwright
+        //（放在 Contents/MacOS 下会令 codesign 将其误判为嵌套代码对象导致签名失败），
+        // 故将驱动搜索路径指向 Resources。平铺安装（tar.gz/应用内更新）时驱动就在
+        // 应用目录下，保持默认搜索即可，且更新后优先使用随包更新的新驱动。
+        var baseDirectory = AppContext.BaseDirectory;
+        var resourcesDriverPath = Path.Combine(baseDirectory, "..", "Resources", ".playwright");
+        if (Directory.Exists(resourcesDriverPath) && !Directory.Exists(Path.Combine(baseDirectory, ".playwright")))
+        {
+            Environment.SetEnvironmentVariable(
+                "PLAYWRIGHT_DRIVER_SEARCH_PATH",
+                Path.GetFullPath(Path.Combine(baseDirectory, "..", "Resources")));
+        }
+
+
         // 启动早期崩溃日志（Serilog 尚未初始化前的异常兜底）
         CrashLogPath = Path.Combine(AppContext.BaseDirectory, "AthenaData", "Logs", "crash.log");
         Directory.CreateDirectory(Path.GetDirectoryName(CrashLogPath)!);
