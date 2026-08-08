@@ -76,6 +76,8 @@ Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackResponsesAsync).GetAwaiter().GetResult();
+Task.Run(TestStreamedEmptyStreamErrorSurfacedAsync).GetAwaiter().GetResult();
+Task.Run(TestStreamedImageDecodeErrorFallsBackAsync).GetAwaiter().GetResult();
 TestResponsesProtocolAutoResolution();
 TestWorkspaceInlineRenameVisual();
 Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
@@ -3845,6 +3847,125 @@ static async Task TestImageFallbackResponsesAsync()
     Console.WriteLine("[PASS] responses image rejection retries with image paths as plain text");
 }
 
+static async Task TestStreamedEmptyStreamErrorSurfacedAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "empty-stream-provider",
+        DisplayName = "Empty stream provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://empty-stream.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "empty-stream-model", DisplayName = "Empty stream model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "empty-stream-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    // 上游失败时部分端点返回 HTTP 200 + 携带 error 字段的 SSE chunk（如 OpenRouter 的图片解码失败），
+    // OpenAI SDK 会静默丢弃该 chunk，应用必须把「异常空流」变成可见错误而不是什么都不输出。
+    using var handler = new StreamedErrorThenFinalSseHandler();
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("empty-stream-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var output = new StringBuilder();
+    var context = new ConversationContext { ConversationId = "empty-stream" };
+    await foreach (var chunk in service.StreamMessageAsync("hi", context))
+    {
+        output.Append(chunk);
+    }
+
+    if (handler.RequestCount != 1)
+        throw new InvalidOperationException($"Empty stream must be surfaced as an error without a retry (requests={handler.RequestCount})");
+    if (!output.ToString().StartsWith("[API 错误:", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Swallowed streamed error must surface as an API error, got: '{output}'");
+    Console.WriteLine("[PASS] streamed SSE error chunk surfaces as an API error instead of silent empty output");
+}
+
+static async Task TestStreamedImageDecodeErrorFallsBackAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "empty-stream-image-provider",
+        DisplayName = "Empty stream image provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://empty-stream-image.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "empty-stream-image-model", DisplayName = "Empty stream image model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "empty-stream-image-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new StreamedErrorThenFinalSseHandler();
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("empty-stream-image-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var pngPath = Path.Combine(Path.GetTempPath(), $"athena-mpo-probe-{Guid.NewGuid():N}.jpeg");
+    try
+    {
+        File.WriteAllBytes(pngPath, [0xFF, 0xD8, 0xFF, 0xE1]);
+        var attachment = new ChatAttachment
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Kind = AttachmentKind.Image,
+            FileName = "spatial.jpeg",
+            StoredPath = pngPath,
+            MimeType = "image/jpeg",
+            SizeBytes = 4,
+            Width = 1,
+            Height = 1
+        };
+        var context = new ConversationContext { ConversationId = "empty-stream-image" };
+        context.AddUserMessage("describe this image", attachments: [attachment]);
+
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync("describe this image", context))
+        {
+            output.Append(chunk);
+        }
+
+        if (handler.RequestCount != 2 || output.ToString() != "done")
+            throw new InvalidOperationException($"Image decode empty-stream error did not retry as text paths (requests={handler.RequestCount}, output='{output}')");
+        if (handler.RequestBodies.Count != 2
+            || !handler.RequestBodies[0].Contains("data:image", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal))
+            throw new InvalidOperationException("First request must carry the image bytes; the fallback request must not.");
+    }
+    finally
+    {
+        File.Delete(pngPath);
+    }
+
+    Console.WriteLine("[PASS] image decode empty-stream error retries with image paths as plain text");
+}
+
 static void TestResponsesProtocolAutoResolution()
 {
     // 显式配置直接生效。
@@ -5740,6 +5861,39 @@ sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
         };
     }
 #pragma warning restore CA2000
+}
+
+sealed class StreamedErrorThenFinalSseHandler : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+    public List<string> RequestBodies { get; } = new();
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        if (request.Content != null)
+        {
+            RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+        }
+
+        if (RequestCount == 1)
+        {
+            // 复刻 OpenRouter 上游失败的行为：HTTP 200 + SSE 内嵌 error chunk，流随后关闭（无 [DONE]）。
+            var body = """
+                data: {"id":"gen-empty","object":"chat.completion.chunk","created":1785580004,"model":"empty-stream-model","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Exception: Failed to decoding image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg': Unsupported image format: MPO","metadata":{"error_type":"provider_unavailable"}}}
+
+                """;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+            };
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(ResponsesSseHandler.ChatFinalBody, Encoding.UTF8, "text/event-stream")
+        };
+    }
 }
 
 class HeadlessChatService : IChatService

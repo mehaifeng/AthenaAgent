@@ -242,7 +242,7 @@ public class BrowserVisionService : IBrowserVisionService
                     responsesOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(new[]
                     {
                         ResponseContentPart.CreateInputTextPart("Reply with OK only."),
-                        ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(VisionProbePngBytes), ResponseImageDetailLevel.Low)
+                        ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(VisionProbePngBytes, "image/png"), ResponseImageDetailLevel.Low)
                     }));
                 }
                 else

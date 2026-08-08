@@ -928,6 +928,16 @@ public class OpenAIChatService : IChatService
             {
                 var finalContent = assistantContent.ToString();
 
+                // responses 传输的 response.failed / cancelled 状态：本轮没有任何可用输出时
+                // 明确报错，而不是当作空回复静默结束。
+                if (finishReason == TransportFinishReason.Error
+                    && string.IsNullOrWhiteSpace(finalContent)
+                    && reasoningContent == null)
+                {
+                    yield return "[API 错误: 模型响应失败，未返回任何内容]";
+                    yield break;
+                }
+
                 // 语音生成不再内联于流式路径：文本回复到此即完，UI 会在流结束、
                 // 解除发送态后于后台调用 GenerateAssistantSpeechAsync 单独生成语音，
                 // 避免 TTS 阻塞发送/回缩/分支等交互（音频落盘由 UI 侧 Messages 重建上下文承接）。

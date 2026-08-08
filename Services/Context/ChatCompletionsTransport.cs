@@ -25,11 +25,13 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var stream = runtime.ChatClient.CompleteChatStreamingAsync(messages, runtime.ChatOptions, cancellationToken);
+        var sawAnyResponseData = false;
         await foreach (var update in stream)
         {
             // 供应商回报的真实 token 用量随最后一个 chunk 到达（SDK 已自动开启 include_usage）。
             if (update.Usage != null)
             {
+                sawAnyResponseData = true;
                 var usage = update.Usage;
                 yield return new NormalizedUpdate(
                     Usage: new TokenUsageSnapshot(
@@ -46,6 +48,7 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
             if (update.Patch.TryGetValue("$.choices[0].delta.reasoning_content"u8, out string? reasoningChunk)
                 && reasoningChunk != null)
             {
+                sawAnyResponseData = true;
                 yield return new NormalizedUpdate(ReasoningText: reasoningChunk);
             }
 #pragma warning restore SCME0001
@@ -54,12 +57,14 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
             {
                 if (!string.IsNullOrEmpty(contentPart.Text))
                 {
+                    sawAnyResponseData = true;
                     yield return new NormalizedUpdate(Text: contentPart.Text);
                 }
             }
 
             foreach (var toolCallUpdate in update.ToolCallUpdates)
             {
+                sawAnyResponseData = true;
                 string? argsText = null;
                 if (toolCallUpdate.FunctionArgumentsUpdate != null
                     && toolCallUpdate.FunctionArgumentsUpdate.ToMemory().Length > 0)
@@ -82,8 +87,20 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
 
             if (update.FinishReason != null)
             {
+                sawAnyResponseData = true;
                 yield return new NormalizedUpdate(FinishReason: MapFinishReason(update.FinishReason.Value));
             }
+        }
+
+        // 部分 OpenAI 兼容端点会用 HTTP 200 + 空流（或携带 error 字段的 SSE chunk）回应上游失败，
+        // 例如 OpenRouter 在图片解码失败时返回 choices=[] + error，而 OpenAI SDK 会静默丢弃该
+        // error chunk、不抛异常。若不拦截，主对话会把「异常空响应」当成成功空回复，什么都不输出。
+        if (!sawAnyResponseData)
+        {
+            throw new InvalidOperationException(
+                "Provider returned an empty streaming response (no content, no finish reason, and no usage). "
+                + "The upstream may have rejected the request; for requests with images, this usually means "
+                + "the provider could not decode an attached image.");
         }
     }
 
