@@ -517,13 +517,52 @@ public sealed class GitHubUpdateService : IUpdateService, IDisposable
 
         if (type is "tar.gz" or "tgz" || packagePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) || packagePath.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase))
         {
+            // .NET 10.0.x's TarFile path-escape hardening resolves symlinks in the
+            // destination path (ResolvePhysicalPath) but compares it against a
+            // lexically-normalized entry path. On macOS /tmp and /var are symlinks
+            // into /private, so a destination under Path.GetTempPath() makes the
+            // resolved destination LONGER than the lexical file path, and
+            // `normalizedFile.Substring(resolvedDest.Length)` throws
+            // ArgumentOutOfRangeException ("startIndex cannot be larger than length
+            // of string"). Resolve symlinks ourselves so both sides agree.
+            var resolvedDestination = ResolvePhysicalPath(destinationDirectory);
             await using var file = File.OpenRead(packagePath);
             await using var gzip = new GZipStream(file, CompressionMode.Decompress);
-            TarFile.ExtractToDirectory(gzip, destinationDirectory, true);
+            TarFile.ExtractToDirectory(gzip, resolvedDestination, true);
             return;
         }
 
         throw new NotSupportedException($"Unsupported package format: {archiveType}");
+    }
+
+    private static string ResolvePhysicalPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root))
+        {
+            return fullPath;
+        }
+
+        var current = root;
+        foreach (var component in fullPath[root.Length..].Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, component);
+            if (!Path.Exists(current))
+            {
+                continue;
+            }
+
+            var linkTarget = new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true);
+            if (linkTarget != null)
+            {
+                current = linkTarget.FullName;
+            }
+        }
+
+        return current;
     }
 
     private static string ResolvePayloadRoot(string stagingDirectory)
