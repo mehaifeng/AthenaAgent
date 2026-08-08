@@ -204,8 +204,11 @@ create_app_bundle() {
   mkdir -p "$app_bundle/Contents/MacOS"
   mkdir -p "$app_bundle/Contents/Resources"
 
-  # Copy all publish files into the MacOS directory
-  cp -R "$package_dir"/* "$app_bundle/Contents/MacOS/"
+  # Copy all publish files into the MacOS directory. Note the "/." source
+  # form (NOT "/*"): a plain glob does not match dot-directories, which would
+  # silently drop the Playwright driver folder (.playwright) from the bundle
+  # and break the browser feature for DMG installs.
+  cp -R "$package_dir"/. "$app_bundle/Contents/MacOS/"
 
   # Generate Info.plist from csproj CFBundle properties
   cat > "$app_bundle/Contents/Info.plist" << PLIST

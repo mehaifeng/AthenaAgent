@@ -51,6 +51,15 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 Message = "Playwright Chromium runtime is ready."
             };
         }
+        catch (PlaywrightException ex) when (LooksLikeMissingDriver(ex))
+        {
+            return new BrowserRuntimeStatus
+            {
+                State = BrowserRuntimeState.PackageUnavailable,
+                Message = "Playwright driver is missing from this installation.",
+                Details = ex.Message + " Please reinstall Athena from the latest release, or update in-app to restore the driver."
+            };
+        }
         catch (PlaywrightException ex) when (LooksLikeMissingBrowser(ex))
         {
             return new BrowserRuntimeStatus
@@ -97,6 +106,16 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                     Message = exitCode == 0
                         ? "Playwright Chromium runtime installed."
                         : $"Playwright Chromium install failed with exit code {exitCode}."
+                };
+            }
+            catch (PlaywrightException ex) when (LooksLikeMissingDriver(ex))
+            {
+                _logger.Error(ex, "Playwright Chromium install aborted: driver missing");
+                return new BrowserRuntimeInstallResult
+                {
+                    Success = false,
+                    ExitCode = -1,
+                    Message = "Playwright driver is missing from this installation. Please reinstall Athena from the latest release, or update in-app to restore the driver."
                 };
             }
             catch (Exception ex)
@@ -1041,6 +1060,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         ex.Message.Contains("Executable doesn't exist", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("playwright install", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("Looks like Playwright was just installed or updated", StringComparison.OrdinalIgnoreCase);
+
+    private static bool LooksLikeMissingDriver(PlaywrightException ex) =>
+        ex.Message.Contains("Driver not found", StringComparison.OrdinalIgnoreCase);
 
     private async Task<SomObservation> CaptureObservationAsync(string sessionId, RuntimeSession runtimeSession, CancellationToken cancellationToken)
     {
