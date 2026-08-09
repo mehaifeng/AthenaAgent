@@ -233,8 +233,8 @@ if (contextInspectorDrawer.HorizontalAlignment != Avalonia.Layout.HorizontalAlig
 // 面板透明度只作用于 shell 面板的背景画笔，绝不能降低面板整体 Opacity（否则内容会一起变淡）。
 var shellPanels = window.GetVisualDescendants().OfType<Border>()
     .Where(b => b.Classes.Contains("shell-panel")).ToList();
-if (shellPanels.Count != 3)
-    throw new InvalidOperationException($"Expected 3 shell panels, got {shellPanels.Count}.");
+if (shellPanels.Count != 2)
+    throw new InvalidOperationException($"Expected 2 shell panels, got {shellPanels.Count}.");
 if (contextInspectorDrawer.Opacity < 0.99 || contextInspectorDrawer.Opacity > 1.01)
     throw new InvalidOperationException("The Context inspector drawer must be fully opaque regardless of shell panel transparency.");
 shellConfigService.Load().MainLayout.PanelTransparency = 0.5;
@@ -1426,8 +1426,8 @@ static void TestShellPanelBackgroundThemeResolution()
 
     var panels = window.GetVisualDescendants().OfType<Border>()
         .Where(b => b.Classes.Contains("shell-panel")).ToList();
-    if (panels.Count != 3)
-        throw new InvalidOperationException($"Expected 3 shell panels, got {panels.Count}.");
+    if (panels.Count != 2)
+        throw new InvalidOperationException($"Expected 2 shell panels, got {panels.Count}.");
     foreach (var panel in panels)
     {
         if (panel.Background is not ISolidColorBrush solid)
@@ -1609,8 +1609,8 @@ static void TestColorSchemeShellPanelRepaint()
     {
         var panels = window.GetVisualDescendants().OfType<Border>()
             .Where(b => b.Classes.Contains("shell-panel")).ToList();
-        if (panels.Count != 3)
-            throw new InvalidOperationException($"Expected 3 shell panels, got {panels.Count}.");
+        if (panels.Count != 2)
+            throw new InvalidOperationException($"Expected 2 shell panels, got {panels.Count}.");
 
         App.SetColorScheme("Cyberpunk");
         Dispatcher.UIThread.RunJobs();

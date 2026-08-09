@@ -27,7 +27,8 @@ public partial class MainWindow : Window
     private const double RightPanelMinWidth = 360;
     private const double ConversationMinWidth = 540;
     private const double ShellSplitterWidth = 5;
-    private const double RightPanelHorizontalInset = 16;
+    // 右侧工作区不再包 shell 外框、无 Margin，左右只剩面板自身的 1px 边框
+    private const double RightPanelHorizontalInset = 2;
     private const double RightTopMinHeight = 280;
     private const double RightLogMinHeight = 120;
     private const double RightRowSplitterHeight = 5;
@@ -169,8 +170,8 @@ public partial class MainWindow : Window
     private void OnColorSchemeChanged(string _) => ApplyShellPanelOpacity();
 
     /// <summary>
-    /// 按 ShellPanelOpacity 重建所有受全局透明度控制的背景画笔：三块 shell 面板 +
-    /// 右侧工作区的差异审查/文件编辑/文件树区域（App.PanelBackgroundBrush）+
+    /// 按 ShellPanelOpacity 重建所有受全局透明度控制的背景画笔：左右两块 shell 面板 +
+    /// 右侧工作区的差异审查/文件编辑/文件树/日志区域（App.PanelBackgroundBrush）+
     /// 主对话气泡（Chat.UserBubbleBg / Chat.AssistantBubbleBg）。
     /// 只让背景变透明使雅典娜图像透出，文字/图标/文件等内容保持完全不透明
     /// （对整个 Border 设 Opacity 会让整个子树一起变淡）。

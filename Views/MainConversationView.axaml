@@ -311,10 +311,11 @@
 
     <Grid RowDefinitions="40,*,Auto">
 
-        <!-- 聊天区域头部 -->
+        <!-- 聊天区域头部：左上/右上圆角与外围 shell-panel（CornerRadius=10）一致，避免直角背景顶出外框圆角；
+             左下/右下为直角与下方消息区衔接。 -->
         <Border Grid.Row="0"
                 Background="{DynamicResource App.SectionBg}"
-                CornerRadius="0,0,5,5"
+                CornerRadius="10,10,0,0"
                 VerticalAlignment="Center"
                 Padding="12,8">
             <Grid ColumnDefinitions="Auto,*">
@@ -724,7 +725,7 @@
         <Border Grid.Row="2"
                 MaxWidth="{DynamicResource App.ContentMaxWidth}"
                 HorizontalAlignment="Stretch">
-            <Border CornerRadius="5"
+            <Border CornerRadius="0,0,5,5"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     Background="{DynamicResource App.SectionBg}"
@@ -867,7 +868,7 @@
                          Background="Transparent"
                          BorderThickness="0"
                          Padding="4,2"
-                         MaxHeight="150">
+                         MaxHeight="220">
                     <!-- 覆盖 Semi 主题驱动悬停/聚焦高亮的画刷，使输入框完全融入外层卡片 -->
                     <TextBox.Resources>
                         <SolidColorBrush x:Key="TextBoxDefaultBackground" Color="Transparent"/>

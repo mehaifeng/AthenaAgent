@@ -466,10 +466,12 @@
                           ShowsPreview="False"
                           DragCompleted="OnSideSplitterDragCompleted"/>
 
-            <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。 -->
-            <Border Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"
-                    Classes="shell-panel" MinWidth="360">
-                <Grid x:Name="RightPanelGrid" Margin="7">
+            <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。不再包外层 shell-panel 边框，
+                 工作区与日志区各自成独立圆角面板悬浮（各自自带背景，透明度跟随 App.PanelBackgroundBrush）。
+                 面板直接占满右列，距窗口边缘仅剩外壳 5px，与左/中面板一致。 -->
+            <Grid x:Name="RightPanelGrid"
+                  Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"
+                  MinWidth="360">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" MinHeight="280"/>
                         <RowDefinition Height="5"/>
@@ -490,7 +492,8 @@
                             Grid.RowSpan="{Binding Workbench.LogGridRowSpan}"
                             BorderThickness="1"
                             BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                            CornerRadius="8">
+                            CornerRadius="8"
+                            Background="{DynamicResource App.PanelBackgroundBrush}">
                         <TabControl x:Name="UtilityTabControl"
                                     SelectedIndex="{Binding SelectedUtilityTabIndex}">
                             <TabItem>
@@ -552,7 +555,6 @@
                         </TabControl>
                     </Border>
                 </Grid>
-            </Border>
 
         </Grid>
     </Grid>

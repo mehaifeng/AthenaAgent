@@ -87,9 +87,9 @@
 <StaticResource x:Key="ToggleSwitchContainerCheckedPressedBackground" ResourceKey="App.ToggleCheckedPressedBackground" />
 <StaticResource x:Key="ToggleSwitchContainerCheckedDisabledBackground" ResourceKey="App.EmphasisDisabledForeground" />
 <StaticResource x:Key="SimpleToggleSwitchContainerCheckedForeground" ResourceKey="App.InverseForeground" />
-<SolidColorBrush x:Key="App.SectionBg" Color="#FFD5D6DB" />
+<SolidColorBrush x:Key="App.SectionBg" Color="#FFC8C9CD" />
 <!-- 低对比度分隔边框：视图中 79 处引用，内置字典补齐后与配色方案行为一致 -->
-<SolidColorBrush x:Key="SemiGreyLowBrush" Color="#FFE1E2E7" />
+<SolidColorBrush x:Key="SemiGreyLowBrush" Color="#FFD3D4D9" />
 <SolidColorBrush x:Key="AvaloniaTerminalColor0" Color="#FFCBCCD1" />
 <SolidColorBrush x:Key="AvaloniaTerminalColor7" Color="#000000" />
 <SolidColorBrush x:Key="AvaloniaTerminalColor15" Color="#000000" />

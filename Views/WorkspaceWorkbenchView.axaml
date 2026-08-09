@@ -438,9 +438,11 @@
                                          TextWrapping="NoWrap"
                                          FontFamily="Menlo, Consolas, monospace"
                                          HorizontalContentAlignment="Stretch"
-                                         VerticalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Top"
                                          IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Edit}"/>
-                                <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Preview}">
+                                <!-- ScrollViewer 默认 VerticalContentAlignment=Center，短内容会垂直居中留白；必须显式 Top -->
+                                <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Preview}"
+                                              VerticalContentAlignment="Top">
                                     <lmd:MarkdownRenderer Margin="16" loc:MarkdownHelper.Text="{Binding Text}"/>
                                 </ScrollViewer>
                                 <Grid IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Diff}"
