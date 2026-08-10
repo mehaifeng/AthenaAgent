@@ -71,6 +71,7 @@ Task.Run(TestResponsesReasoningTextAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesThirdPartyNoIncludeAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestChatReasoningEffortAsync).GetAwaiter().GetResult();
+Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
 TestReasoningBubbleState();
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
@@ -3616,6 +3617,58 @@ static async Task TestChatReasoningEffortAsync()
     Console.WriteLine("[PASS] chat reasoning_effort (low) wired into request");
 }
 
+static async Task TestConnectionProbeAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "connection-probe-provider",
+        DisplayName = "Connection probe provider",
+        ProviderPreset = "OpenRouter",
+        BaseUrl = "https://connection-probe.invalid/api/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor
+    {
+        Id = "deepseek/reasoner-fixture",
+        DisplayName = "DeepSeek reasoner fixture",
+        Capability = ModelCapability.Text
+    });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "deepseek/reasoner-fixture";
+
+    var functionEvents = new List<string>();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: new ImmediateUsageFunctionRegistry(functionEvents));
+    using var handler = new ConnectionProbeHandler();
+    using var httpClient = new HttpClient(handler);
+    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    options.Transport = new HttpClientPipelineTransport(httpClient);
+    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, client.GetChatClient("deepseek/reasoner-fixture"));
+
+    var (success, _) = await service.TestConnectionAsync();
+    if (!success)
+        throw new InvalidOperationException("A successful reasoning-only connection probe must be reported as connected.");
+    if (handler.RequestBodies.Count != 1)
+        throw new InvalidOperationException("Connection probe did not issue exactly one request.");
+
+    using var request = JsonDocument.Parse(handler.RequestBodies[0]);
+    var root = request.RootElement;
+    if (root.TryGetProperty("tools", out _))
+        throw new InvalidOperationException("Connection probe must not include the application tool catalog.");
+    if (!root.TryGetProperty("max_completion_tokens", out var maxTokens)
+        || maxTokens.GetInt32() != 256)
+        throw new InvalidOperationException($"Connection probe must reserve 256 output tokens: {handler.RequestBodies[0]}");
+
+    Console.WriteLine("[PASS] connection probe omits tools, reserves reasoning budget, and accepts reasoning-only replies");
+}
+
 static void TestReasoningBubbleState()
 {
     var message = new ChatMessage { Role = "assistant", ReasoningContent = " step one " };
@@ -5550,6 +5603,41 @@ sealed class ChatBodyCaptureHandler : HttpMessageHandler
 #pragma warning restore CA2000
 }
 
+/// <summary>Non-streaming connection-probe fixture: returns reasoning but no visible content.</summary>
+sealed class ConnectionProbeHandler : HttpMessageHandler
+{
+    public List<string> RequestBodies { get; } = [];
+
+#pragma warning disable CA2000
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Content != null)
+            RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+
+        const string body = """
+            {
+              "id": "chatcmpl-connection-probe",
+              "object": "chat.completion",
+              "created": 1785580001,
+              "model": "deepseek/reasoner-fixture",
+              "choices": [
+                {
+                  "index": 0,
+                  "message": { "role": "assistant", "content": null, "reasoning_content": "brief internal reasoning" },
+                  "finish_reason": "length"
+                }
+              ],
+              "usage": { "prompt_tokens": 12, "completion_tokens": 256, "total_tokens": 268 }
+            }
+            """;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+    }
+#pragma warning restore CA2000
+}
+
 /// <summary>推理流式夹具：两轮推理（中间夹一轮工具调用），推理增量经 onReasoningDelta 逐片发出。</summary>
 sealed class ReasoningStreamingChatService : HeadlessChatService
 {
@@ -6134,4 +6222,3 @@ sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWork
     public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget) => null;
     public Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default) => Task.CompletedTask;
 }
-

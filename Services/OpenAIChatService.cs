@@ -36,6 +36,8 @@ public class OpenAIChatService : IChatService
 {
     private const int RequestFormatVersion = 1;
     private const int CompressionSummaryFormatVersion = 1;
+    // Keep the probe inexpensive, but leave room for reasoning models to emit a visible reply.
+    private const int ConnectionTestMaxOutputTokens = 256;
     private readonly object _runtimeGate = new();
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
@@ -1111,20 +1113,6 @@ public class OpenAIChatService : IChatService
         return _functionRegistry?.HasFunctions == true;
     }
 
-    private void ApplyToolOptions(ChatCompletionOptions options)
-    {
-        if (IsFunctionCallingEnabled())
-        {
-            foreach (var tool in _functionRegistry!.GetToolDefinitions().OfType<ChatTool>())
-                options.Tools.Add(tool);
-            Log.Debug("Main conversation carries registered tool definitions");
-            return;
-        }
-
-        options.ToolChoice = ChatToolChoice.CreateNoneChoice();
-        Log.Debug("Function Calling disabled; ToolChoice=None");
-    }
-
     // 用户消息发送时间前缀：以自解释的元数据行呈现，让模型无需额外说明即可理解其含义，
     // 并与真正的用户正文用换行清晰分隔，避免被当成正文的一部分。
     // 形如：[消息元数据] 发送时间：2026-07-04 15:30:45 星期六
@@ -1882,20 +1870,16 @@ public class OpenAIChatService : IChatService
             var options = new ChatCompletionOptions
             {
                 Temperature = (float)(_mainModel?.Temperature ?? 0.7),
-                MaxOutputTokenCount = Math.Min(_mainModel is { MaxOutputTokens: > 0 } model ? model.MaxOutputTokens : 16000, 10),
+                MaxOutputTokenCount = ConnectionTestMaxOutputTokens,
                 TopP = (float)_config.TopP
             };
 
-            ApplyToolOptions(options);
-
-            var response = await _chatClient.CompleteChatAsync(messages, options);
-
-            if (response?.Value?.Content == null || response.Value.Content.Count == 0)
-            {
-                return (false, _localizationService?.GetString("Config.TestConnectNoRespond"));
-            }
-
-            var content = response.Value.Content[0].Text;
+            // A connection probe validates only the endpoint, credential, and selected model.
+            // Avoid the application's tool catalog: it makes the probe larger and can cause
+            // otherwise valid providers/models to reject an unrelated function-calling request.
+            // A successful HTTP/API response is sufficient even without visible text, because
+            // reasoning models can consume a short probe response on reasoning tokens alone.
+            await _chatClient.CompleteChatAsync(messages, options);
 
             Log.Information("API connection test succeeded");
             return (true, _localizationService?.GetString("History.ConnectionSuccess"));

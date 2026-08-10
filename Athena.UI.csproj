@@ -72,6 +72,21 @@
     <Message Text="Built-in Skills copied to $(BuiltInSkillsTarget)" Importance="high" />
   </Target>
 
+  <!-- Build output and publish output are different directories. Copy the same authoritative
+       source into PublishDir so installers and update zip packages include the Skills tree. -->
+  <Target Name="CopyBuiltInSkillsToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <BuiltInSkillsSource>$(MSBuildProjectDirectory)/BuiltInSkills</BuiltInSkillsSource>
+      <BuiltInSkillsPublishTarget>$(PublishDir)AthenaData/Skills</BuiltInSkillsPublishTarget>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*" />
+    </ItemGroup>
+    <MakeDir Directories="$(BuiltInSkillsPublishTarget)" />
+    <Copy SourceFiles="@(BuiltInSkillForPublish)" DestinationFiles="$(BuiltInSkillsPublishTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
+    <Message Text="Built-in Skills copied to publish output $(BuiltInSkillsPublishTarget)" Importance="high" />
+  </Target>
+
   <ItemGroup>
     <!-- Avalonia UI -->
     <PackageReference Include="Avalonia" Version="12.1.1" />
