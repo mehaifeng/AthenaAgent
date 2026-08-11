@@ -60,6 +60,23 @@ public static class PromptTemplates
     private static readonly object _cacheLock = new();
 
     /// <summary>
+    /// User-visible local file references must use the file URI form understood by
+    /// the Markdown renderer and its in-app link dispatcher. This policy is kept
+    /// separate from the persona so a custom persona cannot accidentally remove it.
+    /// </summary>
+    public const string LocalFileLinkPolicy = """
+        # Local File Links
+
+        When referring to an existing local file in a user-visible response, render it as a clickable Markdown link instead of a bare path or inline code.
+
+        Use `[filename](file:///absolute/path)`. The target must be an absolute file URI. On Windows, use the form `file:///D:/path/to/file.ext`, replace backslashes with forward slashes, and percent-encode spaces and other URI-reserved characters. Use a concise filename or descriptive label as the link text.
+
+        Only link paths that are known to exist or were returned by a tool. Never invent a local path.
+
+        Example: `[README.md](file:///D:/Projects/Athena/README.md)`
+        """;
+
+    /// <summary>
     /// 内置的默认人格定义（当外部文件不存在时使用）
     /// </summary>
     private const string DefaultMainPersona = """

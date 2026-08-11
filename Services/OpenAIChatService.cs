@@ -1164,6 +1164,7 @@ public class OpenAIChatService : IChatService
                 """);
         }
         baseSystemParts.Add(persona);
+        baseSystemParts.Add(PromptTemplates.LocalFileLinkPolicy);
         baseSystemParts.Add(GetPlatformContextMessage(functionCallingEnabled));
         var mcpServerDiscoveryPrompt = BuildMcpServerDiscoveryPrompt(enableMcp);
         if (!string.IsNullOrEmpty(mcpServerDiscoveryPrompt))

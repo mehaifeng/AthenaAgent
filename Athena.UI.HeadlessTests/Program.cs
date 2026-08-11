@@ -2937,6 +2937,8 @@ static async Task TestRequestRuntimeSnapshotFreezeAsync()
         || first.ChatOptions.TopP != 0.8f
         || second.ContextPolicy.ContextWindowTokens != 64_000
         || second.ChatOptions.TopP != 0.25f
+        || !first.BaseSystemPrompt.Contains("# Local File Links", StringComparison.Ordinal)
+        || !first.BaseSystemPrompt.Contains("file:///D:/path/to/file.ext", StringComparison.Ordinal)
         || first.ExecutionPolicyIdentity == second.ExecutionPolicyIdentity)
         throw new InvalidOperationException("A config/metadata update mutated an old request snapshot or failed to update the next one.");
     Console.WriteLine("[PASS] top-level request runtime snapshot stays frozen across config and metadata changes");

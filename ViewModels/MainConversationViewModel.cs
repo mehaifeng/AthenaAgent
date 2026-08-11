@@ -2719,7 +2719,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         var functionCallingEnabled = _functionRegistry.HasFunctions;
 
         // persona + 工具声明是估算兜底的固定开销来源（真实请求的 system 消息在 ChatService 内另行构建）。
-        var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona);
+        var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona)
+                           + "\n\n---\n\n"
+                           + PromptTemplates.LocalFileLinkPolicy;
         if (functionCallingEnabled)
         {
             systemPrompt = _promptService.GetPrompt(PromptType.ToolCallingPolicy) + "\n\n---\n\n" + systemPrompt;
