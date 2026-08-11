@@ -9,7 +9,7 @@ namespace Athena.UI.Services.ModelMetadata;
 /// <summary>纯本地、确定性的外来模型身份匹配器。</summary>
 public sealed class ModelIdentityMatcher
 {
-    public const int MatcherRulesVersion = 2;
+    public const int MatcherRulesVersion = 3;
 
     private static readonly Dictionary<string, string> PresetAuthors = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -19,7 +19,9 @@ public sealed class ModelIdentityMatcher
         ["Gemini"] = "google",
         ["DeepSeek"] = "deepseek",
         ["Alibaba"] = "qwen",
-        ["DashScope"] = "qwen"
+        ["DashScope"] = "qwen",
+        ["Zhipu"] = "z-ai",
+        ["Minimax"] = "minimax"
     };
 
     private static readonly Dictionary<string, string> HostAuthors = new(StringComparer.OrdinalIgnoreCase)
@@ -28,7 +30,9 @@ public sealed class ModelIdentityMatcher
         ["api.anthropic.com"] = "anthropic",
         ["generativelanguage.googleapis.com"] = "google",
         ["api.deepseek.com"] = "deepseek",
-        ["dashscope.aliyuncs.com"] = "qwen"
+        ["dashscope.aliyuncs.com"] = "qwen",
+        ["open.bigmodel.cn"] = "z-ai",
+        ["api.minimaxi.com"] = "minimax"
     };
 
     private static readonly string[] ConflictFeatures =
@@ -68,6 +72,15 @@ public sealed class ModelIdentityMatcher
             ("M2", 98, model => !string.IsNullOrEmpty(model.CanonicalSlug) && string.Equals(external, model.CanonicalSlug, StringComparison.Ordinal)),
             ("M3", 97, model => MatchesProtocolUnwrapped(external, model)),
             ("M4", 96, model => MatchesExplicitAuthorAndSlug(external, model)),
+            // Aggregating providers often expose a qualified upstream identity with
+            // casing differences or prepend serving namespaces such as "Pro/" or
+            // "LoRA/". Match any qualified path suffix against OpenRouter's own
+            // identities, but only when the layer resolves to one catalog record.
+            ("M4N", 95, model => MatchesNormalizedCatalogReference(external, model)),
+            // OpenRouter preserves the upstream Hugging Face identity in raw metadata.
+            // Use it to bridge upstream/OpenRouter author aliases without maintaining
+            // provider- or model-specific tables.
+            ("M4H", 95, model => MatchesRawUpstreamReference(external, model)),
             ("M5", 94, model => MatchesStrongHints(identity, external, model)),
             ("M6", 92, model => MatchesSafeNormalized(identity, external, model)),
             // Third-party providers commonly expose the upstream model's bare slug
@@ -143,6 +156,60 @@ public sealed class ModelIdentityMatcher
         return TrySplitModel(model, out var modelAuthor, out var modelSlug)
             && string.Equals(author, modelAuthor, StringComparison.OrdinalIgnoreCase)
             && string.Equals(slug, modelSlug, StringComparison.Ordinal);
+    }
+
+    private static bool MatchesNormalizedCatalogReference(string external, OpenRouterModelMetadata model)
+    {
+        return MatchesQualifiedReference(external, model.Id)
+            || MatchesQualifiedReference(external, model.CanonicalSlug);
+    }
+
+    private static bool MatchesRawUpstreamReference(string external, OpenRouterModelMetadata model)
+    {
+        var upstreamId = ReadRawString(model, "hugging_face_id");
+        if (string.IsNullOrWhiteSpace(upstreamId)
+            || (!HasRouteVariant(external) && HasRouteVariant(model.Id)))
+        {
+            return false;
+        }
+        return MatchesQualifiedReference(external, upstreamId);
+    }
+
+    private static bool MatchesQualifiedReference(string external, string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || !reference.Contains('/')) return false;
+        var normalizedReference = Normalize(reference);
+        return EnumerateQualifiedIdentitySuffixes(external)
+            .Any(candidate => string.Equals(Normalize(candidate), normalizedReference, StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<string> EnumerateQualifiedIdentitySuffixes(string external)
+    {
+        var segments = UnwrapProtocolPrefix(external)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // Keep at least author/slug. Dropping down to a bare leaf would erase hard
+        // author evidence and is already handled separately by M7.
+        for (var index = 0; index <= segments.Length - 2; index++)
+        {
+            yield return string.Join('/', segments[index..]);
+        }
+    }
+
+    private static string? ReadRawString(OpenRouterModelMetadata model, string propertyName)
+    {
+        if (model.Raw is not { } raw || raw.ValueKind != System.Text.Json.JsonValueKind.Object
+            || !raw.TryGetProperty(propertyName, out var value)
+            || value.ValueKind != System.Text.Json.JsonValueKind.String)
+        {
+            return null;
+        }
+        return value.GetString();
+    }
+
+    private static bool HasRouteVariant(string value)
+    {
+        var leaf = Slug(UnwrapProtocolPrefix(value));
+        return leaf.Contains(':');
     }
 
     private static bool MatchesStrongHints(ExternalModelIdentity identity, string external, OpenRouterModelMetadata model)

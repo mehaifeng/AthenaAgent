@@ -2593,6 +2593,16 @@ static void TestProviderMetadataUi(string outputPath)
     };
     window.Show();
     Dispatcher.UIThread.RunJobs();
+    var providerTypeEditor = window.FindControl<TextBox>("ProviderTypeEditor")
+                             ?? throw new InvalidOperationException("Provider type editor was not rendered.");
+    var providerDisplayNameEditor = window.FindControl<TextBox>("ProviderDisplayNameEditor")
+                                    ?? throw new InvalidOperationException("Provider display-name editor was not rendered.");
+    if (providerTypeEditor.Parent is not Grid providerTypeRow
+        || providerDisplayNameEditor.Parent is not Grid providerDisplayNameRow
+        || providerTypeRow.Parent is not StackPanel connectionPanel
+        || !ReferenceEquals(connectionPanel, providerDisplayNameRow.Parent)
+        || connectionPanel.Children.IndexOf(providerTypeRow) >= connectionPanel.Children.IndexOf(providerDisplayNameRow))
+        throw new InvalidOperationException("Provider type must be placed before the custom display name.");
     window.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
     Dispatcher.UIThread.RunJobs();
     var list = window.FindControl<ListBox>("MetadataModelList")

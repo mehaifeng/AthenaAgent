@@ -120,7 +120,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     {
         var provider = new OpenAiProviderConfiguration
         {
-            DisplayName = string.Format(GetString("ProviderModels.Provider.DefaultName", "Provider {0}"), Providers.Count + 1),
+            DisplayName = "OpenAI",
             ProviderPreset = "OpenAI",
             BaseUrl = "https://api.openai.com/v1"
         };

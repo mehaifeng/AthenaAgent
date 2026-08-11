@@ -440,8 +440,8 @@
     <system:String x:Key="ProviderModels.ModelCount">个模型</system:String>
     <system:String x:Key="ProviderModels.DeleteProvider">删除供应商</system:String>
     <system:String x:Key="ProviderModels.Connection">连接</system:String>
-    <system:String x:Key="ProviderModels.DisplayName">显示名称</system:String>
-    <system:String x:Key="ProviderModels.Preset">预设</system:String>
+    <system:String x:Key="ProviderModels.DisplayName">自定义显示名称</system:String>
+    <system:String x:Key="ProviderModels.Preset">供应商类型</system:String>
     <system:String x:Key="ProviderModels.PresetPlaceholder">OpenAI / OpenRouter / Custom</system:String>
     <system:String x:Key="ProviderModels.ApiRoot">API Root</system:String>
     <system:String x:Key="ProviderModels.ApiKey">API Key</system:String>
@@ -453,7 +453,6 @@
     <system:String x:Key="ProviderModels.RefreshInventory">刷新供应商库存</system:String>
     <system:String x:Key="ProviderModels.ManualModelId">手动模型 ID</system:String>
     <system:String x:Key="ProviderModels.Roles">业务模型分工</system:String>
-    <system:String x:Key="ProviderModels.Provider.DefaultName">供应商 {0}</system:String>
     <system:String x:Key="ProviderModels.Status.ProviderReferenced">无法删除：仍被这些分工引用：{0}</system:String>
     <system:String x:Key="ProviderModels.Status.InventoryFailed">刷新失败，已保留旧库存：{0}</system:String>
     <system:String x:Key="ProviderModels.Status.InventoryCount">已发现 {0} 个模型</system:String>

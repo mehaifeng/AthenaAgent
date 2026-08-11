@@ -13,7 +13,7 @@ public static class ProviderCatalog
         ["OpenAI"] = "https://api.openai.com/v1",
         ["Google"] = "https://generativelanguage.googleapis.com/v1beta/openai/",
         ["Zhipu"] = "https://open.bigmodel.cn/api/paas/v4",
-        ["Mimimaxi"] = "https://api.minimaxi.com/v1",
+        ["Minimax"] = "https://api.minimaxi.com/v1",
         ["Alibaba"] = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         ["Deepseek"] = "https://api.deepseek.com/v1",
         ["OpenRouter"] = "https://openrouter.ai/api/v1",

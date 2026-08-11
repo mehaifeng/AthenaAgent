@@ -121,17 +121,19 @@
                                                FontSize="{DynamicResource App.FontSize.Title}"
                                                FontWeight="SemiBold"/>
                                     <Grid ColumnDefinitions="160,460,*" ColumnSpacing="8">
-                                        <TextBlock Text="{loc:Loc ProviderModels.DisplayName}"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBox Grid.Column="1"
-                                                 Text="{Binding SelectedProvider.DisplayName, UpdateSourceTrigger=PropertyChanged}"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="160,460,*" ColumnSpacing="8">
                                         <TextBlock Text="{loc:Loc ProviderModels.Preset}"
                                                    VerticalAlignment="Center"/>
-                                        <TextBox Grid.Column="1"
+                                        <TextBox x:Name="ProviderTypeEditor"
+                                                 Grid.Column="1"
                                                  Text="{Binding SelectedProvider.ProviderPreset, UpdateSourceTrigger=PropertyChanged}"
                                                  PlaceholderText="{loc:Loc ProviderModels.PresetPlaceholder}"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,460,*" ColumnSpacing="8">
+                                        <TextBlock Text="{loc:Loc ProviderModels.DisplayName}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBox x:Name="ProviderDisplayNameEditor"
+                                                 Grid.Column="1"
+                                                 Text="{Binding SelectedProvider.DisplayName, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="160,460,*" ColumnSpacing="8">
                                         <TextBlock Text="{loc:Loc ProviderModels.ApiRoot}"

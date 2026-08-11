@@ -440,8 +440,8 @@
     <system:String x:Key="ProviderModels.ModelCount">models</system:String>
     <system:String x:Key="ProviderModels.DeleteProvider">Delete provider</system:String>
     <system:String x:Key="ProviderModels.Connection">Connection</system:String>
-    <system:String x:Key="ProviderModels.DisplayName">Display name</system:String>
-    <system:String x:Key="ProviderModels.Preset">Preset</system:String>
+    <system:String x:Key="ProviderModels.DisplayName">Custom display name</system:String>
+    <system:String x:Key="ProviderModels.Preset">Provider type</system:String>
     <system:String x:Key="ProviderModels.PresetPlaceholder">OpenAI / OpenRouter / Custom</system:String>
     <system:String x:Key="ProviderModels.ApiRoot">API root</system:String>
     <system:String x:Key="ProviderModels.ApiKey">API key</system:String>
@@ -453,7 +453,6 @@
     <system:String x:Key="ProviderModels.RefreshInventory">Refresh inventory</system:String>
     <system:String x:Key="ProviderModels.ManualModelId">Manual model ID</system:String>
     <system:String x:Key="ProviderModels.Roles">Business roles</system:String>
-    <system:String x:Key="ProviderModels.Provider.DefaultName">Provider {0}</system:String>
     <system:String x:Key="ProviderModels.Status.ProviderReferenced">Cannot delete: still referenced by {0}</system:String>
     <system:String x:Key="ProviderModels.Status.InventoryFailed">Refresh failed; previous inventory retained: {0}</system:String>
     <system:String x:Key="ProviderModels.Status.InventoryCount">Discovered {0} models</system:String>

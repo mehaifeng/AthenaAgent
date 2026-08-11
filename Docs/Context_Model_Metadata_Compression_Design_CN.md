@@ -514,12 +514,14 @@ OpenAI → openai
 Anthropic → anthropic
 Google / Gemini → google
 DeepSeek → deepseek
-Alibaba / DashScope → qwen（弱提示）
+Alibaba / DashScope → qwen
+Zhipu + open.bigmodel.cn → z-ai
+Minimax + api.minimaxi.com → minimax
 SiliconFlow → 聚合平台，不直接等于某 author
 Azure deployment → 不从任意部署名推断，通常需人工绑定
 ```
 
-Preset 是自由文本，不能单独成为绝对事实。
+Preset 是自由文本，不能单独成为绝对事实。M5/M6 只有在 Preset author 与官方 BaseUrl Host author 同时存在且一致时才启用；任一侧缺失或冲突都不产生 strong author。OpenRouter、SiliconFlow 等聚合平台不得加入单 author 表。
 
 ### 7.6 得分和自动采用
 
@@ -532,12 +534,14 @@ Preset 是自由文本，不能单独成为绝对事实。
 | M2 | 98 | 原始 External ID 精确等于 `canonical_slug` | 唯一则自动采用 |
 | M3 | 97 | 只去除明确协议包装前缀后，精确等于完整 id/canonical | 唯一且无冲突则自动采用 |
 | M4 | 96 | External ID 显式 author 一致，原始 slug 精确 | 唯一且无冲突则自动采用 |
+| M4N | 95 | External ID 的完整限定路径或保留 author/slug 的路径后缀，与 OpenRouter `id`/`canonical_slug` 安全归一化后精确相等 | 唯一则自动采用；通用覆盖聚合供应商添加的服务命名空间和大小写差异 |
+| M4H | 95 | 上述限定路径与 OpenRouter 原始元数据的 `hugging_face_id` 安全归一化后精确相等 | 唯一则自动采用；通用桥接上游 author 与 OpenRouter author 差异；未显式指定路由变体时忽略 `:batch`/`:free` 等路由记录 |
 | M5 | 94 | BaseUrl Host 与 ProviderPreset 给出同一个强 author，原始 slug 精确 | 唯一且无冲突则自动采用 |
 | M6 | 92 | 强 author 一致，安全归一化后的完整 author+slug 精确 | 唯一且无冲突则自动采用 |
 | M7 | 91 | 无显式 author 的 External ID 与 OpenRouter 纯 slug 安全归一化后精确相等 | 全目录唯一则自动采用；跨 author 重名则 Ambiguous |
 | M8 | 90 | M7 形态去除窄表中的纯交付层后缀（当前仅 `highspeed`）后与纯 slug 精确相等 | 全目录唯一则继承基础模型元数据；重名则 Ambiguous |
 
-某一自动层得到多个不同 OpenRouter 模型时立即 `Ambiguous`，不能继续用名称或模糊分数裁决。自动目标还必须未过期。M7 只接受纯 slug 的规范化精确等值，不得丢弃 External ID 中的显式 author，也不接受相似但不相等的 family 名或 DisplayName。M8 只处理有明确“同模型、不同交付速度”语义的窄后缀，不得扩展到 `mini/pro/max/flash/turbo/free/online/batch` 等可能改变模型身份、能力或路由语义的变体。这样可通用覆盖第三方 Provider 直接暴露上游模型 slug 及纯交付层变体的场景，而无需维护逐供应商白名单。
+某一自动层得到多个不同 OpenRouter 模型时立即 `Ambiguous`，不能继续用名称或模糊分数裁决。自动目标还必须未过期。M4N/M4H 只枚举至少保留两段的限定路径后缀，绝不退化到纯 leaf；这使 `Pro/Qwen/...`、`LoRA/Qwen/...` 等服务层包装可以通用解析，同时不会丢失 author 证据。M4H 使用目录自带的上游身份，不维护 SiliconFlow、MiniMax、Qwen、DeepSeek 等供应商或模型白名单；当多个基础记录共享同一上游身份时保持 `Ambiguous`。M7 只接受纯 slug 的规范化精确等值，不得丢弃 External ID 中的显式 author，也不接受相似但不相等的 family 名或 DisplayName。M8 只处理有明确“同模型、不同交付速度”语义的窄后缀，不得扩展到 `mini/pro/max/flash/turbo/free/online/batch` 等可能改变模型身份、能力或路由语义的变体。这样可通用覆盖聚合 Provider 暴露上游限定 ID、第三方 Provider 直接暴露纯 slug 及纯交付层变体的场景，而无需维护逐供应商白名单。
 
 模糊相似度只用于生成 75–89 分候选，固定第一版算法：
 
@@ -1937,7 +1941,7 @@ public interface IConversationPersistenceCoordinator
 - [x] mini/pro/flash/coder/vision/reasoner 冲突。
 - [x] 7B/32B/72B、日期、preview/latest、AWQ/GGUF 冲突。
 - [x] 模糊候选同分或 margin < 8 → Ambiguous，只供人工选择。
-- [x] M0–M8 只有唯一确定性命中可自动采用；M7 覆盖第三方纯 slug，M8 覆盖窄表交付层后缀，跨 author 重名保持 Ambiguous；模糊 CandidateScore 即使为 89 也不能自动采用。
+- [x] M0–M8（含 M4N/M4H 子层）只有唯一确定性命中可自动采用；M4N/M4H 覆盖聚合 Provider 的限定上游 ID 与服务层包装，M7 覆盖第三方纯 slug，M8 覆盖窄表交付层后缀，跨 author/上游身份重名保持 Ambiguous；模糊 CandidateScore 即使为 89 也不能自动采用。
 - [x] MatcherRulesVersion 变化清派生缓存但不改人工绑定。
 - [x] Azure 任意 deployment ID → 不自动猜测。
 - [x] 人工绑定、CustomOnly、字段覆盖优先级。
@@ -2239,8 +2243,9 @@ P0 数据修复不应长期受 flag 控制；它是正确性修复。
 | 2026-08-01 | Phase 6 | Usage 状态机语义固化：同请求流式内容/正文/reasoning 不降级（ApiExact 时 RefreshEstimate 早退）；tool result/压缩/回滚/fork 强制估算基线显示 ≈；辅助角色（标题/压缩/视觉/子代理）Usage 不接触主会话 TokenService；fork/恢复 ResetUsage 重新隐藏。 | Archive 状态机测试 + Headless 工具循环 Usage 测试；辅助角色隔离为架构保证（TryApplyUsage 仅主会话调用点）。 |
 | 2026-08-01 | Phase 6 | MatcherRulesVersion 语义：匹配为纯函数按需派生、无持久派生缓存，规则版本变化只需重新匹配；人工绑定/字段覆盖存于 ProviderModelMetadataProfile，匹配永不改写。 | Archive matcher/resolver fixture（:free 不剥离、coder 冲突、Azure 不猜测、覆盖优先、Provider Profile 隔离）。 |
 | 2026-08-01 | Phase 6 | 独立测试项目评估结论：继续使用 Archive.Tests 手工链接源文件的控制台夹具（98 个断言测试），Matcher/Resolver/Policy/Calibration/Store 已具备可测试性；拆独立项目需大范围迁移且有破坏在途改动风险，收益低于风险，留待后续专项。 | 无。 |
-
 | 2026-08-02 | Phase 6 修正 | 上下文检查器入口收敛：删除“token 占用进度条可点击”的第二入口，头部“上下文”按钮成为唯一入口；token 进度条改为纯状态展示。抽屉覆盖范围从整根对话 Grid（含 title bar 与输入区）收敛为仅中间消息区（title bar 下部到 prompt 输入区上部，`Grid.Row=1`）；抽屉由右侧贴边改为居中显示，宽度最大对齐对话气泡（`App.ContentMaxWidth`，当前 1000），窄屏随窗口收缩；抽屉不透明不受全局面板透明度影响（`Opacity` 绑定 `1/ShellPanelOpacity` 的 `InverseOpacityConverter` 补偿），圆角边框（CornerRadius=8），上下 margin 5px。 | Headless：单入口可聚焦/可访问名、进度条非交互、抽屉 `Grid.Row=1 && RowSpan=1` 断言。 |
+| 2026-08-11 | Matcher v3 | 增加 M4N/M4H：对限定路径后缀匹配 OpenRouter id/canonical 与原始 `hugging_face_id`，通用处理聚合 Provider 的大小写、上游 author alias 和服务层包装；不添加 provider/model 白名单。 | 以 Debug 运行时 SiliconFlow 91 个模型和 OpenRouter 402 条文字模型元数据实测，44 个获得唯一确定性映射；其余多为 Embedding/重排/图像/音频模型或目录中不存在的不同版本，继续保持未匹配。Archive fixture 覆盖 Qwen、DeepSeek、MiniMaxAI、zai-org、Pro/LoRA 包装、基础/批处理路由消歧和多基础记录歧义。 |
+| 2026-08-11 | Matcher v3 author 提示补齐 | 按项目内置 ProviderCatalog 的官方直连端点补充 Zhipu/open.bigmodel.cn 与 Minimax/api.minimaxi.com；修正 ProviderCatalog 中的 `Mimimaxi` 拼写错误；仍要求 preset+host 双重一致。 | Archive fixture 覆盖正确双证据走 M5/M6、只有 preset 时回落 M7，以及 SiliconFlow 聚合平台不获得单 author。 |
 ## 25. 关键现有代码索引
 
 实现前优先阅读：

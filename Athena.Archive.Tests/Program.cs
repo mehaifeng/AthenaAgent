@@ -42,6 +42,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
     ("future config schema is backed up and rejected", TestFutureConfigSchemaAsync),
     ("metadata profiles and nested overrides persist in v6", TestMetadataProfilePersistenceAsync),
+    ("provider type sync preserves custom display names", TestProviderTypeDisplayNameSyncAsync),
     ("matcher deterministic layers preserve variants and reject conflicts", TestModelIdentityMatcherAsync),
     ("resolver honors profile overrides and unknown-model defaults", TestModelMetadataResolverAsync),
     ("OpenRouter catalog filters text models and follows allowlisted pagination", TestOpenRouterMetadataCatalogAsync),
@@ -287,6 +288,57 @@ static async Task TestMetadataProfilePersistenceAsync()
     AssertTrue(File.Exists(harness.PathService.GetConfigFilePath() + ".bak"), "subsequent atomic save should retain a backup");
 }
 
+static Task TestProviderTypeDisplayNameSyncAsync()
+{
+    var followsPreset = new OpenAiProviderConfiguration
+    {
+        DisplayName = "OpenAI",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1"
+    };
+    var customName = new OpenAiProviderConfiguration
+    {
+        DisplayName = "工作账号",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1"
+    };
+    var blankName = new OpenAiProviderConfiguration
+    {
+        DisplayName = " ",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1"
+    };
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(followsPreset);
+    config.AiModels.Providers.Add(customName);
+    config.AiModels.Providers.Add(blankName);
+
+    using var session = new AppConfigurationSession(new FakeConfigService(config));
+
+    followsPreset.ProviderPreset = "Minimax";
+    AssertEqual("Minimax", followsPreset.DisplayName,
+        "a display name still following the old provider type should follow the new type");
+    AssertEqual("https://api.minimaxi.com/v1", followsPreset.BaseUrl,
+        "provider type should continue applying its default API root");
+
+    followsPreset.DisplayName = "国内节点";
+    followsPreset.ProviderPreset = "Zhipu";
+    AssertEqual("国内节点", followsPreset.DisplayName,
+        "a display name customized after automatic sync must not be overwritten later");
+
+    customName.ProviderPreset = "Deepseek";
+    AssertEqual("工作账号", customName.DisplayName,
+        "an existing custom display name must survive provider type changes");
+    AssertEqual("https://api.deepseek.com/v1", customName.BaseUrl,
+        "preserving the display name must not prevent API root defaults from updating");
+
+    blankName.ProviderPreset = "OpenRouter";
+    AssertEqual("OpenRouter", blankName.DisplayName,
+        "a blank display name should initialize from the provider type");
+
+    return Task.CompletedTask;
+}
+
 static Task TestModelIdentityMatcherAsync()
 {
     var matcher = new ModelIdentityMatcher();
@@ -305,6 +357,57 @@ static Task TestModelIdentityMatcherAsync()
         new ExternalModelIdentity("p", null, null, "models/openai/gpt-4o"), snapshot);
     AssertEqual("M3", wrapped.WinningLayer, "models/ protocol wrapper should be safely removed");
 
+    var qualifiedCaseAlias = matcher.Match(
+        new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", "Qwen/Qwen3-14B"), snapshot);
+    AssertEqual(ModelMatchStatus.Matched, qualifiedCaseAlias.Status,
+        "qualified upstream IDs should match normalized OpenRouter identities without provider hints");
+    AssertEqual("qwen/qwen3-14b", qualifiedCaseAlias.SelectedOpenRouterModelId,
+        "qualified identity casing should not block a deterministic match");
+    AssertEqual("M4N", qualifiedCaseAlias.WinningLayer,
+        "normalized qualified catalog identities should use M4N");
+
+    var servingNamespace = matcher.Match(
+        new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", "LoRA/Qwen/Qwen3-14B"), snapshot);
+    AssertEqual("qwen/qwen3-14b", servingNamespace.SelectedOpenRouterModelId,
+        "arbitrary serving namespaces should be removed by qualified suffix matching");
+    AssertEqual("M4N", servingNamespace.WinningLayer,
+        "serving namespace matches should remain deterministic catalog-reference matches");
+
+    foreach (var externalId in new[]
+             {
+                 "deepseek-ai/DeepSeek-R1",
+                 "Pro/deepseek-ai/DeepSeek-R1"
+             })
+    {
+        var upstreamMatch = matcher.Match(
+            new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", externalId), snapshot);
+        AssertEqual(ModelMatchStatus.Matched, upstreamMatch.Status,
+            $"OpenRouter upstream identity should bridge author aliases for {externalId}");
+        AssertEqual("deepseek/deepseek-r1", upstreamMatch.SelectedOpenRouterModelId,
+            $"upstream identity should resolve {externalId} to the OpenRouter route");
+        AssertEqual("M4H", upstreamMatch.WinningLayer,
+            $"upstream Hugging Face identity should use M4H for {externalId}");
+    }
+
+    var upstreamAuthorAlias = matcher.Match(
+        new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", "MiniMaxAI/MiniMax-M2.5"), snapshot);
+    AssertEqual("minimax/minimax-m2.5", upstreamAuthorAlias.SelectedOpenRouterModelId,
+        "upstream metadata should bridge author names generically, not through a MiniMax rule");
+
+    var baseRoutePreferred = matcher.Match(
+        new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", "zai-org/GLM-5.2"), snapshot);
+    AssertEqual("z-ai/glm-5.2", baseRoutePreferred.SelectedOpenRouterModelId,
+        "an upstream base identity should ignore OpenRouter delivery variants sharing the same upstream ID");
+    AssertEqual("M4H", baseRoutePreferred.WinningLayer,
+        "author aliases backed by upstream metadata should use M4H");
+
+    var ambiguousUpstream = matcher.Match(
+        new ExternalModelIdentity("aggregator", "Custom", "gateway.example", "upstream/Shared-Model"), snapshot);
+    AssertEqual(ModelMatchStatus.Ambiguous, ambiguousUpstream.Status,
+        "the same upstream identity on multiple base records must remain ambiguous");
+    AssertEqual("M4H", ambiguousUpstream.WinningLayer,
+        "upstream identity ambiguity should be reported at M4H");
+
     var thirdPartyBare = matcher.Match(
         new ExternalModelIdentity("minimax", "Custom", "api.minimaxi.com", "MiniMax-M3"), snapshot);
     AssertEqual(ModelMatchStatus.Matched, thirdPartyBare.Status,
@@ -317,12 +420,36 @@ static Task TestModelIdentityMatcherAsync()
     foreach (var externalId in new[] { "MiniMax-M2", "MiniMax-M2.1", "MiniMax-M2.5", "MiniMax-M2.7", "MiniMax-M3" })
     {
         var familyMatch = matcher.Match(
-            new ExternalModelIdentity("minimax", "Minimax", "api.minimaxi.com", externalId), snapshot);
+            new ExternalModelIdentity("minimax", "Custom", "api.minimaxi.com", externalId), snapshot);
         AssertEqual(ModelMatchStatus.Matched, familyMatch.Status,
             $"standard third-party family slug {externalId} should match generically");
         AssertEqual("M7", familyMatch.WinningLayer,
             $"standard third-party family slug {externalId} should use M7");
     }
+
+    var minimaxStrongAuthor = matcher.Match(
+        new ExternalModelIdentity("minimax", "Minimax", "api.minimaxi.com", "MiniMax-M2.5"), snapshot);
+    AssertEqual("minimax/minimax-m2.5", minimaxStrongAuthor.SelectedOpenRouterModelId,
+        "an agreeing built-in preset and official host should provide a strong author");
+    AssertEqual("M6", minimaxStrongAuthor.WinningLayer,
+        "MiniMax direct endpoint should use the normalized strong-author layer");
+
+    var zhipuStrongAuthor = matcher.Match(
+        new ExternalModelIdentity("zhipu", "Zhipu", "open.bigmodel.cn", "glm-5.2"), snapshot);
+    AssertEqual("z-ai/glm-5.2", zhipuStrongAuthor.SelectedOpenRouterModelId,
+        "the official Zhipu endpoint should resolve to OpenRouter's z-ai author");
+    AssertEqual("M5", zhipuStrongAuthor.WinningLayer,
+        "Zhipu direct endpoint should use the generic strong-author layer");
+
+    var presetWithoutOfficialHost = matcher.Match(
+        new ExternalModelIdentity("proxy", "Zhipu", "gateway.example", "glm-5.2"), snapshot);
+    AssertEqual("M7", presetWithoutOfficialHost.WinningLayer,
+        "a preset without the agreeing official host must not become strong author evidence");
+
+    var aggregatorWithoutAuthor = matcher.Match(
+        new ExternalModelIdentity("siliconflow", "Siliconflow", "api.siliconflow.cn", "glm-5.2"), snapshot);
+    AssertEqual("M7", aggregatorWithoutAuthor.WinningLayer,
+        "an aggregator must not be assigned a single upstream author");
 
     foreach (var externalId in new[] { "MiniMax-M2.1-highspeed", "MiniMax-M2.5-highspeed", "MiniMax-M2.7-highspeed" })
     {
@@ -464,6 +591,15 @@ static OpenRouterCatalogSnapshot CreateModelMetadataFixture()
         null,
         null);
 
+    static OpenRouterModelMetadata WithUpstreamId(OpenRouterModelMetadata model, string upstreamId) =>
+        model with
+        {
+            Raw = JsonSerializer.SerializeToElement(new Dictionary<string, string>
+            {
+                ["hugging_face_id"] = upstreamId
+            })
+        };
+
     return new OpenRouterCatalogSnapshot(
         1,
         "fixture-r1",
@@ -475,12 +611,18 @@ static OpenRouterCatalogSnapshot CreateModelMetadataFixture()
             Model("openai/gpt-4o", 128_000, "tools", "response_format"),
             Model("openai/gpt-4o:free", 128_000, "tools"),
             Model("qwen/qwen2.5-72b-instruct", 131_072, "tools"),
+            Model("qwen/qwen3-14b", 131_072, "tools"),
+            WithUpstreamId(Model("deepseek/deepseek-r1", 163_840, "tools"), "deepseek-ai/DeepSeek-R1"),
             Model("minimax/minimax-m2", 204_800, "tools"),
             Model("minimax/minimax-m2.1", 204_800, "tools"),
-            Model("minimax/minimax-m2.5", 204_800, "tools"),
+            WithUpstreamId(Model("minimax/minimax-m2.5", 204_800, "tools"), "MiniMaxAI/MiniMax-M2.5"),
             Model("minimax/minimax-m2.7", 204_800, "tools"),
             Model("minimax/minimax-m3", 1_048_576, "tools", "responses"),
             Model("minimax/minimax-m3:batch", 524_288, "tools"),
+            WithUpstreamId(Model("z-ai/glm-5.2", 202_752, "tools"), "zai-org/GLM-5.2"),
+            WithUpstreamId(Model("z-ai/glm-5.2:batch", 202_752, "tools"), "zai-org/GLM-5.2"),
+            WithUpstreamId(Model("vendor-a/shared", 32_000), "upstream/Shared-Model"),
+            WithUpstreamId(Model("vendor-b/shared", 32_000), "upstream/Shared-Model"),
             Model("alpha/shared-model", 32_000),
             Model("beta/shared-model", 64_000)
         ]);
@@ -4021,13 +4163,15 @@ static Task TestOfficeSessionStoreAsync()
     AssertEqual(false, store.ValidateToken(""), "empty token rejected");
     AssertEqual(false, store.ValidateToken(store.Token + "x"), "mutated token rejected");
 
-    var id = store.CreateSession("/tmp/report.pdf");
+    var expectedReport = Path.GetFullPath("/tmp/report.pdf");
+    var expectedOther = Path.GetFullPath("/tmp/other.xlsx");
+    var id = store.CreateSession(expectedReport);
     AssertEqual(1, store.SessionCount, "session created");
     AssertEqual(true, store.TryGetSession(id, out var path), "session resolvable");
-    AssertEqual("/tmp/report.pdf", path, "session resolves to registered path");
+    AssertEqual(expectedReport, path, "session resolves to registered path");
     AssertEqual(true, store.ValidateToken(store.Token), "valid token accepted");
 
-    var resolved = store.CreateSession("/tmp/other.xlsx");
+    var resolved = store.CreateSession(expectedOther);
     AssertEqual(2, store.SessionCount, "second session");
     store.ReleaseSession(id);
     AssertEqual(false, store.TryGetSession(id, out _), "released session gone");

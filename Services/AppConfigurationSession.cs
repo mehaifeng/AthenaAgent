@@ -142,12 +142,21 @@ public sealed class AppConfigurationSession : IDisposable
         });
         foreach (var provider in models.Providers)
         {
+            var previousPreset = provider.ProviderPreset;
             TrackPropertyChanges(provider, (_, args) =>
             {
                 if (args.PropertyName == nameof(OpenAiProviderConfiguration.ProviderPreset))
                 {
-                    provider.DisplayName = provider.ProviderPreset;
-                    if (ProviderCatalog.TryGetChatBaseUrl(provider.ProviderPreset, out var url))
+                    var newPreset = provider.ProviderPreset;
+                    var followsPreset = string.IsNullOrWhiteSpace(provider.DisplayName)
+                                        || string.Equals(
+                                            provider.DisplayName,
+                                            previousPreset,
+                                            StringComparison.Ordinal);
+                    previousPreset = newPreset;
+                    if (followsPreset)
+                        provider.DisplayName = newPreset;
+                    if (ProviderCatalog.TryGetChatBaseUrl(newPreset, out var url))
                         provider.BaseUrl = url;
                 }
                 RequestSave();
