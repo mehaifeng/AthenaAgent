@@ -244,61 +244,7 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.([pP][dD][fF]|[dD][oO][cC][xX]?|[pP][pP][tT][xX]?|[xX][lL][sS][xX]?)$", description = "Absolute or relative path to a supported document. The file-system security policy is enforced before upload." }
                 },
-                required = new[] { "path" },
-                oneOf = new object[]
-                {
-                    new
-                    {
-                        required = new[] { "startLine" },
-                        not = new
-                        {
-                            anyOf = new object[]
-                            {
-                                new { required = new[] { "sectionTitle" } },
-                                new { required = new[] { "chunkIndex" } }
-                            }
-                        }
-                    },
-                    new
-                    {
-                        required = new[] { "sectionTitle" },
-                        not = new
-                        {
-                            anyOf = new object[]
-                            {
-                                new { required = new[] { "startLine" } },
-                                new { required = new[] { "endLine" } },
-                                new { required = new[] { "chunkIndex" } }
-                            }
-                        }
-                    },
-                    new
-                    {
-                        required = new[] { "chunkIndex" },
-                        not = new
-                        {
-                            anyOf = new object[]
-                            {
-                                new { required = new[] { "startLine" } },
-                                new { required = new[] { "endLine" } },
-                                new { required = new[] { "sectionTitle" } }
-                            }
-                        }
-                    },
-                    new
-                    {
-                        not = new
-                        {
-                            anyOf = new object[]
-                            {
-                                new { required = new[] { "startLine" } },
-                                new { required = new[] { "endLine" } },
-                                new { required = new[] { "sectionTitle" } },
-                                new { required = new[] { "chunkIndex" } }
-                            }
-                        }
-                    }
-                }
+                required = new[] { "path" }
             });
 
         // --- Self-Configuration ---
@@ -374,7 +320,61 @@ public class FunctionRegistry : IFunctionRegistry
                     sectionTitle = new { type = "string", minLength = 1, maxLength = 500, description = "Markdown ATX heading text to read through the next heading of the same or higher level." },
                     chunkIndex = new { type = "integer", minimum = 0, description = "0-based 50 KiB chunk index." }
                 },
-                required = new[] { "path" }
+                required = new[] { "path" },
+                oneOf = new object[]
+                {
+                    new
+                    {
+                        required = new[] { "startLine" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "sectionTitle" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        required = new[] { "sectionTitle" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        required = new[] { "chunkIndex" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "sectionTitle" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "sectionTitle" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    }
+                }
             });
 
         RegisterFunction("write_system_file", fileSystemFunctions.WriteSystemFileAsync,

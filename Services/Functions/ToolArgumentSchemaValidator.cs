@@ -46,6 +46,90 @@ internal static class ToolArgumentSchemaValidator
             throw new InvalidOperationException(
                 $"Tool '{toolName}' schema/delegate mismatch. Schema-only=[{string.Join(",", onlySchema)}], method-only=[{string.Join(",", onlyMethod)}].");
         }
+
+        AssertRequiredPropertiesDeclared(toolName, schema, new HashSet<string>(StringComparer.Ordinal), "$");
+    }
+
+    /// <summary>
+    /// Ensures composition branches cannot require fields that the surrounding object never
+    /// declares. JSON Schema permits a oneOf/not branch to reference properties declared by its
+    /// parent object, so the active declaration scope is carried into composition keywords, but
+    /// is reset when entering a nested property or array item.
+    /// </summary>
+    private static void AssertRequiredPropertiesDeclared(
+        string toolName,
+        JsonElement schema,
+        IReadOnlySet<string> inheritedProperties,
+        string path)
+    {
+        if (schema.ValueKind != JsonValueKind.Object) return;
+
+        var availableProperties = new HashSet<string>(inheritedProperties, StringComparer.Ordinal);
+        if (schema.TryGetProperty("properties", out var properties)
+            && properties.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in properties.EnumerateObject())
+                availableProperties.Add(Canonicalize(property.Name));
+        }
+
+        if (schema.TryGetProperty("required", out var required)
+            && required.ValueKind == JsonValueKind.Array)
+        {
+            var undeclared = required.EnumerateArray()
+                .Select(item => item.GetString())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Where(name => !availableProperties.Contains(Canonicalize(name!)))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (undeclared.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Tool '{toolName}' schema branch at {path} requires undeclared propert{(undeclared.Length == 1 ? "y" : "ies")}: [{string.Join(",", undeclared)}].");
+            }
+        }
+
+        if (schema.TryGetProperty("properties", out properties)
+            && properties.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in properties.EnumerateObject())
+            {
+                AssertRequiredPropertiesDeclared(
+                    toolName,
+                    property.Value,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    $"{path}.properties.{property.Name}");
+            }
+        }
+
+        foreach (var keyword in new[] { "allOf", "anyOf", "oneOf" })
+        {
+            if (!schema.TryGetProperty(keyword, out var branches)
+                || branches.ValueKind != JsonValueKind.Array) continue;
+            var index = 0;
+            foreach (var branch in branches.EnumerateArray())
+            {
+                AssertRequiredPropertiesDeclared(
+                    toolName,
+                    branch,
+                    availableProperties,
+                    $"{path}.{keyword}[{index++}]");
+            }
+        }
+
+        if (schema.TryGetProperty("not", out var notSchema))
+            AssertRequiredPropertiesDeclared(toolName, notSchema, availableProperties, $"{path}.not");
+        if (schema.TryGetProperty("items", out var items))
+            AssertRequiredPropertiesDeclared(toolName, items, new HashSet<string>(StringComparer.Ordinal), $"{path}.items");
+        if (schema.TryGetProperty("additionalProperties", out var additionalProperties)
+            && additionalProperties.ValueKind == JsonValueKind.Object)
+        {
+            AssertRequiredPropertiesDeclared(
+                toolName,
+                additionalProperties,
+                new HashSet<string>(StringComparer.Ordinal),
+                $"{path}.additionalProperties");
+        }
     }
 
     public static bool TryValidate(JsonElement schema, JsonElement value, out string? error)

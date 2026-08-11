@@ -3696,8 +3696,33 @@ static Task TestToolSchemaValidatorAsync()
     using var orphanEndLine = JsonDocument.Parse("""{"path":"a.md","endLine":2}""");
     AssertFalse(ToolArgumentSchemaValidator.TryValidate(selectorSchema, orphanEndLine.RootElement, out _),
         "endLine without startLine should not match a selector branch");
+
+    var undeclaredBranchSchema = ToolArgumentSchemaValidator.NormalizeAndClose(new
+    {
+        type = "object",
+        properties = new { path = new { type = "string" } },
+        required = new[] { "path" },
+        oneOf = new object[] { new { required = new[] { "startLine" } } }
+    });
+    var undeclaredBranchRejected = false;
+    try
+    {
+        ToolArgumentSchemaValidator.AssertDelegateContract(
+            "path_only_probe",
+            (Func<string, Task<FunctionResult>>)PathOnlySchemaProbeAsync,
+            undeclaredBranchSchema);
+    }
+    catch (InvalidOperationException ex)
+    {
+        undeclaredBranchRejected = ex.Message.Contains("startLine", StringComparison.Ordinal);
+    }
+    AssertTrue(undeclaredBranchRejected,
+        "registration must reject composition branches that require undeclared fields");
     return Task.CompletedTask;
 }
+
+static Task<FunctionResult> PathOnlySchemaProbeAsync(string path) =>
+    Task.FromResult(FunctionResult.SuccessResult(path));
 
 static void CreateDocxFixture(string path)
 {
