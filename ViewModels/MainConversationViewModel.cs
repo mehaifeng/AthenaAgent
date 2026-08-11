@@ -120,6 +120,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
     private bool _isQueued;
 
+    partial void OnIsSendingChanged(bool value)
+        => Pet.SetConversationActivity(value, IsQueued);
+
+    partial void OnIsQueuedChanged(bool value)
+        => Pet.SetConversationActivity(IsSending, value);
+
     public string ActivityStatusText => IsQueued
         ? GetString("Session.Activity.Queued", "Queued")
         : IsSending
@@ -408,6 +414,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// <summary>子代理编排器（供 RAW 旁的 Sub-Agents 弹出小镇绑定）。</summary>
     public ISubAgentOrchestrator? Orchestrator { get; }
 
+    /// <summary>当前会话的常驻猫头鹰；只投影运行状态，不拥有任何工具执行权限。</summary>
+    public VirtualPetViewModel Pet { get; }
+
     /// <summary>子代理"小镇"居中弹窗是否展开。</summary>
     [ObservableProperty]
     private bool _isSubAgentPopupOpen;
@@ -459,6 +468,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         SubAgentCount = agents?.Count ?? 0;
         HasSubAgents = SubAgentCount > 0;
         HasRunningSubAgents = agents?.Any(a => a.State is SubAgentState.Pending or SubAgentState.Running) == true;
+        Pet.SetSubAgentsRunning(HasRunningSubAgents);
 
         // 整批谢幕：最后一只结束（完成/出错/取消/超时）后延时 2s，
         // 先播淡出动画再统一移出小镇；期间若有新批次派入则取消。
@@ -730,6 +740,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         ICompressionCandidateGenerator? compressionCandidateGenerator = null,
         ICompressionValidator? compressionValidator = null)
     {
+        Pet = new VirtualPetViewModel(localizationService);
         Orchestrator = subAgentOrchestrator;
         if (Orchestrator != null)
         {
@@ -767,6 +778,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (_configService != null)
         {
             var config = _configService.Load();
+            Pet.ApplySettings(config);
             CurrentModelName = config.AiModels.MainConversation.Model;
             _requestContentIdentity = ComputeRequestContentIdentity(config);
             CurrentTheme = config.Theme;
@@ -801,6 +813,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
+        Pet.RefreshLocalization();
         RefreshToolCallSummaries();
         OnPropertyChanged(nameof(ContextTokensInfo));
         RefreshContextInspectorProperties();
@@ -841,6 +854,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 _tokenService.ApplyEstimatedBaseline(_tokenService.CurrentTokens, _revision);
             }
             _requestContentIdentity = nextContentIdentity;
+            Pet.ApplySettings(config);
             InvalidateCompressionPreview();
             CurrentModelName = config.AiModels.MainConversation.Model;
             UpdateBubbleButtonVisibility();
@@ -2262,7 +2276,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         InsertBeforeActiveBubble(assistantMsg, msg);
 
                         // 把工具结果回填到对应卡片（按 ToolCallId 匹配），并标记成功/失败
-                        CompleteToolCallEntry(assistantMsg, msg.ToolCallId, msg.ToolName, msg.Content);
+                        var toolSucceeded = CompleteToolCallEntry(assistantMsg, msg.ToolCallId, msg.ToolName, msg.Content);
+                        var nextRunningTool = assistantMsg.Segments
+                            .Where(segment => segment.IsToolCallGroup)
+                            .SelectMany(segment => segment.ToolCalls)
+                            .FirstOrDefault(tool => tool.IsRunning)?.Name;
+                        Pet.FinishTool(toolSucceeded != false, nextRunningTool);
 
                         // 工具执行完毕，等待大模型下一步指示——保留思考动画
                         assistantMsg.ToolExecutionSummary = string.Empty;
@@ -2436,6 +2455,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 UpdateConversationContext();
                 await ReconcileImageGenerationSessionAsync();
                 IsSending = false;
+                Pet.CompleteResponse(
+                    outcome.Outcome == TaskExecutionOutcome.Succeeded,
+                    outcome.Outcome == TaskExecutionOutcome.Interrupted);
                 if (_policyRefreshPending)
                 {
                     _policyRefreshPending = false;
@@ -4046,6 +4068,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             }
 
             ChatMessageSegment? group = null;
+            string? firstToolName = null;
 
             foreach (var node in toolCalls)
             {
@@ -4057,6 +4080,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 var name = node["FunctionName"]?.ToString() ?? string.Empty;
                 var id = node["Id"]?.ToString();
                 var arguments = node["Arguments"]?.ToString();
+                firstToolName ??= name;
 
                 group ??= GetOrCreateToolCallGroup(message);
                 group.ToolCalls.Add(new ToolCallEntry
@@ -4078,6 +4102,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             if (group != null)
             {
                 message.NotifySegmentsChanged();
+                Pet.BeginTool(firstToolName);
             }
         }
         catch
@@ -4112,7 +4137,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     // 工具结果回填到对应项：按 ToolCallId 匹配，标记成功/失败并填入结果预览。
-    private static void CompleteToolCallEntry(ChatMessage message, string? toolCallId, string toolName, string? resultJson)
+    private static bool? CompleteToolCallEntry(ChatMessage message, string? toolCallId, string toolName, string? resultJson)
     {
         ToolCallEntry? entry = null;
         foreach (var seg in message.Segments)
@@ -4138,12 +4163,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         if (entry == null)
         {
-            return;
+            return null;
         }
 
         var (success, preview) = ToolCallDisplay.ParseResult(resultJson);
         entry.Status = success ? ToolCallStatus.Success : ToolCallStatus.Failed;
         entry.Result = preview;
+        return success;
     }
 
     // 工具轮全部完成、开始/结束输出最终正文时收起工具组（尊重用户已手动展开/收起的意愿）。
@@ -4230,6 +4256,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _subAgentClearTimer?.Stop();
         _subAgentClearTimer = null;
+        Pet.Dispose();
 
         _responseCts?.Cancel();
         _responseCts?.Dispose();

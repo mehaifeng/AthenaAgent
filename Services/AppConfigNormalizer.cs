@@ -53,6 +53,22 @@ public static class AppConfigNormalizer
         config.MaxTerminalOutputChars = Math.Clamp(config.MaxTerminalOutputChars, 1_000, 1_000_000);
     }
 
+    /// <summary>迁移第一阶段的临时猫头鹰并钳制窗口内宠物尺寸。</summary>
+    public static void NormalizeVirtualPet(AppConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.VirtualPetSlug)
+            || config.VirtualPetSlug.Equals("athena-owl", StringComparison.OrdinalIgnoreCase))
+            config.VirtualPetSlug = "boba";
+        config.VirtualPetScale = Math.Clamp(
+            double.IsFinite(config.VirtualPetScale) ? config.VirtualPetScale : 0.5,
+            0.25,
+            1.0);
+        if (config.VirtualPetRoamArea is not (VirtualPetRoamArea.EntireMessageArea
+            or VirtualPetRoamArea.LowerHalf
+            or VirtualPetRoamArea.BottomEdge))
+            config.VirtualPetRoamArea = VirtualPetRoamArea.LowerHalf;
+    }
+
     /// <summary>协议枚举归一化：config.json 手改出非法数字时钳回 Auto。</summary>
     public static void NormalizeProtocol(AppConfig config)
     {

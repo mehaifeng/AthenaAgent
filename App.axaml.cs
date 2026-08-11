@@ -775,6 +775,11 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<AppConfigurationSession>();
         services.AddSingleton<AppConfigurationApplier>();
+        services.AddSingleton<IPetDexCatalogService>(sp =>
+            new PetDexCatalogService(
+                sp.GetRequiredService<IPlatformPathService>(),
+                new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                Log.ForContext<PetDexCatalogService>()));
         services.AddSingleton<ConversationExecutionCoordinator>();
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();

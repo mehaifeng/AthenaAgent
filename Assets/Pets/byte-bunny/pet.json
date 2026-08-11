@@ -1,0 +1,10 @@
+{
+  "id": "byte-bunny",
+  "displayName": "Byte Bunny",
+  "description": "A tiny rabbit holding a little keyboard key like a lucky charm.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "creature",
+  "submittedBy": "railly",
+  "sourceSpritesheetUrl": "https://assets.petdex.dev/curated/byte-bunny/spritesheet.webp",
+  "sourcePetJsonUrl": "https://assets.petdex.dev/curated/byte-bunny/pet.json"
+}

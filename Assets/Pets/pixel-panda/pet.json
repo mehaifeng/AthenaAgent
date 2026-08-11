@@ -1,0 +1,11 @@
+{
+  "id": "pixel-panda",
+  "displayName": "Pixel Panda",
+  "description": "A gentle panda holding a tiny pixel brush.",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "creature",
+  "submittedBy": "railly",
+  "sourceSpritesheetUrl": "https://assets.petdex.dev/curated/pixel-panda/sprite-v2.webp",
+  "sourcePetJsonUrl": "https://assets.petdex.dev/curated/pixel-panda/petjson-v2.json"
+}

@@ -1244,6 +1244,34 @@
     <system:String x:Key="Session.Activity.Running">运行中</system:String>
     <system:String x:Key="Session.Activity.Ready">就绪</system:String>
 
+    <!-- 虚拟宠物 -->
+    <system:String x:Key="Settings.General.VirtualPet">显示虚拟宠物</system:String>
+    <system:String x:Key="Settings.General.VirtualPetHint">从 PetDex 选择动画伙伴，用它反映对话、工具调用与 Owl Village 的活动状态。</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChoice">选择宠物</system:String>
+    <system:String x:Key="Settings.General.VirtualPetSearchPlaceholder">搜索 PetDex 宠物…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInstalling">正在下载…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetLoading">正在加载 PetDex…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetCount">共 {0} 个宠物</system:String>
+    <system:String x:Key="Settings.General.VirtualPetCountCapped">显示前 {0} 个，共 {1} 个宠物</system:String>
+    <system:String x:Key="Settings.General.VirtualPetScale">宠物大小</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoaming">允许空闲漫游</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamingHint">Athena 空闲时，宠物会在允许范围内活动；手动拖动始终可用。</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea">漫游区域</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.Entire">整个消息区域</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.LowerHalf">消息区下半部</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.BottomEdge">仅底部边缘</system:String>
+    <system:String x:Key="Settings.General.VirtualPetGravity">重力与抛掷</system:String>
+    <system:String x:Key="Settings.General.VirtualPetGravityHint">保留拖动松手时的速度，并模拟下落和轻微回弹。</system:String>
+    <system:String x:Key="Settings.General.VirtualPetReducedMotion">减少宠物动画</system:String>
+    <system:String x:Key="Pet.Status.Idle">就绪</system:String>
+    <system:String x:Key="Pet.Status.Queued">等待执行</system:String>
+    <system:String x:Key="Pet.Status.Thinking">Athena 正在思考</system:String>
+    <system:String x:Key="Pet.Status.Working">Athena 正在使用工具</system:String>
+    <system:String x:Key="Pet.Status.SubAgents">猫头鹰小镇正在工作</system:String>
+    <system:String x:Key="Pet.Status.Complete">回复完成</system:String>
+    <system:String x:Key="Pet.Status.Error">有一件事需要留意</system:String>
+    <system:String x:Key="Pet.Status.Sleeping">休息中</system:String>
+
     <!-- Skills -->
     <system:String x:Key="Skills.Status.Summary">{0} 启用 · {1} 已禁用 · {2} 有问题</system:String>
 

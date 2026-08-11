@@ -3,6 +3,13 @@ using System.Collections.ObjectModel;
 
 namespace Athena.UI.Models;
 
+public enum VirtualPetRoamArea
+{
+    EntireMessageArea,
+    LowerHalf,
+    BottomEdge
+}
+
 /// <summary>
 /// 应用配置模型
 /// </summary>
@@ -218,6 +225,34 @@ public partial class AppConfig : ObservableObject
     // 模型开始输出新一轮推理内容时，自动展开助手气泡中的思考区域。
     [ObservableProperty]
     private bool _autoExpandReasoning = true;
+
+    // 窗口内常驻的 PetDex 宠物；Owl Village 保持独立的原始精灵资源。
+    [ObservableProperty]
+    private bool _virtualPetEnabled = true;
+
+    // 当前使用的 PetDex 包；可以是随应用提供的宠物，也可以是下载到 AthenaData/Pets 的宠物。
+    [ObservableProperty]
+    private string _virtualPetSlug = "boba";
+
+    // PetDex 原生单帧为 192x208；0.5 对应约 96x104 的窗口内展示尺寸。
+    [ObservableProperty]
+    private double _virtualPetScale = 0.5;
+
+    // 减少宠物的逐帧动画，但保留确定性的状态提示。
+    [ObservableProperty]
+    private bool _virtualPetReducedMotion;
+
+    // 空闲时允许宠物在消息区域自主移动；手动拖动始终可用。
+    [ObservableProperty]
+    private bool _virtualPetRoamingEnabled = true;
+
+    // 松手后的抛掷速度、下落与轻微回弹。
+    [ObservableProperty]
+    private bool _virtualPetGravityEnabled = true;
+
+    // 自动漫游的活动/可落脚范围；开启重力时宠物最终落在区域底边。
+    [ObservableProperty]
+    private VirtualPetRoamArea _virtualPetRoamArea = VirtualPetRoamArea.LowerHalf;
 
     // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
     [ObservableProperty]

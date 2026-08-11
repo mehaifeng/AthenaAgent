@@ -1244,6 +1244,34 @@
     <system:String x:Key="Session.Activity.Running">Running</system:String>
     <system:String x:Key="Session.Activity.Ready">Ready</system:String>
 
+    <!-- Virtual pet -->
+    <system:String x:Key="Settings.General.VirtualPet">Show virtual pet</system:String>
+    <system:String x:Key="Settings.General.VirtualPetHint">Choose an animated PetDex companion that reflects conversation, tool, and Owl Village activity.</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChoice">Choose a pet</system:String>
+    <system:String x:Key="Settings.General.VirtualPetSearchPlaceholder">Search PetDex pets…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInstalling">Downloading…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetLoading">Loading PetDex…</system:String>
+    <system:String x:Key="Settings.General.VirtualPetCount">{0} pets</system:String>
+    <system:String x:Key="Settings.General.VirtualPetCountCapped">Showing {0} of {1} pets</system:String>
+    <system:String x:Key="Settings.General.VirtualPetScale">Pet size</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoaming">Allow idle roaming</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamingHint">The pet explores its allowed area while Athena is idle. Manual dragging remains available.</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea">Roaming area</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.Entire">Entire message area</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.LowerHalf">Lower half</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.BottomEdge">Bottom edge</system:String>
+    <system:String x:Key="Settings.General.VirtualPetGravity">Gravity and throwing</system:String>
+    <system:String x:Key="Settings.General.VirtualPetGravityHint">Preserve drag momentum, then fall and settle with a small bounce.</system:String>
+    <system:String x:Key="Settings.General.VirtualPetReducedMotion">Reduce pet animation</system:String>
+    <system:String x:Key="Pet.Status.Idle">Ready</system:String>
+    <system:String x:Key="Pet.Status.Queued">Waiting for a turn</system:String>
+    <system:String x:Key="Pet.Status.Thinking">Athena is thinking</system:String>
+    <system:String x:Key="Pet.Status.Working">Athena is using a tool</system:String>
+    <system:String x:Key="Pet.Status.SubAgents">The owl village is at work</system:String>
+    <system:String x:Key="Pet.Status.Complete">Response complete</system:String>
+    <system:String x:Key="Pet.Status.Error">Something needs attention</system:String>
+    <system:String x:Key="Pet.Status.Sleeping">Resting</system:String>
+
     <!-- Skills -->
     <system:String x:Key="Skills.Status.Summary">{0} active · {1} disabled · {2} issues</system:String>
 

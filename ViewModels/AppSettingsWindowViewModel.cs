@@ -22,11 +22,12 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         IModelMetadataResolver? metadataResolver = null,
         IModelContextPolicyResolver? contextPolicyResolver = null,
         ITokenCalibrationService? tokenCalibration = null,
-        IUserInteractionService? userInteractionService = null)
+        IUserInteractionService? userInteractionService = null,
+        IPetDexCatalogService? petDexCatalogService = null)
     {
         _localizationService = localizationService;
         _state = new AppSettingsState(configurationSession);
-        General = new GeneralSettingsViewModel(_state);
+        General = new GeneralSettingsViewModel(_state, petDexCatalogService, localizationService);
         ConversationContext = new ConversationContextSettingsViewModel(
             _state,
             metadataCatalog,

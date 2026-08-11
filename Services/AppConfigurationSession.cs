@@ -331,6 +331,7 @@ public sealed class AppConfigurationSession : IDisposable
         AppConfigNormalizer.NormalizeBrowser(config);
         AppConfigNormalizer.NormalizeSecurity(config);
         AppConfigNormalizer.NormalizeProtocol(config);
+        AppConfigNormalizer.NormalizeVirtualPet(config);
     }
 
     private static IEnumerable<ModelRoleSettings> GetRoleSettings(AiModelConfiguration models)

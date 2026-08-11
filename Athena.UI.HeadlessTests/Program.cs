@@ -14,6 +14,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Athena.UI;
+using Athena.UI.Controls;
 using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
@@ -64,6 +65,11 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestVirtualPetStateMachine();
+TestVirtualPetMotionEngine();
+TestPetDexSpriteVisual(outputPath);
+Task.Run(TestPetDexCatalogAsync).GetAwaiter().GetResult();
+TestPetSettingsVisual(outputPath);
 Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesToolLoopAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesTruncatedToolCallRetryAsync).GetAwaiter().GetResult();
@@ -1393,6 +1399,261 @@ static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMess
         Dispatcher.UIThread.RunJobs();
         Thread.Sleep(10);
     }
+}
+
+static void TestVirtualPetStateMachine()
+{
+    var definition = PetDexPetLibrary.Resolve(PetDexPetLibrary.DefaultSlug);
+    if (definition.FrameWidth != 192
+        || definition.FrameHeight != 208
+        || definition.Columns != 8
+        || definition.FramesPerState != 6
+        || definition.Rows.Count != 9
+        || definition.FrameCount(PetDexAnimationState.Waving) != 4
+        || definition.BottomTransparentPixels != 5
+        || definition.SpriteSheet.PixelSize.Width != 1536
+        || definition.SpriteSheet.PixelSize.Height is not (1872 or 2288))
+        throw new InvalidOperationException(
+            $"The default bundled pet is not a complete PetDex package (bottom padding: {definition.BottomTransparentPixels}).");
+
+    foreach (var builtIn in PetDexPetLibrary.BuiltIns)
+    {
+        if (!PetDexPetLibrary.TryResolveExact(builtIn.Slug, out var bundled)
+            || bundled.FramesPerState != 6
+            || Enum.GetValues<PetDexAnimationState>().Any(state => bundled.FrameCount(state) is < 1 or > 6))
+            throw new InvalidOperationException($"Bundled PetDex pet '{builtIn.Slug}' could not be loaded.");
+    }
+
+    using var pet = new VirtualPetViewModel();
+    if (pet.State != VirtualPetState.Idle
+        || pet.AnimationState != PetDexAnimationState.Idle
+        || pet.FrameIndex != 0
+        || Math.Abs(pet.ViewWidth - pet.PetWidth) > 0.001
+        || Math.Abs(pet.ViewHeight - pet.PetHeight) > 0.001
+        || Math.Abs(pet.GroundOffset - 2.5) > 0.001)
+        throw new InvalidOperationException("Virtual pet must start on the PetDex idle row.");
+
+    pet.SetConversationActivity(active: true, queued: false);
+    if (pet.State != VirtualPetState.Thinking || pet.AnimationState != PetDexAnimationState.Review)
+        throw new InvalidOperationException("Active conversation did not select the PetDex review row.");
+
+    pet.BeginTool("web_search");
+    if (pet.State != VirtualPetState.Working
+        || pet.CueSymbol != "◎"
+        || pet.AnimationState != PetDexAnimationState.Running)
+        throw new InvalidOperationException("Tool activity did not select the PetDex running row.");
+
+    pet.FinishTool(succeeded: false);
+    if (pet.State != VirtualPetState.Alert || pet.AnimationState != PetDexAnimationState.Failed)
+        throw new InvalidOperationException("A failed tool must temporarily select the PetDex failed row.");
+
+    pet.WakeCommand.Execute(null);
+    if (pet.State != VirtualPetState.Thinking)
+        throw new InvalidOperationException("Clearing a pet alert must reveal the still-active conversation state.");
+
+    pet.SetSubAgentsRunning(active: true);
+    if (pet.State != VirtualPetState.Working || pet.AnimationState != PetDexAnimationState.Running)
+        throw new InvalidOperationException("Sub-agent activity must select the PetDex running row.");
+    pet.SetSubAgentsRunning(active: false);
+
+    pet.CompleteResponse(succeeded: true, interrupted: false);
+    if (pet.State != VirtualPetState.Celebrating
+        || pet.AnimationState != PetDexAnimationState.Jumping)
+        throw new InvalidOperationException("A successful response did not trigger the brief completion state.");
+
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = false,
+        VirtualPetReducedMotion = true,
+        VirtualPetRoamingEnabled = false,
+        VirtualPetGravityEnabled = false,
+        VirtualPetRoamArea = VirtualPetRoamArea.BottomEdge,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetScale = 0.75
+    });
+    if (pet.IsEnabled
+        || !pet.ReducedMotion
+        || pet.RoamingEnabled
+        || pet.GravityEnabled
+        || pet.RoamArea != VirtualPetRoamArea.BottomEdge
+        || pet.IsCelebrating
+        || pet.PetSlug != PetDexPetLibrary.DefaultSlug
+        || Math.Abs(pet.PetScale - 0.75) > 0.001)
+        throw new InvalidOperationException("Virtual pet accessibility settings were not applied.");
+
+    Console.WriteLine("[PASS] virtual pet uses validated PetDex packages and deterministic activity priorities");
+}
+
+static void TestVirtualPetMotionEngine()
+{
+    var falling = new VirtualPetMotionEngine(randomSeed: 7);
+    falling.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LowerHalf);
+    falling.BeginDrag();
+    falling.DragTo(-220, -180, 0.1);
+    falling.EndDrag(gravityEnabled: true);
+    for (var i = 0; i < 300; i++)
+        falling.Tick(0.016, roamingEnabled: false, gravityEnabled: true, canRoam: false);
+    if (falling.IsDragging
+        || Math.Abs(falling.Y) > 0.01
+        || falling.X is < -480 or > 0)
+        throw new InvalidOperationException("Thrown pet did not fall and settle inside its message-area bounds.");
+
+    var fasterGravity = new VirtualPetMotionEngine(randomSeed: 8);
+    fasterGravity.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LowerHalf);
+    fasterGravity.BeginDrag();
+    fasterGravity.DragTo(-100, -100, 0);
+    fasterGravity.EndDrag(gravityEnabled: true);
+    for (var i = 0; i < 16; i++)
+        fasterGravity.Tick(0.016, roamingEnabled: false, gravityEnabled: true, canRoam: false);
+    if (fasterGravity.Y < -58)
+        throw new InvalidOperationException("Virtual pet gravity did not use the faster fall acceleration.");
+
+    var bottomOnly = new VirtualPetMotionEngine(randomSeed: 9);
+    bottomOnly.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.BottomEdge);
+    bottomOnly.BeginDrag();
+    bottomOnly.DragTo(-100, -120, 0.1);
+    bottomOnly.EndDrag(gravityEnabled: false);
+    if (Math.Abs(bottomOnly.Y) > 0.01)
+        throw new InvalidOperationException("Bottom-edge roaming did not clamp the pet to its landing area.");
+
+    var bottomRoaming = new VirtualPetMotionEngine(randomSeed: 10);
+    bottomRoaming.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.BottomEdge);
+    for (var i = 0; i < 220; i++)
+        bottomRoaming.Tick(0.016, roamingEnabled: true, gravityEnabled: true, canRoam: true);
+    if (Math.Abs(bottomRoaming.Y) > 0.01 || Math.Abs(bottomRoaming.X) < 1)
+        throw new InvalidOperationException("Bottom-edge mode must walk horizontally without lower-half hops.");
+
+    var roaming = new VirtualPetMotionEngine(randomSeed: 11);
+    roaming.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LowerHalf);
+    var highestRoamingY = 0.0;
+    for (var i = 0; i < 220; i++)
+    {
+        roaming.Tick(0.016, roamingEnabled: true, gravityEnabled: true, canRoam: true);
+        highestRoamingY = Math.Min(highestRoamingY, roaming.Y);
+    }
+    if (Math.Abs(roaming.X) < 1 || highestRoamingY is >= -1 or < -35)
+        throw new InvalidOperationException("Idle roaming did not use the reduced, bounded hop height.");
+
+    Console.WriteLine("[PASS] virtual pet drag, throw, gravity, landing bounds, and idle roaming");
+}
+
+static void TestPetDexSpriteVisual(string outputPath)
+{
+    var actions = Enum.GetValues<PetDexAnimationState>();
+    var panel = new WrapPanel
+    {
+        Width = 576,
+        Background = new SolidColorBrush(Color.Parse("#111217"))
+    };
+    foreach (var action in actions)
+    for (var frame = 0; frame < 6; frame++)
+        panel.Children.Add(new PetDexSprite
+        {
+            Width = 96,
+            Height = 104,
+            PetSlug = PetDexPetLibrary.DefaultSlug,
+            AnimationState = action,
+            FrameIndex = frame
+        });
+
+    var window = new Window
+    {
+        Width = 576,
+        Height = actions.Length * 104,
+        CanResize = false,
+        Background = new SolidColorBrush(Color.Parse("#111217")),
+        Content = panel
+    };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    var directory = Path.GetDirectoryName(outputPath)!;
+    Directory.CreateDirectory(directory);
+    var posePath = Path.Combine(directory, "petdex-pet-poses.png");
+    SaveWindowFrame(window, posePath);
+    window.Close();
+    Console.WriteLine($"[PASS] PetDex pet poses captured at {posePath}");
+}
+
+static async Task TestPetDexCatalogAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-petdex-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+        byte[] spriteBytes;
+        using (var spriteStream = Avalonia.Platform.AssetLoader.Open(
+                   new Uri("avares://Athena.UI/Assets/Pets/boba/spritesheet.webp")))
+        using (var copy = new MemoryStream())
+        {
+            await spriteStream.CopyToAsync(copy);
+            spriteBytes = copy.ToArray();
+        }
+
+        using var handler = new PetDexFixtureHandler(spriteBytes);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        using var catalogService = new PetDexCatalogService(
+            new TemporaryPathService(root),
+            client,
+            Serilog.Log.ForContext<PetDexCatalogService>());
+        var local = catalogService.GetLocalCatalog();
+        if (local.Count != 4
+            || local.Any(entry => entry.Slug == "athena-owl")
+            || local.Any(entry => !entry.IsBuiltIn || !entry.IsInstalled))
+            throw new InvalidOperationException("PetDex local-first gallery did not expose the four curated built-ins.");
+
+        var configService = new HeadlessConfigService(new AppConfig());
+        using var session = new AppConfigurationSession(configService);
+        using var state = new AppSettingsState(session);
+        using var viewModel = new GeneralSettingsViewModel(state, catalogService);
+        await viewModel.LoadPetCatalogAsync();
+        viewModel.PetSearchQuery = "remote fox";
+        var remote = viewModel.PetResults.SingleOrDefault()
+                     ?? throw new InvalidOperationException("PetDex search did not find the remote manifest entry.");
+        await remote.UseCommand.ExecuteAsync(null);
+        if (state.Config.VirtualPetSlug != "remote-fox"
+            || !state.Config.VirtualPetEnabled
+            || !File.Exists(Path.Combine(root, "Pets", "remote-fox", "pet.json"))
+            || !PetDexPetLibrary.TryResolveExact("remote-fox", out _))
+            throw new InvalidOperationException("Selecting a remote PetDex result did not install and activate it.");
+
+        Console.WriteLine("[PASS] PetDex gallery loads local-first, searches the remote manifest, and installs atomically");
+    }
+    finally
+    {
+        PetDexPetLibrary.ConfigureInstalledRoot(Path.Combine(AppContext.BaseDirectory, "AthenaData", "Pets"));
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+}
+
+static void TestPetSettingsVisual(string outputPath)
+{
+    var configService = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(configService);
+    using var state = new AppSettingsState(session);
+    using var viewModel = new GeneralSettingsViewModel(state);
+    var view = new GeneralSettingsView { DataContext = viewModel };
+    var window = new Window
+    {
+        Width = 900,
+        Height = 1400,
+        CanResize = false,
+        Content = view
+    };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    if (view.FindControl<CheckBox>("VirtualPetRoamingEnabledCheckBox") is null
+        || view.FindControl<ComboBox>("VirtualPetRoamAreaComboBox") is null
+        || view.FindControl<CheckBox>("VirtualPetGravityEnabledCheckBox") is null)
+        throw new InvalidOperationException("General Settings did not render the phase-three pet motion controls.");
+
+    var directory = Path.GetDirectoryName(outputPath)!;
+    Directory.CreateDirectory(directory);
+    var settingsPath = Path.Combine(directory, "athena-pet-settings.png");
+    SaveWindowFrame(window, settingsPath);
+    window.Close();
+    Console.WriteLine($"[PASS] PetDex General Settings gallery captured at {settingsPath}");
 }
 
 static void TestShellPanelBackgroundThemeResolution()
@@ -6085,6 +6346,46 @@ sealed class StreamedErrorThenFinalSseHandler : HttpMessageHandler
         };
     }
 }
+
+#pragma warning disable CA2000
+sealed class PetDexFixtureHandler(byte[] spriteBytes) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri?.AbsolutePath ?? string.Empty;
+        if (request.RequestUri?.Host == "petdex.dev")
+        {
+            const string manifest = """
+                {"pets":[{"slug":"remote-fox","displayName":"Remote Fox","kind":"creature","submittedBy":"fixture","spritesheetUrl":"https://assets.petdex.dev/pets/remote-fox/sprite.webp","petJsonUrl":"https://assets.petdex.dev/pets/remote-fox/petjson.json"}]}
+                """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(manifest, Encoding.UTF8, "application/json")
+            });
+        }
+        if (path.EndsWith("sprite.webp", StringComparison.Ordinal))
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(spriteBytes)
+            });
+        }
+        if (path.EndsWith("petjson.json", StringComparison.Ordinal))
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"id\":\"remote-fox\",\"displayName\":\"Remote Fox\",\"description\":\"fixture\"}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        }
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+}
+#pragma warning restore CA2000
 
 class HeadlessChatService : IChatService
 {
