@@ -534,8 +534,10 @@ Preset 是自由文本，不能单独成为绝对事实。
 | M4 | 96 | External ID 显式 author 一致，原始 slug 精确 | 唯一且无冲突则自动采用 |
 | M5 | 94 | BaseUrl Host 与 ProviderPreset 给出同一个强 author，原始 slug 精确 | 唯一且无冲突则自动采用 |
 | M6 | 92 | 强 author 一致，安全归一化后的完整 author+slug 精确 | 唯一且无冲突则自动采用 |
+| M7 | 91 | 无显式 author 的 External ID 与 OpenRouter 纯 slug 安全归一化后精确相等 | 全目录唯一则自动采用；跨 author 重名则 Ambiguous |
+| M8 | 90 | M7 形态去除窄表中的纯交付层后缀（当前仅 `highspeed`）后与纯 slug 精确相等 | 全目录唯一则继承基础模型元数据；重名则 Ambiguous |
 
-某一自动层得到多个不同 OpenRouter 模型时立即 `Ambiguous`，不能继续用名称或模糊分数裁决。自动目标还必须未过期。只有弱 author 提示、只有 family 名或只有 DisplayName 相似时，不进入 M0–M6。
+某一自动层得到多个不同 OpenRouter 模型时立即 `Ambiguous`，不能继续用名称或模糊分数裁决。自动目标还必须未过期。M7 只接受纯 slug 的规范化精确等值，不得丢弃 External ID 中的显式 author，也不接受相似但不相等的 family 名或 DisplayName。M8 只处理有明确“同模型、不同交付速度”语义的窄后缀，不得扩展到 `mini/pro/max/flash/turbo/free/online/batch` 等可能改变模型身份、能力或路由语义的变体。这样可通用覆盖第三方 Provider 直接暴露上游模型 slug 及纯交付层变体的场景，而无需维护逐供应商白名单。
 
 模糊相似度只用于生成 75–89 分候选，固定第一版算法：
 
@@ -550,7 +552,7 @@ Similarity < 0.60 → 不列为候选
 
 其中 `SlugTokenJaccard` 是安全归一化 slug 按分隔符切词后的集合 Jaccard；`NormalizedEditSimilarity = 1 - LevenshteinDistance / max(lengthA, lengthB)`；`NonConflictingFeatureAgreement` 是 family/version/date/size/tier/capability/variant/quantization 特征集合的 Jaccard，双方都没有可提取特征时取中性值 0.5。先执行硬冲突过滤，再计算上述值。
 
-候选永不自动采用；分数只决定排序。DisplayName 在当前项目通常等于 ID，第一版不进入公式。未来只有供应商返回独立真实名称时，才能通过升级 `MatcherRulesVersion` 调整权重。
+模糊候选永不自动采用；分数只决定排序。安全归一化后与唯一 OpenRouter 纯 slug 精确相等的输入已由 M7 确定性采用，不属于模糊候选。DisplayName 在当前项目通常等于 ID，当前不进入公式。未来只有供应商返回独立真实名称时，才能通过升级 `MatcherRulesVersion` 调整权重。
 
 硬冲突包括：author 明确冲突、家族冲突、日期冲突、参数规模冲突、mini/pro/flash/coder/vision/reasoner 冲突、variant 冲突和量化变体冲突。存在硬冲突时，无论文本相似度多高都不能自动匹配。
 
@@ -1935,7 +1937,7 @@ public interface IConversationPersistenceCoordinator
 - [x] mini/pro/flash/coder/vision/reasoner 冲突。
 - [x] 7B/32B/72B、日期、preview/latest、AWQ/GGUF 冲突。
 - [x] 模糊候选同分或 margin < 8 → Ambiguous，只供人工选择。
-- [x] M0–M6 只有唯一确定性命中可自动采用；模糊 CandidateScore 即使为 89 也不能自动采用。
+- [x] M0–M8 只有唯一确定性命中可自动采用；M7 覆盖第三方纯 slug，M8 覆盖窄表交付层后缀，跨 author 重名保持 Ambiguous；模糊 CandidateScore 即使为 89 也不能自动采用。
 - [x] MatcherRulesVersion 变化清派生缓存但不改人工绑定。
 - [x] Azure 任意 deployment ID → 不自动猜测。
 - [x] 人工绑定、CustomOnly、字段覆盖优先级。

@@ -9,6 +9,8 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 
 namespace Athena.UI.Services.Context;
 
@@ -22,6 +24,8 @@ namespace Athena.UI.Services.Context;
 /// </summary>
 public static class ResponsesCallHelpers
 {
+    private static readonly PipelineTransport CompatibilityTransport = CreateCompatibilityTransport();
+
     /// <summary>该角色是否使用 Responses 传输（仅显式配置生效；Auto 视为 Chat Completions）。</summary>
     public static bool ShouldUseResponses(EffectiveOpenAiModel effective)
         => effective.Protocol == ProviderProtocol.Responses;
@@ -31,7 +35,8 @@ public static class ResponsesCallHelpers
         var options = new ResponsesClientOptions
         {
             RetryPolicy = new ClientRetryPolicy(OpenAiClientOptionsFactory.DefaultMaxRetries),
-            NetworkTimeout = TimeSpan.FromSeconds(OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(timeoutSeconds))
+            NetworkTimeout = TimeSpan.FromSeconds(OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(timeoutSeconds)),
+            Transport = CompatibilityTransport
         };
         if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
         {
@@ -39,6 +44,26 @@ public static class ResponsesCallHelpers
         }
         return new ResponsesClient(new ApiKeyCredential(effective.ApiKey), options);
     }
+
+    // Process-wide transport: the SDK clients share its connection pool for the app lifetime.
+#pragma warning disable CA2000 // Ownership intentionally transfers through the handler chain to the static transport.
+    private static PipelineTransport CreateCompatibilityTransport()
+    {
+        var networkHandler = new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip
+                                     | DecompressionMethods.Deflate
+                                     | DecompressionMethods.Brotli
+        };
+        var httpClient = new HttpClient(new ResponsesCompatibilityHandler(networkHandler))
+        {
+            // System.ClientModel owns the per-request network timeout; avoid a second,
+            // conflicting HttpClient timeout for long-running Responses streams.
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan
+        };
+        return new HttpClientPipelineTransport(httpClient);
+    }
+#pragma warning restore CA2000
 
     /// <summary>构造非流式请求选项：system 提示进 Instructions；工具进 FunctionTool；json_object 走 TextOptions。</summary>
     public static CreateResponseOptions CreateOptions(

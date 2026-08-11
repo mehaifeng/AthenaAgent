@@ -1,3 +1,4 @@
+#pragma warning disable OPENAI001 // Responses API is experimental in OpenAI SDK 2.x.
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -6,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +20,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.Preview;
+using OpenAI.Responses;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
@@ -32,6 +35,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio config reuses a referenced provider credential", TestAudioConfigInheritanceAsync),
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
+    ("Responses compatibility normalizes provider null arrays before SDK deserialization", TestResponsesNullArrayCompatibilityAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
     ("config v5 default context values migrate to v6 auto without losing providers", TestConfigV5DefaultMigrationAsync),
@@ -301,6 +305,47 @@ static Task TestModelIdentityMatcherAsync()
         new ExternalModelIdentity("p", null, null, "models/openai/gpt-4o"), snapshot);
     AssertEqual("M3", wrapped.WinningLayer, "models/ protocol wrapper should be safely removed");
 
+    var thirdPartyBare = matcher.Match(
+        new ExternalModelIdentity("minimax", "Custom", "api.minimaxi.com", "MiniMax-M3"), snapshot);
+    AssertEqual(ModelMatchStatus.Matched, thirdPartyBare.Status,
+        "a unique normalized bare slug should match without provider-specific aliases");
+    AssertEqual("minimax/minimax-m3", thirdPartyBare.SelectedOpenRouterModelId,
+        "the bare MiniMax slug should resolve to its unique OpenRouter record");
+    AssertEqual("M7", thirdPartyBare.WinningLayer,
+        "third-party bare slugs should use the generic deterministic alias layer");
+
+    foreach (var externalId in new[] { "MiniMax-M2", "MiniMax-M2.1", "MiniMax-M2.5", "MiniMax-M2.7", "MiniMax-M3" })
+    {
+        var familyMatch = matcher.Match(
+            new ExternalModelIdentity("minimax", "Minimax", "api.minimaxi.com", externalId), snapshot);
+        AssertEqual(ModelMatchStatus.Matched, familyMatch.Status,
+            $"standard third-party family slug {externalId} should match generically");
+        AssertEqual("M7", familyMatch.WinningLayer,
+            $"standard third-party family slug {externalId} should use M7");
+    }
+
+    foreach (var externalId in new[] { "MiniMax-M2.1-highspeed", "MiniMax-M2.5-highspeed", "MiniMax-M2.7-highspeed" })
+    {
+        var deliveryMatch = matcher.Match(
+            new ExternalModelIdentity("minimax", "Minimax", "api.minimaxi.com", externalId), snapshot);
+        AssertEqual(ModelMatchStatus.Matched, deliveryMatch.Status,
+            $"delivery-only variant {externalId} should inherit its unique base model metadata");
+        AssertEqual("M8", deliveryMatch.WinningLayer,
+            $"delivery-only variant {externalId} should use the generic delivery alias layer");
+    }
+
+    var separatorAlias = matcher.Match(
+        new ExternalModelIdentity("minimax", "Custom", "gateway.example", "MINIMAX_M3"), snapshot);
+    AssertEqual("minimax/minimax-m3", separatorAlias.SelectedOpenRouterModelId,
+        "case and safe separator differences should not require a provider whitelist");
+
+    var ambiguousBare = matcher.Match(
+        new ExternalModelIdentity("p", "Custom", "gateway.example", "shared-model"), snapshot);
+    AssertEqual(ModelMatchStatus.Ambiguous, ambiguousBare.Status,
+        "the same bare slug under multiple authors must remain ambiguous");
+    AssertEqual("M7", ambiguousBare.WinningLayer,
+        "bare-slug ambiguity should be reported at the deterministic alias layer");
+
     var variant = matcher.Match(
         new ExternalModelIdentity("p", "OpenAI", "api.openai.com", "gpt-4o:free"), snapshot);
     AssertTrue(variant.SelectedOpenRouterModelId != "openai/gpt-4o", ":free must not be stripped into the base model");
@@ -336,6 +381,40 @@ static Task TestModelMetadataResolverAsync()
     AssertEqual(MetadataValueSource.ApplicationDefault, unknown.ContextWindowTokens.Source, "unknown context source should remain visible");
     AssertTrue(unknown.Warnings.Contains("UnknownModelAssumption"), "unknown-model assumption should be explicit");
     AssertEqual(CapabilitySupport.Unknown, unknown.SupportsTools.Value, "missing capability must remain Unknown");
+
+    var thirdPartyKnown = resolver.Resolve(
+        new OpenAiProviderConfiguration
+        {
+            Id = "minimax",
+            ProviderPreset = "Minimax",
+            BaseUrl = "https://api.minimaxi.com/v1"
+        },
+        new ProviderModelDescriptor { Id = "MiniMax-M3", DisplayName = "MiniMax-M3" },
+        null,
+        snapshot);
+    AssertEqual("minimax/minimax-m3", thirdPartyKnown.Match.SelectedOpenRouterModelId,
+        "third-party bare slug should flow through resolver to OpenRouter metadata");
+    AssertEqual(1_048_576L, thirdPartyKnown.ContextWindowTokens.Value,
+        "matched third-party model should use catalog context instead of the unknown-model assumption");
+    AssertEqual(MetadataValueSource.AutomaticOpenRouter, thirdPartyKnown.ContextWindowTokens.Source,
+        "generic third-party matching should retain automatic OpenRouter provenance");
+    AssertFalse(thirdPartyKnown.Warnings.Contains("UnknownModelAssumption"),
+        "a deterministic bare-slug match must not show the unknown-model warning");
+
+    var deliveryVariant = resolver.Resolve(
+        new OpenAiProviderConfiguration
+        {
+            Id = "minimax",
+            ProviderPreset = "Minimax",
+            BaseUrl = "https://api.minimaxi.com/v1"
+        },
+        new ProviderModelDescriptor { Id = "MiniMax-M2.7-highspeed", DisplayName = "MiniMax-M2.7-highspeed" },
+        null,
+        snapshot);
+    AssertEqual("minimax/minimax-m2.7", deliveryVariant.Match.SelectedOpenRouterModelId,
+        "delivery-only suffix should resolve to the unique base model record");
+    AssertEqual(204_800L, deliveryVariant.ContextWindowTokens.Value,
+        "delivery-only variant should inherit the base model context window");
 
     var profile = new ProviderModelMetadataProfile
     {
@@ -395,7 +474,15 @@ static OpenRouterCatalogSnapshot CreateModelMetadataFixture()
         [
             Model("openai/gpt-4o", 128_000, "tools", "response_format"),
             Model("openai/gpt-4o:free", 128_000, "tools"),
-            Model("qwen/qwen2.5-72b-instruct", 131_072, "tools")
+            Model("qwen/qwen2.5-72b-instruct", 131_072, "tools"),
+            Model("minimax/minimax-m2", 204_800, "tools"),
+            Model("minimax/minimax-m2.1", 204_800, "tools"),
+            Model("minimax/minimax-m2.5", 204_800, "tools"),
+            Model("minimax/minimax-m2.7", 204_800, "tools"),
+            Model("minimax/minimax-m3", 1_048_576, "tools", "responses"),
+            Model("minimax/minimax-m3:batch", 524_288, "tools"),
+            Model("alpha/shared-model", 32_000),
+            Model("beta/shared-model", 64_000)
         ]);
 }
 
@@ -1679,6 +1766,62 @@ static Task TestOpenAiClientOptionsFactoryAsync()
     AssertEqual(10, OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(1), "small timeout should be clamped");
     AssertEqual(600, OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(1000), "large timeout should be clamped");
     return Task.CompletedTask;
+}
+
+static async Task TestResponsesNullArrayCompatibilityAsync()
+{
+    // The policy is based on Responses item kinds, never provider names or model IDs.
+    var payload = Encoding.UTF8.GetBytes(
+        """
+        {"object":"response","output":[{"type":"message","content":[{"type":"output_text","text":"done","annotations":null,"logprobs":null}],"unrelated":null},{"type":"reasoning","summary":null,"content":null}]}
+        """);
+    var normalized = ResponsesPayloadNormalizer.NormalizeJson(payload, out var changes);
+    AssertEqual(4, changes, "all schema-defined null arrays should be normalized");
+    using (var document = JsonDocument.Parse(normalized))
+    {
+        var output = document.RootElement.GetProperty("output");
+        AssertEqual(JsonValueKind.Array, output.ValueKind, "response.output remains an array");
+        var text = output[0].GetProperty("content")[0];
+        AssertEqual(JsonValueKind.Array, text.GetProperty("annotations").ValueKind, "annotations null becomes []");
+        AssertEqual(JsonValueKind.Array, text.GetProperty("logprobs").ValueKind, "logprobs null becomes []");
+        AssertEqual(JsonValueKind.Null, output[0].GetProperty("unrelated").ValueKind, "unrelated null stays untouched");
+        AssertEqual(JsonValueKind.Array, output[1].GetProperty("summary").ValueKind, "reasoning.summary null becomes []");
+        AssertEqual(JsonValueKind.Array, output[1].GetProperty("content").ValueKind, "reasoning.content null becomes []");
+    }
+
+    // Exercise the actual OpenAI SDK streaming deserializer. Without the compatibility
+    // handler, response.output_item.done / response.completed throws EnumerateArray on null.
+    using var httpClient = new HttpClient(
+        new ResponsesCompatibilityHandler(new NullArrayResponsesSseHandler()));
+    var clientOptions = new ResponsesClientOptions
+    {
+        Endpoint = new Uri("https://responses-compat.test/v1"),
+        Transport = new HttpClientPipelineTransport(httpClient)
+    };
+    var client = new ResponsesClient(new ApiKeyCredential("test-key"), clientOptions);
+    var request = new CreateResponseOptions
+    {
+        Model = "third-party-model",
+        StreamingEnabled = true
+    };
+    request.InputItems.Add(ResponseItem.CreateUserMessageItem("hello"));
+
+    var textOutput = new StringBuilder();
+    var sawCompleted = false;
+    await foreach (var update in client.CreateResponseStreamingAsync(request))
+    {
+        if (update is StreamingResponseOutputTextDeltaUpdate delta)
+        {
+            textOutput.Append(delta.Delta);
+        }
+        else if (update is StreamingResponseCompletedUpdate)
+        {
+            sawCompleted = true;
+        }
+    }
+
+    AssertEqual("done", textOutput.ToString(), "text delta should remain streamable");
+    AssertTrue(sawCompleted, "terminal response.completed should deserialize after normalization");
 }
 
 static async Task TestUpsertAsync()
@@ -4374,6 +4517,37 @@ sealed class CapturingApprovalEvaluator : IAiToolApprovalEvaluator
         DelegatedTask = ToolApprovalContext.CurrentDelegatedTask;
         return Task.FromResult(ToolApprovalDecision.AllowOnce("test evaluator"));
     }
+}
+
+sealed class NullArrayResponsesSseHandler : HttpMessageHandler
+{
+#pragma warning disable CA2000 // HttpClient owns the returned response and content.
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        const string body = """
+            data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"third-party-model","output":[],"usage":null}}
+
+            data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+            data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_1","output_index":0,"content_index":0,"delta":"done"}
+
+            data: {"type":"response.output_text.done","sequence_number":3,"item_id":"msg_1","output_index":0,"content_index":0,"text":"done"}
+
+            data: {"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":null,"logprobs":null}]}}
+
+            data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_final","object":"response","created_at":1785580001,"status":"completed","model":"third-party-model","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":null,"logprobs":null}]}],"usage":{"input_tokens":4,"input_tokens_details":{"cached_tokens":0},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":6}}}
+
+            data: [DONE]
+
+            """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
 }
 
 sealed class FakeConversationSessionAccessor : IConversationSessionAccessor

@@ -9,7 +9,7 @@ namespace Athena.UI.Services.ModelMetadata;
 /// <summary>纯本地、确定性的外来模型身份匹配器。</summary>
 public sealed class ModelIdentityMatcher
 {
-    public const int MatcherRulesVersion = 1;
+    public const int MatcherRulesVersion = 2;
 
     private static readonly Dictionary<string, string> PresetAuthors = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -36,6 +36,10 @@ public sealed class ModelIdentityMatcher
         "mini", "pro", "max", "flash", "lite", "coder", "vision", "reasoner",
         "preview", "latest", "free", "thinking", "online", "awq", "gguf", "int4"
     ];
+
+    // Serving-tier suffixes that change latency rather than model identity/capability.
+    // Keep this list deliberately narrow; architectural variants remain hard evidence.
+    private static readonly string[] DeliveryOnlySuffixes = ["highspeed"];
 
     public ModelMatchResult Match(
         ExternalModelIdentity identity,
@@ -65,7 +69,13 @@ public sealed class ModelIdentityMatcher
             ("M3", 97, model => MatchesProtocolUnwrapped(external, model)),
             ("M4", 96, model => MatchesExplicitAuthorAndSlug(external, model)),
             ("M5", 94, model => MatchesStrongHints(identity, external, model)),
-            ("M6", 92, model => MatchesSafeNormalized(identity, external, model))
+            ("M6", 92, model => MatchesSafeNormalized(identity, external, model)),
+            // Third-party providers commonly expose the upstream model's bare slug
+            // without an OpenRouter author namespace. A normalized slug equality is
+            // deterministic when it resolves to exactly one live catalog record, so
+            // it belongs in the automatic layers rather than the fuzzy candidate list.
+            ("M7", 91, model => MatchesUniqueBareSlugAlias(external, model)),
+            ("M8", 90, model => MatchesUniqueDeliveryAlias(external, model))
         };
 
         foreach (var layer in layers)
@@ -151,6 +161,35 @@ public sealed class ModelIdentityMatcher
             && string.Equals(Normalize($"{author}/{external}"), Normalize(model.Id), StringComparison.Ordinal);
     }
 
+    private static bool MatchesUniqueBareSlugAlias(string external, OpenRouterModelMetadata model)
+    {
+        var unwrapped = UnwrapProtocolPrefix(external);
+        // An explicit author is evidence and must never be discarded. M4/M6 handle
+        // author-qualified IDs; falling back to the leaf here could cross authors.
+        if (unwrapped.Contains('/')) return false;
+        if (!TrySplitModel(model, out _, out var modelSlug)) return false;
+
+        return string.Equals(Normalize(unwrapped), Normalize(modelSlug), StringComparison.Ordinal);
+    }
+
+    private static bool MatchesUniqueDeliveryAlias(string external, OpenRouterModelMetadata model)
+    {
+        var unwrapped = UnwrapProtocolPrefix(external);
+        if (unwrapped.Contains('/') || !TrySplitModel(model, out _, out var modelSlug)) return false;
+
+        var normalized = Normalize(unwrapped);
+        foreach (var suffix in DeliveryOnlySuffixes)
+        {
+            var marker = $"-{suffix}";
+            if (normalized.EndsWith(marker, StringComparison.Ordinal)
+                && string.Equals(normalized[..^marker.Length], Normalize(modelSlug), StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static bool TryGetStrongAuthor(ExternalModelIdentity identity, out string author)
     {
         var preset = identity.ProviderPreset != null && PresetAuthors.TryGetValue(identity.ProviderPreset, out var p) ? p : null;
@@ -185,6 +224,9 @@ public sealed class ModelIdentityMatcher
         }
         return conflicts.Distinct(StringComparer.Ordinal).ToList();
     }
+
+    private static string UnwrapProtocolPrefix(string value) =>
+        value.StartsWith("models/", StringComparison.Ordinal) ? value["models/".Length..] : value;
 
     private static double Similarity(string external, string candidate)
     {

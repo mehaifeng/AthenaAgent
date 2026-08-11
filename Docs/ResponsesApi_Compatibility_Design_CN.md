@@ -327,6 +327,19 @@ resolved = provider.Protocol switch
 - `OpenAiModelExecutionPolicyIdentity` 加 `Transport` 后，`ExecutionPolicyIdentity` 参与的所有缓存键（压缩计划 `BaseContextFingerprint`、NotCompressible 缓存、校准训练分桶）自动隔离——**同一 provider 切换协议不会复用对方的压缩/校准历史**。
 - `TokenCalibrationService.Observe` 无需改签名（Features 已含 Transport）。
 
+### 6.6 第三方响应结构兼容层
+
+OpenAI SDK 2.12.0 会按官方 Responses schema 严格反序列化。部分兼容端点却把空数组序列化为 `null`；流式正文已经显示后，SDK 在解析 `response.output_item.done` 或 `response.completed` 时会因此抛出 `JsonElement.EnumerateArray` 类型错误。
+
+所有由 `ResponsesCallHelpers.CreateResponsesClient` 创建的客户端统一使用 `ResponsesCompatibilityHandler`，规则只依赖 Responses schema，不读取 provider 名或模型 ID：
+
+- 成功的 `application/json` 响应整包处理；成功的 `text/event-stream` 按 SSE 行增量处理，不缓冲完整回答。
+- 只将“字段已存在且值为 `null`”的已知数组字段改成 `[]`：`response.output`、`message.content`、`output_text.annotations`、`output_text.logprobs`、`reasoning.summary`、`reasoning.content`。
+- 缺失字段、未知字段、与 item 类型不匹配的同名字段、HTTP 非成功响应和无法解析的 JSON 全部原样保留；SDK 仍负责正常校验和报错。
+- 日志只记录本事件修正了多少个字段，不记录响应正文。
+
+这样既覆盖主对话，也覆盖标题、压缩、审批、浏览器等显式使用 Responses 的辅助角色，同时不会把供应商特判扩散到业务层。
+
 ## 7. 主对话流式环改造详规
 
 ### 7.1 消息 → input items 映射（ResponsesTransport）
@@ -511,6 +524,7 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | **P2** Responses transport（主环） | `ResponsesTransport`：BuildRequest/StreamUpdates/回填/usage/截断/推理文本 + 端点降级 | 新夹具下：流式/工具循环/截断重试/usage/推理文本用例全绿；`include:["reasoning"]` 生效 | `Services/Context/ResponsesTransport.cs`、`OpenAIChatService.cs`（装配点）、HeadlessTests 新夹具与注入点 | ✅ 完成（5 个新用例） |
 | **P3** 非流式调用点铺开 | 按 §8.2 顺序迁移；`GetFirstOutputText`/`GetConcatenatedOutputText` 辅助 | 同 provider 各角色协议一致；审批/压缩/浏览器协商行为不变 | 15 个调用点 + 辅助静态类 | ✅ 完成（两处连接测试按 §1 决策保持 chat） |
 | **P4** 元数据 + 测试收尾 | `SupportsResponses` 8 处；Auto 判定接元数据；端到端用例补全；文档更新 | 全部新用例绿；Archive.Tests 不受影响 | 见 §9.2 清单 | ✅ 完成（图片降级 chat+responses 端到端、端点降级、Auto 判定、reasoning 提取共 8 个新用例全绿；CSV 导出列为可选项未做） |
+| **P5** 第三方响应结构容错 | Responses 专用 HTTP/SSE 层按 schema 将显式 `null` 空数组归一化为 `[]` | OpenAI SDK 可完整消费正文增量与 `response.completed`；无 provider/model 分支 | `ResponsesCompatibilityHandler.cs`、`ResponsesCallHelpers.cs`、Archive.Tests SDK 级夹具 | ✅ 完成 |
 
 里程碑说明：
 - P0 独立可交付（纯配置，无传输风险）。
@@ -524,7 +538,7 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 |---|---|---|---|
 | A | 第三方 /responses 端点的推理实现差异（只给摘要不给完整文本；`include` 被忽略） | 推理文本可能为空或只到摘要 | 摘要事件作为回退通道（§7.4）；以各家文档为准，文档记录已验证端点。**实测 OpenRouter `/v1/responses` 对 `include` 支持面极窄：除 `reasoning.encrypted_content` 外的任何取值（含 `reasoning`/`reasoning.summary`/`usage`）直接 `400 invalid_prompt`**——已改为仅官方 OpenAI 端点携带 `include=reasoning`，第三方端点靠默认摘要事件回退（见 §13 决策变更） |
 | B | `generate_summary` SDK 仅 internal，需 Patch 设置 | 关闭摘要生成需额外 Patch 代码 | 默认不关；如需省 token 再补 Patch 路径并加测试 |
-| C | 第三方 /responses 事件顺序/usage 字段偏差 | 归一化错乱、压缩判断失真 | 归一化层宽容处理（缺失字段走缺省）；文档记录已验证端点 |
+| C | 第三方 /responses 事件顺序、usage 或数组空值字段偏差 | 归一化错乱、SDK 终止事件反序列化失败、压缩判断失真 | schema 驱动的 JSON/SSE 兼容层处理已知 `null` 数组；其他缺失字段走缺省；文档记录已验证端点 |
 | D | `Experimental("OPENAI001")` API 面演进 | SDK 升级时类型/属性变动 | 升级前查 CHANGELOG（`openai-dotnet/CHANGELOG.md` 488–491 等条目）；Responses 相关集中在 transport 内部，隔离面小 |
 | E | 切换协议后压缩/校准历史不共享（指纹隔离） | 切换初期压缩阈值判断用新桶的冷数据 | 符合预期；日志可见（§6.4），文档说明 |
 | F | 同 provider 混用 chat 兼容端点与 /responses 的行为差异（如 usage 口径） | 用户困惑 | 判定规则保守（§6.2）+ 降级提示 + 日志 |
@@ -545,3 +559,4 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | 2026-08-07 | `include: ["reasoning"]` 改为仅官方 OpenAI 端点发送（`ResponsesProtocolResolver.IsOfficialOpenAi`），第三方 /responses 端点不携带 | 实测 OpenRouter `/v1/responses` 对 `include` 只接受 `reasoning.encrypted_content`，其余取值全部 `400 invalid_prompt`，主对话流式请求 100% 失败 | 第三方端点的推理文本退化为摘要事件回退通道（`ReasoningSummaryTextDelta`，§7.4 已实现）；官方端点行为不变；新增 HeadlessTests 用例 `TestResponsesThirdPartyNoIncludeAsync` 覆盖 |
 | 2026-08-07 | 推理文本气泡展示 + 推理强度配置落地：`ChatMessage` 增加 `HasReasoningContent`/`IsReasoningExpanded`/`ToggleReasoning`，气泡内新增可折叠「思考过程」面板（默认收起，跨工具轮累计）；推理强度以 `ReasoningEffort` 枚举挂在 `ModelMetadataOverrides`（供应商模型配置页元数据区），经 `EffectiveOpenAiModel.Effort` 透传到 responses（`reasoning.effort`）与 chat（`reasoning_effort`）双传输，Auto 不发送 | 推理文本此前只存不显示；设计文档声称 reasoning effort 已透传但代码零使用 | 仅显式配置才发送（第三方端点不支持时不会误发）；新用例 `TestResponsesReasoningEffortAsync`/`TestChatReasoningEffortAsync`/`TestReasoningBubbleState` 覆盖 |
 | 2026-08-07 | 推理文本流式化 + 档位扩展：`StreamMessageAsync` 新增 `onReasoningDelta` 回调，推理增量在正文前实时流入气泡（容器自动展开，回合结束自动收起，新一轮推理自动展开并在隔断符下续写）；`ReasoningEffort` 档位扩至 `max/xhigh/high/medium/low/minimal/none`（追加枚举值不破坏既有数字持久化），OpenRouter 实测全部 7 档 + `none` 均接受（200） | 推理文本此前只在回合结束时随 onMessageAdded 一次性到达，无法流式展示 | `ICompletionTransport` 归一化层早已逐片产出 `ReasoningText`，仅需服务层透传；新用例 `TestReasoningStreamingInBubbleAsync` 覆盖跨轮隔断符与自动展开/收起 |
+| 2026-08-11 | 增加 provider/model 无关的 Responses JSON/SSE 空数组兼容层 | 部分第三方端点把 schema 数组返回为 `null`，OpenAI SDK 2.12.0 在终止事件中严格调用 `EnumerateArray` 并抛错 | 仅修正已知 item 类型下显式为 `null` 的数组字段；流式不整包缓冲；SDK 级回归夹具覆盖 `annotations:null` 与 `logprobs:null` |
