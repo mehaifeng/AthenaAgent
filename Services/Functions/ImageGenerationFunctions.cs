@@ -42,7 +42,11 @@ public class ImageGenerationFunctions
                 return FunctionResult.FailureResult("Image generation is unavailable because no active conversation context was found.");
             }
 
-            var mode = ParseContinuityMode(continuityMode);
+            if (!TryParseContinuityMode(continuityMode, out var mode))
+            {
+                return FunctionResult.FailureResult(
+                    "continuityMode must be one of: new_root, continue_last, continue_match.");
+            }
             var referenceResolution = await ResolveReferenceTurnAsync(conversationId, mode, referenceQuery);
             if (!referenceResolution.Success)
             {
@@ -119,19 +123,26 @@ public class ImageGenerationFunctions
         }
     }
 
-    private static ImageContinuityMode ParseContinuityMode(string? continuityMode)
+    private static bool TryParseContinuityMode(string? continuityMode, out ImageContinuityMode mode)
     {
         if (string.Equals(continuityMode, "continue_last", StringComparison.OrdinalIgnoreCase))
         {
-            return ImageContinuityMode.ContinueLast;
+            mode = ImageContinuityMode.ContinueLast;
+            return true;
         }
 
         if (string.Equals(continuityMode, "continue_match", StringComparison.OrdinalIgnoreCase))
         {
-            return ImageContinuityMode.ContinueMatched;
+            mode = ImageContinuityMode.ContinueMatched;
+            return true;
         }
-
-        return ImageContinuityMode.NewRoot;
+        if (string.Equals(continuityMode, "new_root", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = ImageContinuityMode.NewRoot;
+            return true;
+        }
+        mode = default;
+        return false;
     }
 
     private async Task<ReferenceTurnSelection> ResolveReferenceTurnAsync(string conversationId, ImageContinuityMode mode, string? referenceQuery)

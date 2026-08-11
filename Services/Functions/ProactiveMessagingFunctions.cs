@@ -3,6 +3,8 @@ using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
 using System.Linq;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -203,7 +205,15 @@ public class ProactiveMessagingFunctions
     /// </summary>
     private DateTime ParseScheduleTime(string timeString)
     {
-        var input = timeString.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(timeString))
+            throw new ArgumentException("scheduledTime cannot be empty.");
+        var trimmed = timeString.Trim();
+        var input = trimmed.ToLowerInvariant();
+
+        if (TryParseChineseRelativeTime(trimmed, out var chineseRelative))
+        {
+            return chineseRelative;
+        }
 
         if (input.StartsWith("in ", StringComparison.Ordinal))
         {
@@ -215,12 +225,63 @@ public class ProactiveMessagingFunctions
             return ParseTomorrowTime(input);
         }
 
-        if (DateTime.TryParse(timeString, out var result))
+        if (DateTimeOffset.TryParse(trimmed, CultureInfo.CurrentCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal, out var offsetResult))
+        {
+            return offsetResult.LocalDateTime;
+        }
+
+        if (DateTime.TryParse(trimmed, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var result))
         {
             return result;
         }
 
         throw new ArgumentException($"无法解析时间: {timeString}");
+    }
+
+    private static bool TryParseChineseRelativeTime(string input, out DateTime result)
+    {
+        var compact = Regex.Replace(input.Trim(), @"\s+", string.Empty);
+        var relative = Regex.Match(compact, @"^(\d+)(秒钟?|分钟?|小时|天|周|星期)后$");
+        if (relative.Success && int.TryParse(relative.Groups[1].Value, out var amount))
+        {
+            result = relative.Groups[2].Value switch
+            {
+                "秒" or "秒钟" => DateTime.Now.AddSeconds(amount),
+                "分" or "分钟" => DateTime.Now.AddMinutes(amount),
+                "小时" => DateTime.Now.AddHours(amount),
+                "天" => DateTime.Now.AddDays(amount),
+                _ => DateTime.Now.AddDays(amount * 7)
+            };
+            return true;
+        }
+
+        var dayOffset = compact.StartsWith("后天", StringComparison.Ordinal) ? 2
+            : compact.StartsWith("明天", StringComparison.Ordinal) || compact.StartsWith("明早", StringComparison.Ordinal)
+                || compact.StartsWith("明晚", StringComparison.Ordinal) ? 1 : 0;
+        if (dayOffset == 0)
+        {
+            result = default;
+            return false;
+        }
+
+        var date = DateTime.Today.AddDays(dayOffset);
+        var clock = Regex.Match(compact, @"(\d{1,2})(?::|点)(\d{1,2})?分?");
+        if (clock.Success)
+        {
+            var hour = int.Parse(clock.Groups[1].Value, CultureInfo.InvariantCulture);
+            var minute = clock.Groups[2].Success ? int.Parse(clock.Groups[2].Value, CultureInfo.InvariantCulture) : 0;
+            if ((compact.Contains("下午", StringComparison.Ordinal) || compact.Contains("晚", StringComparison.Ordinal)) && hour < 12)
+                hour += 12;
+            if (hour is > 23 || minute is > 59) throw new ArgumentException($"无效时间: {input}");
+            result = date.AddHours(hour).AddMinutes(minute);
+            return true;
+        }
+
+        var defaultHour = compact.Contains("下午", StringComparison.Ordinal) ? 14
+            : compact.Contains("晚", StringComparison.Ordinal) ? 18 : 9;
+        result = date.AddHours(defaultHour);
+        return true;
     }
 
     private DateTime ParseRelativeTime(string relative)

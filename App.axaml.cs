@@ -904,9 +904,7 @@ public partial class App : Application, IAsyncDisposable
         {
             var knowledgeBase = sp.GetRequiredService<IKnowledgeBaseService>();
             var logger = Log.ForContext<KnowledgeBaseFunctions>();
-            var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
-            var workspaceService = sp.GetService<IWorkspaceService>();
-            return new KnowledgeBaseFunctions(knowledgeBase, logger, sessionAccessor, workspaceService);
+            return new KnowledgeBaseFunctions(knowledgeBase, logger);
         });
 
         services.AddSingleton<ConfigurationFunctions>(sp =>
@@ -922,8 +920,9 @@ public partial class App : Application, IAsyncDisposable
             var fileSystemService = sp.GetRequiredService<IFileSystemService>();
             var knowledgeBaseService = sp.GetRequiredService<IKnowledgeBaseService>();
             var workspaceService = sp.GetService<IWorkspaceService>();
+            var documentParserService = sp.GetService<IDocumentParserService>();
             var logger = Log.ForContext<FileSystemFunctions>();
-            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger, workspaceService);
+            return new FileSystemFunctions(fileSystemService, knowledgeBaseService, logger, workspaceService, documentParserService);
         });
 
         services.AddSingleton<CliFunctions>(sp =>
@@ -1095,8 +1094,9 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<DocumentParserFunctions>(sp =>
         {
             var documentParserService = sp.GetRequiredService<IDocumentParserService>();
+            var fileSystemService = sp.GetRequiredService<IFileSystemService>();
             var logger = Log.ForContext<DocumentParserFunctions>();
-            return new DocumentParserFunctions(documentParserService, logger);
+            return new DocumentParserFunctions(documentParserService, fileSystemService, logger);
         });
 
         // Function Registry（单例）

@@ -17,6 +17,7 @@ namespace Athena.UI.Services.Functions;
 public class FunctionRegistry : IFunctionRegistry
 {
     private readonly Dictionary<string, Func<string, Task<FunctionResult>>> _executors = new();
+    private readonly Dictionary<string, JsonElement> _schemas = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
     private readonly IConfigService? _configService;
@@ -48,46 +49,67 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
-            $"Executes a single executable or shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — prefer 'powershell' for shell built-ins" : "POSIX — use zsh/bash")}). " +
-            "CRITICAL: The 'command' field MUST be a single executable name (e.g., 'powershell', 'git', 'npm'). " +
-            "ALL parameters, flags, and URLs MUST be passed as separate strings in the 'arguments' array. " +
-            "For example, to open a URL on Windows: command='powershell', arguments=['start', 'https://example.com']. " +
-            "DO NOT use this for file system tasks like 'ls' or 'mkdir'—use dedicated file tools instead. " +
+            $"Executes one process or shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use powershell/pwsh for shell built-ins" : "POSIX — use zsh/bash")}). " +
+            "Pass only the executable name or path in 'command'; put every flag, path, URL, or shell expression in 'arguments'. " +
+            "Use dedicated file tools for ordinary file reads, writes, listings, moves, copies, and deletion. " +
             "AVOID commands that require interactive input (password prompts, y/N confirmations, sudo) — they will hang until the timeout is reached since this tool cannot supply terminal input.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    command = new { type = "string", description = "The executable name ONLY (e.g., 'powershell', 'dotnet'). NO spaces or arguments allowed here." },
-                    arguments = new { type = "array", items = new { type = "string" }, description = "List of arguments. Each flag or parameter should be a separate string (e.g., ['-c', 'dir'] or ['start', 'url'])." },
-                    workingDirectory = new { type = "string", description = "The directory where the command should be executed." },
+                    command = new { type = "string", minLength = 1, maxLength = 1024, pattern = "^[^\\r\\n]+$", description = "Executable name or executable path only; do not append inline arguments or command separators." },
+                    arguments = new { type = "array", maxItems = 256, items = new { type = "string", maxLength = 32768 }, description = "Ordered process arguments. Each flag or value is a separate array item." },
+                    workingDirectory = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing directory in which to start the process." },
                     waitForExit = new { type = "boolean", description = "If true (default), waits for completion. Set to false for GUI apps or background tasks.", @default = true },
-                    timeoutSeconds = new { type = "integer", description = "Only applies when waitForExit=true. Max seconds to wait before the process is force-killed as timed out (default 300). Raise this for known long-running commands (e.g. package installs, builds), up to a hard cap of 1800 seconds. It will never wait forever." }
+                    timeoutSeconds = new { type = "integer", minimum = 1, maximum = 1800, description = "Timeout in seconds when waitForExit=true.", @default = 300 }
                 },
                 required = new[] { "command" }
             });
 
         // --- Tasks & Reminders ---
         RegisterFunction("create_task", proactiveFunctions.ScheduleProactiveMessage,
-            "Schedules a proactive conversation task. Use this to set reminders or follow-ups based on explicit or implicit time mentions. Supported recurrence modes are: none, interval, and weekly_days. Do not invent free-text recurrence strings.",
+            "Schedules a reminder or follow-up after the user has requested one. Times are interpreted in the app's local timezone unless an explicit UTC offset is supplied. Recurrence must use one of the three structured shapes in the schema.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    scheduledTime = new { type = "string", description = "Natural language time description for the schedule boundary (e.g., '2024-08-15 09:00', 'in 2 hours', 'tomorrow morning')." },
-                    intent = new { type = "string", description = "The topic or message for the proactive session." },
+                    scheduledTime = new { type = "string", minLength = 1, maxLength = 200, description = "Trigger boundary. Prefer ISO 8601/RFC 3339 (with offset when relevant). Also accepts current-culture absolute dates, English 'in N minutes/hours/days/weeks' and 'tomorrow morning/afternoon/evening', plus Chinese 'N分钟/小时/天/周后', '明天/明早/明天下午/明晚/后天'." },
+                    intent = new { type = "string", minLength = 1, maxLength = 4000, description = "Self-contained reminder/follow-up intent." },
                     recurrence = new
                     {
-                        type = "object",
-                        description = "Optional structured recurrence rule. Supported forms: {mode:'none'}; {mode:'interval', interval:N, unit:'minute|hour|day|week'}; {mode:'weekly_days', interval:N, daysOfWeek:['Monday','Friday']}.",
-                        properties = new
+                        description = "Optional recurrence rule; omit it for a one-time task.",
+                        oneOf = new object[]
                         {
-                            mode = new { type = "string", @enum = new[] { "none", "interval", "weekly_days" } },
-                            interval = new { type = "integer", description = "Positive integer. Required for interval and weekly_days." },
-                            unit = new { type = "string", @enum = new[] { "minute", "hour", "day", "week" }, description = "Required only when mode='interval'." },
-                            daysOfWeek = new { type = "array", items = new { type = "string", @enum = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" } }, description = "Required only when mode='weekly_days'." }
+                            new
+                            {
+                                type = "object",
+                                properties = new { mode = new { type = "string", @enum = new[] { "none" } } },
+                                required = new[] { "mode" }
+                            },
+                            new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    mode = new { type = "string", @enum = new[] { "interval" } },
+                                    interval = new { type = "integer", minimum = 1, maximum = 10000 },
+                                    unit = new { type = "string", @enum = new[] { "minute", "hour", "day", "week" } }
+                                },
+                                required = new[] { "mode", "interval", "unit" }
+                            },
+                            new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    mode = new { type = "string", @enum = new[] { "weekly_days" } },
+                                    interval = new { type = "integer", minimum = 1, maximum = 520 },
+                                    daysOfWeek = new { type = "array", minItems = 1, maxItems = 7, items = new { type = "string", @enum = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" } } }
+                                },
+                                required = new[] { "mode", "interval", "daysOfWeek" }
+                            }
                         }
                     }
                 },
@@ -99,7 +121,7 @@ public class FunctionRegistry : IFunctionRegistry
             new
             {
                 type = "object",
-                properties = new { taskId = new { type = "string", description = "The ID of the task to cancel." } },
+                properties = new { taskId = new { type = "string", minLength = 1, maxLength = 128, description = "Task ID returned by create_task or list_tasks." } },
                 required = new[] { "taskId" }
             });
 
@@ -109,36 +131,28 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Long-term Memory ---
         RegisterFunction("create_new_memory", knowledgeFunctions.CreateKnowledgeFile,
-            "Creates a NEW memory file in the knowledge base. Use this ONLY for a genuinely new topic that no existing memory covers. " +
-            "For GLOBAL knowledge only: keep one topic in one file; if recall_from_memory returns a matching global file, update it instead of creating a parallel file. " +
-            "This tool runs a semantic duplicate check for global knowledge and will REJECT highly similar global records. " +
-            "This tool creates GLOBAL knowledge only. When a workspace is active, its single system-managed knowledge file path is provided in the system prompt; update that file with modify_system_file instead. Do not call this tool for project-specific knowledge and do not create additional workspace knowledge files. " +
-            "Use this only for general knowledge that applies across all contexts (user preferences, global facts, cross-project patterns).",
+            "Creates one new GLOBAL Markdown memory after the search-first memory workflow has established that no existing global file owns the topic. Semantic duplicate protection is enabled. Workspace knowledge must be updated through its system-provided file path instead.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    filePath = new { type = "string", description = "Relative path for the memory file (e.g., 'user_preferences/coding_style.md'). Use a stable, descriptive path so the same topic always lands in the same file." },
-                    content = new { type = "string", description = "The detailed information to be remembered." },
-                    allowDuplicate = new { type = "boolean", description = "Set true ONLY to override the semantic duplicate guard after you have confirmed this is a distinct new topic, not a variant of an existing memory.", @default = false },
-                    workspaceScoped = new { type = "boolean", description = "Deprecated for workspace writes. Keep false for global knowledge; true returns the system-managed workspace knowledge file path and instructs you to modify it instead.", @default = false }
+                    filePath = new { type = "string", minLength = 1, maxLength = 512, pattern = "^[^\\r\\n]+$", description = "Stable relative Markdown path, for example user_preferences/coding_style.md. Absolute paths and traversal are rejected by the knowledge-base service." },
+                    content = new { type = "string", minLength = 1, maxLength = 500000, description = "Complete Markdown content for the new global memory." },
+                    allowDuplicate = new { type = "boolean", description = "Override semantic duplicate protection only after a prior duplicate result has been reviewed and the topic is genuinely distinct.", @default = false }
                 },
                 required = new[] { "filePath", "content" }
             });
 
         RegisterFunction("recall_from_memory", knowledgeFunctions.SearchKnowledgeBase,
-            "Searches GLOBAL knowledge only. Local FTS/BM25 keyword retrieval is always available; configured embeddings add semantic retrieval and RRF fusion. Results are aggregated per file: each hit is a distinct global memory file with its heading path and matchCount. " +
-            "Put likely Chinese/English aliases into one query; keyword terms are expanded for recall. Keyword-only results do not carry a confidence probability, so do not interpret their ranking as a percentage. " +
-            "Call it before creating or changing GLOBAL knowledge. Do NOT call it for workspace knowledge: the system-managed workspace file is already supplied in the current system context and must remain isolated from global memories. " +
-            "Also call this whenever the user asks something that may rely on past context.",
+            "Searches GLOBAL knowledge and returns distinct matching files with heading context and match counts. Retrieval uses local FTS/BM25 and, when configured, semantic fusion. Scores are ranking signals, not probabilities; workspace knowledge is intentionally excluded.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    query = new { type = "string", description = "Search query or keywords." },
-                    maxResults = new { type = "integer", description = "Maximum number of memory files to return.", @default = 5 }
+                    query = new { type = "string", minLength = 1, maxLength = 2000, description = "Specific semantic query; include useful Chinese/English aliases when applicable." },
+                    maxResults = new { type = "integer", minimum = 1, maximum = 20, description = "Maximum number of distinct memory files.", @default = 5 }
                 },
                 required = new[] { "query" }
             });
@@ -151,8 +165,8 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    query = new { type = "string", description = "Search query or question to look up on the web." },
-                    maxResults = new { type = "integer", description = "Maximum number of search results to return.", @default = 5 }
+                    query = new { type = "string", minLength = 1, maxLength = 2000, description = "Search query or factual question." },
+                    maxResults = new { type = "integer", minimum = 1, maximum = 20, description = "Maximum number of results.", @default = 5 }
                 },
                 required = new[] { "query" }
             });
@@ -164,31 +178,31 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    prompt = new { type = "string", description = "The final image prompt to render." },
+                    prompt = new { type = "string", minLength = 1, maxLength = 32000, description = "The final image prompt to render." },
                     continuityMode = new { type = "string", @enum = new[] { "new_root", "continue_last", "continue_match" }, description = "Use new_root to start a fresh lineage, continue_last to continue only the latest image in the current conversation, or continue_match to semantically resolve and continue an earlier lineage from the current conversation.", @default = "new_root" },
-                    referenceQuery = new { type = "string", description = "Required when continuityMode is continue_match. Provide a distinctive content-based description of the earlier image lineage you want to continue." }
+                    referenceQuery = new { type = "string", minLength = 3, maxLength = 1000, description = "Required when continuityMode is continue_match. Provide a distinctive content-based description of the earlier image lineage." }
                 },
                 required = new[] { "prompt" }
             });
 
         // --- Headless Browser (high-level entry only) ---
         RegisterFunction("run_browser_task", browserTaskFunctions.RunBrowserTaskAsync,
-            "Runs an isolated visual browser task using a headless Chromium session. Use this when the user needs interactive webpage inspection or operation, such as opening a page, reading visible content, clicking a visible control, filling a simple form, uploading a local file to a file input, or navigating a site. The browser task keeps screenshots and low-level browser actions out of the main chat context. NOTE: Browser and Browser Vision must be configured in settings.",
+            "Runs an isolated visual Chromium task for interactive or JavaScript-driven pages: navigation, visible-page inspection, clicking, form entry, or file upload. Prefer web_search for ordinary public-information research. Browser and Browser Vision must be configured.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    instruction = new { type = "string", description = "The browser task to perform, including the user's goal and any constraints." },
-                    startUrl = new { type = "string", description = "Optional URL to open first. Provide this when the task is tied to a specific page." },
-                    maxSteps = new { type = "integer", description = "Optional maximum number of internal browser steps. Defaults to the browser setting; complex multi-control tasks may automatically use a larger internal limit.", @default = 40 }
+                    instruction = new { type = "string", minLength = 1, maxLength = 8000, description = "Self-contained browser goal, constraints, and stopping condition." },
+                    startUrl = new { type = "string", minLength = 1, maxLength = 4096, pattern = "^https?://", description = "Optional initial HTTP(S) URL." },
+                    maxSteps = new { type = "integer", minimum = 1, maximum = 50, description = "Optional hard step limit. If omitted, the current Browser.MaxSteps setting is used." }
                 },
                 required = new[] { "instruction" }
             });
 
         // --- Sub-Agents (parallel delegation) ---
         RegisterFunction("dispatch_subagents", subAgentFunctions.DispatchSubagentsAsync,
-            "Delegates one or more INDEPENDENT subtasks to isolated sub-agents that run IN PARALLEL, each with its own private context and tools. " +
+            "Delegates 2–8 INDEPENDENT subtasks to isolated sub-agents, subject to the configured parallelism limit. " +
             "Use this when the user's request decomposes into several self-contained pieces that can progress at the same time (e.g., research multiple topics, process multiple files, gather several data points). " +
             "Each sub-agent only returns a concise final summary to you — its intermediate tool calls stay out of this conversation, which keeps your context clean. " +
             "Do NOT use this for a single small step you can do yourself, for strictly sequential work where one step depends on the previous, or when you need to keep tight control. " +
@@ -201,15 +215,17 @@ public class FunctionRegistry : IFunctionRegistry
                     tasks = new
                     {
                         type = "array",
-                        description = "The batch of independent subtasks to run in parallel. Prefer 2–5 focused tasks.",
+                        description = "Independent subtasks. Items may queue when the batch exceeds SubAgents.MaxParallel.",
+                        minItems = 2,
+                        maxItems = 8,
                         items = new
                         {
                             type = "object",
                             properties = new
                             {
-                                title = new { type = "string", description = "Short label shown in the UI (e.g., '竞品价格调研')." },
+                                title = new { type = "string", minLength = 1, maxLength = 80, description = "Short UI label, for example '竞品价格调研'." },
                                 agent_type = new { type = "string", @enum = new[] { "general", "researcher", "file_worker" }, description = "researcher: web/browser/memory reading. file_worker: local file operations. general: broad toolset.", @default = "general" },
-                                instruction = new { type = "string", description = "Complete, self-contained instruction. Include all needed context, constraints, and the expected deliverable — the sub-agent cannot see this conversation." }
+                                instruction = new { type = "string", minLength = 1, maxLength = 12000, description = "Complete, self-contained instruction with context, constraints, and expected deliverable; the sub-agent cannot see this conversation." }
                             },
                             required = new[] { "title", "instruction" }
                         }
@@ -220,29 +236,81 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Document Parsing (MinerU) ---
         RegisterFunction("parse_office_document", documentParserFunctions.ParseOfficeDocumentAsync,
-            "Parses a local Office or PDF document (.doc, .docx, .ppt, .pptx, .xls, .xlsx, .pdf) into AI-readable Markdown text via the MinerU service, and returns the extracted content. " +
-            "Use this when the user references a local Office/PDF file whose contents you need to read or summarize — plain-text and code files should be read with read_system_file instead, not this tool. " +
-            "The parsing runs remotely (upload -> poll -> download) and may take a while for large files. NOTE: This tool requires Document Parsing to be enabled in settings.",
+            "Uploads one supported local document (.pdf, .doc/.docx, .ppt/.pptx, .xls/.xlsx) to the configured MinerU service and returns Markdown. Use read_system_file for text/code and get_document_outline when structure alone is sufficient. AgentLightweight is limited to 10 MB; Precision to 200 MB. Requires Document Parsing to be enabled and is approval-gated because content leaves the device.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Absolute or relative path to the local Office/PDF document to parse." }
+                    path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.([pP][dD][fF]|[dD][oO][cC][xX]?|[pP][pP][tT][xX]?|[xX][lL][sS][xX]?)$", description = "Absolute or relative path to a supported document. The file-system security policy is enforced before upload." }
                 },
-                required = new[] { "path" }
+                required = new[] { "path" },
+                oneOf = new object[]
+                {
+                    new
+                    {
+                        required = new[] { "startLine" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "sectionTitle" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        required = new[] { "sectionTitle" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        required = new[] { "chunkIndex" },
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "sectionTitle" } }
+                            }
+                        }
+                    },
+                    new
+                    {
+                        not = new
+                        {
+                            anyOf = new object[]
+                            {
+                                new { required = new[] { "startLine" } },
+                                new { required = new[] { "endLine" } },
+                                new { required = new[] { "sectionTitle" } },
+                                new { required = new[] { "chunkIndex" } }
+                            }
+                        }
+                    }
+                }
             });
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
-            $"Modifies supported application parameters. Use ONLY when the user explicitly asks to change a setting — never preemptively or speculatively. First call view_self_configuration to read current values, then change exactly the parameter the user asked for in a single call. Changes persist and apply to live runtime services; the call is approval-gated. Valid keys: {configFunctions.ModifiableKeysText}",
+            "Changes one supported application setting after the user explicitly requests it. Read the relevant configuration section first. The key enum is the authoritative writable surface; values are strings parsed according to that key's declared type and range. Changes persist, apply to live services, and are approval-gated.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    key = new { type = "string", description = $"Parameter name. Valid keys: {configFunctions.ModifiableKeysText}" },
-                    value = new { type = "string", description = "New value for the parameter. Boolean: 'true'/'false'. Integer/Long: decimal number. Number: decimal with optional fraction. Enum: one of the allowed values (case-insensitive). NullableLong: number or empty string to clear. StringList: JSON array of strings or comma-separated list." }
+                    key = new { type = "string", @enum = configFunctions.ModifiableKeys, description = "Exact writable configuration key." },
+                    value = new { type = "string", minLength = 0, maxLength = 32000, description = "Typed value encoded as text: boolean true/false; integer/number invariant decimal; enum name; nullable number or empty string to clear; string list as a JSON string array or comma-separated values." }
                 },
                 required = new[] { "key", "value" }
             });
@@ -252,16 +320,20 @@ public class FunctionRegistry : IFunctionRegistry
             new
             {
                 type = "object",
-                properties = new { section = new { type = "string", description = $"Category: {configFunctions.SectionsText}, or 'All'. 'Memory' is accepted as an alias for 'Context'.", @default = "All" } }
+                properties = new { section = new { type = "string", @enum = configFunctions.SectionNames, description = "Configuration section. Memory is an alias for Context.", @default = "All" } }
             });
 
         // --- File System Control ---
         RegisterFunction("get_file_info", fileSystemFunctions.GetFileInfoAsync,
-            "Gets metadata of a file without reading its content. Always call this first before reading any file larger than a few KB to understand its size, line count, and type before deciding how to read it.",
+            "Gets file size, MIME type, modification time, and chunk count without loading the file content. Set includeTextStatistics=true only when exact character/line counts are needed; that option streams through the file once.",
             new
             {
                 type = "object",
-                properties = new { path = new { type = "string", description = "Absolute or relative path to the file." } },
+                properties = new
+                {
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Absolute or relative file path." },
+                    includeTextStatistics = new { type = "boolean", description = "Stream through the file to calculate exact character and line counts.", @default = false }
+                },
                 required = new[] { "path" }
             });
 
@@ -272,35 +344,35 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the file." },
-                    pattern = new { type = "string", description = "Keyword or regex pattern to search for." },
-                    contextLines = new { type = "integer", description = "Lines of context to include around each match.", @default = 3 },
-                    maxMatches = new { type = "integer", description = "Maximum number of matches to return.", @default = 10 }
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Text-file path." },
+                    pattern = new { type = "string", minLength = 1, maxLength = 2000, description = "Case-insensitive .NET regular expression. Escape regex metacharacters for a literal search." },
+                    contextLines = new { type = "integer", minimum = 0, maximum = 50, description = "Context lines on each side.", @default = 3 },
+                    maxMatches = new { type = "integer", minimum = 1, maximum = 100, description = "Maximum returned matches; totalMatches still reports all matches.", @default = 10 }
                 },
                 required = new[] { "path", "pattern" }
             });
 
         RegisterFunction("get_document_outline", fileSystemFunctions.GetDocumentOutlineAsync,
-            "Returns the structural outline of a document without full content. For Markdown returns headings and line numbers. For JSON/YAML returns top-level keys. For code files returns class and method signatures. For unstructured text returns the first sentence of each detected paragraph block.",
+            "Returns a bounded structural outline (max 300 entries), not full content. Local parsing supports Markdown/MDX; DOCX, PPTX, XLSX; PDF bookmarks plus font-based heading heuristics; JSON/JSONC/YAML; HTML/XML/XAML; CSS-family files; and common frontend/backend languages including C/C++, C#, Java/Kotlin, Swift, Go, Rust, Dart, Scala, F#/VB, JavaScript/TypeScript/JSX/TSX/Vue/Svelte/Astro, Python, Ruby, PHP, Perl, shell/PowerShell, SQL, GraphQL, and protobuf. Legacy .doc/.ppt/.xls uses the configured MinerU parser, uploads the file, and is approval-gated. Unknown text formats return paragraph leads.",
             new
             {
                 type = "object",
-                properties = new { path = new { type = "string", description = "Path to the file." } },
+                properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, description = "Absolute or relative document/code path." } },
                 required = new[] { "path" }
             });
 
         RegisterFunction("read_system_file", fileSystemFunctions.ReadSystemFileAsync,
-            "Reads file content. Every returned line is prefixed with its 1-based line number in the format '12 | content' — the prefix is for locating content only and is NOT part of the file. Behavior adapts to file size automatically: files under 50KB are returned in full (line-numbered); larger files are split into chunks and require chunkIndex. For code files, use startLine/endLine after locating the target with search_in_file. For structured documents, use sectionTitle. For unstructured text, use chunkIndex to paginate.",
+            "Reads a text file and prefixes returned lines as '12 | content'; prefixes are not file content. Files over 50 KiB default to chunk 0 and can be paged with chunkIndex. Use at most one selector: startLine/endLine, Markdown sectionTitle, or chunkIndex. Binary Office/PDF files require get_document_outline or parse_office_document.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the file." },
-                    startLine = new { type = "integer", description = "First line to read (1-based). For code files only." },
-                    endLine = new { type = "integer", description = "Last line to read (inclusive). For code files only." },
-                    sectionTitle = new { type = "string", description = "Heading or section name to jump to. For structured documents (Markdown, etc.)." },
-                    chunkIndex = new { type = "integer", description = "0-based chunk index for large or unstructured files. Get total chunk count from get_file_info first." }
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Text-file path." },
+                    startLine = new { type = "integer", minimum = 1, description = "First line, 1-based. May be used for any text file." },
+                    endLine = new { type = "integer", minimum = 1, description = "Inclusive last line; requires startLine and must be >= startLine." },
+                    sectionTitle = new { type = "string", minLength = 1, maxLength = 500, description = "Markdown ATX heading text to read through the next heading of the same or higher level." },
+                    chunkIndex = new { type = "integer", minimum = 0, description = "0-based 50 KiB chunk index." }
                 },
                 required = new[] { "path" }
             });
@@ -312,8 +384,8 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the file." },
-                    content = new { type = "string", description = "The full content to write." }
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Target path." },
+                    content = new { type = "string", maxLength = 5242880, description = "Complete replacement content; maximum is also enforced by the file policy." }
                 },
                 required = new[] { "path", "content" }
             });
@@ -325,8 +397,8 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the file." },
-                    diffContent = new { type = "string", description = "One or more blocks in the format:\n<<<<<<< SEARCH\nExisting lines\n=======\nNew lines\n>>>>>>> REPLACE" },
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing text-file path." },
+                    diffContent = new { type = "string", minLength = 1, maxLength = 5242880, description = "One or more blocks in the format:\n<<<<<<< SEARCH\nExisting lines\n=======\nNew lines\n>>>>>>> REPLACE" },
                     fuzzyMatch = new { type = "boolean", description = "Tolerate whitespace/indentation/line-ending differences in the SEARCH block. Defaults to true. Set false to require a byte-exact match.", @default = true },
                     replaceAll = new { type = "boolean", description = "Replace every occurrence of the SEARCH block instead of requiring a unique match. Defaults to false.", @default = false }
                 },
@@ -340,7 +412,7 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the file or directory." },
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "File or directory path." },
                     recursive = new { type = "boolean", description = "Required to be true to delete a directory and all its contents recursively. Has no effect on single files. Defaults to false.", @default = false }
                 },
                 required = new[] { "path" }
@@ -353,9 +425,9 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", description = "Path to the directory." },
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Directory path." },
                     recursive = new { type = "boolean", description = "Whether to list subdirectories recursively.", @default = false },
-                    filter = new { type = "string", description = "Optional glob pattern to filter results, e.g. '*.cs' or '*.md'." }
+                    filter = new { type = "string", minLength = 1, maxLength = 260, description = "Optional .NET file search pattern such as '*.cs'; not a full recursive glob expression." }
                 },
                 required = new[] { "path" }
             });
@@ -365,7 +437,7 @@ public class FunctionRegistry : IFunctionRegistry
             new
             {
                 type = "object",
-                properties = new { path = new { type = "string", description = "Path to the directory to create." } },
+                properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, description = "Directory path to create, including missing parents." } },
                 required = new[] { "path" }
             });
 
@@ -376,21 +448,22 @@ public class FunctionRegistry : IFunctionRegistry
                 type = "object",
                 properties = new
                 {
-                    sourcePath = new { type = "string", description = "Current path of the file or directory." },
-                    destinationPath = new { type = "string", description = "Target path for the file or directory." }
+                    sourcePath = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing file or directory path." },
+                    destinationPath = new { type = "string", minLength = 1, maxLength = 4096, description = "New path. Existing destinations are not overwritten." }
                 },
                 required = new[] { "sourcePath", "destinationPath" }
             });
 
         RegisterFunction("copy_system_file", fileSystemFunctions.CopySystemFileAsync,
-            "Copies a file from the source path to the destination path. Source must be an existing file.",
+            "Copies one file. Parent directories are created. Existing destinations are rejected unless overwrite=true; directory copies are not supported.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    sourcePath = new { type = "string", description = "Path of the source file." },
-                    destinationPath = new { type = "string", description = "Target path for the copy." }
+                    sourcePath = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing source file." },
+                    destinationPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Destination file." },
+                    overwrite = new { type = "boolean", description = "Replace an existing destination file. Defaults to false.", @default = false }
                 },
                 required = new[] { "sourcePath", "destinationPath" }
             });
@@ -407,9 +480,9 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        server = new { type = "string", description = "Optional MCP server name to restrict the listing to." },
-                        keyword = new { type = "string", description = "Optional keyword matched against tool name / description / server." },
-                        limit = new { type = "integer", description = "Max entries to return (1–200, default 50).", @default = 50 }
+                        server = new { type = "string", minLength = 1, maxLength = 200, description = "Optional exact MCP server name." },
+                        keyword = new { type = "string", minLength = 1, maxLength = 500, description = "Optional case-insensitive keyword matched against name, description, or server." },
+                        limit = new { type = "integer", minimum = 1, maximum = 200, description = "Maximum entries.", @default = 50 }
                     }
                 });
 
@@ -420,25 +493,26 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Fully qualified tool name returned by mcp_list_tools (e.g. mcp__filesystem__read_file)." }
+                        name = new { type = "string", minLength = 1, maxLength = 500, description = "Fully qualified tool name returned by mcp_list_tools." }
                     },
                     required = new[] { "name" }
                 });
 
-            RegisterFunction("mcp_call_tool", mcpDiscoveryFunctions.CallToolAsync,
-                "Invokes a discovered MCP tool. Always call `mcp_get_tool_schema` first to learn the argument shape. Subject to the same approval gate as any other tool.",
+        RegisterFunction("mcp_call_tool", mcpDiscoveryFunctions.CallToolAsync,
+                "Invokes a discovered MCP tool after its schema has been inspected. Pass {} for a no-argument tool. Every call is approval-gated because downstream effects are defined by the MCP server.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Fully qualified MCP tool name." },
+                        name = new { type = "string", minLength = 1, maxLength = 500, description = "Fully qualified MCP tool name." },
                         // 同时允许对象与字符串：弱模型对无 properties 的 object 常填空串，
                         // 允许其改用 JSON 字符串（服务端会解析），大幅提升传参成功率。
                         arguments = new
                         {
                             type = new[] { "object", "string" },
-                            description = "The tool's arguments as a JSON OBJECT matching its input schema, e.g. {\"ip\":\"114.247.50.2\"}. If you cannot emit a nested object, pass the SAME JSON encoded as a string. Pass {} for no-arg tools. NEVER pass an empty value."
+                            minLength = 2,
+                            description = "Arguments matching the discovered input schema. Prefer a JSON object; a JSON-encoded object string is accepted for weak-model compatibility. Use {} for no-argument tools."
                         }
                     },
                     required = new[] { "name", "arguments" }
@@ -449,20 +523,25 @@ public class FunctionRegistry : IFunctionRegistry
         if (mcpManagementFunctions is not null)
         {
             RegisterFunction("mcp_add_server", mcpManagementFunctions.AddServerAsync,
-                "Adds (or updates) an MCP server so its tools become available. Use when the user asks to connect/install an MCP server by natural language. For a LOCAL server pass `command` (e.g. npx, uvx, docker) + `args`; for a REMOTE server pass `url` (Streamable HTTP / SSE) + optional `headers` (e.g. Authorization). This is a sensitive action and requires the user's explicit approval; the app auto-connects the server in the background afterward.",
+                "Adds or replaces one MCP server. Choose exactly one transport: local stdio uses command plus optional args/env; remote HTTP/SSE uses url plus optional headers. Arrays/objects are preferred, while JSON-encoded strings remain accepted for compatibility. The server is enabled and connected after approval.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Unique server name (existing server with the same name is replaced)." },
-                        command = new { type = "string", description = "LOCAL (stdio) launcher executable, e.g. 'npx', 'uvx', 'docker'. Provide either command or url." },
-                        args = new { type = "string", description = "Launch arguments for a stdio server as a JSON array string, e.g. \"[-y,@amap/amap-maps-mcp-server]\"." },
-                        env = new { type = "string", description = "Environment variables for a stdio server as a JSON object string, e.g. \"{\\\"API_KEY\\\":\\\"xxx\\\"}\". NEVER pass an empty value if the server needs a key." },
-                        url = new { type = "string", description = "REMOTE (http) server endpoint URL. Provide either command or url." },
-                        headers = new { type = "string", description = "HTTP headers for a remote server as a JSON object string, e.g. \"{\\\"Authorization\\\":\\\"Bearer xxx\\\"}\"." }
+                        name = new { type = "string", minLength = 1, maxLength = 200, description = "Unique server name; an existing same-name entry is replaced." },
+                        command = new { type = "string", minLength = 1, maxLength = 4096, description = "Local stdio launcher executable, for example npx, uvx, or docker." },
+                        args = new { type = new[] { "array", "string" }, maxItems = 256, items = new { type = "string", maxLength = 32768 }, description = "Local launcher arguments as an array, e.g. [\"-y\",\"@modelcontextprotocol/server-filesystem\",\"D:/workspace\"], or the same array encoded as JSON text." },
+                        env = new { type = new[] { "object", "string" }, additionalProperties = new { type = "string", maxLength = 32768 }, description = "Local environment variables as a string-valued object, or that object encoded as JSON text." },
+                        url = new { type = "string", minLength = 1, maxLength = 4096, pattern = "^https?://", description = "Remote HTTP/SSE endpoint." },
+                        headers = new { type = new[] { "object", "string" }, additionalProperties = new { type = "string", maxLength = 32768 }, description = "Remote HTTP headers as a string-valued object, or that object encoded as JSON text." }
                     },
-                    required = new[] { "name" }
+                    required = new[] { "name" },
+                    oneOf = new object[]
+                    {
+                        new { required = new[] { "command" }, not = new { required = new[] { "url" } } },
+                        new { required = new[] { "url" }, not = new { required = new[] { "command" } } }
+                    }
                 });
 
             RegisterFunction("mcp_import_json", mcpManagementFunctions.ImportJsonAsync,
@@ -472,7 +551,7 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        json = new { type = "string", description = "The full MCP config JSON, verbatim, as a string. Include env/headers values (e.g. API keys) exactly as given." }
+                        json = new { type = "string", minLength = 2, maxLength = 1000000, description = "Full MCP config JSON verbatim. Include env/headers values exactly as supplied by the user." }
                     },
                     required = new[] { "json" }
                 });
@@ -484,7 +563,7 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Name of the MCP server to remove." }
+                        name = new { type = "string", minLength = 1, maxLength = 200, description = "Configured MCP server name." }
                     },
                     required = new[] { "name" }
                 });
@@ -502,7 +581,7 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Exact Skill name from the Available Skills catalog." }
+                        name = new { type = "string", minLength = 1, maxLength = 200, description = "Exact Skill name from the Available Skills catalog." }
                     },
                     required = new[] { "name" }
                 });
@@ -514,8 +593,8 @@ public class FunctionRegistry : IFunctionRegistry
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Exact Skill name." },
-                        relativePath = new { type = "string", description = "Relative text-resource path, for example references/api.md." }
+                        name = new { type = "string", minLength = 1, maxLength = 200, description = "Exact activated Skill name." },
+                        relativePath = new { type = "string", minLength = 1, maxLength = 1024, pattern = "^(?![A-Za-z]:|[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+", description = "Relative text-resource path within the Skill, for example references/api.md." }
                     },
                     required = new[] { "name", "relativePath" }
                 });
@@ -529,13 +608,16 @@ public class FunctionRegistry : IFunctionRegistry
 
     private void RegisterFunction(string name, Delegate function, string description, object parameters)
     {
+        var normalizedSchema = ToolArgumentSchemaValidator.NormalizeAndClose(parameters);
+        ToolArgumentSchemaValidator.AssertDelegateContract(name, function, normalizedSchema);
         var tool = ChatTool.CreateFunctionTool(
             name,
             description,
-            BinaryData.FromString(JsonSerializer.Serialize(parameters))
+            BinaryData.FromString(normalizedSchema.GetRawText())
         );
 
         _tools.Add(tool);
+        _schemas[name] = normalizedSchema;
 
         _executors[name] = async (argsJson) =>
         {
@@ -617,6 +699,25 @@ public class FunctionRegistry : IFunctionRegistry
         if (!_executors.TryGetValue(functionName, out var executor))
         {
             return FunctionResult.FailureResult($"Function not found: {functionName}");
+        }
+
+        JsonElement arguments;
+        try
+        {
+            arguments = JsonSerializer.Deserialize<JsonElement>(argumentsJson);
+        }
+        catch (JsonException ex)
+        {
+            return FunctionResult.FailureResult($"Invalid JSON arguments: {ex.Message}");
+        }
+
+        if (arguments.ValueKind != JsonValueKind.Object)
+            return FunctionResult.FailureResult("Tool arguments must be a JSON object.");
+        if (_schemas.TryGetValue(functionName, out var schema)
+            && !ToolArgumentSchemaValidator.TryValidate(schema, arguments, out var validationError))
+        {
+            _logger.Warning("Function {FunctionName} arguments failed schema validation: {Error}", functionName, validationError);
+            return FunctionResult.FailureResult($"Arguments do not match the tool schema: {validationError}");
         }
 
         // —— 审批闸门（唯一 chokepoint）——

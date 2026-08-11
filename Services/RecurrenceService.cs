@@ -40,8 +40,17 @@ public class RecurrenceService : IRecurrenceService
 
     public RecurrenceRule Normalize(RecurrenceRuleInput? input, RecurrenceValidationResult validation)
     {
-        if (input == null || string.IsNullOrWhiteSpace(input.Mode))
+        if (input == null)
         {
+            return RecurrenceRule.None();
+        }
+        if (string.IsNullOrWhiteSpace(input.Mode))
+        {
+            validation.Issues.Add(new RecurrenceValidationIssue
+            {
+                Code = "missing_mode",
+                Message = "A recurrence object must include mode: none, interval, or weekly_days. Omit recurrence entirely for a one-time task."
+            });
             return RecurrenceRule.None();
         }
 

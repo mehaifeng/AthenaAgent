@@ -15,13 +15,13 @@ public interface IFileSystemService
     Task<FileUpdateResult> ModifyFileWithDiffAsync(string absolutePath, string diffContent, bool fuzzyMatch = true, bool replaceAll = false);
     Task<bool> DeleteFileAsync(string absolutePath, bool recursive = false);
     Task<bool> MoveFileAsync(string sourcePath, string destinationPath);
-    Task<bool> CopyFileAsync(string sourcePath, string destinationPath);
+    Task<bool> CopyFileAsync(string sourcePath, string destinationPath, bool overwrite = false);
     Task<bool> CreateDirectoryAsync(string absolutePath);
     Task<List<FileSystemEntry>> ListDirectoryAsync(string absolutePath, bool recursive = false, string? filter = null);
-    Task<FileMetadata?> GetFileInfoAsync(string absolutePath);
+    Task<FileMetadata?> GetFileInfoAsync(string absolutePath, bool includeTextStatistics = false);
     Task<FileSearchResult> SearchInFileAsync(string absolutePath, string pattern, int contextLines = 3, int maxMatches = 10);
     Task<DocumentOutline> GetDocumentOutlineAsync(string absolutePath);
-    string GetAbsoluteSecurePath(string path);
+    string GetAbsoluteSecurePath(string path, bool enforceReadSizeLimit = true);
 }
 
 public class FileSystemEntry
@@ -35,8 +35,8 @@ public class FileSystemEntry
 
 public class FileMetadata
 {
-    public int LineCount { get; set; }
-    public long CharCount { get; set; }
+    public long? LineCount { get; set; }
+    public long? CharCount { get; set; }
     public long SizeBytes { get; set; }
     public string Encoding { get; set; } = "utf-8";
     public DateTime LastModified { get; set; }
@@ -61,12 +61,20 @@ public class FileSearchMatch
 public class DocumentOutline
 {
     public string OutlineType { get; set; } = "Unknown";
+    public string Format { get; set; } = string.Empty;
+    public string Source { get; set; } = "local";
+    public int? PageCount { get; set; }
+    public bool IsPartial { get; set; }
+    public List<string> Warnings { get; set; } = new();
     public List<OutlineEntry> Entries { get; set; } = new();
 }
 
 public class OutlineEntry
 {
     public string Title { get; set; } = string.Empty;
-    public int LineNumber { get; set; }
+    public string Kind { get; set; } = "section";
+    public int Level { get; set; } = 1;
+    public int? LineNumber { get; set; }
+    public int? PageNumber { get; set; }
     public long CharOffset { get; set; }
 }

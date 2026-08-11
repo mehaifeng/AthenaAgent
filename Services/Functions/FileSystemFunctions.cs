@@ -1,6 +1,8 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,21 +14,28 @@ namespace Athena.UI.Services.Functions;
 /// </summary>
 public class FileSystemFunctions
 {
+    private static readonly HashSet<string> BinaryDocumentExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"
+    };
     private readonly IFileSystemService _fileSystemService;
     private readonly IKnowledgeBaseService _knowledgeBaseService;
     private readonly IWorkspaceService? _workspaceService;
+    private readonly IDocumentParserService? _documentParserService;
     private readonly ILogger _logger;
 
     public FileSystemFunctions(
         IFileSystemService fileSystemService,
         IKnowledgeBaseService knowledgeBaseService,
         ILogger logger,
-        IWorkspaceService? workspaceService = null)
+        IWorkspaceService? workspaceService = null,
+        IDocumentParserService? documentParserService = null)
     {
         _fileSystemService = fileSystemService;
         _knowledgeBaseService = knowledgeBaseService;
         _logger = logger.ForContext<FileSystemFunctions>();
         _workspaceService = workspaceService;
+        _documentParserService = documentParserService;
     }
 
     private async Task TryUpdateKnowledgeBaseVectorsAsync(string path)
@@ -57,12 +66,12 @@ public class FileSystemFunctions
         }
     }
 
-    public async Task<FunctionResult> GetFileInfoAsync(string path)
+    public async Task<FunctionResult> GetFileInfoAsync(string path, bool includeTextStatistics = false)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
-            var info = await _fileSystemService.GetFileInfoAsync(path);
+            var info = await _fileSystemService.GetFileInfoAsync(path, includeTextStatistics);
             if (info == null) return FunctionResult.FailureResult($"Error: file not found ({path})");
             return FunctionResult.SuccessResult("File metadata retrieved successfully.", info);
         }
@@ -79,6 +88,12 @@ public class FileSystemFunctions
         {
             if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(pattern))
                 return FunctionResult.FailureResult("Error: both 'path' and 'pattern' parameters are required.");
+            if (IsBinaryDocument(path))
+                return FunctionResult.FailureResult("search_in_file only supports text files; use get_document_outline or parse_office_document for Office/PDF files.");
+            if (contextLines is < 0 or > 50)
+                return FunctionResult.FailureResult("contextLines must be between 0 and 50.");
+            if (maxMatches is < 1 or > 100)
+                return FunctionResult.FailureResult("maxMatches must be between 1 and 100.");
             var result = await _fileSystemService.SearchInFileAsync(path, pattern, contextLines, maxMatches);
             return FunctionResult.SuccessResult("Search completed.", result);
         }
@@ -94,7 +109,36 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
-            var outline = await _fileSystemService.GetDocumentOutlineAsync(path);
+            var fullPath = _fileSystemService.GetAbsoluteSecurePath(
+                path,
+                enforceReadSizeLimit: !DocumentOutlineExtractor.RequiresRemoteParser(path));
+            DocumentOutline outline;
+            if (DocumentOutlineExtractor.RequiresRemoteParser(fullPath))
+            {
+                if (_documentParserService?.IsEnabled != true)
+                {
+                    return FunctionResult.FailureResult(
+                        $"Legacy Office format '{Path.GetExtension(fullPath)}' requires remote document parsing. Enable Document Parsing in Settings, or convert the file to an OOXML format such as .docx first.");
+                }
+
+                var parsed = await _documentParserService.ParseAsync(
+                    fullPath,
+                    Path.GetFileName(fullPath),
+                    Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken);
+                if (!parsed.Success)
+                    return FunctionResult.FailureResult(parsed.ErrorMessage ?? "Remote document outline parsing failed.");
+
+                outline = DocumentOutlineExtractor.FromMarkdown(
+                    parsed.Markdown,
+                    Path.GetExtension(fullPath).ToLowerInvariant(),
+                    "remote_mineru");
+                outline.OutlineType = "LegacyOffice";
+                outline.Warnings.Insert(0, "Legacy Office content was uploaded to the configured MinerU service and converted to Markdown before outline extraction.");
+            }
+            else
+            {
+                outline = await _fileSystemService.GetDocumentOutlineAsync(fullPath);
+            }
             return FunctionResult.SuccessResult("Document outline retrieved successfully.", outline);
         }
         catch (Exception ex)
@@ -109,6 +153,17 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
+            if (IsBinaryDocument(path))
+                return FunctionResult.FailureResult("read_system_file only supports text files; use get_document_outline or parse_office_document for Office/PDF files.");
+            if (startLine is < 1 || endLine is < 1)
+                return FunctionResult.FailureResult("startLine and endLine are 1-based and must be positive.");
+            if (startLine.HasValue && endLine.HasValue && endLine < startLine)
+                return FunctionResult.FailureResult("endLine must be greater than or equal to startLine.");
+            if (chunkIndex is < 0)
+                return FunctionResult.FailureResult("chunkIndex is 0-based and cannot be negative.");
+            var selectors = (startLine.HasValue ? 1 : 0) + (!string.IsNullOrWhiteSpace(sectionTitle) ? 1 : 0) + (chunkIndex.HasValue ? 1 : 0);
+            if (selectors > 1)
+                return FunctionResult.FailureResult("Use exactly one read selector: line range, sectionTitle, or chunkIndex.");
             var content = await _fileSystemService.ReadFileAsync(path, startLine, endLine, sectionTitle, chunkIndex, includeLineNumbers: true);
             if (content == null) return FunctionResult.FailureResult($"Error: file not found ({path})");
 
@@ -144,6 +199,8 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
+            if (IsBinaryDocument(path))
+                return FunctionResult.FailureResult("write_system_file writes text and cannot create or overwrite binary Office/PDF files.");
             var success = await _fileSystemService.WriteFileAsync(path, content ?? string.Empty);
             if (!success) return FunctionResult.FailureResult($"Write failed: {path}");
 
@@ -174,6 +231,8 @@ public class FileSystemFunctions
         {
             if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(diffContent))
                 return FunctionResult.FailureResult("Error: both 'path' and 'diffContent' parameters are required.");
+            if (IsBinaryDocument(path))
+                return FunctionResult.FailureResult("modify_system_file only edits text files and cannot modify binary Office/PDF files.");
 
             var result = await _fileSystemService.ModifyFileWithDiffAsync(path, diffContent, fuzzyMatch, replaceAll);
             if (result.Success)
@@ -252,7 +311,7 @@ public class FileSystemFunctions
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
             var entries = await _fileSystemService.ListDirectoryAsync(path, recursive, filter);
-            var formatted = entries.Select(e => new { e.Name, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") }).ToList();
+            var formatted = entries.Select(e => new { e.Name, e.FullPath, e.Type, e.SizeBytes, lastModified = e.LastModified.ToString("yyyy-MM-dd HH:mm:ss") }).ToList();
 
             var message = $"Directory contents ({path})";
             if (formatted.Count >= 1000)
@@ -337,13 +396,13 @@ public class FileSystemFunctions
         }
     }
 
-    public async Task<FunctionResult> CopySystemFileAsync(string sourcePath, string destinationPath)
+    public async Task<FunctionResult> CopySystemFileAsync(string sourcePath, string destinationPath, bool overwrite = false)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(destinationPath))
                 return FunctionResult.FailureResult("Error: both 'sourcePath' and 'destinationPath' parameters are required.");
-            var success = await _fileSystemService.CopyFileAsync(sourcePath, destinationPath);
+            var success = await _fileSystemService.CopyFileAsync(sourcePath, destinationPath, overwrite);
             if (success)
             {
                 await TryUpdateKnowledgeBaseVectorsAsync(destinationPath);
@@ -367,4 +426,6 @@ public class FileSystemFunctions
             return FunctionResult.FailureResult($"Failed to copy: {ex.Message}");
         }
     }
+
+    private static bool IsBinaryDocument(string path) => BinaryDocumentExtensions.Contains(Path.GetExtension(path));
 }

@@ -3,24 +3,37 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.SubAgents;
 using Serilog;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
 
 /// <summary>
-/// parse_office_document 工具的实现：把本地 Office/PDF 文档通过 MinerU 解析为 Markdown 文本，
-/// 供模型直接读取内容。解析流程与 MainConversationView 底部附件插入 Office 文件的处理完全一致
-/// （上传 -> 轮询 -> 下载 Markdown），只是入口从 UI 附件改为工具调用。
+/// <c>parse_office_document</c> 工具的实现：仅在模型显式调用该工具时，
+/// 将受支持的本地 Office/PDF 文档上传至 MinerU，并通过“上传、轮询、下载”流程返回 Markdown。
+/// MainConversationView 底部的附件入口只会把文件复制到附件存储区并向模型提供元数据，
+/// 不会预加载、解析、摘要或索引文档内容，也不会自动调用本工具。
 /// </summary>
 public class DocumentParserFunctions
 {
     private readonly IDocumentParserService _documentParserService;
+    private readonly IFileSystemService _fileSystemService;
     private readonly ILogger _logger;
 
-    public DocumentParserFunctions(IDocumentParserService documentParserService, ILogger logger)
+    private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"
+    };
+
+    public DocumentParserFunctions(
+        IDocumentParserService documentParserService,
+        IFileSystemService fileSystemService,
+        ILogger logger)
     {
         _documentParserService = documentParserService;
+        _fileSystemService = fileSystemService;
         _logger = logger.ForContext<DocumentParserFunctions>();
     }
 
@@ -36,10 +49,29 @@ public class DocumentParserFunctions
             return FunctionResult.FailureResult("A file 'path' is required.");
         }
 
-        var fullPath = Path.GetFullPath(path);
+        string fullPath;
+        try
+        {
+            // The remote parser applies its mode-specific 10/200 MB limit. Keep all path,
+            // blacklist and symlink checks here, but do not incorrectly cap Precision mode
+            // at the ordinary local-read quota.
+            fullPath = _fileSystemService.GetAbsoluteSecurePath(path, enforceReadSizeLimit: false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+        {
+            return FunctionResult.FailureResult($"Document path was blocked by the file-system security policy: {ex.Message}");
+        }
+
         if (!File.Exists(fullPath))
         {
             return FunctionResult.FailureResult($"File not found: {path}");
+        }
+
+        var extension = Path.GetExtension(fullPath);
+        if (!SupportedExtensions.Contains(extension))
+        {
+            return FunctionResult.FailureResult(
+                $"Unsupported document format '{extension}'. Supported formats: {string.Join(", ", SupportedExtensions.OrderBy(value => value))}.");
         }
 
         var fileName = Path.GetFileName(fullPath);

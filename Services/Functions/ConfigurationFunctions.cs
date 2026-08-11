@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -37,8 +38,12 @@ public class ConfigurationFunctions
     /// <summary>供 FunctionRegistry 生成 schema 时枚举合法键。</summary>
     public string ModifiableKeysText => string.Join(", ", _configSurface.ModifiableKeys);
 
+    public IReadOnlyList<string> ModifiableKeys => _configSurface.ModifiableKeys;
+
     /// <summary>供 FunctionRegistry 生成 schema 时枚举合法分区。</summary>
     public string SectionsText => string.Join(", ", _configSurface.Sections);
+
+    public IReadOnlyList<string> SectionNames => ["All", .. _configSurface.Sections, "Memory"];
 
     private IChatService ChatService => _chatService ??= _serviceProvider.GetRequiredService<IChatService>();
 

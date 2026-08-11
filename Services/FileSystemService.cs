@@ -56,7 +56,7 @@ public class FileSystemService : IFileSystemService
         return expanded;
     }
 
-    private void ValidatePathAndSecurity(string absolutePath, bool isWriteOperation, bool isDirectoryOperation = false, long dataSize = 0)
+    private void ValidatePathAndSecurity(string absolutePath, bool isWriteOperation, bool isDirectoryOperation = false, long dataSize = 0, bool enforceSizeLimit = true)
     {
         if (string.IsNullOrWhiteSpace(absolutePath)) throw new ArgumentException("File path cannot be empty");
         var policy = _configService.Load().FileSystemPolicy;
@@ -105,7 +105,7 @@ public class FileSystemService : IFileSystemService
         bool trustedRead = !isWriteOperation && IsWithinAttachmentRoot(fullPath);
 
         long targetLimit = isWriteOperation ? policy.Global.MaxWriteSizeBytes : policy.Global.MaxReadSizeBytes;
-        if (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && !trustedRead && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit))
+        if (enforceSizeLimit && (dataSize > targetLimit || (!isWriteOperation && !isDirectoryOperation && !trustedRead && File.Exists(fullPath) && new FileInfo(fullPath).Length > targetLimit)))
         {
             _logger.Warning(
                 "FileSystem size quota exceeded: Path={Path}, DataSize={DataSize}, Limit={Limit}",
@@ -209,28 +209,31 @@ public class FileSystemService : IFileSystemService
 
         var fileInfo = new FileInfo(fullPath);
 
-        // Handle Section Title (Simple Markdown implementation)
+        // Handle a Markdown ATX section, including nested subsections until the next
+        // heading at the same or a higher level.
         if (!string.IsNullOrEmpty(sectionTitle))
         {
             var lines = await File.ReadAllLinesAsync(fullPath);
             var sectionLines = new List<string>();
             int sectionStart = -1;
-            bool inSection = false;
+            int sectionLevel = 0;
             for (int i = 0; i < lines.Length; i++)
             {
                 var line = lines[i];
-                if (line.Trim().StartsWith("#") && line.Contains(sectionTitle, StringComparison.OrdinalIgnoreCase))
+                var heading = Regex.Match(line, @"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$");
+                if (sectionStart < 0 && heading.Success
+                    && string.Equals(heading.Groups[2].Value.Trim(), sectionTitle.Trim(), StringComparison.OrdinalIgnoreCase))
                 {
-                    inSection = true;
                     sectionStart = i;
+                    sectionLevel = heading.Groups[1].Value.Length;
                     sectionLines.Add(line);
                     continue;
                 }
-                if (inSection && line.Trim().StartsWith("#")) break;
-                if (inSection) sectionLines.Add(line);
+                if (sectionStart >= 0 && heading.Success && heading.Groups[1].Value.Length <= sectionLevel) break;
+                if (sectionStart >= 0) sectionLines.Add(line);
             }
             return includeLineNumbers
-                ? NumberLines(sectionLines, sectionStart + 1)
+                ? NumberLines(sectionLines, Math.Max(0, sectionStart) + 1)
                 : string.Join(Environment.NewLine, sectionLines);
         }
 
@@ -436,7 +439,7 @@ public class FileSystemService : IFileSystemService
         return Task.FromResult(false);
     }
 
-    public Task<bool> CopyFileAsync(string sourcePath, string destinationPath)
+    public Task<bool> CopyFileAsync(string sourcePath, string destinationPath, bool overwrite = false)
     {
         var src = Path.GetFullPath(ExpandPath(sourcePath));
         var dest = Path.GetFullPath(ExpandPath(destinationPath));
@@ -447,8 +450,8 @@ public class FileSystemService : IFileSystemService
         {
             var destDir = Path.GetDirectoryName(dest);
             if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
-            File.Copy(src, dest, true);
-            _logger.Information("FileSystem CopyFile succeeded: {Src} -> {Dest}", src, dest);
+            File.Copy(src, dest, overwrite);
+            _logger.Information("FileSystem CopyFile succeeded: {Src} -> {Dest}, Overwrite={Overwrite}", src, dest, overwrite);
             return Task.FromResult(true);
         }
         // Directory copy logic could be added if needed, but keeping it simple for now
@@ -505,7 +508,7 @@ public class FileSystemService : IFileSystemService
         return Task.FromResult(allEntries);
     }
 
-    public async Task<FileMetadata?> GetFileInfoAsync(string absolutePath)
+    public async Task<FileMetadata?> GetFileInfoAsync(string absolutePath, bool includeTextStatistics = false)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         _logger.Debug("FileSystem GetFileInfo: Path={Path}", fullPath);
@@ -513,16 +516,21 @@ public class FileSystemService : IFileSystemService
         if (!File.Exists(fullPath)) return null;
 
         var info = new FileInfo(fullPath);
-        var content = await File.ReadAllTextAsync(fullPath);
-        return new FileMetadata
+        var metadata = new FileMetadata
         {
             SizeBytes = info.Length,
-            CharCount = content.Length,
-            LineCount = content.Split('\n').Length,
             LastModified = info.LastWriteTime,
-            ChunkCount = (int)Math.Ceiling((double)info.Length / ChunkSizeBytes),
-            MimeType = GetMimeType(fullPath)
+            ChunkCount = Math.Max(1, (int)Math.Ceiling((double)info.Length / ChunkSizeBytes)),
+            MimeType = GetMimeType(fullPath),
+            Encoding = await DetectEncodingFromBomAsync(fullPath)
         };
+
+        if (includeTextStatistics)
+        {
+            (metadata.CharCount, metadata.LineCount, metadata.Encoding) = await ScanTextStatisticsAsync(fullPath);
+        }
+
+        return metadata;
     }
 
     public async Task<FileSearchResult> SearchInFileAsync(string absolutePath, string pattern, int contextLines = 3, int maxMatches = 10)
@@ -547,12 +555,11 @@ public class FileSystemService : IFileSystemService
                     ContextBefore = string.Join("\n", lines.Skip(Math.Max(0, i - contextLines)).Take(Math.Min(i, contextLines))),
                     ContextAfter = string.Join("\n", lines.Skip(i + 1).Take(contextLines))
                 };
-                result.Matches.Add(match);
-                if (result.Matches.Count >= maxMatches) break;
+                result.TotalMatches++;
+                if (result.Matches.Count < maxMatches) result.Matches.Add(match);
             }
         }
-        result.TotalMatches = result.Matches.Count;
-        if (result.Matches.Count >= maxMatches)
+        if (result.TotalMatches > result.Matches.Count)
         {
             _logger.Information("FileSystem SearchInFile truncated: Path={Path}, MaxMatches={Max}", fullPath, maxMatches);
         }
@@ -564,43 +571,92 @@ public class FileSystemService : IFileSystemService
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         _logger.Debug("FileSystem GetDocumentOutline: Path={Path}", fullPath);
         ValidatePathAndSecurity(fullPath, false);
-        var outline = new DocumentOutline();
-        if (!File.Exists(fullPath)) return outline;
-
-        var ext = Path.GetExtension(fullPath).ToLowerInvariant();
-        var lines = await File.ReadAllLinesAsync(fullPath);
-
-        if (ext == ".md" || ext == ".markdown")
-        {
-            outline.OutlineType = "Markdown";
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (lines[i].TrimStart().StartsWith("#"))
-                    outline.Entries.Add(new OutlineEntry { Title = lines[i].Trim(), LineNumber = i + 1 });
-            }
-        }
-        else if (ext == ".cs" || ext == ".java" || ext == ".py")
-        {
-            outline.OutlineType = "Code";
-            // Basic regex for methods/classes
-            var regex = new Regex(@"(class|void|public|private|def|async|task)\s+([\w<>]+)\s*\(", RegexOptions.IgnoreCase);
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (regex.IsMatch(lines[i]))
-                    outline.Entries.Add(new OutlineEntry { Title = lines[i].Trim(), LineNumber = i + 1 });
-            }
-        }
-        return outline;
+        if (!File.Exists(fullPath)) return new DocumentOutline();
+        return await DocumentOutlineExtractor.ExtractLocalAsync(fullPath);
     }
 
     private string GetMimeType(string path)
     {
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext switch { ".md" => "text/markdown", ".cs" => "text/x-csharp", ".json" => "application/json", ".py" => "text/x-python", _ => "text/plain" };
+        return ext switch
+        {
+            ".md" or ".markdown" or ".mdx" => "text/markdown",
+            ".cs" => "text/x-csharp",
+            ".json" or ".jsonc" => "application/json",
+            ".yaml" or ".yml" => "application/yaml",
+            ".py" or ".pyi" => "text/x-python",
+            ".js" or ".jsx" or ".mjs" or ".cjs" => "text/javascript",
+            ".ts" or ".tsx" => "text/typescript",
+            ".html" or ".htm" => "text/html",
+            ".xml" or ".xaml" or ".axaml" => "application/xml",
+            ".pdf" => "application/pdf",
+            ".doc" => "application/msword",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".ppt" => "application/vnd.ms-powerpoint",
+            ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".xls" => "application/vnd.ms-excel",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _ => "text/plain"
+        };
     }
 
-    public string GetAbsoluteSecurePath(string path)
+    public string GetAbsoluteSecurePath(string path, bool enforceReadSizeLimit = true)
     {
-        return Path.GetFullPath(ExpandPath(path));
+        var fullPath = Path.GetFullPath(ExpandPath(path));
+        ValidatePathAndSecurity(fullPath, false, enforceSizeLimit: enforceReadSizeLimit);
+        return fullPath;
+    }
+
+    private static async Task<(long CharCount, long LineCount, string Encoding)> ScanTextStatisticsAsync(string fullPath)
+    {
+        await using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 16 * 1024, useAsync: true);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
+            bufferSize: 16 * 1024, leaveOpen: false);
+        var buffer = new char[16 * 1024];
+        long charCount = 0;
+        long newlineCount = 0;
+        var sawAny = false;
+        var lastWasCarriageReturn = false;
+        int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+        {
+            sawAny = true;
+            charCount += read;
+            for (var i = 0; i < read; i++)
+            {
+                var ch = buffer[i];
+                if (ch == '\n')
+                {
+                    if (!lastWasCarriageReturn) newlineCount++;
+                    lastWasCarriageReturn = false;
+                }
+                else if (ch == '\r')
+                {
+                    newlineCount++;
+                    lastWasCarriageReturn = true;
+                }
+                else
+                {
+                    lastWasCarriageReturn = false;
+                }
+            }
+        }
+
+        return (charCount, sawAny ? newlineCount + 1 : 0, reader.CurrentEncoding.WebName);
+    }
+
+    private static async Task<string> DetectEncodingFromBomAsync(string fullPath)
+    {
+        await using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 4, useAsync: true);
+        var bytes = new byte[4];
+        var read = await stream.ReadAsync(bytes.AsMemory(0, bytes.Length));
+        if (read >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF) return "utf-32BE";
+        if (read >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00) return "utf-32";
+        if (read >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return "utf-8";
+        if (read >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) return "utf-16BE";
+        if (read >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) return "utf-16";
+        return "utf-8";
     }
 }

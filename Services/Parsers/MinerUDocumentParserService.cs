@@ -28,6 +28,8 @@ public class MinerUDocumentParserService : IDocumentParserService, IDisposable
     // 轮询参数：每 3 秒查询一次，最长等待 5 分钟。
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan PollTimeout = TimeSpan.FromMinutes(5);
+    private const long AgentMaxFileSizeBytes = 10L * 1024 * 1024;
+    private const long PrecisionMaxFileSizeBytes = 200L * 1024 * 1024;
 
     private readonly IConfigService _configService;
     private readonly ILogger _logger;
@@ -56,6 +58,15 @@ public class MinerUDocumentParserService : IDocumentParserService, IDisposable
         }
 
         var config = _configService.Load();
+        var fileSize = new FileInfo(filePath).Length;
+        var maxFileSize = config.DocumentParserMode == DocumentParserMode.Precision
+            ? PrecisionMaxFileSizeBytes
+            : AgentMaxFileSizeBytes;
+        if (fileSize > maxFileSize)
+        {
+            return DocumentParseResult.Fail(
+                $"File size {fileSize / 1024d / 1024d:F1} MB exceeds the {maxFileSize / 1024 / 1024} MB limit for {config.DocumentParserMode} mode.");
+        }
         try
         {
             return config.DocumentParserMode == DocumentParserMode.Precision

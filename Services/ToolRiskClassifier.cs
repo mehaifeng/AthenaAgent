@@ -55,12 +55,43 @@ public static class ToolRiskClassifier
             return TerminalCommandRisk.Evaluate(argumentsJson);
         }
 
+        if (string.Equals(functionName, "get_document_outline", StringComparison.OrdinalIgnoreCase)
+            && OutlineRequiresRemoteUpload(argumentsJson))
+        {
+            return (ToolRisk.Sensitive, "旧版 Office 二进制格式需要上传到远端文档解析服务");
+        }
+
         if (ReadOnlyTools.Contains(functionName)) return (ToolRisk.ReadOnly, null);
         if (DestructiveTools.Contains(functionName)) return (ToolRisk.Destructive, "该操作不可逆");
         if (SensitiveTools.Contains(functionName)) return (ToolRisk.Sensitive, null);
 
         // 未登记工具：fail-safe 归为敏感，默认需审批。
         return (ToolRisk.Sensitive, "未分级的工具，出于安全默认需要审批");
+    }
+
+    private static bool OutlineRequiresRemoteUpload(string? argumentsJson)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(argumentsJson) || JsonNode.Parse(argumentsJson) is not JsonObject obj)
+                return false;
+            string? path = null;
+            foreach (var pair in obj)
+            {
+                if (!string.Equals(pair.Key.Replace("_", string.Empty), "path", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                path = pair.Value?.ToString();
+                break;
+            }
+            var extension = System.IO.Path.GetExtension(path);
+            return string.Equals(extension, ".doc", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(extension, ".ppt", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(extension, ".xls", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

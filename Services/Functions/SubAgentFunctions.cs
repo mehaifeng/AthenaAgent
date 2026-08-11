@@ -2,6 +2,7 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.SubAgents;
 using Serilog;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.Functions;
@@ -20,10 +21,14 @@ public class SubAgentFunctions
 
     public async Task<FunctionResult> DispatchSubagentsAsync(SubAgentTaskInput[] tasks)
     {
-        if (tasks == null || tasks.Length == 0)
+        if (tasks == null || tasks.Length < 2)
         {
-            return FunctionResult.FailureResult("Provide at least one task in 'tasks'.");
+            return FunctionResult.FailureResult("dispatch_subagents requires at least 2 independent tasks; complete a single task directly.");
         }
+        if (tasks.Length > 8)
+            return FunctionResult.FailureResult("dispatch_subagents accepts at most 8 tasks per batch.");
+        if (tasks.Any(task => string.IsNullOrWhiteSpace(task.Title) || string.IsNullOrWhiteSpace(task.Instruction)))
+            return FunctionResult.FailureResult("Every sub-agent task requires a non-empty title and instruction.");
 
         // 取消令牌经 AsyncLocal 由主对话循环传入，让"停止"能终止整批子代理。
         var token = ToolExecutionContext.CurrentCancellationToken;

@@ -35,8 +35,14 @@ public sealed class McpManagementFunctions
             return FunctionResult.FailureResult("The 'name' parameter is required.");
 
         var isHttp = !string.IsNullOrWhiteSpace(url);
+        if (isHttp && !string.IsNullOrWhiteSpace(command))
+            return FunctionResult.FailureResult("Provide exactly one transport: 'command' for local stdio or 'url' for remote HTTP, not both.");
         if (!isHttp && string.IsNullOrWhiteSpace(command))
             return FunctionResult.FailureResult("Please provide either 'command' (stdio, e.g. npx/uvx/docker) or 'url' (HTTP remote server).");
+        if (isHttp && (HasValue(args) || HasValue(env)))
+            return FunctionResult.FailureResult("Remote HTTP servers cannot use stdio 'args' or 'env'; use 'headers' when needed.");
+        if (!isHttp && HasValue(headers))
+            return FunctionResult.FailureResult("Local stdio servers cannot use HTTP 'headers'; use 'env' when needed.");
 
         var config = await _configService.LoadAsync();
 
@@ -52,31 +58,48 @@ public sealed class McpManagementFunctions
         };
 
         // 弱模型常把数组/对象错发成 JSON 字符串（甚至空串）。这里统一容忍并解析。
-        if (TryCoerce(args, JsonValueKind.Array, out var argsEl))
+        if (HasValue(args) && !TryCoerce(args, JsonValueKind.Array, out var argsEl))
+            return FunctionResult.FailureResult("'args' must be a JSON string array or a JSON-encoded string array.");
+        if (TryCoerce(args, JsonValueKind.Array, out argsEl))
         {
             foreach (var a in argsEl.EnumerateArray())
-                if (a.ValueKind == JsonValueKind.String)
-                    server.Arguments.Add(new McpArgEntry(a.GetString() ?? string.Empty));
+            {
+                if (a.ValueKind != JsonValueKind.String)
+                    return FunctionResult.FailureResult("Every item in 'args' must be a string.");
+                server.Arguments.Add(new McpArgEntry(a.GetString() ?? string.Empty));
+            }
         }
 
-        if (TryCoerce(env, JsonValueKind.Object, out var envEl))
+        if (HasValue(env) && !TryCoerce(env, JsonValueKind.Object, out var envEl))
+            return FunctionResult.FailureResult("'env' must be a string-valued JSON object or that object encoded as JSON text.");
+        if (TryCoerce(env, JsonValueKind.Object, out envEl))
         {
             foreach (var e in envEl.EnumerateObject())
+            {
+                if (e.Value.ValueKind != JsonValueKind.String)
+                    return FunctionResult.FailureResult($"Environment variable '{e.Name}' must have a string value.");
                 server.Environment.Add(new McpEnvEntry
                 {
                     Key = e.Name,
-                    Value = e.Value.ValueKind == JsonValueKind.String ? e.Value.GetString() ?? string.Empty : e.Value.ToString()
+                    Value = e.Value.GetString() ?? string.Empty
                 });
+            }
         }
 
-        if (TryCoerce(headers, JsonValueKind.Object, out var headersEl))
+        if (HasValue(headers) && !TryCoerce(headers, JsonValueKind.Object, out var headersEl))
+            return FunctionResult.FailureResult("'headers' must be a string-valued JSON object or that object encoded as JSON text.");
+        if (TryCoerce(headers, JsonValueKind.Object, out headersEl))
         {
             foreach (var h in headersEl.EnumerateObject())
+            {
+                if (h.Value.ValueKind != JsonValueKind.String)
+                    return FunctionResult.FailureResult($"HTTP header '{h.Name}' must have a string value.");
                 server.Headers.Add(new McpEnvEntry
                 {
                     Key = h.Name,
-                    Value = h.Value.ValueKind == JsonValueKind.String ? h.Value.GetString() ?? string.Empty : h.Value.ToString()
+                    Value = h.Value.GetString() ?? string.Empty
                 });
+            }
         }
 
         // 同名 upsert：替换旧条目（用户已在审批弹窗看到本次内容）。
@@ -174,6 +197,8 @@ public sealed class McpManagementFunctions
         result = default;
         return false;
     }
+
+    private static bool HasValue(JsonElement input) => input.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null;
 
     /// <summary>移除一个 MCP 服务器。参数：name。</summary>
     public async Task<FunctionResult> RemoveServerAsync(string? name)

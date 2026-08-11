@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Collections.Specialized;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -22,6 +23,10 @@ using Athena.UI.Services.Context;
 using Athena.UI.Services.Preview;
 using OpenAI.Responses;
 using Serilog;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
 
 Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
 
@@ -110,6 +115,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
+    ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
+    ("outline: markdown, code, DOCX, PDF, PPTX and XLSX structures are extracted", TestDocumentOutlineFormatsAsync),
+    ("tool schema validator enforces closed objects, bounds and composition", TestToolSchemaValidatorAsync),
     ("mcp: name encoder produces safe short names and hashes long ones", TestMcpNameEncoderAsync),
     ("mcp: registry replace/remove is atomic and snapshot is ordered", TestMcpRegistryAsync),
     ("mcp: list_tools filters by server and keyword and enforces limit", TestMcpListToolsAsync),
@@ -122,7 +130,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("mcp: remove_server deletes by name and rejects unknown", TestMcpRemoveServerAsync),
     ("mcp: failed start is not recorded and retries on next apply", TestMcpLifecycleRetryAsync),
     ("mcp: arg list JSON round-trips as flat string array", TestMcpArgJsonRoundTripAsync),
-    ("mcp: call_tool normalizes object/json-string/empty arguments", TestMcpArgNormalizationAsync),
+    ("mcp: call_tool normalizes object/json-string and rejects empty arguments", TestMcpArgNormalizationAsync),
     ("mcp: importer detects http url + headers", TestMcpImporterHttpAsync),
     ("mcp: diff honors http url/headers and validity", TestMcpHttpDiffAsync),
     ("mcp: import_json adds servers from pasted blob and enables MCP", TestMcpImportJsonToolAsync),
@@ -3186,6 +3194,15 @@ static async Task TestCreateTaskStructuredResponsesAsync()
     var failureData = JsonSerializer.SerializeToElement(failure.Data);
     AssertFalse(failureData.GetProperty("validation").GetProperty("isValid").GetBoolean(), "failure result should include invalid validation data");
     AssertTrue(failureData.GetProperty("validation").GetProperty("issues").GetArrayLength() > 0, "failure result should expose structured validation issues");
+
+    var missingMode = await functions.ScheduleProactiveMessage(
+        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
+        "must not silently become one-time",
+        new RecurrenceRuleInput());
+    AssertFalse(missingMode.Success, "present-but-empty recurrence must be rejected instead of silently becoming none");
+
+    var chineseRelative = await functions.ScheduleProactiveMessage("2小时后", "中文相对时间");
+    AssertTrue(chineseRelative.Success, "documented Chinese relative time should parse successfully");
 }
 
 static List<string> DiffLines(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
@@ -3305,6 +3322,8 @@ static Task TestApprovalRiskClassifierAsync()
     AssertEqual(ToolRisk.ReadOnly, ToolRiskClassifier.Classify("recall_from_memory", "{}").Risk, "recall should be read-only");
     AssertEqual(ToolRisk.Destructive, ToolRiskClassifier.Classify("delete_system_file", "{}").Risk, "delete should be destructive");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("write_system_file", "{}").Risk, "write should be sensitive");
+    AssertEqual(ToolRisk.ReadOnly, ToolRiskClassifier.Classify("get_document_outline", "{\"path\":\"guide.md\"}").Risk, "local outline extraction should remain read-only");
+    AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("get_document_outline", "{\"path\":\"legacy.doc\"}").Risk, "legacy DOC outline uploads must be approval-gated");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("some_unknown_future_tool", "{}").Risk, "unknown tool should fail-safe to sensitive");
     return Task.CompletedTask;
 }
@@ -3516,6 +3535,192 @@ static async Task TestFileSystemSymlinkEscapeAsync()
     await File.WriteAllTextAsync(normal, "hello");
     var normalContent = await service.ReadFileAsync(normal);
     AssertEqual("hello", normalContent, "a normal file in an allowed dir is still readable");
+}
+
+static async Task TestFileMetadataStatisticsAsync()
+{
+    using var harness = new TestHarness();
+    var path = Path.Combine(harness.Root, "metadata.txt");
+    await File.WriteAllTextAsync(path, "alpha\nbeta\n");
+    var service = new FileSystemService(new FakeConfigService(new AppConfig()), harness.PathService, Log.Logger);
+
+    var cheap = await service.GetFileInfoAsync(path);
+    AssertTrue(cheap != null, "metadata should be returned");
+    AssertEqual<long?>(null, cheap!.CharCount, "default metadata must not scan text characters");
+    AssertEqual<long?>(null, cheap.LineCount, "default metadata must not scan text lines");
+
+    var detailed = await service.GetFileInfoAsync(path, includeTextStatistics: true);
+    AssertEqual<long?>(11, detailed!.CharCount, "explicit statistics should count decoded characters");
+    AssertEqual<long?>(3, detailed.LineCount, "line count should preserve the terminal empty line convention");
+    AssertTrue(!string.IsNullOrWhiteSpace(detailed.Encoding), "detected encoding should be reported");
+}
+
+static async Task TestDocumentOutlineFormatsAsync()
+{
+    using var harness = new TestHarness();
+
+    var markdownPath = Path.Combine(harness.Root, "guide.md");
+    await File.WriteAllTextAsync(markdownPath, "# Guide\n\nSetup\n-----\n\n## API\n");
+    var markdown = await DocumentOutlineExtractor.ExtractLocalAsync(markdownPath);
+    AssertEqual(3, markdown.Entries.Count, "ATX and Setext Markdown headings should be extracted");
+    AssertEqual(2, markdown.Entries[1].Level, "Setext dash heading should be level 2");
+
+    var codePath = Path.Combine(harness.Root, "component.tsx");
+    await File.WriteAllTextAsync(codePath, "export interface Props { name: string }\nexport function Card(props: Props) { return <div /> }\nexport const load = async () => fetch('/api');\n");
+    var code = await DocumentOutlineExtractor.ExtractLocalAsync(codePath);
+    AssertTrue(code.Entries.Any(entry => entry.Kind == "type" && entry.Title.Contains("Props", StringComparison.Ordinal)),
+        "TypeScript interface should appear in the outline");
+    AssertTrue(code.Entries.Count(entry => entry.Kind == "function") >= 2,
+        "function declaration and arrow function should appear in the outline");
+
+    var docxPath = Path.Combine(harness.Root, "sample.docx");
+    CreateDocxFixture(docxPath);
+    var docx = await DocumentOutlineExtractor.ExtractLocalAsync(docxPath);
+    AssertTrue(docx.Entries.Any(entry => entry.Title == "Architecture" && entry.Level == 1),
+        "DOCX Heading1 style should be extracted");
+    AssertTrue(docx.Entries.Any(entry => entry.Title == "Services" && entry.Level == 2),
+        "DOCX Heading2 style should be extracted");
+
+    var pdfPath = Path.Combine(harness.Root, "sample.pdf");
+    var pdfBuilder = new PdfDocumentBuilder();
+    var pdfFont = pdfBuilder.AddStandard14Font(Standard14Font.Helvetica);
+    var pdfPage = pdfBuilder.AddPage(PageSize.A4);
+    pdfPage.AddText("PDF Architecture", 24, new PdfPoint(50, 760), pdfFont);
+    pdfPage.AddText("This is ordinary body text for the parser baseline.", 10, new PdfPoint(50, 700), pdfFont);
+    await File.WriteAllBytesAsync(pdfPath, pdfBuilder.Build());
+    var pdf = await DocumentOutlineExtractor.ExtractLocalAsync(pdfPath);
+    AssertEqual(1, pdf.PageCount ?? 0, "PDF page count should be reported");
+    AssertTrue(pdf.Entries.Any(entry => entry.Title.Contains("PDF Architecture", StringComparison.Ordinal)),
+        "large-font PDF heading should be extracted when bookmarks are absent");
+
+    var pptxPath = Path.Combine(harness.Root, "sample.pptx");
+    CreateZipFixture(pptxPath, new Dictionary<string, string>
+    {
+        ["ppt/slides/slide1.xml"] = """
+            <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Roadmap</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>
+            """
+    });
+    var pptx = await DocumentOutlineExtractor.ExtractLocalAsync(pptxPath);
+    AssertTrue(pptx.Entries.Any(entry => entry.Title == "Roadmap" && entry.Kind == "slide"),
+        "PPTX slide title should be extracted");
+
+    var xlsxPath = Path.Combine(harness.Root, "sample.xlsx");
+    CreateZipFixture(xlsxPath, new Dictionary<string, string>
+    {
+        ["xl/workbook.xml"] = """
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="Summary" sheetId="1"/><sheet name="Data" sheetId="2"/></sheets></workbook>
+            """
+    });
+    var xlsx = await DocumentOutlineExtractor.ExtractLocalAsync(xlsxPath);
+    AssertEqual("Summary,Data", string.Join(',', xlsx.Entries.Select(entry => entry.Title)),
+        "XLSX worksheet names should define the outline");
+
+    AssertTrue(DocumentOutlineExtractor.RequiresRemoteParser("legacy.doc"),
+        "legacy DOC must be routed to the explicit remote-parser path");
+}
+
+static Task TestToolSchemaValidatorAsync()
+{
+    var schema = ToolArgumentSchemaValidator.NormalizeAndClose(new
+    {
+        type = "object",
+        properties = new
+        {
+            operation = new { type = "string", @enum = new[] { "local", "remote" } },
+            maxCount = new { type = "integer", minimum = 1, maximum = 8 },
+            transport = new
+            {
+                oneOf = new object[]
+                {
+                    new { type = "object", properties = new { command = new { type = "string", minLength = 1 } }, required = new[] { "command" } },
+                    new { type = "object", properties = new { url = new { type = "string", pattern = "^https?://" } }, required = new[] { "url" } }
+                }
+            }
+        },
+        required = new[] { "operation", "maxCount", "transport" }
+    });
+
+    using var validDocument = JsonDocument.Parse("""{"operation":"local","max_count":2,"transport":{"command":"npx"}}""");
+    AssertTrue(ToolArgumentSchemaValidator.TryValidate(schema, validDocument.RootElement, out _),
+        "snake_case aliases should validate against camelCase declarations");
+
+    using var extraDocument = JsonDocument.Parse("""{"operation":"local","maxCount":2,"transport":{"command":"npx"},"unexpected":true}""");
+    AssertFalse(ToolArgumentSchemaValidator.TryValidate(schema, extraDocument.RootElement, out var extraError),
+        "closed schemas should reject unknown properties");
+    AssertTrue(extraError?.Contains("unexpected", StringComparison.Ordinal) == true,
+        "unknown-property error should identify the field");
+
+    using var boundsDocument = JsonDocument.Parse("""{"operation":"local","maxCount":9,"transport":{"command":"npx"}}""");
+    AssertFalse(ToolArgumentSchemaValidator.TryValidate(schema, boundsDocument.RootElement, out _),
+        "numeric maximum should be enforced");
+
+    using var ambiguousDocument = JsonDocument.Parse("""{"operation":"remote","maxCount":2,"transport":{"command":"npx","url":"https://example.com"}}""");
+    AssertFalse(ToolArgumentSchemaValidator.TryValidate(schema, ambiguousDocument.RootElement, out _),
+        "oneOf must reject an object that matches no closed branch");
+
+    var selectorSchema = ToolArgumentSchemaValidator.NormalizeAndClose(new
+    {
+        type = "object",
+        properties = new
+        {
+            path = new { type = "string" },
+            startLine = new { type = "integer" },
+            endLine = new { type = "integer" },
+            sectionTitle = new { type = "string" }
+        },
+        required = new[] { "path" },
+        oneOf = new object[]
+        {
+            new
+            {
+                required = new[] { "startLine" },
+                not = new { anyOf = new object[] { new { required = new[] { "sectionTitle" } } } }
+            },
+            new
+            {
+                required = new[] { "sectionTitle" },
+                not = new { anyOf = new object[] { new { required = new[] { "startLine" } }, new { required = new[] { "endLine" } } } }
+            },
+            new
+            {
+                not = new { anyOf = new object[] { new { required = new[] { "startLine" } }, new { required = new[] { "endLine" } }, new { required = new[] { "sectionTitle" } } } }
+            }
+        }
+    });
+    using var lineSelector = JsonDocument.Parse("""{"path":"a.md","startLine":1,"endLine":2}""");
+    AssertTrue(ToolArgumentSchemaValidator.TryValidate(selectorSchema, lineSelector.RootElement, out _),
+        "anyOf/not composition should accept a valid line selector");
+    using var conflictingSelectors = JsonDocument.Parse("""{"path":"a.md","startLine":1,"sectionTitle":"Intro"}""");
+    AssertFalse(ToolArgumentSchemaValidator.TryValidate(selectorSchema, conflictingSelectors.RootElement, out _),
+        "anyOf/not composition should reject mutually exclusive selectors");
+    using var orphanEndLine = JsonDocument.Parse("""{"path":"a.md","endLine":2}""");
+    AssertFalse(ToolArgumentSchemaValidator.TryValidate(selectorSchema, orphanEndLine.RootElement, out _),
+        "endLine without startLine should not match a selector branch");
+    return Task.CompletedTask;
+}
+
+static void CreateDocxFixture(string path)
+{
+    CreateZipFixture(path, new Dictionary<string, string>
+    {
+        ["word/styles.xml"] = """
+            <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style></w:styles>
+            """,
+        ["word/document.xml"] = """
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Architecture</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Services</w:t></w:r></w:p><w:p><w:r><w:t>Body paragraph.</w:t></w:r></w:p></w:body></w:document>
+            """
+    });
+}
+
+static void CreateZipFixture(string path, IReadOnlyDictionary<string, string> entries)
+{
+    using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+    foreach (var pair in entries)
+    {
+        var entry = archive.CreateEntry(pair.Key, CompressionLevel.Fastest);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(pair.Value);
+    }
 }
 
 // 逐级解析已存在路径的符号链接组件，得到规范化真实路径（测试辅助，与服务内实现同构）。
@@ -3922,10 +4127,10 @@ static async Task TestMcpArgNormalizationAsync()
     AssertTrue(r2.Success, "json-string args accepted");
     AssertTrue(host.LastArgsJson.Contains("1.2.3.4"), "json-string parsed to object for host");
 
-    // 3) 空字符串 → 归一为 {}（到达 host，服务器可自行决定是否报缺参）
+    // 3) 空字符串 → 明确拒绝；无参工具必须显式传 {}
     var empty = JsonDocument.Parse("\"\"").RootElement;
     var r3 = await fn.CallToolAsync(fq, empty);
-    AssertTrue(r3.Success, "empty string normalized to empty object, still dispatched");
+    AssertFalse(r3.Success, "empty string rejected; no-argument calls must be explicit");
 
     // 4) 非法 JSON 字符串 → 明确报错，不吞
     var bad = JsonDocument.Parse("\"not json\"").RootElement;

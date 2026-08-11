@@ -90,7 +90,7 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
   - `Parsers/`: Document parsing (`MinerUDocumentParserService`).
   - `Interfaces/`: Service abstractions for clean DI.
   - `Platform/`: OS-specific implementations (e.g., `DesktopPlatformPathService`).
-  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `ToolDiscoveryService`, `DiffApplier` (powers `modify_system_file`).
+  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `FunctionRegistry` / `ToolArgumentSchemaValidator`, `DiffApplier` (powers `modify_system_file`).
 - `Styles/`: Global styles and icon stream geometries.
 - `ViewModels/`: MVVM ViewModels.
   - `MainWindowViewModel`: Orchestrates the three-pane shell, workspace conversation tree, and feature windows.

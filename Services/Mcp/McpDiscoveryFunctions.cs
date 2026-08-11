@@ -122,7 +122,7 @@ public sealed class McpDiscoveryFunctions
     /// <summary>
     /// 把模型传入的 arguments 统一成 JSON 对象元素：
     /// - Object → 原样。
-    /// - 空串/Null/Undefined → 空对象 {}（无参工具可用；缺参工具会由服务器报缺字段，属正常反馈）。
+    /// - Null/Undefined → 空对象 {}（仅保留直接调用兼容；公开 schema 要求显式 arguments）。
     /// - 非空字符串 → 尝试按 JSON 解析；解析成对象则采用，否则报错请模型改成对象。
     /// </summary>
     internal static bool TryNormalizeArguments(JsonElement arguments, out JsonElement normalized, out string? error)
@@ -143,8 +143,9 @@ public sealed class McpDiscoveryFunctions
                 var s = arguments.GetString();
                 if (string.IsNullOrWhiteSpace(s))
                 {
-                    normalized = EmptyObject();
-                    return true;
+                    normalized = default;
+                    error = "参数 `arguments` 不能为空；无参工具请显式传入 {}。";
+                    return false;
                 }
                 try
                 {

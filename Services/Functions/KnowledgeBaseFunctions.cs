@@ -15,8 +15,6 @@ public class KnowledgeBaseFunctions
 {
     private readonly IKnowledgeBaseService _knowledgeBase;
     private readonly ILogger _logger;
-    private readonly IConversationSessionAccessor? _sessionAccessor;
-    private readonly IWorkspaceService? _workspaceService;
 
     /// <summary>
     /// 语义查重门槛：新内容与某已有文件的最大分块相似度 ≥ 此值即视为"同类记录已存在"，
@@ -26,14 +24,10 @@ public class KnowledgeBaseFunctions
 
     public KnowledgeBaseFunctions(
         IKnowledgeBaseService knowledgeBase,
-        ILogger logger,
-        IConversationSessionAccessor? sessionAccessor = null,
-        IWorkspaceService? workspaceService = null)
+        ILogger logger)
     {
         _knowledgeBase = knowledgeBase;
         _logger = logger.ForContext<KnowledgeBaseFunctions>();
-        _sessionAccessor = sessionAccessor;
-        _workspaceService = workspaceService;
     }
 
     /// <summary>
@@ -43,40 +37,21 @@ public class KnowledgeBaseFunctions
     /// <param name="filePath">相对路径，如 'user_preferences/coding_style.md'</param>
     /// <param name="content">Markdown 格式的文件内容</param>
     /// <param name="allowDuplicate">确认这是独立新主题、需绕过语义查重时置 true</param>
-    /// <param name="workspaceScoped">工作区受管知识文件不支持新建；false 时写入全局知识库</param>
     /// <returns>操作结果</returns>
     public async Task<FunctionResult> CreateKnowledgeFile(
         string filePath,
         string content,
-        bool allowDuplicate = false,
-        bool workspaceScoped = false)
+        bool allowDuplicate = false)
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(filePath) || string.IsNullOrWhiteSpace(content))
+                return FunctionResult.FailureResult("filePath and non-empty content are required.");
             // 确保文件扩展名
             if (!filePath.EndsWith(".md"))
             {
                 filePath += ".md";
             }
-
-            // 判断写入目标：工作区知识库 or 全局知识库
-            var activeWorkspaceId = _sessionAccessor?.CurrentWorkspaceId;
-            if (workspaceScoped && !string.IsNullOrEmpty(activeWorkspaceId))
-            {
-                var managedPath = _workspaceService == null
-                    ? null
-                    : await _workspaceService.GetKnowledgeFilePathAsync(activeWorkspaceId);
-                return FunctionResult.FailureResult(
-                    "Workspace knowledge files are created and managed by the system; they cannot be created via create_new_memory. Please use modify_system_file to modify the absolute path returned by the system.",
-                    new { scope = "workspace", workspaceId = activeWorkspaceId, fullPath = managedPath });
-            }
-
-            if (workspaceScoped)
-            {
-                return FunctionResult.FailureResult("No workspace is selected; workspace knowledge files cannot be created. Please select a workspace and use the knowledge file path provided in its system prompt to modify it.");
-            }
-
-            // --- 全局知识库路径（现有逻辑） ---
 
             // 路径查重：同名文件已存在
             if (await _knowledgeBase.FileExistsAsync(filePath))
@@ -133,6 +108,10 @@ public class KnowledgeBaseFunctions
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            if (string.IsNullOrWhiteSpace(query))
+                return FunctionResult.FailureResult("query cannot be empty.");
+            if (maxResults is < 1 or > 20)
+                return FunctionResult.FailureResult("maxResults must be between 1 and 20.");
             var results = await _knowledgeBase.SearchAsync(query, maxResults);
             stopwatch.Stop();
 

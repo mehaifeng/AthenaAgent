@@ -197,7 +197,7 @@ public static class PromptTemplates
 
         ## Scheduling
 
-        If the user mentions a timeframe or asks for a future follow-up, use the scheduling tools immediately when enough information is present.
+        Create a scheduled task only when the user requests a reminder, follow-up, or other future action. An incidental date or timeframe is not authorization to schedule anything. When the request is clear and the time is resolvable, call the tool without asking for redundant confirmation; the approval gate remains authoritative.
 
         ## File System
 
