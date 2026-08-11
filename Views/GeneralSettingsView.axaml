@@ -128,6 +128,13 @@
                                Margin="26,0,0,0"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
+                    <CheckBox x:Name="AutoExpandReasoningCheckBox"
+                              Content="{loc:Loc Settings.General.AutoExpandReasoning}"
+                              IsChecked="{Binding State.Config.AutoExpandReasoning}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.AutoExpandReasoningHint}"
+                               Margin="26,0,0,0"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                 </StackPanel>
             </Border>
         </StackPanel>

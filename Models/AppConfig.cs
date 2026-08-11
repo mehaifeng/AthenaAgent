@@ -215,6 +215,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _skipRewindConfirm;
 
+    // 模型开始输出新一轮推理内容时，自动展开助手气泡中的思考区域。
+    [ObservableProperty]
+    private bool _autoExpandReasoning = true;
+
     // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
     [ObservableProperty]
     private bool _onboardingCompleted;

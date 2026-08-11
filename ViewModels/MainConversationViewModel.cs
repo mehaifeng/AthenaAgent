@@ -2167,6 +2167,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
                         // 本回合推理结束：收起面板（下一轮推理开始时自动重新展开）。
                         reasoningStreaming = false;
+                        assistantMsg.IsReasoningAppending = false;
                         assistantMsg.IsReasoningExpanded = false;
 
                         // 为本轮的每个工具调用追加一张「执行中」卡片。
@@ -2182,6 +2183,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         {
                             // 推理增量已在 onReasoningDelta 实时流入气泡，此处只做回合收尾：收起面板。
                             reasoningStreaming = false;
+                            assistantMsg.IsReasoningAppending = false;
                             assistantMsg.IsReasoningExpanded = false;
                         }
                         else
@@ -2298,11 +2300,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 },
                 onToolCallArgumentsStreaming: functionName =>
                 {
-                    if (!IsCurrentConversationEpoch(epoch)
-                        || (functionName != "write_system_file" && functionName != "modify_system_file"))
+                    if (!IsCurrentConversationEpoch(epoch))
                     {
                         return;
                     }
+
+                    // 工具调用参数已经开始输出，说明当前推理增量阶段已结束。
+                    assistantMsg.IsReasoningAppending = false;
+                    if (functionName != "write_system_file" && functionName != "modify_system_file") return;
 
                     assistantMsg.IsComposingFileText = true;
                     assistantMsg.IsLoading = true;
@@ -2311,6 +2316,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;
 
+                    // 每个推理增量都会重新点亮灯泡；若供应商交错输出正文与推理，也能正确恢复动画。
+                    assistantMsg.IsReasoningAppending = true;
                     if (!reasoningStreaming)
                     {
                         // 新一轮推理开始：先展开容器，再在已有推理内容下补隔断符，
@@ -2320,7 +2327,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         {
                             assistantMsg.ReasoningContent += ReasoningStreamSeparator;
                         }
-                        assistantMsg.IsReasoningExpanded = true;
+                        if (_configService?.Load().AutoExpandReasoning ?? true)
+                        {
+                            assistantMsg.IsReasoningExpanded = true;
+                        }
                     }
                     assistantMsg.ReasoningContent += delta;
                 },
@@ -2343,6 +2353,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
                 if (!string.IsNullOrEmpty(contentDelta))
                 {
+                    // 正文开始追加后，灯泡不再闪烁；面板仍按既有回合收尾逻辑自动收起。
+                    assistantMsg.IsReasoningAppending = false;
                     // 先写入正文、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
                     assistantMsg.ToolExecutionSummary = string.Empty; // 开始输出正式回复，隐藏工具调用状态
                     assistantMsg.IsComposingFileText = false;
@@ -2402,6 +2414,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 // 回复生命周期结束：先落内容态，最后统一撤下 loading/streaming 生命线，气泡去留由下方清理判定。
                 assistantMsg.IsLoading = false;
                 assistantMsg.IsComposingFileText = false;
+                assistantMsg.IsReasoningAppending = false;
                 assistantMsg.IsStreaming = false;
                 assistantMsg.ToolExecutionSummary = string.Empty;
 

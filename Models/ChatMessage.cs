@@ -110,6 +110,12 @@ public partial class ChatMessage : ObservableObject
     private string? _reasoningContent;
 
     /// <summary>
+    /// 当前是否正在向该气泡追加模型推理增量。仅驱动思考灯泡动画，回合结束后立即复位。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isReasoningAppending;
+
+    /// <summary>
     /// 推理内容折叠面板是否展开。默认收起，点击面板头部切换。
     /// </summary>
     [ObservableProperty]

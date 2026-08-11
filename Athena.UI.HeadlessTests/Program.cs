@@ -73,6 +73,7 @@ Task.Run(TestResponsesReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestChatReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
 TestReasoningBubbleState();
+TestReasoningBulbVisualState();
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
@@ -1932,6 +1933,23 @@ static void TestConfigurationSession(string artifactDirectory)
     Dispatcher.UIThread.RunJobs();
     SaveWindowFrame(appSettingsWindow, Path.Combine(artifactDirectory, "app-settings-window.png"));
 
+    // —— 思考区自动展开：默认开启，General Settings 开关双向绑定并持久化。 ——
+    var autoExpandReasoningCheckBox = appSettingsWindow.GetVisualDescendants().OfType<CheckBox>()
+        .FirstOrDefault(control => control.Name == "AutoExpandReasoningCheckBox")
+        ?? throw new InvalidOperationException("The General settings reasoning auto-expand checkbox was not rendered.");
+    if (!session.Current.AutoExpandReasoning || autoExpandReasoningCheckBox.IsChecked != true)
+        throw new InvalidOperationException("Reasoning auto-expand must default to enabled in both config and General settings.");
+    service.ResetSaveCount();
+    autoExpandReasoningCheckBox.IsChecked = false;
+    Dispatcher.UIThread.RunJobs();
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "reasoning auto-expand edit");
+    if (session.Current.AutoExpandReasoning)
+        throw new InvalidOperationException("Disabling reasoning auto-expand did not persist to configuration.");
+    autoExpandReasoningCheckBox.IsChecked = true;
+    Dispatcher.UIThread.RunJobs();
+    Thread.Sleep(650);
+
     // —— 字号档位：ComboBox 渲染、VM 映射、配置持久化、资源整体缩放。 ——
     var fontScaleComboBox = appSettingsWindow.GetVisualDescendants().OfType<ComboBox>()
         .FirstOrDefault(c => c.Name == "FontScaleComboBox")
@@ -3688,10 +3706,70 @@ static void TestReasoningBubbleState()
     Console.WriteLine("[PASS] reasoning bubble state: HasReasoningContent and ToggleReasoning");
 }
 
+static void TestReasoningBulbVisualState()
+{
+    using var chat = new MainConversationViewModel();
+    var message = new ChatMessage
+    {
+        Role = "assistant",
+        ReasoningContent = "active reasoning",
+        IsReasoningAppending = true,
+        IsStreaming = true
+    };
+    chat.Messages.Add(message);
+
+    var view = new MainConversationView { DataContext = chat };
+    var window = new Window { Width = 520, Height = 320, Content = view };
+    try
+    {
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var bulb = window.GetVisualDescendants().OfType<PathIcon>()
+            .FirstOrDefault(icon => icon.Classes.Contains("reasoning-bulb"))
+            ?? throw new InvalidOperationException("Reasoning bulb icon was not rendered.");
+        if (!bulb.Classes.Contains("appending"))
+            throw new InvalidOperationException("Reasoning bulb must attach its animation class while reasoning appends.");
+
+        message.IsReasoningAppending = false;
+        Dispatcher.UIThread.RunJobs();
+        if (bulb.Classes.Contains("appending"))
+            throw new InvalidOperationException("Reasoning bulb must detach its animation class after appending stops.");
+    }
+    finally
+    {
+        window.Close();
+        // Drain detach/close work while still on the UI owner thread. The next fixture intentionally
+        // pumps the headless dispatcher from a pool thread and must not inherit animation jobs.
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    Console.WriteLine("[PASS] reasoning bulb animation class follows the live append state");
+}
+
 static async Task TestReasoningStreamingInBubbleAsync()
 {
+    await VerifyReasoningAutoExpandAsync(autoExpand: true, expectedExpandedWhileStreaming: true);
+    await VerifyReasoningAutoExpandAsync(autoExpand: false, expectedExpandedWhileStreaming: false);
+    Console.WriteLine("[PASS] reasoning streams across rounds, honors auto-expand preference, and auto-collapses");
+}
+
+static async Task VerifyReasoningAutoExpandAsync(bool autoExpand, bool expectedExpandedWhileStreaming)
+{
+    var streamingService = new ReasoningStreamingChatService();
+    var configService = new HeadlessConfigService(new AppConfig { AutoExpandReasoning = autoExpand });
     var chat = new MainConversationViewModel(
-        new ReasoningStreamingChatService(), null, null, null, null, null, null, null);
+        streamingService, configService, null, null, null, null, null, null);
+    var expandedStates = new List<bool>();
+    var appendingStates = new List<bool>();
+    streamingService.AfterReasoningDelta = () =>
+    {
+        var activeBubble = chat.Messages.LastOrDefault(message => message.Role == "assistant" && !message.IsHidden);
+        if (activeBubble != null)
+        {
+            expandedStates.Add(activeBubble.IsReasoningExpanded);
+            appendingStates.Add(activeBubble.IsReasoningAppending);
+        }
+    };
     chat.InputText = "think";
     var task = chat.SendMessageCommand.ExecuteAsync(null);
     while (!task.IsCompleted)
@@ -3708,9 +3786,17 @@ static async Task TestReasoningStreamingInBubbleAsync()
     var expected = "round one reasoning continues" + ReasoningStreamingChatService.Separator + "round two reasoning";
     if (bubble.ReasoningContent != expected)
         throw new InvalidOperationException($"Reasoning must stream with a separator between rounds: '{bubble.ReasoningContent}'");
+    if (expandedStates.Count == 0 || expandedStates.Any(state => state != expectedExpandedWhileStreaming))
+        throw new InvalidOperationException(
+            $"AutoExpandReasoning={autoExpand} produced unexpected streaming expansion states: [{string.Join(", ", expandedStates)}]");
+    if (appendingStates.Count == 0 || appendingStates.Any(state => !state))
+        throw new InvalidOperationException(
+            $"Reasoning bulb must be active while deltas append: [{string.Join(", ", appendingStates)}]");
+    if (bubble.IsReasoningAppending)
+        throw new InvalidOperationException("Reasoning bulb animation state must stop when the round ends.");
     if (bubble.IsReasoningExpanded)
         throw new InvalidOperationException("Reasoning panel must auto-collapse when the round ends.");
-    Console.WriteLine("[PASS] reasoning streams into the bubble across rounds with a separator and auto-collapses");
+    chat.Dispose();
 }
 
 static async Task TestResponsesEndpointUnsupportedFallbackAsync()
@@ -5642,6 +5728,7 @@ sealed class ConnectionProbeHandler : HttpMessageHandler
 sealed class ReasoningStreamingChatService : HeadlessChatService
 {
     public const string Separator = "\n\n────────────\n\n";
+    public Action? AfterReasoningDelta { get; set; }
 
     public override async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -5660,7 +5747,9 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
         // 第一轮：推理增量 → 带工具调用的助手消息（回合结束）
         onReasoningDelta?.Invoke("round one reasoning ");
+        AfterReasoningDelta?.Invoke();
         onReasoningDelta?.Invoke("continues");
+        AfterReasoningDelta?.Invoke();
         onMessageAdded?.Invoke(new ChatMessage
         {
             Role = "assistant",
@@ -5671,6 +5760,7 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         onMessageAdded?.Invoke(new ChatMessage { Role = "tool", ToolCallId = "call_probe", ToolName = "probe", Content = "{}" });
         // 第二轮：推理增量 → 最终正文
         onReasoningDelta?.Invoke("round two reasoning");
+        AfterReasoningDelta?.Invoke();
         onMessageAdded?.Invoke(new ChatMessage
         {
             Role = "assistant",

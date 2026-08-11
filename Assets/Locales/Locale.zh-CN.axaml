@@ -371,6 +371,8 @@
     <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），80% 为最透明。标题栏不受影响。</system:String>
     <system:String x:Key="Settings.General.Interaction">交互</system:String>
     <system:String x:Key="Settings.General.RewindHint">启用后，回溯对话会立即执行，不再显示确认提示。</system:String>
+    <system:String x:Key="Settings.General.AutoExpandReasoning">自动展开思考内容</system:String>
+    <system:String x:Key="Settings.General.AutoExpandReasoningHint">启用后，模型每次开始输出新一轮推理内容时会自动展开思考区域；推理结束后仍会自动收起。</system:String>
     <system:String x:Key="Settings.Context.Title">对话与上下文</system:String>
     <system:String x:Key="Settings.Context.Description">管理应用级上下文默认策略；具体会话状态与摘要不在此修改。</system:String>
     <system:String x:Key="Settings.Context.Conversation">对话执行</system:String>
