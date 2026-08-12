@@ -95,6 +95,7 @@
     <system:String x:Key="Chat.Archive.RetryLater">Failed to archive the previous chat; will retry later.</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">Archive service unavailable.</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">The current primary model does not support image understanding. Please switch to a vision-capable model and try again.</system:String>
+    <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">The main conversation model cannot read image input, and no usable image-recognition result is available. I cannot truthfully describe the visual content. Configure or verify a vision-capable Image recognition model, or switch the main model and try again.</system:String>
     <system:String x:Key="Chat.Link.OpenFile">Open file</system:String>
     <system:String x:Key="Chat.Link.OpenWith">Open with…</system:String>
     <system:String x:Key="Chat.Link.OpenWith.Prompt">Choose an application to open this file</system:String>

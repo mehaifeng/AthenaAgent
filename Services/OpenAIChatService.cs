@@ -222,9 +222,21 @@ public class OpenAIChatService : IChatService
             userMessage?.Length ?? 0,
             attachments?.Count ?? 0);
 
+        var hasImageAttachments = context.Messages.Any(HasImageAttachment);
+        var imageProjection = ImageRequestProjection.Full;
+
+        // 若供应商元数据已明确主模型不接受 image，直接交由“图像识别”角色处理。
+        // 不先发送一次必然失败的图片请求，也不要把本地路径交给主模型让它误用浏览器工具绕路。
+        if (hasImageAttachments && IsImageInputExplicitlyUnsupported(runtime.ModelMetadata))
+        {
+            var description = await TryDescribeImagesAsync(context, runtime, cancellationToken);
+            imageProjection = BuildImageFallbackProjection(description);
+        }
+
         // BuildMessages 会重建整个消息列表并对图片附件做 base64 编码，属于 CPU/内存密集的同步工作。
         // 放到后台线程执行，避免阻塞 UI 线程（context 是本次请求的独立克隆，无并发访问问题）。
-        var messages = await Task.Run(() => BuildMessages(context, runtime), cancellationToken);
+        var messages = await Task.Run(() => BuildMessages(context, runtime, imageProjection, cancellationToken), cancellationToken);
+        if (imageProjection.TransientInstruction != null) messages.Add(imageProjection.TransientInstruction);
         Log.Information("Message list built, count: {Count}", messages.Count);
 
         var contentBuilder = new StringBuilder();
@@ -233,7 +245,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -269,11 +281,10 @@ public class OpenAIChatService : IChatService
                 runtime.RequestId,
                 classification.Category);
 
-            // 模型拒绝图片时不要把错误直接抛成气泡：只要本次请求带图且错误疑似
-            // 图片输入问题（明确的 UnsupportedModality 分类，或 400/415/422 +
-            // 图片相关消息），就降级为「图片路径文本」重发一次，让模型至少能拿到
-            // 路径（配合文件工具按需读取）继续处理任务。
-            var imageInputRejected = context.Messages.Any(HasImageAttachment)
+            // 只有实际携带了图片二进制的请求才进行图片降级。已经降级过的文本请求失败时，
+            // 必须保留原始供应商错误，避免把普通 400 再误判成图片拒绝并重复请求。
+            var imageInputRejected = imageProjection.IncludeImageBinary
+                && context.Messages.Any(HasImageAttachment)
                 && (classification.Category == ProviderErrorCategory.UnsupportedModality
                     || IsLikelyImageInputFailure(streamFailure));
 
@@ -283,11 +294,11 @@ public class OpenAIChatService : IChatService
                 yield break;
             }
 
-            Log.Warning(streamFailure, "Main-conversation model rejected image input; retrying with image paths as plain text");
+            Log.Warning(streamFailure, "Main-conversation model rejected image input; attempting image-recognition fallback");
             var description = await TryDescribeImagesAsync(context, runtime, cancellationToken);
-            var fallbackMessages = await Task.Run(() => BuildMessages(context, runtime, includeImageBinary: false), cancellationToken);
-            var fallbackInstruction = BuildImagePathFallbackInstruction(context, description);
-            fallbackMessages.Add(fallbackInstruction);
+            var fallbackProjection = BuildImageFallbackProjection(description);
+            var fallbackMessages = await Task.Run(() => BuildMessages(context, runtime, fallbackProjection, cancellationToken), cancellationToken);
+            fallbackMessages.Add(fallbackProjection.TransientInstruction!);
 
             // 降级重试也失败时，以文本形式告知结果，不再向上抛成异常气泡。
             Exception? fallbackFailure = null;
@@ -296,16 +307,14 @@ public class OpenAIChatService : IChatService
                                                    fallbackMessages,
                                                    contentBuilder,
                                                    context,
+                                                   fallbackProjection,
                                                    cancellationToken,
                                                    onMessageAdded,
                                                    onUsageReported,
                                                    onToolCallArgumentsStreaming,
                                                    onReasoningDelta,
-                                                   imageBinaryIncluded: false,
-                                                   isImageFallback: true,
                                                    onCompressionTransition: onCompressionTransition,
-                                                   onContextWarning: onContextWarning,
-                                                   transientRequestMessages: [fallbackInstruction])
+                                                   onContextWarning: onContextWarning)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -332,9 +341,9 @@ public class OpenAIChatService : IChatService
 
             if (fallbackFailure != null)
             {
-                Log.Warning(fallbackFailure, "Image-path fallback re-request failed as well");
+                Log.Warning(fallbackFailure, "Image-safe fallback re-request failed as well");
                 var fallbackClassification = _providerErrorClassifier.Classify(fallbackFailure);
-                yield return $"[API 错误: {FormatApiError(fallbackClassification, runtime)}]（图片已降级为路径文本后仍失败）";
+                yield return $"[API 错误: {FormatApiError(fallbackClassification, runtime)}]（图像输入已安全降级后仍失败）";
             }
         }
 
@@ -570,16 +579,14 @@ public class OpenAIChatService : IChatService
         List<OpenAI.Chat.ChatMessage> messages,
         StringBuilder contentBuilder,
         ConversationContext context,
+        ImageRequestProjection imageProjection,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         Action<Models.ChatMessage>? onMessageAdded = null,
         Action<TokenUsageSnapshot>? onUsageReported = null,
         Action<string>? onToolCallArgumentsStreaming = null,
         Action<string>? onReasoningDelta = null,
-        bool imageBinaryIncluded = true,
-        bool isImageFallback = false,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
-        Action<string>? onContextWarning = null,
-        IReadOnlyList<OpenAI.Chat.ChatMessage>? transientRequestMessages = null)
+        Action<string>? onContextWarning = null)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -589,7 +596,9 @@ public class OpenAIChatService : IChatService
         // 上一轮 API 回报的真实输入 token；首轮尚无真实值时退回整段上下文估算。
         int? lastRealInputTokens = null;
         var notCompressibleSnapshots = new HashSet<string>(StringComparer.Ordinal);
-        var rebuildTail = transientRequestMessages?.ToList() ?? [];
+        var rebuildTail = imageProjection.TransientInstruction == null
+            ? []
+            : new List<OpenAI.Chat.ChatMessage> { imageProjection.TransientInstruction };
         var compressionWarningRaised = false;
 
         while (iteration < maxIterations)
@@ -599,7 +608,7 @@ public class OpenAIChatService : IChatService
             var apiRequestId = Guid.NewGuid().ToString("N");
 
             var preparedForDecision = _requestPreparer?.Prepare(
-                runtime, messages, context, apiRequestId, context.Revision, imageBinaryIncluded, isImageFallback);
+                runtime, messages, context, apiRequestId, context.Revision, imageProjection.IncludeImageBinary, imageProjection.IsFallback);
             var calibratedDecision = preparedForDecision == null
                 ? null
                 : _tokenCalibration?.Estimate(preparedForDecision.Features);
@@ -690,7 +699,7 @@ public class OpenAIChatService : IChatService
                                     if (!context.RemoveMessagesById(transition.MessageIds))
                                         throw new InvalidOperationException("Committed compression IDs were missing from the request context.");
                                     context.Revision = commit.Revision;
-                                    messages = BuildMessages(context, runtime);
+                                    messages = BuildMessages(context, runtime, imageProjection, cancellationToken);
                                     messages.AddRange(rebuildTail);
                                     requestWasRebuilt = true;
                                     onContextWarning?.Invoke(string.Empty);
@@ -731,7 +740,7 @@ public class OpenAIChatService : IChatService
             var prepared = !requestWasRebuilt
                 ? preparedForDecision
                 : _requestPreparer?.Prepare(
-                    runtime, messages, context, apiRequestId, context.Revision, imageBinaryIncluded, isImageFallback);
+                    runtime, messages, context, apiRequestId, context.Revision, imageProjection.IncludeImageBinary, imageProjection.IsFallback);
 
             IAsyncEnumerable<NormalizedUpdate>? stream = null;
             string? error = null;
@@ -866,7 +875,7 @@ public class OpenAIChatService : IChatService
                     var trained = _tokenCalibration?.Observe(
                         prepared.Features,
                         reportedUsage.InputTokens,
-                        allowCleanDelta: !isImageFallback,
+                        allowCleanDelta: !imageProjection.IsFallback,
                         inputModalityUsage) == true;
                     Log.Debug(
                         "CalibrationProfileUpdated RequestId={RequestId} Trained={Trained} ImageTokens={ImageTokens} AudioTokens={AudioTokens}",
@@ -1123,10 +1132,11 @@ public class OpenAIChatService : IChatService
 
     private List<OpenAI.Chat.ChatMessage> BuildMessages(
         ConversationContext context,
-        bool includeImageBinary = true,
+        ImageRequestProjection? imageProjection = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        imageProjection ??= ImageRequestProjection.Full;
         var config = _configService?.Load() ?? _config;
         var functionCallingEnabled = IsFunctionCallingEnabled();
         var baseSystemPrompt = BuildBaseSystemPrompt(
@@ -1135,14 +1145,19 @@ public class OpenAIChatService : IChatService
             config.EnableMcp,
             config.EnableSkills,
             config.WorkspaceKnowledgeTokenBudget);
-        return BuildMessagesCore(context, baseSystemPrompt, includeImageBinary, cancellationToken);
+        return BuildMessagesCore(context, baseSystemPrompt, imageProjection, cancellationToken);
     }
 
     private List<OpenAI.Chat.ChatMessage> BuildMessages(
         ConversationContext context,
         EffectiveRequestRuntimeSnapshot runtime,
-        bool includeImageBinary = true)
-        => BuildMessagesCore(context, runtime.BaseSystemPrompt, includeImageBinary);
+        ImageRequestProjection? imageProjection = null,
+        CancellationToken cancellationToken = default)
+        => BuildMessagesCore(
+            context,
+            runtime.BaseSystemPrompt,
+            imageProjection ?? ImageRequestProjection.Full,
+            cancellationToken);
 
     private string BuildBaseSystemPrompt(
         ConversationContext context,
@@ -1207,7 +1222,7 @@ public class OpenAIChatService : IChatService
     private static List<OpenAI.Chat.ChatMessage> BuildMessagesCore(
         ConversationContext context,
         string baseSystemPrompt,
-        bool includeImageBinary,
+        ImageRequestProjection imageProjection,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1245,8 +1260,8 @@ public class OpenAIChatService : IChatService
                         ? BuildTimestampPrefix(msg.Timestamp)
                         : string.Empty;
                     // 附件只注入系统元数据；内容由模型根据任务通过可用工具或 Skill 按需读取。
-                    var userText = timestamp + msg.Content + BuildAttachmentManifest(msg);
-                    if (includeImageBinary && HasImageAttachment(msg))
+                    var userText = timestamp + msg.Content + BuildAttachmentManifest(msg, imageProjection.IncludeImagePaths);
+                    if (imageProjection.IncludeImageBinary && HasImageAttachment(msg))
                     {
                         messages.Add(CreateUserMessageWithAttachments(userText, msg));
                     }
@@ -1630,29 +1645,41 @@ public class OpenAIChatService : IChatService
     }
 
     /// <summary>
-    /// 生成不接触文件内容的附件清单。路径指向应用复制后的受信附件区，
-    /// 让 Agent 根据当前任务和可用工具/Skill 自主决定是否以及如何读取。
+    /// 生成不接触文件内容的附件清单。正常请求保留受信附件路径；图像安全降级时
+    /// 只移除图片路径，非图片附件仍可由 Agent 按需通过工具或 Skill 读取。
     /// </summary>
-    private static string BuildAttachmentManifest(ContextMessage message)
+    private static string BuildAttachmentManifest(ContextMessage message, bool includeImagePaths)
     {
         if (message.Attachments.Count == 0)
         {
             return string.Empty;
         }
 
-        var metadata = message.Attachments.Select(attachment => new
+        var metadata = message.Attachments.Select(attachment =>
         {
-            Name = attachment.FileName,
-            Extension = Path.GetExtension(attachment.FileName),
-            Kind = attachment.Kind.ToString(),
-            attachment.MimeType,
-            attachment.SizeBytes,
-            Path = attachment.StoredPath
+            var item = new Dictionary<string, object?>
+            {
+                ["Name"] = attachment.FileName,
+                ["Extension"] = Path.GetExtension(attachment.FileName),
+                ["Kind"] = attachment.Kind.ToString(),
+                ["MimeType"] = attachment.MimeType,
+                ["SizeBytes"] = attachment.SizeBytes
+            };
+            if (attachment.Kind != AttachmentKind.Image || includeImagePaths)
+            {
+                item["Path"] = attachment.StoredPath;
+            }
+            return item;
         });
+
+        var inspectionPolicy = includeImagePaths
+            ? "Use the available tools or Skills to inspect a file only when the user's task requires it. \n"
+            : "Image attachments are metadata-only in this request: their bytes and local paths are intentionally unavailable. "
+              + "Do not invoke browser, file, or Skill tools to inspect images. Non-image attachments may still be inspected through their provided paths when required. \n";
 
         return "\n\n<attachments>\n"
             + "The files below are attached by reference. Their contents were not preloaded, parsed, summarized, or indexed. "
-            + "Use the available tools or Skills to inspect a file only when the user's task requires it. \n"
+            + inspectionPolicy
             + JsonSerializer.Serialize(metadata)
             + "\n</attachments>";
     }
@@ -1704,6 +1731,19 @@ public class OpenAIChatService : IChatService
         return classification.SafeProviderMessage;
     }
 
+    private static bool IsImageInputExplicitlyUnsupported(ResolvedModelMetadata metadata)
+    {
+        // 空集合代表未知，仍保留一次正常请求以兼容没有模型目录记录的自定义供应商。
+        return metadata.InputModalities.Count > 0
+               && !metadata.InputModalities.Contains("image");
+    }
+
+    private string GetImageRecognitionUnavailableMessage() =>
+        _localizationService?.GetString(
+            "Chat.Error.ImageRecognitionUnavailable",
+            "The main conversation model cannot read image input, and no usable image-recognition result is available. I cannot truthfully describe the visual content. Configure or verify a vision-capable Image recognition model, or switch the main model and try again.")
+        ?? "The main conversation model cannot read image input, and no usable image-recognition result is available. I cannot truthfully describe the visual content. Configure or verify a vision-capable Image recognition model, or switch the main model and try again.";
+
     private async Task<string?> TryDescribeImagesAsync(
         ConversationContext context,
         EffectiveRequestRuntimeSnapshot runtime,
@@ -1711,7 +1751,7 @@ public class OpenAIChatService : IChatService
     {
         if (runtime.ImageRecognitionModel is not { } effective)
         {
-            Log.Information("No image-recognition model available in the request snapshot; falling back to sending attachment metadata only");
+            Log.Information("No image-recognition model available in the request snapshot; continuing with a sanitized image-unavailable instruction");
             return null;
         }
 
@@ -1766,9 +1806,13 @@ public class OpenAIChatService : IChatService
             }
             return string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Image-recognition model fallback failed; continuing with attachment metadata only");
+            Log.Warning(ex, "Image-recognition model fallback failed; continuing with a sanitized image-unavailable instruction");
             return null;
         }
     }
@@ -1776,7 +1820,7 @@ public class OpenAIChatService : IChatService
     /// <summary>
     /// 启发式判定错误是否来自「模型不接受图片输入」。主对话模型拒绝图片时，
     /// 常见于 HTTP 400/415/422 或消息里带 image/vision/multimodal 等字样；
-    /// 这类错误不应直接冒泡成气泡，而应降级为图片路径文本重发。
+    /// 这类错误不应直接冒泡成气泡，而应移除图片字节和路径后安全重发。
     /// </summary>
     private static bool IsLikelyImageInputFailure(Exception ex)
     {
@@ -1794,33 +1838,45 @@ public class OpenAIChatService : IChatService
     }
 
     /// <summary>
-    /// 构建图片降级指令：把图片字节替换为本地路径的纯文本，让不支持视觉输入的主模型
-    /// 至少能拿到路径（配合文件工具按需读取）；若视觉模型可用，附上其描述一起重发。
+    /// 将独立视觉模型的事实描述转交主模型。图片字节和本地路径均不再提供，避免主模型
+    /// 将无法读取的路径误当作可由浏览器或文件工具分析的视觉输入。
     /// </summary>
-    private static UserChatMessage BuildImagePathFallbackInstruction(ConversationContext context, string? description)
+    private static UserChatMessage BuildImageRecognitionFallbackInstruction(string description)
     {
-        var paths = context.Messages
-            .SelectMany(message => message.Attachments)
-            .Where(attachment => attachment.Kind == AttachmentKind.Image)
-            .Select(attachment => attachment.StoredPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct()
-            .ToList();
+        return new UserChatMessage(
+            "[Image recognition fallback] A separately configured vision model analyzed the attached image(s). "
+            + "Use only the following factual observations together with the original request. Do not invoke browser or file tools to try to view the image, and do not claim details absent from this description:\n\n"
+            + description);
+    }
 
-        var pathBlock = paths.Count == 0
-            ? "(no image path available)"
-            : string.Join(Environment.NewLine, paths.Select(path => "- " + path));
+    private ImageRequestProjection BuildImageFallbackProjection(string? description)
+    {
+        var instruction = string.IsNullOrWhiteSpace(description)
+            ? new UserChatMessage(
+                "[Image content unavailable] The main conversation model cannot read image input, and no usable image-recognition result is available. "
+                + "Continue handling the original request using only its text and non-visual metadata. If the task depends on visual details, clearly state that limitation instead of guessing. "
+                + "Do not invoke browser, file, or Skill tools to inspect the image. User-facing guidance: "
+                + GetImageRecognitionUnavailableMessage())
+            : BuildImageRecognitionFallbackInstruction(description);
 
-        var text = string.IsNullOrWhiteSpace(description)
-            ? "[Image fallback] The main model rejected the image bytes, so they were replaced with their local paths as plain text.\n"
-              + "Image paths:\n" + pathBlock
-              + "\n\nUse the available file tools to read an image when the task requires it. Clearly state any limitation when visual details are needed."
-            : "[Image recognition fallback] The main model rejected the image bytes, so they were replaced with their local paths as plain text. "
-              + "A separately configured vision model described the attached images as follows. Use the description together with the image paths and the original request:\n\n"
-              + description
-              + "\n\nImage paths:\n" + pathBlock;
+        return new ImageRequestProjection(
+            IncludeImageBinary: false,
+            IncludeImagePaths: false,
+            IsFallback: true,
+            TransientInstruction: instruction);
+    }
 
-        return new UserChatMessage(text);
+    private sealed record ImageRequestProjection(
+        bool IncludeImageBinary,
+        bool IncludeImagePaths,
+        bool IsFallback,
+        UserChatMessage? TransientInstruction)
+    {
+        public static ImageRequestProjection Full { get; } = new(
+            IncludeImageBinary: true,
+            IncludeImagePaths: true,
+            IsFallback: false,
+            TransientInstruction: null);
     }
 
     private record ToolCallJsonInfo(string Id, string FunctionName, string Arguments);

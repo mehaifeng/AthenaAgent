@@ -95,6 +95,7 @@
     <system:String x:Key="Chat.Archive.RetryLater">上一段对话归档失败，稍后重试。</system:String>
     <system:String x:Key="Chat.Archive.ErrorUnavailable">归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型不支持图像理解，请换用支持视觉的模型后再试。</system:String>
+    <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">当前主对话模型无法读取图片，且没有获得可用的图像识别结果，因此无法如实描述图片内容。请配置或检查支持视觉的“图像识别”模型，或切换主对话模型后重试。</system:String>
     <system:String x:Key="Chat.Link.OpenFile">打开文件</system:String>
     <system:String x:Key="Chat.Link.OpenWith">打开方式</system:String>
     <system:String x:Key="Chat.Link.OpenWith.Prompt">选择用于打开此文件的应用程序</system:String>

@@ -84,6 +84,8 @@ Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackResponsesAsync).GetAwaiter().GetResult();
+Task.Run(TestImageFallbackExplicitUnsupportedContinuesTextAsync).GetAwaiter().GetResult();
+Task.Run(TestImageRecognitionCancellationPropagatesAsync).GetAwaiter().GetResult();
 Task.Run(TestStreamedEmptyStreamErrorSurfacedAsync).GetAwaiter().GetResult();
 Task.Run(TestStreamedImageDecodeErrorFallsBackAsync).GetAwaiter().GetResult();
 TestResponsesProtocolAutoResolution();
@@ -3511,6 +3513,13 @@ static async Task TestToolLoopTransactionalCompressionAsync()
     config.AiModels.MainConversation.Model = "stream-model";
     config.AiModels.ContextCompression.ProviderId = provider.Id;
     config.AiModels.ContextCompression.Model = "stream-model";
+    config.AiModels.ModelMetadataProfiles.Add(new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "stream-model",
+        BindingMode = ModelMetadataBindingMode.CustomOnly,
+        Overrides = new ModelMetadataOverrides { InputModalities = ["text"] }
+    });
 
     var events = new List<string>();
     var registry = new ImmediateUsageFunctionRegistry(events, resultSize: 10_000);
@@ -3540,7 +3549,24 @@ static async Task TestToolLoopTransactionalCompressionAsync()
     var context = new ConversationContext { ConversationId = "tool-loop-compression", Revision = 20 };
     context.AddUserMessage("older context " + new string('a', 7_000), id: "old-u");
     context.AddAssistantMessage("older answer " + new string('b', 500), id: "old-a");
-    context.AddUserMessage("recent context", id: "recent-u");
+    const string sensitiveImagePath = @"D:\private\compression-image.png";
+    context.AddUserMessage(
+        "recent context",
+        attachments:
+        [
+            new ChatAttachment
+            {
+                Id = "compression-image",
+                Kind = AttachmentKind.Image,
+                FileName = "compression-image.png",
+                StoredPath = sensitiveImagePath,
+                MimeType = "image/png",
+                SizeBytes = 8,
+                Width = 1,
+                Height = 1
+            }
+        ],
+        id: "recent-u");
     context.AddAssistantMessage("recent answer", id: "recent-a");
     CompressionTransition? observedTransition = null;
     await foreach (var _ in service.StreamMessageAsync(
@@ -3562,11 +3588,17 @@ static async Task TestToolLoopTransactionalCompressionAsync()
     if (observedTransition == null
         || events.IndexOf("compression") <= events.IndexOf("tool:probe")
         || !observedTransition.MessageIds.SequenceEqual(new[] { "old-u", "old-a" }, StringComparer.Ordinal)
-        || context.Messages.Any(message => message.Id is "old-u" or "old-a")
-        || context.Messages.All(message => message.Id != "recent-u")
-        || context.Summary != "faithful compact summary")
+         || context.Messages.Any(message => message.Id is "old-u" or "old-a")
+         || context.Messages.All(message => message.Id != "recent-u")
+         || context.Summary != "faithful compact summary")
         throw new InvalidOperationException("Large tool-result delta did not use the async transaction before rebuilding the next API request.");
-    Console.WriteLine("[PASS] large tool-result delta triggers ID-based transactional compression before the next API request");
+    var serializedStoredPath = JsonSerializer.Serialize(sensitiveImagePath).Trim('"');
+    if (handler.RequestBodies.Count != 2
+        || handler.RequestBodies.Any(body => body.Contains("data:image", StringComparison.Ordinal)
+                                             || body.Contains(serializedStoredPath, StringComparison.Ordinal)
+                                             || !body.Contains("[Image content unavailable]", StringComparison.Ordinal)))
+        throw new InvalidOperationException("Transactional compression did not preserve the sanitized image projection when rebuilding the next request.");
+    Console.WriteLine("[PASS] large tool-result compression preserves the sanitized image projection in the rebuilt request");
 }
 
 static async Task TestResponsesStreamingTextAndUsageAsync()
@@ -4188,18 +4220,21 @@ static async Task TestImageFallbackChatAsync()
         }
 
         if (handler.RequestCount != 2 || output.ToString() != "done")
-            throw new InvalidOperationException($"Image rejection did not retry as text paths (requests={handler.RequestCount}, output='{output}')");
+            throw new InvalidOperationException($"Image rejection did not retry as a sanitized text request (requests={handler.RequestCount}, output='{output}')");
+        var serializedStoredPath = JsonSerializer.Serialize(pngPath).Trim('"');
         if (handler.RequestBodies.Count != 2
             || !handler.RequestBodies[0].Contains("data:image", StringComparison.Ordinal)
-            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal))
-            throw new InvalidOperationException("First request must carry the image bytes; the fallback request must not.");
+            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains(serializedStoredPath, StringComparison.Ordinal)
+            || !handler.RequestBodies[1].Contains("[Image content unavailable]", StringComparison.Ordinal))
+            throw new InvalidOperationException("Chat fallback must remove image bytes and paths while carrying an explicit visual limitation.");
     }
     finally
     {
         File.Delete(pngPath);
     }
 
-    Console.WriteLine("[PASS] chat image rejection retries with image paths as plain text");
+    Console.WriteLine("[PASS] chat image rejection retries without image bytes or local paths");
 }
 
 static async Task TestImageFallbackResponsesAsync()
@@ -4256,17 +4291,181 @@ static async Task TestImageFallbackResponsesAsync()
 
         if (handler.RequestCount != 2 || output.ToString() != "done")
             throw new InvalidOperationException($"Responses image rejection did not retry as text items (requests={handler.RequestCount}, output='{output}')");
+        var serializedStoredPath = JsonSerializer.Serialize(pngPath).Trim('"');
         if (handler.RequestBodies.Count != 2
             || !handler.RequestBodies[0].Contains("\"type\":\"input_image\"", StringComparison.Ordinal)
-            || handler.RequestBodies[1].Contains("\"type\":\"input_image\"", StringComparison.Ordinal))
-            throw new InvalidOperationException("First responses request must carry an input_image part; the fallback request must not.");
+            || handler.RequestBodies[1].Contains("\"type\":\"input_image\"", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains(serializedStoredPath, StringComparison.Ordinal)
+            || !handler.RequestBodies[1].Contains("[Image content unavailable]", StringComparison.Ordinal))
+            throw new InvalidOperationException("Responses fallback must remove input_image and local paths while carrying an explicit visual limitation.");
     }
     finally
     {
         File.Delete(pngPath);
     }
 
-    Console.WriteLine("[PASS] responses image rejection retries with image paths as plain text");
+    Console.WriteLine("[PASS] responses image rejection retries without image bytes or local paths");
+}
+
+static async Task TestImageFallbackExplicitUnsupportedContinuesTextAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "image-explicit-unsupported-provider",
+        DisplayName = "Image explicit unsupported provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://image-explicit-unsupported.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor
+    {
+        Id = "image-explicit-unsupported-model",
+        DisplayName = "Image explicit unsupported model",
+        Capability = ModelCapability.Text
+    });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "image-explicit-unsupported-model";
+    config.AiModels.ModelMetadataProfiles.Add(new ProviderModelMetadataProfile
+    {
+        ProviderId = provider.Id,
+        ExternalModelId = "image-explicit-unsupported-model",
+        BindingMode = ModelMetadataBindingMode.CustomOnly,
+        Overrides = new ModelMetadataOverrides { InputModalities = ["text"] }
+    });
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ImageRejectThenFinalSseHandler(responsesFormat: false, rejectFirst: false);
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("image-explicit-unsupported-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    var pngPath = Path.Combine(Path.GetTempPath(), $"athena-image-history-{Guid.NewGuid():N}.png");
+    try
+    {
+        File.WriteAllBytes(pngPath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        var context = new ConversationContext { ConversationId = "image-explicit-unsupported" };
+        context.AddUserMessage("an earlier image", attachments:
+        [
+            new ChatAttachment
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = AttachmentKind.Image,
+                FileName = "history.png",
+                StoredPath = pngPath,
+                MimeType = "image/png",
+                SizeBytes = 8,
+                Width = 1,
+                Height = 1
+            }
+        ]);
+        context.AddUserMessage("continue with this text-only request");
+
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync(string.Empty, context, addToContext: false))
+        {
+            output.Append(chunk);
+        }
+
+        var serializedStoredPath = JsonSerializer.Serialize(pngPath).Trim('"');
+        if (handler.RequestCount != 1 || output.ToString() != "done")
+            throw new InvalidOperationException($"Explicitly unsupported image metadata blocked a later text turn (requests={handler.RequestCount}, output='{output}').");
+        if (handler.RequestBodies[0].Contains("data:image", StringComparison.Ordinal)
+            || handler.RequestBodies[0].Contains(serializedStoredPath, StringComparison.Ordinal)
+            || !handler.RequestBodies[0].Contains("continue with this text-only request", StringComparison.Ordinal)
+            || !handler.RequestBodies[0].Contains("[Image content unavailable]", StringComparison.Ordinal))
+            throw new InvalidOperationException("Proactive image fallback must preserve text while removing historical image bytes and paths.");
+    }
+    finally
+    {
+        File.Delete(pngPath);
+    }
+
+    Console.WriteLine("[PASS] explicitly unsupported image metadata uses one sanitized request and does not block later text turns");
+}
+
+static async Task TestImageRecognitionCancellationPropagatesAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "image-cancellation-provider",
+        DisplayName = "Image cancellation provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://image-cancellation.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor
+    {
+        Id = "image-cancellation-model",
+        DisplayName = "Image cancellation model",
+        Capability = ModelCapability.Text
+    });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "image-cancellation-model";
+    config.AiModels.ImageRecognition.ProviderId = provider.Id;
+    config.AiModels.ImageRecognition.Model = "image-cancellation-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver());
+    var pngPath = Path.Combine(Path.GetTempPath(), $"athena-image-cancel-{Guid.NewGuid():N}.png");
+    try
+    {
+        File.WriteAllBytes(pngPath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        var context = new ConversationContext { ConversationId = "image-cancellation" };
+        context.AddUserMessage("describe", attachments:
+        [
+            new ChatAttachment
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Kind = AttachmentKind.Image,
+                FileName = "cancel.png",
+                StoredPath = pngPath,
+                MimeType = "image/png",
+                SizeBytes = 8,
+                Width = 1,
+                Height = 1
+            }
+        ]);
+
+        var snapshotMethod = typeof(OpenAIChatService).GetMethod("CreateRequestRuntimeSnapshotAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                             ?? throw new InvalidOperationException("CreateRequestRuntimeSnapshotAsync was not found.");
+        var runtime = await ((Task<EffectiveRequestRuntimeSnapshot>)snapshotMethod.Invoke(service, [context, CancellationToken.None])!);
+        var describeMethod = typeof(OpenAIChatService).GetMethod("TryDescribeImagesAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                            ?? throw new InvalidOperationException("TryDescribeImagesAsync was not found.");
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        try
+        {
+            await ((Task<string?>)describeMethod.Invoke(service, [context, runtime, cancelled.Token])!);
+            throw new InvalidOperationException("Cancelled image recognition was converted into an unavailable result.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+    finally
+    {
+        File.Delete(pngPath);
+    }
+
+    Console.WriteLine("[PASS] image-recognition cancellation propagates instead of becoming an unavailable result");
 }
 
 static async Task TestStreamedEmptyStreamErrorSurfacedAsync()
@@ -4374,18 +4573,21 @@ static async Task TestStreamedImageDecodeErrorFallsBackAsync()
         }
 
         if (handler.RequestCount != 2 || output.ToString() != "done")
-            throw new InvalidOperationException($"Image decode empty-stream error did not retry as text paths (requests={handler.RequestCount}, output='{output}')");
+            throw new InvalidOperationException($"Image decode empty-stream error did not retry as a sanitized text request (requests={handler.RequestCount}, output='{output}')");
+        var serializedStoredPath = JsonSerializer.Serialize(pngPath).Trim('"');
         if (handler.RequestBodies.Count != 2
             || !handler.RequestBodies[0].Contains("data:image", StringComparison.Ordinal)
-            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal))
-            throw new InvalidOperationException("First request must carry the image bytes; the fallback request must not.");
+            || handler.RequestBodies[1].Contains("data:image", StringComparison.Ordinal)
+            || handler.RequestBodies[1].Contains(serializedStoredPath, StringComparison.Ordinal)
+            || !handler.RequestBodies[1].Contains("[Image content unavailable]", StringComparison.Ordinal))
+            throw new InvalidOperationException("Streamed image-error fallback must remove image bytes and paths while carrying an explicit visual limitation.");
     }
     finally
     {
         File.Delete(pngPath);
     }
 
-    Console.WriteLine("[PASS] image decode empty-stream error retries with image paths as plain text");
+    Console.WriteLine("[PASS] image decode empty-stream error retries without image bytes or local paths");
 }
 
 static void TestResponsesProtocolAutoResolution()
@@ -5914,11 +6116,16 @@ sealed class CapturingTokenCalibrationService : ITokenCalibrationService
 sealed class ToolLoopSseHandler : HttpMessageHandler
 {
     public int RequestCount { get; private set; }
+    public List<string> RequestBodies { get; } = [];
 
 #pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         RequestCount++;
+        if (request.Content != null)
+        {
+            RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+        }
         var body = RequestCount == 1
             ? """
               data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_probe","type":"function","function":{"name":"probe","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}
@@ -5936,10 +6143,10 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
               data: [DONE]
 
               """;
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
-        });
+        };
     }
 #pragma warning restore CA2000
 }
@@ -6290,10 +6497,15 @@ sealed class ResponsesSseHandler : HttpMessageHandler
 sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
 {
     private readonly bool _responsesFormat;
+    private readonly bool _rejectFirst;
     public int RequestCount { get; private set; }
     public List<string> RequestBodies { get; } = new();
 
-    public ImageRejectThenFinalSseHandler(bool responsesFormat) => _responsesFormat = responsesFormat;
+    public ImageRejectThenFinalSseHandler(bool responsesFormat, bool rejectFirst = true)
+    {
+        _responsesFormat = responsesFormat;
+        _rejectFirst = rejectFirst;
+    }
 
 #pragma warning disable CA2000
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -6304,7 +6516,7 @@ sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
             RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
         }
 
-        if (RequestCount == 1)
+        if (_rejectFirst && RequestCount == 1)
         {
             return new HttpResponseMessage(HttpStatusCode.BadRequest)
             {
