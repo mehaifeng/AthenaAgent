@@ -1104,6 +1104,13 @@ public partial class App : Application, IAsyncDisposable
             return new DocumentParserFunctions(documentParserService, fileSystemService, logger);
         });
 
+        services.AddSingleton<Athena.UI.Services.Spreadsheets.XlsxPackageService>();
+        services.AddSingleton<SpreadsheetFunctions>(sp =>
+            new SpreadsheetFunctions(
+                sp.GetRequiredService<IFileSystemService>(),
+                sp.GetRequiredService<Athena.UI.Services.Spreadsheets.XlsxPackageService>(),
+                Log.ForContext<SpreadsheetFunctions>()));
+
         // Function Registry（单例）
         // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
         services.AddSingleton<ApprovalQueueViewModel>(sp =>
@@ -1182,6 +1189,7 @@ public partial class App : Application, IAsyncDisposable
             var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
             var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
             var documentParserFunctions = sp.GetRequiredService<DocumentParserFunctions>();
+            var spreadsheetFunctions = sp.GetRequiredService<SpreadsheetFunctions>();
             var configService = sp.GetService<IConfigService>();
             var approvalService = sp.GetService<IToolApprovalService>();
             var mcpDiscoveryFunctions = sp.GetService<Athena.UI.Services.Mcp.McpDiscoveryFunctions>();
@@ -1189,7 +1197,7 @@ public partial class App : Application, IAsyncDisposable
             var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）

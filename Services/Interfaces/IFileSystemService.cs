@@ -22,6 +22,7 @@ public interface IFileSystemService
     Task<FileSearchResult> SearchInFileAsync(string absolutePath, string pattern, int contextLines = 3, int maxMatches = 10);
     Task<DocumentOutline> GetDocumentOutlineAsync(string absolutePath);
     string GetAbsoluteSecurePath(string path, bool enforceReadSizeLimit = true);
+    string GetAbsoluteSecureWritePath(string path, long estimatedSizeBytes = 0);
 }
 
 public class FileSystemEntry

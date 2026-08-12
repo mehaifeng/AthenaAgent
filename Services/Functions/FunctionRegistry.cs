@@ -36,6 +36,7 @@ public class FunctionRegistry : IFunctionRegistry
         BrowserTaskFunctions browserTaskFunctions,
         SubAgentFunctions subAgentFunctions,
         DocumentParserFunctions documentParserFunctions,
+        SpreadsheetFunctions spreadsheetFunctions,
         IConfigService? configService,
         ILogger logger,
         IToolApprovalService? approvalService = null,
@@ -46,6 +47,60 @@ public class FunctionRegistry : IFunctionRegistry
         _configService = configService;
         _approvalService = approvalService;
         _logger = logger.ForContext<FunctionRegistry>();
+
+        // --- Spreadsheet OOXML operations ---
+        RegisterFunction("inspect_spreadsheet", spreadsheetFunctions.InspectSpreadsheetAsync,
+            "Inspects an .xlsx or .xlsm workbook without executing formulas. Returns worksheet names, used ranges, formulas, error cells, a bounded cell preview, and advanced-feature warnings. Use before editing an unfamiliar workbook.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing .xlsx or .xlsm path." },
+                    sheet = new { type = "string", minLength = 1, maxLength = 31, description = "Optional worksheet name. Omit to inspect all worksheets." },
+                    maxRows = new { type = "integer", minimum = 1, maximum = 200, @default = 20, description = "Maximum row number included in each preview." },
+                    maxColumns = new { type = "integer", minimum = 1, maximum = 100, @default = 20, description = "Maximum column number included in each preview." }
+                },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("create_spreadsheet", spreadsheetFunctions.CreateSpreadsheetAsync,
+            "Creates a new .xlsx workbook atomically from a compact JSON specification. Supports values, formulas, frozen header rows, column widths, filters, and MiniMax-style financial formatting aliases. Formulas are written without calculated caches and require Excel/LibreOffice recalculation. Use outputPath ending in .xlsx.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xX]$", description = "Destination .xlsx path." },
+                    workbookJson = new { type = "string", minLength = 2, maxLength = 8000000, description = "JSON object with sheets[]. Each sheet has name, optional freezeRows/columnWidths/autoFilter, and rows[][] cells. A cell is a primitive or {value|formula, style}. Styles: text, input, formula, cross-sheet, header, currency-input, currency-formula, percent-input, percent-formula, integer-input, integer-formula, year, assumption, external-link." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "outputPath", "workbookJson" }
+            });
+
+        RegisterFunction("edit_spreadsheet", spreadsheetFunctions.EditSpreadsheetAsync,
+            "Surgically edits cells in an existing .xlsx or .xlsm while preserving untouched ZIP parts. Always writes to a distinct outputPath and leaves the source unchanged. updatesJson is an array of {sheet,cell,value} or {sheet,cell,formula} or {sheet,cell,clear:true}; optional styleIndex or copyStyleFrom copies an existing cell's style. This tool does not insert/delete rows or rewrite structured references.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Existing source workbook." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Distinct destination path with the same extension as inputPath." },
+                    updatesJson = new { type = "string", minLength = 2, maxLength = 4000000, description = "JSON array (max 5000 items). Each item specifies sheet, A1 cell, exactly one operation (value/formula/clear), and optionally styleIndex or copyStyleFrom such as 'Template!B4'." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath", "updatesJson" }
+            });
+
+        RegisterFunction("validate_spreadsheet", spreadsheetFunctions.ValidateSpreadsheetAsync,
+            "Performs bounded static OOXML validation for .xlsx/.xlsm: parses XML, checks internal relationships, finds formula #REF! errors, reports empty formula caches, and flags advanced features. It does not calculate formulas or render sheets; dynamic/visual verification still requires Excel or LibreOffice.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Workbook to validate." } },
+                required = new[] { "path" }
+            });
 
         // --- CLI Control ---
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,

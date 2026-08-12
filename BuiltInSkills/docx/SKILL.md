@@ -1,197 +1,250 @@
 ---
 name: docx
-description: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
-license: Proprietary. LICENSE.txt has complete terms
+description: Create, edit, analyze, restyle, validate, redline, and visually verify professional Microsoft Word documents (.docx and legacy .doc). Use for reports, proposals, contracts, legal reviews, tracked changes, comments, forms, template application, thesis and multi-section layouts, CJK or GB/T 9704 documents, tables, images, headers/footers, TOCs, and document-format troubleshooting.
+triggers:
+  - Word
+  - docx
+  - Word document
+  - document
+  - 文档
+  - Word 文档
+  - 报告
+  - 合同
+  - 公文
+  - 排版
+  - 套模板
+  - redline
+  - tracked changes
+  - revision marks
 ---
 
-# DOCX creation, editing, and analysis
+# DOCX production
 
-## Overview
+Produce robust Word documents with progressive disclosure. Choose one execution path, read only the references required for that path, and validate every changed artifact.
 
-A user may ask you to create, edit, or analyze the contents of a .docx file. A .docx file is essentially a ZIP archive containing XML files and other resources that you can read or edit. You have different tools and workflows available for different tasks.
+## Resolve the skill root
 
-## Workflow Decision Tree
+Use the `rootDirectory` returned by `activate_skill` as `<skill-root>`. Resolve every bundled path from it; never assume the current working directory is the Skill directory.
 
-### Reading/Analyzing Content
-Use "Text extraction" or "Raw XML access" sections below
+The bundled OpenXML CLI is:
 
-### Creating New Document
-Use "Creating a new Word document" workflow
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- <command> [options]
+```
 
-### Editing Existing Document
-- **Your own document + simple changes**
-  Use "Basic OOXML editing" workflow
+The CLI and derived references are MIT-licensed; retain `LICENSE-MiniMax.txt` when redistributing them.
 
-- **Someone else's document**
-  Use **"Redlining workflow"** (recommended default)
+## Route the task
 
-- **Legal, academic, business, or government docs**
-  Use **"Redlining workflow"** (required)
+1. **Read or analyze only**
+   - Use Pandoc for semantic text, including revisions.
+   - Use the bundled CLI `analyze` for sections, headings, tables, drawings, headers/footers, styles, and package structure.
+2. **Create a new document**
+   - Use the bundled OpenXML SDK CLI for report, letter, memo, and academic shells.
+   - Use direct OpenXML SDK code based on bundled, compiling samples for complex or repeated production.
+3. **Edit an existing document**
+   - Use the bundled CLI for simple replacement, placeholder filling, table filling, analysis, and diffing.
+   - Use direct OpenXML SDK code, based on the bundled samples, for structural edits.
+   - Use the Redlining workflow for third-party documents, legal/contract review, or whenever reviewable tracked changes are requested.
+4. **Apply a template or restyle**
+   - Use the dedicated Template workflow. Decide between Overlay and Base-Replace before editing.
+5. **Convert legacy `.doc`**
+   - Use LibreOffice through `scripts/doc_to_docx.sh`, then continue as DOCX.
+6. **Diagnose a broken or ugly document**
+   - Read `references/troubleshooting.md`, search by visible symptom, repair, validate, and render again.
 
-## Reading and analyzing content
+If a request spans paths, run them in sequence, such as Create -> Apply Template -> Validate -> Render.
 
-### Text extraction
-If you just need to read the text contents of a document, you should convert the document to markdown using pandoc. Pandoc provides excellent support for preserving document structure and can show tracked changes:
+## Environment and safety
+
+The skill never installs dependencies automatically. `scripts/setup.ps1` and `scripts/setup.sh` are manual helpers that the user must run themselves. If a required command is missing, tell the user what to install and how — never invoke the setup scripts on their behalf.
+
+### Dependency tiers and degraded behavior
+
+| Tool | Tier | Required for | Missing-tool behavior |
+|------|------|--------------|----------------------|
+| `dotnet` SDK ≥ 8 | Required | All CLI commands: `create`, `edit`, `redline`, `validate`, `apply-template`, `analyze`, `diff`, `merge-runs`, `fix-order` | Hard fail — stop and tell the user to install .NET SDK 8+ from <https://dotnet.microsoft.com/download> |
+| `pandoc` | Strongly recommended | Semantic text extraction with `--track-changes=all`, Markdown planning for redlining, `scenario_a/b/c` references | Skip Markdown-based planning and verification; rely on the CLI's `analyze --json` for structural view. Tell the user redlining is degraded without pandoc |
+| `soffice` (LibreOffice) | Optional | `.doc` → `.docx` conversion (`scripts/doc_to_docx.sh`), visual QA via PDF rendering | Skip legacy `.doc` conversion (tell the user to convert it themselves); skip visual QA and rely on structural validation |
+| `pdftoppm` (Poppler) | Optional | Page-by-page image rendering for visual inspection | Skip image-based visual QA; structural validation still runs |
+
+When the user's request needs a missing optional tool, **say so explicitly before proceeding**. Example: "Visual QA requires LibreOffice and Poppler, which are not installed. I will run structural validation only — open the file in Word yourself for visual checks." Do not silently downgrade.
+
+### Safety rules
+
+- Check required commands before use. Run `dotnet --version`, `pandoc --version`, `soffice --version`, `pdftoppm -v` once per session and remember the result; do not re-check on every command.
+- Build the bundled CLI on first use. Do not install SDKs, packages, fonts, LibreOffice, or other system dependencies without user authorization.
+- `scripts/setup.ps1` and `scripts/setup.sh` are optional setup helpers, not permission to mutate the system silently.
+- Work on a copy of every user-supplied document. Never overwrite the only original.
+- Keep intermediate files in a task-specific directory and make the final output path explicit.
+- Never claim a file is correct from XML inspection alone. Run structural validation and visual QA when the tools are available.
+
+## Read and analyze
+
+Extract semantic content and preserve revision marks:
 
 ```bash
-# Convert document to markdown with tracked changes
-pandoc --track-changes=all path-to-file.docx -o output.md
-# Options: --track-changes=accept/reject/all
+pandoc --track-changes=all input.docx -o current.md
 ```
 
-### Raw XML access
-You need raw XML access for: comments, complex formatting, document structure, embedded media, and metadata. For any of these features, you'll need to unpack a document and read its raw XML contents.
+Use `--track-changes=accept` or `reject` only when the user's intent requires that view. Do not silently accept or reject revisions in the document.
 
-#### Unpacking a file
-`python ooxml/scripts/unpack.py <office_file> <output_directory>`
+Analyze package structure:
 
-#### Key file structures
-* `word/document.xml` - Main document contents
-* `word/comments.xml` - Comments referenced in document.xml
-* `word/media/` - Embedded images and media files
-* Tracked changes use `<w:ins>` (insertions) and `<w:del>` (deletions) tags
-
-## Creating a new Word document
-
-When creating a new Word document from scratch, use **docx-js**, which allows you to create Word documents using JavaScript/TypeScript.
-
-### Workflow
-1. **MANDATORY - READ ENTIRE FILE**: Read [`docx-js.md`](docx-js.md) (~500 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for detailed syntax, critical formatting rules, and best practices before proceeding with document creation.
-2. Create a JavaScript/TypeScript file using Document, Paragraph, TextRun components (You can assume all dependencies are installed, but if not, refer to the dependencies section below)
-3. Export as .docx using Packer.toBuffer()
-
-## Editing an existing Word document
-
-When editing an existing Word document, use the **Document library** (a Python library for OOXML manipulation). The library automatically handles infrastructure setup and provides methods for document manipulation. For complex scenarios, you can access the underlying DOM directly through the library.
-
-### Workflow
-1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for the Document library API and XML patterns for directly editing document files.
-2. Unpack the document: `python ooxml/scripts/unpack.py <office_file> <output_directory>`
-3. Create and run a Python script using the Document library (see "Document Library" section in ooxml.md)
-4. Pack the final document: `python ooxml/scripts/pack.py <input_directory> <office_file>`
-
-The Document library provides both high-level methods for common operations and direct DOM access for complex scenarios.
-
-## Redlining workflow for document review
-
-This workflow allows you to plan comprehensive tracked changes using markdown before implementing them in OOXML. **CRITICAL**: For complete tracked changes, you must implement ALL changes systematically.
-
-**Batching Strategy**: Group related changes into batches of 3-10 changes. This makes debugging manageable while maintaining efficiency. Test each batch before moving to the next.
-
-**Principle: Minimal, Precise Edits**
-When implementing tracked changes, only mark text that actually changes. Repeating unchanged text makes edits harder to review and appears unprofessional. Break replacements into: [unchanged text] + [deletion] + [insertion] + [unchanged text]. Preserve the original run's RSID for unchanged text by extracting the `<w:r>` element from the original and reusing it.
-
-Example - Changing "30 days" to "60 days" in a sentence:
-```python
-# BAD - Replaces entire sentence
-'<w:del><w:r><w:delText>The term is 30 days.</w:delText></w:r></w:del><w:ins><w:r><w:t>The term is 60 days.</w:t></w:r></w:ins>'
-
-# GOOD - Only marks what changed, preserves original <w:r> for unchanged text
-'<w:r w:rsidR="00AB12CD"><w:t>The term is </w:t></w:r><w:del><w:r><w:delText>30</w:delText></w:r></w:del><w:ins><w:r><w:t>60</w:t></w:r></w:ins><w:r w:rsidR="00AB12CD"><w:t> days.</w:t></w:r>'
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- analyze --input input.docx --json
 ```
 
-### Tracked changes workflow
+For raw inspection, treat DOCX as ZIP and inspect `word/document.xml`, `word/styles.xml`, section properties, relationships, headers/footers, comments, numbering, and media. Do not edit the archive casually; use OpenXML SDK patterns and preserve relationships.
 
-1. **Get markdown representation**: Convert document to markdown with tracked changes preserved:
-   ```bash
-   pandoc --track-changes=all path-to-file.docx -o current.md
-   ```
+## Create workflow
 
-2. **Identify and group changes**: Review the document and identify ALL changes needed, organizing them into logical batches:
+Read these before creating:
 
-   **Location methods** (for finding changes in XML):
-   - Section/heading numbers (e.g., "Section 3.2", "Article IV")
-   - Paragraph identifiers if numbered
-   - Grep patterns with unique surrounding text
-   - Document structure (e.g., "first paragraph", "signature block")
-   - **DO NOT use markdown line numbers** - they don't map to XML structure
+- `references/scenario_a_create.md`
+- `references/design_principles.md`
+- `references/typography_guide.md`
+- For CJK: `references/cjk_typography.md`
+- The relevant file under `scripts/dotnet/MiniMaxAIDocx.Core/Samples/`
 
-   **Batch organization** (group 3-10 related changes per batch):
-   - By section: "Batch 1: Section 2 amendments", "Batch 2: Section 5 updates"
-   - By type: "Batch 1: Date corrections", "Batch 2: Party name changes"
-   - By complexity: Start with simple text replacements, then tackle complex structural changes
-   - Sequential: "Batch 1: Pages 1-3", "Batch 2: Pages 4-6"
+Do not invent aesthetic values when a bundled recipe fits. Select from `AestheticRecipeSamples.cs` and its batch files: Modern Corporate, Academic Thesis, Executive Brief, Chinese Government (GB/T 9704), Minimal Modern, IEEE, ACM, APA 7, MLA 9, Chicago/Turabian, Springer LNCS, Nature, or HBR.
 
-3. **Read documentation and unpack**:
-   - **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Pay special attention to the "Document Library" and "Tracked Change Patterns" sections.
-   - **Unpack the document**: `python ooxml/scripts/unpack.py <file.docx> <dir>`
-   - **Note the suggested RSID**: The unpack script will suggest an RSID to use for your tracked changes. Copy this RSID for use in step 4b.
+Use the CLI for simple report, letter, memo, or academic shells:
 
-4. **Implement changes in batches**: Group changes logically (by section, by type, or by proximity) and implement them together in a single script. This approach:
-   - Makes debugging easier (smaller batch = easier to isolate errors)
-   - Allows incremental progress
-   - Maintains efficiency (batch size of 3-10 changes works well)
-
-   **Suggested batch groupings:**
-   - By document section (e.g., "Section 3 changes", "Definitions", "Termination clause")
-   - By change type (e.g., "Date changes", "Party name updates", "Legal term replacements")
-   - By proximity (e.g., "Changes on pages 1-3", "Changes in first half of document")
-
-   For each batch of related changes:
-
-   **a. Map text to XML**: Grep for text in `word/document.xml` to verify how text is split across `<w:r>` elements.
-
-   **b. Create and run script**: Use `get_node` to find nodes, implement changes, then `doc.save()`. See **"Document Library"** section in ooxml.md for patterns.
-
-   **Note**: Always grep `word/document.xml` immediately before writing a script to get current line numbers and verify text content. Line numbers change after each script run.
-
-5. **Pack the document**: After all batches are complete, convert the unpacked directory back to .docx:
-   ```bash
-   python ooxml/scripts/pack.py unpacked reviewed-document.docx
-   ```
-
-6. **Final verification**: Do a comprehensive check of the complete document:
-   - Convert final document to markdown:
-     ```bash
-     pandoc --track-changes=all reviewed-document.docx -o verification.md
-     ```
-   - Verify ALL changes were applied correctly:
-     ```bash
-     grep "original phrase" verification.md  # Should NOT find it
-     grep "replacement phrase" verification.md  # Should find it
-     ```
-   - Check that no unintended changes were introduced
-
-
-## Converting Documents to Images
-
-To visually analyze Word documents, convert them to images using a two-step process:
-
-1. **Convert DOCX to PDF**:
-   ```bash
-   soffice --headless --convert-to pdf document.docx
-   ```
-
-2. **Convert PDF pages to JPEG images**:
-   ```bash
-   pdftoppm -jpeg -r 150 document.pdf page
-   ```
-   This creates files like `page-1.jpg`, `page-2.jpg`, etc.
-
-Options:
-- `-r 150`: Sets resolution to 150 DPI (adjust for quality/size balance)
-- `-jpeg`: Output JPEG format (use `-png` for PNG if preferred)
-- `-f N`: First page to convert (e.g., `-f 2` starts from page 2)
-- `-l N`: Last page to convert (e.g., `-l 5` stops at page 5)
-- `page`: Prefix for output files
-
-Example for specific range:
-```bash
-pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- create --type report --output out.docx --title "Title"
 ```
 
-## Code Style Guidelines
-**IMPORTANT**: When generating code for DOCX operations:
-- Write concise code
-- Avoid verbose variable names and redundant operations
-- Avoid unnecessary print statements
+For complex structure, write C# against the bundled project and copy tested patterns from the relevant sample rather than reconstructing OpenXML from memory.
 
-## Dependencies
+## Edit workflow
 
-Required dependencies (install if not available):
+Read `references/scenario_b_edit_content.md`. Preview -> analyze -> edit a copy -> diff -> validate -> render.
 
-- **pandoc**: `sudo apt-get install pandoc` (for text extraction)
-- **docx**: `npm install -g docx` (for creating new documents)
-- **LibreOffice**: `sudo apt-get install libreoffice` (for PDF conversion)
-- **Poppler**: `sudo apt-get install poppler-utils` (for pdftoppm to convert PDF to images)
-- **defusedxml**: `pip install defusedxml` (for secure XML parsing)
+Examples:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- edit replace-text --input in.docx --output out.docx --search "OLD" --replace "NEW"
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- edit fill-placeholders --input in.docx --output out.docx --mapping values.json
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- diff --before in.docx --after out.docx
+```
+
+For tables, styles, sections, comments, drawings, numbering, fields, headers/footers, or relationship changes, read `references/openxml_element_order.md` and the matching C# sample first.
+
+For tracked review, read `references/redlining_workflow.md` and `references/track_changes_guide.md` before editing. The Athena workflow takes precedence over generic replacement guidance.
+
+Use the deterministic CLI for exact plain-text changes. It refuses ambiguous match counts and writes a separate output:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- redline replace --input in.docx --output reviewed.docx --search "old text" --replace "new text" --author "Reviewer" --expected-count 1
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- redline apply-plan --input in.docx --output reviewed.docx --plan changes.json --author "Reviewer"
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- redline verify --input reviewed.docx --author "Reviewer" --require-changes
+```
+
+`changes.json` is an array of `{ "search", "replace", "expectedCount" }`. Batch only 3-10 reviewed changes at a time. The CLI preserves unchanged runs and their attributes, uses `w:delText` for deletions, assigns unique revision IDs, and rejects exact searches inside unsupported complex run structures. Use direct OpenXML code for fields, hyperlinks, content controls, moves, comments, or structural redlines.
+
+## Template workflow
+
+Read `references/scenario_c_apply_template.md` completely before manipulating either file. Also read `references/cjk_university_template_guide.md` for Chinese university templates.
+
+Analyze both source and template, then choose:
+
+- **Overlay**: the template is primarily styles/theme and the source structure should remain.
+- **Base-Replace**: the template contains meaningful cover, TOC, section, header/footer, numbering, or example structure. Copy the template as the output base and replace only its content zones.
+
+For multi-section or 10+ section templates, default to Base-Replace. Preserve header/footer parts, relationships, page-number regimes, `titlePg`, section breaks, and zone boundaries from the template.
+
+Simple overlay:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- apply-template --input source.docx --template template.docx --output out.docx --mode overlay
+```
+
+Critical rules:
+
+- Map styles by exact ID, then style name, then explicit manual mapping. Do not assume `Heading1`; Chinese templates often use numeric IDs.
+- Strip source direct formatting only when applying template styles; retain semantic properties and text.
+- Preserve each content paragraph exactly once.
+- Never add empty paragraphs for spacing or section separation.
+- Use section properties and style spacing for layout.
+- Copy template header/footer XML and related parts; do not recreate complex page furniture from memory.
+- A chapter that must start on an odd page needs an `oddPage` break before every applicable chapter.
+- A two-column chapter commonly needs three transitions: odd-page chapter start, continuous two-column start, and continuous return to one column.
+
+Template output must pass the validation gate and content-preservation diff before delivery.
+
+## OpenXML invariants
+
+Read `references/openxml_element_order.md` before direct XML or SDK manipulation.
+
+- `w:p`: `w:pPr` before runs.
+- `w:r`: `w:rPr` before text/break/tab content.
+- `w:tbl`: `w:tblPr`, then `w:tblGrid`, then rows.
+- `w:tr`: `w:trPr` before cells.
+- `w:tc`: `w:tcPr` before block content and at least one `w:p`.
+- `w:body`: final body-level `w:sectPr` is last.
+- Deleted revision text uses `w:delText`; inserted revision text uses `w:t`.
+- `w:sz` uses half-points; DXA uses 1440 per inch; EMU uses 914400 per inch.
+- Heading styles require `outlineLvl` for TOC and navigation behavior.
+- Preserve relationship IDs or remap every reference when copying parts.
+
+## Validation and visual QA
+
+Run after every write. For template application, structural editing, comments, redlining, or multi-section output, all applicable checks are mandatory.
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- validate --input out.docx --xsd "<skill-root>/assets/xsd/wml-subset.xsd"
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- validate --input out.docx --business
+```
+
+`merge-runs` is an optional optimization for newly created, revision-free documents only. Never run it blindly on reviewed documents, because run boundaries and RSIDs may be evidence-bearing.
+
+If ordering validation fails:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- fix-order --input out.docx
+```
+
+Re-run validation after repair. Treat `wml-subset.xsd` as a targeted guard, not a complete ECMA-376 conformance proof; valid advanced constructs may require SDK validation plus business checks and rendering.
+
+For template output, run the template-aware gate:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- validate --input out.docx --gate-check template.docx
+```
+
+Then diff source vs output where content preservation matters:
+
+```text
+dotnet run --project "<skill-root>/scripts/dotnet/MiniMaxAIDocx.Cli" -- diff --before source.docx --after out.docx
+```
+
+Render the final DOCX through LibreOffice to PDF and inspect every page image. Verify at minimum:
+
+- no clipping, overlap, repair warning, blank surprise page, or orphaned heading;
+- correct fonts, hierarchy, spacing, page breaks, columns, and margins;
+- correct table widths/repetition and image placement;
+- correct headers, footers, numbering regimes, TOC/field behavior, comments, and revision marks;
+- no content loss or duplicated paragraphs.
+
+## Reference router
+
+Load only what the current task needs.
+
+| Need | Read |
+|---|---|
+| New document | `references/scenario_a_create.md`, `references/design_principles.md`, `references/typography_guide.md` |
+| Edit/fill | `references/scenario_b_edit_content.md` |
+| Tracked review | `references/redlining_workflow.md`, then `references/track_changes_guide.md` |
+| Apply/rebuild from template | `references/scenario_c_apply_template.md` |
+| CJK or GB/T 9704 | `references/cjk_typography.md` |
+| Chinese thesis template | `references/cjk_university_template_guide.md` |
+| Design diagnosis | `references/design_good_bad_examples.md` |
+| Visible failure | `references/troubleshooting.md` |
+| XML order | `references/openxml_element_order.md` |
+| Units | `references/openxml_units.md` |
+| Namespaces/parts | `references/openxml_namespaces.md` |
+| Comments | `references/comments_guide.md` and `FootnoteAndCommentSamples.cs` |
+| XSD/gates | `references/xsd_validation_guide.md` |
+
+Relevant C# samples live under `scripts/dotnet/MiniMaxAIDocx.Core/Samples/`. Read the narrowest matching sample before writing C#; do not load the entire encyclopedia or every sample.

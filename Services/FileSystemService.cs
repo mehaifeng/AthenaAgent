@@ -607,6 +607,13 @@ public class FileSystemService : IFileSystemService
         return fullPath;
     }
 
+    public string GetAbsoluteSecureWritePath(string path, long estimatedSizeBytes = 0)
+    {
+        var fullPath = Path.GetFullPath(ExpandPath(path));
+        ValidatePathAndSecurity(fullPath, true, dataSize: estimatedSizeBytes);
+        return fullPath;
+    }
+
     private static async Task<(long CharCount, long LineCount, string Encoding)> ScanTextStatisticsAsync(string fullPath)
     {
         await using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read,

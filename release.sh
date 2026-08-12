@@ -464,6 +464,13 @@ for rid in "${PLATFORMS[@]}"; do
   mkdir -p "$package_dir/updater"
   cp -R "$updater_dir"/. "$package_dir/updater"/
 
+  # Update archives merge packaged AthenaData into the existing installation.
+  # Do not ship the knowledge-base seed in these archives: AthenaSoul.md is embedded
+  # in the app and is created on first use, while an existing user's copy must remain
+  # untouched. AthenaData/Skills stays in the archive so built-in Skills can update;
+  # custom Skill directories not present in the archive are retained by the updater.
+  rm -rf "$package_dir/AthenaData/KnowledgeBase"
+
   [ -f "$package_dir/$entry_executable" ] || die "Missing entry executable for $rid: $entry_executable"
   [ -f "$package_dir/updater/$updater_executable" ] || die "Missing updater executable for $rid: $updater_executable"
 
@@ -515,9 +522,7 @@ cat >"$MANIFEST_PATH" <<EOF
 {
   "version": "$VERSION",
   "releaseNotesUrl": "https://github.com/$REPO/releases/tag/$TAG",
-  "preservePaths": [
-    "AthenaData"
-  ],
+  "preservePaths": [],
   "packages": {
 $MANIFEST_PACKAGES
   }

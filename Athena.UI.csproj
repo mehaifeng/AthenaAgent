@@ -33,6 +33,8 @@
     <Compile Remove="Athena.Archive.Tests/**/*.cs" />
     <Compile Remove="Athena.Updater/**/*.cs" />
     <Compile Remove="Athena.UI.HeadlessTests/**/*.cs" />
+    <!-- Built-in Skills may ship source-code toolchains as content. They are not part of Athena.UI. -->
+    <Compile Remove="BuiltInSkills/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
@@ -65,7 +67,8 @@
       <BuiltInSkillsTarget>$(TargetDir)AthenaData/Skills</BuiltInSkillsTarget>
     </PropertyGroup>
     <ItemGroup>
-      <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*" />
+      <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*"
+                    Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
     </ItemGroup>
     <MakeDir Directories="$(BuiltInSkillsTarget)" />
     <Copy SourceFiles="@(BuiltInSkill)" DestinationFiles="$(BuiltInSkillsTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
@@ -80,7 +83,8 @@
       <BuiltInSkillsPublishTarget>$(PublishDir)AthenaData/Skills</BuiltInSkillsPublishTarget>
     </PropertyGroup>
     <ItemGroup>
-      <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*" />
+      <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*"
+                              Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
     </ItemGroup>
     <MakeDir Directories="$(BuiltInSkillsPublishTarget)" />
     <Copy SourceFiles="@(BuiltInSkillForPublish)" DestinationFiles="$(BuiltInSkillsPublishTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
