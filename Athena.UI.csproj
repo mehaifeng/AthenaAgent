@@ -35,6 +35,11 @@
     <Compile Remove="Athena.UI.HeadlessTests/**/*.cs" />
     <!-- Built-in Skills may ship source-code toolchains as content. They are not part of Athena.UI. -->
     <Compile Remove="BuiltInSkills/**/*.cs" />
+    <!-- Multi-RID release builds leave earlier publish packages under artifacts/. Those
+         packages contain Skill source files and must never be rediscovered as app code. -->
+    <Compile Remove="artifacts/**/*.cs" />
+    <Compile Remove="publish/**/*.cs" />
+    <Compile Remove="Output/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
