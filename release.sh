@@ -220,6 +220,18 @@ create_app_bundle() {
     mv "$app_bundle/Contents/MacOS/.playwright" "$app_bundle/Contents/Resources/.playwright"
   fi
 
+  # Built-in Skills may contain standalone .NET project directories whose dotted
+  # names (for example MiniMaxAIDocx.Cli) are mistaken by codesign --deep for
+  # nested bundles when they live under Contents/MacOS. Keep them as sealed data
+  # in Resources and expose the path expected by Athena through an internal symlink.
+  if [ -d "$app_bundle/Contents/MacOS/AthenaData/Skills" ]; then
+    mkdir -p "$app_bundle/Contents/Resources/AthenaData"
+    mv "$app_bundle/Contents/MacOS/AthenaData/Skills" \
+      "$app_bundle/Contents/Resources/AthenaData/Skills"
+    ln -s ../../Resources/AthenaData/Skills \
+      "$app_bundle/Contents/MacOS/AthenaData/Skills"
+  fi
+
   # Generate Info.plist from csproj CFBundle properties
   cat > "$app_bundle/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
