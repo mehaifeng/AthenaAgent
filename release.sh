@@ -545,29 +545,39 @@ echo
 echo "Generated manifest: $MANIFEST_PATH"
 
 if [ "$UPLOAD" -eq 1 ] && [ "$SKIP_UPLOAD" -eq 0 ]; then
-  GH_ARGS=(release create "$TAG" --repo "$REPO" --title "$TAG")
-
-  if [ -n "$NOTES_FILE" ]; then
-    GH_ARGS+=(--notes-file "$NOTES_FILE")
-  elif [ "$GENERATE_NOTES" -eq 1 ]; then
-    GH_ARGS+=(--generate-notes)
+  if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+    echo
+    echo "Updating existing GitHub Release $TAG"
+    gh release upload "$TAG" \
+      --repo "$REPO" \
+      --clobber \
+      "${ASSET_PATHS[@]}" \
+      "$MANIFEST_PATH"
   else
-    GH_ARGS+=(--notes "Release $TAG")
+    GH_ARGS=(release create "$TAG" --repo "$REPO" --title "$TAG")
+
+    if [ -n "$NOTES_FILE" ]; then
+      GH_ARGS+=(--notes-file "$NOTES_FILE")
+    elif [ "$GENERATE_NOTES" -eq 1 ]; then
+      GH_ARGS+=(--generate-notes)
+    else
+      GH_ARGS+=(--notes "Release $TAG")
+    fi
+
+    if [ "$DRAFT" -eq 1 ]; then
+      GH_ARGS+=(--draft)
+    fi
+
+    if [ "$PRERELEASE" -eq 1 ]; then
+      GH_ARGS+=(--prerelease)
+    fi
+
+    GH_ARGS+=("${ASSET_PATHS[@]}" "$MANIFEST_PATH")
+
+    echo
+    echo "Creating GitHub Release $TAG"
+    gh "${GH_ARGS[@]}"
   fi
-
-  if [ "$DRAFT" -eq 1 ]; then
-    GH_ARGS+=(--draft)
-  fi
-
-  if [ "$PRERELEASE" -eq 1 ]; then
-    GH_ARGS+=(--prerelease)
-  fi
-
-  GH_ARGS+=("${ASSET_PATHS[@]}" "$MANIFEST_PATH")
-
-  echo
-  echo "Creating GitHub Release $TAG"
-  gh "${GH_ARGS[@]}"
 else
   echo
   echo "Assets are ready for upload:"
