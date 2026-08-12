@@ -63,9 +63,9 @@ public static class AppConfigNormalizer
             double.IsFinite(config.VirtualPetScale) ? config.VirtualPetScale : 0.5,
             0.25,
             1.0);
-        if (config.VirtualPetRoamArea is not (VirtualPetRoamArea.EntireMessageArea
-            or VirtualPetRoamArea.LowerHalf
-            or VirtualPetRoamArea.BottomEdge))
+        if (config.VirtualPetRoamArea is not (VirtualPetRoamArea.LowerHalf
+            or VirtualPetRoamArea.LogTerminalBottom
+            or VirtualPetRoamArea.SessionListBottom))
             config.VirtualPetRoamArea = VirtualPetRoamArea.LowerHalf;
     }
 

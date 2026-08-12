@@ -1403,6 +1403,9 @@ static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMess
 
 static void TestVirtualPetStateMachine()
 {
+    if (new AppConfig().VirtualPetEnabled)
+        throw new InvalidOperationException("Virtual pet must be disabled in a fresh installation by default.");
+
     var definition = PetDexPetLibrary.Resolve(PetDexPetLibrary.DefaultSlug);
     if (definition.FrameWidth != 192
         || definition.FrameHeight != 208
@@ -1451,6 +1454,13 @@ static void TestVirtualPetStateMachine()
     if (pet.State != VirtualPetState.Thinking)
         throw new InvalidOperationException("Clearing a pet alert must reveal the still-active conversation state.");
 
+    pet.BeginTool("web_search");
+    pet.FinishTool(succeeded: false, nextRunningTool: "read_system_file");
+    if (pet.State != VirtualPetState.Working
+        || pet.AnimationState != PetDexAnimationState.Running)
+        throw new InvalidOperationException("A failed parallel tool must not mask another running tool with an alert.");
+    pet.FinishTool(succeeded: true);
+
     pet.SetSubAgentsRunning(active: true);
     if (pet.State != VirtualPetState.Working || pet.AnimationState != PetDexAnimationState.Running)
         throw new InvalidOperationException("Sub-agent activity must select the PetDex running row.");
@@ -1467,7 +1477,7 @@ static void TestVirtualPetStateMachine()
         VirtualPetReducedMotion = true,
         VirtualPetRoamingEnabled = false,
         VirtualPetGravityEnabled = false,
-        VirtualPetRoamArea = VirtualPetRoamArea.BottomEdge,
+        VirtualPetRoamArea = VirtualPetRoamArea.LogTerminalBottom,
         VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
         VirtualPetScale = 0.75
     });
@@ -1475,7 +1485,7 @@ static void TestVirtualPetStateMachine()
         || !pet.ReducedMotion
         || pet.RoamingEnabled
         || pet.GravityEnabled
-        || pet.RoamArea != VirtualPetRoamArea.BottomEdge
+        || pet.RoamArea != VirtualPetRoamArea.LogTerminalBottom
         || pet.IsCelebrating
         || pet.PetSlug != PetDexPetLibrary.DefaultSlug
         || Math.Abs(pet.PetScale - 0.75) > 0.001)
@@ -1509,7 +1519,7 @@ static void TestVirtualPetMotionEngine()
         throw new InvalidOperationException("Virtual pet gravity did not use the faster fall acceleration.");
 
     var bottomOnly = new VirtualPetMotionEngine(randomSeed: 9);
-    bottomOnly.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.BottomEdge);
+    bottomOnly.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LogTerminalBottom);
     bottomOnly.BeginDrag();
     bottomOnly.DragTo(-100, -120, 0.1);
     bottomOnly.EndDrag(gravityEnabled: false);
@@ -1517,13 +1527,13 @@ static void TestVirtualPetMotionEngine()
         throw new InvalidOperationException("Bottom-edge roaming did not clamp the pet to its landing area.");
 
     var bottomRoaming = new VirtualPetMotionEngine(randomSeed: 10);
-    bottomRoaming.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.BottomEdge);
+    bottomRoaming.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LogTerminalBottom);
     for (var i = 0; i < 220; i++)
         bottomRoaming.Tick(0.016, roamingEnabled: true, gravityEnabled: true, canRoam: true);
     if (Math.Abs(bottomRoaming.Y) > 0.01 || Math.Abs(bottomRoaming.X) < 1)
         throw new InvalidOperationException("Bottom-edge mode must walk horizontally without lower-half hops.");
 
-    var roaming = new VirtualPetMotionEngine(randomSeed: 11);
+    var roaming = new VirtualPetMotionEngine(randomSeed: 12);
     roaming.SetBounds(600, 400, 100, 100, VirtualPetRoamArea.LowerHalf);
     var highestRoamingY = 0.0;
     for (var i = 0; i < 220; i++)

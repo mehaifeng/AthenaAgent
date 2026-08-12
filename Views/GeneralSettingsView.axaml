@@ -269,9 +269,9 @@
                         <ComboBox x:Name="VirtualPetRoamAreaComboBox"
                                   Grid.Column="1"
                                   SelectedIndex="{Binding PetRoamAreaIndex}">
-                            <ComboBoxItem Content="{loc:Loc Settings.General.VirtualPetRoamArea.Entire}"/>
                             <ComboBoxItem Content="{loc:Loc Settings.General.VirtualPetRoamArea.LowerHalf}"/>
-                            <ComboBoxItem Content="{loc:Loc Settings.General.VirtualPetRoamArea.BottomEdge}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.VirtualPetRoamArea.LogTerminalBottom}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.VirtualPetRoamArea.SessionListBottom}"/>
                         </ComboBox>
                     </Grid>
                     <CheckBox x:Name="VirtualPetGravityEnabledCheckBox"

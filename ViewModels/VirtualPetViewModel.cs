@@ -193,7 +193,7 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     {
         _activeTool = string.IsNullOrWhiteSpace(nextRunningTool) ? null : nextRunningTool;
         Touch();
-        if (!succeeded)
+        if (!succeeded && string.IsNullOrWhiteSpace(_activeTool))
             SetTransient(VirtualPetState.Alert, AlertDuration);
         else
             ResolveState(DateTime.UtcNow);

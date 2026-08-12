@@ -5,9 +5,12 @@ namespace Athena.UI.Models;
 
 public enum VirtualPetRoamArea
 {
-    EntireMessageArea,
-    LowerHalf,
-    BottomEdge
+    // Preserve the values persisted by the v6 configuration format:
+    // EntireMessageArea (0) is normalized to LowerHalf, while LowerHalf (1)
+    // and BottomEdge (2) retain their intended semantics after the rename.
+    LowerHalf = 1,
+    LogTerminalBottom = 2,
+    SessionListBottom = 3
 }
 
 /// <summary>
@@ -228,7 +231,7 @@ public partial class AppConfig : ObservableObject
 
     // 窗口内常驻的 PetDex 宠物；Owl Village 保持独立的原始精灵资源。
     [ObservableProperty]
-    private bool _virtualPetEnabled = true;
+    private bool _virtualPetEnabled;
 
     // 当前使用的 PetDex 包；可以是随应用提供的宠物，也可以是下载到 AthenaData/Pets 的宠物。
     [ObservableProperty]

@@ -290,7 +290,8 @@
                 <ColumnDefinition Width="470" MinWidth="360"/>
             </Grid.ColumnDefinitions>
             <!-- 左侧：入口 + 工作区会话树。语义区域可与右侧整体对调。 -->
-            <Border Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftPanel}"
+            <Border x:Name="LeftPanel"
+                    Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftPanel}"
                     Classes="shell-panel" MinWidth="260">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
                     <Grid Margin="10" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="7" RowSpacing="7">
@@ -555,6 +556,14 @@
                         </TabControl>
                     </Border>
                 </Grid>
+
+        <!-- 窗口级宠物覆盖层：根据漫游区域锚定到不同面板的底部。 -->
+        <views:VirtualPetView x:Name="VirtualPet"
+                              Grid.ColumnSpan="5"
+                              ZIndex="60"
+                              HorizontalAlignment="Left"
+                              VerticalAlignment="Top"
+                              DataContext="{Binding MainConversationViewModel.Pet}"/>
 
         </Grid>
     </Grid>

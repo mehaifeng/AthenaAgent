@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.ViewModels;
 using Avalonia;
@@ -6,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System;
 using System.Diagnostics;
 
@@ -23,6 +25,9 @@ public partial class VirtualPetView : UserControl
     private long _lastPointerAt;
     private long _lastMotionAt;
     private double _dragDistance;
+    private Point _targetPanelOrigin;
+    private double _targetPanelWidth;
+    private double _targetPanelHeight;
 
     public VirtualPetView()
     {
@@ -83,32 +88,35 @@ public partial class VirtualPetView : UserControl
 
     private void UpdateMotionBounds()
     {
-        if (DataContext is not VirtualPetViewModel pet || Parent is not Control host) return;
-        var availableHeight = host.Bounds.Height;
-        if (host is Grid grid)
-        {
-            var row = Grid.GetRow(this);
-            if (row >= 0 && row < grid.RowDefinitions.Count)
-                availableHeight = grid.RowDefinitions[row].ActualHeight;
-        }
-        _motion.SetBounds(
-            host.Bounds.Width,
-            availableHeight,
-            pet.ViewWidth,
-            pet.ViewHeight,
-            pet.RoamArea);
+        if (DataContext is not VirtualPetViewModel pet || Parent is not Grid shellGrid) return;
+        var targetPanel = ResolveTargetPanel(shellGrid, pet.RoamArea);
+        var targetOrigin = targetPanel?.TranslatePoint(new Point(0, 0), shellGrid);
+        if (targetPanel is null || targetOrigin is null) return;
+
+        _targetPanelOrigin = targetOrigin.Value;
+        _targetPanelWidth = targetPanel.Bounds.Width;
+        _targetPanelHeight = targetPanel.Bounds.Height;
+
+        _motion.SetBounds(_targetPanelWidth, _targetPanelHeight, pet.ViewWidth, pet.ViewHeight, pet.RoamArea);
     }
+
+    private static Control? ResolveTargetPanel(Grid shellGrid, VirtualPetRoamArea roamArea) => roamArea switch
+    {
+        VirtualPetRoamArea.SessionListBottom => shellGrid.FindControl<Border>("LeftPanel"),
+        VirtualPetRoamArea.LogTerminalBottom => shellGrid.FindControl<TabControl>("UtilityTabControl")?.FindAncestorOfType<Border>(),
+        _ => shellGrid.FindControl<MainConversationView>("MainConversationView")
+    };
 
     private void ApplyMotion()
     {
         if (RenderTransform is not TranslateTransform transform) return;
-        var groundOffset = DataContext is VirtualPetViewModel pet ? pet.GroundOffset : 0;
-        // Pixel-aligned compositor positions keep nearest-neighbour sprites stable
-        // while the independent motion timer updates at 60 Hz. GroundOffset moves
-        // the spritesheet's transparent bottom padding through the row boundary so
-        // the visible feet land exactly on the input area's upper edge.
-        transform.X = Math.Round(_motion.X);
-        transform.Y = Math.Round(_motion.Y + groundOffset);
+        if (DataContext is not VirtualPetViewModel pet) return;
+        var groundOffset = pet.GroundOffset;
+        var petWidth = pet.ViewWidth;
+        var petHeight = pet.ViewHeight;
+        // Position the pet at the target panel's bottom-right corner, plus motion offsets.
+        transform.X = Math.Round(_targetPanelOrigin.X + _targetPanelWidth - petWidth + _motion.X);
+        transform.Y = Math.Round(_targetPanelOrigin.Y + _targetPanelHeight - petHeight + _motion.Y + groundOffset);
     }
 
     private void UpdateMotionAnimation(VirtualPetViewModel pet)

@@ -10,6 +10,8 @@ namespace Athena.UI.Services;
 public sealed class VirtualPetMotionEngine
 {
     private const double Gravity = 1350;
+    private const double RoamStartHopChance = 0.25;
+    private const double IdleHopRatePerSecond = 0.1;
     private readonly Random _random;
     private double _fullMinX;
     private double _fullMinY;
@@ -43,9 +45,8 @@ public sealed class VirtualPetMotionEngine
         _fullMinY = -Math.Max(0, height - petHeight - 12);
         _roamMinY = area switch
         {
-            VirtualPetRoamArea.BottomEdge => 0,
             VirtualPetRoamArea.LowerHalf => -Math.Max(0, height * 0.5 - petHeight),
-            _ => _fullMinY
+            _ => 0
         };
         X = Math.Clamp(X, _fullMinX, 0);
         Y = Math.Clamp(Y, _fullMinY, 0);
@@ -165,10 +166,9 @@ public sealed class VirtualPetMotionEngine
             _walkVelocityX = (_random.Next(2) == 0 ? -1 : 1) * speed;
             if (gravityEnabled)
             {
-                // Under gravity, vertical roaming becomes a natural hop. The configured
-                // roaming area's upper edge caps the jump height; BottomEdge stays grounded.
                 _walkVelocityY = 0;
-                if (_roamMinY < 0 && Y >= -1)
+                // Random hop at roam start; height capped by the configured roam area.
+                if (_roamMinY < 0 && Y >= -1 && _random.NextDouble() < RoamStartHopChance)
                 {
                     var targetHeight = -_roamMinY * (0.14 + _random.NextDouble() * 0.14);
                     _throwVelocityY = -Math.Sqrt(2 * Gravity * targetHeight);
@@ -181,6 +181,13 @@ public sealed class VirtualPetMotionEngine
                     : 0;
             }
             _roamTime = 0.9 + _random.NextDouble() * 1.8;
+        }
+        // Small per-frame chance to hop during roam movement.
+        var idleHopChance = 1 - Math.Exp(-IdleHopRatePerSecond * dt);
+        if (gravityEnabled && _roamMinY < 0 && Y >= -1 && _random.NextDouble() < idleHopChance)
+        {
+            var targetHeight = -_roamMinY * (0.1 + _random.NextDouble() * 0.12);
+            _throwVelocityY = -Math.Sqrt(2 * Gravity * targetHeight);
         }
         _roamTime -= dt;
         if (_roamTime <= 0)

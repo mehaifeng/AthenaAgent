@@ -1257,9 +1257,9 @@
     <system:String x:Key="Settings.General.VirtualPetRoaming">Allow idle roaming</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamingHint">The pet explores its allowed area while Athena is idle. Manual dragging remains available.</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamArea">Roaming area</system:String>
-    <system:String x:Key="Settings.General.VirtualPetRoamArea.Entire">Entire message area</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamArea.LowerHalf">Lower half</system:String>
-    <system:String x:Key="Settings.General.VirtualPetRoamArea.BottomEdge">Bottom edge</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.LogTerminalBottom">Log and terminal bottom</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.SessionListBottom">Session list bottom</system:String>
     <system:String x:Key="Settings.General.VirtualPetGravity">Gravity and throwing</system:String>
     <system:String x:Key="Settings.General.VirtualPetGravityHint">Preserve drag momentum, then fall and settle with a small bounce.</system:String>
     <system:String x:Key="Settings.General.VirtualPetReducedMotion">Reduce pet animation</system:String>

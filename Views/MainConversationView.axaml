@@ -988,15 +988,6 @@
             </Border>
         </Border>
 
-        <!-- 常驻 PetDex 宠物：使用本地精灵图原生绘制；Owl Village 保持原有精灵。只覆盖消息区右下角，
-             不侵入输入区；上下文抽屉和模态弹层保持更高 ZIndex。 -->
-        <views:VirtualPetView x:Name="VirtualPet"
-                              Grid.Row="1"
-                              ZIndex="60"
-                              HorizontalAlignment="Right"
-                              VerticalAlignment="Bottom"
-                              Margin="0,0,14,0"
-                              DataContext="{Binding Pet}"/>
 
         <!-- 当前会话上下文检查器：绑定当前 Session VM；不会读取或修改全局设置状态。 -->
         <Border x:Name="ContextInspectorDrawer"

@@ -1257,9 +1257,9 @@
     <system:String x:Key="Settings.General.VirtualPetRoaming">允许空闲漫游</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamingHint">Athena 空闲时，宠物会在允许范围内活动；手动拖动始终可用。</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamArea">漫游区域</system:String>
-    <system:String x:Key="Settings.General.VirtualPetRoamArea.Entire">整个消息区域</system:String>
     <system:String x:Key="Settings.General.VirtualPetRoamArea.LowerHalf">消息区下半部</system:String>
-    <system:String x:Key="Settings.General.VirtualPetRoamArea.BottomEdge">仅底部边缘</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.LogTerminalBottom">日志和终端区底部</system:String>
+    <system:String x:Key="Settings.General.VirtualPetRoamArea.SessionListBottom">会话列表区底部</system:String>
     <system:String x:Key="Settings.General.VirtualPetGravity">重力与抛掷</system:String>
     <system:String x:Key="Settings.General.VirtualPetGravityHint">保留拖动松手时的速度，并模拟下落和轻微回弹。</system:String>
     <system:String x:Key="Settings.General.VirtualPetReducedMotion">减少宠物动画</system:String>

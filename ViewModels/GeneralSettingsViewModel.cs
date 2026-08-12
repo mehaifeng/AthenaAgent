@@ -158,17 +158,17 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase, IDisposabl
     {
         get => State.Config.VirtualPetRoamArea switch
         {
-            VirtualPetRoamArea.EntireMessageArea => 0,
-            VirtualPetRoamArea.LowerHalf => 1,
-            VirtualPetRoamArea.BottomEdge => 2,
-            _ => 1,
+            VirtualPetRoamArea.LowerHalf => 0,
+            VirtualPetRoamArea.LogTerminalBottom => 1,
+            VirtualPetRoamArea.SessionListBottom => 2,
+            _ => 0,
         };
         set
         {
             var next = value switch
             {
-                0 => VirtualPetRoamArea.EntireMessageArea,
-                2 => VirtualPetRoamArea.BottomEdge,
+                1 => VirtualPetRoamArea.LogTerminalBottom,
+                2 => VirtualPetRoamArea.SessionListBottom,
                 _ => VirtualPetRoamArea.LowerHalf,
             };
             if (State.Config.VirtualPetRoamArea != next)
