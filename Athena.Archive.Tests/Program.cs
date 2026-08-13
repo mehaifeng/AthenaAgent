@@ -1,4 +1,4 @@
-#pragma warning disable OPENAI001 // Responses API is experimental in OpenAI SDK 2.x.
+﻿#pragma warning disable OPENAI001 // Responses API is experimental in OpenAI SDK 2.x.
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -79,6 +79,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("critical anchors are guaranteed structurally and informational ones by recall", TestAnchorTieringAsync),
     ("url anchors stop at JSON-escaped newlines", TestUrlAnchorBoundaryAsync),
     ("planner narrows the compressible window until it is feasible", TestPlannerNarrowsUntilFeasibleAsync),
+    ("compression strength drives summary length and per-pass capacity", TestCompressionStrengthAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
     ("summary context obeys 10-message and 1000-char budget", TestSummaryContextBudgetAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
@@ -2354,7 +2355,13 @@ static Task TestCompressionPlannerAsync()
     var plan = result.Plan ?? throw new InvalidOperationException("ready plan was missing");
     AssertEqual(17L, plan.BaseRevision, "plan should freeze source revision");
     AssertEqual("context-hmac", plan.BaseContextFingerprint, "plan should freeze exact source fingerprint");
-    AssertEqual(4_096L, plan.TargetSummaryTokens, "target should be clamped by compression-model output budget");
+    // 摘要长度跟着材料走：材料 ÷ 压缩强度，只有超过上限时才被上限截断。
+    var plannedMaterialTokens = CompressionValidator.EstimateMaterialTokens(plan.Material);
+    var expectedTarget = Math.Min(4_096L, (plannedMaterialTokens + 7) / 8);
+    AssertEqual(expectedTarget, plan.TargetSummaryTokens,
+        "summary length should be derived from material divided by the compression strength");
+    AssertTrue(plan.TargetSummaryTokens < 4_096L,
+        "this fixture sits below the ceiling, so the derived length must be what binds");
     AssertTrue(new[] { "u1", "a1", "u2", "tc2", "t2", "a2", "u4", "a4" }
             .All(id => plan.CompressMessageIds.Contains(id, StringComparer.Ordinal)),
         "planner should select complete old rounds including an entire tool chain");
@@ -2417,7 +2424,7 @@ static Task TestCompressionPlannerAsync()
     return Task.CompletedTask;
 }
 
-static ResolvedContextPolicy CompressionTestPolicy(long window, long threshold, long output) => new(
+static ResolvedContextPolicy CompressionTestPolicy(long window, long threshold, long output, int summaryRatio = 8) => new(
     window,
     window,
     output,
@@ -2427,6 +2434,7 @@ static ResolvedContextPolicy CompressionTestPolicy(long window, long threshold, 
     true,
     1,
     8192,
+    summaryRatio,
     ContextPolicyValueSource.ModelMetadata,
     ContextPolicyValueSource.AppDefault,
     []);
@@ -2449,7 +2457,7 @@ static async Task TestCompressionFeasibilityGateAsync()
 
     var verdict = CompressionFeasibility.Evaluate(hopeless);
     AssertFalse(verdict.IsFeasible, "a 12:1 compression ratio must be judged infeasible");
-    AssertTrue(verdict.RequiredRatio > CompressionFeasibility.MaxFeasibleRatio,
+    AssertTrue(verdict.RequiredRatio > CompressionFeasibility.DefaultFeasibleRatio,
         $"the verdict should report the offending ratio, saw {verdict.RequiredRatio:0.0}");
     AssertTrue(verdict.Reason.Contains("ratio", StringComparison.OrdinalIgnoreCase),
         "the verdict must say why, so the log explains the refusal");
@@ -2548,6 +2556,63 @@ static Task TestUrlAnchorBoundaryAsync()
         "http://www.ccgp.gov.cn/site/detail?articleId=mOtW%2F6%2FNqRmivbZPstZtpA==&parentId=3661",
         urls[0].Value,
         "the URL anchor must stop at the literal backslash-n instead of swallowing the following CJK text");
+    return Task.CompletedTask;
+}
+
+static Task TestCompressionStrengthAsync()
+{
+    AssertEqual(4, CompressionStrength.Conservative.SummaryRatio(), "Conservative is 4:1");
+    AssertEqual(8, CompressionStrength.Balanced.SummaryRatio(), "Balanced is 8:1");
+    AssertEqual(16, CompressionStrength.Aggressive.SummaryRatio(), "Aggressive is 16:1");
+
+    // 单次可吃的历史 = 摘要上限 × 强度，且与压缩阈值无关——阈值只决定要分几趟。
+    var low = CompressionTestPolicy(200_000, 100_000, 16_000, summaryRatio: 8);
+    var high = CompressionTestPolicy(1_048_576, 800_000, 16_000, summaryRatio: 8);
+    AssertEqual(low.MaxMaterialPerPassTokens, high.MaxMaterialPerPassTokens,
+        "per-pass capacity comes from the model's output budget, so raising the threshold must not change it");
+    AssertEqual(8_192L * 16, CompressionTestPolicy(200_000, 100_000, 16_000, summaryRatio: 16).MaxMaterialPerPassTokens,
+        "a stronger setting absorbs proportionally more history per pass");
+
+    // 同一份材料，强度不同 → 摘要长度不同，且都不超过上限。
+    var messages = new List<ChatMessage>();
+    for (var i = 0; i < 8; i++)
+    {
+        messages.Add(new ChatMessage { Id = $"su{i}", Role = "user", Content = $"round {i} " + new string('s', 12_000) });
+        messages.Add(new ChatMessage { Id = $"sa{i}", Role = "assistant", Content = $"answer {i} " + new string('t', 12_000) });
+    }
+    var planner = new CompressionPlanner();
+
+    long TargetFor(int ratio)
+    {
+        var policy = CompressionTestPolicy(1_048_576, 400_000, 16_000, ratio);
+        var result = planner.CreatePlan(new CompressionPlanRequest(
+            "conversation-strength", 1, "fingerprint-strength", CompressionTriggerMode.Auto, null,
+            messages, 2, 80_000, 16_000, policy, policy));
+        AssertEqual(CompressionPlanStatus.Ready, result.Status, $"a {ratio}:1 plan should be feasible");
+        return result.Plan!.TargetSummaryTokens;
+    }
+
+    var gentle = TargetFor(4);
+    var balanced = TargetFor(8);
+    AssertTrue(gentle > balanced,
+        $"a gentler strength must produce a longer, more detailed summary ({gentle} vs {balanced})");
+
+    // 小材料不该再要一份比它自己还长的摘要——这正是旧的绝对目标值的失败方式。
+    var tiny = new List<ChatMessage>
+    {
+        new() { Id = "tu", Role = "user", Content = "short question " + new string('q', 40_000) },
+        new() { Id = "ta", Role = "assistant", Content = "short answer" },
+        new() { Id = "ru", Role = "user", Content = "recent" },
+        new() { Id = "ra", Role = "assistant", Content = "recent answer" }
+    };
+    var tinyPolicy = CompressionTestPolicy(1_048_576, 400_000, 16_000, 8);
+    var tinyPlan = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-tiny", 1, "fingerprint-tiny", CompressionTriggerMode.Auto, null,
+        tiny, 1, 20_000, 16_000, tinyPolicy, tinyPolicy));
+    AssertEqual(CompressionPlanStatus.Ready, tinyPlan.Status, "a modest but worthwhile round should still plan");
+    var tinyMaterial = CompressionValidator.EstimateMaterialTokens(tinyPlan.Plan!.Material);
+    AssertTrue(tinyPlan.Plan!.TargetSummaryTokens < tinyMaterial,
+        "the summary must be smaller than the material it replaces, whatever the configured ceiling says");
     return Task.CompletedTask;
 }
 

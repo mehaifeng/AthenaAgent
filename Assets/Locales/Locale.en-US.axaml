@@ -394,7 +394,16 @@
     <system:String x:Key="Settings.Context.CustomCap">Custom global cap</system:String>
     <system:String x:Key="Settings.Context.ThresholdMode">Compression threshold mode</system:String>
     <system:String x:Key="Settings.Context.KeepRecentRounds">Keep recent rounds</system:String>
-    <system:String x:Key="Settings.Context.TargetSummaryTokens">Target summary tokens</system:String>
+    <system:String x:Key="Settings.Context.CompressionStrength">Compression strength</system:String>
+    <system:String x:Key="Settings.Context.CompressionStrengthHint">How much history each compression condenses into one summary. Gentler keeps more detail but compresses more often.</system:String>
+    <system:String x:Key="Settings.Context.Strength.Conservative">Conservative (4:1, favours detail)</system:String>
+    <system:String x:Key="Settings.Context.Strength.Balanced">Balanced (8:1, recommended)</system:String>
+    <system:String x:Key="Settings.Context.Strength.Aggressive">Aggressive (16:1, fewer interruptions)</system:String>
+    <system:String x:Key="Settings.Context.MaxSummaryTokens">Summary length cap</system:String>
+    <system:String x:Key="Settings.Context.MaxSummaryTokensHint">Summary length follows from history divided by compression strength; this only caps it further, and is itself limited by what the compression model can emit in one response.</system:String>
+    <system:String x:Key="Settings.Context.Effect.Format">Compresses at {0:N0} tokens · up to {1:N0} tokens of history per pass · summary at most {2:N0} tokens ({3}:1)</system:String>
+    <system:String x:Key="Settings.Context.Effect.Disabled">Automatic compression is off.</system:String>
+    <system:String x:Key="Settings.Context.TargetSummaryTokens">Summary length cap</system:String>
     <system:String x:Key="Settings.Context.UnknownAssumption">Unmatched models use the 1,000,000 context / 262,144 compression-threshold assumption. Enter verified model metadata in Provider Models when available.</system:String>
     <system:String x:Key="Settings.Context.WorkspaceKnowledge">Workspace knowledge</system:String>
     <system:String x:Key="Settings.Context.Unconfigured">Not configured</system:String>

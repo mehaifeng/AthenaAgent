@@ -21,13 +21,16 @@ public sealed class CompressionPlanner : ICompressionPlanner
         if (string.IsNullOrWhiteSpace(request.BaseContextFingerprint))
             return CompressionPlanResult.NotCompressible("Context fingerprint is missing.");
 
-        var target = Math.Min(
+        // 摘要长度的上限。三者取小：用户设的上限、压缩模型一次能输出多长、阈值的 1/4
+        // （避免摘要本身占掉预算的一大块）。真正的长度由材料除以压缩强度得出，见下面的收窄循环。
+        var summaryCeiling = Math.Min(
             request.RequestedTargetSummaryTokens,
             Math.Min(
                 request.CompressionModelPolicy.OutputReserveTokens,
                 request.MainModelPolicy.CompressionThresholdTokens / 4));
-        if (target < 128)
-            return CompressionPlanResult.NotCompressible("Effective summary target is below 128 tokens.");
+        if (summaryCeiling < 128)
+            return CompressionPlanResult.NotCompressible("Effective summary ceiling is below 128 tokens.");
+        var summaryRatio = Math.Max(1, request.MainModelPolicy.SummaryRatio);
 
         var active = request.Messages.Where(message => !message.IsCompressed).ToArray();
         var groups = BuildRoundGroups(active);
@@ -42,21 +45,26 @@ public sealed class CompressionPlanner : ICompressionPlanner
         var maxGroups = complete.Length - keepRecentRounds;
         var groupCount = maxGroups;
         CompressionFeasibilityVerdict? lastVerdict = null;
+        var target = summaryCeiling;
         while (groupCount >= 1)
         {
             var candidateMaterial = complete.Take(groupCount)
                 .SelectMany(group => group.Messages)
                 .Select(ToMaterial)
                 .ToArray();
+            var materialTokens = CompressionValidator.EstimateMaterialTokens(candidateMaterial);
+            // 摘要长度跟着材料走，而不是固定值。压 2,000 token 的材料却按 12,000 去要摘要，
+            // 结果是压完反而更大——这正是旧的「摘要目标 Token」的失败方式。
+            target = Math.Clamp((materialTokens + summaryRatio - 1) / summaryRatio, 128, summaryCeiling);
             lastVerdict = CompressionFeasibility.Evaluate(
-                CompressionValidator.EstimateMaterialTokens(candidateMaterial),
+                materialTokens,
                 target,
                 CompressionValidator.ExtractHardAnchors(candidateMaterial),
-                CompressionFeasibility.RequiredBenefitTokens(request.PreCompressionEstimate));
+                CompressionFeasibility.RequiredBenefitTokens(request.PreCompressionEstimate),
+                summaryRatio);
             if (lastVerdict.IsFeasible) break;
             // 收益不足是收窄造成的，继续收窄只会更少——立即停手。
-            if (lastVerdict.ProjectedBenefitTokens > 0
-                && lastVerdict.RequiredRatio <= CompressionFeasibility.MaxFeasibleRatio)
+            if (lastVerdict.ProjectedBenefitTokens > 0 && lastVerdict.RequiredRatio <= summaryRatio)
                 break;
             groupCount--;
         }

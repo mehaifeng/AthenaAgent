@@ -6173,6 +6173,7 @@ sealed class HeadlessContextPolicyProvider(long inputBudget, int keepRecentRound
             true,
             Math.Max(1, keepRecentRounds),
             8192,
+            CompressionStrength.Balanced.SummaryRatio(),
             ContextPolicyValueSource.ModelMetadata,
             ContextPolicyValueSource.AppDefault,
             []);

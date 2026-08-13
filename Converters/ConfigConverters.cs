@@ -73,6 +73,32 @@ public class BoolToExpandGlyphConverter : IValueConverter
 /// <summary>
 /// 工具审批模式枚举 → 本地化显示文本。
 /// </summary>
+/// <summary>
+/// 压缩强度在下拉框里必须显示成人话。原始枚举名（Conservative/Balanced/Aggressive）
+/// 出现在中文界面里，就又变回了一个「看不懂的参数」。
+/// </summary>
+public class CompressionStrengthToDisplayConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not CompressionStrength strength)
+            return value?.ToString() ?? string.Empty;
+
+        var (key, fallback) = strength switch
+        {
+            CompressionStrength.Conservative => ("Settings.Context.Strength.Conservative", "保守（4:1，细节优先）"),
+            CompressionStrength.Aggressive => ("Settings.Context.Strength.Aggressive", "激进（16:1，少打断）"),
+            _ => ("Settings.Context.Strength.Balanced", "平衡（8:1，推荐）")
+        };
+
+        var localization = Athena.UI.App.Services?.GetService<ILocalizationService>();
+        return localization?.GetString(key, fallback) ?? fallback;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 public class ToolApprovalModeToDisplayConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

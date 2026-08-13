@@ -80,10 +80,11 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
 
         var keep = Math.Clamp(workspace?.KeepRecentRounds ?? app.KeepRecentRounds, 1, 50);
         var target = Math.Clamp(workspace?.TargetSummaryTokens ?? app.TargetSummaryTokens, 128, 65_536);
+        var ratio = (workspace?.CompressionStrength ?? app.CompressionStrength).SummaryRatio();
         var autoCompress = workspace?.AutoCompress ?? app.AutoCompress;
         if (selectedCap.HasValue && selectedCap > modelWindow) warnings.Add("ContextCapClampedToModel");
         return new ResolvedContextPolicy(
-            modelWindow, window, output, safety, inputBudget, threshold, autoCompress, keep, target,
+            modelWindow, window, output, safety, inputBudget, threshold, autoCompress, keep, target, ratio,
             capSource, thresholdSource, warnings);
     }
 

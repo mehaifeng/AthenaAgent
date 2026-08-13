@@ -36,6 +36,7 @@ public sealed class ConversationContextSettingsViewModel : ViewModelBase, IDispo
     public AppSettingsState State { get; }
     public Array ContextPolicyModes { get; } = Enum.GetValues<ContextPolicyMode>();
     public Array CompressionThresholdModes { get; } = Enum.GetValues<CompressionThresholdMode>();
+    public Array CompressionStrengths { get; } = Enum.GetValues<CompressionStrength>();
 
     public bool IsCustomCap => State.Config.ContextPolicy.Mode is ContextPolicyMode.CustomCap or ContextPolicyMode.LegacyCustom;
     public bool IsCustomThreshold => State.Config.ContextPolicy.CompressionThresholdMode == CompressionThresholdMode.Custom;
@@ -59,6 +60,26 @@ public sealed class ConversationContextSettingsViewModel : ViewModelBase, IDispo
     public string EffectivePolicyText => TryResolve(out _, out _, out _, out var policy)
         ? $"W {policy!.ContextWindowTokens:N0} · R {policy.OutputReserveTokens:N0} · S {policy.SafetyMarginTokens:N0} · B {policy.AvailableInputBudgetTokens:N0} · T {policy.CompressionThresholdTokens:N0}"
         : "—";
+
+    /// <summary>
+    /// 把几个旋钮换算成用户真正关心的结果：什么时候压、一次能吃多少历史、摘要最长多少。
+    /// 只列旋钮而不显示派生结果，正是「摘要目标 Token」当初难以理解的原因。
+    /// </summary>
+    public string CompressionEffectText
+    {
+        get
+        {
+            if (!TryResolve(out _, out _, out _, out var policy)) return "—";
+            if (!policy!.AutoCompress) return L("Settings.Context.Effect.Disabled", "Automatic compression is off.");
+            return string.Format(
+                L("Settings.Context.Effect.Format",
+                    "Compresses at {0:N0} tokens · up to {1:N0} tokens of history per pass · summary at most {2:N0} tokens ({3}:1)"),
+                policy.CompressionThresholdTokens,
+                policy.MaxMaterialPerPassTokens,
+                policy.TargetSummaryTokens,
+                policy.SummaryRatio);
+        }
+    }
 
     public string CatalogText
     {
@@ -158,6 +179,7 @@ public sealed class ConversationContextSettingsViewModel : ViewModelBase, IDispo
         OnPropertyChanged(nameof(ContextWindowSourceText));
         OnPropertyChanged(nameof(MatchStatusText));
         OnPropertyChanged(nameof(EffectivePolicyText));
+        OnPropertyChanged(nameof(CompressionEffectText));
         OnPropertyChanged(nameof(CatalogText));
     }
 

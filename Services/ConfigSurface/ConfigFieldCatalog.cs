@@ -149,9 +149,20 @@ public static class ConfigFieldCatalog
                 c => c.ContextPolicy.KeepRecentRounds, (c, v) => c.ContextPolicy.KeepRecentRounds = (int)v!,
                 "Number of recent conversation rounds to keep untouched when compressing.",
                 range: (1, 50)),
+            Field("ContextPolicy.CompressionStrength", "Context", ConfigFieldType.Enum,
+                c => c.ContextPolicy.CompressionStrength,
+                (c, v) => c.ContextPolicy.CompressionStrength = Enum.Parse<CompressionStrength>((string)v!, ignoreCase: true),
+                "How much history each compression condenses into one summary. "
+                + "Conservative=4:1 keeps more detail but compresses more often, Balanced=8:1, "
+                + "Aggressive=16:1 absorbs more history per pass with a coarser summary. "
+                + "The summary length itself follows from this and does not need to be set.",
+                allowedValues: EnumNames<CompressionStrength>()),
             Field("ContextPolicy.TargetSummaryTokens", "Context", ConfigFieldType.Long,
                 c => c.ContextPolicy.TargetSummaryTokens, (c, v) => c.ContextPolicy.TargetSummaryTokens = (long)v!,
-                "Target token budget for the compression summary.", range: (128, 65_536)),
+                "Upper bound on summary length, not a target. The actual length is material divided by "
+                + "CompressionStrength; this only caps it further, and is itself capped by what the "
+                + "compression model can emit in one response.",
+                range: (128, 65_536)),
 
             // 遗留别名：保持旧工具键可用，并映射到 v6 语义。
             Field("MaxContextTokens", "Context", ConfigFieldType.Long,

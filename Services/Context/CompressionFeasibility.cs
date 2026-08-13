@@ -17,10 +17,11 @@ namespace Athena.UI.Services.Context;
 public static class CompressionFeasibility
 {
     /// <summary>
-    /// 可接受的最大压缩比。真实事故里是 150,876 → 12,000（12.6:1）——在这个比例下模型
-    /// 既要覆盖全部事实又要守住预算，实际通过率接近零。
+    /// 压缩强度未知时的兜底压缩比，对应 <see cref="CompressionStrength.Balanced"/>。
+    /// 真实事故里的比例是 150,876 → 12,000（12.6:1）——在那个比例下模型既要覆盖全部事实
+    /// 又要守住预算，实际通过率接近零。
     /// </summary>
-    public const double MaxFeasibleRatio = 8.0;
+    public const double DefaultFeasibleRatio = 8.0;
 
     /// <summary>Critical 锚点附录允许占用的目标预算比例；超出说明这份材料本就无法被摘要承载。</summary>
     public const double MaxCriticalAnchorBudgetFraction = 0.30;
@@ -36,15 +37,18 @@ public static class CompressionFeasibility
         return Evaluate(
             CompressionValidator.EstimateMaterialTokens(plan.Material),
             plan.TargetSummaryTokens,
-            CompressionValidator.ExtractHardAnchors(plan.Material));
+            CompressionValidator.ExtractHardAnchors(plan.Material),
+            summaryRatio: plan.MainModelPolicy.SummaryRatio);
     }
 
     public static CompressionFeasibilityVerdict Evaluate(
         long materialTokens,
         long targetTokens,
         IReadOnlyList<CompressionHardAnchor> anchors,
-        long? requiredBenefitTokens = null)
+        long? requiredBenefitTokens = null,
+        double? summaryRatio = null)
     {
+        var maxRatio = summaryRatio is > 0 ? summaryRatio.Value : DefaultFeasibleRatio;
         var critical = anchors.Where(anchor => anchor.Tier == CompressionAnchorTier.Critical).ToArray();
         var informationalCount = anchors.Count - critical.Length;
         // 附录逐条列出 Critical 锚点，成本可以精确预算，不必猜。
@@ -59,9 +63,9 @@ public static class CompressionFeasibility
         if (materialTokens <= 0 || targetTokens < 128)
             return Verdict(false, "Material or target budget is too small to compress.");
 
-        if (ratio > MaxFeasibleRatio)
+        if (ratio > maxRatio)
             return Verdict(false,
-                $"Required compression ratio {ratio:0.0}:1 exceeds the workable maximum {MaxFeasibleRatio:0.0}:1.");
+                $"Required compression ratio {ratio:0.0}:1 exceeds the configured strength {maxRatio:0.0}:1.");
 
         if (criticalTokens > targetTokens * MaxCriticalAnchorBudgetFraction)
             return Verdict(false,

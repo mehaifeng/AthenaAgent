@@ -394,7 +394,16 @@
     <system:String x:Key="Settings.Context.CustomCap">自定义全局上限</system:String>
     <system:String x:Key="Settings.Context.ThresholdMode">压缩阈值模式</system:String>
     <system:String x:Key="Settings.Context.KeepRecentRounds">保留最近轮次</system:String>
-    <system:String x:Key="Settings.Context.TargetSummaryTokens">摘要目标 Token</system:String>
+    <system:String x:Key="Settings.Context.CompressionStrength">压缩强度</system:String>
+    <system:String x:Key="Settings.Context.CompressionStrengthHint">一次压缩把多少历史浓缩成一份摘要。越保守，摘要越详细，但压缩触发得越频繁。</system:String>
+    <system:String x:Key="Settings.Context.Strength.Conservative">保守（4:1，细节优先）</system:String>
+    <system:String x:Key="Settings.Context.Strength.Balanced">平衡（8:1，推荐）</system:String>
+    <system:String x:Key="Settings.Context.Strength.Aggressive">激进（16:1，少打断）</system:String>
+    <system:String x:Key="Settings.Context.MaxSummaryTokens">摘要长度上限</system:String>
+    <system:String x:Key="Settings.Context.MaxSummaryTokensHint">摘要实际长度按「历史 ÷ 压缩强度」自动得出，这里只是再压一道上限；它本身还受压缩模型单次输出能力限制。</system:String>
+    <system:String x:Key="Settings.Context.Effect.Format">达到 {0:N0} token 时压缩 · 单次最多吃下 {1:N0} token 历史 · 摘要最长 {2:N0} token（{3}:1）</system:String>
+    <system:String x:Key="Settings.Context.Effect.Disabled">已关闭自动压缩。</system:String>
+    <system:String x:Key="Settings.Context.TargetSummaryTokens">摘要长度上限</system:String>
     <system:String x:Key="Settings.Context.UnknownAssumption">未匹配模型默认按 1,000,000 Context / 262,144 压缩阈值处理；可在“供应商与模型”中填写真实模型元数据。</system:String>
     <system:String x:Key="Settings.Context.WorkspaceKnowledge">工作区知识</system:String>
     <system:String x:Key="Settings.Context.Unconfigured">未配置</system:String>

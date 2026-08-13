@@ -2,8 +2,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:appconv="using:Athena.UI.Converters"
              x:Class="Athena.UI.Views.ConversationContextSettingsView"
              x:DataType="vm:ConversationContextSettingsViewModel">
+    <UserControl.Resources>
+        <appconv:CompressionStrengthToDisplayConverter x:Key="CompressionStrengthToDisplay"/>
+    </UserControl.Resources>
     <ScrollViewer>
         <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
@@ -85,15 +89,40 @@
                                        Value="{Binding State.Config.ContextPolicy.KeepRecentRounds}"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,220,*">
-                        <TextBlock Text="{loc:Loc Settings.Context.TargetSummaryTokens}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc Settings.Context.CompressionStrength}" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding CompressionStrengths}"
+                                  SelectedItem="{Binding State.Config.ContextPolicy.CompressionStrength}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource CompressionStrengthToDisplay}}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Grid.Column="2"
+                                   Text="{loc:Loc Settings.Context.CompressionStrengthHint}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.58"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,220,*">
+                        <TextBlock Text="{loc:Loc Settings.Context.MaxSummaryTokens}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="128"
                                        Maximum="65536"
                                        Value="{Binding State.Config.ContextPolicy.TargetSummaryTokens}"/>
+                        <TextBlock Grid.Column="2"
+                                   Text="{loc:Loc Settings.Context.MaxSummaryTokensHint}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.58"/>
                     </Grid>
+                    <TextBlock Text="{Binding CompressionEffectText}"
+                               TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding EffectivePolicyText}"
                                FontFamily="Menlo,Consolas,monospace"
-                               TextWrapping="Wrap"/>
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                     <TextBlock Text="{loc:Loc Settings.Context.UnknownAssumption}"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
