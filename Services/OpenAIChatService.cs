@@ -194,7 +194,9 @@ public class OpenAIChatService : IChatService
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null,
-        Action<ContextAnchorRecord>? onAnchorObserved = null)
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
     {
         EffectiveRequestRuntimeSnapshot? runtime = null;
         Exception? runtimeFailure = null;
@@ -246,7 +248,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -316,7 +318,9 @@ public class OpenAIChatService : IChatService
                                                    onReasoningDelta,
                                                    onCompressionTransition: onCompressionTransition,
                                                    onContextWarning: onContextWarning,
-                                                   onAnchorObserved: onAnchorObserved)
+                                                   onAnchorObserved: onAnchorObserved,
+                                                   onCompressionProgress: onCompressionProgress,
+                                                   skipCompressionToken: skipCompressionToken)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -608,7 +612,9 @@ public class OpenAIChatService : IChatService
         Action<string>? onReasoningDelta = null,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null,
-        Action<ContextAnchorRecord>? onAnchorObserved = null)
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -649,6 +655,12 @@ public class OpenAIChatService : IChatService
                     apiRequestId, shadow.MeanTokens, shadow.DecisionTokens, shadow.Confidence);
             }
             var requestWasRebuilt = false;
+            // 压缩结果是否已经报给界面。同一轮工具循环可能多次进入压缩分支，
+            // 每轮迭代都要重新判定，否则状态行会停在上一次的结论上。
+            var compressionOutcomeReported = false;
+            // 用户主动跳过这一次压缩。结论已经由 Skipped 说清楚，「本次压缩未成功」的措辞
+            // 若照常发出，会把用户自己按下的那个选择盖成一句故障报告。
+            var compressionSkippedByUser = false;
 
             // 冷启动、回溯、分支、切换会话之后的首轮：先从已落盘的账本里找回仍然有效的精确测量，
             // 而不是用整段字符估算去重建一个供应商早就告诉过我们的数字。
@@ -756,8 +768,31 @@ public class OpenAIChatService : IChatService
                     }
                     else
                     {
-                        var generated = await _compressionCandidateGenerator.GenerateAsync(planResult.Plan, cancellationToken);
-                        if (generated.Candidate == null)
+                        // 「跳过压缩」只取消这一次候选生成，不取消整轮请求：用户放弃等待时，
+                        // 本轮仍带原上下文照常发出，而不是把已经开始的一轮整个作废。
+                        CompressionGenerationResult generated;
+                        using (var compressionCts = CancellationTokenSource.CreateLinkedTokenSource(
+                                   cancellationToken, skipCompressionToken))
+                        {
+                            try
+                            {
+                                generated = await _compressionCandidateGenerator.GenerateAsync(
+                                    planResult.Plan, compressionCts.Token, onCompressionProgress);
+                            }
+                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                            {
+                                compressionSkippedByUser = true;
+                                generated = CompressionGenerationResult.NotCompressible("Compression was skipped by the user.");
+                            }
+                        }
+
+                        if (compressionSkippedByUser)
+                        {
+                            Log.Information("Tool-loop compression skipped by the user; the request keeps the original context");
+                            compressionOutcomeReported = true;
+                            onCompressionProgress?.Invoke(CompressionProgress.Skipped());
+                        }
+                        else if (generated.Candidate == null)
                         {
                             Log.Warning("Tool-loop compression produced no candidate ({Status}): {Error}",
                                 generated.Status, generated.Error);
@@ -800,6 +835,11 @@ public class OpenAIChatService : IChatService
                                     anchorFixedOverhead = null;
                                     anchorProfileKey = null;
                                     onContextWarning?.Invoke(string.Empty);
+                                    compressionOutcomeReported = true;
+                                    onCompressionProgress?.Invoke(CompressionProgress.Committed(
+                                        transition.MessageIds.Count,
+                                        transition.PreCompressionTokens,
+                                        transition.PostCompressionTokens));
                                     Log.Information("Tool-loop transactional compression committed; removed {Count} messages by ID", transition.MessageIds.Count);
                                 }
                                 else
@@ -822,16 +862,34 @@ public class OpenAIChatService : IChatService
                     Log.Warning("Tool-loop compression pipeline is unavailable; the request keeps the original context");
                 }
 
+                // 硬预算超限：本轮无法安全发出。这句话必须走警告通道，不能 yield 成正文——
+                // 正文会被当作助手回复落盘，下一轮再原样发回给模型，等于往一个已经装不下的
+                // 上下文里继续塞一句模型从没说过的话。
+                // 进度收场与文案是两件事，不能共用一个闩锁。文案每轮只说一次就够了，
+                // 但「正在整理上下文」是每次压缩尝试各点亮一次的，必须每次都熄灭：
+                // 同一轮里第二次失败若沾了闩锁的光跳过这里，状态行和「跳过压缩」按钮
+                // 会一直定格到整轮收尾，同时思考点还被它压着不跳。
+                if (!requestWasRebuilt && !compressionOutcomeReported)
+                {
+                    compressionOutcomeReported = true;
+                    onCompressionProgress?.Invoke(CompressionProgress.Failed());
+                }
+
                 if (!requestWasRebuilt && currentTokens > runtime.ContextPolicy.AvailableInputBudgetTokens)
                 {
-                    yield return "[上下文错误: 当前请求超过可用输入预算，自动压缩未能安全提交。请调整模型元数据或手动压缩后重试。]";
+                    onContextWarning?.Invoke(GetLocalized(
+                        "Chat.Context.OverBudget",
+                        "This request exceeds the available input budget and automatic compression could not be committed safely. Adjust the model metadata or compress manually, then retry."));
                     yield break;
                 }
-                if (!requestWasRebuilt && !compressionWarningRaised)
+                // 跳过是用户自己的选择，不是故障：措辞已由 Skipped 给出，这里不能再盖一层。
+                // 闩锁也不置位——本轮之后若真的失败一次，那句解释仍然该发得出来。
+                if (!requestWasRebuilt && !compressionWarningRaised && !compressionSkippedByUser)
                 {
                     compressionWarningRaised = true;
-                    onContextWarning?.Invoke(
-                        "Automatic compression could not be safely applied. The request remains below the hard input budget and will continue unchanged once.");
+                    onContextWarning?.Invoke(GetLocalized(
+                        "Chat.Context.CompressionUnavailable",
+                        "Automatic context compression did not succeed. This reply continues with the context unchanged."));
                 }
             }
 

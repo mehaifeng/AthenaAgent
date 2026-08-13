@@ -543,11 +543,16 @@
     <system:String x:Key="ProviderModels.Support.Unknown">Unknown</system:String>
     <system:String x:Key="ProviderModels.Support.Supported">Supported</system:String>
     <system:String x:Key="ProviderModels.Support.Unsupported">Unsupported</system:String>
-    <system:String x:Key="ProviderModels.Warning.UnknownModelAssumption">No reliable match; using the 1M Context / 256K compression-threshold assumption.</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterFieldMissing">The matched OpenRouter record does not contain this field.</system:String>
-    <system:String x:Key="ProviderModels.Warning.PinnedOpenRouterModelMissing">The pinned OpenRouter model is missing from the current catalog.</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterCatalogStale">The OpenRouter metadata catalog is stale.</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterModelExpired">The matched OpenRouter model is expired.</system:String>
+    <!-- Model diagnostic codes: shared by the provider models page and the context inspector; the key is the code in ModelWarnings. -->
+    <system:String x:Key="ModelWarning.UnknownModelAssumption">No reliable match; using the 1M Context / 256K compression-threshold assumption.</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterFieldMissing">The matched OpenRouter record does not contain this field.</system:String>
+    <system:String x:Key="ModelWarning.PinnedOpenRouterModelMissing">The pinned OpenRouter model is missing from the current catalog.</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterCatalogStale">The OpenRouter metadata catalog is stale.</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterModelExpired">The matched OpenRouter model is expired.</system:String>
+    <system:String x:Key="ModelWarning.InvalidContextCapIgnored">The configured context cap is below 1024 tokens; it was ignored in favour of model metadata.</system:String>
+    <system:String x:Key="ModelWarning.InvalidCompressionThresholdIgnored">The configured compression threshold is invalid; it was ignored in favour of the default threshold.</system:String>
+    <system:String x:Key="ModelWarning.CompressionThresholdClamped">The configured compression threshold exceeds the available input budget and was clamped to it.</system:String>
+    <system:String x:Key="ModelWarning.ContextCapClampedToModel">The configured context cap exceeds the model's own window and was clamped to it — the setting has no effect; switch it back to automatic or lower it below the model window.</system:String>
     <system:String x:Key="ContextInspector.Button">Context inspector</system:String>
     <system:String x:Key="ContextInspector.Open">Open context inspector</system:String>
     <system:String x:Key="ContextInspector.UsageButton">Open context inspector; context usage</system:String>
@@ -590,6 +595,12 @@
     <system:String x:Key="ContextInspector.Preview.CandidateReady">Candidate ready. Estimated {0:N0} → {1:N0} tokens. Review it before Apply.</system:String>
     <system:String x:Key="ContextInspector.Preview.Cancelled">Candidate generation cancelled; conversation unchanged.</system:String>
     <system:String x:Key="ContextInspector.Preview.Applied">Candidate applied and persisted atomically.</system:String>
+    <!-- {0} is the technical reason from the compression pipeline (planner/validator verdict or the provider error), kept verbatim so it matches the logs. -->
+    <system:String x:Key="ContextInspector.Preview.PlanUnavailable">No compression plan could be built: {0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.Failed">Candidate generation failed: {0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.Rejected">The candidate failed validation: {0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.ApplyFailed">Apply failed and the conversation is unchanged: {0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.UndoFailed">Undo failed and the conversation is unchanged: {0}</system:String>
     <system:String x:Key="ContextInspector.Raw.Stale">RAW snapshot became stale; refresh it.</system:String>
     <system:String x:Key="ContextInspector.Raw.Cancelled">RAW context build cancelled.</system:String>
     <system:String x:Key="ContextInspector.Raw.Failed">Failed to build RAW context: {0}</system:String>
@@ -1033,6 +1044,19 @@
     <system:String x:Key="KbMaint.Exception">Error: {0}</system:String>
 
     <system:String x:Key="Chat.Archived">Archived</system:String>
+
+    <!-- Automatic compression, made visible: the wait gets a name, a progress count and an end -->
+    <system:String x:Key="Chat.Context.Compressing">Condensing context · part {0}/{1}</system:String>
+    <system:String x:Key="Chat.Context.Reducing">Merging summaries · layer {0}</system:String>
+    <system:String x:Key="Chat.Context.SkipCompression">Skip compression</system:String>
+    <system:String x:Key="Chat.Context.SkipCompressionHint">Drop this compression; the reply continues with the context unchanged</system:String>
+    <system:String x:Key="Chat.Context.CompressionSkipped">Compression skipped. This reply continues with the context unchanged.</system:String>
+    <system:String x:Key="Chat.Context.CompressionUnavailable">Automatic context compression did not succeed. This reply continues with the context unchanged.</system:String>
+    <system:String x:Key="Chat.Context.OverBudget">This request exceeds the available input budget and automatic compression could not be committed safely. Adjust the model metadata or compress manually, then retry.</system:String>
+    <system:String x:Key="Chat.Context.CompressManually">Compress manually</system:String>
+    <system:String x:Key="Chat.Context.CompressedBadge">Compressed −{0}</system:String>
+    <system:String x:Key="Chat.Context.Boundary">Context compressed · {0} messages → summary</system:String>
+    <system:String x:Key="Chat.Context.BoundaryAt">Context compressed · {0} messages → summary · {1:t}</system:String>
     <system:String x:Key="Chat.Reasoning.Header">Reasoning</system:String>
     <system:String x:Key="Chat.Reasoning.Show">Show reasoning</system:String>
     <system:String x:Key="Chat.Reasoning.Hide">Hide reasoning</system:String>

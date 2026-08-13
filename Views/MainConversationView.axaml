@@ -642,9 +642,23 @@
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
                                         </StackPanel>
 
+                                        <!-- 自动压缩进行中：分段进度是真实的（分段数在首次模型调用前已确定），
+                                             并给出「跳过压缩」，把用户唯一的逃生手段从「按停止作废整轮」降级为「少等一会儿」。 -->
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasContextMaintenanceStatus}">
+                                            <PathIcon Data="{StaticResource SemiIconArchive}" Width="14" Height="14" Opacity="0.6" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding ContextMaintenanceStatus}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
+                                            <Button Padding="8,2"
+                                                    FontSize="{DynamicResource App.FontSize.Caption}"
+                                                    VerticalAlignment="Center"
+                                                    Content="{loc:Loc Chat.Context.SkipCompression}"
+                                                    Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).SkipCompressionCommand}"
+                                                    ToolTip.Tip="{loc:Loc Chat.Context.SkipCompressionHint}"
+                                                    AutomationProperties.Name="{loc:Loc Chat.Context.SkipCompression}"/>
+                                        </StackPanel>
+
                                         <StackPanel IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                             <StackPanel Orientation="Horizontal" Spacing="3"
-                                                        IsVisible="{Binding !HasToolExecutionSummary}"
+                                                        IsVisible="{Binding ShowThinkingIndicator}"
                                                         VerticalAlignment="Center">
                                                 <Ellipse Classes="loading-dot dot1" Classes.animating="{Binding ShowThinkingIndicator}"/>
                                                 <Ellipse Classes="loading-dot dot2" Classes.animating="{Binding ShowThinkingIndicator}"/>
@@ -692,6 +706,34 @@
                                         <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="14" Height="14"/>
                                     </Button>
                                 </StackPanel>
+
+                                <!-- 压缩边界：从这条线往上，模型看到的是摘要而不是原文。
+                                     逐条「已归档」角标答不了这个问题，边界才答得了，所以只标最后一条。 -->
+                                <Grid ColumnDefinitions="*,Auto,*"
+                                      Margin="0,10,0,2"
+                                      ColumnSpacing="10"
+                                      IsVisible="{Binding IsCompressionBoundary}">
+                                    <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
+                                               Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <PathIcon Data="{StaticResource SemiIconArchive}" Width="12" Height="12"
+                                                  Opacity="0.55" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CompressionBoundaryText}"
+                                                   Foreground="{DynamicResource Chat.TimestampFg}"
+                                                   FontSize="{DynamicResource App.FontSize.Caption}"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Padding="6,1"
+                                                FontSize="{DynamicResource App.FontSize.Caption}"
+                                                Content="{loc:Loc ContextInspector.Title}"
+                                                Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).ToggleContextInspectorCommand}"/>
+                                        <Button Padding="6,1"
+                                                FontSize="{DynamicResource App.FontSize.Caption}"
+                                                Content="{loc:Loc ContextInspector.Summary.Undo}"
+                                                Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).UndoCompressionCommand}"/>
+                                    </StackPanel>
+                                    <Rectangle Grid.Column="2" Height="1" VerticalAlignment="Center"
+                                               Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
+                                </Grid>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
@@ -875,12 +917,40 @@
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasBackgroundArchiveErrorStatus}"/>
 
-                <TextBlock Grid.Row="3"
-                           Text="{Binding AttachmentStatusMessage}"
-                           IsVisible="{Binding HasAttachmentStatusMessage}"
-                           Foreground="{DynamicResource SemiRed6}"
-                           FontSize="{DynamicResource App.FontSize.Body}"
-                           Margin="0,0,0,8"/>
+                <StackPanel Grid.Row="3" Spacing="6">
+                    <TextBlock Text="{Binding AttachmentStatusMessage}"
+                               IsVisible="{Binding HasAttachmentStatusMessage}"
+                               Foreground="{DynamicResource SemiRed6}"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Margin="0,0,0,8"/>
+
+                    <!-- 压缩未成功/被跳过：不自动消失。上下文仍然超阈值，下一轮会撞同一堵墙，
+                         用户有权知道，也有权直接去手动压缩。 -->
+                    <Border IsVisible="{Binding HasCompressionStatusMessage}"
+                            Margin="0,0,0,8"
+                            Padding="8,5"
+                            CornerRadius="5"
+                            Background="{DynamicResource SemiGrey0}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <PathIcon Grid.Column="0"
+                                      Data="{StaticResource SemiIconAlertTriangle}"
+                                      Width="13" Height="13"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource SemiOrange5}"/>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding CompressionStatusMessage}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       FontSize="{DynamicResource App.FontSize.Caption}"/>
+                            <Button Grid.Column="2"
+                                    Padding="8,2"
+                                    FontSize="{DynamicResource App.FontSize.Caption}"
+                                    VerticalAlignment="Center"
+                                    Content="{loc:Loc Chat.Context.CompressManually}"
+                                    Command="{Binding ToggleContextInspectorCommand}"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
 
                 <!-- 文本输入：无边框，融入外层卡片 -->
                 <TextBox x:Name="MessageInputTextBox"
@@ -942,13 +1012,26 @@
                             Grid.Column="1"
                             VerticalAlignment="Center"
                             ToolTip.Tip="{Binding ContextTokensInfo}">
-                        <Grid x:Name="ContextUsageDisplay"
-                              IsVisible="{Binding TokenService.HasVisibleUsage}">
-                            <TextBlock Text="{Binding TokenService.TokenUsageBarText}"
-                                       FontFamily="Consolas, 'Courier New', monospace"
-                                       FontSize="{DynamicResource App.FontSize.Caption}"
-                                       VerticalAlignment="Center"/>
-                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <!-- 压缩刚提交时短暂出现：回答「刚才那段等待换来了什么」，4 秒后自动收起。 -->
+                            <Border IsVisible="{Binding HasCompressionSavingBadge}"
+                                    Background="{DynamicResource SemiGrey0}"
+                                    CornerRadius="4"
+                                    Padding="6,1"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="{Binding CompressionSavingBadge}"
+                                           Foreground="{DynamicResource SemiGreen6}"
+                                           FontSize="{DynamicResource App.FontSize.Caption}"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                            <Grid x:Name="ContextUsageDisplay"
+                                  IsVisible="{Binding TokenService.HasVisibleUsage}">
+                                <TextBlock Text="{Binding TokenService.TokenUsageBarText}"
+                                           FontFamily="Consolas, 'Courier New', monospace"
+                                           FontSize="{DynamicResource App.FontSize.Caption}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
                     </Border>
 
                     <TextBlock Grid.Column="2"

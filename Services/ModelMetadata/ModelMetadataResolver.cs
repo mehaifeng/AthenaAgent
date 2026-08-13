@@ -45,8 +45,8 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
         else
         {
             context = new ResolvedMetadataValue<long>(UnknownContextWindowTokens, MetadataValueSource.ApplicationDefault);
-            warnings.Add("UnknownModelAssumption");
-            if (matched != null) warnings.Add("OpenRouterFieldMissing");
+            warnings.Add(ModelWarnings.UnknownModelAssumption);
+            if (matched != null) warnings.Add(ModelWarnings.OpenRouterFieldMissing);
         }
 
         long? referencedMax = matched?.TopProvider?.MaxCompletionTokens;
@@ -66,8 +66,8 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
             ? overriddenOutputs.ToHashSet(StringComparer.OrdinalIgnoreCase)
             : matched?.Architecture.OutputModalities ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (match.Status == ModelMatchStatus.PinnedModelMissing) warnings.Add("PinnedOpenRouterModelMissing");
-        if (isCatalogStale) warnings.Add("OpenRouterCatalogStale");
+        if (match.Status == ModelMatchStatus.PinnedModelMissing) warnings.Add(ModelWarnings.PinnedOpenRouterModelMissing);
+        if (isCatalogStale) warnings.Add(ModelWarnings.OpenRouterCatalogStale);
         var effortOverride = profile?.Overrides.ReasoningEffort ?? ReasoningEffort.Auto;
         ResolvedMetadataValue<ReasoningEffort>? effort = effortOverride != ReasoningEffort.Auto
             ? new ResolvedMetadataValue<ReasoningEffort>(effortOverride, MetadataValueSource.UserOverride)

@@ -27,7 +27,7 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
             selectedCap = app.CustomCapTokens;
         if (selectedCap is < 1024)
         {
-            warnings.Add("InvalidContextCapIgnored");
+            warnings.Add(ModelWarnings.InvalidContextCapIgnored);
             selectedCap = null;
             capSource = ContextPolicyValueSource.ModelMetadata;
         }
@@ -61,7 +61,7 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
         {
             if (explicitThreshold <= 0)
             {
-                warnings.Add("InvalidCompressionThresholdIgnored");
+                warnings.Add(ModelWarnings.InvalidCompressionThresholdIgnored);
                 threshold = DefaultThreshold(model, inputBudget);
                 thresholdSource = model.ContextWindowTokens.Source == MetadataValueSource.ApplicationDefault
                     ? ContextPolicyValueSource.ApplicationDefaultAssumption
@@ -70,7 +70,7 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
             else
             {
                 threshold = Math.Min(explicitThreshold.Value, inputBudget);
-                if (explicitThreshold > inputBudget) warnings.Add("CompressionThresholdClamped");
+                if (explicitThreshold > inputBudget) warnings.Add(ModelWarnings.CompressionThresholdClamped);
             }
         }
         else
@@ -82,7 +82,7 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
         var target = Math.Clamp(workspace?.TargetSummaryTokens ?? app.TargetSummaryTokens, 128, 65_536);
         var ratio = (workspace?.CompressionStrength ?? app.CompressionStrength).SummaryRatio();
         var autoCompress = workspace?.AutoCompress ?? app.AutoCompress;
-        if (selectedCap.HasValue && selectedCap > modelWindow) warnings.Add("ContextCapClampedToModel");
+        if (selectedCap.HasValue && selectedCap > modelWindow) warnings.Add(ModelWarnings.ContextCapClampedToModel);
         return new ResolvedContextPolicy(
             modelWindow, window, output, safety, inputBudget, threshold, autoCompress, keep, target, ratio,
             capSource, thresholdSource, warnings);

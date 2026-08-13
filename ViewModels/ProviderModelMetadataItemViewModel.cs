@@ -106,10 +106,11 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     {
         get
         {
-            var warnings = Resolved.Warnings.Select(warning =>
-                _getString($"ProviderModels.Warning.{warning}", warning)).ToList();
+            var warnings = Resolved.Warnings
+                .Select(warning => ModelWarnings.Describe(warning, _getString))
+                .ToList();
             if (Resolved.Match.IsExpired)
-                warnings.Add(_getString("ProviderModels.Warning.OpenRouterModelExpired", "The matched OpenRouter model is expired."));
+                warnings.Add(ModelWarnings.Describe(ModelWarnings.OpenRouterModelExpired, _getString));
             return string.Join(Environment.NewLine, warnings);
         }
     }

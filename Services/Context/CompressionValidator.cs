@@ -3,16 +3,14 @@ using Athena.UI.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace Athena.UI.Services.Context;
 
-public sealed partial class CompressionValidator : ICompressionValidator
+public sealed class CompressionValidator : ICompressionValidator
 {
-    /// <summary>Informational 锚点要求的最低召回率。丢几个 URL 只是摘要变差，不会损坏状态。</summary>
-    public const double MinimumInformationalRecall = 0.90;
+    /// <summary>摘要末尾结构化附录的标题行；句柄只经这一个通道传递。</summary>
+    public const string AppendixHeader = "[hard_facts]";
 
     public CompressionValidationResult Validate(
         CompressionPlan plan,
@@ -40,69 +38,42 @@ public sealed partial class CompressionValidator : ICompressionValidator
         if (benefit < requiredBenefit)
             return Result(CompressionValidationStatus.InsufficientBenefit, summaryTokens, postEstimate, benefit, [], "Candidate does not provide material compression benefit.");
 
-        var anchors = ExtractHardAnchors(plan.Material);
-        // Critical 锚点由生成侧的结构化附录保证，这里只做兜底自检；Informational 按召回率
-        // 判定——要求逐条 100% 复现会让任何非平凡的材料都无法通过验收。
-        var missingCritical = anchors
-            .Where(anchor => anchor.Tier == CompressionAnchorTier.Critical
-                             && !candidate.Summary.Contains(anchor.Value, StringComparison.Ordinal))
-            .ToArray();
-        var informational = anchors.Where(anchor => anchor.Tier == CompressionAnchorTier.Informational).ToArray();
-        var missingInformational = informational
+        // 句柄由生成侧结构化追加，这里只做兜底自检。摘要「写得全不全」不在验收范围内：
+        // 那是质量问题，不是状态损坏，拿它一票否决只会让每次压缩都先花掉几十秒再判死。
+        var missingHandles = ExtractHardAnchors(plan.Material)
             .Where(anchor => !candidate.Summary.Contains(anchor.Value, StringComparison.Ordinal))
             .ToArray();
-        // 失败时把两层都报出来：只报触发失败的那一层，诊断时会看不到全貌。
-        if (missingCritical.Length > 0)
+        if (missingHandles.Length > 0)
             return Result(CompressionValidationStatus.MissingHardAnchors, summaryTokens, postEstimate, benefit,
-                [.. missingCritical, .. missingInformational],
-                $"Candidate omitted {missingCritical.Length} critical reference anchor(s).");
+                missingHandles,
+                $"Candidate omitted {missingHandles.Length} attachment handle(s) the conversation can still be asked about.");
 
-        if (informational.Length > 0)
-        {
-            var recall = (informational.Length - missingInformational.Length) / (double)informational.Length;
-            if (recall < MinimumInformationalRecall)
-                return Result(CompressionValidationStatus.MissingHardAnchors, summaryTokens, postEstimate, benefit, missingInformational,
-                    $"Informational anchor recall {recall:P0} is below the required {MinimumInformationalRecall:P0}.");
-        }
-
-        return Result(CompressionValidationStatus.Valid, summaryTokens, postEstimate, benefit, missingInformational, string.Empty);
+        return Result(CompressionValidationStatus.Valid, summaryTokens, postEstimate, benefit, [], string.Empty);
     }
 
     /// <summary>
-    /// 引用完整性锚点：丢失会让摘要指向不存在的工具调用或附件，破坏后续请求的配对约束。
-    /// 这类必须逐字保留，但由生成侧结构化追加，而不是要求模型自己复述。
+    /// 材料里的句柄：附件 id 与它在磁盘上的落点。取自消息上的结构化附件元数据，不靠正则去文本里猜。
+    /// <para>
+    /// 这里曾经还抽 url / path / error / number / constraint / tool_call_id / command，并要求摘要逐字保留：
+    /// 一段真实会话抽出 129 条，模型自然复述率 6%–15%，于是每次压缩都先花掉 30–100 秒再被判死；
+    /// 就算全塞进附录，那也是一串脱离上下文的裸标识符，占着预算却无法参与推理。tool_call_id 更是纯废字——
+    /// 规划器只压完整轮次，调用和结果一起消失，请求里没有任何东西再引用它。
+    /// 这些内容的价值在于和「发生了什么」绑在一起被叙述出来，因此交给压缩提示词，不做结构化保证。
+    /// </para>
     /// </summary>
-    private static CompressionAnchorTier TierOf(string kind) => kind switch
-    {
-        "tool_call_id" or "attachment_id" or "attachment_path" => CompressionAnchorTier.Critical,
-        _ => CompressionAnchorTier.Informational
-    };
-
     public static IReadOnlyList<CompressionHardAnchor> ExtractHardAnchors(
         IReadOnlyList<CompressionMaterialMessage> material)
     {
         var anchors = new Dictionary<string, CompressionHardAnchor>(StringComparer.Ordinal);
         void Add(string kind, string? value)
         {
-            value = value?.Trim().TrimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\'');
+            value = value?.Trim();
             if (!string.IsNullOrWhiteSpace(value))
-                anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value, TierOf(kind)));
+                anchors.TryAdd(kind + "" + value, new CompressionHardAnchor(kind, value));
         }
 
         foreach (var message in material)
         {
-            foreach (Match match in UrlRegex().Matches(message.Content)) Add("url", match.Value);
-            foreach (Match match in PathRegex().Matches(message.Content)) Add("path", match.Value);
-            if (string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase))
-                foreach (Match match in ErrorCodeRegex().Matches(message.Content)) Add("error", match.Value);
-            if (string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (Match match in NumberRegex().Matches(message.Content)) Add("number", match.Value);
-                foreach (var sentence in ConstraintRegex().Split(message.Content))
-                    if (ConstraintMarkerRegex().IsMatch(sentence)) Add("constraint", sentence);
-            }
-            Add("tool_call_id", message.ToolCallId);
-            ReadToolCalls(message.ToolCallsJson, Add);
             foreach (var attachment in message.Attachments)
             {
                 Add("attachment_id", attachment.Id);
@@ -112,49 +83,44 @@ public sealed partial class CompressionValidator : ICompressionValidator
         return anchors.Values.ToArray();
     }
 
+    /// <summary>
+    /// 从既有摘要里取回句柄：只认我们自己写下的附录块，不做正则猜测。
+    /// 附录是句柄唯一的传递通道——旧实现用正则去摘要正文里重新抽锚点，等于让上一轮的附录
+    /// 变成下一轮必须保留的锚点，清单只增不减，压得越多摘要里的裸标识符越多。
+    /// <para>
+    /// 一行一个值，且扫描文本里的每一个附录块：reduce 层可能把上一层的附录抄进正文，
+    /// 之后生成侧又追加一份，只认第一块会把另一半句柄留在后面。
+    /// 更早的版本曾在同一行用逗号分隔多个值，那种摘要在这里会退化成一条合并后的怪值；
+    /// 它仍会被原样写进新附录并继续传下去，不会让压缩失败，新附件也不受影响。
+    /// </para>
+    /// </summary>
     internal static IReadOnlyList<CompressionHardAnchor> ExtractHardAnchorsFromText(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return [];
+
         var anchors = new Dictionary<string, CompressionHardAnchor>(StringComparer.Ordinal);
-        void Add(string kind, string? value)
+        var cursor = 0;
+        while (true)
         {
-            value = value?.Trim().TrimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\'');
-            if (!string.IsNullOrWhiteSpace(value))
-                anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value, TierOf(kind)));
-        }
-
-        foreach (Match match in UrlRegex().Matches(text)) Add("url", match.Value);
-        foreach (Match match in PathRegex().Matches(text)) Add("path", match.Value);
-        foreach (Match match in ErrorCodeRegex().Matches(text)) Add("error", match.Value);
-        foreach (Match match in NumberRegex().Matches(text)) Add("number", match.Value);
-        foreach (Match match in StableReferenceRegex().Matches(text)) Add("reference_id", match.Value);
-        foreach (var sentence in ConstraintRegex().Split(text))
-            if (ConstraintMarkerRegex().IsMatch(sentence)) Add("constraint", sentence);
-        return anchors.Values.ToArray();
-    }
-
-    private static void ReadToolCalls(string? json, Action<string, string?> add)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return;
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Array) return;
-            foreach (var call in document.RootElement.EnumerateArray())
+            var header = text.IndexOf(AppendixHeader, cursor, StringComparison.Ordinal);
+            if (header < 0) break;
+            cursor = header + AppendixHeader.Length;
+            foreach (var line in text[cursor..].Split('\n'))
             {
-                foreach (var property in call.EnumerateObject())
-                {
-                    if (property.Value.ValueKind != JsonValueKind.String) continue;
-                    if (string.Equals(property.Name, "id", StringComparison.OrdinalIgnoreCase)) add("tool_call_id", property.Value.GetString());
-                    if (string.Equals(property.Name, "name", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(property.Name, "functionName", StringComparison.OrdinalIgnoreCase))
-                        add("command", property.Value.GetString());
-                }
+                var entry = line.Trim();
+                if (entry.Length == 0) continue;
+                var separator = entry.IndexOf(':', StringComparison.Ordinal);
+                if (separator <= 0) break;
+                var kind = entry[..separator].Trim();
+                // 附录之后可能还跟着别的内容；遇到不认识的行就停，不去正文里乱抓。
+                // 下一个附录块的标题行没有冒号，同样在这里收住，交给外层循环接着找。
+                if (kind is not ("attachment_id" or "attachment_path")) break;
+                var value = entry[(separator + 1)..].Trim();
+                if (value.Length == 0) continue;
+                anchors.TryAdd(kind + "" + value, new CompressionHardAnchor(kind, value));
             }
         }
-        catch (JsonException)
-        {
-        }
+        return anchors.Values.ToArray();
     }
 
     /// <summary>整份压缩材料的估算 token 数。可行性判定与收益计算共用同一把尺。</summary>
@@ -180,28 +146,4 @@ public sealed partial class CompressionValidator : ICompressionValidator
         long benefit,
         IReadOnlyList<CompressionHardAnchor> missing,
         string error) => new(status, summaryTokens, postEstimate, benefit, missing, error);
-
-    // 工具结果里的换行常常是 JSON 转义后的字面量 `\n`，不是空白字符。旧模式不在那里停，
-    // 会把 URL 和其后的中文正文粘成一条 170 字符的“锚点”，任何模型都不可能原样复现，
-    // 等于给验收埋了一颗必炸的雷。这里显式排除反斜杠与 CJK 起始字符。
-    [GeneratedRegex(@"https?://[^\s<>()\""\]\\\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]+", RegexOptions.IgnoreCase)]
-    private static partial Regex UrlRegex();
-
-    [GeneratedRegex(@"(?<![\w])(?:[A-Za-z]:\\|/)[^\s,;]+")]
-    private static partial Regex PathRegex();
-
-    [GeneratedRegex(@"\b(?:E[A-Z0-9_]{2,}|HTTP\s*[45]\d{2}|[45]\d{2})\b")]
-    private static partial Regex ErrorCodeRegex();
-
-    [GeneratedRegex(@"(?<![\w])-?\d+(?:\.\d+)?(?![\w])")]
-    private static partial Regex NumberRegex();
-
-    [GeneratedRegex(@"[\r\n。！？!?]+")]
-    private static partial Regex ConstraintRegex();
-
-    [GeneratedRegex(@"\b(?:must|never|required|do not)\b|必须|不得|务必|禁止", RegexOptions.IgnoreCase)]
-    private static partial Regex ConstraintMarkerRegex();
-
-    [GeneratedRegex(@"\b(?:call|tool|task|att(?:achment)?)[-_][A-Za-z0-9._:-]+\b", RegexOptions.IgnoreCase)]
-    private static partial Regex StableReferenceRegex();
 }

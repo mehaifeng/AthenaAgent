@@ -543,11 +543,16 @@
     <system:String x:Key="ProviderModels.Support.Unknown">未知</system:String>
     <system:String x:Key="ProviderModels.Support.Supported">支持</system:String>
     <system:String x:Key="ProviderModels.Support.Unsupported">不支持</system:String>
-    <system:String x:Key="ProviderModels.Warning.UnknownModelAssumption">未找到可靠匹配；按 1M Context / 256K 压缩阈值假设处理。</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterFieldMissing">匹配到的 OpenRouter 记录缺少该字段。</system:String>
-    <system:String x:Key="ProviderModels.Warning.PinnedOpenRouterModelMissing">人工绑定的 OpenRouter 模型不在当前目录中。</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterCatalogStale">OpenRouter 元数据目录已过期。</system:String>
-    <system:String x:Key="ProviderModels.Warning.OpenRouterModelExpired">匹配到的 OpenRouter 模型已过期。</system:String>
+    <!-- 模型诊断码文案：供应商模型页与上下文检查器共用，键名即 ModelWarnings 里的码。 -->
+    <system:String x:Key="ModelWarning.UnknownModelAssumption">未找到可靠匹配；按 1M Context / 256K 压缩阈值假设处理。</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterFieldMissing">匹配到的 OpenRouter 记录缺少该字段。</system:String>
+    <system:String x:Key="ModelWarning.PinnedOpenRouterModelMissing">人工绑定的 OpenRouter 模型不在当前目录中。</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterCatalogStale">OpenRouter 元数据目录已过期。</system:String>
+    <system:String x:Key="ModelWarning.OpenRouterModelExpired">匹配到的 OpenRouter 模型已过期。</system:String>
+    <system:String x:Key="ModelWarning.InvalidContextCapIgnored">设置的上下文上限低于 1024 Token，已忽略并回落到模型元数据。</system:String>
+    <system:String x:Key="ModelWarning.InvalidCompressionThresholdIgnored">设置的压缩阈值无效，已忽略并回落到默认阈值。</system:String>
+    <system:String x:Key="ModelWarning.CompressionThresholdClamped">设置的压缩阈值高于可用输入预算，已按预算截断。</system:String>
+    <system:String x:Key="ModelWarning.ContextCapClampedToModel">设置的上下文上限高于模型自身窗口，已按模型窗口截断——该设定不生效，请改回自动或调到模型窗口以内。</system:String>
     <system:String x:Key="ContextInspector.Button">上下文检查器</system:String>
     <system:String x:Key="ContextInspector.Open">打开上下文检查器</system:String>
     <system:String x:Key="ContextInspector.UsageButton">打开上下文检查器；上下文用量</system:String>
@@ -590,6 +595,12 @@
     <system:String x:Key="ContextInspector.Preview.CandidateReady">候选已生成；估算从 {0:N0} 降至 {1:N0} Token。请检查后再应用。</system:String>
     <system:String x:Key="ContextInspector.Preview.Cancelled">候选生成已取消，会话未发生变化。</system:String>
     <system:String x:Key="ContextInspector.Preview.Applied">候选已原子应用并持久化。</system:String>
+    <!-- {0} 是压缩链路的技术原因（规划器/校验器的判定或供应商报错原文），刻意保留英文以便与日志比对。 -->
+    <system:String x:Key="ContextInspector.Preview.PlanUnavailable">无法生成压缩计划：{0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.Failed">候选生成失败：{0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.Rejected">候选未通过验收：{0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.ApplyFailed">应用失败，会话未发生变化：{0}</system:String>
+    <system:String x:Key="ContextInspector.Preview.UndoFailed">撤销失败，会话未发生变化：{0}</system:String>
     <system:String x:Key="ContextInspector.Raw.Stale">RAW 快照已过期，请重新构建。</system:String>
     <system:String x:Key="ContextInspector.Raw.Cancelled">RAW Context 构建已取消。</system:String>
     <system:String x:Key="ContextInspector.Raw.Failed">RAW Context 构建失败：{0}</system:String>
@@ -1033,6 +1044,19 @@
     <system:String x:Key="KbMaint.Exception">出错：{0}</system:String>
 
     <system:String x:Key="Chat.Archived">已归档</system:String>
+
+    <!-- 自动压缩的可见状态：让这段等待有名字、有进度、有终点 -->
+    <system:String x:Key="Chat.Context.Compressing">正在整理上下文 · 第 {0}/{1} 段</system:String>
+    <system:String x:Key="Chat.Context.Reducing">正在合并摘要 · 第 {0} 层</system:String>
+    <system:String x:Key="Chat.Context.SkipCompression">跳过压缩</system:String>
+    <system:String x:Key="Chat.Context.SkipCompressionHint">放弃这次压缩，本轮回复带原上下文照常继续</system:String>
+    <system:String x:Key="Chat.Context.CompressionSkipped">已跳过本次上下文压缩，回复带原上下文继续。</system:String>
+    <system:String x:Key="Chat.Context.CompressionUnavailable">本次上下文压缩未成功，回复照常继续（上下文未变）。</system:String>
+    <system:String x:Key="Chat.Context.OverBudget">当前请求超过可用输入预算，自动压缩未能安全提交。请调整模型元数据或手动压缩后重试。</system:String>
+    <system:String x:Key="Chat.Context.CompressManually">手动压缩</system:String>
+    <system:String x:Key="Chat.Context.CompressedBadge">已压缩 −{0}</system:String>
+    <system:String x:Key="Chat.Context.Boundary">上下文已压缩 · {0} 条 → 摘要</system:String>
+    <system:String x:Key="Chat.Context.BoundaryAt">上下文已压缩 · {0} 条 → 摘要 · {1:t}</system:String>
     <system:String x:Key="Chat.Reasoning.Header">思考过程</system:String>
     <system:String x:Key="Chat.Reasoning.Show">展开思考过程</system:String>
     <system:String x:Key="Chat.Reasoning.Hide">收起思考过程</system:String>

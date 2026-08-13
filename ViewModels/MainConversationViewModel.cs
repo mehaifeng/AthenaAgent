@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.ClientModel;
@@ -169,8 +170,31 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
     private bool _isCompressing;
 
+    /// <summary>
+    /// 压缩未成功/被跳过时的常驻提示。以前只汇进默认关闭的 Context Inspector 警告块，
+    /// 等于没有出口；现在直接挂在输入框上方，因为上下文仍然超阈值，下一轮会撞同一堵墙。
+    /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompressionStatusMessage))]
     private string _compressionStatusMessage = string.Empty;
+
+    public bool HasCompressionStatusMessage => !string.IsNullOrWhiteSpace(CompressionStatusMessage);
+
+    /// <summary>压缩刚提交时在用量条旁短暂出现的徽标，回答「刚才那段等待换来了什么」。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompressionSavingBadge))]
+    private string _compressionSavingBadge = string.Empty;
+
+    public bool HasCompressionSavingBadge => !string.IsNullOrWhiteSpace(CompressionSavingBadge);
+
+    /// <summary>压缩边界分隔线上的说明文字（条数与时间）。</summary>
+    [ObservableProperty]
+    private string _compressionBoundaryText = string.Empty;
+
+    /// <summary>正在自动压缩，且尚未提交——只有此时「跳过压缩」才有意义。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SkipCompressionCommand))]
+    private bool _isContextMaintenanceRunning;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasAttachmentStatusMessage))]
@@ -325,13 +349,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         get
         {
             var warnings = new List<string>();
-            if (_effectiveContextPolicy?.Metadata.Match.Status == ModelMatchStatus.Unmatched)
+            var metadataWarnings = _effectiveContextPolicy?.Metadata.Warnings ?? [];
+            // 「未匹配」与「按默认窗口假设」通常同时成立，说的是同一件事；元数据已经给出
+            // 假设码时不再多列一行（Distinct 去不掉两句不同措辞的重复）。
+            if (_effectiveContextPolicy?.Metadata.Match.Status == ModelMatchStatus.Unmatched
+                && !metadataWarnings.Contains(ModelWarnings.UnknownModelAssumption))
                 warnings.Add(GetString("ContextInspector.Warning.UnknownModel", "Unmatched model: using the 1M / 256K assumption."));
+            // 诊断码不能直接进界面：ContextCapClampedToModel 这类裸标识符对用户毫无意义。
+            warnings.AddRange(metadataWarnings.Select(code => ModelWarnings.Describe(code, GetString)));
             if (_effectiveContextPolicy != null)
-            {
-                warnings.AddRange(_effectiveContextPolicy.Metadata.Warnings);
-                warnings.AddRange(_effectiveContextPolicy.Policy.Warnings);
-            }
+                warnings.AddRange(_effectiveContextPolicy.Policy.Warnings
+                    .Select(code => ModelWarnings.Describe(code, GetString)));
             if (!string.IsNullOrWhiteSpace(CompressionStatusMessage)) warnings.Add(CompressionStatusMessage);
             return string.Join(Environment.NewLine, warnings.Distinct(StringComparer.Ordinal));
         }
@@ -368,6 +396,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _responseCts;
     private CancellationTokenSource? _previewLoadCts;
     private CancellationTokenSource? _compressionPreviewCts;
+    /// <summary>只取消自动压缩、不取消整轮请求的令牌源，每轮发送重建一次。</summary>
+    private CancellationTokenSource? _compressionSkipCts;
+    /// <summary>用量条徽标的代次，用来让后到的隐藏任务不误伤新一次压缩的徽标。</summary>
+    private int _compressionBadgeGeneration;
     private CancellationTokenSource? _rawContextCts;
     private CompressionPlan? _compressionPreviewPlan;
     private CompressionCandidate? _compressionPreviewCandidate;
@@ -1073,7 +1105,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (result.Plan == null)
         {
             CompressionImpactPreview = string.Empty;
-            CompressionPreviewStatus = result.Reason;
+            CompressionPreviewStatus = FormatCompressionFailure(
+                "ContextInspector.Preview.PlanUnavailable", "No compression plan could be built: {0}", result.Reason);
             NotifyCompressionPreviewState();
             return;
         }
@@ -1124,13 +1157,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             }
             if (generated.Candidate == null)
             {
-                CompressionPreviewStatus = generated.Error;
+                CompressionPreviewStatus = FormatCompressionFailure(
+                    "ContextInspector.Preview.Failed", "Candidate generation failed: {0}", generated.Error);
                 return;
             }
             var validation = _compressionValidator.Validate(plan, generated.Candidate, cts.Token);
             if (!validation.IsValid)
             {
-                CompressionPreviewStatus = validation.Error;
+                CompressionPreviewStatus = FormatCompressionFailure(
+                    "ContextInspector.Preview.Rejected", "The candidate failed validation: {0}", validation.Error);
                 return;
             }
             _compressionPreviewCandidate = generated.Candidate;
@@ -1190,7 +1225,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             if (!committed.IsCommitted)
             {
                 IsCompressionPreviewStale = committed.Status == CompressionCommitStatus.Stale;
-                CompressionPreviewStatus = committed.Error;
+                CompressionPreviewStatus = FormatCompressionFailure(
+                    "ContextInspector.Preview.ApplyFailed",
+                    "Apply failed and the conversation is unchanged: {0}",
+                    committed.Error);
                 return;
             }
             CompressionPreviewStatus = GetString("ContextInspector.Preview.Applied", "Candidate applied and persisted atomically.");
@@ -2122,6 +2160,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         var responseCts = new CancellationTokenSource();
         _responseCts = responseCts;
         var cancellationToken = responseCts.Token;
+        // 与 responseCts 分开：跳过压缩只作废这一次压缩，本轮请求照常发出。
+        _compressionSkipCts?.Dispose();
+        var compressionSkipCts = new CancellationTokenSource();
+        _compressionSkipCts = compressionSkipCts;
+        // 上一轮遗留的压缩提示不该冒充本轮的结论。
+        CompressionStatusMessage = string.Empty;
         var requestContext = _currentContext.Clone();
         requestContext.ConversationId = _conversationId;
         requestContext.Revision = _revision;
@@ -2371,6 +2415,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     if (IsCurrentConversationEpoch(epoch)) CompressionStatusMessage = warning;
                 },
+                onCompressionProgress: progress => ApplyCompressionProgress(progress, assistantMsg, epoch),
+                skipCompressionToken: compressionSkipCts.Token,
                 onAnchorObserved: anchor =>
                 {
                     if (IsCurrentConversationEpoch(epoch)) OnContextAnchorObserved(anchor);
@@ -2438,6 +2484,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             }
 
             responseCts.Dispose();
+            if (ReferenceEquals(_compressionSkipCts, compressionSkipCts))
+            {
+                _compressionSkipCts = null;
+            }
+
+            compressionSkipCts.Dispose();
+            // 本轮已经结束，压缩不可能还在跑：无论会话是否被切走都必须复位，
+            // 否则「跳过压缩」按钮会永久亮在那里。
+            IsContextMaintenanceRunning = false;
 
             if (IsCurrentConversationEpoch(epoch))
             {
@@ -2447,6 +2502,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 assistantMsg.IsReasoningAppending = false;
                 assistantMsg.IsStreaming = false;
                 assistantMsg.ToolExecutionSummary = string.Empty;
+                assistantMsg.ContextMaintenanceStatus = string.Empty;
 
                 // 输出结束（成功/停止/报错均经此）：自动收起工具调用组（露 3 个 + peek），尊重用户手动操作
                 CollapseToolGroups(assistantMsg);
@@ -2909,20 +2965,23 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 compression.Policy));
             if (planResult.Plan == null)
             {
-                CompressionStatusMessage = planResult.Reason;
+                CompressionStatusMessage = FormatCompressionFailure(
+                    "ContextInspector.Preview.PlanUnavailable", "No compression plan could be built: {0}", planResult.Reason);
                 return;
             }
 
             var generated = await _compressionCandidateGenerator.GenerateAsync(planResult.Plan, cancellationToken);
             if (generated.Candidate == null)
             {
-                CompressionStatusMessage = generated.Error;
+                CompressionStatusMessage = FormatCompressionFailure(
+                    "ContextInspector.Preview.Failed", "Candidate generation failed: {0}", generated.Error);
                 return;
             }
             var validation = _compressionValidator.Validate(planResult.Plan, generated.Candidate, cancellationToken);
             if (!validation.IsValid)
             {
-                CompressionStatusMessage = validation.Error;
+                CompressionStatusMessage = FormatCompressionFailure(
+                    "ContextInspector.Preview.Rejected", "The candidate failed validation: {0}", validation.Error);
                 return;
             }
 
@@ -2944,7 +3003,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             var committed = await _compressionCommitter.CommitCompressionAsync(transition, cancellationToken);
             if (!committed.IsCommitted)
             {
-                CompressionStatusMessage = committed.Error;
+                CompressionStatusMessage = FormatCompressionFailure(
+                    "ContextInspector.Preview.ApplyFailed",
+                    "Apply failed and the conversation is unchanged: {0}",
+                    committed.Error);
                 return;
             }
             CompressionStatusMessage = string.Empty;
@@ -2993,6 +3055,119 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (snapshot.CompressionHistory.Count > 20)
             snapshot.CompressionHistory = snapshot.CompressionHistory.TakeLast(20).ToList();
         return (snapshot, string.Empty);
+    }
+
+    /// <summary>
+    /// 把自动压缩的阶段回报翻译成界面状态。只有 Map/Reduce 会写状态行——规划与校验是
+    /// 本地瞬时操作，报给界面只会闪一下，反而像故障。
+    /// </summary>
+    private void ApplyCompressionProgress(CompressionProgress progress, ChatMessage assistantMsg, int epoch)
+    {
+        if (!IsCurrentConversationEpoch(epoch)) return;
+        switch (progress.Phase)
+        {
+            case CompressionProgressPhase.Mapping:
+                IsContextMaintenanceRunning = true;
+                assistantMsg.ContextMaintenanceStatus = string.Format(
+                    GetString("Chat.Context.Compressing", "Condensing context · part {0}/{1}"),
+                    progress.Index,
+                    progress.Total);
+                break;
+            case CompressionProgressPhase.Reducing:
+                IsContextMaintenanceRunning = true;
+                assistantMsg.ContextMaintenanceStatus = string.Format(
+                    GetString("Chat.Context.Reducing", "Merging summaries · layer {0}"),
+                    progress.Depth);
+                break;
+            case CompressionProgressPhase.Committed:
+                IsContextMaintenanceRunning = false;
+                assistantMsg.ContextMaintenanceStatus = string.Empty;
+                ShowCompressionSavingBadge(progress.TokensBefore - progress.TokensAfter);
+                break;
+            case CompressionProgressPhase.Skipped:
+                IsContextMaintenanceRunning = false;
+                assistantMsg.ContextMaintenanceStatus = string.Empty;
+                CompressionStatusMessage = GetString(
+                    "Chat.Context.CompressionSkipped",
+                    "Compression skipped. This reply continues with the context unchanged.");
+                break;
+            case CompressionProgressPhase.Failed:
+                // 具体措辞紧接着由 onContextWarning 给出，这里只负责收掉进行中状态。
+                IsContextMaintenanceRunning = false;
+                assistantMsg.ContextMaintenanceStatus = string.Empty;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 放弃这一次自动压缩。整轮请求不受影响，会带着原上下文照常发出——
+    /// 用户唯一的逃生手段不该是「按停止把整轮作废」。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSkipCompression))]
+    private void SkipCompression() => _compressionSkipCts?.Cancel();
+
+    private bool CanSkipCompression() => IsContextMaintenanceRunning;
+
+    /// <summary>压缩省下了多少——把「刚才那段等待」和「换来了什么」绑在同一个视觉事件上。</summary>
+    private void ShowCompressionSavingBadge(long savedTokens)
+    {
+        if (savedTokens <= 0)
+        {
+            CompressionSavingBadge = string.Empty;
+            return;
+        }
+
+        CompressionSavingBadge = string.Format(
+            GetString("Chat.Context.CompressedBadge", "Compressed −{0}"),
+            FormatTokenCount(savedTokens));
+        var generation = ++_compressionBadgeGeneration;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4));
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation == _compressionBadgeGeneration) CompressionSavingBadge = string.Empty;
+            });
+        });
+    }
+
+    private static string FormatTokenCount(long tokens) => tokens >= 1000
+        ? (tokens / 1000d).ToString("0.#", CultureInfo.InvariantCulture) + "k"
+        : tokens.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// 重算压缩边界。边界永远只有一条：最后一条已归档消息之后。逐条「已归档」角标
+    /// 回答不了「从哪儿开始模型看到的是摘要」，这条线才回答得了。
+    /// </summary>
+    private void RefreshCompressionBoundary()
+    {
+        // 必须挂在「看得见的」那条上：消息行整体绑定 IsBubbleVisible，挂到隐藏的
+        // tool/工具调用载体消息上，这条线会连同整行一起被隐藏掉。
+        ChatMessage? boundary = null;
+        foreach (var message in Messages)
+        {
+            if (message.IsCompressed && message.IsBubbleVisible) boundary = message;
+        }
+        foreach (var message in Messages)
+        {
+            message.IsCompressionBoundary = ReferenceEquals(message, boundary);
+        }
+
+        if (boundary == null)
+        {
+            CompressionBoundaryText = string.Empty;
+            return;
+        }
+
+        var archived = Messages.Count(message => message.IsCompressed);
+        CompressionBoundaryText = _compressionHistory.Count > 0
+            ? string.Format(
+                GetString("Chat.Context.BoundaryAt", "Context compressed · {0} messages → summary · {1:t}"),
+                archived,
+                _compressionHistory.Peek().CreatedAt.ToLocalTime())
+            : string.Format(
+                GetString("Chat.Context.Boundary", "Context compressed · {0} messages → summary"),
+                archived);
     }
 
     private async Task<CompressionCommitResult> CommitAutomaticCompressionAsync(
@@ -3056,6 +3231,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
+        RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
         return true;
     }
@@ -3170,7 +3346,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     _activeContextSummary,
                     checkpoint.PreviousSummary);
                 var committed = await _compressionCommitter.CommitUndoCompressionAsync(transition, cancellationToken);
-                CompressionStatusMessage = committed.IsCommitted ? string.Empty : committed.Error;
+                CompressionStatusMessage = committed.IsCommitted
+                    ? string.Empty
+                    : FormatCompressionFailure(
+                        "ContextInspector.Preview.UndoFailed",
+                        "Undo failed and the conversation is unchanged: {0}",
+                        committed.Error);
                 return committed.IsCommitted;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -3208,6 +3389,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 撤销压缩使上下文重新变大：强制以估算刷新，下一轮真实 usage 会重锚。
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
+        RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
         MarkPersistenceStateChanged();
 
@@ -3278,6 +3460,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
         UpdateContextTokensDisplay(forceEstimateBaseline: true);
         UpdateBubbleButtonVisibility();
+        RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
         _logger.Information("Context compression atomically reverted; restored {Count} message(s)", batch.Count);
         return true;
@@ -3343,7 +3526,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IEnumerable<CompressionCheckpointRecord>? records,
         IReadOnlyCollection<ChatMessage> restoredMessages)
     {
-        if (records == null) return;
+        if (records == null)
+        {
+            // 没有落盘的检查点，消息上仍可能带着 IsCompressed：边界照样要重算，否则会留着上一段会话的线。
+            RefreshCompressionBoundary();
+            return;
+        }
         var byId = restoredMessages.ToDictionary(message => message.Id, StringComparer.Ordinal);
         foreach (var record in records.OrderBy(record => record.AppliedRevision))
         {
@@ -3374,6 +3562,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 record.PostCompressionTokens,
                 record.UsedLocalFallback));
         }
+        RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
     }
 
@@ -3705,6 +3894,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         return _localizationService?.GetString(key, defaultValue) ?? defaultValue;
     }
+
+    /// <summary>
+    /// 给压缩链路的失败原因套一个本地化外框。原因本身是排障文本（规划器判定、验收结论、
+    /// 供应商报错原文），刻意保持原样以便与日志逐字比对；但直接摆一句没有主语的英文异常，
+    /// 用户根本无从判断这是失败、失败在哪一步、会话有没有被改动。
+    /// </summary>
+    private string FormatCompressionFailure(string key, string defaultFormat, string? reason)
+        => string.Format(
+            GetString(key, defaultFormat),
+            string.IsNullOrWhiteSpace(reason) ? "—" : reason.Trim());
 
     private string ToAttachmentErrorMessage(Exception ex)
     {

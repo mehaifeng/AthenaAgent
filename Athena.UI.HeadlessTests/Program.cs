@@ -111,10 +111,13 @@ TestTokenUsageVisualGate();
 TestCompressionSummaryPermissionBoundary();
 Task.Run(TestContextInspectorBehaviorAsync).GetAwaiter().GetResult();
 TestContextInspectorScaling(outputPath);
+TestModelWarningLocalization();
 Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestSameRevisionNotCompressibleCacheAsync).GetAwaiter().GetResult();
 Task.Run(TestImmediateToolCallUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestToolLoopTransactionalCompressionAsync).GetAwaiter().GetResult();
+Task.Run(TestCompressionProgressAlwaysEndsAsync).GetAwaiter().GetResult();
+Task.Run(TestSkipCompressionKeepsRequestAliveAsync).GetAwaiter().GetResult();
 Task.Run(TestAnchoredBudgetBeatsInflatedEstimateAsync).GetAwaiter().GetResult();
 TestContextAnchorLedgerSelection();
 Task.Run(TestDeltaTokenEstimatorConvergenceAsync).GetAwaiter().GetResult();
@@ -2571,6 +2574,46 @@ static async Task TestWorkspaceRenameBehaviorAsync()
     Console.WriteLine("[PASS] workspace rename contains conflicts and commits valid names");
 }
 
+static void TestModelWarningLocalization()
+{
+    // 诊断码是解析器和日志的语言，不是界面的语言：上下文检查器的告警框曾经把
+    // ContextCapClampedToModel 这样的裸标识符直接摆给用户。两种语言都必须有文案。
+    var localization = new LocalizationService();
+    foreach (var language in new[] { "zh-CN", "en-US" })
+    {
+        localization.SwitchLanguage(language);
+        foreach (var code in ModelWarnings.All)
+        {
+            var text = ModelWarnings.Describe(code, localization.GetString);
+            if (string.IsNullOrWhiteSpace(text) || string.Equals(text, code, StringComparison.Ordinal))
+                throw new InvalidOperationException($"诊断码 {code} 在 {language} 下没有文案，界面会露出裸码。");
+        }
+    }
+
+    localization.SwitchLanguage("zh-CN");
+    using var chat = new MainConversationViewModel(
+        new HeadlessChatService(),
+        new HeadlessConfigService(new AppConfig()),
+        null,
+        null,
+        null,
+        null,
+        null,
+        localization,
+        contextPolicyProvider: new HeadlessContextPolicyProvider(
+            100_000,
+            policyWarnings: [ModelWarnings.ContextCapClampedToModel]));
+    chat.IsContextInspectorOpen = true;
+
+    var warnings = chat.ContextInspectorWarningsText;
+    if (warnings.Contains(ModelWarnings.ContextCapClampedToModel, StringComparison.Ordinal))
+        throw new InvalidOperationException("上下文检查器把诊断码原样显示了，说明告警文本没有经过本地化。");
+    var expected = localization.GetString(ModelWarnings.LocaleKeyPrefix + ModelWarnings.ContextCapClampedToModel, string.Empty);
+    if (!warnings.Contains(expected, StringComparison.Ordinal))
+        throw new InvalidOperationException("上下文检查器没有显示该诊断码对应的本地化文案。");
+    Console.WriteLine("[PASS] Model diagnostic codes are translated in both locales and reach the inspector as prose");
+}
+
 static async Task TestContextInspectorBehaviorAsync()
 {
     var generator = new FixedCompressionCandidateGenerator();
@@ -3434,10 +3477,25 @@ static async Task TestAutomaticCompressionFailureBudgetBehaviorAsync()
     hardContext.AddUserMessage("over hard budget " + new string('h', 7_000), id: "hard-u");
     hardContext.AddAssistantMessage("completed", id: "hard-a");
     var output = new StringBuilder();
-    await foreach (var value in hardService.StreamMessageAsync(string.Empty, hardContext, addToContext: false))
+    var hardWarning = string.Empty;
+    var hardPhases = new List<CompressionProgressPhase>();
+    await foreach (var value in hardService.StreamMessageAsync(
+                       string.Empty,
+                       hardContext,
+                       addToContext: false,
+                       onContextWarning: value => hardWarning = value,
+                       onCompressionProgress: progress => hardPhases.Add(progress.Phase)))
         output.Append(value);
-    if (hardHandler.RequestCount != 0 || !output.ToString().Contains("上下文错误", StringComparison.Ordinal))
+    if (hardHandler.RequestCount != 0)
         throw new InvalidOperationException("A request above B must be blocked before the provider API when compression cannot commit.");
+    // 超预算的解释必须走警告通道：yield 成正文会被当作助手回复落盘，
+    // 下一轮再原样发回给模型——往一个已经装不下的上下文里塞一句模型从没说过的话。
+    if (output.Length != 0)
+        throw new InvalidOperationException("An over-budget stop must not emit assistant content.");
+    if (string.IsNullOrWhiteSpace(hardWarning))
+        throw new InvalidOperationException("An over-budget stop must explain itself through the context warning channel.");
+    if (!hardPhases.Contains(CompressionProgressPhase.Failed))
+        throw new InvalidOperationException("An over-budget stop must report a failed compression phase to the UI.");
     Console.WriteLine("[PASS] automatic compression failure warns below B and blocks the next API above B");
 }
 
@@ -3581,6 +3639,7 @@ static async Task TestToolLoopTransactionalCompressionAsync()
         id: "recent-u");
     context.AddAssistantMessage("recent answer", id: "recent-a");
     CompressionTransition? observedTransition = null;
+    var progress = new List<CompressionProgress>();
     await foreach (var _ in service.StreamMessageAsync(
                        "run large probe",
                        context,
@@ -3593,9 +3652,18 @@ static async Task TestToolLoopTransactionalCompressionAsync()
                            events.Add("compression");
                            observedTransition = transition;
                            return Task.FromResult(CompressionCommitResult.Committed(transition.BaseRevision + 1));
-                       }))
+                       },
+                       onCompressionProgress: progress.Add))
     {
     }
+
+    // 压缩全程无回报时，界面无法把这段等待和「模型很慢」区分开，用户就会去按停止。
+    var mapping = progress.FirstOrDefault(item => item.Phase == CompressionProgressPhase.Mapping);
+    var committed = progress.FirstOrDefault(item => item.Phase == CompressionProgressPhase.Committed);
+    if (mapping == null || mapping.Total <= 0 || mapping.Index < 1 || mapping.Index > mapping.Total)
+        throw new InvalidOperationException("Automatic compression must report a real map progress range to the UI.");
+    if (committed == null || committed.MessageCount != 2 || committed.TokensBefore <= committed.TokensAfter)
+        throw new InvalidOperationException("A committed compression must report its message count and token drop to the UI.");
 
     if (observedTransition == null
         || events.IndexOf("compression") <= events.IndexOf("tool:probe")
@@ -3611,6 +3679,177 @@ static async Task TestToolLoopTransactionalCompressionAsync()
                                              || !body.Contains("[Image content unavailable]", StringComparison.Ordinal)))
         throw new InvalidOperationException("Transactional compression did not preserve the sanitized image projection when rebuilding the next request.");
     Console.WriteLine("[PASS] large tool-result compression preserves the sanitized image projection in the rebuilt request");
+}
+
+static async Task TestCompressionProgressAlwaysEndsAsync()
+{
+    // 回归：同一轮工具循环里第二次压缩失败时，收场信号曾被「本轮只警告一次」的闩锁一起吞掉。
+    // 于是气泡上的「正在整理上下文 · 第 i/n 段」和「跳过压缩」按钮一路定格到整轮收尾，
+    // 思考点还被它压着不跳——界面在撒谎，而用户唯一能做的仍旧是按停止把整轮作废。
+    var config = new AppConfig();
+    config.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    config.ContextPolicy.CustomCompressionThresholdTokens = 3_000;
+    config.ContextPolicy.KeepRecentRounds = 1;
+    config.ContextPolicy.TargetSummaryTokens = 512;
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "progress-end-provider",
+        DisplayName = "Progress end provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://progress-end.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "stream-model", DisplayName = "Stream model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "stream-model";
+    config.AiModels.ContextCompression.ProviderId = provider.Id;
+    config.AiModels.ContextCompression.Model = "stream-model";
+
+    var generator = new FailingMappingCompressionCandidateGenerator();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: new ImmediateUsageFunctionRegistry([], resultSize: 10_000),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())),
+        compressionPlanner: new NarrowingCompressionPlanner(),
+        compressionCandidateGenerator: generator,
+        compressionValidator: new CompressionValidator(),
+        contextPolicyProvider: new HeadlessContextPolicyProvider(100_000));
+
+    using var handler = new TwoToolCallSseHandler();
+    using var httpClient = new HttpClient(handler);
+    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    options.Transport = new HttpClientPipelineTransport(httpClient);
+    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+    var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    field.SetValue(service, client.GetChatClient("stream-model"));
+
+    var context = new ConversationContext { ConversationId = "compression-progress-end", Revision = 30 };
+    context.AddUserMessage("older context " + new string('a', 7_000), id: "progress-old-u");
+    context.AddAssistantMessage("older answer " + new string('b', 500), id: "progress-old-a");
+    context.AddUserMessage("recent context", id: "progress-recent-u");
+    context.AddAssistantMessage("recent answer", id: "progress-recent-a");
+
+    var progress = new List<CompressionProgress>();
+    await foreach (var _ in service.StreamMessageAsync(
+                       "run large probe",
+                       context,
+                       onMessageAdded: message =>
+                       {
+                           if (message.Role is "assistant" or "tool") context.Revision++;
+                       },
+                       onCompressionTransition: (transition, _) => Task.FromResult(
+                           CompressionCommitResult.Committed(transition.BaseRevision + 1)),
+                       onCompressionProgress: progress.Add))
+    {
+    }
+
+    if (generator.CallCount < 2)
+        throw new InvalidOperationException(
+            $"夹具没能在同一轮里跑出第二次压缩尝试（实际 {generator.CallCount} 次），回归条件根本没被覆盖到。");
+    var lit = progress.Count(item => item.Phase == CompressionProgressPhase.Mapping);
+    var cleared = progress.Count(item => item.Phase is CompressionProgressPhase.Failed
+                                             or CompressionProgressPhase.Committed
+                                             or CompressionProgressPhase.Skipped);
+    if (cleared < lit)
+        throw new InvalidOperationException(
+            $"点亮了 {lit} 次「正在整理上下文」却只熄灭了 {cleared} 次：状态行会定格到整轮收尾。");
+    Console.WriteLine("[PASS] every compression attempt that lights the status line also puts it out");
+}
+
+static async Task TestSkipCompressionKeepsRequestAliveAsync()
+{
+    // 「跳过压缩」只作废这一次压缩，本轮请求仍要照常发出。若它误连整轮的取消令牌，
+    // 用户就只剩「按停止把整轮作废」这一条路——那正是这个按钮要消灭的东西。
+    var config = new AppConfig();
+    // 阈值压到 1000：材料只有 ~1.9K token，压缩比才留在配置强度之内，规划器不会先一步否掉。
+    config.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    config.ContextPolicy.CustomCompressionThresholdTokens = 1_000;
+    config.ContextPolicy.KeepRecentRounds = 1;
+    config.ContextPolicy.TargetSummaryTokens = 512;
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "skip-compression-provider",
+        DisplayName = "Skip compression provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://skip-compression.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "stream-model", DisplayName = "Stream model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "stream-model";
+    config.AiModels.ContextCompression.ProviderId = provider.Id;
+    config.AiModels.ContextCompression.Model = "stream-model";
+
+    using var skipCts = new CancellationTokenSource();
+    var generator = new BlockingCompressionCandidateGenerator();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())),
+        compressionPlanner: new CompressionPlanner(),
+        compressionCandidateGenerator: generator,
+        compressionValidator: new CompressionValidator(),
+        contextPolicyProvider: new HeadlessContextPolicyProvider(100_000));
+
+    using var handler = new FinalOnlySseHandler();
+    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    options.Transport = new HttpClientPipelineTransport(new HttpClient(handler));
+    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+    var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    field.SetValue(service, client.GetChatClient("stream-model"));
+
+    var context = new ConversationContext { ConversationId = "skip-compression", Revision = 7 };
+    context.AddUserMessage("older context " + new string('a', 7_000), id: "skip-old-u");
+    context.AddAssistantMessage("older answer " + new string('b', 500), id: "skip-old-a");
+    context.AddUserMessage("recent context", id: "skip-recent-u");
+    context.AddAssistantMessage("recent answer", id: "skip-recent-a");
+
+    var progress = new List<CompressionProgress>();
+    var commitAttempts = 0;
+    var warning = string.Empty;
+    await foreach (var _ in service.StreamMessageAsync(
+                       string.Empty,
+                       context,
+                       addToContext: false,
+                       onContextWarning: value => warning = value,
+                       onCompressionTransition: (transition, _) =>
+                       {
+                           commitAttempts++;
+                           return Task.FromResult(CompressionCommitResult.Committed(transition.BaseRevision + 1));
+                       },
+                       onCompressionProgress: item =>
+                       {
+                           progress.Add(item);
+                           // 界面上「跳过压缩」按钮出现的那一刻，就是有东西可跳过的那一刻。
+                           if (item.Phase == CompressionProgressPhase.Mapping) skipCts.Cancel();
+                       },
+                       skipCompressionToken: skipCts.Token))
+    {
+    }
+
+    if (!progress.Any(item => item.Phase == CompressionProgressPhase.Skipped))
+        throw new InvalidOperationException("Skipping compression must report the skipped phase to the UI.");
+    // 跳过是用户自己的选择，不是故障。「本次压缩未成功」走的是同一个属性，晚一步发出
+    // 就会把「已跳过」盖掉，用户按下按钮换来的是一句故障报告。
+    if (!string.IsNullOrEmpty(warning))
+        throw new InvalidOperationException(
+            $"A user-initiated skip must not be overwritten by a failure notice, saw '{warning}'.");
+    if (commitAttempts != 0)
+        throw new InvalidOperationException("A skipped compression must not commit anything.");
+    if (handler.RequestCount != 1)
+        throw new InvalidOperationException("Skipping compression must still send the turn with the original context.");
+    if (context.Messages.All(message => message.Id != "skip-old-u"))
+        throw new InvalidOperationException("A skipped compression must leave the context untouched.");
+    Console.WriteLine("[PASS] skipping compression abandons only the compression, not the turn");
 }
 
 static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
@@ -6147,7 +6386,10 @@ sealed class CapturingContextPolicyResolver : IModelContextPolicyResolver
     }
 }
 
-sealed class HeadlessContextPolicyProvider(long inputBudget, int keepRecentRounds = 3) : IContextPolicyProvider
+sealed class HeadlessContextPolicyProvider(
+    long inputBudget,
+    int keepRecentRounds = 3,
+    IReadOnlyList<string>? policyWarnings = null) : IContextPolicyProvider
 {
     private long _inputBudget = inputBudget;
     public event EventHandler? EffectivePolicyChanged;
@@ -6176,7 +6418,7 @@ sealed class HeadlessContextPolicyProvider(long inputBudget, int keepRecentRound
             CompressionStrength.Balanced.SummaryRatio(),
             ContextPolicyValueSource.ModelMetadata,
             ContextPolicyValueSource.AppDefault,
-            []);
+            policyWarnings ?? []);
         return new EffectiveContextPolicySnapshot(metadata, policy, "fixture", "provider", "model");
     }
 
@@ -6313,10 +6555,12 @@ sealed class FixedCompressionCandidateGenerator(string summary = "faithful compa
 
     public Task<CompressionGenerationResult> GenerateAsync(
         CompressionPlan plan,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<CompressionProgress>? onProgress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         CallCount++;
+        onProgress?.Invoke(CompressionProgress.Mapping(1, 1));
         return Task.FromResult(CompressionGenerationResult.Generated(new CompressionCandidate(
             "fixed-candidate",
             plan.PlanId,
@@ -6342,13 +6586,71 @@ sealed class CountingCompressionPlanner : ICompressionPlanner
     }
 }
 
+/// <summary>
+/// 第二次起交出更窄的窗口。真实成因是收益门槛随本轮 token 增长而抬高、规划器因此收窄；
+/// 这里把结果直接摆出来，免得靠调消息长度去碰那条边界。窗口不变则材料 key 不变，
+/// 会命中「本轮已拒绝」缓存，同一轮里压根不会有第二次尝试。
+/// </summary>
+sealed class NarrowingCompressionPlanner : ICompressionPlanner
+{
+    private readonly CompressionPlanner _inner = new();
+    private int _calls;
+
+    public CompressionPlanResult CreatePlan(CompressionPlanRequest request)
+    {
+        var result = _inner.CreatePlan(request);
+        if (result.Plan == null || ++_calls == 1) return result;
+        var ids = result.Plan.CompressMessageIds
+            .Take(Math.Max(1, result.Plan.CompressMessageIds.Count - 1))
+            .ToArray();
+        var kept = ids.ToHashSet(StringComparer.Ordinal);
+        return CompressionPlanResult.Ready(result.Plan with
+        {
+            CompressMessageIds = ids,
+            Material = result.Plan.Material.Where(item => kept.Contains(item.Id)).ToArray()
+        });
+    }
+}
+
+/// <summary>报出 map 进度后失败：界面点亮了「正在整理上下文」，就必须有人来把它熄灭。</summary>
+sealed class FailingMappingCompressionCandidateGenerator : ICompressionCandidateGenerator
+{
+    public int CallCount { get; private set; }
+
+    public Task<CompressionGenerationResult> GenerateAsync(
+        CompressionPlan plan,
+        CancellationToken cancellationToken = default,
+        Action<CompressionProgress>? onProgress = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        CallCount++;
+        onProgress?.Invoke(CompressionProgress.Mapping(1, 2));
+        return Task.FromResult(CompressionGenerationResult.Failed("compression model refused"));
+    }
+}
+
+/// <summary>报出 map 进度后一直等到被取消，用来演练「跳过压缩」的真实时序。</summary>
+sealed class BlockingCompressionCandidateGenerator : ICompressionCandidateGenerator
+{
+    public async Task<CompressionGenerationResult> GenerateAsync(
+        CompressionPlan plan,
+        CancellationToken cancellationToken = default,
+        Action<CompressionProgress>? onProgress = null)
+    {
+        onProgress?.Invoke(CompressionProgress.Mapping(1, 3));
+        await Task.Delay(Timeout.Infinite, cancellationToken);
+        throw new InvalidOperationException("unreachable");
+    }
+}
+
 sealed class CountingFailedCompressionCandidateGenerator : ICompressionCandidateGenerator
 {
     public int CallCount { get; private set; }
 
     public Task<CompressionGenerationResult> GenerateAsync(
         CompressionPlan plan,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<CompressionProgress>? onProgress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         CallCount++;
@@ -6481,6 +6783,49 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
 #pragma warning restore CA2000
 }
 
+/// <summary>
+/// 连开两次工具调用再给终态：工具循环因此跑满三轮，同一轮里才可能出现第二次压缩尝试。
+/// 每次都回报递增的 prompt_tokens，让锚点跟着上下文一起长，预算判定不会退回整段估算。
+/// </summary>
+sealed class TwoToolCallSseHandler : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        // 与既有夹具一致用占位符替换：JSON 尾部连着的 }} 会被内插原始字面量当成插值收尾。
+        var body = RequestCount <= 2
+            ? """
+              data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_probe_$$N$$","type":"function","function":{"name":"probe","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}
+
+              data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[],"usage":{"prompt_tokens":$$PROMPT$$,"completion_tokens":5,"total_tokens":$$PROMPT$$}}
+
+              data: [DONE]
+
+              """
+                .Replace("$$N$$", RequestCount.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                .Replace(
+                    "$$PROMPT$$",
+                    (2_600 * RequestCount).ToString(CultureInfo.InvariantCulture),
+                    StringComparison.Ordinal)
+            : """
+              data: {"id":"chatcmpl-final","object":"chat.completion.chunk","created":1785580001,"model":"stream-model","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+
+              data: {"id":"chatcmpl-final","object":"chat.completion.chunk","created":1785580001,"model":"stream-model","choices":[],"usage":{"prompt_tokens":9000,"completion_tokens":2,"total_tokens":9002}}
+
+              data: [DONE]
+
+              """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
+}
+
 /// <summary>chat 格式夹具：记录请求体并返回单轮终态（用于断言请求侧参数，如 reasoning_effort）。</summary>
 sealed class ChatBodyCaptureHandler : HttpMessageHandler
 {
@@ -6562,7 +6907,9 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null,
-        Action<ContextAnchorRecord>? onAnchorObserved = null)
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
     {
         // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
@@ -6957,7 +7304,9 @@ class HeadlessChatService : IChatService
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null,
-        Action<ContextAnchorRecord>? onAnchorObserved = null)
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
     {
         await Task.CompletedTask;
         yield break;

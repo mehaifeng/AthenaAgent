@@ -44,7 +44,6 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
         // 压缩是本应用输出量最大的辅助调用，不能和 256 token 的审批共用一个扁平超时。
         var timeoutSeconds = OpenAiClientOptionsFactory.ResolveTimeoutSeconds(
             _modelFactory.TimeoutSeconds, outputTokens);
-        var builder = new StringBuilder();
 
         // 必须走流式。非流式响应会被 SDK 整包缓冲，网络超时因此覆盖「生成完整篇摘要」的
         // 全过程——实测栈顶正是 HttpConnection.ChunkedEncodingReadStream.CopyToAsyncCore。
@@ -54,14 +53,11 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
             var responses = ResponsesCallHelpers.CreateResponsesClient(effective, timeoutSeconds);
             var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, outputTokens);
             options.InputItems.Add(ResponseItem.CreateUserMessageItem(userPrompt));
-            await foreach (var update in responses.CreateResponseStreamingAsync(options, cancellationToken))
-            {
-                if (update is StreamingResponseOutputTextDeltaUpdate delta)
-                    builder.Append(delta.Delta);
-            }
-            return builder.ToString().Trim();
+            var text = await ResponsesCallHelpers.StreamOutputTextAsync(responses, options, cancellationToken);
+            return text.Trim();
         }
 
+        var builder = new StringBuilder();
         var client = _modelFactory.CreateChatClient(AiModelRole.ContextCompression, timeoutSeconds);
         var stream = client.CompleteChatStreamingAsync(
             [new SystemChatMessage(systemPrompt), new UserChatMessage(userPrompt)],
@@ -71,7 +67,9 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
                 MaxOutputTokenCount = outputTokens
             },
             cancellationToken);
-        await foreach (var update in stream)
+        // 同 Responses 侧：SSE 续体不要回到发起线程（压缩多半由 UI 线程发起，一次摘要
+        // 是几千个事件的反序列化）。
+        await foreach (var update in stream.ConfigureAwait(false))
         {
             foreach (var part in update.ContentUpdate)
                 builder.Append(part.Text);

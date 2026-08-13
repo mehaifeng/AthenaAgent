@@ -41,6 +41,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("Responses compatibility normalizes provider null arrays before SDK deserialization", TestResponsesNullArrayCompatibilityAsync),
+    ("the streaming reader owns StreamingEnabled and surfaces provider stream failures", TestResponsesStreamingReaderAsync),
+    ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
     ("config v5 default context values migrate to v6 auto without losing providers", TestConfigV5DefaultMigrationAsync),
@@ -76,8 +78,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("compression planner selects only complete rounds without mutating messages", TestCompressionPlannerAsync),
     ("compression candidate map-reduce and validator enforce facts and benefit", TestCompressionCandidateAndValidatorAsync),
     ("compression feasibility rejects hopeless work before any model call", TestCompressionFeasibilityGateAsync),
-    ("critical anchors are guaranteed structurally and informational ones by recall", TestAnchorTieringAsync),
-    ("url anchors stop at JSON-escaped newlines", TestUrlAnchorBoundaryAsync),
+    ("attachment handles survive by construction and nothing else is anchored", TestHandleAnchorsAsync),
     ("planner narrows the compressible window until it is feasible", TestPlannerNarrowsUntilFeasibleAsync),
     ("compression strength drives summary length and per-pass capacity", TestCompressionStrengthAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
@@ -1988,6 +1989,131 @@ static async Task TestResponsesNullArrayCompatibilityAsync()
     AssertTrue(sawCompleted, "terminal response.completed should deserialize after normalization");
 }
 
+static async Task TestResponsesStreamingReaderAsync()
+{
+    // Regression: compression switched to streaming but kept building options with the
+    // shared factory, and the SDK rejected every call with "StreamingEnabled must be set
+    // to true". Auxiliary Responses roles must not have to remember that flag.
+    var effective = new EffectiveOpenAiModel(
+        "Openrouter",
+        "OpenRouter",
+        "https://responses-stream.test/v1",
+        "test-key",
+        "third-party-model",
+        0.2,
+        512,
+        ProviderProtocol.Responses);
+
+    var options = ResponsesCallHelpers.CreateOptions(effective, "system prompt", 0.2f, 512);
+    AssertTrue(
+        options.StreamingEnabled != true,
+        "the shared options factory must stay non-streaming: every CreateResponseAsync call site rejects a true flag");
+    options.InputItems.Add(ResponseItem.CreateUserMessageItem("summarize this"));
+
+    using var httpClient = new HttpClient(
+        new ResponsesCompatibilityHandler(new NullArrayResponsesSseHandler()));
+    var client = new ResponsesClient(
+        new ApiKeyCredential("test-key"),
+        new ResponsesClientOptions
+        {
+            Endpoint = new Uri("https://responses-stream.test/v1"),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        });
+
+    var text = await ResponsesCallHelpers.StreamOutputTextAsync(client, options);
+
+    AssertEqual("done", text, "the reader streams output_text from options built by the shared factory");
+    AssertTrue(options.StreamingEnabled == true, "the reader owns the flag the SDK asserts on");
+
+    // A provider that fails mid-stream must throw. Returning an empty string would be
+    // reported one layer up as "the compression model returned an empty summary".
+    using var failingHttpClient = new HttpClient(
+        new ResponsesCompatibilityHandler(new FailedResponsesSseHandler()));
+    var failingClient = new ResponsesClient(
+        new ApiKeyCredential("test-key"),
+        new ResponsesClientOptions
+        {
+            Endpoint = new Uri("https://responses-stream.test/v1"),
+            Transport = new HttpClientPipelineTransport(failingHttpClient)
+        });
+    var failingOptions = ResponsesCallHelpers.CreateOptions(effective, "system prompt", 0.2f, 512);
+    failingOptions.InputItems.Add(ResponseItem.CreateUserMessageItem("summarize this"));
+
+    var surfaced = false;
+    try
+    {
+        await ResponsesCallHelpers.StreamOutputTextAsync(failingClient, failingOptions);
+    }
+    catch (ClientResultException)
+    {
+        surfaced = true;
+    }
+
+    AssertTrue(surfaced, "a terminal response.failed event must surface as an exception, not as empty output");
+
+    // 推理模型可能把整份输出预算花在推理上，一个正文 token 都不产出。报成「模型返回了空摘要」
+    // 会让人去换模型，而真正该调的是输出预算或推理强度。
+    using var truncatedHttpClient = new HttpClient(
+        new ResponsesCompatibilityHandler(new TruncatedResponsesSseHandler()));
+    var truncatedClient = new ResponsesClient(
+        new ApiKeyCredential("test-key"),
+        new ResponsesClientOptions
+        {
+            Endpoint = new Uri("https://responses-stream.test/v1"),
+            Transport = new HttpClientPipelineTransport(truncatedHttpClient)
+        });
+    var truncatedOptions = ResponsesCallHelpers.CreateOptions(effective, "system prompt", 0.2f, 512);
+    truncatedOptions.InputItems.Add(ResponseItem.CreateUserMessageItem("summarize this"));
+
+    var explained = string.Empty;
+    try
+    {
+        await ResponsesCallHelpers.StreamOutputTextAsync(truncatedClient, truncatedOptions);
+    }
+    catch (ClientResultException ex)
+    {
+        explained = ex.Message;
+    }
+
+    AssertTrue(explained.Contains("incomplete", StringComparison.OrdinalIgnoreCase),
+        $"an output-budget truncation must say so instead of looking like empty output, saw '{explained}'");
+    AssertTrue(explained.Contains("output budget", StringComparison.OrdinalIgnoreCase),
+        "the message must point at the output budget, which is the setting that actually fixes it");
+}
+
+static Task TestModelWarningVocabularyAsync()
+{
+    AssertEqual(
+        "ModelWarning.ContextCapClampedToModel",
+        ModelWarnings.Describe(ModelWarnings.ContextCapClampedToModel, (key, _) => key),
+        "diagnostic codes resolve through one locale namespace shared by every surface");
+    AssertEqual(
+        "UnregisteredDiagnostic",
+        ModelWarnings.Describe("UnregisteredDiagnostic", (_, fallback) => fallback),
+        "an unregistered code stays visible instead of being swallowed");
+    AssertEqual(
+        string.Empty,
+        ModelWarnings.Describe("  ", (key, _) => key),
+        "a blank code produces no warning line");
+
+    var declared = typeof(ModelWarnings)
+        .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+        .Where(field => field.IsLiteral
+                        && field.FieldType == typeof(string)
+                        && field.Name != nameof(ModelWarnings.LocaleKeyPrefix))
+        .Select(field => (string)field.GetRawConstantValue()!)
+        .ToArray();
+    AssertEqual(declared.Length, ModelWarnings.All.Count, "every declared code must be registered in All");
+    foreach (var code in declared)
+        AssertTrue(ModelWarnings.All.Contains(code), $"code {code} is missing from ModelWarnings.All");
+
+    // The producers emit codes, never prose: a resolver that starts returning display text
+    // would ship an untranslatable string straight to the inspector.
+    foreach (var code in ModelWarnings.All)
+        AssertFalse(code.Contains(' ', StringComparison.Ordinal), $"code {code} must stay an identifier");
+    return Task.CompletedTask;
+}
+
 static async Task TestUpsertAsync()
 {
     using var harness = new TestHarness();
@@ -2478,7 +2604,7 @@ static async Task TestCompressionFeasibilityGateAsync()
     AssertFalse(withFloor.IsFeasible, "an unmet benefit floor must be caught before generation, not after");
 }
 
-static async Task TestAnchorTieringAsync()
+static async Task TestHandleAnchorsAsync()
 {
     var mainPolicy = CompressionTestPolicy(100_000, 80_000, 16_000);
     var urls = Enumerable.Range(0, 12).Select(i => $"https://example.com/doc{i}").ToArray();
@@ -2492,20 +2618,26 @@ static async Task TestAnchorTieringAsync()
         new("ta", "assistant", "done", null, null, null, DateTime.UtcNow,
             [new CompressionAttachmentReference("att-alpha", AttachmentKind.Document, "a.bin", "/safe/a.bin", "application/octet-stream", 8, 0, 0)])
     };
+
+    // 锚点只剩句柄：后续轮次要靠它够到一个真实存在的东西。路径、URL、错误码、tool_call_id
+    // 都不是——它们要么是过程痕迹，要么（tool_call_id）在完整轮次被压掉后根本没人再引用。
     var anchors = CompressionValidator.ExtractHardAnchors(material);
-    AssertTrue(anchors.Any(a => a.Value == "call-alpha" && a.Tier == CompressionAnchorTier.Critical),
-        "tool_call_id is referential integrity and must be Critical");
-    AssertTrue(anchors.Any(a => a.Value == "att-alpha" && a.Tier == CompressionAnchorTier.Critical),
-        "attachment_id must be Critical");
-    AssertTrue(anchors.Any(a => a.Value == urls[0] && a.Tier == CompressionAnchorTier.Informational),
-        "a URL degrades quality but does not corrupt state, so it must be Informational");
+    AssertEqual(2, anchors.Count, "only the attachment id and its stored path are handles");
+    AssertTrue(anchors.Any(anchor => anchor.Kind == "attachment_id" && anchor.Value == "att-alpha"),
+        "the attachment id must survive compression: later turns still refer to that file");
+    AssertTrue(anchors.Any(anchor => anchor.Kind == "attachment_path" && anchor.Value == "/safe/a.bin"),
+        "the stored path is how the app reaches the file again");
+    AssertFalse(anchors.Any(anchor => anchor.Value == "call-alpha"),
+        "a tool_call_id is dead weight once its complete round is gone: nothing references it any more");
+    AssertFalse(anchors.Any(anchor => anchor.Value.Contains("example.com", StringComparison.Ordinal)),
+        "URLs belong in the prose that says what happened to them, not in a bare identifier list");
 
     var plan = new CompressionPlan(
-        "plan-tier", "conversation-tier", 3, "fingerprint-tier", CompressionTriggerMode.Auto,
+        "plan-handle", "conversation-handle", 3, "fingerprint-handle", CompressionTriggerMode.Auto,
         null, material.Select(item => item.Id).ToArray(), [], material,
         12_000, 2_048, mainPolicy, CompressionTestPolicy(64_000, 48_000, 8_192), 1);
 
-    // 模型只吐散文：一个 id 都没复述，还漏掉了一条 URL。旧实现两样都会导致整体失败。
+    // 模型只吐散文，句柄一个没提：附录必须把它们补回来，而 URL 的取舍不再影响成败。
     var prose = "read_file returned /safe/one.md; sources: " + string.Join(", ", urls.Skip(1)) + ". It succeeded.";
     var generator = new CompressionCandidateGenerator(
         new ScriptedCompressionTextGenerator(prose),
@@ -2513,50 +2645,104 @@ static async Task TestAnchorTieringAsync()
         Log.Logger);
     var generated = await generator.GenerateAsync(plan);
     AssertEqual(CompressionGenerationStatus.Generated, generated.Status,
-        "critical anchors must not depend on the model reciting them, and one missed URL must not kill the batch");
-    AssertFalse(generated.Candidate!.Summary.Contains(urls[0], StringComparison.Ordinal),
-        "the fixture must actually exercise a missed informational anchor");
+        "handles must not depend on the model reciting them, and dropped URLs must not kill the batch");
     var summary = generated.Candidate!.Summary;
-    AssertTrue(summary.Contains("[hard_facts]", StringComparison.Ordinal),
-        "critical anchors the model omitted must be appended deterministically");
-    AssertTrue(summary.Contains("call-alpha", StringComparison.Ordinal)
+    AssertTrue(summary.Contains(CompressionValidator.AppendixHeader, StringComparison.Ordinal)
                && summary.Contains("att-alpha", StringComparison.Ordinal)
                && summary.Contains("/safe/a.bin", StringComparison.Ordinal),
-        "every critical anchor must survive by construction");
+        "every handle must survive by construction");
+    AssertFalse(summary.Contains("call-alpha", StringComparison.Ordinal),
+        "the appendix must not resurrect identifiers nothing will ever reference");
 
     var validator = new CompressionValidator();
     AssertEqual(CompressionValidationStatus.Valid, validator.Validate(plan, generated.Candidate!).Status,
         "a structurally completed candidate must pass validation");
 
-    // Informational 走召回率：丢一个不该整体失败，丢光了必须失败。
-    var candidate = generated.Candidate!;
-    var stripped = validator.Validate(plan, candidate with
-    {
-        Summary = "It succeeded.\n\n[hard_facts]\nattachment_id: att-alpha\nattachment_path: /safe/a.bin\ntool_call_id: call-alpha"
-    });
+    // 反过来：句柄被抹掉必须判死，否则「刚才那份附件」在后续轮次里就无从指认。
+    var stripped = validator.Validate(plan, generated.Candidate! with { Summary = "It succeeded." });
     AssertEqual(CompressionValidationStatus.MissingHardAnchors, stripped.Status,
-        "dropping every informational anchor must still fail");
-}
+        "dropping the attachment handles must fail: that is state loss, not a quality dip");
 
-static Task TestUrlAnchorBoundaryAsync()
-{
-    // 工具结果里的换行常是 JSON 转义后的字面 \n。旧模式不在那里停，会把 URL 和其后的中文
-    // 粘成一条 170 字符的锚点，任何模型都不可能原样复现——等于给验收埋了一颗必炸的雷。
-    var material = new List<CompressionMaterialMessage>
-    {
-        new("u", "tool",
-            "{\"url\":\"http://www.ccgp.gov.cn/site/detail?articleId=mOtW%2F6%2FNqRmivbZPstZtpA==&parentId=3661\\n新疆医科大学第一附属医院\"}",
-            "call-x", null, null, DateTime.UtcNow, [])
-    };
-    var urls = CompressionValidator.ExtractHardAnchors(material)
-        .Where(anchor => anchor.Kind == "url")
-        .ToArray();
-    AssertEqual(1, urls.Length, "the escaped newline must not split or duplicate the URL anchor");
+    // 附录是句柄唯一的传递通道。旧实现用正则去摘要正文里重新抽锚点，于是上一轮的附录
+    // 变成下一轮必须保留的锚点，清单只增不减；现在只认附录块本身。
+    var carried = CompressionValidator.ExtractHardAnchorsFromText(summary);
+    AssertEqual(2, carried.Count, "a second compression must carry exactly the handles forward");
+    AssertTrue(carried.All(anchor => anchor.Kind is "attachment_id" or "attachment_path"),
+        "nothing but handles may propagate between compressions");
     AssertEqual(
-        "http://www.ccgp.gov.cn/site/detail?articleId=mOtW%2F6%2FNqRmivbZPstZtpA==&parentId=3661",
-        urls[0].Value,
-        "the URL anchor must stop at the literal backslash-n instead of swallowing the following CJK text");
-    return Task.CompletedTask;
+        0,
+        CompressionValidator.ExtractHardAnchorsFromText(
+            "改了 /Users/dev/App/Services/Thing.cs，报了 ENOENT，见 https://example.com/doc").Count,
+        "prose must not be mined for anchors: that is what made the list grow forever");
+
+    // 回归：模型这一轮自己把句柄写进了散文，附录仍然必须写出来。省掉它，下一次压缩时
+    // 旧材料只剩这份摘要，而摘要里没有附录 → 句柄一个都传不下去，reduce 层可以静默丢掉它，
+    // 验收又只看新材料，兜不住。「模型表现好」反而成了句柄丢失的触发条件。
+    var recited = await new CompressionCandidateGenerator(
+        new ScriptedCompressionTextGenerator("Read attachment att-alpha stored at /safe/a.bin, then finished."),
+        new TestPromptService(),
+        Log.Logger).GenerateAsync(plan);
+    AssertEqual(CompressionGenerationStatus.Generated, recited.Status,
+        "a model that recited the handles must still produce a candidate");
+    AssertEqual(2, CompressionValidator.ExtractHardAnchorsFromText(recited.Candidate!.Summary).Count,
+        "the appendix is the only channel to the next compression: reciting the handles must not cost us that channel");
+
+    // reduce 层可能把上一层的附录抄进正文，生成侧随后又追加一份。只认第一块会把另一半留在后面。
+    AssertEqual(
+        3,
+        CompressionValidator.ExtractHardAnchorsFromText(
+            "summary\n\n[hard_facts]\nattachment_id: att-early\n\nmore prose\n\n"
+            + "[hard_facts]\nattachment_id: att-late\nattachment_path: /safe/late.bin").Count,
+        "every appendix block must be scanned, not just the first one");
+
+    // 回归：附录的分隔方案必须对路径成立。附件落点挂在用户选定的安装目录下，
+    // 扩展名也只做了小写化，逗号在路径里是合法字符——同行逗号分隔会把一个句柄劈成两个。
+    const string commaPath = "/Users/fixture/My,Apps/AthenaData/Attachments/20260814/abcdef.bin";
+    var commaMaterial = new List<CompressionMaterialMessage>
+    {
+        new("mu", "user", "keep this " + new string('m', 12_000), null, null, null, DateTime.UtcNow, []),
+        new("ma", "assistant", "stored", null, null, null, DateTime.UtcNow,
+            [new CompressionAttachmentReference("att-comma", AttachmentKind.Document, "a,b.bin", commaPath, "application/octet-stream", 8, 0, 0)])
+    };
+    var commaPlan = new CompressionPlan(
+        "plan-comma", "conversation-comma", 7, "fingerprint-comma", CompressionTriggerMode.Auto,
+        null, commaMaterial.Select(item => item.Id).ToArray(), [], commaMaterial,
+        12_000, 2_048, mainPolicy, CompressionTestPolicy(64_000, 48_000, 8_192), 1);
+    var commaGenerated = await new CompressionCandidateGenerator(
+        new ScriptedCompressionTextGenerator("The user supplied a file and it was stored."),
+        new TestPromptService(),
+        Log.Logger).GenerateAsync(commaPlan);
+    AssertEqual(CompressionGenerationStatus.Generated, commaGenerated.Status,
+        "a comma inside a stored path must not break generation");
+    var commaCarried = CompressionValidator.ExtractHardAnchorsFromText(commaGenerated.Candidate!.Summary);
+    AssertEqual(2, commaCarried.Count, "a comma inside a stored path must not split one handle into two");
+    AssertTrue(commaCarried.Any(anchor => anchor.Kind == "attachment_path" && anchor.Value == commaPath),
+        "the stored path must round-trip through the appendix byte for byte, commas and all");
+
+    // 一段满是路径的材料曾经能抽出上百个「硬事实」，把摘要预算吃掉一大半。现在附录只放句柄。
+    var pathHeavy = new List<CompressionMaterialMessage>
+    {
+        new("cu", "user", "review these", null, null, null, DateTime.UtcNow, []),
+        new("ca", "assistant",
+            string.Join('\n', Enumerable.Range(0, 300).Select(i => $"/Users/fixture/project/module{i}/File{i}.cs"))
+            + "\n" + new string('c', 12_000),
+            null, null, null, DateTime.UtcNow, [])
+    };
+    var pathPlan = new CompressionPlan(
+        "plan-paths", "conversation-paths", 5, "fingerprint-paths", CompressionTriggerMode.Manual,
+        null, pathHeavy.Select(item => item.Id).ToArray(), [], pathHeavy,
+        12_000, 1_024, mainPolicy, CompressionTestPolicy(64_000, 48_000, 8_192), 1);
+    var pathGenerated = await new CompressionCandidateGenerator(
+        new ScriptedCompressionTextGenerator("The assistant listed project files and finished."),
+        new TestPromptService(),
+        Log.Logger).GenerateAsync(pathPlan);
+    AssertEqual(CompressionGenerationStatus.Generated, pathGenerated.Status,
+        "a material full of paths must compress instead of failing an unreachable recall bar");
+    AssertFalse(pathGenerated.Candidate!.Summary.Contains(CompressionValidator.AppendixHeader, StringComparison.Ordinal),
+        "no handles means no appendix: the whole summary budget stays with the prose");
+    AssertEqual(CompressionValidationStatus.Valid,
+        new CompressionValidator().Validate(pathPlan, pathGenerated.Candidate!).Status,
+        "the validator must stop judging how many identifiers the prose recited");
 }
 
 static Task TestCompressionStrengthAsync()
@@ -2701,10 +2887,18 @@ static async Task TestCompressionCandidateAndValidatorAsync()
     {
         Summary = "[user] You must preserve 42; value 42. read_file call-1 returned ENOENT. Attachment att-id."
     });
+    // 丢路径、丢 URL 只是摘要变差，不再判死；丢的是附件句柄才是状态损坏。
     AssertEqual(CompressionValidationStatus.MissingHardAnchors, missing.Status,
-        "candidate omitting paths/URLs must be rejected before commit");
-    AssertTrue(missing.MissingHardAnchors.Any(anchor => anchor.Value.Contains("/safe/facts.md", StringComparison.Ordinal)),
-        "validation failure should identify the missing deterministic anchor");
+        "a candidate that drops an attachment handle must be rejected before commit");
+    AssertTrue(missing.MissingHardAnchors.Any(anchor => anchor.Value.Contains("/safe/att.bin", StringComparison.Ordinal)),
+        "validation failure should name the handle that went missing");
+    AssertEqual(CompressionValidationStatus.Valid,
+        validator.Validate(validationPlan, candidate with
+        {
+            Summary = "[user] preserved the numeric constraint. [assistant/tool] read_file failed; "
+                      + "attachment att-id remains at /safe/att.bin."
+        }).Status,
+        "prose that keeps the handles but paraphrases paths and URLs must pass: that is a quality dip, not state loss");
 
     AssertEqual(CompressionValidationStatus.Empty,
         validator.Validate(validationPlan, candidate with { Summary = "[error] failed" }).Status,
@@ -5317,6 +5511,54 @@ sealed class NullArrayResponsesSseHandler : HttpMessageHandler
             data: {"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":null,"logprobs":null}]}}
 
             data: {"type":"response.completed","sequence_number":5,"response":{"id":"resp_final","object":"response","created_at":1785580001,"status":"completed","model":"third-party-model","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done","annotations":null,"logprobs":null}]}],"usage":{"input_tokens":4,"input_tokens_details":{"cached_tokens":0},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":6}}}
+
+            data: [DONE]
+
+            """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>A reasoning model that spends the whole output budget before emitting any text.</summary>
+sealed class TruncatedResponsesSseHandler : HttpMessageHandler
+{
+#pragma warning disable CA2000 // HttpClient owns the returned response and content.
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        const string body = """
+            data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"third-party-model","output":[],"usage":null}}
+
+            data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_truncated","object":"response","created_at":1785580001,"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"model":"third-party-model","output":[],"usage":{"input_tokens":40,"input_tokens_details":{"cached_tokens":0},"output_tokens":512,"output_tokens_details":{"reasoning_tokens":512},"total_tokens":552}}}
+
+            data: [DONE]
+
+            """;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>A provider that accepts the request and then fails the response mid-stream.</summary>
+sealed class FailedResponsesSseHandler : HttpMessageHandler
+{
+#pragma warning disable CA2000 // HttpClient owns the returned response and content.
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        const string body = """
+            data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_fixture","object":"response","created_at":1785580000,"status":"in_progress","model":"third-party-model","output":[],"usage":null}}
+
+            data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_failed","object":"response","created_at":1785580001,"status":"failed","model":"third-party-model","output":[],"error":{"code":"server_error","message":"upstream provider refused the request"},"usage":null}}
 
             data: [DONE]
 

@@ -161,6 +161,29 @@ public partial class ChatMessage : ObservableObject
     private bool _isCompressed;
 
     /// <summary>
+    /// 是否是压缩边界——这条消息之后，模型看到的就是摘要而不是原文了。
+    /// 只标最后一条已归档消息：用户需要知道的是边界，不是逐条角标。
+    /// 纯 UI 派生态，由 VM 统一重算，不参与持久化（CloneMessage 不复制它）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isCompressionBoundary;
+
+    /// <summary>
+    /// 上下文维护（自动压缩）的进行中提示。与 <see cref="ToolExecutionSummary"/> 共用气泡里
+    /// 同一行位置，但必须是独立字段：压缩发生在工具轮之间，挤占同一个属性会让
+    /// 「xxx 调用完毕，持续思考中…」被覆盖后再也回不来。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasContextMaintenanceStatus))]
+    [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowDefaultThinkingText))]
+    [NotifyPropertyChangedFor(nameof(ShowComposingFileText))]
+    private string _contextMaintenanceStatus = string.Empty;
+
+    public bool HasContextMaintenanceStatus => !string.IsNullOrEmpty(ContextMaintenanceStatus);
+
+    /// <summary>
     /// 是否允许回滚/fork（仅 user 消息，发送/压缩期间由 VM 统一关闭）
     /// </summary>
     [ObservableProperty]
@@ -216,7 +239,7 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
-    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasAudioError || IsLoading || IsStreaming || IsGeneratingAudio);
+    public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasContextMaintenanceStatus || HasAudioError || IsLoading || IsStreaming || IsGeneratingAudio);
 
     /// <summary>
     /// 工具执行摘要提示
@@ -242,11 +265,11 @@ public partial class ChatMessage : ObservableObject
     /// 不能只靠 IsVisible 隐藏：Avalonia 对不可见元素的关键帧动画仍会持续
     /// 驱动合成器逐帧渲染（AvaloniaUI/Avalonia#17139）。
     /// </summary>
-    public bool ShowThinkingIndicator => IsLoading && !HasToolExecutionSummary;
+    public bool ShowThinkingIndicator => IsLoading && !HasToolExecutionSummary && !HasContextMaintenanceStatus;
 
-    public bool ShowDefaultThinkingText => !HasToolExecutionSummary && !IsComposingFileText;
+    public bool ShowDefaultThinkingText => !HasToolExecutionSummary && !HasContextMaintenanceStatus && !IsComposingFileText;
 
-    public bool ShowComposingFileText => !HasToolExecutionSummary && IsComposingFileText;
+    public bool ShowComposingFileText => !HasToolExecutionSummary && !HasContextMaintenanceStatus && IsComposingFileText;
 
     public bool HasAudioError => !string.IsNullOrWhiteSpace(AudioErrorMessage);
 

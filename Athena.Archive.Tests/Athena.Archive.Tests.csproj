@@ -24,8 +24,10 @@
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/ContextPolicyModels.cs" Link="Source/Models/ContextPolicyModels.cs" />
     <Compile Include="../Models/ModelMetadataModels.cs" Link="Source/Models/ModelMetadataModels.cs" />
+    <Compile Include="../Models/ModelWarnings.cs" Link="Source/Models/ModelWarnings.cs" />
     <Compile Include="../Models/TokenCalibrationModels.cs" Link="Source/Models/TokenCalibrationModels.cs" />
     <Compile Include="../Models/CompressionTransactionModels.cs" Link="Source/Models/CompressionTransactionModels.cs" />
+    <Compile Include="../Models/CompressionProgress.cs" Link="Source/Models/CompressionProgress.cs" />
     <Compile Include="../Models/ExtensionProviderCatalog.cs" Link="Source/Models/ExtensionProviderCatalog.cs" />
     <Compile Include="../Models/AiModelConfiguration.cs" Link="Source/Models/AiModelConfiguration.cs" />
     <Compile Include="../Services/ConfigService.cs" Link="Source/Services/ConfigService.cs" />

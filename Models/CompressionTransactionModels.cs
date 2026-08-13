@@ -119,25 +119,13 @@ public enum CompressionValidationStatus
     MissingHardAnchors
 }
 
-public enum CompressionAnchorTier
-{
-    /// <summary>
-    /// 引用完整性：丢失会让摘要指向不存在的工具调用或附件，破坏后续请求的配对约束。
-    /// 这类锚点不交给模型复述，由代码在摘要末尾结构化追加，因此按构造为真。
-    /// </summary>
-    Critical,
-
-    /// <summary>
-    /// 内容质量：URL、数字、路径、错误码。丢失只是摘要变差，不会损坏状态，
-    /// 因此按召回率要求而不是逐条一票否决——要求 100% 逐字复现等于要求压缩必然失败。
-    /// </summary>
-    Informational
-}
-
-public sealed record CompressionHardAnchor(
-    string Kind,
-    string Value,
-    CompressionAnchorTier Tier = CompressionAnchorTier.Informational);
+/// <summary>
+/// 摘要必须逐字带走的句柄：后续轮次要靠它去够到一个真实存在的东西（附件、磁盘上的文件）。
+/// 只有这一类——路径、URL、错误码、数字这些是「过程痕迹」，它们的价值在于和"发生了什么"
+/// 绑在一起被叙述出来，单独罗列成清单既占预算又无法推理，所以交给提示词，不做结构化保证。
+/// 句柄由代码在摘要末尾结构化追加，不赌模型的复述能力。
+/// </summary>
+public sealed record CompressionHardAnchor(string Kind, string Value);
 
 /// <summary>
 /// 压缩可行性判定的结果。全部由本地字符统计得出，不需要任何模型调用——
@@ -149,9 +137,8 @@ public sealed record CompressionFeasibilityVerdict(
     long MaterialTokens,
     long TargetTokens,
     double RequiredRatio,
-    int CriticalAnchorCount,
-    int InformationalAnchorCount,
-    long CriticalAnchorTokens,
+    int HandleAnchorCount,
+    long HandleAnchorTokens,
     long ProjectedBenefitTokens);
 
 public sealed record CompressionValidationResult(

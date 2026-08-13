@@ -19,6 +19,10 @@ public interface IChatService
     /// <param name="cancellationToken">取消令牌</param>
     /// <param name="onMessageAdded">当产生中间消息（如工具结果）时的回调</param>
     /// <param name="onUsageReported">每轮 API 响应回报真实 token 用量时的回调</param>
+    /// <param name="onCompressionProgress">自动压缩的阶段回报，供界面把这段等待解释清楚</param>
+    /// <param name="skipCompressionToken">
+    /// 只取消自动压缩、不取消整轮请求。用户放弃这次压缩时，本轮仍带原上下文继续发出。
+    /// </param>
     /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -32,7 +36,9 @@ public interface IChatService
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
         Action<string>? onContextWarning = null,
-        Action<ContextAnchorRecord>? onAnchorObserved = null);
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default);
 
     /// <summary>
     /// 测试 API 连接
