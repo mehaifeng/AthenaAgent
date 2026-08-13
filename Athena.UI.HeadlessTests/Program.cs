@@ -119,6 +119,7 @@ Task.Run(TestAnchoredBudgetBeatsInflatedEstimateAsync).GetAwaiter().GetResult();
 TestContextAnchorLedgerSelection();
 Task.Run(TestDeltaTokenEstimatorConvergenceAsync).GetAwaiter().GetResult();
 TestCompressionThresholdClampRespectsCapMode();
+TestOutputScaledTimeout();
 TestTransactionalCompressionCommitAsync().GetAwaiter().GetResult();
 Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
@@ -3828,7 +3829,55 @@ static void TestCompressionThresholdClampRespectsCapMode()
     if (custom.ContextPolicy.CustomCompressionThresholdTokens != 256_000 || custom.MaxContextTokens != 256_000)
         throw new InvalidOperationException("An active cap must still clamp the compression threshold and the mirror.");
 
-    Console.WriteLine("[PASS] compression threshold is only clamped by a cap that is actually in effect");
+    // 迁移旧版钳制留下的死结：Mode 已切回 Auto，阈值却仍等于那个失效的上限。
+    // 这正是实测配置的形状（1M 窗口的模型卡在 256K 触发压缩）。
+    var pinned = new AppConfig();
+    pinned.ContextPolicy.Mode = ContextPolicyMode.Auto;
+    pinned.ContextPolicy.CustomCapTokens = 256_000;
+    pinned.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    pinned.ContextPolicy.CustomCompressionThresholdTokens = 256_000;
+    AppConfigNormalizer.NormalizeContextPolicy(pinned);
+    if (pinned.ContextPolicy.CompressionThresholdMode != CompressionThresholdMode.Auto
+        || pinned.ContextPolicy.CustomCompressionThresholdTokens != null)
+        throw new InvalidOperationException("A threshold pinned to an inactive cap must be released back to Auto.");
+    AppConfigNormalizer.NormalizeContextPolicy(pinned);
+    if (pinned.ContextPolicy.CompressionThresholdMode != CompressionThresholdMode.Auto)
+        throw new InvalidOperationException("The migration must be idempotent.");
+
+    // 用户自己挑的阈值（不等于那个失效上限）必须原样保留，不能被迁移误伤。
+    var deliberate = new AppConfig();
+    deliberate.ContextPolicy.Mode = ContextPolicyMode.Auto;
+    deliberate.ContextPolicy.CustomCapTokens = 256_000;
+    deliberate.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    deliberate.ContextPolicy.CustomCompressionThresholdTokens = 400_000;
+    AppConfigNormalizer.NormalizeContextPolicy(deliberate);
+    if (deliberate.ContextPolicy.CompressionThresholdMode != CompressionThresholdMode.Custom
+        || deliberate.ContextPolicy.CustomCompressionThresholdTokens != 400_000)
+        throw new InvalidOperationException("A deliberately chosen threshold must survive the migration untouched.");
+
+    Console.WriteLine("[PASS] compression threshold follows the active cap and legacy pinning is migrated away");
+}
+
+static void TestOutputScaledTimeout()
+{
+    // 一个扁平的 60 秒被 256 token 的审批和 12,000 token 的压缩共用：后者实测最慢 57 秒，
+    // 7 次里 2 次超时，每次赔上约 175 秒的重试。超时必须跟随本次调用的输出规模。
+    var approval = OpenAiClientOptionsFactory.ResolveTimeoutSeconds(60, 256);
+    if (approval != 65)
+        throw new InvalidOperationException($"A small-output call should stay close to the configured timeout, got {approval}s.");
+
+    var compression = OpenAiClientOptionsFactory.ResolveTimeoutSeconds(60, 12_000);
+    if (compression != 300)
+        throw new InvalidOperationException($"A 12k-token summary needs materially more headroom, got {compression}s.");
+
+    if (OpenAiClientOptionsFactory.ResolveTimeoutSeconds(60, 0) != 60)
+        throw new InvalidOperationException("An unknown output budget must fall back to the configured timeout.");
+    if (OpenAiClientOptionsFactory.ResolveTimeoutSeconds(60, 10_000_000) != OpenAiClientOptionsFactory.MaxTimeoutSeconds)
+        throw new InvalidOperationException("The scaled timeout must still respect the global ceiling.");
+    if (OpenAiClientOptionsFactory.ResolveTimeoutSeconds(300, 1_000) < 300)
+        throw new InvalidOperationException("Scaling must never shorten an explicitly configured timeout.");
+
+    Console.WriteLine("[PASS] network timeout scales with the output budget instead of one flat value");
 }
 
 static async Task TestResponsesStreamingTextAndUsageAsync()

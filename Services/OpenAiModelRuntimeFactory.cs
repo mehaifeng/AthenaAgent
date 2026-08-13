@@ -175,6 +175,15 @@ public sealed class OpenAiModelRuntimeFactory
         return CreateChatClient(_configService.Load(), role);
     }
 
+    /// <summary>输出量大的角色（如上下文压缩）需要按生成规模放宽的超时，而不是全局扁平值。</summary>
+    public ChatClient CreateChatClient(AiModelRole role, int timeoutSeconds)
+    {
+        var config = _configService.Load();
+        var effective = Resolve(config, role);
+        effective.ValidateChatRole(role);
+        return CreateClient(effective, timeoutSeconds).GetChatClient(effective.Model);
+    }
+
     public ChatClient CreateChatClient(AppConfig config, AiModelRole role)
     {
         var effective = Resolve(config, role);

@@ -69,9 +69,13 @@ public sealed class ContextCompressionService : IContextCompressionService
             prompt.Append(BuildCompressionMaterial(olderMessages));
 
             var systemPrompt = _promptService.GetPrompt(PromptType.ContextCompression);
+            // 与 OpenAiCompressionTextGenerator 同理：摘要输出量远大于其它辅助角色，
+            // 沿用全局扁平超时会把「生成很长」误判成「网络故障」并触发整轮重试。
+            var compressionTimeout = OpenAiClientOptionsFactory.ResolveTimeoutSeconds(
+                _modelFactory.TimeoutSeconds, effective.MaxOutputTokens);
             if (ResponsesCallHelpers.ShouldUseResponses(effective))
             {
-                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, compressionTimeout);
                 var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, effective.MaxOutputTokens);
                 options.InputItems.Add(ResponseItem.CreateUserMessageItem(prompt.ToString()));
                 var result = await responses.CreateResponseAsync(options, cancellationToken);
@@ -189,9 +193,10 @@ public sealed class WorkspaceKnowledgeCompressor : IWorkspaceKnowledgeCompressor
                 Math.Clamp(tokenBudget, 32, 8192),
                 effective.MaxOutputTokens > 0 ? effective.MaxOutputTokens : 8192);
             const string systemPrompt = "Compress this workspace knowledge file. Preserve facts, commands, paths, decisions, constraints, and code identifiers. Return Markdown only and invent nothing.";
+            var knowledgeTimeout = OpenAiClientOptionsFactory.ResolveTimeoutSeconds(_modelFactory.TimeoutSeconds, maxOutput);
             if (ResponsesCallHelpers.ShouldUseResponses(effective))
             {
-                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
+                var responses = ResponsesCallHelpers.CreateResponsesClient(effective, knowledgeTimeout);
                 var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, maxOutput);
                 options.InputItems.Add(ResponseItem.CreateUserMessageItem(content));
                 var result = await responses.CreateResponseAsync(options, cancellationToken);

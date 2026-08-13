@@ -1,5 +1,6 @@
 using System;
 using Athena.UI.Models;
+using Serilog;
 
 namespace Athena.UI.Services;
 
@@ -24,6 +25,23 @@ public static class AppConfigNormalizer
             && policy.CustomCompressionThresholdTokens > policy.CustomCapTokens)
         {
             policy.CustomCompressionThresholdTokens = policy.CustomCapTokens;
+        }
+
+        // 迁移旧版钳制留下的死结：上一版在不看 Mode 的情况下把压缩阈值钳到 CustomCapTokens。
+        // 用户之后把上限切回 Auto，那个上限就失效了，但被它压下去的阈值原样留在配置里，
+        // 且用户无从察觉——表现为 1M 窗口的模型仍在 256K 处触发压缩，而且改不动
+        // （旧归一化会把调高的值再钳回去）。指纹很明确：上限模式未生效，阈值却恰好等于
+        // 那个失效的上限。此时把阈值交还给 Auto，让它跟随可用输入预算。
+        if (!capIsActive
+            && policy.CompressionThresholdMode == CompressionThresholdMode.Custom
+            && policy.CustomCapTokens.HasValue
+            && policy.CustomCompressionThresholdTokens == policy.CustomCapTokens)
+        {
+            Log.Information(
+                "ContextPolicyMigrated: released a compression threshold ({Threshold}) that the legacy clamp had pinned to an inactive context cap",
+                policy.CustomCompressionThresholdTokens);
+            policy.CompressionThresholdMode = CompressionThresholdMode.Auto;
+            policy.CustomCompressionThresholdTokens = null;
         }
         policy.KeepRecentRounds = Math.Clamp(policy.KeepRecentRounds, 1, 50);
         policy.TargetSummaryTokens = Math.Clamp(policy.TargetSummaryTokens, 128, 65_536);
