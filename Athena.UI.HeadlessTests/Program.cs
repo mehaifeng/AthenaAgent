@@ -822,11 +822,13 @@ var p0Chat = new MainConversationViewModel(
     compressionPlanner: new CompressionPlanner(),
     compressionCandidateGenerator: new FixedCompressionCandidateGenerator("compressed summary"),
     compressionValidator: new CompressionValidator());
+// 目标摘要预算是 8192 token；旧轮次必须明显大于它，否则规划期会（正确地）判定
+// 压缩反而撑大上下文而拒绝出计划，这条用例要测的持久化路径就根本不会被触达。
 var compressedSource = new ChatMessage
 {
     Id = "p0-user",
     Role = "user",
-    Content = "preserve me " + new string('p', 7_000)
+    Content = "preserve me " + new string('p', 60_000)
 };
 p0Chat.RestorePersistedConversation(new ConversationHistoryItem
 {
@@ -2584,7 +2586,9 @@ static async Task TestContextInspectorBehaviorAsync()
         compressionPlanner: new CompressionPlanner(),
         compressionCandidateGenerator: generator,
         compressionValidator: new CompressionValidator());
-    chat.Messages.Add(new ChatMessage { Id = "inspector-old-u", Role = "user", Content = "old " + new string('o', 8_000) });
+    // 旧轮次必须真的值得压缩：目标摘要预算是 8192 token，材料若比它还小，规划期会
+    // （正确地）判定压了反而撑大上下文而拒绝出计划，预览也就无从谈起。
+    chat.Messages.Add(new ChatMessage { Id = "inspector-old-u", Role = "user", Content = "old " + new string('o', 60_000) });
     chat.Messages.Add(new ChatMessage { Id = "inspector-old-a", Role = "assistant", Content = "old answer" });
     chat.Messages.Add(new ChatMessage { Id = "inspector-recent-u", Role = "user", Content = "recent" });
     chat.Messages.Add(new ChatMessage { Id = "inspector-recent-a", Role = "assistant", Content = "recent answer" });
@@ -3634,6 +3638,9 @@ static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
 
     var events = new List<string>();
     var generator = new CountingFailedCompressionCandidateGenerator();
+    // 数「预算闸门开了几次」而不是「模型被调了几次」：可行性前置会挡掉不划算的材料，
+    // 用生成次数衡量就分不清「闸门没开」和「闸门开了但材料被判不可行」。
+    var planner = new CountingCompressionPlanner();
     var service = new OpenAIChatService(
         config,
         new HeadlessPromptService(),
@@ -3641,7 +3648,7 @@ static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
         metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
         contextPolicyResolver: new ModelContextPolicyResolver(),
         requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())),
-        compressionPlanner: new CompressionPlanner(),
+        compressionPlanner: planner,
         compressionCandidateGenerator: generator,
         compressionValidator: new CompressionValidator(),
         contextPolicyProvider: new HeadlessContextPolicyProvider(100_000),
@@ -3678,15 +3685,15 @@ static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
 
     if (handler.RequestCount != 2)
         throw new InvalidOperationException($"Expected two tool-loop requests, saw {handler.RequestCount}.");
-    // 首轮尚无锚点，按估算触发一次压缩是允许的；拿到 500 的权威值之后必须彻底停手。
-    if (generator.CallCount != 1)
+    // 首轮尚无锚点，按估算开一次闸门是允许的；拿到 500 的权威值之后必须彻底停手。
+    if (planner.CallCount != 1)
         throw new InvalidOperationException(
-            $"An inflated estimate must not re-trigger compression once an anchor exists (generator called {generator.CallCount} times).");
+            $"An inflated estimate must not re-open the budget gate once an anchor exists (gate opened {planner.CallCount} times).");
     if (context.Anchors.Count == 0 || context.Anchors[^1].InputTokens != 68)
         throw new InvalidOperationException("Each provider usage report must be recorded as a reusable anchor.");
 
     // 第二回合：账本里已有锚点，首轮就该是 anchored——冷启动那一次误触发不应重演。
-    var callsAfterFirstTurn = generator.CallCount;
+    var gateOpensAfterFirstTurn = planner.CallCount;
     await foreach (var _ in service.StreamMessageAsync(
                        "follow-up question",
                        context,
@@ -3695,9 +3702,12 @@ static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
                            CompressionCommitResult.Failed(CompressionCommitStatus.Stale, transition.BaseRevision, "not reached"))))
     {
     }
-    if (generator.CallCount != callsAfterFirstTurn)
+    if (planner.CallCount != gateOpensAfterFirstTurn)
         throw new InvalidOperationException(
             "A persisted anchor must survive into the next turn so the first request is no longer judged by estimation.");
+    if (generator.CallCount != 0)
+        throw new InvalidOperationException(
+            "The tiny fixture material is not worth compressing, so the feasibility gate must stop it before any model call.");
 
     Console.WriteLine("[PASS] an authoritative usage anchor overrides an inflated calibration estimate across turns");
 }
@@ -6266,6 +6276,19 @@ sealed class FixedCompressionCandidateGenerator(string summary = "faithful compa
             plan.PromptVersion,
             DateTimeOffset.UtcNow,
             false)));
+    }
+}
+
+/// <summary>统计预算闸门开了几次：闸门一开就会问规划器要计划。</summary>
+sealed class CountingCompressionPlanner : ICompressionPlanner
+{
+    private readonly CompressionPlanner _inner = new();
+    public int CallCount { get; private set; }
+
+    public CompressionPlanResult CreatePlan(CompressionPlanRequest request)
+    {
+        CallCount++;
+        return _inner.CreatePlan(request);
     }
 }
 

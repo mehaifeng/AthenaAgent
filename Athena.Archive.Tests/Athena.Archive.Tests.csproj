@@ -49,6 +49,7 @@
     <Compile Include="../Services/Context/CompressionPlanner.cs" Link="Source/Services/Context/CompressionPlanner.cs" />
     <Compile Include="../Services/Context/CompressionCandidateGenerator.cs" Link="Source/Services/Context/CompressionCandidateGenerator.cs" />
     <Compile Include="../Services/Context/CompressionValidator.cs" Link="Source/Services/Context/CompressionValidator.cs" />
+    <Compile Include="../Services/Context/CompressionFeasibility.cs" Link="Source/Services/Context/CompressionFeasibility.cs" />
     <Compile Include="../Services/Context/ContextAnchorLedger.cs" Link="Source/Services/Context/ContextAnchorLedger.cs" />
     <Compile Include="../Services/TokenService.cs" Link="Source/Services/TokenService.cs" />
     <Compile Include="../Services/ModelMetadata/ProviderModelInventoryMerger.cs" Link="Source/Services/ModelMetadata/ProviderModelInventoryMerger.cs" />

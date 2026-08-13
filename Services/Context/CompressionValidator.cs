@@ -1,4 +1,4 @@
-using Athena.UI.Models;
+﻿using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -11,6 +11,9 @@ namespace Athena.UI.Services.Context;
 
 public sealed partial class CompressionValidator : ICompressionValidator
 {
+    /// <summary>Informational 锚点要求的最低召回率。丢几个 URL 只是摘要变差，不会损坏状态。</summary>
+    public const double MinimumInformationalRecall = 0.90;
+
     public CompressionValidationResult Validate(
         CompressionPlan plan,
         CompressionCandidate candidate,
@@ -30,31 +33,60 @@ public sealed partial class CompressionValidator : ICompressionValidator
         if (summaryTokens > plan.TargetSummaryTokens)
             return Result(CompressionValidationStatus.OverBudget, summaryTokens, plan.PreCompressionEstimate, 0, [], "Candidate exceeds the target summary budget.");
 
-        var compressedTokens = plan.Material.Sum(EstimateMaterialTokens);
+        var compressedTokens = EstimateMaterialTokens(plan.Material);
         var postEstimate = Math.Max(0, plan.PreCompressionEstimate - compressedTokens) + summaryTokens;
         var benefit = Math.Max(0, plan.PreCompressionEstimate - postEstimate);
-        var requiredBenefit = Math.Max(1_024L, (long)Math.Ceiling(plan.PreCompressionEstimate * 0.20));
+        var requiredBenefit = CompressionFeasibility.RequiredBenefitTokens(plan.PreCompressionEstimate);
         if (benefit < requiredBenefit)
             return Result(CompressionValidationStatus.InsufficientBenefit, summaryTokens, postEstimate, benefit, [], "Candidate does not provide material compression benefit.");
 
         var anchors = ExtractHardAnchors(plan.Material);
-        var missing = anchors
+        // Critical 锚点由生成侧的结构化附录保证，这里只做兜底自检；Informational 按召回率
+        // 判定——要求逐条 100% 复现会让任何非平凡的材料都无法通过验收。
+        var missingCritical = anchors
+            .Where(anchor => anchor.Tier == CompressionAnchorTier.Critical
+                             && !candidate.Summary.Contains(anchor.Value, StringComparison.Ordinal))
+            .ToArray();
+        var informational = anchors.Where(anchor => anchor.Tier == CompressionAnchorTier.Informational).ToArray();
+        var missingInformational = informational
             .Where(anchor => !candidate.Summary.Contains(anchor.Value, StringComparison.Ordinal))
             .ToArray();
-        if (missing.Length > 0)
-            return Result(CompressionValidationStatus.MissingHardAnchors, summaryTokens, postEstimate, benefit, missing, "Candidate omitted deterministic hard anchors.");
+        // 失败时把两层都报出来：只报触发失败的那一层，诊断时会看不到全貌。
+        if (missingCritical.Length > 0)
+            return Result(CompressionValidationStatus.MissingHardAnchors, summaryTokens, postEstimate, benefit,
+                [.. missingCritical, .. missingInformational],
+                $"Candidate omitted {missingCritical.Length} critical reference anchor(s).");
 
-        return Result(CompressionValidationStatus.Valid, summaryTokens, postEstimate, benefit, [], string.Empty);
+        if (informational.Length > 0)
+        {
+            var recall = (informational.Length - missingInformational.Length) / (double)informational.Length;
+            if (recall < MinimumInformationalRecall)
+                return Result(CompressionValidationStatus.MissingHardAnchors, summaryTokens, postEstimate, benefit, missingInformational,
+                    $"Informational anchor recall {recall:P0} is below the required {MinimumInformationalRecall:P0}.");
+        }
+
+        return Result(CompressionValidationStatus.Valid, summaryTokens, postEstimate, benefit, missingInformational, string.Empty);
     }
 
-    internal static IReadOnlyList<CompressionHardAnchor> ExtractHardAnchors(
+    /// <summary>
+    /// 引用完整性锚点：丢失会让摘要指向不存在的工具调用或附件，破坏后续请求的配对约束。
+    /// 这类必须逐字保留，但由生成侧结构化追加，而不是要求模型自己复述。
+    /// </summary>
+    private static CompressionAnchorTier TierOf(string kind) => kind switch
+    {
+        "tool_call_id" or "attachment_id" or "attachment_path" => CompressionAnchorTier.Critical,
+        _ => CompressionAnchorTier.Informational
+    };
+
+    public static IReadOnlyList<CompressionHardAnchor> ExtractHardAnchors(
         IReadOnlyList<CompressionMaterialMessage> material)
     {
         var anchors = new Dictionary<string, CompressionHardAnchor>(StringComparer.Ordinal);
         void Add(string kind, string? value)
         {
             value = value?.Trim().TrimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\'');
-            if (!string.IsNullOrWhiteSpace(value)) anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value));
+            if (!string.IsNullOrWhiteSpace(value))
+                anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value, TierOf(kind)));
         }
 
         foreach (var message in material)
@@ -88,7 +120,7 @@ public sealed partial class CompressionValidator : ICompressionValidator
         {
             value = value?.Trim().TrimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\'');
             if (!string.IsNullOrWhiteSpace(value))
-                anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value));
+                anchors.TryAdd(kind + "\u001f" + value, new CompressionHardAnchor(kind, value, TierOf(kind)));
         }
 
         foreach (Match match in UrlRegex().Matches(text)) Add("url", match.Value);
@@ -125,6 +157,10 @@ public sealed partial class CompressionValidator : ICompressionValidator
         }
     }
 
+    /// <summary>整份压缩材料的估算 token 数。可行性判定与收益计算共用同一把尺。</summary>
+    public static long EstimateMaterialTokens(IReadOnlyList<CompressionMaterialMessage> material)
+        => material.Sum(EstimateMaterialTokens);
+
     private static long EstimateMaterialTokens(CompressionMaterialMessage message)
     {
         long total = ConversationContext.EstimateTokens(message.Content)
@@ -145,7 +181,10 @@ public sealed partial class CompressionValidator : ICompressionValidator
         IReadOnlyList<CompressionHardAnchor> missing,
         string error) => new(status, summaryTokens, postEstimate, benefit, missing, error);
 
-    [GeneratedRegex(@"https?://[^\s<>()\""\]]+", RegexOptions.IgnoreCase)]
+    // 工具结果里的换行常常是 JSON 转义后的字面量 `\n`，不是空白字符。旧模式不在那里停，
+    // 会把 URL 和其后的中文正文粘成一条 170 字符的“锚点”，任何模型都不可能原样复现，
+    // 等于给验收埋了一颗必炸的雷。这里显式排除反斜杠与 CJK 起始字符。
+    [GeneratedRegex(@"https?://[^\s<>()\""\]\\\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]+", RegexOptions.IgnoreCase)]
     private static partial Regex UrlRegex();
 
     [GeneratedRegex(@"(?<![\w])(?:[A-Za-z]:\\|/)[^\s,;]+")]

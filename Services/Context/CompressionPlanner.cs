@@ -36,7 +36,35 @@ public sealed class CompressionPlanner : ICompressionPlanner
         if (complete.Length <= keepRecentRounds)
             return CompressionPlanResult.NotCompressible("No completed round exists outside the recent retention window.");
 
-        var compressGroups = complete.Take(complete.Length - keepRecentRounds).ToArray();
+        // 从最宽的窗口开始收窄，直到这份材料在本地判定上可行为止。收窄降低压缩比、
+        // 也降低收益，两者单调反向，所以第一个通过比例检查的窗口若收益不足，
+        // 再窄只会更差——一趟扫描即可定论，全程零模型调用。
+        var maxGroups = complete.Length - keepRecentRounds;
+        var groupCount = maxGroups;
+        CompressionFeasibilityVerdict? lastVerdict = null;
+        while (groupCount >= 1)
+        {
+            var candidateMaterial = complete.Take(groupCount)
+                .SelectMany(group => group.Messages)
+                .Select(ToMaterial)
+                .ToArray();
+            lastVerdict = CompressionFeasibility.Evaluate(
+                CompressionValidator.EstimateMaterialTokens(candidateMaterial),
+                target,
+                CompressionValidator.ExtractHardAnchors(candidateMaterial),
+                CompressionFeasibility.RequiredBenefitTokens(request.PreCompressionEstimate));
+            if (lastVerdict.IsFeasible) break;
+            // 收益不足是收窄造成的，继续收窄只会更少——立即停手。
+            if (lastVerdict.ProjectedBenefitTokens > 0
+                && lastVerdict.RequiredRatio <= CompressionFeasibility.MaxFeasibleRatio)
+                break;
+            groupCount--;
+        }
+        if (lastVerdict is not { IsFeasible: true })
+            return CompressionPlanResult.NotCompressible(
+                "No compressible window is feasible: " + (lastVerdict?.Reason ?? "no complete round available."));
+
+        var compressGroups = complete.Take(groupCount).ToArray();
         var compressIds = compressGroups
             .SelectMany(group => group.Messages)
             .Select(message => message.Id)

@@ -70,6 +70,13 @@ public sealed class CompressionCandidateGenerator : ICompressionCandidateGenerat
         if (plan.TargetSummaryTokens < 128 || plan.Material.Count == 0)
             return CompressionGenerationResult.NotCompressible("Compression plan has no safe material or target budget.");
 
+        // 可行性判定全部由本地字符统计得出，必须跑在任何模型调用之前。规划器通常已经
+        // 收窄到可行区间，这里是给其它调用方兜底：宁可零成本拒绝，也不要花 20–175 秒
+        // 生成一份注定被验收毙掉的摘要。
+        var feasibility = CompressionFeasibility.Evaluate(plan);
+        if (!feasibility.IsFeasible)
+            return CompressionGenerationResult.NotCompressible("Infeasible before any model call: " + feasibility.Reason);
+
         try
         {
             var inputBudget = plan.CompressionModelPolicy.AvailableInputBudgetTokens;
@@ -96,7 +103,7 @@ public sealed class CompressionCandidateGenerator : ICompressionCandidateGenerat
                     cancellationToken);
                 if (string.IsNullOrWhiteSpace(summary))
                     return CompressionGenerationResult.Failed("Compression model returned an empty map summary.");
-                summary = summary.Trim();
+                summary = AppendCriticalAnchors(summary.Trim(), chunk.HardAnchors);
                 if (!ValidateLayer(summary, plan.TargetSummaryTokens, chunk.HardAnchors, out var layerError))
                     return CompressionGenerationResult.Failed("Map validation failed: " + layerError);
                 summaries.Add(new CompressionPayload(summary, chunk.HardAnchors));
@@ -129,7 +136,7 @@ public sealed class CompressionCandidateGenerator : ICompressionCandidateGenerat
                         cancellationToken);
                     if (string.IsNullOrWhiteSpace(reduced))
                         return CompressionGenerationResult.Failed("Compression model returned an empty reduce summary.");
-                    reduced = reduced.Trim();
+                    reduced = AppendCriticalAnchors(reduced.Trim(), chunk.HardAnchors);
                     if (!ValidateLayer(reduced, plan.TargetSummaryTokens, chunk.HardAnchors, out var layerError))
                         return CompressionGenerationResult.Failed("Reduce validation failed: " + layerError);
                     next.Add(new CompressionPayload(reduced, chunk.HardAnchors));
@@ -215,24 +222,72 @@ public sealed class CompressionCandidateGenerator : ICompressionCandidateGenerat
             CompressionValidator.ExtractHardAnchors(messages));
     }
 
+    /// <summary>
+    /// 把模型没能自然带出的 Critical 锚点以确定性附录补齐。引用完整性不该依赖模型的
+    /// 逐字复述能力——那是本地代码能百分之百保证的事，成本只有几百 token。
+    /// </summary>
+    private static string AppendCriticalAnchors(
+        string summary,
+        IReadOnlyList<CompressionHardAnchor> anchors)
+    {
+        var missing = anchors
+            .Where(anchor => anchor.Tier == CompressionAnchorTier.Critical
+                             && !summary.Contains(anchor.Value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length == 0) return summary;
+
+        var builder = new StringBuilder(summary);
+        builder.AppendLine().AppendLine().AppendLine("[hard_facts]");
+        foreach (var group in missing
+                     .GroupBy(anchor => anchor.Kind, StringComparer.Ordinal)
+                     .OrderBy(group => group.Key, StringComparer.Ordinal))
+        {
+            builder.Append(group.Key).Append(": ")
+                .AppendLine(string.Join(", ", group.Select(anchor => anchor.Value)));
+        }
+        return builder.ToString().TrimEnd();
+    }
+
     private static bool ValidateLayer(
         string summary,
         long targetTokens,
         IReadOnlyList<CompressionHardAnchor> anchors,
         out string error)
     {
+        // 预算检查必须在附录追加之后进行，否则会漏算 Critical 锚点的开销。
         if (ConversationContext.EstimateTokens(summary) > targetTokens)
         {
             error = "output exceeds the target summary budget.";
             return false;
         }
-        var missing = anchors.FirstOrDefault(anchor =>
-            !summary.Contains(anchor.Value, StringComparison.Ordinal));
-        if (missing != null)
+
+        // Critical 已由 AppendCriticalAnchors 结构化保证；这里只是兜底自检。
+        var missingCritical = anchors.FirstOrDefault(anchor =>
+            anchor.Tier == CompressionAnchorTier.Critical
+            && !summary.Contains(anchor.Value, StringComparison.Ordinal));
+        if (missingCritical != null)
         {
-            error = $"output omitted {missing.Kind} anchor '{missing.Value}'.";
+            error = $"output omitted critical {missingCritical.Kind} anchor '{missingCritical.Value}'.";
             return false;
         }
+
+        // Informational 按召回率判定。要求逐条 100% 复现，等于要求压缩必然失败：
+        // 真实会话里这类锚点有 80+ 条，其中不少是长 URL。
+        var informational = anchors
+            .Where(anchor => anchor.Tier == CompressionAnchorTier.Informational)
+            .ToArray();
+        if (informational.Length > 0)
+        {
+            var hits = informational.Count(anchor => summary.Contains(anchor.Value, StringComparison.Ordinal));
+            var recall = hits / (double)informational.Length;
+            if (recall < CompressionValidator.MinimumInformationalRecall)
+            {
+                error = $"informational anchor recall {recall:P0} is below the required "
+                        + $"{CompressionValidator.MinimumInformationalRecall:P0} ({hits}/{informational.Length}).";
+                return false;
+            }
+        }
+
         error = string.Empty;
         return true;
     }

@@ -75,6 +75,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("compression material preserves every role and cancellation has zero mutation", TestCompressionSafetyAsync),
     ("compression planner selects only complete rounds without mutating messages", TestCompressionPlannerAsync),
     ("compression candidate map-reduce and validator enforce facts and benefit", TestCompressionCandidateAndValidatorAsync),
+    ("compression feasibility rejects hopeless work before any model call", TestCompressionFeasibilityGateAsync),
+    ("critical anchors are guaranteed structurally and informational ones by recall", TestAnchorTieringAsync),
+    ("url anchors stop at JSON-escaped newlines", TestUrlAnchorBoundaryAsync),
+    ("planner narrows the compressible window until it is feasible", TestPlannerNarrowsUntilFeasibleAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
     ("summary context obeys 10-message and 1000-char budget", TestSummaryContextBudgetAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
@@ -2296,14 +2300,17 @@ static Task TestCompressionPlannerAsync()
         MimeType = "text/markdown",
         SizeBytes = 321
     };
+    // 可压缩轮次必须有真实体量：规划期已经会拒绝「压 160 token 却产出 4096 token 摘要」
+    // 这种反而撑大上下文的计划，用玩具尺寸的夹具测轮次选择会撞上那道闸门。
+    var bulk = " " + new string('b', 10_000);
     var messages = new List<ChatMessage>
     {
-        new() { Id = "u1", Role = "user", Content = "first request" },
-        new() { Id = "a1", Role = "assistant", Content = "first answer" },
+        new() { Id = "u1", Role = "user", Content = "first request" + bulk },
+        new() { Id = "a1", Role = "assistant", Content = "first answer" + bulk },
 
         new()
         {
-            Id = "u2", Role = "user", Content = "read facts",
+            Id = "u2", Role = "user", Content = "read facts" + bulk,
             Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment> { attachment }
         },
         new()
@@ -2311,8 +2318,8 @@ static Task TestCompressionPlannerAsync()
             Id = "tc2", Role = "assistant", ReasoningContent = "Preserve decision 42",
             ToolCallsJson = "[{\"id\":\"call-1\",\"functionName\":\"read_file\",\"arguments\":\"{}\"}]"
         },
-        new() { Id = "t2", Role = "tool", ToolCallId = "call-1", Content = "ENOENT /safe/facts.md" },
-        new() { Id = "a2", Role = "assistant", Content = "tool round complete" },
+        new() { Id = "t2", Role = "tool", ToolCallId = "call-1", Content = "ENOENT /safe/facts.md" + bulk },
+        new() { Id = "a2", Role = "assistant", Content = "tool round complete" + bulk },
 
         // Incomplete tool chain: it must remain active and must not poison other complete rounds.
         new() { Id = "u3", Role = "user", Content = "incomplete" },
@@ -2322,8 +2329,8 @@ static Task TestCompressionPlannerAsync()
             ToolCallsJson = "[{\"id\":\"call-missing\",\"functionName\":\"probe\",\"arguments\":\"{}\"}]"
         },
 
-        new() { Id = "u4", Role = "user", Content = "fourth request" },
-        new() { Id = "a4", Role = "assistant", Content = "fourth answer" },
+        new() { Id = "u4", Role = "user", Content = "fourth request" + bulk },
+        new() { Id = "a4", Role = "assistant", Content = "fourth answer" + bulk },
         new() { Id = "u5", Role = "user", Content = "latest request" },
         new() { Id = "a5", Role = "assistant", Content = "latest answer" }
     };
@@ -2382,14 +2389,14 @@ static Task TestCompressionPlannerAsync()
     {
         new() { Id = "orphan-tool", Role = "tool", ToolCallId = "unknown", Content = "orphan" },
         new() { Id = "consecutive-u1", Role = "user", Content = "first unanswered" },
-        new() { Id = "consecutive-u2", Role = "user", Content = "second" },
-        new() { Id = "consecutive-a2", Role = "assistant", Content = "second answer" },
+        new() { Id = "consecutive-u2", Role = "user", Content = "second" + bulk },
+        new() { Id = "consecutive-a2", Role = "assistant", Content = "second answer" + bulk },
         new() { Id = "missing-u", Role = "user", Content = "broken tool chain" },
         new() { Id = "missing-call", Role = "assistant", ToolCallsJson = "[{\"id\":\"call-broken\",\"functionName\":\"probe\"}]" },
         new() { Id = "missing-result-id", Role = "tool", Content = "result without id" },
         new() { Id = "missing-final", Role = "assistant", Content = "cannot prove pairing" },
-        new() { Id = "safe-u", Role = "user", Content = "safe old" },
-        new() { Id = "safe-a", Role = "assistant", Content = "safe answer" },
+        new() { Id = "safe-u", Role = "user", Content = "safe old" + bulk },
+        new() { Id = "safe-a", Role = "assistant", Content = "safe answer" + bulk },
         new() { Id = "latest-u", Role = "user", Content = "latest" },
         new() { Id = "latest-a", Role = "assistant", Content = "latest answer" }
     };
@@ -2423,6 +2430,156 @@ static ResolvedContextPolicy CompressionTestPolicy(long window, long threshold, 
     ContextPolicyValueSource.ModelMetadata,
     ContextPolicyValueSource.AppDefault,
     []);
+
+static async Task TestCompressionFeasibilityGateAsync()
+{
+    // 复刻真实事故的形状：150,876 token 材料要压进 12,000，附带 89 个必须逐字保留的锚点。
+    // 旧实现要花 20–175 秒调一次模型才发现不可行，并且连续重试了 7 次。
+    var mainPolicy = CompressionTestPolicy(1_048_576, 256_000, 16_000);
+    var material = new List<CompressionMaterialMessage>();
+    for (var i = 0; i < 20; i++)
+    {
+        material.Add(new($"fu{i}", "user", "round " + i + " " + new string('u', 15_000), null, null, null, DateTime.UtcNow, []));
+        material.Add(new($"fa{i}", "assistant", "answer " + i + " " + new string('a', 15_000), null, null, null, DateTime.UtcNow, []));
+    }
+    var hopeless = new CompressionPlan(
+        "plan-hopeless", "conversation-hopeless", 1, "fingerprint-hopeless", CompressionTriggerMode.Auto,
+        null, material.Select(item => item.Id).ToArray(), [], material,
+        150_000, 12_000, mainPolicy, CompressionTestPolicy(1_048_576, 256_000, 16_000), 1);
+
+    var verdict = CompressionFeasibility.Evaluate(hopeless);
+    AssertFalse(verdict.IsFeasible, "a 12:1 compression ratio must be judged infeasible");
+    AssertTrue(verdict.RequiredRatio > CompressionFeasibility.MaxFeasibleRatio,
+        $"the verdict should report the offending ratio, saw {verdict.RequiredRatio:0.0}");
+    AssertTrue(verdict.Reason.Contains("ratio", StringComparison.OrdinalIgnoreCase),
+        "the verdict must say why, so the log explains the refusal");
+
+    // 关键断言：拒绝必须发生在任何模型调用之前，一次都不能发出去。
+    var textGenerator = new CapturingCompressionTextGenerator();
+    var generator = new CompressionCandidateGenerator(textGenerator, new TestPromptService(), Log.Logger);
+    var generated = await generator.GenerateAsync(hopeless);
+    AssertEqual(CompressionGenerationStatus.NotCompressible, generated.Status,
+        "an infeasible plan must be refused rather than attempted");
+    AssertEqual(0, textGenerator.Prompts.Count,
+        "an infeasible plan must cost zero model calls — discovering this after the fact is what burned 549s");
+
+    // 收益门槛只在规划期生效：生成器无权评判「压了值不值」，那取决于整段上下文。
+    var shapeOnly = CompressionFeasibility.Evaluate(20_000, 4_096, []);
+    AssertTrue(shapeOnly.IsFeasible, "a workable shape must pass when no benefit floor is supplied");
+    var withFloor = CompressionFeasibility.Evaluate(20_000, 4_096, [], requiredBenefitTokens: 100_000);
+    AssertFalse(withFloor.IsFeasible, "an unmet benefit floor must be caught before generation, not after");
+}
+
+static async Task TestAnchorTieringAsync()
+{
+    var mainPolicy = CompressionTestPolicy(100_000, 80_000, 16_000);
+    var urls = Enumerable.Range(0, 12).Select(i => $"https://example.com/doc{i}").ToArray();
+    var material = new List<CompressionMaterialMessage>
+    {
+        new("tu", "user", "read the file " + new string('u', 12_000), null, null, null, DateTime.UtcNow, []),
+        new("ttc", "assistant", string.Empty, null,
+            "[{\"id\":\"call-alpha\",\"functionName\":\"read_file\",\"arguments\":\"{}\"}]",
+            null, DateTime.UtcNow, []),
+        new("tt", "tool", "ok /safe/one.md " + string.Join(' ', urls), "call-alpha", null, null, DateTime.UtcNow, []),
+        new("ta", "assistant", "done", null, null, null, DateTime.UtcNow,
+            [new CompressionAttachmentReference("att-alpha", AttachmentKind.Document, "a.bin", "/safe/a.bin", "application/octet-stream", 8, 0, 0)])
+    };
+    var anchors = CompressionValidator.ExtractHardAnchors(material);
+    AssertTrue(anchors.Any(a => a.Value == "call-alpha" && a.Tier == CompressionAnchorTier.Critical),
+        "tool_call_id is referential integrity and must be Critical");
+    AssertTrue(anchors.Any(a => a.Value == "att-alpha" && a.Tier == CompressionAnchorTier.Critical),
+        "attachment_id must be Critical");
+    AssertTrue(anchors.Any(a => a.Value == urls[0] && a.Tier == CompressionAnchorTier.Informational),
+        "a URL degrades quality but does not corrupt state, so it must be Informational");
+
+    var plan = new CompressionPlan(
+        "plan-tier", "conversation-tier", 3, "fingerprint-tier", CompressionTriggerMode.Auto,
+        null, material.Select(item => item.Id).ToArray(), [], material,
+        12_000, 2_048, mainPolicy, CompressionTestPolicy(64_000, 48_000, 8_192), 1);
+
+    // 模型只吐散文：一个 id 都没复述，还漏掉了一条 URL。旧实现两样都会导致整体失败。
+    var prose = "read_file returned /safe/one.md; sources: " + string.Join(", ", urls.Skip(1)) + ". It succeeded.";
+    var generator = new CompressionCandidateGenerator(
+        new ScriptedCompressionTextGenerator(prose),
+        new TestPromptService(),
+        Log.Logger);
+    var generated = await generator.GenerateAsync(plan);
+    AssertEqual(CompressionGenerationStatus.Generated, generated.Status,
+        "critical anchors must not depend on the model reciting them, and one missed URL must not kill the batch");
+    AssertFalse(generated.Candidate!.Summary.Contains(urls[0], StringComparison.Ordinal),
+        "the fixture must actually exercise a missed informational anchor");
+    var summary = generated.Candidate!.Summary;
+    AssertTrue(summary.Contains("[hard_facts]", StringComparison.Ordinal),
+        "critical anchors the model omitted must be appended deterministically");
+    AssertTrue(summary.Contains("call-alpha", StringComparison.Ordinal)
+               && summary.Contains("att-alpha", StringComparison.Ordinal)
+               && summary.Contains("/safe/a.bin", StringComparison.Ordinal),
+        "every critical anchor must survive by construction");
+
+    var validator = new CompressionValidator();
+    AssertEqual(CompressionValidationStatus.Valid, validator.Validate(plan, generated.Candidate!).Status,
+        "a structurally completed candidate must pass validation");
+
+    // Informational 走召回率：丢一个不该整体失败，丢光了必须失败。
+    var candidate = generated.Candidate!;
+    var stripped = validator.Validate(plan, candidate with
+    {
+        Summary = "It succeeded.\n\n[hard_facts]\nattachment_id: att-alpha\nattachment_path: /safe/a.bin\ntool_call_id: call-alpha"
+    });
+    AssertEqual(CompressionValidationStatus.MissingHardAnchors, stripped.Status,
+        "dropping every informational anchor must still fail");
+}
+
+static Task TestUrlAnchorBoundaryAsync()
+{
+    // 工具结果里的换行常是 JSON 转义后的字面 \n。旧模式不在那里停，会把 URL 和其后的中文
+    // 粘成一条 170 字符的锚点，任何模型都不可能原样复现——等于给验收埋了一颗必炸的雷。
+    var material = new List<CompressionMaterialMessage>
+    {
+        new("u", "tool",
+            "{\"url\":\"http://www.ccgp.gov.cn/site/detail?articleId=mOtW%2F6%2FNqRmivbZPstZtpA==&parentId=3661\\n新疆医科大学第一附属医院\"}",
+            "call-x", null, null, DateTime.UtcNow, [])
+    };
+    var urls = CompressionValidator.ExtractHardAnchors(material)
+        .Where(anchor => anchor.Kind == "url")
+        .ToArray();
+    AssertEqual(1, urls.Length, "the escaped newline must not split or duplicate the URL anchor");
+    AssertEqual(
+        "http://www.ccgp.gov.cn/site/detail?articleId=mOtW%2F6%2FNqRmivbZPstZtpA==&parentId=3661",
+        urls[0].Value,
+        "the URL anchor must stop at the literal backslash-n instead of swallowing the following CJK text");
+    return Task.CompletedTask;
+}
+
+static Task TestPlannerNarrowsUntilFeasibleAsync()
+{
+    // 整个可压缩窗口的比例过高时，正确动作是收窄到可行区间，而不是整体放弃。
+    var mainPolicy = CompressionTestPolicy(1_048_576, 256_000, 16_000);
+    var compressionPolicy = CompressionTestPolicy(1_048_576, 256_000, 16_000);
+    var messages = new List<ChatMessage>();
+    for (var i = 0; i < 12; i++)
+    {
+        messages.Add(new ChatMessage { Id = $"nu{i}", Role = "user", Content = $"round {i} " + new string('n', 20_000) });
+        messages.Add(new ChatMessage { Id = $"na{i}", Role = "assistant", Content = $"answer {i} " + new string('m', 20_000) });
+    }
+
+    var planner = new CompressionPlanner();
+    var result = planner.CreatePlan(new CompressionPlanRequest(
+        "conversation-narrow", 5, "fingerprint-narrow", CompressionTriggerMode.Auto, null,
+        messages, 2, 120_000, 8_192, mainPolicy, compressionPolicy));
+
+    AssertEqual(CompressionPlanStatus.Ready, result.Status,
+        "an over-wide window must be narrowed, not abandoned");
+    var plan = result.Plan!;
+    var fullWindowMessages = messages.Count - 4; // KeepRecentRounds = 2 rounds = 4 messages
+    AssertTrue(plan.CompressMessageIds.Count < fullWindowMessages,
+        $"the planner should have narrowed below the full window ({plan.CompressMessageIds.Count} vs {fullWindowMessages})");
+    AssertTrue(CompressionFeasibility.Evaluate(plan).IsFeasible,
+        "the narrowed plan must itself be feasible");
+    AssertTrue(plan.CompressMessageIds.Contains("nu0", StringComparer.Ordinal),
+        "narrowing must drop the newest compressible rounds and keep the oldest");
+    return Task.CompletedTask;
+}
 
 static async Task TestCompressionCandidateAndValidatorAsync()
 {
@@ -4724,6 +4881,24 @@ sealed class TestPromptService : IPromptService
     public string GetProactiveMessagePrompt(string intent, DateTime currentTime) => $"{intent} @ {currentTime:O}";
 
     public Task ReloadAsync() => Task.CompletedTask;
+}
+
+/// <summary>始终返回同一段散文，用来验证锚点不依赖模型的复述能力。</summary>
+sealed class ScriptedCompressionTextGenerator(string summary) : ICompressionTextGenerator
+{
+    public int CallCount { get; private set; }
+    public string ModelFingerprint => "scripted-compression-model";
+
+    public Task<string?> GenerateAsync(
+        string systemPrompt,
+        string userPrompt,
+        int maxOutputTokens,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        CallCount++;
+        return Task.FromResult<string?>(summary);
+    }
 }
 
 sealed class CapturingCompressionTextGenerator : ICompressionTextGenerator

@@ -2862,6 +2862,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public async Task InternalCompressContextAsync(CancellationToken cancellationToken = default)
     {
         if (_configService == null) return;
+        // 取消语义不能取决于「这份材料恰好可不可压」：可行性判定会在规划期直接返回，
+        // 若不在入口先检查，一个已取消的令牌会静默走完并正常返回。
+        cancellationToken.ThrowIfCancellationRequested();
 
         IsCompressing = true;
         CompressionStatusMessage = string.Empty;
