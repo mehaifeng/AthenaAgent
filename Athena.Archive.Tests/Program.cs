@@ -3662,18 +3662,27 @@ static async Task TestFileSystemSymlinkEscapeAsync()
     AssertEqual("hello", normalContent, "a normal file in an allowed dir is still readable");
 }
 
+// 用例跑在 TestHarness 的临时目录里，而 macOS 的 Path.GetTempPath() 解析为 /private/var，
+// 正好命中默认平台读黑名单。凡是不针对安全策略本身的文件用例，都要先清空三平台读黑名单，
+// 否则断言的其实是环境而不是被测行为。
+static AppConfig CreateReadUnrestrictedConfig()
+{
+    var config = new AppConfig();
+    static void ClearReadBlocked(PlatformFileSystemConfig p) =>
+        p.ReadAccess = new PlatformAccessRule { BlockedDirectories = new() };
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.Windows);
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.MacOS);
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.Linux);
+    return config;
+}
+
 // 分块读取曾按 50KB 字节硬切：既会把多字节字符切成 U+FFFD，也会把一行切成两半而不作说明，
 // 于是模型把半行当完整行拿去构造 SEARCH。边界必须对齐到字符首字节，行中截断必须显式标注。
 static async Task TestChunkedReadBoundaryAsync()
 {
     using var harness = new TestHarness();
-    var config = new AppConfig();
-    // 隔离默认平台规则：临时目录在 macOS 上位于 /private/var，会命中默认读黑名单。
-    void ClearReadBlocked(PlatformFileSystemConfig p) => p.ReadAccess = new PlatformAccessRule { BlockedDirectories = new() };
-    ClearReadBlocked(config.FileSystemPolicy.Platforms.Windows);
-    ClearReadBlocked(config.FileSystemPolicy.Platforms.MacOS);
-    ClearReadBlocked(config.FileSystemPolicy.Platforms.Linux);
-    var service = new FileSystemService(new FakeConfigService(config), harness.PathService, Log.Logger);
+    var service = new FileSystemService(
+        new FakeConfigService(CreateReadUnrestrictedConfig()), harness.PathService, Log.Logger);
 
     // 50KB 边界（第 51200 字节）正好落在一个 3 字节汉字中间，且该处位于一行的中部。
     var path = Path.Combine(harness.Root, "chunked.txt");
@@ -3697,7 +3706,8 @@ static async Task TestFileMetadataStatisticsAsync()
     using var harness = new TestHarness();
     var path = Path.Combine(harness.Root, "metadata.txt");
     await File.WriteAllTextAsync(path, "alpha\nbeta\n");
-    var service = new FileSystemService(new FakeConfigService(new AppConfig()), harness.PathService, Log.Logger);
+    var service = new FileSystemService(
+        new FakeConfigService(CreateReadUnrestrictedConfig()), harness.PathService, Log.Logger);
 
     var cheap = await service.GetFileInfoAsync(path);
     AssertTrue(cheap != null, "metadata should be returned");
