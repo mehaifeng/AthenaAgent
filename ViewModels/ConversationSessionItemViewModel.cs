@@ -575,6 +575,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             ContextSummary = snapshot.ContextSummary,
             OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
             CompressionHistory = snapshot.CompressionHistory,
+            Anchors = snapshot.Anchors,
             WorkspaceId = snapshot.WorkspaceId,
             Draft = snapshot.Draft,
             IsPinned = snapshot.IsPinned,

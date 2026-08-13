@@ -44,6 +44,17 @@ public sealed record CalibratedTokenEstimate(
     string ProfileKey,
     int SampleCount);
 
+/// <summary>
+/// 自上一个精确锚点以来新增内容的 token 区间。误差以增量为界，而不是以整段上下文为界——
+/// 这是它与 <see cref="CalibratedTokenEstimate"/> 的根本差别。
+/// </summary>
+public sealed record DeltaTokenEstimate(
+    long Low,
+    long Expected,
+    long High,
+    double Confidence,
+    int SampleCount);
+
 public sealed record ProviderInputModalityUsage(
     long? TextTokens = null,
     long? ImageTokens = null,
@@ -61,6 +72,11 @@ public sealed class TokenCalibrationProfile
     public double MessageOverhead { get; set; } = 4;
     public double EwmaAbsoluteError { get; set; }
     public double Mape { get; set; }
+    // 增量标度：actualInputDelta / deltaCharScore。单参数、单观测，没有偏置项与之互搏，
+    // 因此不会出现 TextScale/FixedBias 相互抵消式发散。
+    public double DeltaScale { get; set; } = 1;
+    public int DeltaSampleCount { get; set; }
+    public double DeltaMape { get; set; }
     public long MinimumObservedHeuristic { get; set; }
     public long MaximumObservedHeuristic { get; set; }
     public int ImageSampleCount { get; set; }

@@ -35,6 +35,9 @@ public class ConversationHistoryItem
 
     public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
+    /// <summary>供应商回报的真实用量锚点；回溯/分支/重开会话时据此复用精确测量。</summary>
+    public List<ContextAnchorRecord> Anchors { get; set; } = new();
+
     /// <summary>
     /// 创建时间
     /// </summary>

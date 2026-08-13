@@ -31,6 +31,9 @@ public class ConversationPersistenceSnapshot
 
     public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
+    /// <summary>供应商回报的真实用量锚点；回溯/分支/重开会话时据此复用精确测量。</summary>
+    public List<ContextAnchorRecord> Anchors { get; set; } = new();
+
     public string? ForkedFromConversationId { get; set; }
 
     public string? ForkedFromHistoryId { get; set; }

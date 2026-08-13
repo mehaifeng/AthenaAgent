@@ -49,6 +49,7 @@
     <Compile Include="../Services/Context/CompressionPlanner.cs" Link="Source/Services/Context/CompressionPlanner.cs" />
     <Compile Include="../Services/Context/CompressionCandidateGenerator.cs" Link="Source/Services/Context/CompressionCandidateGenerator.cs" />
     <Compile Include="../Services/Context/CompressionValidator.cs" Link="Source/Services/Context/CompressionValidator.cs" />
+    <Compile Include="../Services/Context/ContextAnchorLedger.cs" Link="Source/Services/Context/ContextAnchorLedger.cs" />
     <Compile Include="../Services/TokenService.cs" Link="Source/Services/TokenService.cs" />
     <Compile Include="../Services/ModelMetadata/ProviderModelInventoryMerger.cs" Link="Source/Services/ModelMetadata/ProviderModelInventoryMerger.cs" />
     <Compile Include="../Services/ProviderErrorClassifier.cs" Link="Source/Services/ProviderErrorClassifier.cs" />
@@ -85,6 +86,7 @@
     <Compile Include="../Models/ToolCallEntry.cs" Link="Source/Models/ToolCallEntry.cs" />
     <Compile Include="../Models/ConversationArchiveSnapshot.cs" Link="Source/Models/ConversationArchiveSnapshot.cs" />
     <Compile Include="../Models/ConversationPersistenceSnapshot.cs" Link="Source/Models/ConversationPersistenceSnapshot.cs" />
+    <Compile Include="../Models/ContextAnchorModels.cs" Link="Source/Models/ContextAnchorModels.cs" />
     <Compile Include="../Models/ConversationPersistenceRecovery.cs" Link="Source/Models/ConversationPersistenceRecovery.cs" />
     <Compile Include="../Models/ConversationArchiveResultEventArgs.cs" Link="Source/Models/ConversationArchiveResultEventArgs.cs" />
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />

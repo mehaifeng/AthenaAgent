@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -40,6 +41,31 @@ public sealed class CompressionCandidateGenerator : ICompressionCandidateGenerat
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = await GenerateCandidateAsync(plan, cancellationToken).ConfigureAwait(false);
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+
+        // 每一次拒绝都已经花掉了一次真实的压缩模型调用。不在这里记录，调用方就只能看到
+        // 一段无法解释的空档——所有出口必须留痕，包括本地校验直接毙掉的那些。
+        if (result.Candidate == null)
+        {
+            _logger.Warning(
+                "CompressionCandidateRejected PlanId={PlanId} Status={Status} MaterialMessages={MaterialMessages} TargetTokens={TargetTokens} ElapsedMs={ElapsedMs} Reason={Reason}",
+                plan.PlanId, result.Status, plan.Material.Count, plan.TargetSummaryTokens, elapsedMs, result.Error);
+        }
+        else
+        {
+            _logger.Information(
+                "CompressionCandidateGenerated PlanId={PlanId} SummaryTokens={SummaryTokens} MaterialMessages={MaterialMessages} ElapsedMs={ElapsedMs}",
+                plan.PlanId, ConversationContext.EstimateTokens(result.Candidate.Summary), plan.Material.Count, elapsedMs);
+        }
+        return result;
+    }
+
+    private async Task<CompressionGenerationResult> GenerateCandidateAsync(
+        CompressionPlan plan,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         if (plan.TargetSummaryTokens < 128 || plan.Material.Count == 0)
             return CompressionGenerationResult.NotCompressible("Compression plan has no safe material or target budget.");

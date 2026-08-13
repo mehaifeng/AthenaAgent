@@ -15,7 +15,12 @@ public static class AppConfigNormalizer
         var policy = config.ContextPolicy;
         if (policy.CustomCapTokens is < 1024) policy.CustomCapTokens = 1024;
         if (policy.CustomCompressionThresholdTokens is <= 0) policy.CustomCompressionThresholdTokens = 1;
-        if (policy.CustomCapTokens.HasValue
+        // CustomCapTokens 只在 CustomCap/LegacyCustom 模式下真正生效（见 ModelContextPolicyResolver）。
+        // Auto 模式下它是切换回自动后残留的死值；若仍参与钳制，用户把压缩阈值调高会被无声地锁回那个
+        // 早已失效的上限，且无从察觉——阈值必须只受当前生效的上限约束。
+        var capIsActive = policy.Mode is ContextPolicyMode.CustomCap or ContextPolicyMode.LegacyCustom;
+        if (capIsActive
+            && policy.CustomCapTokens.HasValue
             && policy.CustomCompressionThresholdTokens > policy.CustomCapTokens)
         {
             policy.CustomCompressionThresholdTokens = policy.CustomCapTokens;
@@ -26,8 +31,10 @@ public static class AppConfigNormalizer
         // v6 过渡期兼容旧调用点；Phase 2 的 Policy Resolver 接入后删除这些镜像语义。
         config.AutoCompress = policy.AutoCompress;
         config.KeepRecentRounds = policy.KeepRecentRounds;
+        // 镜像只能反映「当前生效」的上限：Auto 模式下失效的 CustomCapTokens 若照抄进来，
+        // config.json 和 view_self_configuration 都会显示一个 Resolver 根本不读的数字。
         config.MaxContextTokens = checked((int)Math.Min(
-            policy.CustomCapTokens ?? 1_000_000,
+            (capIsActive ? policy.CustomCapTokens : null) ?? 1_000_000,
             int.MaxValue));
         config.CompressionThreshold = checked((int)Math.Min(
             policy.CustomCompressionThresholdTokens ?? 262_144,

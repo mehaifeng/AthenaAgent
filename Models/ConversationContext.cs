@@ -30,6 +30,12 @@ public class ConversationContext
 
     public int ToolsDeclarationTokenCount { get; set; } = 0;
 
+    /// <summary>
+    /// 本会话已观测到的真实用量锚点（按前缀长度升序）。它不是消息状态，因此 <see cref="Clear"/>
+    /// 不清空它——UpdateConversationContext 会反复重建消息列表，但测量结果必须跨重建存活。
+    /// </summary>
+    public List<ContextAnchorRecord> Anchors { get; set; } = new();
+
     public ConversationContext(int maxTokens = 8000)
     {
         _maxTokens = maxTokens;
@@ -129,6 +135,7 @@ public class ConversationContext
     {
         _messages.Clear();
         _summary = null;
+        Anchors = new List<ContextAnchorRecord>();
     }
 
     public ConversationContext Clone()
@@ -140,7 +147,8 @@ public class ConversationContext
             Revision = Revision,
             WorkspaceId = WorkspaceId,
             WorkspaceDirectoryPath = WorkspaceDirectoryPath,
-            WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath
+            WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath,
+            Anchors = new List<ContextAnchorRecord>(Anchors)
         };
 
         clone.SetMainPersona(_mainPersona);

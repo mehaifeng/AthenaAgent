@@ -28,6 +28,7 @@ using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using OpenAI.Responses;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.ClientModel;
@@ -114,6 +115,10 @@ Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetRes
 Task.Run(TestSameRevisionNotCompressibleCacheAsync).GetAwaiter().GetResult();
 Task.Run(TestImmediateToolCallUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestToolLoopTransactionalCompressionAsync).GetAwaiter().GetResult();
+Task.Run(TestAnchoredBudgetBeatsInflatedEstimateAsync).GetAwaiter().GetResult();
+TestContextAnchorLedgerSelection();
+Task.Run(TestDeltaTokenEstimatorConvergenceAsync).GetAwaiter().GetResult();
+TestCompressionThresholdClampRespectsCapMode();
 TestTransactionalCompressionCommitAsync().GetAwaiter().GetResult();
 Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
@@ -3537,7 +3542,9 @@ static async Task TestToolLoopTransactionalCompressionAsync()
         compressionValidator: new CompressionValidator(),
         contextPolicyProvider: policyProvider);
 
-    using var handler = new ToolLoopSseHandler();
+    // 首轮上下文约 8K 字符，供应商回报 2600 token 与之相称。锚点判定采信这个权威值，
+    // 之后 10K 字符的工具结果增量才能把预算真正顶过 3000 的阈值。
+    using var handler = new ToolLoopSseHandler { FirstPromptTokens = 2_600 };
     using var httpClient = new HttpClient(handler);
     var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
     options.Transport = new HttpClientPipelineTransport(httpClient);
@@ -3599,6 +3606,219 @@ static async Task TestToolLoopTransactionalCompressionAsync()
                                              || !body.Contains("[Image content unavailable]", StringComparison.Ordinal)))
         throw new InvalidOperationException("Transactional compression did not preserve the sanitized image projection when rebuilding the next request.");
     Console.WriteLine("[PASS] large tool-result compression preserves the sanitized image projection in the rebuilt request");
+}
+
+static async Task TestAnchoredBudgetBeatsInflatedEstimateAsync()
+{
+    // 回归：校准估算严重偏高时，绝不能压过供应商回报的权威值。真实事故里 9 轮工具循环
+    // 因为 Math.Max(锚点, 估算) 取了 4.8 倍偏高的估算，白跑了 7 次压缩、烧掉 549 秒。
+    var config = new AppConfig();
+    config.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    config.ContextPolicy.CustomCompressionThresholdTokens = 3_000;
+    config.ContextPolicy.KeepRecentRounds = 1;
+    config.ContextPolicy.TargetSummaryTokens = 512;
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "anchor-budget-provider",
+        DisplayName = "Anchor budget provider",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://anchor-budget.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "stream-model", DisplayName = "Stream model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "stream-model";
+    config.AiModels.ContextCompression.ProviderId = provider.Id;
+    config.AiModels.ContextCompression.Model = "stream-model";
+
+    var events = new List<string>();
+    var generator = new CountingFailedCompressionCandidateGenerator();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: new ImmediateUsageFunctionRegistry(events),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())),
+        compressionPlanner: new CompressionPlanner(),
+        compressionCandidateGenerator: generator,
+        compressionValidator: new CompressionValidator(),
+        contextPolicyProvider: new HeadlessContextPolicyProvider(100_000),
+        tokenCalibration: new InflatingTokenCalibrationService(inflatedDecision: 300_000));
+
+    // 供应商两轮都回报 500 token：真实上下文远低于 3000 的阈值。
+    using var handler = new ToolLoopSseHandler { FirstPromptTokens = 500 };
+    using var httpClient = new HttpClient(handler);
+    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    options.Transport = new HttpClientPipelineTransport(httpClient);
+    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+    var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    field.SetValue(service, client.GetChatClient("stream-model"));
+
+    var context = new ConversationContext { ConversationId = "anchor-budget", Revision = 1 };
+    context.AddUserMessage("older question", id: "ab-old-u");
+    context.AddAssistantMessage("older answer", id: "ab-old-a");
+    context.AddUserMessage("recent question", id: "ab-recent-u");
+    context.AddAssistantMessage("recent answer", id: "ab-recent-a");
+
+    await foreach (var _ in service.StreamMessageAsync(
+                       "run probe",
+                       context,
+                       // 工具循环里 Revision 每加一条消息就 +1：旧实现正是被这一点击穿了缓存。
+                       onMessageAdded: message =>
+                       {
+                           if (message.Role is "assistant" or "tool") context.Revision++;
+                       },
+                       onCompressionTransition: (transition, _) => Task.FromResult(
+                           CompressionCommitResult.Failed(CompressionCommitStatus.Stale, transition.BaseRevision, "not reached"))))
+    {
+    }
+
+    if (handler.RequestCount != 2)
+        throw new InvalidOperationException($"Expected two tool-loop requests, saw {handler.RequestCount}.");
+    // 首轮尚无锚点，按估算触发一次压缩是允许的；拿到 500 的权威值之后必须彻底停手。
+    if (generator.CallCount != 1)
+        throw new InvalidOperationException(
+            $"An inflated estimate must not re-trigger compression once an anchor exists (generator called {generator.CallCount} times).");
+    if (context.Anchors.Count == 0 || context.Anchors[^1].InputTokens != 68)
+        throw new InvalidOperationException("Each provider usage report must be recorded as a reusable anchor.");
+
+    // 第二回合：账本里已有锚点，首轮就该是 anchored——冷启动那一次误触发不应重演。
+    var callsAfterFirstTurn = generator.CallCount;
+    await foreach (var _ in service.StreamMessageAsync(
+                       "follow-up question",
+                       context,
+                       addToContext: false,
+                       onCompressionTransition: (transition, _) => Task.FromResult(
+                           CompressionCommitResult.Failed(CompressionCommitStatus.Stale, transition.BaseRevision, "not reached"))))
+    {
+    }
+    if (generator.CallCount != callsAfterFirstTurn)
+        throw new InvalidOperationException(
+            "A persisted anchor must survive into the next turn so the first request is no longer judged by estimation.");
+
+    Console.WriteLine("[PASS] an authoritative usage anchor overrides an inflated calibration estimate across turns");
+}
+
+static void TestContextAnchorLedgerSelection()
+{
+    static ContextMessage Msg(string id) => new() { Id = id, Role = "user", Content = id };
+    var messages = new List<ContextMessage> { Msg("m1"), Msg("m2"), Msg("m3"), Msg("m4") };
+
+    ContextAnchorRecord Anchor(int count, string profile = "P", string overhead = "F") => new()
+    {
+        PrefixMessageCount = count,
+        PrefixDigest = ContextAnchorLedger.ComputePrefixDigest(messages, count),
+        InputTokens = count * 1000,
+        ProfileKey = profile,
+        FixedOverheadFingerprint = overhead
+    };
+
+    var ledger = new List<ContextAnchorRecord> { Anchor(2), Anchor(4) };
+
+    // 最长的有效锚点优先：留给增量估算的未测量部分最少。
+    var selected = ContextAnchorLedger.SelectLatestValid(ledger, messages, "P", "F");
+    if (selected?.PrefixMessageCount != 4)
+        throw new InvalidOperationException("Anchor selection must prefer the longest valid prefix.");
+
+    // regime 指纹任一不符即整体作废——换模型/换协议/开关工具后旧测量不可直接采信。
+    if (ContextAnchorLedger.SelectLatestValid(ledger, messages, "OTHER", "F") != null
+        || ContextAnchorLedger.SelectLatestValid(ledger, messages, "P", "OTHER") != null)
+        throw new InvalidOperationException("Anchors must be rejected when the model or fixed-overhead fingerprint changes.");
+
+    // 回溯：截断到 3 条后，前缀 4 的锚点越界，前缀 2 依然精确可用。
+    var rewound = messages.Take(3).ToList();
+    var afterRewind = ContextAnchorLedger.SelectLatestValid(ledger, rewound, "P", "F");
+    if (afterRewind?.PrefixMessageCount != 2)
+        throw new InvalidOperationException("Rewind must drop over-long anchors while keeping shorter exact ones.");
+
+    // 前缀内容被替换（编辑重发）时长度虽然吻合，摘要必须把它挡下来。
+    var edited = new List<ContextMessage> { Msg("m1"), Msg("EDITED"), Msg("m3"), Msg("m4") };
+    if (ContextAnchorLedger.SelectLatestValid(ledger, edited, "P", "F") != null)
+        throw new InvalidOperationException("A changed prefix must fail the digest check even at the same length.");
+
+    // 同一前缀长度只保留最新一条，避免重发/重试把账本撑大。
+    var replaced = ContextAnchorLedger.Append(ledger, Anchor(4));
+    if (replaced.Count != 2 || replaced.Count(anchor => anchor.PrefixMessageCount == 4) != 1)
+        throw new InvalidOperationException("Append must replace the anchor for an identical prefix length.");
+
+    Console.WriteLine("[PASS] context anchor ledger selects the longest valid prefix and rejects stale regimes");
+}
+
+static async Task TestDeltaTokenEstimatorConvergenceAsync()
+{
+    var paths = new HeadlessPathService();
+    await using var calibration = new TokenCalibrationService(
+        paths,
+        new TokenFingerprintService(paths),
+        Serilog.Log.Logger);
+
+    // 校准文档会落盘并在下次启动时载入，固定 key 会让第二次运行不再是冷启动。
+    var profileKey = "delta-profile-" + Guid.NewGuid().ToString("N");
+    const double trueScale = 1.6;
+
+    // 冷启动：没有样本时标度取 1，带宽宽。
+    var cold = calibration.EstimateDelta(profileKey, 1_000);
+    if (cold.SampleCount != 0 || cold.Expected != 1_000 || cold.High <= cold.Expected)
+        throw new InvalidOperationException("A cold delta profile must fall back to scale 1 with a visible band.");
+
+    // 干净差分训练：每次观测都是「两次真实 input 之差」，无需拟合偏置项。
+    for (var i = 0; i < 12; i++)
+    {
+        long score = 800 + i * 50;
+        if (!calibration.ObserveDelta(profileKey, score, (long)Math.Round(score * trueScale)))
+            throw new InvalidOperationException("A well-formed clean delta observation must be accepted.");
+    }
+
+    var trained = calibration.EstimateDelta(profileKey, 1_000);
+    var scaleError = Math.Abs(trained.Expected - 1_000 * trueScale) / (1_000 * trueScale);
+    if (scaleError > 0.05)
+        throw new InvalidOperationException(
+            $"Delta scale failed to converge on the observed ratio (expected≈{1_000 * trueScale}, got {trained.Expected}).");
+    if (trained.Confidence < 0.9 || trained.SampleCount != 12)
+        throw new InvalidOperationException("A converged delta profile must report high confidence.");
+
+    // 带宽随相对误差收敛，而不是把一次历史失准以固定绝对量挂在后续每次判定上。
+    var band = trained.High - trained.Expected;
+    if (band >= cold.High - cold.Expected)
+        throw new InvalidOperationException("The delta band must tighten as the profile converges.");
+
+    // 异常比例（超出 [0.25, 4]）必须被拒绝，不能污染已收敛的标度。
+    if (calibration.ObserveDelta(profileKey, 1_000, 50_000)
+        || calibration.ObserveDelta(profileKey, 0, 100))
+        throw new InvalidOperationException("Out-of-range delta observations must be rejected.");
+
+    Console.WriteLine("[PASS] clean-delta estimator converges on the observed ratio and tightens its band");
+}
+
+static void TestCompressionThresholdClampRespectsCapMode()
+{
+    // Auto 模式下 CustomCapTokens 是切换回自动后残留的死值，不得再钳制压缩阈值——
+    // 否则用户把阈值调高会被无声地锁回一个 Resolver 根本不读的上限。
+    var auto = new AppConfig();
+    auto.ContextPolicy.Mode = ContextPolicyMode.Auto;
+    auto.ContextPolicy.CustomCapTokens = 256_000;
+    auto.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    auto.ContextPolicy.CustomCompressionThresholdTokens = 800_000;
+    AppConfigNormalizer.NormalizeContextPolicy(auto);
+    if (auto.ContextPolicy.CustomCompressionThresholdTokens != 800_000)
+        throw new InvalidOperationException("An inactive cap must not clamp the compression threshold.");
+    if (auto.MaxContextTokens != 1_000_000)
+        throw new InvalidOperationException("The legacy mirror must report the effective cap, not a dead custom value.");
+
+    // 上限真正生效时，钳制仍然必须发生。
+    var custom = new AppConfig();
+    custom.ContextPolicy.Mode = ContextPolicyMode.CustomCap;
+    custom.ContextPolicy.CustomCapTokens = 256_000;
+    custom.ContextPolicy.CompressionThresholdMode = CompressionThresholdMode.Custom;
+    custom.ContextPolicy.CustomCompressionThresholdTokens = 800_000;
+    AppConfigNormalizer.NormalizeContextPolicy(custom);
+    if (custom.ContextPolicy.CustomCompressionThresholdTokens != 256_000 || custom.MaxContextTokens != 256_000)
+        throw new InvalidOperationException("An active cap must still clamp the compression threshold and the mirror.");
+
+    Console.WriteLine("[PASS] compression threshold is only clamped by a cap that is actually in effect");
 }
 
 static async Task TestResponsesStreamingTextAndUsageAsync()
@@ -6063,10 +6283,39 @@ sealed class CountingFailedCompressionCandidateGenerator : ICompressionCandidate
     }
 }
 
+/// <summary>模拟发散后的校准器：整段估算严重偏高，但增量估算仍然贴近字符分。</summary>
+sealed class InflatingTokenCalibrationService(long inflatedDecision) : ITokenCalibrationService
+{
+    public CalibratedTokenEstimate Estimate(ContextFeatureSnapshot features) =>
+        new(inflatedDecision, inflatedDecision, 0.3, features.ModelProfileKey, 50);
+
+    public bool Observe(
+        ContextFeatureSnapshot features,
+        long actualInputTokens,
+        bool allowCleanDelta = true,
+        ProviderInputModalityUsage? modalityUsage = null) => true;
+
+    public DeltaTokenEstimate EstimateDelta(string profileKey, long deltaCharScore) =>
+        new(deltaCharScore, deltaCharScore, deltaCharScore, 0.9, 20);
+
+    public bool ObserveDelta(string profileKey, long deltaCharScore, long actualDeltaTokens) => true;
+
+    public Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public TokenCalibrationDiagnostics GetDiagnostics() =>
+        new(0, 0, 0, 0, 0, 0, null, ContextRequestPreparer.EstimatorVersion, "headless");
+    public void Clear() { }
+}
+
 sealed class CapturingTokenCalibrationService : ITokenCalibrationService
 {
     public List<ProviderInputModalityUsage?> ObservedModalities { get; } = [];
     public int ClearCount { get; private set; }
+
+    public DeltaTokenEstimate EstimateDelta(string profileKey, long deltaCharScore) =>
+        new(deltaCharScore, deltaCharScore, deltaCharScore, 0, 0);
+
+    public bool ObserveDelta(string profileKey, long deltaCharScore, long actualDeltaTokens) => true;
 
     public CalibratedTokenEstimate Estimate(ContextFeatureSnapshot features) =>
         new(
@@ -6118,6 +6367,10 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
     public int RequestCount { get; private set; }
     public List<string> RequestBodies { get; } = [];
 
+    // 首轮回报的 prompt_tokens。锚点判定直接采信供应商数值，因此需要压缩路径的用例必须
+    // 让这个值与它实际发送的上下文规模相称，否则测的是一个不可能出现的组合。
+    public int FirstPromptTokens { get; set; } = 41;
+
 #pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -6130,7 +6383,7 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
             ? """
               data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_probe","type":"function","function":{"name":"probe","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}
 
-              data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[],"usage":{"prompt_tokens":41,"completion_tokens":5,"total_tokens":46,"prompt_tokens_details":{"cached_tokens":3,"image_tokens":17}}}
+              data: {"id":"chatcmpl-tool","object":"chat.completion.chunk","created":1785580000,"model":"stream-model","choices":[],"usage":{"prompt_tokens":$$FIRST_PROMPT_TOKENS$$,"completion_tokens":5,"total_tokens":46,"prompt_tokens_details":{"cached_tokens":3,"image_tokens":17}}}
 
               data: [DONE]
 
@@ -6143,6 +6396,10 @@ sealed class ToolLoopSseHandler : HttpMessageHandler
               data: [DONE]
 
               """;
+        body = body.Replace(
+            "$$FIRST_PROMPT_TOKENS$$",
+            FirstPromptTokens.ToString(CultureInfo.InvariantCulture),
+            StringComparison.Ordinal);
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
@@ -6231,7 +6488,8 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
-        Action<string>? onContextWarning = null)
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null)
     {
         // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
@@ -6625,7 +6883,8 @@ class HeadlessChatService : IChatService
         Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
-        Action<string>? onContextWarning = null)
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null)
     {
         await Task.CompletedTask;
         yield break;

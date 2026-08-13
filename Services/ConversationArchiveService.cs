@@ -95,6 +95,7 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             ContextSummary = snapshot.ContextSummary,
             OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
             CompressionHistory = snapshot.CompressionHistory.Select(CloneCompressionCheckpoint).ToList(),
+            Anchors = snapshot.Anchors.Select(CloneContextAnchor).ToList(),
             ForkedFromConversationId = snapshot.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
             ForkedAtMessageId = snapshot.ForkedAtMessageId,
@@ -221,6 +222,7 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             ContextSummary = snapshot.ContextSummary,
             OrphanedLegacySummary = snapshot.OrphanedLegacySummary,
             CompressionHistory = snapshot.CompressionHistory.Select(CloneCompressionCheckpoint).ToList(),
+            Anchors = snapshot.Anchors.Select(CloneContextAnchor).ToList(),
             ForkedFromConversationId = snapshot.ForkedFromConversationId ?? existing?.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId ?? existing?.ForkedFromHistoryId,
             ForkedAtMessageId = snapshot.ForkedAtMessageId ?? existing?.ForkedAtMessageId,
@@ -285,6 +287,22 @@ public class ConversationArchiveService : IConversationArchiveService, IDisposab
             ContinuityStatus = turn.ContinuityStatus,
             Warning = turn.Warning,
             CreatedAt = turn.CreatedAt
+        };
+    }
+
+    private static ContextAnchorRecord CloneContextAnchor(ContextAnchorRecord anchor)
+    {
+        return new ContextAnchorRecord
+        {
+            PrefixMessageCount = anchor.PrefixMessageCount,
+            PrefixDigest = anchor.PrefixDigest,
+            InputTokens = anchor.InputTokens,
+            CachedInputTokens = anchor.CachedInputTokens,
+            OutputTokens = anchor.OutputTokens,
+            ProfileKey = anchor.ProfileKey,
+            FixedOverheadFingerprint = anchor.FixedOverheadFingerprint,
+            Revision = anchor.Revision,
+            ObservedAtUtc = anchor.ObservedAtUtc
         };
     }
 

@@ -33,6 +33,9 @@ public class ConversationDraftSnapshot
 
     public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
+    /// <summary>供应商回报的真实用量锚点；重启后据此复用精确测量，无需重新估算整段上下文。</summary>
+    public List<ContextAnchorRecord> Anchors { get; set; } = new();
+
     /// <summary>
     /// fork 元数据：当前会话若是分支，重启后仍需携带
     /// </summary>

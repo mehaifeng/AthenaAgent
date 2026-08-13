@@ -57,6 +57,78 @@ public sealed class TokenCalibrationService : ITokenCalibrationService, IAsyncDi
         }
     }
 
+    // 增量标度的合法区间与冷启动带宽。区间同 Observe 的 ratio 门槛，避免异常样本污染。
+    private const double MinDeltaScale = 0.25;
+    private const double MaxDeltaScale = 4.0;
+    private const double ColdStartDeltaMape = 0.35;
+
+    public DeltaTokenEstimate EstimateDelta(string profileKey, long deltaCharScore)
+    {
+        if (deltaCharScore <= 0) return new DeltaTokenEstimate(0, 0, 0, 1, 0);
+        lock (_gate)
+        {
+            _document.Profiles.TryGetValue(profileKey, out var profile);
+            var trained = profile is { DeltaSampleCount: > 0 } && profile.KeyId == _fingerprints.KeyId;
+            var scale = trained ? profile!.DeltaScale : 1.0;
+            var mape = profile is { DeltaSampleCount: >= 3 } && profile.KeyId == _fingerprints.KeyId
+                ? Math.Clamp(profile.DeltaMape, 0.05, 1.0)
+                : ColdStartDeltaMape;
+            var expected = ClampToken(deltaCharScore * scale);
+            // 带宽按增量本身的相对误差算，因此它随增量缩小而缩小——不会像整段估算那样
+            // 把一次历史失准以固定的绝对量挂在后续每一次判定上。
+            var band = Math.Max(64, expected * mape);
+            var samples = profile?.DeltaSampleCount ?? 0;
+            return new DeltaTokenEstimate(
+                ClampToken(Math.Max(0, expected - band)),
+                expected,
+                ClampToken(expected + band),
+                samples >= 10 ? 0.9 : samples >= 3 ? 0.6 : 0.2,
+                samples);
+        }
+    }
+
+    public bool ObserveDelta(string profileKey, long deltaCharScore, long actualDeltaTokens)
+    {
+        if (string.IsNullOrEmpty(profileKey) || deltaCharScore <= 0 || actualDeltaTokens <= 0) return false;
+        var ratio = actualDeltaTokens / (double)deltaCharScore;
+        if (!double.IsFinite(ratio) || ratio is < MinDeltaScale or > MaxDeltaScale) return false;
+
+        lock (_gate)
+        {
+            var profile = GetOrCreateDeltaProfile(profileKey);
+            var predicted = deltaCharScore * (profile.DeltaSampleCount > 0 ? profile.DeltaScale : 1.0);
+            var percentageError = Math.Abs(actualDeltaTokens - predicted) / Math.Max(1, actualDeltaTokens);
+            var alpha = profile.DeltaSampleCount < 3 ? 0.5 : 0.2;
+            profile.DeltaScale = profile.DeltaSampleCount == 0
+                ? Math.Clamp(ratio, MinDeltaScale, MaxDeltaScale)
+                : Math.Clamp(profile.DeltaScale * (1 - alpha) + ratio * alpha, MinDeltaScale, MaxDeltaScale);
+            profile.DeltaMape = profile.DeltaSampleCount == 0
+                ? percentageError
+                : profile.DeltaMape * (1 - alpha) + percentageError * alpha;
+            profile.DeltaSampleCount++;
+            profile.LastUpdatedAtUtc = DateTimeOffset.UtcNow;
+            _dirty = true;
+            _mutationVersion++;
+            return true;
+        }
+    }
+
+    private TokenCalibrationProfile GetOrCreateDeltaProfile(string profileKey)
+    {
+        if (!_document.Profiles.TryGetValue(profileKey, out var profile)
+            || profile.KeyId != _fingerprints.KeyId)
+        {
+            profile = new TokenCalibrationProfile
+            {
+                ProfileKey = profileKey,
+                EstimatorVersion = ContextRequestPreparer.EstimatorVersion,
+                KeyId = _fingerprints.KeyId
+            };
+            _document.Profiles[profileKey] = profile;
+        }
+        return profile;
+    }
+
     public bool Observe(
         ContextFeatureSnapshot features,
         long actualInputTokens,

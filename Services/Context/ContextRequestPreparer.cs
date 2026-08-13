@@ -136,6 +136,39 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
             features.ContextFingerprint);
     }
 
+    /// <summary>
+    /// 「自锚点以来新增消息」的字符权重分，口径与整段启发式一致（CJK 1:1、其余 4:1、
+    /// 工具结果按结构化 JSON 计）。绝对准确性并不重要——只要预测与训练用同一把尺，
+    /// 系统性偏差会被增量标度整体吸收。
+    /// </summary>
+    public static long ComputeDeltaCharScore(IEnumerable<ContextMessage> messages)
+    {
+        long cjk = 0, other = 0, json = 0, attachmentManifest = 0, attachmentPrior = 0;
+        var count = 0;
+        foreach (var message in messages)
+        {
+            count++;
+            var structured = string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase);
+            CountText(message.Content, structured, ref cjk, ref other, ref json, ref attachmentManifest);
+            if (!string.IsNullOrEmpty(message.ReasoningContent))
+                CountText(message.ReasoningContent, structured: false, ref cjk, ref other, ref json, ref attachmentManifest);
+            if (!string.IsNullOrEmpty(message.ToolCallsJson))
+                json += message.ToolCallsJson.Length;
+            foreach (var attachment in message.Attachments)
+            {
+                attachmentPrior += attachment.Kind == AttachmentKind.Image
+                    ? ConversationContext.EstimateImageTokens(attachment.Width, attachment.Height)
+                    : ConversationContext.AttachmentManifestTokenCost;
+            }
+        }
+        return cjk
+               + (other + 3) / 4
+               + (json + 3) / 4
+               + (attachmentManifest + 3) / 4
+               + count * 4L
+               + attachmentPrior;
+    }
+
     private static string BuildProfileKey(EffectiveRequestRuntimeSnapshot runtime)
     {
         var host = Uri.TryCreate(runtime.MainModel.BaseUrl, UriKind.Absolute, out var uri)

@@ -31,7 +31,8 @@ public interface IChatService
         Action<string>? onReasoningDelta = null,
         bool addToContext = true,
         Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
-        Action<string>? onContextWarning = null);
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null);
 
     /// <summary>
     /// 测试 API 连接

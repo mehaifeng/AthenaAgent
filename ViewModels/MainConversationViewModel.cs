@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
+using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -393,6 +394,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     // 会话内压缩撤销栈：每次压缩入栈一个检查点，撤销时弹出还原。切换/重置会话时清空。
     private readonly Stack<CompressionCheckpoint> _compressionHistory = new();
+
+    // 供应商回报的真实用量锚点。会话级真源，随快照落盘；UpdateConversationContext 会反复
+    // 重建消息列表，但测量结果必须跨重建、跨回溯、跨重启存活。
+    private List<ContextAnchorRecord> _contextAnchors = new();
 
     private sealed record CompressionCheckpoint(
         string CompressionId,
@@ -2035,6 +2040,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ContextSummary = _activeContextSummary,
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
+            Anchors = CaptureAnchors(),
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -2070,6 +2076,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forkedAtMessageId = null;
 
         _compressionHistory.Clear();
+        _contextAnchors = new List<ContextAnchorRecord>();
         SetActiveContextSummary(null);
         SetOrphanedLegacySummary(null);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -2363,6 +2370,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 onContextWarning: warning =>
                 {
                     if (IsCurrentConversationEpoch(epoch)) CompressionStatusMessage = warning;
+                },
+                onAnchorObserved: anchor =>
+                {
+                    if (IsCurrentConversationEpoch(epoch)) OnContextAnchorObserved(anchor);
                 }))
             {
                 if (!IsCurrentConversationEpoch(epoch))
@@ -2543,6 +2554,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ContextSummary = _activeContextSummary,
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
+            Anchors = CaptureAnchors(),
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -2629,6 +2641,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ContextSummary = _activeContextSummary,
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
+            Anchors = CaptureAnchors(),
             ForkedFromConversationId = _conversationId,
             ForkedFromHistoryId = forkedFromHistoryId,
             ForkedAtMessageId = forkPointMessage?.Id,
@@ -2640,6 +2653,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         };
 
         return (snapshot, pendingClones);
+    }
+
+    /// <summary>快照锚点账本。裁剪已由 <see cref="UpdateConversationContext"/> 统一负责。</summary>
+    private List<ContextAnchorRecord> CaptureAnchors() => new(_contextAnchors);
+
+    /// <summary>收下一次新测量。前缀内容是否仍匹配由 ContextAnchorLedger 在使用时用摘要校验。</summary>
+    private void OnContextAnchorObserved(ContextAnchorRecord anchor)
+    {
+        _contextAnchors = ContextAnchorLedger.Append(_contextAnchors, anchor);
+        _currentContext.Anchors = _contextAnchors;
     }
 
     private List<CompressionCheckpointRecord> CaptureCompressionHistory()
@@ -2670,6 +2693,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _currentContext.Clear();
         _currentContext.ConversationId = _conversationId;
         _currentContext.Revision = _revision;
+        _currentContext.Anchors = _contextAnchors;
 
         // 赋予当前的压缩摘要（如果有）——读会话级真源，而非 UI 单例
         _currentContext.SetSummary(string.IsNullOrEmpty(_activeContextSummary) ? null : _activeContextSummary);
@@ -2706,6 +2730,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 _currentContext.AddToolMessage(msg.Content, msg.ToolCallId, msg.Id);
             }
         }
+
+        // 回溯、分支、压缩提交都会裁掉消息：长于当前上下文的测量已无意义。前缀内容是否仍逐条
+        // 一致由 ContextAnchorLedger 取用时以摘要校验，这里只做廉价的长度裁剪。所有重建上下文
+        // 的路径都汇聚到这里，因此不必在每个调用点各自裁一遍。
+        _contextAnchors = ContextAnchorLedger.TrimTo(_contextAnchors, _currentContext.Messages.Count);
+        _currentContext.Anchors = _contextAnchors;
     }
 
     private async Task ReconcileImageGenerationSessionAsync()
@@ -3274,6 +3304,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             : null;
 
         _compressionHistory.Clear();
+        // 恢复已落盘的真实测量：切换会话后不必再从零估算整段上下文。
+        // 长度裁剪与前缀校验分别由 UpdateConversationContext 和 ContextAnchorLedger 负责。
+        _contextAnchors = new List<ContextAnchorRecord>(history.Anchors ?? []);
         SetActiveContextSummary(history.ContextSummary);
         SetOrphanedLegacySummary(history.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -3450,6 +3483,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ContextSummary = _activeContextSummary,
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
+            Anchors = CaptureAnchors(),
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -3497,6 +3531,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forkedAtMessageId = snapshot.ForkedAtMessageId;
 
         _compressionHistory.Clear();
+        _contextAnchors = new List<ContextAnchorRecord>(snapshot.Anchors ?? []);
         SetActiveContextSummary(snapshot.ContextSummary);
         SetOrphanedLegacySummary(snapshot.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
