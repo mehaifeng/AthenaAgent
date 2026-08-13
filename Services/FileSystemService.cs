@@ -254,19 +254,38 @@ public class FileSystemService : IFileSystemService
         if (fileInfo.Length > 50 * 1024 || chunkIndex.HasValue)
         {
             int idx = chunkIndex ?? 0;
-            long offset = (long)idx * ChunkSizeBytes;
             using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
-            stream.Seek(offset, SeekOrigin.Begin);
-            byte[] buffer = new byte[ChunkSizeBytes];
-            int read = await stream.ReadAsync(buffer, 0, ChunkSizeBytes);
+
+            // 块边界必须落在 UTF-8 字符起始字节上，否则跨边界的多字节字符会被解码成 U+FFFD——
+            // 两侧各留下一段乱码，而模型看不出那是截断产物。一律向前对齐到字符首字节：
+            // 边界处的半个字符完整归属后一块，块与块严丝合缝，既不丢内容也不重复。
+            long start = await AlignToCharBoundaryAsync(stream, (long)idx * ChunkSizeBytes);
+            long end = await AlignToCharBoundaryAsync(stream, (long)(idx + 1) * ChunkSizeBytes);
+            if (start >= stream.Length) return string.Empty;
+
+            stream.Seek(start, SeekOrigin.Begin);
+            byte[] buffer = new byte[Math.Max(0, end - start)];
+            int read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length));
             var text = Encoding.UTF8.GetString(buffer, 0, read);
             if (!includeLineNumbers) return text;
 
             // 分块按字节偏移，需先统计块起点之前的换行数，才能给出行号。
-            long prefixNewlines = await CountNewlinesInPrefixAsync(fullPath, offset);
+            var prefix = await ScanPrefixAsync(fullPath, start);
             var chunkLines = text.Split('\n').ToList();
+            bool endsMidLine = chunkLines.Count > 0 && chunkLines[^1].Length > 0 && start + read < stream.Length;
             if (chunkLines.Count > 0 && chunkLines[^1].Length == 0) chunkLines.RemoveAt(chunkLines.Count - 1); // 块以换行结尾时的空尾元素
-            return NumberLines(chunkLines, (int)prefixNewlines + 1);
+
+            long firstLineNo = prefix.Newlines + 1;
+            var body = NumberLines(chunkLines, (int)firstLineNo);
+
+            // 块边界落在行中部时必须说明，否则模型会把半行当成完整行去构造 SEARCH。
+            var notes = new StringBuilder();
+            if (prefix.CharsSinceNewline > 0)
+                notes.Append($"[本块自第 {firstLineNo} 行第 {prefix.CharsSinceNewline + 1} 个字符处开始，该行前半部分在上一块]\n");
+            notes.Append(body);
+            if (endsMidLine)
+                notes.Append($"\n[第 {firstLineNo + chunkLines.Count - 1} 行在此截断，后续内容在下一块]");
+            return notes.ToString();
         }
 
         if (includeLineNumbers)
@@ -295,11 +314,12 @@ public class FileSystemService : IFileSystemService
     }
 
     /// <summary>
-    /// 统计文件前 offset 字节内的换行符数量（LF/CRLF 均可，按 '\n' 计数）。
+    /// 单趟扫描文件前 offset 字节，得到换行符数量（用于行号）与最后一个换行符之后的字符数
+    /// （用于说明块起点落在某行的第几个字符）。字符数按 UTF-8 首字节计数，不需要解码。
     /// </summary>
-    private static async Task<long> CountNewlinesInPrefixAsync(string fullPath, long offset)
+    private static async Task<(long Newlines, long CharsSinceNewline)> ScanPrefixAsync(string fullPath, long offset)
     {
-        long count = 0;
+        long newlines = 0, charsSinceNewline = 0;
         var buffer = new byte[64 * 1024];
         using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read);
         long remaining = Math.Min(offset, stream.Length);
@@ -308,10 +328,33 @@ public class FileSystemService : IFileSystemService
             int read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
             if (read <= 0) break;
             for (int i = 0; i < read; i++)
-                if (buffer[i] == (byte)'\n') count++;
+            {
+                if (buffer[i] == (byte)'\n') { newlines++; charsSinceNewline = 0; }
+                else if ((buffer[i] & 0xC0) != 0x80) charsSinceNewline++; // 跳过续字节，只数字符首字节
+            }
             remaining -= read;
         }
-        return count;
+        return (newlines, charsSinceNewline);
+    }
+
+    /// <summary>
+    /// 把字节位置向前对齐到 UTF-8 字符的首字节，保证分块边界不会切开多字节字符。
+    /// </summary>
+    private static async Task<long> AlignToCharBoundaryAsync(FileStream stream, long position)
+    {
+        long pos = Math.Clamp(position, 0, stream.Length);
+        if (pos <= 0 || pos >= stream.Length) return pos;
+
+        var probe = new byte[1];
+        // UTF-8 字符最长 4 字节，最多回退 3 次即可落到首字节。
+        for (int i = 0; i < 3 && pos > 0; i++)
+        {
+            stream.Seek(pos, SeekOrigin.Begin);
+            if (await stream.ReadAsync(probe.AsMemory(0, 1)) != 1) break;
+            if ((probe[0] & 0xC0) != 0x80) break; // 已是首字节
+            pos--;
+        }
+        return pos;
     }
 
     public async Task<bool> WriteFileAsync(string absolutePath, string content)
@@ -338,18 +381,19 @@ public class FileSystemService : IFileSystemService
         var parse = DiffApplier.Parse(diffContent);
         if (parse.Error != null) return new FileUpdateResult { Success = false, Message = parse.Error };
 
-        // 读原始字节 → 探测编码/换行风格 → 在按 \n 规范化的行空间内匹配。
+        // 读原始字节 → 探测编码/换行风格 → 在按 \n 规范化的字符空间内匹配。
         byte[] raw = await File.ReadAllBytesAsync(fullPath);
         string text = DecodeUtf8(raw);
         var profile = FileEncodingProfile.Detect(raw, text);
 
-        var lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
+        var normalized = text.Replace("\r\n", "\n").Replace("\r", "\n");
 
-        var applyResult = DiffApplier.Apply(lines, parse.Blocks, fuzzyMatch, replaceAll);
+        var applyResult = DiffApplier.Apply(normalized, parse.Blocks, fuzzyMatch, replaceAll);
         if (!applyResult.Success) return applyResult;
 
         // 按原换行风格与 BOM 还原落盘，避免污染文件。
-        string newText = string.Join(profile.DominantEol, lines);
+        string newText = applyResult.ModifiedContent ?? normalized;
+        if (profile.DominantEol != "\n") newText = newText.Replace("\n", profile.DominantEol);
         byte[] outBytes = EncodeUtf8(newText, profile.HasUtf8Bom);
 
         // 以最终字节数复核写入配额。

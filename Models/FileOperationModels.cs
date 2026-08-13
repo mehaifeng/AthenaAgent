@@ -54,7 +54,9 @@ public enum DiffMatchTier
     /// <summary>容忍行尾空格与换行符差异后匹配</summary>
     TrailingWhitespace,
     /// <summary>容忍前导缩进差异（整行 Trim）后匹配，命中后会对 REPLACE 重缩进</summary>
-    Trimmed
+    Trimmed,
+    /// <summary>行内片段的逐字符匹配（前三层全部落空时兜底），用于机器生成的超长单行文件</summary>
+    Span
 }
 
 /// <summary>

@@ -105,6 +105,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("diff: unmatched block surfaces nearest hint", TestDiffNearestHintAsync),
     ("diff: multi-block failure rolls back atomically", TestDiffMultiBlockAtomicAsync),
     ("diff: strict mode rejects whitespace drift", TestDiffStrictModeAsync),
+    ("diff: in-line fragment edits a single-line file", TestDiffSpanFragmentAsync),
+    ("diff: ambiguous in-line fragment fails with line:column", TestDiffSpanAmbiguousAsync),
+    ("diff: line-aligned match wins over incidental substring", TestDiffLineAlignedPreferredAsync),
+    ("diff: setext underline no longer hijacks the separator", TestDiffMarkerHijackAsync),
+    ("diff: empty REPLACE deletes the whole line", TestDiffDeleteLineAsync),
+    ("diff: unmatched block reports the divergence offset", TestDiffDivergenceHintAsync),
+    ("diff: long-line edit previews a character window", TestDiffLongLinePreviewAsync),
+    ("diff: historical multi-block AXAML edits still apply exactly", TestDiffHistoricalMultiBlockAsync),
     ("approval: risk classifier tiers tools correctly", TestApprovalRiskClassifierAsync),
     ("approval: terminal command risk detects destructive patterns", TestApprovalTerminalRiskAsync),
     ("approval: read-only auto-allows without prompting in balanced mode", TestApprovalReadOnlyAutoAllowAsync),
@@ -116,6 +124,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
     ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
+    ("filesystem: chunked reads keep UTF-8 intact and flag partial lines", TestChunkedReadBoundaryAsync),
     ("outline: markdown, code, DOCX, PDF, PPTX and XLSX structures are extracted", TestDocumentOutlineFormatsAsync),
     ("tool schema validator enforces closed objects, bounds and composition", TestToolSchemaValidatorAsync),
     ("mcp: name encoder produces safe short names and hashes long ones", TestMcpNameEncoderAsync),
@@ -3205,62 +3214,64 @@ static async Task TestCreateTaskStructuredResponsesAsync()
     AssertTrue(chineseRelative.Success, "documented Chinese relative time should parse successfully");
 }
 
-static List<string> DiffLines(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
-static string DiffJoin(List<string> lines) => string.Join("\n", lines);
+static string DiffNormalize(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n");
+
+// 解析并应用一份 diff，返回结果与最终文本（失败时文本保持原样）。
+static (FileUpdateResult Result, string Text) DiffRun(string text, string diff, bool fuzzy = true, bool replaceAll = false)
+{
+    var normalized = DiffNormalize(text);
+    var parse = DiffApplier.Parse(diff);
+    AssertTrue(parse.Error == null, $"diff should parse cleanly, got: {parse.Error}");
+    var result = DiffApplier.Apply(normalized, parse.Blocks, fuzzy, replaceAll);
+    return (result, result.ModifiedContent ?? normalized);
+}
 
 static Task TestDiffExactApplyAsync()
 {
-    var lines = DiffLines("int a = 1;\nint b = 2;\nint c = 3;");
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nint b = 2;\n=======\nint b = 20;\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, text) = DiffRun("int a = 1;\nint b = 2;\nint c = 3;",
+        "<<<<<<< SEARCH\nint b = 2;\n=======\nint b = 20;\n>>>>>>> REPLACE");
     AssertTrue(result.Success, "exact match should apply");
     AssertEqual(DiffMatchTier.Exact, result.MatchTier, "exact match should report Exact tier");
-    AssertEqual("int a = 1;\nint b = 20;\nint c = 3;", DiffJoin(lines), "only the target line should change");
+    AssertEqual("int a = 1;\nint b = 20;\nint c = 3;", text, "only the target line should change");
     return Task.CompletedTask;
 }
 
 static Task TestDiffTrailingWhitespaceAsync()
 {
-    var lines = DiffLines("foo   \nbar\nbaz");
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nfoo\nbar\n=======\nFOO\nBAR\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, text) = DiffRun("foo   \nbar\nbaz",
+        "<<<<<<< SEARCH\nfoo\nbar\n=======\nFOO\nBAR\n>>>>>>> REPLACE");
     AssertTrue(result.Success, "trailing whitespace should be tolerated");
     AssertEqual(DiffMatchTier.TrailingWhitespace, result.MatchTier, "match should be at trailing-whitespace tier");
-    AssertEqual("FOO\nBAR\nbaz", DiffJoin(lines), "replacement should land despite trailing spaces");
+    AssertEqual("FOO\nBAR\nbaz", text, "replacement should land despite trailing spaces");
     return Task.CompletedTask;
 }
 
 static Task TestDiffReindentAsync()
 {
-    var lines = DiffLines("class C {\n        void M() {\n            X();\n        }\n}");
     var diff = "<<<<<<< SEARCH\n    void M() {\n        X();\n    }\n=======\n    void M() {\n        Y();\n        Z();\n    }\n>>>>>>> REPLACE";
-    var parse = DiffApplier.Parse(diff);
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, text) = DiffRun("class C {\n        void M() {\n            X();\n        }\n}", diff);
     AssertTrue(result.Success, "indentation drift should be tolerated");
     AssertEqual(DiffMatchTier.Trimmed, result.MatchTier, "match should be at trimmed tier");
-    AssertEqual("class C {\n        void M() {\n            Y();\n            Z();\n        }\n}", DiffJoin(lines), "replacement should be reindented to the file's indentation");
+    AssertEqual("class C {\n        void M() {\n            Y();\n            Z();\n        }\n}", text, "replacement should be reindented to the file's indentation");
     return Task.CompletedTask;
 }
 
 static Task TestDiffAmbiguousAsync()
 {
-    var lines = DiffLines("x();\ny();\nx();");
-    var before = DiffJoin(lines);
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, text) = DiffRun("x();\ny();\nx();",
+        "<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE");
     AssertFalse(result.Success, "ambiguous SEARCH should fail");
     AssertEqual(2, result.MultipleMatches?.Count ?? 0, "both candidate locations should be reported");
-    AssertEqual(before, DiffJoin(lines), "an ambiguous failure must not mutate the file");
+    AssertEqual("x();\ny();\nx();", text, "an ambiguous failure must not mutate the file");
     return Task.CompletedTask;
 }
 
 static Task TestDiffReplaceAllAsync()
 {
-    var lines = DiffLines("x();\ny();\nx();");
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, true);
+    var (result, text) = DiffRun("x();\ny();\nx();",
+        "<<<<<<< SEARCH\nx();\n=======\nz();\n>>>>>>> REPLACE", replaceAll: true);
     AssertTrue(result.Success, "replaceAll should succeed despite multiple matches");
-    AssertEqual("z();\ny();\nz();", DiffJoin(lines), "every occurrence should be replaced");
+    AssertEqual("z();\ny();\nz();", text, "every occurrence should be replaced");
     return Task.CompletedTask;
 }
 
@@ -3274,9 +3285,8 @@ static Task TestDiffEmptySearchAsync()
 
 static Task TestDiffNearestHintAsync()
 {
-    var lines = DiffLines("alpha\nbeta\ngamma\ndelta");
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nbeta\nGAMMA_TYPO\n=======\nX\nY\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, _) = DiffRun("alpha\nbeta\ngamma\ndelta",
+        "<<<<<<< SEARCH\nbeta\nGAMMA_TYPO\n=======\nX\nY\n>>>>>>> REPLACE");
     AssertFalse(result.Success, "a typo'd SEARCH should not match");
     AssertTrue(result.NearestHint != null && result.NearestHint.Contains("第 2 行"), "failure should point to the nearest window");
     return Task.CompletedTask;
@@ -3284,23 +3294,138 @@ static Task TestDiffNearestHintAsync()
 
 static Task TestDiffMultiBlockAtomicAsync()
 {
-    var lines = DiffLines("a\nb\nc");
-    var before = DiffJoin(lines);
     var diff = "<<<<<<< SEARCH\na\n=======\nA\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nNOPE\n=======\nX\n>>>>>>> REPLACE";
-    var parse = DiffApplier.Parse(diff);
-    var result = DiffApplier.Apply(lines, parse.Blocks, true, false);
+    var (result, text) = DiffRun("a\nb\nc", diff);
     AssertFalse(result.Success, "a failing second block should fail the whole edit");
     AssertEqual(2, result.FailedBlockIndex ?? 0, "the failing block index should be reported");
-    AssertEqual(before, DiffJoin(lines), "a partial multi-block edit must roll back");
+    AssertEqual("a\nb\nc", text, "a partial multi-block edit must roll back");
     return Task.CompletedTask;
 }
 
 static Task TestDiffStrictModeAsync()
 {
-    var lines = DiffLines("foo   \nbar");
-    var parse = DiffApplier.Parse("<<<<<<< SEARCH\nfoo\n=======\nFOO\n>>>>>>> REPLACE");
-    var result = DiffApplier.Apply(lines, parse.Blocks, false, false);
+    var (result, _) = DiffRun("foo   \nbar",
+        "<<<<<<< SEARCH\nfoo\n=======\nFOO\n>>>>>>> REPLACE", fuzzy: false);
     AssertFalse(result.Success, "strict mode should reject whitespace drift");
+    AssertTrue(result.NearestHint != null && result.NearestHint.Contains("只差首尾空白"),
+        "strict-mode whitespace rejection should say so instead of failing blindly");
+    return Task.CompletedTask;
+}
+
+// 真实事故回归：2026-08-13 的 ability_demo.json 是一个 1 行 9690 字符的机器生成 JSON，
+// 模型两次给出行内片段都被判为“未找到”，最后绕道 python 才改成。片段必须能直接命中。
+static Task TestDiffSpanFragmentAsync()
+{
+    var file = "{\"a\":1,\"style\":\"integer-formula\"}]},{\"name\":\"预研预算\"}";
+    var diff = "<<<<<<< SEARCH\n\"integer-formula\"}]},\n=======\n\"integer-formula\"}]}]},\n>>>>>>> REPLACE";
+    var (result, text) = DiffRun(file, diff);
+    AssertTrue(result.Success, "a unique in-line fragment must be editable in a single-line file");
+    AssertEqual(DiffMatchTier.Span, result.MatchTier, "an in-line fragment should report the Span tier");
+    AssertEqual("{\"a\":1,\"style\":\"integer-formula\"}]}]},{\"name\":\"预研预算\"}", text, "only the fragment should change");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffSpanAmbiguousAsync()
+{
+    var (result, text) = DiffRun("{\"a\":\"x\",\"b\":\"x\"}",
+        "<<<<<<< SEARCH\n\"x\"\n=======\n\"y\"\n>>>>>>> REPLACE");
+    AssertFalse(result.Success, "a fragment occurring twice must not be applied blindly");
+    AssertEqual(2, result.MultipleMatches?.Count ?? 0, "both in-line occurrences should be reported");
+    AssertTrue(result.MultipleMatches![0].Contains("列"), "in-line conflicts need a column, not just a line number");
+    AssertEqual("{\"a\":\"x\",\"b\":\"x\"}", text, "an ambiguous fragment must not mutate the file");
+    return Task.CompletedTask;
+}
+
+// 片段匹配不得削弱整行编辑：SEARCH 恰好是某整行时，行内偶然出现的同样文本不构成歧义。
+static Task TestDiffLineAlignedPreferredAsync()
+{
+    var (result, text) = DiffRun("abc\nb", "<<<<<<< SEARCH\nb\n=======\nB\n>>>>>>> REPLACE");
+    AssertTrue(result.Success, "a whole-line SEARCH should still resolve uniquely");
+    AssertEqual(DiffMatchTier.Exact, result.MatchTier, "the line-aligned match must win over the incidental substring");
+    AssertEqual("abc\nB", text, "the substring inside another line must be left alone");
+    return Task.CompletedTask;
+}
+
+// 标记识别曾用 StartsWith，任何 7 个以上等号开头的行都会冒充分隔符，把 SEARCH 提前截断，
+// 结果是静默写坏文件却报告成功。改成完全相等后，setext 下划线只是普通内容。
+static Task TestDiffMarkerHijackAsync()
+{
+    var diff = "<<<<<<< SEARCH\n标题\n==========\n正文\n=======\n新标题\n==========\n新正文\n>>>>>>> REPLACE";
+    var parse = DiffApplier.Parse(diff);
+    AssertTrue(parse.Error == null, "a setext underline inside SEARCH should not break parsing");
+    AssertEqual(1, parse.Blocks.Count, "exactly one block should be parsed");
+    var (result, text) = DiffRun("标题\n==========\n正文\n", diff);
+    AssertTrue(result.Success, "the block should apply");
+    AssertEqual("新标题\n==========\n新正文\n", text, "a '==========' line must be treated as content, not as the separator");
+    return Task.CompletedTask;
+}
+
+static Task TestDiffDeleteLineAsync()
+{
+    var (result, text) = DiffRun("a\nb\nc", "<<<<<<< SEARCH\nb\n=======\n>>>>>>> REPLACE");
+    AssertTrue(result.Success, "an empty REPLACE should delete");
+    AssertEqual("a\nc", text, "deleting a whole line must not leave a blank line behind");
+    return Task.CompletedTask;
+}
+
+// 失败必须可自救：行时代的单行 SEARCH 未命中时结构上永远拿不到提示，模型只能盲猜。
+static Task TestDiffDivergenceHintAsync()
+{
+    var (result, _) = DiffRun("const value = 42;\n",
+        "<<<<<<< SEARCH\nconst value = 43;\n=======\nconst value = 44;\n>>>>>>> REPLACE");
+    AssertFalse(result.Success, "a one-character drift should not match");
+    AssertTrue(result.NearestHint != null, "a single-line SEARCH failure must still produce a hint");
+    AssertTrue(result.NearestHint!.Contains("第 16 个字符"), $"the hint should pin the divergence offset, got: {result.NearestHint}");
+    AssertTrue(result.NearestHint.Contains("文件实际是"), "the hint should show what the file actually contains");
+    return Task.CompletedTask;
+}
+
+// 超长行上按“前后各两行”预览等于把整个文件回吐给模型，必须退化成字符窗口。
+static Task TestDiffLongLinePreviewAsync()
+{
+    var longLine = "{\"pad\":\"" + new string('p', 900) + "\",\"target\":\"OLD\",\"tail\":\"" + new string('t', 900) + "\"}";
+    var (result, _) = DiffRun(longLine, "<<<<<<< SEARCH\n\"target\":\"OLD\"\n=======\n\"target\":\"NEW\"\n>>>>>>> REPLACE");
+    AssertTrue(result.Success, "the fragment edit should apply");
+    AssertTrue(result.RegionPreview != null && result.RegionPreview.Contains("⟦"), "a long-line edit should preview a character window");
+    AssertTrue(result.RegionPreview!.Length < 400, $"the preview must stay bounded, got {result.RegionPreview.Length} chars");
+    return Task.CompletedTask;
+}
+
+// 历史回归：日志中两次多块 AXAML 编辑（2 块 / 5 块）均为 Exact 一次命中，换引擎后必须保持。
+static Task TestDiffHistoricalMultiBlockAsync()
+{
+    var file = string.Join("\n", new[]
+    {
+        "<Application>",
+        "    <Application.Resources>",
+        "        <ResourceDictionary>",
+        "            <ResourceDictionary.ThemeDictionaries>",
+        "                <ResourceDictionary x:Key=\"Light\">",
+        "                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#D29E00\" />",
+        "                </ResourceDictionary>",
+        "                <ResourceDictionary x:Key=\"Dark\">",
+        "                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#FFD33D\" />",
+        "                </ResourceDictionary>",
+        "            </ResourceDictionary.ThemeDictionaries>",
+        "        </ResourceDictionary>",
+        "    </Application.Resources>",
+        "</Application>"
+    });
+
+    var diff =
+        "<<<<<<< SEARCH\n                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#FFD33D\" />\n" +
+        "=======\n                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#FFD33D\" />\n" +
+        "                    <SolidColorBrush x:Key=\"Chat.LoadingDotBrush\" Color=\"#FFFFFF\" />\n>>>>>>> REPLACE\n\n" +
+        "<<<<<<< SEARCH\n                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#D29E00\" />\n" +
+        "=======\n                    <SolidColorBrush x:Key=\"Chat.ArchivedFg\" Color=\"#D29E00\" />\n" +
+        "                    <SolidColorBrush x:Key=\"Chat.LoadingDotBrush\" Color=\"#000000\" />\n>>>>>>> REPLACE";
+
+    var (result, text) = DiffRun(file, diff);
+    AssertTrue(result.Success, "the historical two-block AXAML edit must still apply");
+    AssertEqual(2, result.AppliedBlocks, "both blocks should apply");
+    AssertEqual(DiffMatchTier.Exact, result.MatchTier, "indented XML lines should still match exactly");
+    AssertTrue(text.Contains("Color=\"#FFFFFF\"") && text.Contains("Color=\"#000000\""), "both brushes should be inserted");
+    AssertEqual(16, text.Split('\n').Length, "exactly two lines should be added");
     return Task.CompletedTask;
 }
 
@@ -3535,6 +3660,36 @@ static async Task TestFileSystemSymlinkEscapeAsync()
     await File.WriteAllTextAsync(normal, "hello");
     var normalContent = await service.ReadFileAsync(normal);
     AssertEqual("hello", normalContent, "a normal file in an allowed dir is still readable");
+}
+
+// 分块读取曾按 50KB 字节硬切：既会把多字节字符切成 U+FFFD，也会把一行切成两半而不作说明，
+// 于是模型把半行当完整行拿去构造 SEARCH。边界必须对齐到字符首字节，行中截断必须显式标注。
+static async Task TestChunkedReadBoundaryAsync()
+{
+    using var harness = new TestHarness();
+    var config = new AppConfig();
+    // 隔离默认平台规则：临时目录在 macOS 上位于 /private/var，会命中默认读黑名单。
+    void ClearReadBlocked(PlatformFileSystemConfig p) => p.ReadAccess = new PlatformAccessRule { BlockedDirectories = new() };
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.Windows);
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.MacOS);
+    ClearReadBlocked(config.FileSystemPolicy.Platforms.Linux);
+    var service = new FileSystemService(new FakeConfigService(config), harness.PathService, Log.Logger);
+
+    // 50KB 边界（第 51200 字节）正好落在一个 3 字节汉字中间，且该处位于一行的中部。
+    var path = Path.Combine(harness.Root, "chunked.txt");
+    var content = new string('x', 51199) + "中文内容行尾\ntail line\n";
+    await File.WriteAllTextAsync(path, content, new UTF8Encoding(false));
+
+    var chunk0 = await service.ReadFileAsync(path, chunkIndex: 0);
+    var chunk1 = await service.ReadFileAsync(path, chunkIndex: 1);
+    AssertTrue(chunk0 != null && chunk1 != null, "both chunks should be readable");
+    AssertFalse(chunk0!.Contains('�'), "a chunk boundary must never produce a replacement character");
+    AssertFalse(chunk1!.Contains('�'), "the next chunk must not start with a broken character");
+    AssertEqual(content, chunk0 + chunk1, "chunks must tile the file exactly: no loss, no duplication");
+
+    var labelled = await service.ReadFileAsync(path, chunkIndex: 1, includeLineNumbers: true);
+    AssertTrue(labelled != null && labelled.Contains("第 1 行第 51200 个字符处开始"),
+        $"a chunk starting mid-line must say so, got: {labelled?.Split('\n')[0]}");
 }
 
 static async Task TestFileMetadataStatisticsAsync()
