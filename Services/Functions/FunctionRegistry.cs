@@ -37,6 +37,7 @@ public class FunctionRegistry : IFunctionRegistry
         SubAgentFunctions subAgentFunctions,
         DocumentParserFunctions documentParserFunctions,
         SpreadsheetFunctions spreadsheetFunctions,
+        DocumentFunctions documentFunctions,
         IConfigService? configService,
         ILogger logger,
         IToolApprovalService? approvalService = null,
@@ -50,7 +51,7 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Spreadsheet OOXML operations ---
         RegisterFunction("inspect_spreadsheet", spreadsheetFunctions.InspectSpreadsheetAsync,
-            "Inspects an .xlsx or .xlsm workbook without executing formulas. Returns worksheet names, used ranges, formulas, error cells, a bounded cell preview, and advanced-feature warnings. Use before editing an unfamiliar workbook.",
+            "Inspects an .xlsx or .xlsm workbook without executing formulas. Returns worksheet names, used ranges, formulas, error cells, merged ranges, a bounded cell preview (with dates rendered as readable text) and advanced-feature warnings. The preview is a window: when hasMoreRows/hasMoreColumns is true, call again with the returned nextStartRow/nextStartColumn to page through the sheet. Use before editing an unfamiliar workbook.",
             new
             {
                 type = "object",
@@ -58,28 +59,30 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     path = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing .xlsx or .xlsm path." },
                     sheet = new { type = "string", minLength = 1, maxLength = 31, description = "Optional worksheet name. Omit to inspect all worksheets." },
-                    maxRows = new { type = "integer", minimum = 1, maximum = 200, @default = 20, description = "Maximum row number included in each preview." },
-                    maxColumns = new { type = "integer", minimum = 1, maximum = 100, @default = 20, description = "Maximum column number included in each preview." }
+                    maxRows = new { type = "integer", minimum = 1, maximum = 200, @default = 20, description = "Number of rows in the preview window." },
+                    maxColumns = new { type = "integer", minimum = 1, maximum = 100, @default = 20, description = "Number of columns in the preview window." },
+                    startRow = new { type = "integer", minimum = 1, maximum = 1048576, @default = 1, description = "First row of the preview window (1-based). Use for paging through large sheets." },
+                    startColumn = new { type = "integer", minimum = 1, maximum = 16384, @default = 1, description = "First column of the preview window (1-based, A=1)." }
                 },
                 required = new[] { "path" }
             });
 
         RegisterFunction("create_spreadsheet", spreadsheetFunctions.CreateSpreadsheetAsync,
-            "Creates a new .xlsx workbook atomically from a compact JSON specification. Supports values, formulas, frozen header rows, column widths, filters, and MiniMax-style financial formatting aliases. Formulas are written without calculated caches and require Excel/LibreOffice recalculation. Use outputPath ending in .xlsx.",
+            "Creates a new .xlsx workbook atomically from a compact JSON specification. Supports values, formulas, frozen header rows, column widths, filters, merged ranges, and either built-in style aliases or workbook-defined custom styles (fonts including CJK, fills, borders, number formats, alignment). Formulas are written without calculated caches and require Excel/LibreOffice recalculation. Use outputPath ending in .xlsx.",
             new
             {
                 type = "object",
                 properties = new
                 {
                     outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xX]$", description = "Destination .xlsx path." },
-                    workbookJson = new { type = "string", minLength = 2, maxLength = 8000000, description = "JSON object with sheets[]. Each sheet has name, optional freezeRows/columnWidths/autoFilter, and rows[][] cells. A cell is a primitive or {value|formula, style}. Styles: text, input, formula, cross-sheet, header, currency-input, currency-formula, percent-input, percent-formula, integer-input, integer-formula, year, assumption, external-link." },
+                    workbookJson = new { type = "string", minLength = 2, maxLength = 8000000, description = "JSON object with sheets[] and an optional workbook-level styles[]. Each sheet has name, optional freezeRows/columnWidths/autoFilter/merges (['A1:C1']), and rows[][] cells. A cell is a primitive or {value|formula, style}. 'style' is a built-in alias (text, input, formula, cross-sheet, header, currency-input, currency-formula, percent-input, percent-formula, integer-input, integer-formula, year, assumption, external-link), a name declared in styles[], or an inline style object. A style object is {name, font:{name,size,bold,italic,underline,strike,color}, fill:'FFEFEFEF', border:'thin' or {style,color,top,bottom,left,right}, numberFormat:'#,##0.00', align:{horizontal,vertical,wrap,indent,rotation}}. Colours are RGB or ARGB hex." },
                     overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
                 },
                 required = new[] { "outputPath", "workbookJson" }
             });
 
         RegisterFunction("edit_spreadsheet", spreadsheetFunctions.EditSpreadsheetAsync,
-            "Surgically edits cells in an existing .xlsx or .xlsm while preserving untouched ZIP parts. Always writes to a distinct outputPath and leaves the source unchanged. updatesJson is an array of {sheet,cell,value} or {sheet,cell,formula} or {sheet,cell,clear:true}; optional styleIndex or copyStyleFrom copies an existing cell's style. This tool does not insert/delete rows or rewrite structured references.",
+            "Surgically edits cells in an existing .xlsx or .xlsm while preserving untouched ZIP parts. Always writes to a distinct outputPath and leaves the source unchanged. updatesJson items are {sheet,cell,value} / {sheet,cell,formula} / {sheet,cell,clear:true} / {sheet,merge:'A1:C1'} / {sheet,unmerge:'A1:C1'}; a cell update may also carry style (inline style object registered into this workbook), styleIndex, or copyStyleFrom. Use modify_spreadsheet_structure to insert or delete whole rows and columns.",
             new
             {
                 type = "object",
@@ -87,10 +90,42 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Existing source workbook." },
                     outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Distinct destination path with the same extension as inputPath." },
-                    updatesJson = new { type = "string", minLength = 2, maxLength = 4000000, description = "JSON array (max 5000 items). Each item specifies sheet, A1 cell, exactly one operation (value/formula/clear), and optionally styleIndex or copyStyleFrom such as 'Template!B4'." },
+                    updatesJson = new { type = "string", minLength = 2, maxLength = 4000000, description = "JSON array (max 5000 items). A cell item specifies sheet, A1 cell and exactly one of value/formula/clear, plus optional style/styleIndex/copyStyleFrom such as 'Template!B4'. A merge item specifies sheet and merge or unmerge with an A1 range; merging keeps only the top-left cell's content." },
                     overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
                 },
                 required = new[] { "inputPath", "outputPath", "updatesJson" }
+            });
+
+        RegisterFunction("modify_spreadsheet_structure", spreadsheetFunctions.ModifySpreadsheetStructureAsync,
+            "Inserts or deletes whole rows and columns in an existing .xlsx or .xlsm, rewriting everything that moves with them: formulas on every worksheet (relative, absolute, cross-sheet and whole row/column references), merged ranges, autofilter and sort ranges, conditional formatting, data validation, hyperlinks, column widths and workbook defined names. References to deleted cells become #REF! exactly as Excel would produce. Writes to a distinct outputPath and leaves the source unchanged. Fails when an operation would cut through a structured table.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Existing source workbook." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Distinct destination path with the same extension as inputPath." },
+                    operationsJson = new { type = "string", minLength = 2, maxLength = 200000, description = "JSON array (max 100 items) applied in order. Each item is {sheet, action, index, count}. action is insertRows, deleteRows, insertColumns or deleteColumns. index is 1-based (column operations also accept a letter such as 'C'), count defaults to 1. Inserting at index N pushes the current row/column N down or right." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath", "operationsJson" }
+            });
+
+        RegisterFunction("convert_spreadsheet", spreadsheetFunctions.ConvertSpreadsheetAsync,
+            "Converts between delimited text and a workbook. .csv/.tsv/.txt in produces an .xlsx (numeric-looking values become numbers, identifiers with leading zeros or 16+ digits stay text, and text is never turned into a formula); .xlsx/.xlsm in produces .csv/.tsv/.txt from one worksheet, writing cached values with dates rendered as readable text. Use the export direction to read a sheet that is too large for inspect_spreadsheet's preview window.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Source .csv/.tsv/.txt or .xlsx/.xlsm path." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Destination path. Text in requires .xlsx out; a workbook in requires .csv/.tsv/.txt out." },
+                    sheet = new { type = "string", minLength = 1, maxLength = 31, description = "Worksheet to export, or the name to give the imported sheet. Defaults to the first worksheet, or 'Sheet1' on import." },
+                    delimiter = new { type = "string", minLength = 1, maxLength = 2, description = "Field separator. Defaults to a tab for .tsv and a comma otherwise; pass \"\\t\" for tab explicitly." },
+                    headerRow = new { type = "boolean", @default = false, description = "Import only: style the first row as a header and freeze it." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath" }
             });
 
         RegisterFunction("validate_spreadsheet", spreadsheetFunctions.ValidateSpreadsheetAsync,
@@ -99,6 +134,75 @@ public class FunctionRegistry : IFunctionRegistry
             {
                 type = "object",
                 properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[xX][lL][sS][xXmM]$", description = "Workbook to validate." } },
+                required = new[] { "path" }
+            });
+
+        // --- Word documents ---
+        RegisterFunction("inspect_document", documentFunctions.InspectDocumentAsync,
+            "Inspects a .docx or .docm without opening Word. Returns the heading outline, a windowed list of body paragraphs with their 1-based index, style, heading path and text, table summaries, a word count, and package features such as tracked changes, comments, headers/footers, images and fields. Those paragraph and table indexes are exactly what edit_document targets, so inspect before editing an unfamiliar document. Page with startParagraph, or use convert_document to read the whole document at once.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Existing .docx or .docm path." },
+                    startParagraph = new { type = "integer", minimum = 1, maximum = 1000000, @default = 1, description = "First body paragraph of the window (1-based)." },
+                    maxParagraphs = new { type = "integer", minimum = 1, maximum = 300, @default = 60, description = "Number of paragraphs in the window." },
+                    includeTableText = new { type = "boolean", @default = false, description = "Return every table cell's text instead of only each table's first row." }
+                },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("create_document", documentFunctions.CreateDocumentAsync,
+            "Creates a new .docx from a block specification: headings, paragraphs with mixed run formatting, bulleted and numbered lists, tables, images, page breaks and a table-of-contents field. Supports page size and margins, a document default font with a separate East Asian family, and custom named paragraph styles. Headings use Word's built-in styles so the navigation pane and any TOC work. Use outputPath ending in .docx.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xX]$", description = "Destination .docx path." },
+                    documentJson = new { type = "string", minLength = 2, maxLength = 8000000, description = "JSON object with blocks[] plus optional page, font and styles. page is {size:'A4'|'A5'|'Letter'|'Legal', orientation:'portrait'|'landscape', margins:{top,right,bottom,left} in points}. font is {name, eastAsia, size}. styles[] entries are {name, basedOn, font:{name,eastAsia,size,bold,italic,underline,strike,color}, align, spacing:{before,after,line}, indent:{left,right,firstLine}, keepNext, pageBreakBefore}. Each block is {type, ...}: paragraph {text|runs[], style, align, font, spacing, indent}, heading {level 1-6, text}, title, quote, list {items[], ordered, level}, table {header[], rows[][], widths[]}, image {path, widthPoints, caption, align}, pageBreak, toc {levels:'1-3', title}. A run is a string or {text, bold, italic, underline, color, size, name, eastAsia}. Sizes and spacing are in points." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "outputPath", "documentJson" }
+            });
+
+        RegisterFunction("edit_document", documentFunctions.EditDocumentAsync,
+            "Edits an existing .docx or .docm surgically, preserving every untouched package part, and writes to a distinct outputPath. Operations target a paragraph index, a table cell, or matched text. Find-and-replace works across runs, so it still matches when Word has split a sentence into fragments. All indexes in one call refer to the document as it was read, so inserting near the top never shifts the meaning of a later index.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xXmM]$", description = "Existing source document." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xXmM]$", description = "Distinct destination path with the same extension as inputPath." },
+                    operationsJson = new { type = "string", minLength = 2, maxLength = 4000000, description = "JSON array (max 2000 items). Paragraph items: {paragraph:N, setText} / {paragraph:N, setStyle} / {paragraph:N, format:{align,spacing,indent}} / {paragraph:N, font:{...}} / {paragraph:N, delete:true} / {paragraph:N, insertBefore|insertAfter: block-or-blocks}. Text items: {find:'old', replace:'new', all:true}. Table items: {table:T, row:R, column:C, setText} / {table:T, appendRow:[...]} / {table:T, deleteRow:R}. Document items: {appendBlock: block} and {defineStyle: {name, ...}} which registers a style that later operations can reference. Blocks use the same shape as create_document." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath", "operationsJson" }
+            });
+
+        RegisterFunction("convert_document", documentFunctions.ConvertDocumentAsync,
+            "Exports a whole .docx or .docm as Markdown or plain text: headings become levels, lists keep their nesting and numbering, tables become Markdown tables, and bold/italic runs keep their emphasis. Use this to read a document that is longer than inspect_document's paragraph window. Images are noted as placeholders; headers, footers and comments are not exported.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xXmM]$", description = "Existing source document." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Destination .md, .markdown or .txt path." },
+                    markdown = new { type = "boolean", @default = true, description = "Emit Markdown structure. Ignored for a .txt output, which is always plain." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath" }
+            });
+
+        RegisterFunction("validate_document", documentFunctions.ValidateDocumentAsync,
+            "Performs bounded static validation of a .docx or .docm: parses every XML part, checks internal relationships, verifies the structural rules Word enforces (a paragraph in every table cell, properties first in their parent, property elements in schema order) and reports style, numbering or image references that point at nothing. It does not paginate, update fields or render the document, so visual checks still need Word or LibreOffice.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xXmM]$", description = "Document to validate." } },
                 required = new[] { "path" }
             });
 

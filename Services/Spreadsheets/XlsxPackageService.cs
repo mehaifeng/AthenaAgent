@@ -6,8 +6,8 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Xml;
 using System.Xml.Linq;
+using Athena.UI.Services.Ooxml;
 
 namespace Athena.UI.Services.Spreadsheets;
 
@@ -16,25 +16,35 @@ namespace Athena.UI.Services.Spreadsheets;
 /// The service deliberately supports bounded, surgical operations rather than a
 /// lossy unzip/pretty-print/repack workflow.
 /// </summary>
-public sealed class XlsxPackageService
+public sealed partial class XlsxPackageService : OoxmlPackageService
 {
     private static readonly XNamespace SpreadsheetNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-    private static readonly XNamespace RelationshipNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    private static readonly XNamespace PackageRelationshipNs = "http://schemas.openxmlformats.org/package/2006/relationships";
-    private static readonly XNamespace ContentTypesNs = "http://schemas.openxmlformats.org/package/2006/content-types";
 
-    private const int MaxEntries = 20_000;
-    private const long MaxEntryBytes = 128L * 1024 * 1024;
-    private const long MaxPackageBytes = 512L * 1024 * 1024;
+    /// <summary>Child order of CT_Worksheet; elements written out of sequence make Excel ask to repair the file.</summary>
+    private static readonly string[] WorksheetChildOrder =
+    [
+        "sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData", "sheetCalcPr",
+        "sheetProtection", "protectedRanges", "scenarios", "autoFilter", "sortState", "dataConsolidate",
+        "customSheetViews", "mergeCells", "phoneticPr", "conditionalFormatting", "dataValidations",
+        "hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter", "rowBreaks", "colBreaks",
+        "customProperties", "cellWatches", "ignoredErrors", "smartTags", "drawing", "drawingHF", "picture",
+        "oleObjects", "controls", "webPublishItems", "tableParts", "extLst"
+    ];
+
     private const int MaxUpdates = 5_000;
 
-    public object Inspect(string path, string? requestedSheet, int maxRows, int maxColumns)
+    public object Inspect(string path, string? requestedSheet, int maxRows, int maxColumns, int startRow = 1, int startColumn = 1)
     {
         maxRows = Math.Clamp(maxRows, 1, 200);
         maxColumns = Math.Clamp(maxColumns, 1, 100);
+        startRow = Math.Clamp(startRow, 1, 1_048_576);
+        startColumn = Math.Clamp(startColumn, 1, 16_384);
+        var endRow = Math.Min(1_048_576L, (long)startRow + maxRows - 1);
+        var endColumn = Math.Min(16_384L, (long)startColumn + maxColumns - 1);
 
         using var archive = OpenChecked(path, ZipArchiveMode.Read);
         var sheets = ReadSheetMap(archive);
+        var workbookSheetCount = sheets.Count;
         if (!string.IsNullOrWhiteSpace(requestedSheet))
         {
             sheets = sheets.Where(sheet => sheet.Name.Equals(requestedSheet, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -42,6 +52,7 @@ public sealed class XlsxPackageService
         }
 
         var sharedStrings = ReadSharedStrings(archive);
+        var formats = ReadNumberFormats(archive);
         var inspections = new List<object>();
         foreach (var sheet in sheets)
         {
@@ -59,16 +70,26 @@ public sealed class XlsxPackageService
                 if (!TryParseCellReference(address, out var row, out var column)) continue;
                 usedMaxRow = Math.Max(usedMaxRow, row);
                 usedMaxColumn = Math.Max(usedMaxColumn, column);
-                if (row > maxRows || column > maxColumns) continue;
+                if (row < startRow || row > endRow || column < startColumn || column > endColumn) continue;
 
+                var styleIndex = (int?)cell.Attribute("s");
+                var value = ReadCellValue(cell, sharedStrings);
                 preview.Add(new
                 {
                     address,
-                    value = ReadCellValue(cell, sharedStrings),
+                    value,
+                    // Excel keeps dates as serial numbers; surface the readable form so the model never guesses.
+                    text = value is double number ? formats.Format(styleIndex, number) : null,
                     formula = (string?)cell.Element(SpreadsheetNs + "f"),
-                    styleIndex = (int?)cell.Attribute("s")
+                    styleIndex
                 });
             }
+
+            var merges = document.Root?.Element(SpreadsheetNs + "mergeCells")?.Elements(SpreadsheetNs + "mergeCell")
+                .Select(merge => (string?)merge.Attribute("ref"))
+                .Where(reference => reference is not null)
+                .Take(200)
+                .ToList() ?? [];
 
             inspections.Add(new
             {
@@ -78,6 +99,12 @@ public sealed class XlsxPackageService
                 maxColumn = usedMaxColumn,
                 formulaCount,
                 errorCellCount = errorCount,
+                mergedRanges = merges,
+                window = new { startRow, endRow, startColumn, endColumn },
+                hasMoreRows = usedMaxRow > endRow,
+                hasMoreColumns = usedMaxColumn > endColumn,
+                nextStartRow = usedMaxRow > endRow ? endRow + 1 : (long?)null,
+                nextStartColumn = usedMaxColumn > endColumn ? endColumn + 1 : (long?)null,
                 preview
             });
         }
@@ -85,9 +112,10 @@ public sealed class XlsxPackageService
         return new
         {
             path,
-            sheetCount = ReadSheetMap(archive).Count,
+            sheetCount = workbookSheetCount,
             sheets = inspections,
-            features = DetectFeatures(archive)
+            features = DetectFeatures(archive),
+            pagingHint = "Preview windows are bounded. Re-run with startRow/startColumn to page through a larger sheet, or use convert_spreadsheet to export the whole sheet as CSV."
         };
     }
 
@@ -133,6 +161,7 @@ public sealed class XlsxPackageService
                 }
 
                 if (!entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase)) continue;
+                errors.AddRange(FindMergeProblems(document, entry.FullName));
                 foreach (var cell in document.Descendants(SpreadsheetNs + "c"))
                 {
                     var formula = (string?)cell.Element(SpreadsheetNs + "f");
@@ -179,6 +208,42 @@ public sealed class XlsxPackageService
         }
     }
 
+    /// <summary>
+    /// Overlapping or single-cell merges are the most common way a hand-built worksheet makes
+    /// Excel show its "unreadable content" repair prompt, so they are reported as hard errors.
+    /// </summary>
+    private static IEnumerable<string> FindMergeProblems(XDocument worksheet, string partName)
+    {
+        var merges = worksheet.Root?.Element(SpreadsheetNs + "mergeCells")?.Elements(SpreadsheetNs + "mergeCell").ToList();
+        if (merges is null || merges.Count == 0) yield break;
+
+        var parsed = new List<(string Reference, int StartRow, int StartColumn, int EndRow, int EndColumn)>();
+        foreach (var merge in merges)
+        {
+            var reference = (string?)merge.Attribute("ref");
+            if (reference is null || !TryParseRange(reference, out var startRow, out var startColumn, out var endRow, out var endColumn))
+            {
+                yield return $"Invalid merged range in {partName}: {reference ?? "(missing ref)"}";
+                continue;
+            }
+            if (startRow == endRow && startColumn == endColumn)
+                yield return $"Merged range covers a single cell in {partName}: {reference}";
+            parsed.Add((reference, startRow, startColumn, endRow, endColumn));
+        }
+
+        for (var first = 0; first < parsed.Count; first++)
+        {
+            for (var second = first + 1; second < parsed.Count; second++)
+            {
+                var left = parsed[first];
+                var right = parsed[second];
+                if (left.StartRow <= right.EndRow && left.EndRow >= right.StartRow &&
+                    left.StartColumn <= right.EndColumn && left.EndColumn >= right.StartColumn)
+                    yield return $"Overlapping merged ranges in {partName}: {left.Reference} and {right.Reference}";
+            }
+        }
+    }
+
     public void Create(string outputPath, string workbookJson, bool overwrite)
     {
         if (!Path.GetExtension(outputPath).Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
@@ -198,30 +263,32 @@ public sealed class XlsxPackageService
             if (!names.Add(name)) throw new ArgumentException($"Duplicate worksheet name: {name}");
         }
 
+        var styles = new XlsxStyleLibrary(XDocument.Parse(StylesXml));
+        if (json.RootElement.TryGetProperty("styles", out var styleSpecs))
+            styles.RegisterNamedStyles(styleSpecs, IsBuiltInStyleAlias);
+
+        // Worksheet XML is built before the package so a bad style reference fails before any file is written.
+        var worksheets = sheetSpecs.Select(spec => WorksheetXml(spec, styles)).ToList();
+
         AtomicWrite(outputPath, overwrite, temporaryPath =>
         {
             using var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false, Encoding.UTF8);
             WriteTextEntry(archive, "[Content_Types].xml", BuildContentTypes(sheetSpecs.Count));
-            WriteTextEntry(archive, "_rels/.rels", RootRelationshipsXml);
+            WriteTextEntry(archive, "_rels/.rels", WorkbookRootRelationshipsXml);
             WriteTextEntry(archive, "docProps/core.xml", CorePropertiesXml());
             WriteTextEntry(archive, "docProps/app.xml", AppPropertiesXml(sheetSpecs.Select(spec => GetRequiredString(spec, "name"))));
             WriteTextEntry(archive, "xl/workbook.xml", WorkbookXml(sheetSpecs.Select(spec => GetRequiredString(spec, "name"))));
             WriteTextEntry(archive, "xl/_rels/workbook.xml.rels", WorkbookRelationshipsXml(sheetSpecs.Count));
-            WriteTextEntry(archive, "xl/styles.xml", StylesXml);
-            for (var index = 0; index < sheetSpecs.Count; index++)
-                WriteTextEntry(archive, $"xl/worksheets/sheet{index + 1}.xml", WorksheetXml(sheetSpecs[index]));
+            WriteTextEntry(archive, "xl/styles.xml", SerializeStyles(styles.Document));
+            for (var index = 0; index < worksheets.Count; index++)
+                WriteTextEntry(archive, $"xl/worksheets/sheet{index + 1}.xml", worksheets[index]);
         });
     }
 
     public void Edit(string inputPath, string outputPath, string updatesJson, bool overwrite)
     {
-        EnsureWorkbookExtension(inputPath);
-        EnsureWorkbookExtension(outputPath);
-        if (Path.GetFullPath(inputPath).Equals(Path.GetFullPath(outputPath), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            throw new ArgumentException("outputPath must differ from inputPath so the original workbook remains recoverable.");
-        if (!Path.GetExtension(inputPath).Equals(Path.GetExtension(outputPath), StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("inputPath and outputPath must use the same extension so macro-enabled workbooks are not silently downgraded.");
+        EnsureDistinctWorkbookPaths(inputPath, outputPath);
         EnsureCanWrite(outputPath, overwrite);
 
         using var json = JsonDocument.Parse(updatesJson, new JsonDocumentOptions { MaxDepth = 32, CommentHandling = JsonCommentHandling.Skip });
@@ -244,13 +311,20 @@ public sealed class XlsxPackageService
             var sheetMap = ReadSheetMap(archive);
             var documents = new Dictionary<string, XDocument>(StringComparer.OrdinalIgnoreCase);
             var formulasChanged = false;
+            XlsxStyleLibrary? styles = null;
+
+            XlsxStyleLibrary EnsureStyles()
+            {
+                if (styles is not null) return styles;
+                var entry = archive.GetEntry("xl/styles.xml")
+                    ?? throw new InvalidDataException("The workbook has no styles part, so a new style cannot be registered.");
+                styles = new XlsxStyleLibrary(ReadXml(entry, preserveWhitespace: true));
+                return styles;
+            }
 
             foreach (var update in updates)
             {
                 var sheetName = GetRequiredString(update, "sheet");
-                var cellReference = GetRequiredString(update, "cell").ToUpperInvariant();
-                if (!TryParseCellReference(cellReference, out var rowNumber, out var columnNumber))
-                    throw new ArgumentException($"Invalid cell reference: {cellReference}");
                 var sheet = sheetMap.FirstOrDefault(candidate => candidate.Name.Equals(sheetName, StringComparison.OrdinalIgnoreCase))
                     ?? throw new ArgumentException($"Worksheet not found: {sheetName}");
                 if (!documents.TryGetValue(sheet.PartPath, out var document))
@@ -258,6 +332,23 @@ public sealed class XlsxPackageService
                     document = ReadXml(RequiredEntry(archive, sheet.PartPath), preserveWhitespace: true);
                     documents[sheet.PartPath] = document;
                 }
+
+                var worksheetRoot = document.Root ?? throw new InvalidDataException($"Worksheet has no root element: {sheetName}");
+                if (update.TryGetProperty("merge", out var mergeElement))
+                {
+                    MergeRange(worksheetRoot, ReadRangeProperty(mergeElement, "merge"));
+                    continue;
+                }
+
+                if (update.TryGetProperty("unmerge", out var unmergeElement))
+                {
+                    UnmergeRange(worksheetRoot, ReadRangeProperty(unmergeElement, "unmerge"));
+                    continue;
+                }
+
+                var cellReference = GetRequiredString(update, "cell").ToUpperInvariant();
+                if (!TryParseCellReference(cellReference, out var rowNumber, out var columnNumber))
+                    throw new ArgumentException($"Invalid cell reference: {cellReference}");
 
                 var clear = update.TryGetProperty("clear", out var clearElement) && clearElement.ValueKind == JsonValueKind.True;
                 var hasFormula = update.TryGetProperty("formula", out var formulaElement) && formulaElement.ValueKind != JsonValueKind.Null;
@@ -278,7 +369,7 @@ public sealed class XlsxPackageService
                 }
 
                 cell ??= InsertCell(row, cellReference, columnNumber);
-                ApplyStyle(update, document, sheetMap, documents, archive, cell);
+                ApplyStyle(update, sheetMap, documents, archive, cell, EnsureStyles);
                 cell.Elements().Remove();
 
                 if (hasFormula)
@@ -302,6 +393,8 @@ public sealed class XlsxPackageService
                 ReplaceXmlEntry(archive, pair.Key, pair.Value);
             }
 
+            if (styles is not null) ReplaceXmlEntry(archive, "xl/styles.xml", styles.Document);
+
             if (formulasChanged)
             {
                 RemoveCalculationChain(archive);
@@ -310,9 +403,17 @@ public sealed class XlsxPackageService
         });
     }
 
-    private static void ApplyStyle(JsonElement update, XDocument currentDocument, IReadOnlyList<SheetPart> sheetMap,
-        IDictionary<string, XDocument> documents, ZipArchive archive, XElement cell)
+    private static void ApplyStyle(JsonElement update, IReadOnlyList<SheetPart> sheetMap,
+        IDictionary<string, XDocument> documents, ZipArchive archive, XElement cell, Func<XlsxStyleLibrary> ensureStyles)
     {
+        // An inline style object registers a new cell format in this workbook's own styles part,
+        // which is the only safe way to style a workbook Athena did not create.
+        if (update.TryGetProperty("style", out var styleSpec) && styleSpec.ValueKind == JsonValueKind.Object)
+        {
+            cell.SetAttributeValue("s", ensureStyles().Register(styleSpec));
+            return;
+        }
+
         if (update.TryGetProperty("styleIndex", out var styleElement))
         {
             if (!styleElement.TryGetInt32(out var styleIndex) || styleIndex < 0) throw new ArgumentException("styleIndex must be a non-negative integer.");
@@ -339,6 +440,77 @@ public sealed class XlsxPackageService
         if (style is null) cell.Attribute("s")?.Remove();
         else cell.SetAttributeValue("s", style);
     }
+
+    private static string ReadRangeProperty(JsonElement element, string property)
+    {
+        if (element.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(element.GetString()))
+            throw new ArgumentException($"'{property}' must be a range such as 'A1:C1'.");
+        return element.GetString()!.Trim().ToUpperInvariant().Replace("$", string.Empty);
+    }
+
+    /// <summary>
+    /// Adds a merged range. Excel keeps the value of the top-left cell only, so every other cell in
+    /// the range is stripped of its content while its style is preserved.
+    /// </summary>
+    private static void MergeRange(XElement root, string range)
+    {
+        if (!TryParseRange(range, out var startRow, out var startColumn, out var endRow, out var endColumn))
+            throw new ArgumentException($"Invalid merge range: {range}");
+        if (startRow == endRow && startColumn == endColumn)
+            throw new ArgumentException($"A merge must cover more than one cell: {range}");
+        if (endRow < startRow || endColumn < startColumn)
+            throw new ArgumentException($"Merge range must be written top-left to bottom-right: {range}");
+
+        var mergeCells = GetOrCreateWorksheetChild(root, "mergeCells");
+
+        var normalized = $"{ColumnName(startColumn)}{startRow}:{ColumnName(endColumn)}{endRow}";
+        foreach (var existing in mergeCells.Elements(SpreadsheetNs + "mergeCell"))
+        {
+            var reference = (string?)existing.Attribute("ref");
+            if (reference is null || !TryParseRange(reference, out var otherStartRow, out var otherStartColumn, out var otherEndRow, out var otherEndColumn)) continue;
+            var overlaps = startRow <= otherEndRow && endRow >= otherStartRow && startColumn <= otherEndColumn && endColumn >= otherStartColumn;
+            if (overlaps) throw new ArgumentException($"Merge range {normalized} overlaps the existing merge {reference}.");
+        }
+
+        mergeCells.Add(new XElement(SpreadsheetNs + "mergeCell", new XAttribute("ref", normalized)));
+        mergeCells.SetAttributeValue("count", mergeCells.Elements(SpreadsheetNs + "mergeCell").Count());
+
+        foreach (var cell in root.Descendants(SpreadsheetNs + "c").ToList())
+        {
+            if (!TryParseCellReference((string?)cell.Attribute("r") ?? string.Empty, out var row, out var column)) continue;
+            if (row < startRow || row > endRow || column < startColumn || column > endColumn) continue;
+            if (row == startRow && column == startColumn) continue;
+            cell.Elements().Remove();
+            cell.Attribute("t")?.Remove();
+        }
+    }
+
+    private static void UnmergeRange(XElement root, string range)
+    {
+        if (!TryParseRange(range, out var startRow, out var startColumn, out var endRow, out var endColumn))
+            throw new ArgumentException($"Invalid unmerge range: {range}");
+
+        var mergeCells = root.Element(SpreadsheetNs + "mergeCells")
+            ?? throw new ArgumentException($"The worksheet has no merged ranges, so {range} cannot be unmerged.");
+        var normalized = $"{ColumnName(startColumn)}{startRow}:{ColumnName(endColumn)}{endRow}";
+        var match = mergeCells.Elements(SpreadsheetNs + "mergeCell").FirstOrDefault(element =>
+        {
+            var reference = (string?)element.Attribute("ref");
+            return reference is not null
+                && TryParseRange(reference, out var otherStartRow, out var otherStartColumn, out var otherEndRow, out var otherEndColumn)
+                && otherStartRow == startRow && otherStartColumn == startColumn && otherEndRow == endRow && otherEndColumn == endColumn;
+        }) ?? throw new ArgumentException($"No merged range exactly matches {normalized}.");
+
+        match.Remove();
+        if (!mergeCells.Elements(SpreadsheetNs + "mergeCell").Any()) mergeCells.Remove();
+        else mergeCells.SetAttributeValue("count", mergeCells.Elements(SpreadsheetNs + "mergeCell").Count());
+    }
+
+    private static XElement GetOrCreateWorksheetChild(XElement root, string name) =>
+        GetOrCreateOrderedChild(root, SpreadsheetNs, WorksheetChildOrder, name);
+
+    private static string SerializeStyles(XDocument document) =>
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + document.Root!.ToString(SaveOptions.DisableFormatting);
 
     private static void SetCellValue(XElement cell, JsonElement value)
     {
@@ -451,11 +623,7 @@ public sealed class XlsxPackageService
     private static List<SheetPart> ReadSheetMap(ZipArchive archive)
     {
         var workbook = ReadXml(RequiredEntry(archive, "xl/workbook.xml"));
-        var relationships = ReadXml(RequiredEntry(archive, "xl/_rels/workbook.xml.rels"));
-        var targets = relationships.Root?.Elements(PackageRelationshipNs + "Relationship")
-            .Where(element => element.Attribute("Id") is not null && element.Attribute("Target") is not null)
-            .ToDictionary(element => (string)element.Attribute("Id")!, element => ResolvePartPath("xl/workbook.xml", (string)element.Attribute("Target")!), StringComparer.Ordinal)
-            ?? new Dictionary<string, string>();
+        var targets = ReadRelationshipTargets(archive, "xl/workbook.xml");
         var result = new List<SheetPart>();
         foreach (var sheet in workbook.Descendants(SpreadsheetNs + "sheet"))
         {
@@ -510,95 +678,7 @@ public sealed class XlsxPackageService
     private static ZipArchive OpenChecked(string path, ZipArchiveMode mode)
     {
         EnsureWorkbookExtension(path);
-        if (!File.Exists(path)) throw new FileNotFoundException("Workbook not found.", path);
-        var archive = ZipFile.Open(path, mode);
-        try
-        {
-            if (archive.Entries.Count > MaxEntries) throw new InvalidDataException($"Workbook contains more than {MaxEntries} ZIP entries.");
-            long total = 0;
-            foreach (var entry in archive.Entries)
-            {
-                ValidateEntryName(entry.FullName);
-                if (entry.Length > MaxEntryBytes) throw new InvalidDataException($"OOXML part is too large: {entry.FullName}");
-                total = checked(total + entry.Length);
-                if (total > MaxPackageBytes) throw new InvalidDataException($"Uncompressed workbook exceeds {MaxPackageBytes} bytes.");
-                if (entry.CompressedLength > 0 && entry.Length / Math.Max(1d, entry.CompressedLength) > 200d)
-                    throw new InvalidDataException($"Suspicious compression ratio in OOXML part: {entry.FullName}");
-            }
-            return archive;
-        }
-        catch
-        {
-            archive.Dispose();
-            throw;
-        }
-    }
-
-    private static XDocument ReadXml(ZipArchiveEntry entry, bool preserveWhitespace = false)
-    {
-        using var stream = entry.Open();
-        using var reader = XmlReader.Create(stream, new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-            MaxCharactersInDocument = MaxEntryBytes,
-            IgnoreWhitespace = !preserveWhitespace
-        });
-        return XDocument.Load(reader, preserveWhitespace ? LoadOptions.PreserveWhitespace : LoadOptions.None);
-    }
-
-    private static void ReplaceXmlEntry(ZipArchive archive, string name, XDocument document)
-    {
-        archive.GetEntry(name)?.Delete();
-        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
-        using var stream = entry.Open();
-        using var writer = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false, OmitXmlDeclaration = false });
-        document.Save(writer);
-    }
-
-    private static ZipArchiveEntry RequiredEntry(ZipArchive archive, string name) =>
-        archive.GetEntry(name) ?? throw new InvalidDataException($"Missing required OOXML part: {name}");
-
-    private static string SourcePartForRelationships(string relationshipsPath)
-    {
-        if (relationshipsPath.Equals("_rels/.rels", StringComparison.OrdinalIgnoreCase)) return string.Empty;
-        var marker = "/_rels/";
-        var index = relationshipsPath.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (index < 0 || !relationshipsPath.EndsWith(".rels", StringComparison.OrdinalIgnoreCase)) return string.Empty;
-        return relationshipsPath[..index] + "/" + relationshipsPath[(index + marker.Length)..^5];
-    }
-
-    private static string ResolvePartPath(string sourcePart, string target)
-    {
-        if (target.StartsWith('/')) return NormalizePartPath(target[1..]);
-        var directory = sourcePart.Contains('/') ? sourcePart[..(sourcePart.LastIndexOf('/') + 1)] : string.Empty;
-        return NormalizePartPath(directory + target);
-    }
-
-    private static string NormalizePartPath(string path)
-    {
-        var stack = new List<string>();
-        foreach (var segment in path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (segment == ".") continue;
-            if (segment == "..")
-            {
-                if (stack.Count == 0) throw new InvalidDataException($"OOXML relationship escapes package root: {path}");
-                stack.RemoveAt(stack.Count - 1);
-            }
-            else stack.Add(segment);
-        }
-        return string.Join('/', stack);
-    }
-
-    private static void ValidateEntryName(string name)
-    {
-        var raw = name.Replace('\\', '/');
-        if (raw.StartsWith('/') || raw.Contains(':'))
-            throw new InvalidDataException($"Unsafe ZIP entry name: {name}");
-        var normalized = NormalizePartPath(name);
-        if (!normalized.Equals(raw.TrimEnd('/'), StringComparison.Ordinal))
-            throw new InvalidDataException($"Unsafe or non-canonical ZIP entry name: {name}");
+        return OpenPackage(path, mode);
     }
 
     private static void EnsureWorkbookExtension(string path)
@@ -606,30 +686,6 @@ public sealed class XlsxPackageService
         var extension = Path.GetExtension(path);
         if (!extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".xlsm", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Only .xlsx and .xlsm OOXML workbooks are supported.");
-    }
-
-    private static void EnsureCanWrite(string outputPath, bool overwrite)
-    {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
-        if (string.IsNullOrEmpty(directory)) throw new ArgumentException("Output path must include a valid parent directory.");
-        Directory.CreateDirectory(directory);
-        if (File.Exists(outputPath) && !overwrite) throw new IOException("Output workbook already exists. Set overwrite=true only when replacement is intended.");
-    }
-
-    private static void AtomicWrite(string outputPath, bool overwrite, Action<string> writer)
-    {
-        var fullOutput = Path.GetFullPath(outputPath);
-        var directory = Path.GetDirectoryName(fullOutput)!;
-        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(fullOutput)}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            writer(temporaryPath);
-            File.Move(temporaryPath, fullOutput, overwrite);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-        }
     }
 
     private static string GetRequiredString(JsonElement element, string property)
@@ -673,7 +729,7 @@ public sealed class XlsxPackageService
         return builder.ToString();
     }
 
-    private static string WorksheetXml(JsonElement specification)
+    private static string WorksheetXml(JsonElement specification, XlsxStyleLibrary styles)
     {
         var rows = specification.TryGetProperty("rows", out var rowsElement) && rowsElement.ValueKind == JsonValueKind.Array
             ? rowsElement.EnumerateArray().ToList()
@@ -696,7 +752,9 @@ public sealed class XlsxPackageService
                 if (cellSpec.ValueKind == JsonValueKind.Object)
                 {
                     if (cellSpec.TryGetProperty("style", out var style) && style.ValueKind == JsonValueKind.String)
-                        cell.SetAttributeValue("s", StyleIndex(style.GetString()!));
+                        cell.SetAttributeValue("s", ResolveStyleIndex(style.GetString()!, styles));
+                    else if (cellSpec.TryGetProperty("style", out var inlineStyle) && inlineStyle.ValueKind == JsonValueKind.Object)
+                        cell.SetAttributeValue("s", styles.Register(inlineStyle));
                     else if (cellSpec.TryGetProperty("styleIndex", out var styleIndex) && styleIndex.TryGetInt32(out var explicitStyle) && explicitStyle >= 0)
                         cell.SetAttributeValue("s", explicitStyle);
                     if (cellSpec.TryGetProperty("formula", out var formulaElement) && formulaElement.ValueKind == JsonValueKind.String)
@@ -739,11 +797,28 @@ public sealed class XlsxPackageService
         root.Add(sheetData);
         if (specification.TryGetProperty("autoFilter", out var filter) && filter.ValueKind == JsonValueKind.True && rows.Count > 0)
             root.Add(new XElement(SpreadsheetNs + "autoFilter", new XAttribute("ref", $"A1:{ColumnName(maxColumn)}{rows.Count}")));
+
+        if (specification.TryGetProperty("merges", out var merges) && merges.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var merge in merges.EnumerateArray())
+                MergeRange(root, ReadRangeProperty(merge, "merges"));
+        }
+
         root.Add(new XElement(SpreadsheetNs + "pageMargins", new XAttribute("left", "0.7"), new XAttribute("right", "0.7"), new XAttribute("top", "0.75"), new XAttribute("bottom", "0.75"), new XAttribute("header", "0.3"), new XAttribute("footer", "0.3")));
         return new XDocument(new XDeclaration("1.0", "UTF-8", "yes"), root).ToString(SaveOptions.DisableFormatting);
     }
 
-    private static int StyleIndex(string style) => style.Trim().ToLowerInvariant() switch
+    private static int ResolveStyleIndex(string style, XlsxStyleLibrary styles)
+    {
+        var builtIn = BuiltInStyleIndex(style);
+        if (builtIn is not null) return builtIn.Value;
+        if (styles.TryResolveName(style.Trim(), out var custom)) return custom;
+        throw new ArgumentException($"Unknown style '{style}'. Use a built-in alias or declare it in the workbook-level 'styles' array.");
+    }
+
+    private static bool IsBuiltInStyleAlias(string style) => BuiltInStyleIndex(style) is not null;
+
+    private static int? BuiltInStyleIndex(string style) => style.Trim().ToLowerInvariant() switch
     {
         "default" or "text" => 0,
         "input" => 1,
@@ -759,16 +834,8 @@ public sealed class XlsxPackageService
         "year" => 11,
         "assumption" => 12,
         "external-link" => 13,
-        _ => throw new ArgumentException($"Unknown style alias: {style}")
+        _ => null
     };
-
-    private static void WriteTextEntry(ZipArchive archive, string name, string content)
-    {
-        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
-        using var stream = entry.Open();
-        using var writer = new StreamWriter(stream, new UTF8Encoding(false));
-        writer.Write(content);
-    }
 
     private static string BuildContentTypes(int sheetCount)
     {
@@ -778,7 +845,7 @@ public sealed class XlsxPackageService
 
     private static string WorkbookXml(IEnumerable<string> sheetNames)
     {
-        var sheets = string.Join(string.Empty, sheetNames.Select((name, index) => $"<sheet name=\"{SecurityElementEscape(name)}\" sheetId=\"{index + 1}\" r:id=\"rId{index + 1}\"/>"));
+        var sheets = string.Join(string.Empty, sheetNames.Select((name, index) => $"<sheet name=\"{XmlEscape(name)}\" sheetId=\"{index + 1}\" r:id=\"rId{index + 1}\"/>"));
         return $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"{SpreadsheetNs}\" xmlns:r=\"{RelationshipNs}\"><bookViews><workbookView xWindow=\"0\" yWindow=\"0\" windowWidth=\"24000\" windowHeight=\"12000\"/></bookViews><sheets>{sheets}</sheets><calcPr calcId=\"191029\" calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>";
     }
 
@@ -791,54 +858,67 @@ public sealed class XlsxPackageService
     private static string AppPropertiesXml(IEnumerable<string> sheetNames)
     {
         var names = sheetNames.ToList();
-        var titles = string.Join(string.Empty, names.Select(name => $"<vt:lpstr>{SecurityElementEscape(name)}</vt:lpstr>"));
+        var titles = string.Join(string.Empty, names.Select(name => $"<vt:lpstr>{XmlEscape(name)}</vt:lpstr>"));
         return $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\"><Application>AthenaAgent</Application><HeadingPairs><vt:vector size=\"2\" baseType=\"variant\"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>{names.Count}</vt:i4></vt:variant></vt:vector></HeadingPairs><TitlesOfParts><vt:vector size=\"{names.Count}\" baseType=\"lpstr\">{titles}</vt:vector></TitlesOfParts></Properties>";
     }
 
-    private static string CorePropertiesXml()
-    {
-        var now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
-        return $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><dc:creator>AthenaAgent</dc:creator><cp:lastModifiedBy>AthenaAgent</cp:lastModifiedBy><dcterms:created xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:created><dcterms:modified xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:modified></cp:coreProperties>";
-    }
-
-    private static string SecurityElementEscape(string value) => System.Security.SecurityElement.Escape(value) ?? string.Empty;
-
     private sealed record SheetPart(string Name, string PartPath);
 
-    private const string RootRelationshipsXml = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/></Relationships>";
+    private static string WorkbookRootRelationshipsXml =>
+        RootRelationshipsXml("xl/workbook.xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument");
 
+    // Athena's own base style table for new workbooks. Custom styles are appended on top of it by
+    // XlsxStyleLibrary, so cellXfs indexes 0-13 must keep matching BuiltInStyleIndex:
+    // 0 text, 1 input, 2 formula, 3 cross-sheet, 4 header, 5/6 currency, 7/8 percent,
+    // 9/10 integer, 11 year, 12 assumption, 13 external-link.
+    // Colour convention follows standard financial modelling practice: blue = typed input,
+    // black = calculated, green = link to another sheet, red = link outside the workbook.
     private const string StylesXml = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-          <numFmts count="3"><numFmt numFmtId="164" formatCode="$#,##0.00;[Red]($#,##0.00);-"/><numFmt numFmtId="165" formatCode="0.0%;[Red](0.0%);-"/><numFmt numFmtId="166" formatCode="0;[Red](0);-"/></numFmts>
+          <numFmts count="3">
+            <numFmt numFmtId="164" formatCode="#,##0.00_);[Red](#,##0.00);&quot;-&quot;_)"/>
+            <numFmt numFmtId="165" formatCode="0.0%_);[Red](0.0%);&quot;-&quot;_)"/>
+            <numFmt numFmtId="166" formatCode="#,##0_);[Red](#,##0);&quot;-&quot;_)"/>
+          </numFmts>
           <fonts count="6">
-            <font><sz val="11"/><name val="Arial"/><family val="2"/></font>
-            <font><b/><sz val="11"/><name val="Arial"/><family val="2"/></font>
-            <font><color rgb="FF0000FF"/><sz val="11"/><name val="Arial"/><family val="2"/></font>
-            <font><color rgb="FF008000"/><sz val="11"/><name val="Arial"/><family val="2"/></font>
-            <font><color rgb="FFFF0000"/><sz val="11"/><name val="Arial"/><family val="2"/></font>
-            <font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Arial"/><family val="2"/></font>
+            <font><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+            <font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+            <font><color rgb="FF1F4EC8"/><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+            <font><color rgb="FF107C41"/><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+            <font><color rgb="FFC00000"/><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+            <font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/><family val="2"/></font>
           </fonts>
-          <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F4E78"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill></fills>
-          <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFFFFFFF"/></bottom><diagonal/></border></borders>
+          <fills count="4">
+            <fill><patternFill patternType="none"/></fill>
+            <fill><patternFill patternType="gray125"/></fill>
+            <fill><patternFill patternType="solid"><fgColor rgb="FF1F3864"/><bgColor indexed="64"/></patternFill></fill>
+            <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
+          </fills>
+          <borders count="2">
+            <border><left/><right/><top/><bottom/><diagonal/></border>
+            <border><left/><right/><top/><bottom style="thin"><color rgb="FFFFFFFF"/></bottom><diagonal/></border>
+          </borders>
           <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
           <cellXfs count="14">
             <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
             <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
             <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
             <xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-            <xf numFmtId="0" fontId="5" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center"/></xf>
+            <xf numFmtId="0" fontId="5" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
             <xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
             <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
             <xf numFmtId="165" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
             <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
             <xf numFmtId="166" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
             <xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
-            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment horizontal="center"/></xf>
+            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf>
             <xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
             <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>
           </cellXfs>
-          <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+          <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+          <dxfs count="0"/>
+          <tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
         </styleSheet>
         """;
 }

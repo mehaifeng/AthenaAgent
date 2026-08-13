@@ -21,12 +21,13 @@ public sealed class SpreadsheetFunctions
         _logger = logger.ForContext<SpreadsheetFunctions>();
     }
 
-    public Task<FunctionResult> InspectSpreadsheetAsync(string path, string? sheet = null, int maxRows = 20, int maxColumns = 20)
+    public Task<FunctionResult> InspectSpreadsheetAsync(string path, string? sheet = null, int maxRows = 20, int maxColumns = 20,
+        int startRow = 1, int startColumn = 1)
     {
         try
         {
             var fullPath = _fileSystemService.GetAbsoluteSecurePath(path, enforceReadSizeLimit: false);
-            var data = _xlsx.Inspect(fullPath, sheet, maxRows, maxColumns);
+            var data = _xlsx.Inspect(fullPath, sheet, maxRows, maxColumns, startRow, startColumn);
             return Task.FromResult(FunctionResult.SuccessResult("Spreadsheet inspected successfully.", data));
         }
         catch (Exception ex)
@@ -90,6 +91,43 @@ public sealed class SpreadsheetFunctions
         {
             _logger.Warning(ex, "Spreadsheet edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
             return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet edit failed: {ex.Message}"));
+        }
+    }
+
+    public Task<FunctionResult> ModifySpreadsheetStructureAsync(string inputPath, string outputPath, string operationsJson, bool overwrite = false)
+    {
+        try
+        {
+            var fullInputPath = _fileSystemService.GetAbsoluteSecurePath(inputPath, enforceReadSizeLimit: false);
+            var estimatedSize = new FileInfo(fullInputPath).Length;
+            var fullOutputPath = _fileSystemService.GetAbsoluteSecureWritePath(outputPath, estimatedSize);
+            var data = _xlsx.ModifyStructure(fullInputPath, fullOutputPath, operationsJson, overwrite);
+            return Task.FromResult(FunctionResult.SuccessResult("Spreadsheet structure updated; the source workbook was left unchanged.", data));
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Spreadsheet structure edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
+            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet structure edit failed: {ex.Message}"));
+        }
+    }
+
+    public Task<FunctionResult> ConvertSpreadsheetAsync(string inputPath, string outputPath, string? sheet = null,
+        string? delimiter = null, bool headerRow = false, bool overwrite = false)
+    {
+        try
+        {
+            var fullInputPath = _fileSystemService.GetAbsoluteSecurePath(inputPath, enforceReadSizeLimit: false);
+            // Delimited text expands when it becomes XML, and a workbook shrinks when it becomes text;
+            // reserve the larger of the two so the write quota check never rejects a legitimate conversion.
+            var estimatedSize = Math.Max(new FileInfo(fullInputPath).Length * 3L, 256 * 1024L);
+            var fullOutputPath = _fileSystemService.GetAbsoluteSecureWritePath(outputPath, estimatedSize);
+            var data = _xlsx.ConvertDelimited(fullInputPath, fullOutputPath, sheet, delimiter, headerRow, overwrite);
+            return Task.FromResult(FunctionResult.SuccessResult("Spreadsheet conversion completed.", data));
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Spreadsheet conversion failed from {InputPath} to {OutputPath}", inputPath, outputPath);
+            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet conversion failed: {ex.Message}"));
         }
     }
 }

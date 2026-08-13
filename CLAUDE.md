@@ -85,8 +85,11 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
     - `BrowserTaskFunctions`: Vision-guided web automation (`run_browser_task`).
     - `DocumentParserFunctions`: MinerU-backed attachment parsing (`get_document_outline`, `parse_office_document`).
     - `SubAgentFunctions`: Parallel sub-agent dispatch (`dispatch_subagents`).
+    - `DocumentFunctions`: Dependency-free WordprocessingML work backed by `Services/Documents/` (`inspect_document`, `create_document`, `edit_document`, `convert_document`, `validate_document`). Cross-run find/replace lives in `RunTextEditor`; styles and numbering in `DocxStyleLibrary`; `WordprocessingSchema` holds the ordered content models — always add property elements through `SetProperty`, since out-of-order children are what make Word offer to "repair" a file. The `docx` built-in skill only supplies routing and workflow discipline.
+    - `SpreadsheetFunctions`: Dependency-free OOXML spreadsheet work backed by `Services/Spreadsheets/` (`inspect_spreadsheet`, `create_spreadsheet`, `edit_spreadsheet`, `modify_spreadsheet_structure`, `convert_spreadsheet`, `validate_spreadsheet`). Row/column edits rewrite formula references via `FormulaReferenceShifter`; styles are extended through `XlsxStyleLibrary`. The `xlsx` built-in skill only supplies routing and workflow discipline — it ships no scripts.
   - `Browser/`: Playwright-based browser agent — session management, action registry, vision service, Set-of-Marks annotator, and task planner.
   - `SubAgents/`: Sub-agent orchestration — `SubAgentOrchestrator`, `SubAgentRunner`, type presets (`SubAgentTypes`), per-type tool gating (`SubAgentToolGates`), model resolution, and owl-village zone layout.
+  - `Ooxml/`: `OoxmlPackageService` — shared base for in-process OOXML editing (bounded ZIP access, part/relationship resolution, schema-ordered element insertion, atomic output). Format services derive from it; `Spreadsheets/` is the first, with docx/pptx planned.
   - `Parsers/`: Document parsing (`MinerUDocumentParserService`).
   - `Interfaces/`: Service abstractions for clean DI.
   - `Platform/`: OS-specific implementations (e.g., `DesktopPlatformPathService`).

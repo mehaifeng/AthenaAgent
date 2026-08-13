@@ -74,7 +74,11 @@
     <ItemGroup>
       <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*"
                     Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
+      <!-- Copy never deletes, so a Skill file removed from the source would linger in the output
+           forever. Clear only the directories we own; user-imported Skills share this folder. -->
+      <BuiltInSkillRoot Include="$([System.IO.Directory]::GetDirectories('$(BuiltInSkillsSource)'))" />
     </ItemGroup>
+    <RemoveDir Directories="@(BuiltInSkillRoot->'$(BuiltInSkillsTarget)/%(Filename)%(Extension)')" />
     <MakeDir Directories="$(BuiltInSkillsTarget)" />
     <Copy SourceFiles="@(BuiltInSkill)" DestinationFiles="$(BuiltInSkillsTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
     <Message Text="Built-in Skills copied to $(BuiltInSkillsTarget)" Importance="high" />
@@ -90,7 +94,9 @@
     <ItemGroup>
       <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*"
                               Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
+      <BuiltInSkillRootForPublish Include="$([System.IO.Directory]::GetDirectories('$(BuiltInSkillsSource)'))" />
     </ItemGroup>
+    <RemoveDir Directories="@(BuiltInSkillRootForPublish->'$(BuiltInSkillsPublishTarget)/%(Filename)%(Extension)')" />
     <MakeDir Directories="$(BuiltInSkillsPublishTarget)" />
     <Copy SourceFiles="@(BuiltInSkillForPublish)" DestinationFiles="$(BuiltInSkillsPublishTarget)/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
     <Message Text="Built-in Skills copied to publish output $(BuiltInSkillsPublishTarget)" Importance="high" />
