@@ -50,7 +50,7 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
             new("Settings.Nav.General", "General", "SemiIconSetting", General, localizationService),
             new("Settings.Nav.ConversationContext", "Conversation & context", "SemiIconComment", ConversationContext, localizationService),
             new("Settings.Nav.ToolApproval", "Tool approval", "SemiIconEdit2", ToolApproval, localizationService),
-            new("Settings.Nav.AgentRuntime", "Agent runtime", "SemiIconUserGroup", AgentRuntime, localizationService),
+            new("Settings.Nav.AgentRuntime", "Execution & concurrency", "SemiIconUserGroup", AgentRuntime, localizationService),
             new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", "SemiIconPulse", RuntimeDiagnostics, localizationService),
             new("Settings.Nav.About", "About & updates", "SemiIconInfoCircle", about, localizationService)
         ];

@@ -122,6 +122,10 @@ public static class ConfigFieldCatalog
             Field("AI.MainConversationMaxParallel", "AI", ConfigFieldType.Integer,
                 c => c.MainConversationMaxParallel, (c, v) => c.MainConversationMaxParallel = (int)v!,
                 "Maximum concurrent main-conversation streams.", range: (1, 16)),
+            Field("AI.MainConversationMaxIterations", "AI", ConfigFieldType.Integer,
+                c => c.MainConversationMaxIterations, (c, v) => c.MainConversationMaxIterations = (int)v!,
+                "Maximum tool-loop rounds in a single main-conversation reply. When the budget runs out the reply stops mid-task and the user must say \"continue\"; raise it for long multi-step skills.",
+                range: (1, 200)),
 
             // —— Context（v6 起 ContextPolicy 是权威来源；顶层同名键为遗留镜像）——
             Field("ContextPolicy.Mode", "Context", ConfigFieldType.Enum,

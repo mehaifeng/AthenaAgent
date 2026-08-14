@@ -30,6 +30,12 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _mainConversationMaxParallel = 4;
 
+    // 主对话单次回复的工具循环最大轮数。打满即收场——最后一轮的工具结果虽已落进上下文，
+    // 却再也没送回模型，回复就停在半途。长流程 Skill（「写脚本 → 执行脚本」是两轮一个动作）
+    // 最容易撞上默认值，届时调高此项即可，而不必把任务拆成多次「继续」。
+    [ObservableProperty]
+    private int _mainConversationMaxIterations = 50;
+
     [ObservableProperty]
     private MainLayoutSettings _mainLayout = new();
 

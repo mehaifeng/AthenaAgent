@@ -21,16 +21,26 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="{loc:Loc Settings.Agent.ConversationExecution}"
+                    <TextBlock Text="{loc:Loc Settings.Agent.Conversation.Title}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Context.MaxParallel}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc Settings.Agent.Conversation.MaxParallel}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="1"
                                        Maximum="16"
                                        Value="{Binding State.Config.MainConversationMaxParallel}"/>
                     </Grid>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.Conversation.MaxToolRounds}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="200"
+                                       Value="{Binding State.Config.MainConversationMaxIterations}"/>
+                    </Grid>
+                    <TextBlock Text="{loc:Loc Settings.Agent.Conversation.MaxToolRoundsHint}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                 </StackPanel>
             </Border>
 
@@ -40,30 +50,30 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="{loc:Loc Settings.Agent.SubAgents}"
+                    <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.Title}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <CheckBox Content="{loc:Loc Settings.Agent.Enabled}"
+                    <CheckBox Content="{loc:Loc Settings.Agent.SubAgent.Enabled}"
                               IsChecked="{Binding State.Config.EnableSubAgents}"/>
-                    <TextBlock Text="{loc:Loc Settings.Agent.ModelHint}"
+                    <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.ModelHint}"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
                     <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Agent.MaxParallel}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.MaxParallel}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="1"
                                        Maximum="16"
                                        Value="{Binding State.Config.SubAgentMaxParallel}"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Agent.MaxIterations}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.MaxToolRounds}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="1"
                                        Maximum="100"
                                        Value="{Binding State.Config.SubAgentMaxIterations}"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Agent.Timeout}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.Timeout}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="30"
                                        Maximum="3600"

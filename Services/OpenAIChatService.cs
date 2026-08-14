@@ -38,6 +38,11 @@ public class OpenAIChatService : IChatService
     private const int CompressionSummaryFormatVersion = 1;
     // Keep the probe inexpensive, but leave room for reasoning models to emit a visible reply.
     private const int ConnectionTestMaxOutputTokens = 256;
+    // 主对话工具循环的轮数硬顶。用户可以调高预算，但不能取消兜底。
+    private const int MainConversationIterationCeiling = 200;
+    // 供应商把工具调用参数截断是它的失败，不该记在用户的轮数预算上——前若干次重试免费。
+    // 但重试本身必须有界：否则一个稳定复现的截断会绕过轮数上限，把循环变成无限。
+    private const int MaxFreeTruncatedToolCallRetries = 5;
     private readonly object _runtimeGate = new();
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
@@ -619,8 +624,9 @@ public class OpenAIChatService : IChatService
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
         var iteration = 0;
-        const int maxIterations = 50;
+        var maxIterations = Math.Clamp(_config.MainConversationMaxIterations, 1, MainConversationIterationCeiling);
         var disabledToolCallRetries = 0;
+        var truncatedToolCallRetries = 0;
         // 真实用量锚点：供应商回报的输入 token，以及它所度量的那段前缀的长度与 regime 指纹。
         // 有锚点时按「精确测量 + 增量上界」判定预算，估算器只负责尚未发送过的那一小段。
         long? anchorInputTokens = null;
@@ -1106,6 +1112,13 @@ public class OpenAIChatService : IChatService
                     Log.Warning("Streaming-response tool calls appear truncated ({Reason}); dropping {Count} possibly incomplete tool calls: {Names}",
                         reason, toolCallBuilders.Count,
                         string.Join(", ", toolCallBuilders.Values.Select(b => b.FunctionName)));
+                    // 这一轮什么也没做成，退还轮数预算——供应商的截断不该白吃掉用户的一轮工具调用。
+                    // 免费重试用尽后照常计数，让轮数上限重新成为无限循环的兜底。
+                    if (truncatedToolCallRetries < MaxFreeTruncatedToolCallRetries)
+                    {
+                        truncatedToolCallRetries++;
+                        iteration--;
+                    }
                     var retryInstruction = new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated (likely due to max token limit) and produced invalid JSON. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]");
                     rebuildTail.Add(retryInstruction);
                     messages.Add(retryInstruction);
@@ -1122,6 +1135,8 @@ public class OpenAIChatService : IChatService
                 if (disabledToolCallRetries == 0)
                 {
                     disabledToolCallRetries++;
+                    // 同理：这一轮被配置与模型行为的错配作废，退还预算。重试已被 == 0 限死为一次。
+                    iteration--;
                     var disabledInstruction = new UserChatMessage("[Internal instruction: function calling is disabled. Do not call tools. Answer the user's last request in plain text only.]");
                     rebuildTail.Add(disabledInstruction);
                     messages.Add(disabledInstruction);
@@ -1297,7 +1312,17 @@ public class OpenAIChatService : IChatService
             }
         }
 
-        Log.Debug("Loop ended naturally, iterations: {Iteration}", iteration);
+        // 循环体内每条正常终止路径都是 yield break，走到这里只剩一种可能：轮数预算打满。
+        // 此时最后一轮的工具已经执行、结果也进了上下文，却再没送回模型——静默收场会留下一个
+        // 空气泡，用户既看不出发生了什么，也不知道一句「继续」就能接上。必须说出来。
+        Log.Warning(
+            "Tool loop exhausted its round budget: ConversationId={ConversationId} MaxIterations={MaxIterations}",
+            context.ConversationId, maxIterations);
+        yield return string.Format(
+            GetLocalized(
+                "Chat.Error.ToolRoundsExhausted",
+                "[Reached the maximum of {0} tool rounds for a single reply, so the reply stopped mid-task. Say “continue” to pick up where it left off; if long runs like this keep getting cut short, raise the limit under Settings → Execution & concurrency → Main conversation execution → Maximum tool rounds per reply.]"),
+            maxIterations);
     }
 
     private static bool IsValidCalibrationUsage(TokenUsageSnapshot usage)
