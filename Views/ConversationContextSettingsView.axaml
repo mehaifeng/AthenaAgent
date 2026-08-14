@@ -53,44 +53,44 @@
                     <TextBlock Text="{loc:Loc Settings.Context.GlobalPolicy}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <Grid ColumnDefinitions="300,220,*">
+                    <Grid ColumnDefinitions="300,220">
                         <TextBlock Text="{loc:Loc Settings.Context.Mode}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1"
+                        <ComboBox Grid.Column="1" Width="220"
                                   ItemsSource="{Binding ContextPolicyModes}"
                                   SelectedItem="{Binding State.Config.ContextPolicy.Mode}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220,*" IsVisible="{Binding IsCustomCap}">
+                    <Grid ColumnDefinitions="300,220" IsVisible="{Binding IsCustomCap}">
                         <TextBlock Text="{loc:Loc Settings.Context.CustomCap}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
+                        <NumericUpDown Grid.Column="1" Width="220"
                                        Minimum="1024"
                                        Maximum="10000000"
                                        Value="{Binding State.Config.ContextPolicy.CustomCapTokens}"/>
                     </Grid>
                     <CheckBox Content="{loc:Loc Settings.Context.AutoCompress}"
                               IsChecked="{Binding State.Config.ContextPolicy.AutoCompress}"/>
-                    <Grid ColumnDefinitions="300,220,*">
+                    <Grid ColumnDefinitions="300,220">
                         <TextBlock Text="{loc:Loc Settings.Context.ThresholdMode}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1"
+                        <ComboBox Grid.Column="1" Width="220"
                                   ItemsSource="{Binding CompressionThresholdModes}"
                                   SelectedItem="{Binding State.Config.ContextPolicy.CompressionThresholdMode}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220,*" IsVisible="{Binding IsCustomThreshold}">
+                    <Grid ColumnDefinitions="300,220" IsVisible="{Binding IsCustomThreshold}">
                         <TextBlock Text="{loc:Loc Settings.Context.CompressionThreshold}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
+                        <NumericUpDown Grid.Column="1" Width="220"
                                        Minimum="1"
                                        Maximum="10000000"
                                        Value="{Binding State.Config.ContextPolicy.CustomCompressionThresholdTokens}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220,*">
+                    <Grid ColumnDefinitions="300,220">
                         <TextBlock Text="{loc:Loc Settings.Context.KeepRecentRounds}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
+                        <NumericUpDown Grid.Column="1" Width="220"
                                        Minimum="1"
                                        Maximum="50"
                                        Value="{Binding State.Config.ContextPolicy.KeepRecentRounds}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220,*">
+                    <Grid ColumnDefinitions="300,220" RowDefinitions="Auto,Auto" RowSpacing="4">
                         <TextBlock Text="{loc:Loc Settings.Context.CompressionStrength}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1"
+                        <ComboBox Grid.Column="1" Width="220"
                                   ItemsSource="{Binding CompressionStrengths}"
                                   SelectedItem="{Binding State.Config.ContextPolicy.CompressionStrength}">
                             <ComboBox.ItemTemplate>
@@ -99,21 +99,19 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <TextBlock Grid.Column="2"
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
                                    Text="{loc:Loc Settings.Context.CompressionStrengthHint}"
-                                   VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Opacity="0.58"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220,*">
+                    <Grid ColumnDefinitions="300,220" RowDefinitions="Auto,Auto" RowSpacing="4">
                         <TextBlock Text="{loc:Loc Settings.Context.MaxSummaryTokens}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
+                        <NumericUpDown Grid.Column="1" Width="220"
                                        Minimum="128"
                                        Maximum="65536"
                                        Value="{Binding State.Config.ContextPolicy.TargetSummaryTokens}"/>
-                        <TextBlock Grid.Column="2"
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
                                    Text="{loc:Loc Settings.Context.MaxSummaryTokensHint}"
-                                   VerticalAlignment="Center"
                                    TextWrapping="Wrap"
                                    Opacity="0.58"/>
                     </Grid>
