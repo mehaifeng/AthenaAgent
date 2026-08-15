@@ -442,6 +442,7 @@ var pinnedMenuItems = await AwaitMenuItemsAsync(
 pinnedMenuFlyout.Hide();
 
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+AssertEveryIconResolved(window);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
 await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
@@ -492,7 +493,7 @@ window.Close();
     };
     var expectedIcons = new[]
     {
-        "SemiIconWrench", "SemiIconLink", "SemiIconVolume2", "SemiIconImage", "SemiIconSearch", "SemiIconScan"
+        "AthenaIconSkills", "AthenaIconConnectors", "AthenaIconSpeech", "AthenaIconImageGeneration", "AthenaIconWebSearch", "AthenaIconDocumentParsing"
     };
     for (var section = 0; section < connectorViewModel.Sections.Count; section++)
     {
@@ -1170,29 +1171,37 @@ var folderTreeItem = workspaceFileTree.GetVisualDescendants()
                          .OfType<TreeViewItem>()
                          .FirstOrDefault(item => ReferenceEquals(item.DataContext, fileTreeFolder))
                      ?? throw new InvalidOperationException("Workspace folder tree item was not materialized.");
-var closedFolderIcon = folderTreeItem.GetVisualDescendants()
-                           .OfType<PathIcon>()
-                           .Single(icon => icon.Classes.Contains("workspace-folder-icon"));
-var openFolderIcon = folderTreeItem.GetVisualDescendants()
-                         .OfType<PathIcon>()
-                         .Single(icon => icon.Classes.Contains("workspace-folder-open-icon"));
-if (!closedFolderIcon.IsVisible || openFolderIcon.IsVisible)
-    throw new InvalidOperationException("A collapsed workspace directory must display only the closed-folder icon.");
+var folderIcon = folderTreeItem.GetVisualDescendants()
+                     .OfType<PathIcon>()
+                     .Single(icon => icon.Classes.Contains("workspace-node-icon"));
+var closedFolderGeometry = folderIcon.Data
+                           ?? throw new InvalidOperationException("A collapsed workspace directory rendered no icon.");
 folderTreeItem.IsExpanded = true;
 Dispatcher.UIThread.RunJobs();
 if (!fileTreeFolder.IsExpanded)
     throw new InvalidOperationException("Expanding a workspace folder did not persist to its node view model.");
-if (closedFolderIcon.IsVisible || !openFolderIcon.IsVisible)
-    throw new InvalidOperationException("An expanded workspace directory must display only the open-folder icon.");
+if (ReferenceEquals(folderIcon.Data, closedFolderGeometry))
+    throw new InvalidOperationException("An expanded workspace directory must switch to the open-folder icon.");
+if (!folderIcon.Classes.Contains("folder-open"))
+    throw new InvalidOperationException("An expanded workspace directory must carry the accent .folder-open class.");
 var childTreeItem = workspaceFileTree.GetVisualDescendants()
                         .OfType<TreeViewItem>()
                         .FirstOrDefault(item => ReferenceEquals(item.DataContext, fileTreeFolder.Children[0]))
                     ?? throw new InvalidOperationException("Workspace file tree item was not materialized.");
 var fileIcon = childTreeItem.GetVisualDescendants()
                    .OfType<PathIcon>()
-                   .Single(icon => icon.Classes.Contains("workspace-file-icon"));
-if (!fileIcon.IsVisible)
-    throw new InvalidOperationException("A workspace file must display the file icon.");
+                   .Single(icon => icon.Classes.Contains("workspace-node-icon"));
+if (fileIcon.Data is null || !fileIcon.IsVisible)
+    throw new InvalidOperationException("A workspace file must display a type icon.");
+if (ReferenceEquals(fileIcon.Data, folderIcon.Data))
+    throw new InvalidOperationException("A file must not reuse the directory icon.");
+// child.txt 走的是纯文本分支；换成源码文件必须换一个几何，否则类型区分名存实亡。
+if (WorkspaceFileIcons.ForFileName("child.txt") != "AthenaIconFileText"
+    || WorkspaceFileIcons.ForFileName("Program.cs") != "AthenaIconFileCode"
+    || WorkspaceFileIcons.ForFileName("data.xlsx") != "AthenaIconFileSpreadsheet"
+    || WorkspaceFileIcons.ForFileName(".gitignore") != "AthenaIconFileVcs"
+    || WorkspaceFileIcons.ForFileName("mystery.qqq") != WorkspaceFileIcons.Generic)
+    throw new InvalidOperationException("Workspace file-type icon classification regressed.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"old\";"))
     throw new InvalidOperationException("Visual diff did not render the removed line.");
 if (!diffWindow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "    string Mode = \"new\";"))
@@ -2301,10 +2310,42 @@ static void TestConfigurationSession(string artifactDirectory)
 
 static void SaveWindowFrame(Window window, string path)
 {
+    AssertEveryIconResolved(window);
     using var frame = window.CaptureRenderedFrame()
         ?? throw new InvalidOperationException($"Headless renderer returned no frame for {window.GetType().Name}.");
     using var output = File.Create(path);
     frame.Save(output, PngBitmapEncoderOptions.Default);
+}
+
+// 断言窗口里每个可见 PathIcon 都拿到了几何。
+// {StaticResource AthenaIconXxx} 在 Application 级资源里找不到时不会编译失败、也不会抛异常，
+// 只是把 Data 留空 —— 界面上就是一块看不见的空白。图标契约（Styles/AppIcons.axaml）改名或
+// 删键时，这是唯一能当场发现的地方。
+static void AssertEveryIconResolved(Window window)
+{
+    var blank = window.GetVisualDescendants()
+        .OfType<PathIcon>()
+        // TemplatedParent != null 的是控件模板自带的图标（CheckBox 的勾等），未选中时 Data 本就为空。
+        .Where(icon => icon.IsVisible && icon.Data is null && icon.TemplatedParent is null)
+        .ToList();
+    if (blank.Count > 0)
+    {
+        var where = string.Join(", ", blank.Select(DescribeIconHost).Distinct());
+        throw new InvalidOperationException(
+            $"{window.GetType().Name} 有 {blank.Count} 个图标没有解析出几何（图标契约 key 写错或已删除）：{where}");
+    }
+}
+
+static string DescribeIconHost(PathIcon icon)
+{
+    for (StyledElement? node = icon; node != null; node = node.Parent)
+    {
+        if (node is Control { Name: { Length: > 0 } name })
+            return name;
+        if (node is Button button && button.GetValue(AutomationProperties.NameProperty) is { Length: > 0 } automationName)
+            return automationName;
+    }
+    return icon.Classes.Count > 0 ? string.Join('.', icon.Classes) : "(anonymous)";
 }
 
 static void TestLifecycle()

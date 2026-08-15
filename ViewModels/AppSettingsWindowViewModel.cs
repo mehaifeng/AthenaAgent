@@ -47,12 +47,12 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
 
         Sections =
         [
-            new("Settings.Nav.General", "General", "SemiIconSetting", General, localizationService),
-            new("Settings.Nav.ConversationContext", "Conversation & context", "SemiIconComment", ConversationContext, localizationService),
-            new("Settings.Nav.ToolApproval", "Tool approval", "SemiIconEdit2", ToolApproval, localizationService),
-            new("Settings.Nav.AgentRuntime", "Execution & concurrency", "SemiIconUserGroup", AgentRuntime, localizationService),
-            new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", "SemiIconPulse", RuntimeDiagnostics, localizationService),
-            new("Settings.Nav.About", "About & updates", "SemiIconInfoCircle", about, localizationService)
+            new("Settings.Nav.General", "General", "AthenaIconSettings", General, localizationService),
+            new("Settings.Nav.ConversationContext", "Conversation & context", "AthenaIconConversationSettings", ConversationContext, localizationService),
+            new("Settings.Nav.ToolApproval", "Tool approval", "AthenaIconToolApproval", ToolApproval, localizationService),
+            new("Settings.Nav.AgentRuntime", "Execution & concurrency", "AthenaIconAgentRuntime", AgentRuntime, localizationService),
+            new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", "AthenaIconDiagnostics", RuntimeDiagnostics, localizationService),
+            new("Settings.Nav.About", "About & updates", "AthenaIconAbout", about, localizationService)
         ];
         _selectedSection = Sections[0];
         if (_localizationService != null)

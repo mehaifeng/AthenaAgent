@@ -20,7 +20,7 @@
         <appconv:McpStatusToBrushConverter x:Key="McpStatusToBrushConverter"/>
         <appconv:McpTransportIsHttpConverter x:Key="McpTransportIsHttp"/>
         <appconv:McpStatusIsFailedConverter x:Key="McpStatusIsFailed"/>
-        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
+        <appconv:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
     </UserControl.Resources>
 
     <Grid RowDefinitions="40,*">
@@ -70,10 +70,15 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <Button Content="{loc:Loc Config.Mcp.AddServer}"
-                                Command="{Binding AddMcpServerCommand}"
+                        <Button Command="{Binding AddMcpServerCommand}"
                                 HorizontalAlignment="Left"
-                                IsEnabled="{Binding Config.EnableMcp}"/>
+                                IsEnabled="{Binding Config.EnableMcp}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource AthenaIconAdd}" Width="13" Height="13"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="{loc:Loc Config.Mcp.AddServer}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
 
                         <ItemsControl ItemsSource="{Binding Config.McpServers}" IsEnabled="{Binding Config.EnableMcp}">
                             <ItemsControl.ItemTemplate>
@@ -89,8 +94,11 @@
                                                         MinWidth="0"
                                                         VerticalAlignment="Center"
                                                         Background="Transparent"
-                                                        BorderThickness="0"
-                                                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
+                                                        BorderThickness="0">
+                                                    <PathIcon Data="{Binding IsExpanded, Converter={StaticResource BoolToExpandIcon}}"
+                                                              Width="10" Height="10"
+                                                              Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                                </Button>
                                                 <!-- 名称：点击也可展开/折叠 -->
                                                 <Button Grid.Column="1"
                                                         Command="{Binding #McpRoot.DataContext.ToggleMcpExpandedCommand}"
@@ -118,7 +126,7 @@
                                                 <Button Grid.Column="5"
                                                         Command="{Binding #McpRoot.DataContext.RemoveMcpServerCommand}"
                                                         CommandParameter="{Binding}">
-                                                    <PathIcon Data="{DynamicResource SemiIconDelete}" Height="15" Width="15"/>
+                                                    <PathIcon Data="{DynamicResource AthenaIconDelete}" Height="15" Width="15"/>
                                                 </Button>
                                             </Grid>
 
@@ -229,9 +237,15 @@
                                  IsEnabled="{Binding Config.EnableMcp}"
                                  PlaceholderText="{loc:Loc Config.Mcp.ImportPlaceholder}"/>
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                            <Button Grid.Column="0" Content="{loc:Loc Config.Mcp.Import}"
+                            <Button Grid.Column="0"
                                     Command="{Binding ImportMcpJsonCommand}"
-                                    IsEnabled="{Binding Config.EnableMcp}"/>
+                                    IsEnabled="{Binding Config.EnableMcp}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource AthenaIconImport}" Width="13" Height="13"
+                                              Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                    <TextBlock Text="{loc:Loc Config.Mcp.Import}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                             <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}"/>
                         </Grid>
                     </StackPanel>

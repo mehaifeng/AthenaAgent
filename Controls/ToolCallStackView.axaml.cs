@@ -78,7 +78,7 @@ public partial class ToolCallStackView : UserControl
         }
 
         var expanded = _group.IsGroupExpanded;
-        var iconKey = expanded ? "SemiIconChevronUp" : "SemiIconChevronDown";
+        var iconKey = expanded ? "AthenaIconChevronUp" : "AthenaIconChevronDown";
         if (Application.Current?.TryGetResource(iconKey, null, out var geo) == true && geo is Geometry geometry)
         {
             PART_ToggleIcon.Data = geometry;

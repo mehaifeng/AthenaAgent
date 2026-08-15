@@ -27,10 +27,34 @@
                                 <TextBlock Text="{Binding ConversationIdLabel}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
                                 <TextBlock Text="{Binding Request.PrettyArguments}" FontFamily="Menlo, Consolas, monospace" FontSize="{DynamicResource App.FontSize.Body}" MaxHeight="100" TextWrapping="Wrap"/>
                                 <WrapPanel>
-                                    <Button Content="{loc:Loc Approval.Button.AllowOnce}" Command="{Binding AllowOnceCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="{loc:Loc Approval.Button.AllowSession}" Command="{Binding AllowSessionCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="{loc:Loc Approval.Button.AllowAlways}" Command="{Binding AllowAlwaysCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="{loc:Loc Approval.Button.Deny}" Command="{Binding DenyCommand}"/>
+                                    <Button Command="{Binding AllowOnceCommand}" Margin="0,0,6,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="12" Height="12"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                            <TextBlock Text="{loc:Loc Approval.Button.AllowOnce}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Command="{Binding AllowSessionCommand}" Margin="0,0,6,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Data="{StaticResource AthenaIconSuccess}" Width="12" Height="12"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                            <TextBlock Text="{loc:Loc Approval.Button.AllowSession}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Command="{Binding AllowAlwaysCommand}" Margin="0,0,6,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="12" Height="12"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                            <TextBlock Text="{loc:Loc Approval.Button.AllowAlways}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Command="{Binding DenyCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <PathIcon Data="{StaticResource AthenaIconBlocked}" Width="12" Height="12"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                            <TextBlock Text="{loc:Loc Approval.Button.Deny}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
                                 </WrapPanel>
                             </StackPanel>
                         </Border>

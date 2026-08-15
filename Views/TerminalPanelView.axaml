@@ -46,7 +46,7 @@
                                     Background="Transparent"
                                     ToolTip.Tip="{Binding Name}">
                                 <Grid>
-                                    <PathIcon Data="{StaticResource SemiIconTerminal}"
+                                    <PathIcon Data="{StaticResource AthenaIconTerminal}"
                                               Width="13"
                                               Height="13"
                                               HorizontalAlignment="Center"
@@ -84,7 +84,7 @@
                         Classes="terminal-add"
                         Command="{Binding NewTerminalCommand}"
                         ToolTip.Tip="{loc:Loc Terminal.New}">
-                    <PathIcon Data="{StaticResource SemiIconPlus}"
+                    <PathIcon Data="{StaticResource AthenaIconAdd}"
                               Width="13"
                               Height="13"/>
                 </Button>

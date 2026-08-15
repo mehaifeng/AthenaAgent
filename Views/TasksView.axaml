@@ -218,8 +218,13 @@
                             Theme="{StaticResource AccentButtonTheme}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
-                            IsEnabled="{Binding CanConfirm}"
-                            Content="{loc:Loc TaskDialog.BtnCreate}"/>
+                            IsEnabled="{Binding CanConfirm}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconTaskCreate}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc TaskDialog.BtnCreate}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </Border>
             </Grid>
         </Border>
@@ -256,7 +261,7 @@
                                 Command="{Binding ClearAllTasksCommand}"
                                 Padding="10,4"
                                 ToolTip.Tip="{loc:Loc Tasks.BtnPurgeAll}">
-                            <PathIcon Data="{StaticResource SemiIconDelete}"
+                            <PathIcon Data="{StaticResource AthenaIconDelete}"
                                       Width="15"
                                       Height="15"/>
                         </Button>
@@ -316,7 +321,7 @@
                                             VerticalAlignment="Center"
                                             Padding="5"
                                             ToolTip.Tip="{loc:Loc History.BtnDel}">
-                                        <PathIcon Data="{StaticResource SemiIconDelete}"
+                                        <PathIcon Data="{StaticResource AthenaIconDelete}"
                                                   Width="14"
                                                   Height="14"
                                                   Opacity="0.65"/>

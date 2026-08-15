@@ -84,7 +84,7 @@
                         Theme="{StaticResource AccentButtonTheme}"
                         Margin="0,0,8,8">
                     <StackPanel Orientation="Horizontal" Spacing="7">
-                        <PathIcon Data="{StaticResource SemiIconSync}"
+                        <PathIcon Data="{StaticResource AthenaIconUpdate}"
                                   Width="16"
                                   Height="16"
                                   Classes.SlowSpin="{Binding IsCheckingUpdates}"/>
@@ -94,14 +94,14 @@
                 <Button Command="{Binding OpenDocumentationCommand}"
                         Margin="0,0,8,8">
                     <StackPanel Orientation="Horizontal" Spacing="7">
-                        <PathIcon Data="{StaticResource SemiIconArticle}" Width="16" Height="16"/>
+                        <PathIcon Data="{StaticResource AthenaIconDocument}" Width="16" Height="16"/>
                         <TextBlock Text="{loc:Loc About.BtnViewDocs}"/>
                     </StackPanel>
                 </Button>
                 <Button Command="{Binding OpenGitHubCommand}"
                         Margin="0,0,0,8">
                     <StackPanel Orientation="Horizontal" Spacing="7">
-                        <PathIcon Data="{StaticResource SemiIconGithubLogo}" Width="16" Height="16"/>
+                        <PathIcon Data="{StaticResource AthenaIconGithub}" Width="16" Height="16"/>
                         <TextBlock Text="{loc:Loc About.BtnSourceRepo}"/>
                     </StackPanel>
                 </Button>

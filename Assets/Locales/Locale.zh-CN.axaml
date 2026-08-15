@@ -444,7 +444,7 @@
     <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace 知识预算必须在 0 到 100,000 之间。</system:String>
     <system:String x:Key="WorkspaceContext.Error.Save">无法保存 Workspace 上下文设置：{0}</system:String>
     <system:String x:Key="ProviderModels.Title">供应商与模型</system:String>
-    <system:String x:Key="ProviderModels.AddProvider">＋ 添加供应商</system:String>
+    <system:String x:Key="ProviderModels.AddProvider">添加供应商</system:String>
     <system:String x:Key="ProviderModels.ModelCount">个模型</system:String>
     <system:String x:Key="ProviderModels.DeleteProvider">删除供应商</system:String>
     <system:String x:Key="ProviderModels.Connection">连接</system:String>

@@ -2,45 +2,135 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!--
         Application icon contract.
-        Keep UI code bound to AthenaIcon* and App.Icon* keys rather than to a
-        vendor icon name or a hard-coded colour.  Most geometries intentionally
-        alias the existing Semi vector set; the few product-specific concepts
-        live alongside them below.
-    -->
-    <StaticResource x:Key="AthenaIconModelProvider" ResourceKey="SemiIconServer"/>
-    <StaticResource x:Key="AthenaIconKnowledgeBase" ResourceKey="SemiIconBook"/>
-    <StaticResource x:Key="AthenaIconScheduledMessages" ResourceKey="SemiIconCalendarClock"/>
-    <StaticResource x:Key="AthenaIconSkillsConnectors" ResourceKey="SemiIconPuzzle"/>
-    <StaticResource x:Key="AthenaIconSearch" ResourceKey="SemiIconSearch"/>
-    <StaticResource x:Key="AthenaIconNewConversation" ResourceKey="SemiIconPlusCircle"/>
-    <StaticResource x:Key="AthenaIconEdit" ResourceKey="SemiIconEdit"/>
-    <StaticResource x:Key="AthenaIconPin" ResourceKey="SemiIconBookmark"/>
-    <StaticResource x:Key="AthenaIconBranch" ResourceKey="SemiIconBranch"/>
-    <StaticResource x:Key="AthenaIconStop" ResourceKey="SemiIconStop"/>
-    <StaticResource x:Key="AthenaIconDelete" ResourceKey="SemiIconDelete"/>
-    <StaticResource x:Key="AthenaIconConfirm" ResourceKey="SemiIconTick"/>
-    <StaticResource x:Key="AthenaIconActivity" ResourceKey="SemiIconActivity"/>
-    <StaticResource x:Key="AthenaIconPause" ResourceKey="SemiIconPause"/>
-    <StaticResource x:Key="AthenaIconRefresh" ResourceKey="SemiIconRefresh"/>
-    <StaticResource x:Key="AthenaIconDetails" ResourceKey="SemiIconExternalOpen"/>
-    <StaticResource x:Key="AthenaIconSettings" ResourceKey="SemiIconSetting"/>
-    <StaticResource x:Key="AthenaIconPreview" ResourceKey="SemiIconEyeOpened"/>
-    <StaticResource x:Key="AthenaIconSave" ResourceKey="SemiIconSave"/>
-    <StaticResource x:Key="AthenaIconCancel" ResourceKey="SemiIconUndo"/>
-    <StaticResource x:Key="AthenaIconClose" ResourceKey="SemiIconClose"/>
-    <StaticResource x:Key="AthenaIconOpenFile" ResourceKey="SemiIconFile"/>
-    <StaticResource x:Key="AthenaIconCopy" ResourceKey="SemiIconCopy"/>
 
-    <!-- Product-specific SVG path data supplied for the main shell controls. -->
-    <StreamGeometry x:Key="AthenaIconWorkspaceAdd">
-        M12 16V13M12 13V10M12 13H9M12 13H15M3 6V16.8C3 17.9201 3 18.4798 3.21799 18.9076C3.40973 19.2839 3.71547 19.5905 4.0918 19.7822C4.5192 20 5.07899 20 6.19691 20H17.8031C18.921 20 19.48 20 19.9074 19.7822C20.2837 19.5905 20.5905 19.2841 20.7822 18.9078C21.0002 18.48 21.0002 17.9199 21.0002 16.7998L21.0002 9.19978C21.0002 8.07967 21.0002 7.51962 20.7822 7.0918C20.5905 6.71547 20.2839 6.40973 19.9076 6.21799C19.4798 6 18.9201 6 17.8 6H12M3 6H12M3 6C3 4.89543 3.89543 4 5 4H8.67452C9.1637 4 9.40886 4 9.63904 4.05526C9.84311 4.10425 10.0379 4.18526 10.2168 4.29492C10.4186 4.41857 10.5918 4.59182 10.9375 4.9375L12 6
-    </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconPanelSwap">
-        M3 10.03L9 6v8zM11 6l6 4.03L11 14V6z
-    </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconRawJson">
-        M5 3H7V5H5v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5H7v2H5c-1.07-.27-2-.9-2-2V15a2 2 0 0 0-2-2H0V11H1A2 2 0 0 0 3 9V5A2 2 0 0 1 5 3M19 3a2 2 0 0 1 2 2V9a2 2 0 0 0 2 2h1v2H23a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2H17V19h2V14a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5H17V3h2M12 15a1 1 0 1 1-1 1 1 1 0 0 1 1-1M8 15a1 1 0 1 1-1 1 1 1 0 0 1 1-1m8 0a1 1 0 1 1-1 1A1 1 0 0 1 16 15Z
-    </StreamGeometry>
+        Views and view models bind to AthenaIcon* / App.Icon* keys only — never to a vendor
+        icon name.  The geometries come from CoreUI Icons (Styles/CoreIcons.axaml, generated
+        by Scripts/generate-coreui-icons.py); swapping vendors again means rewriting the
+        aliases below and nothing else.
+
+        Naming rule: the key states what the icon *means* here, not what it depicts.  Two
+        concepts that happen to share a glyph today still get one alias each, so they can
+        diverge later without touching call sites.
+    -->
+
+    <!-- Window chrome -->
+    <StaticResource x:Key="AthenaIconClose" ResourceKey="CoreIconX"/>
+    <StaticResource x:Key="AthenaIconWindowMinimize" ResourceKey="CoreIconWindowMinimize"/>
+    <StaticResource x:Key="AthenaIconWindowMaximize" ResourceKey="CoreIconWindowMaximize"/>
+    <StaticResource x:Key="AthenaIconWindowRestore" ResourceKey="CoreIconWindowRestore"/>
+    <StaticResource x:Key="AthenaIconThemeDark" ResourceKey="CoreIconMoon"/>
+    <StaticResource x:Key="AthenaIconThemeLight" ResourceKey="CoreIconSun"/>
+    <StaticResource x:Key="AthenaIconSettings" ResourceKey="CoreIconSettings"/>
+    <StaticResource x:Key="AthenaIconOverflowMenu" ResourceKey="CoreIconOptions"/>
+    <StaticResource x:Key="AthenaIconLayoutSwap" ResourceKey="CoreIconSidebar"/>
+
+    <!-- Feature launchers and navigation -->
+    <StaticResource x:Key="AthenaIconModelProvider" ResourceKey="CoreIconStorage"/>
+    <StaticResource x:Key="AthenaIconKnowledgeBase" ResourceKey="CoreIconBook"/>
+    <StaticResource x:Key="AthenaIconScheduledMessages" ResourceKey="CoreIconCalendarCheck"/>
+    <StaticResource x:Key="AthenaIconSkillsConnectors" ResourceKey="CoreIconPuzzle"/>
+    <StaticResource x:Key="AthenaIconSkills" ResourceKey="CoreIconEducation"/>
+    <StaticResource x:Key="AthenaIconConnectors" ResourceKey="CoreIconLinkAlt"/>
+    <StaticResource x:Key="AthenaIconSpeech" ResourceKey="CoreIconVolumeHigh"/>
+    <StaticResource x:Key="AthenaIconImageGeneration" ResourceKey="CoreIconImage"/>
+    <StaticResource x:Key="AthenaIconWebSearch" ResourceKey="CoreIconMagnifyingGlass"/>
+    <StaticResource x:Key="AthenaIconDocumentParsing" ResourceKey="CoreIconFindInPage"/>
+    <StaticResource x:Key="AthenaIconConversationSettings" ResourceKey="CoreIconCommentSquare"/>
+    <StaticResource x:Key="AthenaIconToolApproval" ResourceKey="CoreIconShieldAlt"/>
+    <StaticResource x:Key="AthenaIconAgentRuntime" ResourceKey="CoreIconGroup"/>
+    <StaticResource x:Key="AthenaIconDiagnostics" ResourceKey="CoreIconSpeedometer"/>
+    <StaticResource x:Key="AthenaIconAbout" ResourceKey="CoreIconInfo"/>
+    <StaticResource x:Key="AthenaIconLogs" ResourceKey="CoreIconListRich"/>
+    <StaticResource x:Key="AthenaIconTerminal" ResourceKey="CoreIconTerminal"/>
+    <StaticResource x:Key="AthenaIconDetails" ResourceKey="CoreIconExternalLink"/>
+    <StaticResource x:Key="AthenaIconSearch" ResourceKey="CoreIconMagnifyingGlass"/>
+    <StaticResource x:Key="AthenaIconGithub" ResourceKey="CoreIconGithub"/>
+    <StaticResource x:Key="AthenaIconUpdate" ResourceKey="CoreIconSync"/>
+
+    <!-- Workspace tree and conversation sessions -->
+    <StaticResource x:Key="AthenaIconWorkspace" ResourceKey="CoreIconFolder"/>
+    <StaticResource x:Key="AthenaIconWorkspaceAdd" ResourceKey="CoreIconFolderAdd"/>
+    <StaticResource x:Key="AthenaIconWorkspaceUnfiled" ResourceKey="CoreIconInbox"/>
+    <StaticResource x:Key="AthenaIconConversation" ResourceKey="CoreIconChatBubble"/>
+    <StaticResource x:Key="AthenaIconConversationAdd" ResourceKey="CoreIconConversationAdd"/>
+    <StaticResource x:Key="AthenaIconPin" ResourceKey="CoreIconPin"/>
+    <StaticResource x:Key="AthenaIconBranch" ResourceKey="CoreIconFork"/>
+    <StaticResource x:Key="AthenaIconExport" ResourceKey="CoreIconShareBoxed"/>
+    <StaticResource x:Key="AthenaIconRewind" ResourceKey="CoreIconActionUndo"/>
+    <StaticResource x:Key="AthenaIconReasoning" ResourceKey="CoreIconLightbulb"/>
+    <StaticResource x:Key="AthenaIconSend" ResourceKey="CoreIconSend"/>
+    <StaticResource x:Key="AthenaIconScreenshot" ResourceKey="CoreIconCamera"/>
+    <StaticResource x:Key="AthenaIconArchive" ResourceKey="CoreIconInbox"/>
+    <StaticResource x:Key="AthenaIconContextInspector" ResourceKey="CoreIconDescription"/>
+    <StaticResource x:Key="AthenaIconDocument" ResourceKey="CoreIconDescription"/>
+
+    <!-- Status -->
+    <StaticResource x:Key="AthenaIconLoading" ResourceKey="CoreIconLoopCircular"/>
+    <StaticResource x:Key="AthenaIconSuccess" ResourceKey="CoreIconCheckCircle"/>
+    <StaticResource x:Key="AthenaIconFailure" ResourceKey="CoreIconXCircle"/>
+    <StaticResource x:Key="AthenaIconWarning" ResourceKey="CoreIconWarning"/>
+    <StaticResource x:Key="AthenaIconInfo" ResourceKey="CoreIconInfo"/>
+    <StaticResource x:Key="AthenaIconConfirm" ResourceKey="CoreIconCheckAlt"/>
+
+    <!-- Media playback -->
+    <StaticResource x:Key="AthenaIconPlay" ResourceKey="CoreIconMediaPlay"/>
+    <StaticResource x:Key="AthenaIconStop" ResourceKey="CoreIconMediaStop"/>
+
+    <!-- Commands -->
+    <StaticResource x:Key="AthenaIconAdd" ResourceKey="CoreIconPlus"/>
+    <StaticResource x:Key="AthenaIconRemove" ResourceKey="CoreIconMinus"/>
+    <StaticResource x:Key="AthenaIconEdit" ResourceKey="CoreIconPencil"/>
+    <StaticResource x:Key="AthenaIconDelete" ResourceKey="CoreIconTrash"/>
+    <StaticResource x:Key="AthenaIconCopy" ResourceKey="CoreIconCopy"/>
+    <StaticResource x:Key="AthenaIconSave" ResourceKey="CoreIconSave"/>
+    <StaticResource x:Key="AthenaIconRefresh" ResourceKey="CoreIconReload"/>
+    <StaticResource x:Key="AthenaIconCancel" ResourceKey="CoreIconActionUndo"/>
+    <StaticResource x:Key="AthenaIconPreview" ResourceKey="CoreIconDescription"/>
+    <StaticResource x:Key="AthenaIconOpenFile" ResourceKey="CoreIconFile"/>
+    <StaticResource x:Key="AthenaIconFolderReveal" ResourceKey="CoreIconFolderOpen"/>
+    <StaticResource x:Key="AthenaIconImport" ResourceKey="CoreIconCloudUpload"/>
+    <StaticResource x:Key="AthenaIconDownload" ResourceKey="CoreIconCloudDownload"/>
+    <StaticResource x:Key="AthenaIconGenerate" ResourceKey="CoreIconBolt"/>
+    <StaticResource x:Key="AthenaIconBlocked" ResourceKey="CoreIconBan"/>
+    <StaticResource x:Key="AthenaIconChevronDown" ResourceKey="CoreIconChevronBottom"/>
+    <StaticResource x:Key="AthenaIconChevronRight" ResourceKey="CoreIconChevronRight"/>
+    <StaticResource x:Key="AthenaIconChevronUp" ResourceKey="CoreIconChevronTop"/>
+
+    <!-- Tool-call categories (ToolCallDisplay.IconKey) -->
+    <StaticResource x:Key="AthenaIconToolGeneric" ResourceKey="CoreIconSettings"/>
+    <StaticResource x:Key="AthenaIconMemoryRecall" ResourceKey="CoreIconHistory"/>
+    <StaticResource x:Key="AthenaIconBrowserTask" ResourceKey="CoreIconGlobeAlt"/>
+    <StaticResource x:Key="AthenaIconTaskList" ResourceKey="CoreIconList"/>
+    <StaticResource x:Key="AthenaIconTaskCreate" ResourceKey="CoreIconAlarm"/>
+    <StaticResource x:Key="AthenaIconSubAgents" ResourceKey="CoreIconGroup"/>
+    <StaticResource x:Key="AthenaIconDirectory" ResourceKey="CoreIconFolder"/>
+
+    <!-- Workspace file-tree types (WorkspaceFileNodeViewModel.IconKey) -->
+    <StaticResource x:Key="AthenaIconFolder" ResourceKey="CoreIconFolder"/>
+    <StaticResource x:Key="AthenaIconFolderOpen" ResourceKey="CoreIconFolderOpen"/>
+    <StaticResource x:Key="AthenaIconFileGeneric" ResourceKey="CoreIconFile"/>
+    <StaticResource x:Key="AthenaIconFileCode" ResourceKey="CoreIconCode"/>
+    <StaticResource x:Key="AthenaIconFileText" ResourceKey="CoreIconShortText"/>
+    <StaticResource x:Key="AthenaIconFileDocument" ResourceKey="CoreIconDescription"/>
+    <StaticResource x:Key="AthenaIconFileSpreadsheet" ResourceKey="CoreIconSpreadsheet"/>
+    <StaticResource x:Key="AthenaIconFilePresentation" ResourceKey="CoreIconScreenDesktop"/>
+    <StaticResource x:Key="AthenaIconFileImage" ResourceKey="CoreIconImage"/>
+    <StaticResource x:Key="AthenaIconFileVideo" ResourceKey="CoreIconMovie"/>
+    <StaticResource x:Key="AthenaIconFileAudio" ResourceKey="CoreIconMusicNote"/>
+    <StaticResource x:Key="AthenaIconFileArchive" ResourceKey="CoreIconLayers"/>
+    <StaticResource x:Key="AthenaIconFileBinary" ResourceKey="CoreIconMemory"/>
+    <StaticResource x:Key="AthenaIconFileScript" ResourceKey="CoreIconTerminal"/>
+    <StaticResource x:Key="AthenaIconFileConfig" ResourceKey="CoreIconSettings"/>
+    <StaticResource x:Key="AthenaIconFileDatabase" ResourceKey="CoreIconStorage"/>
+    <StaticResource x:Key="AthenaIconFileFont" ResourceKey="CoreIconFont"/>
+    <StaticResource x:Key="AthenaIconFileSecret" ResourceKey="CoreIconLockLocked"/>
+    <StaticResource x:Key="AthenaIconFileVcs" ResourceKey="CoreIconFork"/>
+    <StaticResource x:Key="AthenaIconFileWeb" ResourceKey="CoreIconGlobeAlt"/>
+
+    <!--
+        Product-specific artwork.  The owl is Athena's own mark for the parallel sub-agent
+        village and has no CoreUI equivalent, so it stays hand-authored here.
+    -->
     <StreamGeometry x:Key="AthenaIconSubAgentsOwl">
         M114.216 431.529l-61.571 13.089c-13.208 2.81-21.645 15.787-18.829 28.995 2.438 11.492 12.591 19.37 23.874 19.37 1.69 0 3.409-.174 5.11-.541l117.686-25.027-50.783-27.92c-5.312-2.324-10.458-5.053-15.487-7.966Z
         M459.167 383.165c-2.805-13.208-15.9-21.659-28.981-18.828l-76.122 16.187 1.578 49.643 84.697-18.008c13.206-2.806 21.644-15.786 18.828-28.994Z
@@ -49,18 +139,7 @@
         M147.592 91.845c-9.439 0-17.509 9.731-20.723 14.226-.971 1.336-.971 3.134 0 4.473 3.214 4.502 11.283 14.242 20.723 14.242 9.438 0 17.518-9.74 20.732-14.242.974-1.339.974-3.137 0-4.473-3.214-4.505-11.294-14.226-20.732-14.226Z
         M189.178 118.413c-1.247-.795-2.836-.795-4.074 0-4.075 2.625-12.861 9.183-12.861 16.852 0 7.832 9.168 26.363 13.117 33.995.349.667 1.032 1.081 1.779 1.081.749 0 1.434-.414 1.784-1.081 3.94-7.623 13.094-26.163 13.094-33.995 0-7.669-8.784-14.22-12.839-16.852Z
     </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconConversationAdd">
-        M12 14V11M12 11V8M12 11H9M12 11H15M7.12357 18.7012L5.59961 19.9203C4.76744 20.5861 4.35115 20.9191 4.00098 20.9195C3.69644 20.9198 3.40845 20.7813 3.21846 20.5433C3 20.2696 3 19.7369 3 18.6712V7.2002C3 6.08009 3 5.51962 3.21799 5.0918C3.40973 4.71547 3.71547 4.40973 4.0918 4.21799C4.51962 4 5.08009 4 6.2002 4H17.8002C18.9203 4 19.4801 4 19.9079 4.21799C20.2842 4.40973 20.5905 4.71547 20.7822 5.0918C21 5.5192 21 6.07899 21 7.19691V14.8036C21 15.9215 21 16.4805 20.7822 16.9079C20.5905 17.2842 20.2843 17.5905 19.908 17.7822C19.4806 18 18.9215 18 17.8036 18H9.12256C8.70652 18 8.49829 18 8.29932 18.0408C8.12279 18.0771 7.95216 18.1368 7.79168 18.2188C7.61149 18.3108 7.44964 18.4403 7.12722 18.6982L7.12357 18.7012Z
-    </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconOverflowMenu">
-        M13.5 5C13.5 4.17157 12.8284 3.5 12 3.5C11.1716 3.5 10.5 4.17157 10.5 5C10.5 5.82843 11.1716 6.5 12 6.5C12.8284 6.5 13.5 5.82843 13.5 5ZM13.5 12C13.5 11.1716 12.8284 10.5 12 10.5C11.1716 10.5 10.5 11.1716 10.5 12C10.5 12.8284 11.1716 13.5 12 13.5C12.8284 13.5 13.5 12.8284 13.5 12ZM13.5 19C13.5 18.1716 12.8284 17.5 12 17.5C11.1716 17.5 10.5 18.1716 10.5 19C10.5 19.8284 11.1716 20.5 12 20.5C12.8284 20.5 13.5 19.8284 13.5 19Z
-    </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconFolderReveal">
-        M3 6V18C3 19.1046 3.89543 20 5 20H19C20.1046 20 21 19.1046 21 18V8C21 6.89543 20.1046 6 19 6H12L10 4H5C3.89543 4 3 4.89543 3 6Z
-    </StreamGeometry>
-    <StreamGeometry x:Key="AthenaIconExport">
-        M12 3V15M12 15L7.5 10.5M12 15L16.5 10.5M4 14V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V14
-    </StreamGeometry>
+
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="App.IconForeground" Color="#F2F2F2"/>

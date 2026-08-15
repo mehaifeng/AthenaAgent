@@ -355,7 +355,7 @@
                             ToolTip.Tip="{loc:Loc ContextInspector.Open}"
                             AutomationProperties.Name="{loc:Loc ContextInspector.Open}">
                         <StackPanel Orientation="Horizontal" Spacing="5">
-                            <PathIcon Data="{StaticResource SemiIconArticle}" Width="15" Height="15"
+                            <PathIcon Data="{StaticResource AthenaIconContextInspector}" Width="15" Height="15"
                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
                             <TextBlock Text="{loc:Loc ContextInspector.Button}" VerticalAlignment="Center"/>
                         </StackPanel>
@@ -449,13 +449,13 @@
                                                     ToolTip.Tip="{loc:Loc Chat.Reasoning.Header}"
                                                     AutomationProperties.Name="{loc:Loc Chat.Reasoning.Header}">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <PathIcon Data="{StaticResource SemiIconBulb}"
+                                                    <PathIcon Data="{StaticResource AthenaIconReasoning}"
                                                               Classes="reasoning-bulb"
                                                               Classes.appending="{Binding IsReasoningAppending}"
                                                               Width="13" Height="13"
                                                               VerticalAlignment="Center"/>
                                                     <TextBlock Text="{loc:Loc Chat.Reasoning.Header}" FontSize="{DynamicResource App.FontSize.Body}"/>
-                                                    <PathIcon Data="{StaticResource SemiIconChevronRight}" Width="11" Height="11" Opacity="0.7" VerticalAlignment="Center"
+                                                    <PathIcon Data="{StaticResource AthenaIconChevronRight}" Width="11" Height="11" Opacity="0.7" VerticalAlignment="Center"
                                                               Classes="reasoning-chevron"
                                                               Classes.reasoning-expanded="{Binding IsReasoningExpanded}"/>
                                                 </StackPanel>
@@ -587,10 +587,10 @@
                                                                         <Grid ColumnDefinitions="Auto,*,Auto">
                                                                             <Panel Grid.Column="0" VerticalAlignment="Center">
                                                                                 <Button Width="32" Height="32" Padding="0" IsVisible="{Binding !IsPlaying}" Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Play}" AutomationProperties.Name="{loc:Loc Chat.Audio.Play}">
-                                                                                    <PathIcon Data="{StaticResource SemiIconPlay}" Width="14" Height="14"/>
+                                                                                    <PathIcon Data="{StaticResource AthenaIconPlay}" Width="14" Height="14"/>
                                                                                 </Button>
                                                                                 <Button Width="32" Height="32" Padding="0" IsVisible="{Binding IsPlaying}" Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).ToggleAudioPlaybackCommand}" CommandParameter="{Binding}" ToolTip.Tip="{loc:Loc Chat.Audio.Stop}" AutomationProperties.Name="{loc:Loc Chat.Audio.Stop}">
-                                                                                    <PathIcon Data="{StaticResource SemiIconStop}" Width="14" Height="14"/>
+                                                                                    <PathIcon Data="{StaticResource AthenaIconStop}" Width="14" Height="14"/>
                                                                                 </Button>
                                                                             </Panel>
                                                                             <TextBlock Grid.Column="1" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,8,0"/>
@@ -619,7 +619,7 @@
 
                                         <!-- 后台语音生成中提示（不阻塞任何交互） -->
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsGeneratingAudio}">
-                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
+                                            <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
                                             <TextBlock Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"/>
                                         </StackPanel>
 
@@ -632,20 +632,20 @@
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="{loc:Loc Chat.Audio.Generate}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <PathIcon Data="{StaticResource SemiIconVolume2}" Width="13" Height="13" Opacity="0.75"/>
+                                                <PathIcon Data="{StaticResource AthenaIconSpeech}" Width="13" Height="13" Opacity="0.75"/>
                                                 <TextBlock Text="{loc:Loc Chat.Audio.Generate}" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Button>
 
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
-                                            <PathIcon Data="{StaticResource SemiIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
+                                            <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
                                             <TextBlock Text="{Binding ToolExecutionSummary}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
                                         </StackPanel>
 
                                         <!-- 自动压缩进行中：分段进度是真实的（分段数在首次模型调用前已确定），
                                              并给出「跳过压缩」，把用户唯一的逃生手段从「按停止作废整轮」降级为「少等一会儿」。 -->
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasContextMaintenanceStatus}">
-                                            <PathIcon Data="{StaticResource SemiIconArchive}" Width="14" Height="14" Opacity="0.6" VerticalAlignment="Center"/>
+                                            <PathIcon Data="{StaticResource AthenaIconArchive}" Width="14" Height="14" Opacity="0.6" VerticalAlignment="Center"/>
                                             <TextBlock Text="{Binding ContextMaintenanceStatus}" FontStyle="Italic" Opacity="0.6" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
                                             <Button Padding="8,2"
                                                     FontSize="{DynamicResource App.FontSize.Caption}"
@@ -685,7 +685,7 @@
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnCopy}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnCopy}">
-                                        <PathIcon Data="{StaticResource SemiIconCopy}" Width="14" Height="14"/>
+                                        <PathIcon Data="{StaticResource AthenaIconCopy}" Width="14" Height="14"/>
                                     </Button>
 
                                     <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).RewindToMessageCommand}"
@@ -694,7 +694,7 @@
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnRewind}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnRewind}">
-                                        <PathIcon Data="{StaticResource SemiIconUndo}" Width="14" Height="14"/>
+                                        <PathIcon Data="{StaticResource AthenaIconRewind}" Width="14" Height="14"/>
                                     </Button>
 
                                     <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).ForkFromMessageCommand}"
@@ -703,7 +703,7 @@
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnFork}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnFork}">
-                                        <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="14" Height="14"/>
+                                        <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14"/>
                                     </Button>
                                 </StackPanel>
 
@@ -716,7 +716,7 @@
                                     <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
                                                Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <PathIcon Data="{StaticResource SemiIconArchive}" Width="12" Height="12"
+                                        <PathIcon Data="{StaticResource AthenaIconArchive}" Width="12" Height="12"
                                                   Opacity="0.55" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CompressionBoundaryText}"
                                                    Foreground="{DynamicResource Chat.TimestampFg}"
@@ -833,7 +833,7 @@
                                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                                 ToolTip.Tip="{loc:Loc Git.Branch.Menu}"
                                 AutomationProperties.Name="{loc:Loc Git.Branch.Menu}">
-                            <PathIcon Data="{StaticResource SemiIconMore}" Width="12" Height="12"
+                            <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="12" Height="12"
                                       Foreground="{DynamicResource App.IconMutedForeground}"/>
                             <Button.Flyout>
                                 <MenuFlyout Placement="BottomEdgeAlignedRight">
@@ -883,7 +883,7 @@
                                             CommandParameter="{Binding}"
                                             ToolTip.Tip="{loc:Loc Chat.Attach.Remove}"
                                             AutomationProperties.Name="{loc:Loc Chat.Attach.Remove}">
-                                        <PathIcon Data="{StaticResource SemiIconClose}" Width="12" Height="12"/>
+                                        <PathIcon Data="{StaticResource AthenaIconClose}" Width="12" Height="12"/>
                                     </Button>
                                     <TextBlock Grid.Row="1"
                                                Text="{Binding DisplayName}"
@@ -933,7 +933,7 @@
                             Background="{DynamicResource SemiGrey0}">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                             <PathIcon Grid.Column="0"
-                                      Data="{StaticResource SemiIconAlertTriangle}"
+                                      Data="{StaticResource AthenaIconWarning}"
                                       Width="13" Height="13"
                                       VerticalAlignment="Center"
                                       Foreground="{DynamicResource SemiOrange5}"/>
@@ -990,14 +990,16 @@
                                 IsEnabled="{Binding CanAcceptAttachments}"
                                 ToolTip.Tip="{loc:Loc Chat.Attach.Add}"
                                 AutomationProperties.Name="{loc:Loc Chat.Attach.Add}">
-                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="18" Height="18"/>
+                            <PathIcon Data="{StaticResource AthenaIconAdd}" Width="18" Height="18"/>
                         </Button>
-                        <u:IconSplitButton Icon="{StaticResource SemiIconScissors}"
-                                           IsEnabled="{Binding !IsSending}"
+                        <u:IconSplitButton IsEnabled="{Binding !IsSending}"
                                            Command="{Binding CaptureScreenshotCommand}"
                                            CommandParameter="keep"
                                            ToolTip.Tip="{loc:Loc Chat.Screenshot.Add}"
                                            AutomationProperties.Name="{loc:Loc Chat.Screenshot.Add}">
+                            <u:IconSplitButton.Icon>
+                                <PathIcon Data="{StaticResource AthenaIconScreenshot}" Width="16" Height="16"/>
+                            </u:IconSplitButton.Icon>
                             <u:IconSplitButton.Flyout>
                                 <MenuFlyout Placement="Top">
                                     <MenuItem Header="{loc:Loc Chat.Screenshot.HideWindow}"
@@ -1051,7 +1053,7 @@
                             IsVisible="{Binding !IsSending}"
                             ToolTip.Tip="{loc:Loc Chat.BtnExecute}"
                             AutomationProperties.Name="{loc:Loc Chat.BtnExecute}">
-                        <PathIcon Data="{StaticResource SemiIconSend}" Width="16" Height="16"/>
+                        <PathIcon Data="{StaticResource AthenaIconSend}" Width="16" Height="16"/>
                     </Button>
 
                     <Button Grid.Column="3"
@@ -1061,7 +1063,7 @@
                             IsVisible="{Binding IsSending}"
                             ToolTip.Tip="{loc:Loc Chat.BtnStop}"
                             AutomationProperties.Name="{loc:Loc Chat.BtnStop}">
-                        <PathIcon Data="{StaticResource SemiIconStop}"
+                        <PathIcon Data="{StaticResource AthenaIconStop}"
                                   Width="16"
                                   Height="16"
                                   Foreground="{DynamicResource SemiRed6}"/>
@@ -1107,7 +1109,7 @@
                                 Padding="6"
                                 AutomationProperties.Name="{loc:Loc ContextInspector.Close}"
                                 ToolTip.Tip="{loc:Loc ContextInspector.Close}">
-                            <PathIcon Data="{StaticResource SemiIconClose}" Width="14" Height="14"/>
+                            <PathIcon Data="{StaticResource AthenaIconClose}" Width="14" Height="14"/>
                         </Button>
                     </Grid>
                 </Border>

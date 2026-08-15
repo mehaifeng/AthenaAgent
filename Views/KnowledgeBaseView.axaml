@@ -69,7 +69,7 @@
                             <Button Grid.Column="1"
                                     Command="{Binding NewFolderCommand}"
                                     Padding="11,4">
-                                <PathIcon Data="{StaticResource SemiIconPlus}"
+                                <PathIcon Data="{StaticResource AthenaIconAdd}"
                                           Width="14"
                                           Height="14"/>
                             </Button>
@@ -80,7 +80,7 @@
                             <Button Grid.Column="1"
                                     Command="{Binding NewFileCommand}"
                                     Padding="11,4">
-                                <PathIcon Data="{StaticResource SemiIconPlus}"
+                                <PathIcon Data="{StaticResource AthenaIconAdd}"
                                           Width="14"
                                           Height="14"/>
                             </Button>
@@ -112,28 +112,28 @@
                             <Button Command="{Binding RefreshFilesCommand}"
                                     Padding="8,4"
                                     ToolTip.Tip="{loc:Loc Files.BtnRefresh}">
-                                <PathIcon Data="{StaticResource SemiIconRefresh}"
+                                <PathIcon Data="{StaticResource AthenaIconRefresh}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
                             <Button Command="{Binding ImportCommand}"
                                     Padding="8,4"
                                     ToolTip.Tip="{loc:Loc Files.BtnImport}">
-                                <PathIcon Data="{StaticResource SemiIconUpload}"
+                                <PathIcon Data="{StaticResource AthenaIconImport}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
                             <Button Command="{Binding ExportCommand}"
                                     Padding="8,4"
                                     ToolTip.Tip="{loc:Loc Files.BtnExport}">
-                                <PathIcon Data="{StaticResource SemiIconDownload}"
+                                <PathIcon Data="{StaticResource AthenaIconDownload}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
                             <Button Command="{Binding DeleteFileCommand}"
                                     Padding="8,4"
                                     ToolTip.Tip="{loc:Loc Files.BtnDelete}">
-                                <PathIcon Data="{StaticResource SemiIconDelete}"
+                                <PathIcon Data="{StaticResource AthenaIconDelete}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
@@ -145,7 +145,7 @@
                                     IsVisible="{Binding IsEditingFile}"
                                     Padding="8,4"
                                     ToolTip.Tip="{loc:Loc Chat.BtnAbort}">
-                                <PathIcon Data="{StaticResource SemiIconClose}"
+                                <PathIcon Data="{StaticResource AthenaIconClose}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
@@ -154,7 +154,7 @@
                                     Theme="{StaticResource AccentButtonTheme}"
                                     Padding="10,4"
                                     ToolTip.Tip="{loc:Loc Files.BtnCommitWrite}">
-                                <PathIcon Data="{StaticResource SemiIconSave}"
+                                <PathIcon Data="{StaticResource AthenaIconSave}"
                                           Width="15"
                                           Height="15"/>
                             </Button>
@@ -188,11 +188,21 @@
                             <WrapPanel>
                                 <Button x:Name="RunKnowledgeMaintenanceButton"
                                         Command="{Binding RunKnowledgeMaintenanceCommand}"
-                                        Content="{loc:Loc Config.KbMaintenanceRunNow}"
-                                        Margin="0,0,8,0"/>
+                                        Margin="0,0,8,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource AthenaIconGenerate}" Width="12" Height="12"
+                                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                        <TextBlock Text="{loc:Loc Config.KbMaintenanceRunNow}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                                 <Button x:Name="RebuildVectorIndexButton"
-                                        Command="{Binding RebuildVectorIndexCommand}"
-                                        Content="{loc:Loc Config.RebuildVectorIndex}"/>
+                                        Command="{Binding RebuildVectorIndexCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="12" Height="12"
+                                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                        <TextBlock Text="{loc:Loc Config.RebuildVectorIndex}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </WrapPanel>
                             <TextBlock Text="{Binding MaintenanceStatus}"
                                        TextWrapping="Wrap"
@@ -244,11 +254,11 @@
                                 Padding="8,2"
                                 ToolTip.Tip="{loc:Loc Files.ModeEdit}">
                             <Panel>
-                                <PathIcon Data="{StaticResource SemiIconEyeOpened}"
+                                <PathIcon Data="{StaticResource AthenaIconPreview}"
                                           Width="13"
                                           Height="13"
                                           IsVisible="{Binding !IsEditingFile}"/>
-                                <PathIcon Data="{StaticResource SemiIconEdit}"
+                                <PathIcon Data="{StaticResource AthenaIconEdit}"
                                           Width="13"
                                           Height="13"
                                           IsVisible="{Binding IsEditingFile}"/>

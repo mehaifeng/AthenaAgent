@@ -33,20 +33,20 @@
                                     HorizontalContentAlignment="Stretch">
                                 <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                                     <PathIcon Grid.Column="0"
-                                              Data="{StaticResource SemiIconLoading}"
+                                              Data="{StaticResource AthenaIconLoading}"
                                               Classes.SlowSpin="{Binding IsRunning}"
                                               IsVisible="{Binding IsRunning}"
                                               Width="11" Height="11"
                                               Opacity="0.7"
                                               VerticalAlignment="Center"/>
                                     <PathIcon Grid.Column="0"
-                                              Data="{StaticResource SemiIconTickCircle}"
+                                              Data="{StaticResource AthenaIconSuccess}"
                                               IsVisible="{Binding IsSuccess}"
                                               Width="11" Height="11"
                                               Foreground="{DynamicResource SemiGreen6}"
                                               VerticalAlignment="Center"/>
                                     <PathIcon Grid.Column="0"
-                                              Data="{StaticResource SemiIconAlertCircle}"
+                                              Data="{StaticResource AthenaIconFailure}"
                                               IsVisible="{Binding IsFailed}"
                                               Width="11" Height="11"
                                               Foreground="{DynamicResource SemiRed6}"
@@ -68,13 +68,13 @@
                                                VerticalAlignment="Center"/>
 
                                     <PathIcon Grid.Column="3"
-                                              Data="{StaticResource SemiIconChevronDown}"
+                                              Data="{StaticResource AthenaIconChevronDown}"
                                               Width="10" Height="10"
                                               Opacity="0.5"
                                               IsVisible="{Binding IsExpanded}"
                                               VerticalAlignment="Center"/>
                                     <PathIcon Grid.Column="3"
-                                              Data="{StaticResource SemiIconChevronRight}"
+                                              Data="{StaticResource AthenaIconChevronRight}"
                                               Width="10" Height="10"
                                               Opacity="0.5"
                                               IsVisible="{Binding !IsExpanded}"

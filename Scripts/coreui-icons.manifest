@@ -1,0 +1,111 @@
+# CoreUI icon manifest — the vendor icons compiled into Styles/CoreIcons.axaml.
+#
+# Source: https://github.com/coreui/coreui-icons — CoreUI Icons Free.
+# Icons are CC BY 4.0 (attribution required, see Docs/ThirdPartyNotices.md);
+# brand marks (cib-*) are CC0 but remain trademarks of their owners.
+# Regenerate after editing:  python3 Scripts/generate-coreui-icons.py
+#
+# Syntax
+#   <slug>                       free icon  svg/free/cil-<slug>.svg   -> CoreIcon<PascalSlug>
+#   brand:<slug>                 brand icon svg/brand/cib-<slug>.svg  -> CoreIcon<PascalSlug>
+#   <Key> = <slug> + plus@<span>,<cx>,<cy>
+#                                composite; a plus of <span> units, drawn at CoreUI's own stroke
+#                                weight, is centred at (cx, cy) on the icon's canvas and merged
+#                                into the base as one nonzero-fill geometry.  Place it inside the
+#                                base's hollow interior — the two shapes share a colour, so an
+#                                overlap just fuses them.
+#
+# Keep this list to icons the app actually uses: every entry becomes a StreamGeometry that
+# is constructed when the resource dictionary loads.
+
+# --- window chrome / shell -------------------------------------------------
+x
+window-minimize
+window-maximize
+window-restore
+moon
+sun
+settings
+options
+sidebar
+
+# --- primary navigation ----------------------------------------------------
+storage
+book
+calendar-check
+puzzle
+education
+link-alt
+magnifying-glass
+external-link
+list-rich
+terminal
+speedometer
+shield-alt
+group
+comment-square
+info
+sync
+
+# --- conversation ----------------------------------------------------------
+chat-bubble
+inbox
+pin
+fork
+share-boxed
+history
+lightbulb
+send
+camera
+action-undo
+loop-circular
+check-circle
+x-circle
+warning
+volume-high
+media-play
+media-stop
+bolt
+ban
+alarm
+list
+globe-alt
+
+# --- editing / files -------------------------------------------------------
+plus
+minus
+check-alt
+trash
+pencil
+copy
+save
+reload
+folder
+folder-open
+file
+description
+short-text
+spreadsheet
+code
+image
+movie
+music-note
+layers
+memory
+font
+lock-locked
+screen-desktop
+find-in-page
+cloud-download
+cloud-upload
+chevron-bottom
+chevron-right
+chevron-top
+
+# --- brands ----------------------------------------------------------------
+brand:github
+
+# --- composites (CoreUI has no "add" variants of these shapes) --------------
+# folder interior spans y 136..440, comment-square's bubble y 48..336.
+FolderAdd = folder + plus@190,256,288
+ConversationAdd = comment-square + plus@170,256,192

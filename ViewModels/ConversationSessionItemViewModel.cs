@@ -671,6 +671,12 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
 
     public bool IsWorkspace => Workspace != null;
 
+    /// <summary>
+    /// 分组图标的契约 key（Styles/AppIcons.axaml）。工作区是一个真实目录，画文件夹；
+    /// 全局对话没有归属目录，画收件箱，两者在树里一眼可分。
+    /// </summary>
+    public string IconKey => IsWorkspace ? "AthenaIconWorkspace" : "AthenaIconWorkspaceUnfiled";
+
     [ObservableProperty]
     private string _name;
 

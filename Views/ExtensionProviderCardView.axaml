@@ -6,7 +6,7 @@
              x:Class="Athena.UI.Views.ExtensionProviderCardView"
              x:DataType="vm:ExtensionProviderCardViewModel">
     <UserControl.Resources>
-        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
+        <appconv:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
     </UserControl.Resources>
     <Border BorderThickness="1"
             BorderBrush="{DynamicResource SemiColorBorder}"
@@ -20,8 +20,11 @@
                         Padding="4,0"
                         MinWidth="0"
                         Background="Transparent"
-                        BorderThickness="0"
-                        Content="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"/>
+                        BorderThickness="0">
+                    <PathIcon Data="{Binding IsExpanded, Converter={StaticResource BoolToExpandIcon}}"
+                              Width="10" Height="10"
+                              Foreground="{DynamicResource App.IconMutedForeground}"/>
+                </Button>
                 <RadioButton Grid.Column="1"
                              GroupName="ExtensionProviderSelection"
                              IsChecked="{Binding IsSelected, Mode=TwoWay}"

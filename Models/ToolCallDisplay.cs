@@ -14,34 +14,55 @@ public static class ToolCallDisplay
     private const int ResultPreviewMaxLength = 1200;
 
     /// <summary>
-    /// 工具类别对应的 Semi 图标资源 key（StaticResource 名称）。
+    /// 工具类别对应的应用图标契约 key（Styles/AppIcons.axaml 中的 AthenaIcon* 名称）。
     /// 经由 ToolIconKeyToGeometryConverter 解析为 PathIcon 的 Geometry。
+    /// 新增工具时务必在此登记：未登记的工具全部落到同一个通用图标上，卡片就失去了辨识度。
     /// </summary>
     public static string IconKey(string functionName) => functionName switch
     {
-        "web_search" => "SemiIconSearch",
-        "recall_from_memory" => "SemiIconHistory",
-        "create_new_memory" => "SemiIconSave",
-        "read_system_file" => "SemiIconFile",
-        "get_file_info" => "SemiIconInfoCircle",
-        "list_system_directory" => "SemiIconFolder",
-        "get_document_outline" => "SemiIconArticle",
-        "search_in_file" => "SemiIconSearch",
-        "write_system_file" => "SemiIconEdit",
-        "modify_system_file" => "SemiIconEdit",
-        "create_directory" => "SemiIconFolderOpen",
-        "move_system_file" => "SemiIconExport",
-        "copy_system_file" => "SemiIconCopy",
-        "delete_system_file" => "SemiIconDelete",
-        "execute_terminal_command" => "SemiIconTerminal",
-        "generate_image" => "SemiIconImage",
-        "run_browser_task" => "SemiIconGlobeStroke",
-        "create_task" => "SemiIconCalendarClock",
-        "list_tasks" => "SemiIconList",
-        "cancel_task" => "SemiIconAlarmStroked",
-        "view_self_configuration" => "SemiIconSetting",
-        "modify_self_configuration" => "SemiIconSetting",
-        _ => "SemiIconWrench"
+        // 检索与记忆
+        "web_search" => "AthenaIconWebSearch",
+        "recall_from_memory" => "AthenaIconMemoryRecall",
+        "create_new_memory" => "AthenaIconSave",
+
+        // 文件系统
+        "read_system_file" => "AthenaIconOpenFile",
+        "get_file_info" => "AthenaIconInfo",
+        "list_system_directory" => "AthenaIconDirectory",
+        "search_in_file" => "AthenaIconSearch",
+        "write_system_file" => "AthenaIconEdit",
+        "modify_system_file" => "AthenaIconEdit",
+        "create_directory" => "AthenaIconFolderReveal",
+        "move_system_file" => "AthenaIconExport",
+        "copy_system_file" => "AthenaIconCopy",
+        "delete_system_file" => "AthenaIconDelete",
+
+        // 文档与表格
+        "get_document_outline" => "AthenaIconDocumentParsing",
+        "parse_office_document" => "AthenaIconDocumentParsing",
+        "inspect_document" or "create_document" or "edit_document"
+            or "convert_document" or "validate_document" => "AthenaIconFileDocument",
+        "inspect_spreadsheet" or "create_spreadsheet" or "edit_spreadsheet"
+            or "modify_spreadsheet_structure" or "convert_spreadsheet"
+            or "validate_spreadsheet" => "AthenaIconFileSpreadsheet",
+
+        // 外部能力
+        "execute_terminal_command" => "AthenaIconTerminal",
+        "generate_image" => "AthenaIconImageGeneration",
+        "run_browser_task" => "AthenaIconBrowserTask",
+        "dispatch_subagents" => "AthenaIconSubAgents",
+        "activate_skill" or "read_skill_resource" => "AthenaIconSkills",
+        "mcp_add_server" or "mcp_remove_server" or "mcp_list_tools"
+            or "mcp_get_tool_schema" or "mcp_call_tool" or "mcp_import_json" => "AthenaIconConnectors",
+
+        // 计划任务与自我配置
+        "create_task" => "AthenaIconTaskCreate",
+        "list_tasks" => "AthenaIconTaskList",
+        "cancel_task" => "AthenaIconBlocked",
+        "view_self_configuration" => "AthenaIconSettings",
+        "modify_self_configuration" => "AthenaIconSettings",
+
+        _ => "AthenaIconToolGeneric"
     };
 
     /// <summary>

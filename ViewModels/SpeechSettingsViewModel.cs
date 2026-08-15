@@ -43,7 +43,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private ChatAttachment? _testAttachment;
 
     public bool CanTest => !IsTesting;
-    public string PlaybackGlyph => TestAttachment?.IsPlaying == true ? "■" : "▶";
+    public bool IsPlaybackActive => TestAttachment?.IsPlaying == true;
 
     private void RebuildCards()
     {
@@ -98,7 +98,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
             if (_disposed || cancellation.IsCancellationRequested) return;
             TestStatus = result.Message;
             TestAttachment = result.Attachment;
-            OnPropertyChanged(nameof(PlaybackGlyph));
+            OnPropertyChanged(nameof(IsPlaybackActive));
         }
         catch (OperationCanceledException)
         {
@@ -140,7 +140,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
         var cancellation = new CancellationTokenSource();
         _audioTestCancellation = cancellation;
         attachment.IsPlaying = true;
-        OnPropertyChanged(nameof(PlaybackGlyph));
+        OnPropertyChanged(nameof(IsPlaybackActive));
         try
         {
             var result = await _systemAudioService!.PlayFileAsync(attachment.StoredPath, cancellation.Token);
@@ -157,7 +157,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
                 _audioTestCancellation.Dispose();
                 _audioTestCancellation = null;
                 attachment.IsPlaying = false;
-                OnPropertyChanged(nameof(PlaybackGlyph));
+                OnPropertyChanged(nameof(IsPlaybackActive));
             }
         }
     }
@@ -168,7 +168,7 @@ public partial class SpeechSettingsViewModel : ViewModelBase, IDisposable
         _audioTestCancellation?.Dispose();
         _audioTestCancellation = null;
         if (TestAttachment != null) TestAttachment.IsPlaying = false;
-        OnPropertyChanged(nameof(PlaybackGlyph));
+        OnPropertyChanged(nameof(IsPlaybackActive));
     }
 
     private void OnCurrentConfigChanged(object? sender, AppConfig config)

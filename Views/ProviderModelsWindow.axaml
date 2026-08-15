@@ -20,11 +20,16 @@
                 <Border Padding="10"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,0,0,1">
-                    <Button Content="{loc:Loc ProviderModels.AddProvider}"
-                            Command="{Binding AddProviderCommand}"
+                    <Button Command="{Binding AddProviderCommand}"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
-                            Theme="{StaticResource AccentButtonTheme}"/>
+                            Theme="{StaticResource AccentButtonTheme}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconAdd}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc ProviderModels.AddProvider}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </Border>
 
                 <ListBox Grid.Row="1"
@@ -80,7 +85,7 @@
                                             Padding="4,4"
                                             ToolTip.Tip="{loc:Loc ProviderModels.DeleteProvider}"
                                             AutomationProperties.Name="{loc:Loc ProviderModels.DeleteProvider}">
-                                        <PathIcon Data="{StaticResource SemiIconDelete}"
+                                        <PathIcon Data="{StaticResource AthenaIconDelete}"
                                                   Width="14"
                                                   Height="14"
                                                   Foreground="{DynamicResource App.IconDangerForeground}"/>
@@ -314,9 +319,13 @@
                                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Identity}" FontWeight="SemiBold"/>
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                                             <SelectableTextBlock Text="{Binding ExternalModelId}" TextWrapping="Wrap"/>
-                                                            <Button Grid.Column="1" Content="{loc:Loc Common.Copy}"
+                                                            <Button Grid.Column="1"
+                                                                    ToolTip.Tip="{loc:Loc Common.Copy}"
+                                                                    AutomationProperties.Name="{loc:Loc Common.Copy}"
                                                                     Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
-                                                                    CommandParameter="{Binding ExternalModelId}"/>
+                                                                    CommandParameter="{Binding ExternalModelId}">
+                                                                <PathIcon Data="{StaticResource AthenaIconCopy}" Width="12" Height="12"/>
+                                                            </Button>
                                                         </Grid>
                                                         <TextBlock Text="{Binding AvailabilityText}"/>
                                                         <SelectableTextBlock Text="{Binding OpenRouterModelId}" TextWrapping="Wrap"/>
@@ -398,9 +407,15 @@
             
                                                     <Expander Header="{loc:Loc ProviderModels.Metadata.RawJson}" IsVisible="{Binding HasRawOpenRouterJson}">
                                                         <StackPanel Spacing="6">
-                                                            <Button Content="{loc:Loc Common.Copy}" HorizontalAlignment="Left"
+                                                            <Button HorizontalAlignment="Left"
                                                                     Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
-                                                                    CommandParameter="{Binding RawOpenRouterJson}"/>
+                                                                    CommandParameter="{Binding RawOpenRouterJson}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <PathIcon Data="{StaticResource AthenaIconCopy}" Width="12" Height="12"
+                                                                              Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                                    <TextBlock Text="{loc:Loc Common.Copy}" VerticalAlignment="Center"/>
+                                                                </StackPanel>
+                                                            </Button>
                                                             <SelectableTextBlock Text="{Binding RawOpenRouterJson}" FontFamily="Menlo,Consolas,monospace"
                                                                                  TextWrapping="Wrap"/>
                                                         </StackPanel>

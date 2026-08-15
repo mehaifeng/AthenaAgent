@@ -84,6 +84,9 @@
         <Style Selector="TextBox.workspace-rename-editor.rename-error">
             <Setter Property="BorderBrush" Value="{DynamicResource App.IconDangerForeground}"/>
         </Style>
+        <Style Selector="PathIcon.workspace-node-icon.folder-open">
+            <Setter Property="Foreground" Value="{DynamicResource App.IconAccentForeground}"/>
+        </Style>
     </UserControl.Styles>
     <Grid x:Name="WorkbenchGrid">
         <Grid.ColumnDefinitions>
@@ -120,13 +123,13 @@
                                 Command="{Binding StageAllCommand}"
                                 IsEnabled="{Binding !IsGitBusy}"
                                 ToolTip.Tip="{loc:Loc Git.Review.StageAll}">
-                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
+                            <PathIcon Data="{StaticResource AthenaIconAdd}" Width="11" Height="11"/>
                         </Button>
                         <Button Classes="review-command"
                                 Command="{Binding UnstageAllCommand}"
                                 IsEnabled="{Binding !IsGitBusy}"
                                 ToolTip.Tip="{loc:Loc Git.Review.UnstageAll}">
-                            <PathIcon Data="{StaticResource SemiIconMinus}" Width="11" Height="11"/>
+                            <PathIcon Data="{StaticResource AthenaIconRemove}" Width="11" Height="11"/>
                         </Button>
                         <Button Classes="review-command"
                                 Command="{Binding RestoreAllCommand}"
@@ -198,7 +201,7 @@
                                                 CommandParameter="{Binding}"
                                                 IsEnabled="{Binding CanStage}"
                                                 ToolTip.Tip="{loc:Loc Git.Review.Stage}">
-                                            <PathIcon Data="{StaticResource SemiIconPlus}" Width="11" Height="11"/>
+                                            <PathIcon Data="{StaticResource AthenaIconAdd}" Width="11" Height="11"/>
                                         </Button>
                                         <Button Grid.Column="3" Grid.RowSpan="2"
                                                 Classes="review-command"
@@ -206,7 +209,7 @@
                                                 CommandParameter="{Binding}"
                                                 IsEnabled="{Binding CanUnstage}"
                                                 ToolTip.Tip="{loc:Loc Git.Review.Unstage}">
-                                            <PathIcon Data="{StaticResource SemiIconMinus}" Width="11" Height="11"/>
+                                            <PathIcon Data="{StaticResource AthenaIconRemove}" Width="11" Height="11"/>
                                         </Button>
                                         <Button Grid.Column="4" Grid.RowSpan="2"
                                                 Classes="review-command"
@@ -311,7 +314,7 @@
                                     Command="{Binding GenerateCommitMessageCommand}"
                                     IsEnabled="{Binding IsGenerateEnabled}"
                                     ToolTip.Tip="{loc:Loc Git.Review.Generate}">
-                                <PathIcon Data="{StaticResource SemiIconStar}" Width="13" Height="13"
+                                <PathIcon Data="{StaticResource AthenaIconGenerate}" Width="13" Height="13"
                                           Foreground="{DynamicResource App.IconAccentForeground}"/>
                             </Button>
                         </Grid>
@@ -320,8 +323,14 @@
                                      HorizontalAlignment="Stretch"
                                      HorizontalContentAlignment="Center"
                                      Command="{Binding CommitCommand}"
-                                     IsEnabled="{Binding IsCommitEnabled}"
-                                     Content="{loc:Loc Git.Review.Commit}">
+                                     IsEnabled="{Binding IsCommitEnabled}">
+                            <SplitButton.Content>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource AthenaIconBranch}" Width="12" Height="12"
+                                              Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                    <TextBlock Text="{loc:Loc Git.Review.Commit}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </SplitButton.Content>
                             <SplitButton.Flyout>
                                 <MenuFlyout Placement="TopEdgeAlignedRight">
                                     <MenuItem Header="{loc:Loc Git.Review.CommitPush}"
@@ -557,23 +566,11 @@
                     <TreeView.ItemTemplate>
                         <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:WorkspaceFileNodeViewModel">
                             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="6">
-                                <PathIcon Classes="workspace-folder-icon"
-                                          Data="{StaticResource SemiIconFolder}"
-                                          IsVisible="{Binding IsFolderClosed}"
-                                          Width="15"
-                                          Height="15"
-                                          VerticalAlignment="Center"
-                                          Foreground="{DynamicResource App.IconMutedForeground}"/>
-                                <PathIcon Classes="workspace-folder-open-icon"
-                                          Data="{StaticResource SemiIconFolderOpen}"
-                                          IsVisible="{Binding IsFolderOpen}"
-                                          Width="15"
-                                          Height="15"
-                                          VerticalAlignment="Center"
-                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <PathIcon Classes="workspace-file-icon"
-                                          Data="{StaticResource SemiIconFile}"
-                                          IsVisible="{Binding IsFile}"
+                                <!-- 单个 PathIcon 按 IconKey 取几何：目录随展开状态切换，文件按类型分辨。
+                                     展开中的目录用强调色，其余用弱化色，让层级一眼可读。 -->
+                                <PathIcon Classes="workspace-node-icon"
+                                          Classes.folder-open="{Binding IsFolderOpen}"
+                                          Data="{Binding IconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
                                           Width="15"
                                           Height="15"
                                           VerticalAlignment="Center"

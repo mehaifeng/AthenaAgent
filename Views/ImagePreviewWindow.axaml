@@ -32,7 +32,7 @@
                         Name="CloseButton"
                         Padding="12,4"
                         HorizontalAlignment="Right">
-                    <PathIcon Data="{StaticResource SemiIconClose}"
+                    <PathIcon Data="{StaticResource AthenaIconClose}"
                               Width="14"
                               Height="14"/>
                 </Button>

@@ -444,7 +444,7 @@
     <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace knowledge budget must be between 0 and 100,000.</system:String>
     <system:String x:Key="WorkspaceContext.Error.Save">Could not save Workspace context settings: {0}</system:String>
     <system:String x:Key="ProviderModels.Title">Providers and models</system:String>
-    <system:String x:Key="ProviderModels.AddProvider">＋ Add provider</system:String>
+    <system:String x:Key="ProviderModels.AddProvider">Add provider</system:String>
     <system:String x:Key="ProviderModels.ModelCount">models</system:String>
     <system:String x:Key="ProviderModels.DeleteProvider">Delete provider</system:String>
     <system:String x:Key="ProviderModels.Connection">Connection</system:String>

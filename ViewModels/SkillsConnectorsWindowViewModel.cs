@@ -12,12 +12,12 @@ public sealed partial class SkillsConnectorsWindowViewModel : ViewModelBase, IDi
 
     private static readonly (string Key, string Fallback, string IconKey)[] SectionTitles =
     [
-        ("Connectors.Nav.Skills", "Skills", "SemiIconWrench"),
-        ("Connectors.Nav.Connectors", "Connectors", "SemiIconLink"),
-        ("Connectors.Nav.Speech", "Speech generation", "SemiIconVolume2"),
-        ("Connectors.Nav.Image", "Image generation", "SemiIconImage"),
-        ("Connectors.Nav.WebSearch", "Web Search", "SemiIconSearch"),
-        ("Connectors.Nav.Document", "Document parsing", "SemiIconScan")
+        ("Connectors.Nav.Skills", "Skills", "AthenaIconSkills"),
+        ("Connectors.Nav.Connectors", "Connectors", "AthenaIconConnectors"),
+        ("Connectors.Nav.Speech", "Speech generation", "AthenaIconSpeech"),
+        ("Connectors.Nav.Image", "Image generation", "AthenaIconImageGeneration"),
+        ("Connectors.Nav.WebSearch", "Web Search", "AthenaIconWebSearch"),
+        ("Connectors.Nav.Document", "Document parsing", "AthenaIconDocumentParsing")
     ];
 
     public SkillsConnectorsWindowViewModel(
@@ -92,7 +92,7 @@ public sealed partial class SkillsConnectorSection : ObservableObject
         set => SetProperty(ref _title, value);
     }
 
-    /// <summary>Semi 图标资源 key（由 ToolIconKeyToGeometryConverter 解析为 PathIcon Geometry）。</summary>
+    /// <summary>AppIcons 图标契约 key（由 ToolIconKeyToGeometryConverter 解析为 PathIcon Geometry）。</summary>
     public string IconKey { get; }
 
     public ViewModelBase Content { get; }

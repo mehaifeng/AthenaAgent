@@ -3,8 +3,12 @@
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:views="using:Athena.UI.Views"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:appconv="using:Athena.UI.Converters"
              x:Class="Athena.UI.Views.SpeechSettingsView"
              x:DataType="vm:SpeechSettingsViewModel">
+    <UserControl.Resources>
+        <appconv:BoolToPlaybackIconConverter x:Key="BoolToPlaybackIcon"/>
+    </UserControl.Resources>
     <ScrollViewer>
         <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
             <TextBlock Text="{loc:Loc Connectors.Speech.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
@@ -20,11 +24,19 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
-                <Button Grid.Column="0" Content="{loc:Loc Connectors.Test}" Command="{Binding TestOutputCommand}"/>
+                <Button Grid.Column="0" Command="{Binding TestOutputCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource AthenaIconGenerate}" Width="12" Height="12"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        <TextBlock Text="{loc:Loc Connectors.Test}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <Button Grid.Column="1"
-                        Content="{Binding PlaybackGlyph}"
                         Command="{Binding TogglePlaybackCommand}"
-                        IsVisible="{Binding TestAttachment, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                        IsVisible="{Binding TestAttachment, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <PathIcon Data="{Binding IsPlaybackActive, Converter={StaticResource BoolToPlaybackIcon}}"
+                              Width="12" Height="12"/>
+                </Button>
                 <TextBlock Grid.Column="2" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
             </Grid>
         </StackPanel>

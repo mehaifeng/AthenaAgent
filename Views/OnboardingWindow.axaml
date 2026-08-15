@@ -163,9 +163,9 @@
                         ToolTip.Tip="{loc:Loc Chat.BtnTheme}"
                         Padding="8,4">
                     <Panel>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconMoon}"
+                        <PathIcon Width="16" Height="16" Data="{StaticResource AthenaIconThemeDark}"
                                   IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
-                        <PathIcon Width="16" Height="16" Data="{StaticResource SemiIconSun}"
+                        <PathIcon Width="16" Height="16" Data="{StaticResource AthenaIconThemeLight}"
                                   IsVisible="{Binding ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
                     </Panel>
                 </Button>

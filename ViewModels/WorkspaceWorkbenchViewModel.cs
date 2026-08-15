@@ -32,13 +32,20 @@ public partial class WorkspaceFileNodeViewModel : ViewModelBase
     public string RelativePath { get; init; } = string.Empty;
     public bool IsDirectory { get; init; }
     public bool IsFile => !IsDirectory;
-    public bool IsFolderClosed => IsDirectory && !IsExpanded;
     public bool IsFolderOpen => IsDirectory && IsExpanded;
     public ObservableCollection<WorkspaceFileNodeViewModel> Children { get; } = new();
 
+    /// <summary>
+    /// 该节点的图标契约 key（Styles/AppIcons.axaml），由 ToolIconKeyToGeometryConverter 解析。
+    /// 目录随展开状态在闭合/打开图标之间切换，文件按扩展名归类。
+    /// </summary>
+    public string IconKey => IsDirectory
+        ? (IsExpanded ? "AthenaIconFolderOpen" : "AthenaIconFolder")
+        : WorkspaceFileIcons.ForFileName(Name);
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsFolderClosed))]
     [NotifyPropertyChangedFor(nameof(IsFolderOpen))]
+    [NotifyPropertyChangedFor(nameof(IconKey))]
     private bool _isExpanded;
 
     [ObservableProperty]

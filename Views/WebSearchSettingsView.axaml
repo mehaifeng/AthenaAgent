@@ -17,7 +17,13 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                <Button Grid.Column="0" Content="{loc:Loc Connectors.Test}" Command="{Binding TestConnectionCommand}"/>
+                <Button Grid.Column="0" Command="{Binding TestConnectionCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource AthenaIconPlay}" Width="12" Height="12"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        <TextBlock Text="{loc:Loc Connectors.Test}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <TextBlock Grid.Column="1" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
             </Grid>
         </StackPanel>

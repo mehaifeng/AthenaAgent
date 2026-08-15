@@ -19,7 +19,7 @@
     <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
 
     <Window.Resources>
-        <appconv:BoolToExpandGlyphConverter x:Key="BoolToExpandGlyph"/>
+        <appconv:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
 
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
             <Grid Classes="conversation-row" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsSearchMatch}">
@@ -28,10 +28,11 @@
                             Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
                             CommandParameter="{Binding}">
                         <Grid ColumnDefinitions="12,Auto,*">
-                            <Ellipse Grid.Column="0" Width="4" Height="4"
-                                     Fill="{DynamicResource App.IconMutedForeground}"
-                                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                                     IsVisible="{Binding !HasStatusIndicator}"/>
+                            <PathIcon Grid.Column="0" Data="{StaticResource AthenaIconConversation}"
+                                      Width="11" Height="11"
+                                      Foreground="{DynamicResource App.IconMutedForeground}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      IsVisible="{Binding !HasStatusIndicator}"/>
                             <Grid Grid.Column="0" Width="12" ToolTip.Tip="{Binding StatusText}"
                                   IsVisible="{Binding HasStatusIndicator}">
                                 <Border Width="6" Height="6" CornerRadius="3" Background="{DynamicResource SemiGreen6}" Classes="running-indicator" Classes.running="{Binding ShowRunningIndicator}"
@@ -51,9 +52,9 @@
                             </Grid>
                             <!-- 分支标识：分支会话显示分支图标；分支的分支（深度≥2）在图标右侧追加 (n) -->
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3"
-                                        Margin="0,0,6,0" VerticalAlignment="Center"
+                                        Margin="8,0,0,0" VerticalAlignment="Center"
                                         IsVisible="{Binding ShowForkIcon}">
-                                <PathIcon Data="{StaticResource SemiIconSourceControl}" Width="12" Height="12"
+                                <PathIcon Data="{StaticResource AthenaIconBranch}" Width="12" Height="12"
                                           Foreground="{DynamicResource App.IconForeground}"
                                           VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding ForkBadgeText}" IsVisible="{Binding HasForkBadge}"
@@ -62,6 +63,7 @@
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Body}"
+                                       Margin="8,0,0,0"
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
@@ -82,7 +84,7 @@
                                 </MenuItem>
                                 <MenuItem Header="{loc:Loc MainWindow.Menu.Export}" Command="{Binding RequestExportCommand}">
                                     <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource SemiIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
+                                        <PathIcon Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="{loc:Loc MainWindow.Menu.Delete}" Command="{Binding RequestDeleteCommand}">
@@ -225,10 +227,10 @@
                             ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
                         <Panel>
                             <PathIcon Width="16" Height="16"
-                                      Data="{StaticResource SemiIconMoon}"
+                                      Data="{StaticResource AthenaIconThemeDark}"
                                       IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
                             <PathIcon Width="16" Height="16"
-                                      Data="{StaticResource SemiIconSun}"
+                                      Data="{StaticResource AthenaIconThemeLight}"
                                       IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
                         </Panel>
                     </Button>
@@ -247,7 +249,7 @@
                             Click="OnTitleBarMinimizeClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
                         <PathIcon Width="16" Height="16"
-                                  Data="{StaticResource SemiIconMinus}"
+                                  Data="{StaticResource AthenaIconWindowMinimize}"
                                   Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMaximizeButton"
@@ -258,21 +260,25 @@
                         <Panel Width="14" Height="14">
                             <PathIcon x:Name="TitleBarMaximizeIcon"
                                       Width="14" Height="14"
-                                      Data="{StaticResource SemiIconMaximize2}"
+                                      Data="{StaticResource AthenaIconWindowMaximize}"
                                       Foreground="{DynamicResource App.IconForeground}"/>
                             <PathIcon x:Name="TitleBarRestoreIcon"
                                       Width="14" Height="14"
                                       IsVisible="False"
-                                      Data="{StaticResource SemiIconRestore}"
+                                      Data="{StaticResource AthenaIconWindowRestore}"
                                       Foreground="{DynamicResource App.IconForeground}"/>
                         </Panel>
                     </Button>
+                    <!-- Width 19 is not a typo: CoreUI insets the X to 67% of its canvas while the
+                         window glyphs fill 81-94%, so equal Width values draw a visibly smaller
+                         close button. All three land on ~13px of actual ink. -->
                     <Button x:Name="TitleBarCloseButton"
                             Classes="icon-plain"
+                            Margin="0,0,10,0"
                             Click="OnTitleBarCloseClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Close}">
-                        <PathIcon Width="14" Height="14"
-                                  Data="{StaticResource SemiIconClose}"
+                        <PathIcon Width="19" Height="19"
+                                  Data="{StaticResource AthenaIconClose}"
                                   Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                 </StackPanel>
@@ -326,9 +332,8 @@
                                  PlaceholderText="{loc:Loc MainWindow.Search.Placeholder}"
                                  Text="{Binding ConversationSearchText}"/>
                         <Button x:Name="AddWorkspaceButton" Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.AddWorkspace}" Command="{Binding AddWorkspaceCommand}">
-                            <Path Data="{StaticResource AthenaIconWorkspaceAdd}" Width="16" Height="16" Stretch="Uniform"
-                                  Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="2"
-                                  StrokeLineCap="Round" StrokeJoin="Round"/>
+                            <PathIcon Data="{StaticResource AthenaIconWorkspaceAdd}" Width="16" Height="16"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
 
@@ -345,27 +350,31 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:WorkspaceConversationGroupViewModel">
                                     <StackPanel Classes="nav-group" IsVisible="{Binding IsSearchMatch}" Margin="0,0,0,1">
-                                        <Grid Classes="nav-group-header" ColumnDefinitions="Auto,*,Auto,Auto">
+                                        <Grid Classes="nav-group-header" ColumnDefinitions="Auto,Auto,*,Auto,Auto">
                                             <Button Grid.Column="0" Classes="icon-plain nav-expand"
                                                     ToolTip.Tip="{loc:Loc MainWindow.Tip.ExpandCollapse}"
                                                     Command="{Binding ToggleExpandedCommand}">
-                                                <TextBlock Text="{Binding IsExpanded, Converter={StaticResource BoolToExpandGlyph}}"
-                                                           FontSize="{DynamicResource App.FontSize.Title}" VerticalAlignment="Center"/>
+                                                <PathIcon Data="{Binding IsExpanded, Converter={StaticResource BoolToExpandIcon}}"
+                                                          Width="10" Height="10"
+                                                          Foreground="{DynamicResource App.IconMutedForeground}"/>
                                             </Button>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Body}"
-                                                       Margin="2,0,4,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                            <PathIcon Grid.Column="1" Width="13" Height="13" Margin="1,0,0,0"
+                                                      Data="{Binding IconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                                      Foreground="{DynamicResource App.IconAccentForeground}"
+                                                      VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource App.FontSize.Body}"
+                                                       Margin="6,0,4,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                                        IsVisible="{Binding !IsRenaming}"/>
-                                            <TextBox Grid.Column="1" Text="{Binding RenameText}" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"
-                                                     Margin="2,1" IsVisible="{Binding IsRenaming}"/>
-                                            <Button Grid.Column="2" Classes="icon-plain workspace-add-conversation"
+                                            <TextBox Grid.Column="2" Text="{Binding RenameText}" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"
+                                                     Margin="6,1,0,1" IsVisible="{Binding IsRenaming}"/>
+                                            <Button Grid.Column="3" Classes="icon-plain workspace-add-conversation"
                                                     ToolTip.Tip="{loc:Loc MainWindow.Tip.NewConversation}"
                                                     Command="{Binding $parent[Window].DataContext.CreateConversationCommand}"
                                                     CommandParameter="{Binding}">
-                                                <Path Data="{StaticResource AthenaIconConversationAdd}" Width="14" Height="14" Stretch="Uniform"
-                                                      Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
-                                                      StrokeLineCap="Round" StrokeJoin="Round"/>
+                                                <PathIcon Data="{StaticResource AthenaIconConversationAdd}" Width="14" Height="14"
+                                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain global-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.GlobalMenu}"
+                                            <Button Grid.Column="4" Classes="icon-plain global-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.GlobalMenu}"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     Click="OnOverflowMenuClick"
                                                     IsVisible="{Binding !IsWorkspace}">
@@ -373,7 +382,7 @@
                                             <Button.ContextFlyout>
                                                 <MenuFlyout>
                                                     <MenuItem Header="{loc:Loc MainWindow.Tip.RevealInFolder}" Command="{Binding RequestRevealCommand}">
-                                                        <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                        <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                     </MenuItem>
                                                     <MenuItem Header="{loc:Loc MainWindow.Tip.CopyPath}" Command="{Binding RequestCopyPathCommand}">
                                                         <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
@@ -381,7 +390,7 @@
                                                 </MenuFlyout>
                                             </Button.ContextFlyout>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain workspace-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.WorkspaceMenu}"
+                                            <Button Grid.Column="4" Classes="icon-plain workspace-menu" ToolTip.Tip="{loc:Loc MainWindow.Tip.WorkspaceMenu}"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     Click="OnOverflowMenuClick"
                                                     IsVisible="{Binding IsWorkspace}">
@@ -392,11 +401,11 @@
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
                                                         <MenuItem Header="{loc:Loc WorkspaceContext.Menu}" Command="{Binding RequestContextSettingsCommand}">
-                                                            <MenuItem.Icon><PathIcon Data="{StaticResource SemiIconSetting}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconSettings}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
                                                         <MenuItem Header="{loc:Loc MainWindow.Tip.RevealInFolder}" Command="{Binding RequestRevealCommand}">
                                                             <MenuItem.Icon>
-                                                                <PathIcon Data="{StaticResource SemiIconFolderOpen}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
+                                                                <PathIcon Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
                                                             </MenuItem.Icon>
                                                         </MenuItem>
                                                         <MenuItem Header="{loc:Loc MainWindow.Tip.CopyPath}" Command="{Binding RequestCopyPathCommand}">
@@ -408,7 +417,7 @@
                                                     </MenuFlyout>
                                                 </Button.ContextFlyout>
                                             </Button>
-                                            <Button Grid.Column="3" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.ConfirmRename}"
+                                            <Button Grid.Column="4" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.ConfirmRename}"
                                                     IsVisible="{Binding IsRenaming}" Command="{Binding CommitRenameCommand}">
                                                 <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="13" Height="13" Foreground="{DynamicResource App.IconAccentForeground}"/>
                                             </Button>
@@ -426,14 +435,13 @@
                         <Button x:Name="GlobalConversationButton" HorizontalAlignment="Stretch"
                                 Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}">
                             <StackPanel Orientation="Horizontal" Spacing="7">
-                                <Path Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16" Stretch="Uniform"
-                                      Stroke="{DynamicResource App.IconAccentForeground}" StrokeThickness="1.8"
-                                      StrokeLineCap="Round" StrokeJoin="Round"/>
+                                <PathIcon Data="{StaticResource AthenaIconConversationAdd}" Width="16" Height="16"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
                                 <TextBlock Text="{loc:Loc MainWindow.Launcher.GlobalChat}"/>
                             </StackPanel>
                         </Button>
                         <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.SwapLayout}" Command="{Binding ToggleSidePanelsCommand}">
-                            <PathIcon Data="{StaticResource SemiIconSidebar}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <PathIcon Data="{StaticResource AthenaIconLayoutSwap}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
                 </Grid>
@@ -500,7 +508,7 @@
                             <TabItem>
                                 <TabItem.Header>
                                     <StackPanel Orientation="Horizontal" Spacing="5">
-                                        <PathIcon Data="{StaticResource AthenaIconActivity}"
+                                        <PathIcon Data="{StaticResource AthenaIconLogs}"
                                                   Width="15"
                                                   Height="15"
                                                   Foreground="{DynamicResource App.IconMutedForeground}"/>
@@ -544,7 +552,7 @@
                             <TabItem>
                                 <TabItem.Header>
                                     <StackPanel Orientation="Horizontal" Spacing="5">
-                                        <PathIcon Data="{StaticResource SemiIconTerminal}"
+                                        <PathIcon Data="{StaticResource AthenaIconTerminal}"
                                                   Width="15"
                                                   Height="15"
                                                   Foreground="{DynamicResource App.IconMutedForeground}"/>
