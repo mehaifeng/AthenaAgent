@@ -25,6 +25,7 @@ The repository is a multi-project solution (`Athena.UI.sln`):
 - **Athena.Updater** — standalone in-app updater executable (downloads/extracts GitHub releases; packaged alongside the app).
 - **Athena.Archive.Tests** — test project covering conversation archive/history logic.
 - **Athena.UI.HeadlessTests** — Avalonia headless UI assertion suite (see "Headless Tests" below).
+- **Athena.Presentation.Tests** — dependency-free native PresentationML create/inspect/edit/validate round-trip and corruption suite.
 
 Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README_CN.md`. Longer-form docs live in `Docs/` (user guides, `PrivacyPolicy.md`, `MinerU_API.md`). Release tooling lives in `release.sh` and `Scripts/`.
 
@@ -38,6 +39,7 @@ Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README
 - **Image Generation**: OpenAI-backed image generation with logical continuity across turns; generated images render inline within Markdown chat output.
 - **Audio Output**: Remote speech generation uses the OpenAI SDK `AudioClient`; playback runs through `LibVlcAudioPlaybackService` (toggle play/pause, stop), with audio config resolved per-model.
 - **Browser Automation**: Vision-guided agent (`Services/Browser/`) using Playwright + Set-of-Marks annotation to plan and execute multi-step web tasks via the `run_browser_task` tool; its model is selected by the unified Browser Agent role.
+- **Native Office Authoring**: In-process OOXML services create, inspect, edit, convert/structure-edit where applicable, and validate DOCX, XLSX and PPTX without Python, Node, LibreOffice or Microsoft Office. Presentation validation includes relationship/content-type/chart checks plus conservative SkiaSharp text-fit estimates; rendered-slide QA remains mandatory.
 - **Document Parsing**: MinerU-based document parser (`Services/Parsers/`) exposed via `DocumentParserFunctions` (`get_document_outline`, `parse_office_document`) for extracting outlines/content from attachments (see `Docs/MinerU_API.md`).
 - **Screenshot Capture**: In-app screenshot tool with option to hide or retain the window during capture.
 - **In-App Updates**: `GitHubUpdateService` checks GitHub releases; the separate `Athena.Updater` performs the swap. Windows releases ship both a zip (for in-app updates) and a bilingual Inno Setup installer. (macOS DMGs are unsigned/ad-hoc signed — see project memory on Gatekeeper/App Translocation.)
@@ -84,13 +86,14 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
     - `ImageGenerationFunctions`: Image generation (`generate_image`) with cross-turn continuity.
     - `BrowserTaskFunctions`: Vision-guided web automation (`run_browser_task`).
     - `DocumentParserFunctions`: MinerU-backed attachment parsing (`get_document_outline`, `parse_office_document`).
+    - `PresentationFunctions`: Native PresentationML inspection, creation, slide/text editing and static validation (`inspect_presentation`, `create_presentation`, `edit_presentation`, `validate_presentation`).
     - `SubAgentFunctions`: Parallel sub-agent dispatch (`dispatch_subagents`).
   - `Browser/`: Playwright-based browser agent — session management, action registry, vision service, Set-of-Marks annotator, and task planner.
   - `SubAgents/`: Sub-agent orchestration — `SubAgentOrchestrator`, `SubAgentRunner`, type presets (`SubAgentTypes`), per-type tool gating (`SubAgentToolGates`), model resolution, and owl-village zone layout.
   - `Parsers/`: Document parsing (`MinerUDocumentParserService`).
   - `Interfaces/`: Service abstractions for clean DI.
   - `Platform/`: OS-specific implementations (e.g., `DesktopPlatformPathService`).
-  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `FunctionRegistry` / `ToolArgumentSchemaValidator`, `DiffApplier` (powers `modify_system_file`).
+  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `FunctionRegistry` / `ToolArgumentSchemaValidator`, `DocxPackageService`, `XlsxPackageService`, `PptxPackageService`, `DiffApplier` (powers `modify_system_file`).
 - `Styles/`: Global styles and icon geometries.
   - **Icons come from CoreUI Icons Free, never from Semi.** `Styles/CoreIcons.axaml` is
     generated — edit `Scripts/coreui-icons.manifest` and run

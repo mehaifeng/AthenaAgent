@@ -38,6 +38,7 @@ public class FunctionRegistry : IFunctionRegistry
         DocumentParserFunctions documentParserFunctions,
         SpreadsheetFunctions spreadsheetFunctions,
         DocumentFunctions documentFunctions,
+        PresentationFunctions presentationFunctions,
         IConfigService? configService,
         ILogger logger,
         IToolApprovalService? approvalService = null,
@@ -203,6 +204,61 @@ public class FunctionRegistry : IFunctionRegistry
             {
                 type = "object",
                 properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[dD][oO][cC][xXmM]$", description = "Document to validate." } },
+                required = new[] { "path" }
+            });
+
+        // --- PowerPoint presentations ---
+        RegisterFunction("inspect_presentation", presentationFunctions.InspectPresentationAsync,
+            "Inspects a .pptx/.pptm/.potx/.potm natively without PowerPoint, Python or LibreOffice. Returns slide order and size, master/layout inventory, every page's title/text/speaker notes, addressable shape ids/names/bounds, and picture/table/chart counts. Inspect an unfamiliar deck before editing; page large decks with startSlide/maxSlides.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[pP][pPoO][tT][xXmM]$", description = "Existing OOXML presentation or template." },
+                    startSlide = new { type = "integer", minimum = 1, maximum = 100000, @default = 1, description = "First slide in the result window (1-based)." },
+                    maxSlides = new { type = "integer", minimum = 1, maximum = 200, @default = 40, description = "Number of slides in the result window." },
+                    includeShapes = new { type = "boolean", @default = true, description = "Return shape ids, names, kinds, bounds and text so edit_presentation can target them." },
+                    includeNotes = new { type = "boolean", @default = true, description = "Return speaker-note paragraphs when notes parts exist." }
+                },
+                required = new[] { "path" }
+            });
+
+        RegisterFunction("create_presentation", presentationFunctions.CreatePresentationAsync,
+            "Creates a native .pptx atomically from a bounded JSON specification with wide/standard/custom canvas, title/section/titleAndContent/blank compositions, text and bullets, basic shapes and lines, embedded PNG/JPEG/GIF/BMP images, native tables, theme colours and Latin/East-Asian fonts. Coordinates and sizes are inches; font and line sizes are points. This is a dependable common-elements generator, not an arbitrary chart/animation/SmartArt authoring engine.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[pP][pP][tT][xX]$", description = "Destination .pptx path." },
+                    presentationJson = new { type = "string", minLength = 2, maxLength = 8000000, description = "JSON object with slides[]; optional layout wide|standard|custom, width/height for custom, and theme {background,primary,accent,text,muted,font,eastAsiaFont}. Each slide supports layout title|section|titleAndContent|blank, title/subtitle/body/bullets, background, and elements[]. Elements: text {text|paragraphs,x,y,width,height,font,align,valign,margin,fill,line}; shape {shape:rect|roundRect|ellipse|line,...}; image {path,x,y,width,height,altText}; table {rows[][],x,y,width,height,header,headerFill,bodyFill,font}. Colours are 6/8 digit hex without '#'." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "outputPath", "presentationJson" }
+            });
+
+        RegisterFunction("edit_presentation", presentationFunctions.EditPresentationAsync,
+            "Edits an existing OOXML presentation surgically and writes a distinct output with the same extension. Supports slide duplication/deletion/move/reorder, cross-run find/replace, setTitle, setText by inspected shapeId/shapeName, and addTextBox. Put every structural operation before content operations; slide numbers follow the current order at that step. Duplicated slides intentionally share related charts/SmartArt/embedded objects, which are preserved but not edited.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    inputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[pP][pPoO][tT][xXmM]$", description = "Existing source presentation." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[pP][pPoO][tT][xXmM]$", description = "Distinct destination path with the same extension as inputPath." },
+                    operationsJson = new { type = "string", minLength = 2, maxLength = 4000000, description = "JSON array (max 2000). Structural: {duplicateSlide:N,after:N}, {deleteSlide:N}, {moveSlide:N,to:N}, {reorder:[...]}. Content: {find,replace,all,slide?,includeNotes?}, {slide:N,setTitle}, {slide:N,shapeId|shapeName,setText}, {slide:N,addTextBox:{text|paragraphs,x,y,width,height,font,align,valign,fill,line}}. Structural items must come first." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing output only when explicitly intended." }
+                },
+                required = new[] { "inputPath", "outputPath", "operationsJson" }
+            });
+
+        RegisterFunction("validate_presentation", presentationFunctions.ValidatePresentationAsync,
+            "Performs bounded static PresentationML validation: parses every XML part, checks internal relationships and content types, slide ids/targets, core child order, shape-id uniqueness, layout links, chart-axis closure and a known corrupt stacked-chart label setting. SkiaSharp adds conservative text-overflow estimates with confidence. It does not render PowerPoint; visualValidationRequired is always true.",
+            new
+            {
+                type = "object",
+                properties = new { path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.[pP][pPoO][tT][xXmM]$", description = "OOXML presentation to validate." } },
                 required = new[] { "path" }
             });
 

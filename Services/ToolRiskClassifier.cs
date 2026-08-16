@@ -18,8 +18,9 @@ public static class ToolRiskClassifier
         "read_system_file", "get_file_info", "search_in_file", "list_system_directory",
         "get_document_outline", "recall_from_memory", "view_self_configuration",
         "web_search", "list_tasks",
-        // 表格/文档只读：解析本地 OOXML 包，不落盘、不外发。
+        // 表格/文档/演示只读：解析本地 OOXML 包，不落盘、不外发。
         "inspect_spreadsheet", "validate_spreadsheet", "inspect_document", "validate_document",
+        "inspect_presentation", "validate_presentation",
         // MCP 元工具：仅返回快照/schema，无副作用。真正的调用 mcp_call_tool 仍走 fail-safe Sensitive。
         "mcp_list_tools", "mcp_get_tool_schema", "activate_skill", "read_skill_resource"
     };
@@ -40,6 +41,7 @@ public static class ToolRiskClassifier
         // 表格/文档写入：均写到新路径且不改源文件，但仍是落盘操作。
         "create_spreadsheet", "edit_spreadsheet", "modify_spreadsheet_structure", "convert_spreadsheet",
         "create_document", "edit_document", "convert_document",
+        "create_presentation", "edit_presentation",
         // MCP：调用外部工具、增删外部服务器均需人工确认（新增=授权拉起外部子进程）。
         "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json"
     };

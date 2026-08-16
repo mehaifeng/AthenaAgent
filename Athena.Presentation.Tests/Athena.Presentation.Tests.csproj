@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- AdditionalProperties 会让 Athena.UI 作为「另一套全局属性」的项目实例再构建一遍，
+         两个实例并发写同一个 obj/ 目录，随机撞出 AVLN9999 pdb 占用错误。要跳过 apphost
+         就在命令行给 -p:UseAppHost=false（Scripts/run-headless-tests.* 就是这么做的）。 -->
+    <ProjectReference Include="../Athena.UI.csproj" />
+  </ItemGroup>
+</Project>
