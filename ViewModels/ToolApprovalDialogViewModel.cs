@@ -27,9 +27,14 @@ public partial class ToolApprovalDialogViewModel : ObservableObject
         HasRiskReason = !string.IsNullOrWhiteSpace(RiskReason);
         HasArguments = !IsTerminal && !string.IsNullOrWhiteSpace(PrettyArguments);
 
+        // 「本会话」「始终」放行的是这个作用域，不是整个工具。说清楚，用户才敢点。
+        ApprovalScope = request.ApprovalScope ?? string.Empty;
+        HasApprovalScope = !string.IsNullOrWhiteSpace(ApprovalScope);
+
         RiskLabel = request.Risk switch
         {
             ToolRisk.ReadOnly => localize("Dialog.ToolApproval.Risk.ReadOnly", "Read-only"),
+            ToolRisk.AdditiveWrite => localize("Dialog.ToolApproval.Risk.AdditiveWrite", "New file only"),
             ToolRisk.Sensitive => localize("Dialog.ToolApproval.Risk.Sensitive", "Sensitive"),
             ToolRisk.Destructive => localize("Dialog.ToolApproval.Risk.Destructive", "Destructive"),
             _ => string.Empty
@@ -46,6 +51,8 @@ public partial class ToolApprovalDialogViewModel : ObservableObject
     [ObservableProperty] private string _commandLine = string.Empty;
     [ObservableProperty] private bool _isTerminal;
     [ObservableProperty] private bool _isDestructive;
+    [ObservableProperty] private string _approvalScope = string.Empty;
+    [ObservableProperty] private bool _hasApprovalScope;
 
     /// <summary>用户决策结果。窗口关闭后由调用方读取；null 视为拒绝。</summary>
     public ToolApprovalScope? Result { get; private set; }

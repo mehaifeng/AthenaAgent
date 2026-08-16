@@ -104,6 +104,80 @@ public class FileSystemFunctions
         }
     }
 
+    public async Task<FunctionResult> SearchInDirectoryAsync(
+        string path,
+        string pattern,
+        string? filePattern = null,
+        bool recursive = true,
+        int contextLines = 2,
+        int maxMatchesPerFile = 5,
+        int maxTotalMatches = 100,
+        bool includeGeneratedDirectories = false)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(pattern))
+                return FunctionResult.FailureResult("Error: both 'path' and 'pattern' parameters are required.");
+            if (contextLines is < 0 or > 20)
+                return FunctionResult.FailureResult("contextLines must be between 0 and 20.");
+            if (maxMatchesPerFile is < 1 or > 50)
+                return FunctionResult.FailureResult("maxMatchesPerFile must be between 1 and 50.");
+            if (maxTotalMatches is < 1 or > 500)
+                return FunctionResult.FailureResult("maxTotalMatches must be between 1 and 500.");
+
+            var options = new DirectorySearchOptions
+            {
+                FilePattern = filePattern,
+                Recursive = recursive,
+                ContextLines = contextLines,
+                MaxMatchesPerFile = maxMatchesPerFile,
+                MaxTotalMatches = maxTotalMatches,
+                IncludeGeneratedDirectories = includeGeneratedDirectories
+            };
+
+            var result = await _fileSystemService.SearchInDirectoryAsync(
+                path, pattern, options,
+                Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken);
+
+            var message = result.TotalMatches == 0
+                ? $"No matches for '{pattern}' in {result.FilesScanned} scanned file(s)."
+                : $"Found {result.TotalMatches} match(es) across {result.Files.Count} file(s); scanned {result.FilesScanned}.";
+            if (result.Truncated) message += " Results are incomplete — narrow the search and retry.";
+
+            return FunctionResult.SuccessResult(message, new
+            {
+                root = path,
+                totalMatches = result.TotalMatches,
+                filesMatched = result.Files.Count,
+                filesScanned = result.FilesScanned,
+                filesSkipped = result.FilesSkipped,
+                truncated = result.Truncated,
+                warnings = result.Warnings,
+                files = result.Files.Select(group => new
+                {
+                    path = group.Path,
+                    totalMatches = group.TotalMatches,
+                    returnedMatches = group.Matches.Count,
+                    matches = group.Matches
+                })
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            return FunctionResult.FailureResult("Directory search was cancelled by the user.");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.Warning("Function SearchInDirectory denied: {Message}", ex.Message);
+            return FunctionResult.FailureResult($"Security blocked: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Function SearchInDirectory failed: {Stage}", "search directory");
+            return FunctionResult.FailureResult($"Directory search failed: {ex.Message}");
+        }
+    }
+
     public async Task<FunctionResult> GetDocumentOutlineAsync(string path)
     {
         try
@@ -167,15 +241,23 @@ public class FileSystemFunctions
             var content = await _fileSystemService.ReadFileAsync(path, startLine, endLine, sectionTitle, chunkIndex, includeLineNumbers: true);
             if (content == null) return FunctionResult.FailureResult($"Error: file not found ({path})");
 
+            // 分块元数据只在按块读取时有意义。行范围/章节选择器返回的就是被点名的那一段，
+            // 此时报 truncated=true 反而在骗模型「内容不全」，让它去做多余的续读；
+            // 顺带省掉一次完整的路径安全校验 + stat（读一次文件曾要走两遍）。
+            var usedRangeSelector = startLine.HasValue || !string.IsNullOrWhiteSpace(sectionTitle);
+            if (usedRangeSelector)
+            {
+                return FunctionResult.SuccessResult("Read succeeded.", new { content, startLine, endLine, sectionTitle });
+            }
+
             var info = await _fileSystemService.GetFileInfoAsync(path);
+            var totalChunks = info?.ChunkCount ?? 1;
             return FunctionResult.SuccessResult("Read succeeded.", new
             {
                 content,
-                startLine,
-                endLine,
-                chunkIndex,
-                totalChunks = info?.ChunkCount ?? 1,
-                truncated = (info?.ChunkCount ?? 1) > 1
+                chunkIndex = chunkIndex ?? 0,
+                totalChunks,
+                truncated = totalChunks > 1
             });
         }
         catch (UnauthorizedAccessException ex)
@@ -343,9 +425,15 @@ public class FileSystemFunctions
         try
         {
             if (string.IsNullOrWhiteSpace(path)) return FunctionResult.FailureResult("Error: the 'path' parameter is required.");
-            var success = await _fileSystemService.CreateDirectoryAsync(path);
-            if (success) return FunctionResult.SuccessResult($"Directory created: {path}");
-            return FunctionResult.FailureResult($"Directory already exists or creation failed: {path}");
+            // 幂等（mkdir -p 语义）：本工具的后置条件是「该目录存在」。目录已存在时后置条件
+            // 已经满足，报成功。此前它返回失败，且把「已存在」和「创建失败」揉进同一句话——
+            // 模型既无法判断该不该重试，也拿不到任何可改的东西，只能原样重发，从而陷入死循环。
+            var outcome = await _fileSystemService.CreateDirectoryAsync(path);
+            return FunctionResult.SuccessResult(
+                outcome == DirectoryCreateOutcome.Created
+                    ? $"Directory created: {path}"
+                    : $"Directory already exists, nothing to do: {path}",
+                new { path, created = outcome == DirectoryCreateOutcome.Created });
         }
         catch (UnauthorizedAccessException ex)
         {

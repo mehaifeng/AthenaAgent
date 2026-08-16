@@ -6577,10 +6577,10 @@ sealed class ImmediateUsageFunctionRegistry(List<string> events, int resultSize 
         BinaryData.FromString("{\"type\":\"object\",\"properties\":{}}"));
 
     public bool HasFunctions => true;
-    public IEnumerable<object> GetToolDefinitions() => [_tool];
+    public IEnumerable<object> GetToolDefinitions(bool includeOfficeTools = false) => [_tool];
     public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames)
         => toolNames.Contains("probe", StringComparer.Ordinal) ? [_tool] : [];
-    public int GetToolDeclarationTokenCount() => 24;
+    public int GetToolDeclarationTokenCount(bool includeOfficeTools = false) => 24;
     public Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
     {
         events.Add($"tool:{functionName}");

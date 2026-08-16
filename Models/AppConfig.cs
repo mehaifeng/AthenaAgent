@@ -206,6 +206,27 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _maxTerminalOutputChars = 30_000;
 
+    // 任意单次工具调用写回上下文的结果上限。终端之外的工具此前完全没有上限——
+    // parse_office_document 的整份 Markdown、list_system_directory 的千条目录项、
+    // search_in_file 的上万行上下文都会全量入上下文。闸门在 FunctionRegistry.ExecuteAsync
+    // 统一生效：先砍数组尾部、再对长文本做水位填充，并在结果里显式标注省略量。
+    // 默认 60000 字符（约 1.5 万 token）——高于 read_system_file 的 50 KiB 分块，
+    // 因此正常读文件不受影响，只有失控的结果才会被压。
+    [ObservableProperty]
+    private int _maxToolResultChars = 60_000;
+
+    // Office（OOXML）工具集的披露方式。这 15 个工具的声明约占整个工具列表 35% 的体量，
+    // 而多数会话从不碰 Office 文件。Auto（默认）先只暴露 enable_office_tools 这一个入口，
+    // 模型真的要处理表格/文档/演示时自行解锁；Always 始终全开；Off 完全停用。
+    [ObservableProperty]
+    private OfficeToolsMode _officeToolsMode = OfficeToolsMode.Auto;
+
+    // 模型一轮发出多个工具调用时，同时执行的最大数量。只有连续的只读调用会被成批并发
+    // （写/删/终端仍严格串行，且严格/自动审批模式下一律串行，避免并发弹窗）。
+    // 1 = 完全关闭并发，恢复此前的逐个执行行为。
+    [ObservableProperty]
+    private int _maxParallelToolCalls = 4;
+
     // 子代理等无人值守路径是否沿用永久放行清单（true）。破坏性操作无论如何都拒绝。
     [ObservableProperty]
     private bool _subAgentsInheritApproval = false;

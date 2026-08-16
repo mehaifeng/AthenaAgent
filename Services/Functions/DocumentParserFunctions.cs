@@ -37,7 +37,7 @@ public class DocumentParserFunctions
         _logger = logger.ForContext<DocumentParserFunctions>();
     }
 
-    public async Task<FunctionResult> ParseOfficeDocumentAsync(string path)
+    public async Task<FunctionResult> ParseOfficeDocumentAsync(string path, string? outputPath = null)
     {
         if (!_documentParserService.IsEnabled)
         {
@@ -96,6 +96,40 @@ public class DocumentParserFunctions
         if (!result.Success)
         {
             return FunctionResult.FailureResult(result.ErrorMessage ?? "Document parsing failed.");
+        }
+
+        // 落盘模式：一本书的 Markdown 可能是几十万 token。写文件后只回摘要 + 大纲，
+        // 让模型用 read_system_file / search_in_file 按需分段取用，而不是一次灌满上下文。
+        // 与 convert_document / convert_spreadsheet 的「导出后再读」设计保持一致。
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            var markdown = result.Markdown ?? string.Empty;
+            try
+            {
+                if (!await _fileSystemService.WriteFileAsync(outputPath, markdown))
+                {
+                    return FunctionResult.FailureResult($"Parsed the document but could not write the Markdown to '{outputPath}'.");
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+            {
+                return FunctionResult.FailureResult(
+                    $"Parsed the document but the output path was blocked by the file-system security policy: {ex.Message}");
+            }
+
+            var outline = DocumentOutlineExtractor.FromMarkdown(markdown, ".md", "mineru");
+            return FunctionResult.SuccessResult(
+                $"Parsed '{fileName}' and wrote {markdown.Length} characters of Markdown to '{outputPath}'. "
+                + "Read it with read_system_file (line ranges or sectionTitle) or locate sections with search_in_directory.",
+                new
+                {
+                    outputPath,
+                    characters = markdown.Length,
+                    headings = outline.Entries.Take(80)
+                        .Select(entry => new { entry.Level, entry.Title, entry.LineNumber })
+                        .ToList(),
+                    headingsTruncated = outline.Entries.Count > 80
+                });
         }
 
         return FunctionResult.SuccessResult(result.Markdown);

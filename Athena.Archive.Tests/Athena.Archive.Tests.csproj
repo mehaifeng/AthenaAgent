@@ -20,6 +20,7 @@
   <ItemGroup>
     <Compile Include="../Models/AttachmentKind.cs" Link="Source/Models/AttachmentKind.cs" />
     <Compile Include="../Models/DocumentParserMode.cs" Link="Source/Models/DocumentParserMode.cs" />
+    <Compile Include="../Models/OfficeToolsMode.cs" Link="Source/Models/OfficeToolsMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
     <Compile Include="../Models/ContextPolicyModels.cs" Link="Source/Models/ContextPolicyModels.cs" />
@@ -122,6 +123,12 @@
     <Compile Include="../Services/Functions/ImageGenerationFunctions.cs" Link="Source/Services/Functions/ImageGenerationFunctions.cs" />
     <Compile Include="../Services/Functions/ProactiveMessagingFunctions.cs" Link="Source/Services/Functions/ProactiveMessagingFunctions.cs" />
     <Compile Include="../Services/Functions/ToolArgumentSchemaValidator.cs" Link="Source/Services/Functions/ToolArgumentSchemaValidator.cs" />
+    <Compile Include="../Services/Functions/TerminalOutputTruncator.cs" Link="Source/Services/Functions/TerminalOutputTruncator.cs" />
+    <Compile Include="../Services/ToolApprovalKey.cs" Link="Source/Services/ToolApprovalKey.cs" />
+    <Compile Include="../Services/ToolCallParallelism.cs" Link="Source/Services/ToolCallParallelism.cs" />
+    <Compile Include="../Services/RepeatedToolFailureGuard.cs" Link="Source/Services/RepeatedToolFailureGuard.cs" />
+    <Compile Include="../Services/OfficeToolRelevance.cs" Link="Source/Services/OfficeToolRelevance.cs" />
+    <Compile Include="../Services/Functions/ToolResultTruncator.cs" Link="Source/Services/Functions/ToolResultTruncator.cs" />
     <Compile Include="../Services/RecurrenceService.cs" Link="Source/Services/RecurrenceService.cs" />
     <Compile Include="../Services/TaskScheduler.cs" Link="Source/Services/TaskScheduler.cs" />
     <Compile Include="../Services/Interfaces/IAttachmentStoreService.cs" Link="Source/Services/Interfaces/IAttachmentStoreService.cs" />

@@ -40,6 +40,9 @@ public class OpenAIChatService : IChatService
     private const int ConnectionTestMaxOutputTokens = 256;
     // 主对话工具循环的轮数硬顶。用户可以调高预算，但不能取消兜底。
     private const int MainConversationIterationCeiling = 200;
+    // 同一工具 + 完全相同参数连续失败到此次数后不再执行。轮数上限只保证"最终会停"，
+    // 而模型原样重发同一个失败调用能把几十轮全部烧掉；这条才是真正的止损点。
+    private const int IdenticalToolFailureLimit = 3;
     // 供应商把工具调用参数截断是它的失败，不该记在用户的轮数预算上——前若干次重试免费。
     // 但重试本身必须有界：否则一个稳定复现的截断会绕过轮数上限，把循环变成无限。
     private const int MaxFreeTruncatedToolCallRetries = 5;
@@ -478,8 +481,15 @@ public class OpenAIChatService : IChatService
             RequestFormatVersion,
             resolvedProtocol);
 
+        // Office 工具是否随本次请求下发，必须在这里决定：工具列表随请求快照一次性绑定，
+        // 整个用户回合内不再重建。判据看整段对话，因此一旦出现过 Office 意图就会一直带上。
+        var officeToolsRelevant = OfficeToolRelevance.IsRelevant(
+            context.Messages
+                .Where(m => !string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
+                .Select(m => m.Content));
+
         var tools = (_functionRegistry?.HasFunctions == true
-                ? _functionRegistry.GetToolDefinitions().OfType<ChatTool>()
+                ? _functionRegistry.GetToolDefinitions(officeToolsRelevant).OfType<ChatTool>()
                 : Enumerable.Empty<ChatTool>())
             .ToArray();
         var functionCallingEnabled = tools.Length > 0;
@@ -642,6 +652,8 @@ public class OpenAIChatService : IChatService
             ? []
             : new List<OpenAI.Chat.ChatMessage> { imageProjection.TransientInstruction };
         var compressionWarningRaised = false;
+        // 重复失败熔断：跨轮累计，因为模型的每一次原样重发都是新的一轮。
+        var repeatedToolFailures = new RepeatedToolFailureGuard(IdenticalToolFailureLimit);
 
         while (iteration < maxIterations)
         {
@@ -1222,10 +1234,26 @@ public class OpenAIChatService : IChatService
             var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
             try
             {
-                foreach (var toolCall in toolCalls)
+                // 一次执行一个工具，携带工具执行所需的全部 AsyncLocal 作用域。
+                async Task<FunctionResult> RunOneAsync(ToolCallInfo call)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    Log.Information("Executing tool: {Name} | args: {Args}", toolCall.FunctionName, toolCall.Arguments);
+                    // —— 重复失败熔断 ——
+                    // 模型拿到一个它读不懂的失败时，最常见的反应是原样重发。参数一字未改，
+                    // 结果必然一模一样，于是一轮轮空转直到撞上迭代上限。这里在同一调用
+                    // （工具名 + 参数完全一致）连续失败若干次后拒绝再执行，并把「重试无用、
+                    // 请换路子」明确写进结果——沉默地放行只会让模型继续撞墙。
+                    if (repeatedToolFailures.ShouldBlock(call.FunctionName, call.Arguments))
+                    {
+                        Log.Warning(
+                            "Tool {Name} blocked after {Count} identical consecutive failures | args: {Args}",
+                            call.FunctionName,
+                            repeatedToolFailures.FailureCount(call.FunctionName, call.Arguments),
+                            call.Arguments);
+                        return FunctionResult.FailureResult(
+                            repeatedToolFailures.BuildBlockedMessage(call.FunctionName, call.Arguments));
+                    }
+
+                    Log.Information("Executing tool: {Name} | args: {Args}", call.FunctionName, call.Arguments);
                     using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
                     using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
                     // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
@@ -1234,43 +1262,82 @@ public class OpenAIChatService : IChatService
                     // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
                     // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
                     using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
-                    var result = _functionRegistry == null
+                    var toolResult = _functionRegistry == null
                         ? FunctionResult.FailureResult("Function registry is not available.")
-                        : await _functionRegistry.ExecuteAsync(toolCall.FunctionName, toolCall.Arguments);
+                        : await _functionRegistry.ExecuteAsync(call.FunctionName, call.Arguments);
+
+                    repeatedToolFailures.Record(call.FunctionName, call.Arguments, toolResult.Success);
+
+                    return toolResult;
+                }
+
+                // 模型一轮可以发多个工具调用，此前它们严格串行，「读三个文件」的延迟就是三倍。
+                // 现在把连续的只读调用成批并发：
+                // - 只并发只读档，写/删/终端仍串行（有写冲突，且需要逐个弹窗确认）；
+                // - 只合并「连续」的一段，不跨越写操作重排，[写 A, 读 A] 的先后语义保持不变；
+                // - 结果一律按原始顺序回填，满足 tool_calls 的配对与顺序约束。
+                var approvalMode = _config.ToolApprovalMode;
+                var batches = ToolCallParallelism.PlanBatches(
+                    toolCalls.Count,
+                    _config.MaxParallelToolCalls,
+                    i => ToolCallParallelism.IsParallelSafe(toolCalls[i].FunctionName, toolCalls[i].Arguments, approvalMode));
+
+                foreach (var (start, count) in batches)
+                {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var resultJson = result.ToJson();
-                    Log.Information("Tool {Name} execution completed | result preview: {Result}",
-                        toolCall.FunctionName,
-                        resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
-
-                    if (result.GeneratedAttachments.Count > 0)
+                    List<FunctionResult> batchResults;
+                    if (count > 1)
                     {
-                        onMessageAdded?.Invoke(new Models.ChatMessage
-                        {
-                            Role = "assistant",
-                            Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(result.GeneratedAttachments),
-                            Timestamp = DateTime.Now
-                        });
+                        var running = new List<Task<FunctionResult>>(count);
+                        for (int i = start; i < start + count; i++) running.Add(RunOneAsync(toolCalls[i]));
+                        batchResults = (await Task.WhenAll(running)).ToList();
+                    }
+                    else
+                    {
+                        batchResults = new List<FunctionResult> { await RunOneAsync(toolCalls[start]) };
                     }
 
-                    // 通知 UI 产生了工具结果消息
-                    var toolResultId = Guid.NewGuid().ToString("N");
-                    var toolResultMsg = new Models.ChatMessage
-                    {
-                        Id = toolResultId,
-                        Role = "tool",
-                        Content = resultJson,
-                        ToolCallId = toolCall.Id,
-                        ToolName = toolCall.FunctionName,
-                        Timestamp = DateTime.Now
-                    };
-                    onMessageAdded?.Invoke(toolResultMsg);
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    runtime.Transport!.AppendToolResult(messages, toolCall.Id, resultJson);
-                    // 保存工具结果到上下文
-                    context.AddToolMessage(resultJson, toolCall.Id, toolResultId);
-                    completedToolCallIds.Add(toolCall.Id);
+                    for (int i = 0; i < batchResults.Count; i++)
+                    {
+                        var toolCall = toolCalls[start + i];
+                        var result = batchResults[i];
+
+                        var resultJson = result.ToJson();
+                        Log.Information("Tool {Name} execution completed | result preview: {Result}",
+                            toolCall.FunctionName,
+                            resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
+
+                        if (result.GeneratedAttachments.Count > 0)
+                        {
+                            onMessageAdded?.Invoke(new Models.ChatMessage
+                            {
+                                Role = "assistant",
+                                Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(result.GeneratedAttachments),
+                                Timestamp = DateTime.Now
+                            });
+                        }
+
+                        // 通知 UI 产生了工具结果消息
+                        var toolResultId = Guid.NewGuid().ToString("N");
+                        var toolResultMsg = new Models.ChatMessage
+                        {
+                            Id = toolResultId,
+                            Role = "tool",
+                            Content = resultJson,
+                            ToolCallId = toolCall.Id,
+                            ToolName = toolCall.FunctionName,
+                            Timestamp = DateTime.Now
+                        };
+                        onMessageAdded?.Invoke(toolResultMsg);
+
+                        runtime.Transport!.AppendToolResult(messages, toolCall.Id, resultJson);
+                        // 保存工具结果到上下文
+                        context.AddToolMessage(resultJson, toolCall.Id, toolResultId);
+                        completedToolCallIds.Add(toolCall.Id);
+                    }
                 }
             }
             catch (Exception)

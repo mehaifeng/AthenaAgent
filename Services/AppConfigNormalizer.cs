@@ -76,6 +76,8 @@ public static class AppConfigNormalizer
     public static void NormalizeSecurity(AppConfig config)
     {
         config.MaxTerminalOutputChars = Math.Clamp(config.MaxTerminalOutputChars, 1_000, 1_000_000);
+        config.MaxToolResultChars = Math.Clamp(config.MaxToolResultChars, 2_000, 2_000_000);
+        config.MaxParallelToolCalls = Math.Clamp(config.MaxParallelToolCalls, 1, 16);
     }
 
     /// <summary>迁移第一阶段的临时猫头鹰并钳制窗口内宠物尺寸。</summary>

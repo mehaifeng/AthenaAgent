@@ -35,10 +35,9 @@ public class ConfigurationFunctions
         _logger = logger.ForContext<ConfigurationFunctions>();
     }
 
-    /// <summary>供 FunctionRegistry 生成 schema 时枚举合法键。</summary>
-    public string ModifiableKeysText => string.Join(", ", _configSurface.ModifiableKeys);
-
-    public IReadOnlyList<string> ModifiableKeys => _configSurface.ModifiableKeys;
+    // 可写键曾以 enum 形式内联进 modify_self_configuration 的 schema（约 60 个键、1500 字符，
+    // 每一轮都发，而改配置是极低频操作）。现在只在参数校验失败时由 ConfigSurface.Apply
+    // 把合法键列进错误消息——只在真正出错的那一次付这份 token。
 
     /// <summary>供 FunctionRegistry 生成 schema 时枚举合法分区。</summary>
     public string SectionsText => string.Join(", ", _configSurface.Sections);

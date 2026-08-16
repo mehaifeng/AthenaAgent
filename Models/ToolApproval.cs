@@ -3,14 +3,19 @@ namespace Athena.UI.Models;
 /// <summary>
 /// 工具风险分级。决定某次工具调用默认是否需要人工审批。
 /// - ReadOnly：只读 / 无副作用（读文件、检索、查看配置），均衡模式下自动放行。
-/// - Sensitive：写本地状态 / 外部副作用 / 花钱（写文件、生图、浏览器、派发子代理），默认每次询问。
+/// - AdditiveWrite：只新增、不替换也不删除——目标已存在即失败（Office 生成/编辑/转换写入新路径、建目录）。
+///   既然无法毁掉任何既有内容，均衡模式下自动放行；严格模式仍逐次询问。
+/// - Sensitive：写本地状态 / 外部副作用 / 花钱（改写既有文件、生图、浏览器、派发子代理），默认每次询问。
 /// - Destructive：破坏性且不可逆（删除、危险终端命令），默认每次询问，弹窗走红色高危样式。
+///
+/// 追加新档位必须放在末尾：审计日志与配置按枚举数字序列化，插入中间会改变历史值的语义。
 /// </summary>
 public enum ToolRisk
 {
     ReadOnly,
     Sensitive,
-    Destructive
+    Destructive,
+    AdditiveWrite
 }
 
 /// <summary>
@@ -71,10 +76,16 @@ public sealed class ToolApprovalRequest
     public bool IsDestructive => Risk == ToolRisk.Destructive;
 
     /// <summary>
-    /// 会话内 / 永久放行的去重键。终端命令按「命令名」聚合（同一 command 放行一次即可），
-    /// 其余工具按函数名聚合。
+    /// 会话内 / 永久放行的去重键，由 ToolApprovalKey 构造并已带上作用域：
+    /// 终端按命令名、下载按主机名、文件写入按目标目录聚合，其余工具按函数名聚合。
     /// </summary>
     public string ApprovalKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 该键的作用域（命令名 / 主机名 / 目录），用于在弹窗上说清「本会话」「始终」到底放行了多大一片。
+    /// 无作用域（按函数名聚合）时为 null。
+    /// </summary>
+    public string? ApprovalScope { get; init; }
 }
 
 /// <summary>

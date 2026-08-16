@@ -152,7 +152,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("mcp: add_server coerces json-string env/args (weak-model resilience)", TestMcpAddServerCoerceAsync),
     ("office preview: range parser handles all single-segment forms", TestOfficeRangeParserAsync),
     ("office preview: type classification and mime mapping stay correct", TestOfficeTypeAndMimeAsync),
-    ("office preview: session store enforces token and releases sessions", TestOfficeSessionStoreAsync)
+    ("office preview: session store enforces token and releases sessions", TestOfficeSessionStoreAsync),
+    ("tool result budget compresses arrays and long text but keeps metadata", TestToolResultBudgetAsync),
+    ("filesystem: directory search groups by file, prunes build output and honors caps", TestSearchInDirectoryAsync),
+    ("office tool relevance is decided from the conversation when the snapshot is built", TestOfficeToolRelevanceAsync),
+    ("tool call batching parallelizes read-only runs without reordering writes", TestToolCallParallelismAsync),
+    ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
+    ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync)
 };
 
 var failures = new List<string>();
@@ -3866,6 +3872,27 @@ static Task TestApprovalRiskClassifierAsync()
     AssertEqual(ToolRisk.ReadOnly, ToolRiskClassifier.Classify("get_document_outline", "{\"path\":\"guide.md\"}").Risk, "local outline extraction should remain read-only");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("get_document_outline", "{\"path\":\"legacy.doc\"}").Risk, "legacy DOC outline uploads must be approval-gated");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("some_unknown_future_tool", "{}").Risk, "unknown tool should fail-safe to sensitive");
+
+    // 只增不改档：写入路径必须尚不存在，毁不掉既有内容，均衡模式下不该逐次弹窗。
+    AssertEqual(ToolRisk.AdditiveWrite, ToolRiskClassifier.Classify("create_presentation", "{\"outputPath\":\"deck.pptx\"}").Risk,
+        "creating a new deck only adds a file");
+    AssertEqual(ToolRisk.AdditiveWrite, ToolRiskClassifier.Classify("edit_document", "{\"inputPath\":\"a.docx\",\"outputPath\":\"b.docx\"}").Risk,
+        "editing to a distinct output leaves the source intact");
+    AssertEqual(ToolRisk.AdditiveWrite, ToolRiskClassifier.Classify("create_directory", "{\"path\":\"out\"}").Risk,
+        "creating a directory only adds");
+
+    // overwrite=true 让它们可以替换既有文件，「只增不改」的前提消失，必须回到敏感档。
+    AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("create_presentation", "{\"outputPath\":\"deck.pptx\",\"overwrite\":true}").Risk,
+        "overwrite=true must escalate back to sensitive");
+    AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("create_presentation", "{\"outputPath\":\"deck.pptx\",\"overwrite\":\"true\"}").Risk,
+        "string-encoded overwrite must escalate too");
+    AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("create_presentation", "not json").Risk,
+        "unparseable arguments must not be downgraded");
+
+    // 改变应用自身能力边界的工具，无人值守路径永不继承。
+    AssertTrue(ToolRiskClassifier.IsNeverUnattended("modify_self_configuration"), "self-configuration is never unattended");
+    AssertTrue(ToolRiskClassifier.IsNeverUnattended("mcp_add_server"), "adding an MCP server is never unattended");
+    AssertFalse(ToolRiskClassifier.IsNeverUnattended("write_system_file"), "ordinary writes stay governed by the inherit flag");
     return Task.CompletedTask;
 }
 
@@ -3882,6 +3909,15 @@ static Task TestApprovalTerminalRiskAsync()
     AssertEqual(ToolRisk.ReadOnly, ToolRiskClassifier.Classify("execute_terminal_command", Args("node", "--version")).Risk, "version probe is read-only");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("execute_terminal_command", Args("npm", "install")).Risk, "npm install is sensitive");
     AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("execute_terminal_command", Args("git", "push")).Risk, "git push is conservatively sensitive");
+    // shell -c "<payload>" 把真实命令藏在参数里。不带标志的 rm 逃过了 DangerPatterns，
+    // 顶层命令名又只是 zsh，于是破坏性调用会降到敏感档——载荷首命令必须再判一次。
+    AssertEqual(ToolRisk.Destructive, ToolRiskClassifier.Classify("execute_terminal_command", Args("zsh", "-c", "rm notes.txt")).Risk,
+        "shell -c wrapping must not downgrade an unflagged rm");
+    AssertEqual(ToolRisk.Destructive, ToolRiskClassifier.Classify("execute_terminal_command", Args("powershell", "-NoProfile", "-Command", "reg delete HKLM\\x")).Risk,
+        "shell switches are skipped when locating the payload command");
+    AssertEqual(ToolRisk.Sensitive, ToolRiskClassifier.Classify("execute_terminal_command", Args("bash", "-c", "npm run build")).Risk,
+        "a harmless shell payload stays sensitive rather than being escalated");
+
     AssertEqual("rm", TerminalCommandRisk.ExtractCommandName(Args("/usr/bin/rm", "-rf")), "command name strips path");
     return Task.CompletedTask;
 }
@@ -3927,6 +3963,19 @@ static async Task TestApprovalSubAgentInheritAsync()
 
         var destructive = await allowService.EvaluateAsync("delete_system_file", "{\"path\":\"a\"}", CancellationToken.None);
         AssertFalse(destructive.Approved, "destructive stays denied even with inherit flag");
+
+        // 继承审批本意是让子代理能干活，不是把应用自身的能力边界一并交出去。
+        // modify_self_configuration 可写 Security.ToolApprovalMode——放行它等于让后台自己关掉闸门。
+        var selfConfig = await allowService.EvaluateAsync(
+            "modify_self_configuration", "{\"key\":\"Security.ToolApprovalMode\",\"value\":\"Off\"}", CancellationToken.None);
+        AssertFalse(selfConfig.Approved, "sub-agents must never reconfigure the app, inherit flag or not");
+
+        var addServer = await allowService.EvaluateAsync("mcp_add_server", "{\"name\":\"x\",\"command\":\"npx\"}", CancellationToken.None);
+        AssertFalse(addServer.Approved, "sub-agents must never add MCP servers");
+
+        // 只增不改的产物生成正是子代理的常规工作，不该被无人值守策略挡住。
+        var additive = await allowService.EvaluateAsync("create_presentation", "{\"outputPath\":\"deck.pptx\"}", CancellationToken.None);
+        AssertTrue(additive.Approved, "sub-agents may create new files that cannot clobber anything");
     }
 
     var denyConfig = new AppConfig { ToolApprovalMode = ToolApprovalMode.Balanced, SubAgentsInheritApproval = false };
@@ -3955,20 +4004,46 @@ static async Task TestApprovalPersistAlwaysAsync()
     var fakeConfig = new FakeConfigService(config);
     var service = new ToolApprovalService(fakeConfig, new FakeApprovalPrompter(ToolApprovalScope.AllowAlways), Log.Logger);
 
+    var projectDir = Path.Combine(Path.GetTempPath(), "athena-approval-scope", "project");
+    var otherDir = Path.Combine(Path.GetTempPath(), "athena-approval-scope", "elsewhere");
+
     using (ToolApprovalContext.EnterInteractive())
     {
-        var decision = await service.EvaluateAsync("write_system_file", "{\"path\":\"a\"}", CancellationToken.None);
+        var decision = await service.EvaluateAsync(
+            "write_system_file", JsonSerializer.Serialize(new { path = Path.Combine(projectDir, "a.txt") }), CancellationToken.None);
         AssertTrue(decision.Approved, "always-allow decision approves execution");
     }
 
-    AssertTrue(config.AutoAllowedTools.Contains("write_system_file"), "always-allow persists tool into config");
+    // 落库的是带目录作用域的键，不是裸函数名——「始终允许」不再等于全盘放行。
+    var persisted = config.AutoAllowedTools.Single();
+    AssertEqual($"write_system_file@{projectDir}", persisted, "always-allow must persist the directory-scoped key");
     AssertTrue(fakeConfig.SaveCount > 0, "always-allow triggers a config save");
 
-    // 已永久放行后，即便在无人值守路径也应命中放行清单。
+    // 同一目录：命中放行清单，无人值守路径也放行。
     using (ToolApprovalContext.EnterNonInteractive())
     {
-        var second = await service.EvaluateAsync("write_system_file", "{\"path\":\"b\"}", CancellationToken.None);
-        AssertTrue(second.Approved, "persisted allow list is honored on later calls");
+        var sameDirectory = await service.EvaluateAsync(
+            "write_system_file", JsonSerializer.Serialize(new { path = Path.Combine(projectDir, "b.txt") }), CancellationToken.None);
+        AssertTrue(sameDirectory.Approved, "a later write in the approved directory is honored");
+    }
+
+    // 另一个目录：不在放行范围内，无人值守路径必须拒绝而不是继承。
+    using (ToolApprovalContext.EnterNonInteractive())
+    {
+        var otherDirectory = await service.EvaluateAsync(
+            "write_system_file", JsonSerializer.Serialize(new { path = Path.Combine(otherDir, "c.txt") }), CancellationToken.None);
+        AssertFalse(otherDirectory.Approved, "approving one directory must not grant writes anywhere else");
+    }
+
+    // 向后兼容：本次改动之前写下的裸函数名条目仍然有效，用户当初是明确选择的。
+    var legacyConfig = new AppConfig { ToolApprovalMode = ToolApprovalMode.Balanced };
+    legacyConfig.AutoAllowedTools.Add("write_system_file");
+    var legacyService = new ToolApprovalService(new FakeConfigService(legacyConfig), null, Log.Logger);
+    using (ToolApprovalContext.EnterNonInteractive())
+    {
+        var legacy = await legacyService.EvaluateAsync(
+            "write_system_file", JsonSerializer.Serialize(new { path = Path.Combine(otherDir, "d.txt") }), CancellationToken.None);
+        AssertTrue(legacy.Approved, "pre-existing unscoped allowlist entries must keep working");
     }
 }
 
@@ -4893,6 +4968,260 @@ static void AssertFalse(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static async Task TestCreateDirectoryIdempotentAsync()
+{
+    using var harness = new TestHarness();
+    // 建目录是写操作：临时目录在 macOS 上解析到 /private/var/...，落在默认写黑名单里，
+    // 因此这里必须同时放开读与写，否则测的是安全策略而不是幂等性。
+    var config = CreateReadUnrestrictedConfig();
+    static void ClearWriteBlocked(PlatformFileSystemConfig p) =>
+        p.WriteAccess = new PlatformAccessRule { BlockedDirectories = new() };
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.Windows);
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.MacOS);
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.Linux);
+
+    var service = new FileSystemService(new FakeConfigService(config), harness.PathService, Log.Logger);
+    var target = Path.Combine(harness.Root, "assets", "images");
+
+    // 后置条件是「该目录存在」。第一次创建、第二次已存在，两次都满足后置条件。
+    AssertEqual(DirectoryCreateOutcome.Created, await service.CreateDirectoryAsync(target),
+        "首次调用应真正创建目录（含缺失的父级）");
+    AssertTrue(Directory.Exists(target), "缺失的父目录也应一并创建");
+
+    // 这里曾经返回 false → 工具层翻译成 FailureResult。模型拿到一个没有任何可改之处的失败，
+    // 只能原样重发，于是一轮轮空转直到撞上迭代上限（实测烧掉 30+ 轮）。
+    AssertEqual(DirectoryCreateOutcome.AlreadyExisted, await service.CreateDirectoryAsync(target),
+        "对已存在的目录必须是无副作用的 no-op，而不是失败");
+
+    // 真正的失败（受保护路径、权限）走异常，不会被压进这个返回值里，
+    // 因此工具层再也没有一个「false」可以被误译成 FailureResult——旧的失败模式在类型上已不可表达。
+    var guarded = new FileSystemService(
+        new FakeConfigService(CreateReadUnrestrictedConfig()), harness.PathService, Log.Logger);
+    await AssertThrowsAsync<UnauthorizedAccessException>(
+        () => guarded.CreateDirectoryAsync("/etc/athena-should-be-blocked"),
+        "受保护路径必须以异常表达，而不是混进「已存在」这个返回值");
+}
+
+static Task TestRepeatedToolFailureGuardAsync()
+{
+    var guard = new RepeatedToolFailureGuard(limit: 3);
+    const string name = "create_directory";
+    const string args = "{\"path\":\"/Users/x/Downloads\"}";
+
+    // 前 limit 次照常执行，每次失败都计数。
+    for (int attempt = 1; attempt <= 3; attempt++)
+    {
+        AssertFalse(guard.ShouldBlock(name, args), $"第 {attempt} 次相同调用不应被拦截");
+        guard.Record(name, args, succeeded: false);
+    }
+
+    // 第 limit+1 次拦截：参数一字未改，结果必然一样，再发就是纯粹空转。
+    AssertTrue(guard.ShouldBlock(name, args), "同一调用连续失败达上限后必须停止执行");
+    AssertEqual(3, guard.FailureCount(name, args), "被拦截的那次不得再计数——它根本没有执行");
+
+    // 参数不同 = 不同的调用，绝不能被前者连坐。
+    AssertFalse(guard.ShouldBlock(name, "{\"path\":\"/Users/x/Other\"}"), "参数不同的调用不受牵连");
+    AssertFalse(guard.ShouldBlock("read_system_file", args), "工具不同的调用不受牵连");
+
+    // 成功即清零：早先的偶发失败不该让后面同一个调用被误伤。
+    var recovering = new RepeatedToolFailureGuard(limit: 3);
+    recovering.Record(name, args, succeeded: false);
+    recovering.Record(name, args, succeeded: false);
+    recovering.Record(name, args, succeeded: true);
+    AssertEqual(0, recovering.FailureCount(name, args), "成功一次后失败计数必须清零");
+    recovering.Record(name, args, succeeded: false);
+    AssertFalse(recovering.ShouldBlock(name, args), "清零后应重新获得完整的重试预算");
+    return Task.CompletedTask;
+}
+
+static Task TestToolCallParallelismAsync()
+{
+    static string Plan(IReadOnlyList<string> names, ToolApprovalMode mode, int maxParallel) =>
+        string.Join(" | ", ToolCallParallelism
+            .PlanBatches(names.Count, maxParallel, i => ToolCallParallelism.IsParallelSafe(names[i], "{}", mode))
+            .Select(b => string.Join(",", names.Skip(b.Start).Take(b.Count))));
+
+    // 只读连成一批；写操作各自单独一批。
+    AssertEqual(
+        "read_system_file,search_in_directory,web_search | write_system_file",
+        Plan(new[] { "read_system_file", "search_in_directory", "web_search", "write_system_file" }, ToolApprovalMode.Balanced, 4),
+        "连续只读应合并为一批，写操作单独成批");
+
+    // 不重排：[写 A, 读 A] 里的读绝不能被提到写之前，否则语义直接变了。
+    AssertEqual(
+        "write_system_file | read_system_file,read_system_file",
+        Plan(new[] { "write_system_file", "read_system_file", "read_system_file" }, ToolApprovalMode.Balanced, 4),
+        "只合并连续段，不得把后面的读提到写之前");
+
+    // 并发上限切断长批次，但顺序仍然保持。
+    AssertEqual(
+        "read_system_file,read_system_file | read_system_file,read_system_file | read_system_file",
+        Plan(Enumerable.Repeat("read_system_file", 5).ToList(), ToolApprovalMode.Balanced, 2),
+        "并发上限应切分批次且保持原序");
+
+    // 上限为 1 = 完全恢复串行。
+    AssertEqual(
+        "read_system_file | read_system_file",
+        Plan(new[] { "read_system_file", "read_system_file" }, ToolApprovalMode.Balanced, 1),
+        "MaxParallelToolCalls=1 应完全退回逐个执行");
+
+    // 严格模式会对只读工具也弹窗，自动模式要另调模型裁决——并发都会造成同时多路审批。
+    AssertEqual(
+        "read_system_file | read_system_file",
+        Plan(new[] { "read_system_file", "read_system_file" }, ToolApprovalMode.Strict, 4),
+        "严格模式下只读也要弹窗，必须串行");
+    AssertEqual(
+        "read_system_file | read_system_file",
+        Plan(new[] { "read_system_file", "read_system_file" }, ToolApprovalMode.Automatic, 4),
+        "自动审批模式下必须串行");
+
+    // 覆盖率不变式：每个调用恰好出现在一个批次里，且批次连续无缝拼回原序列。
+    var mixed = new[] { "read_system_file", "delete_system_file", "web_search", "recall_from_memory", "execute_terminal_command" };
+    var batches = ToolCallParallelism.PlanBatches(
+        mixed.Length, 4, i => ToolCallParallelism.IsParallelSafe(mixed[i], "{}", ToolApprovalMode.Balanced));
+    var covered = batches.Sum(b => b.Count);
+    AssertEqual(mixed.Length, covered, "每个工具调用必须恰好被一个批次覆盖");
+    var expectedStart = 0;
+    foreach (var batch in batches)
+    {
+        AssertEqual(expectedStart, batch.Start, "批次必须无缝首尾相接，结果才能按原序回填");
+        expectedStart += batch.Count;
+    }
+
+    AssertEqual(0, ToolCallParallelism.PlanBatches(0, 4, _ => true).Count, "空调用列表不应产生批次");
+    return Task.CompletedTask;
+}
+
+static Task TestOfficeToolRelevanceAsync()
+{
+    // 工具列表随请求快照一次性绑定、整个用户回合内不再重建，所以「带不带 Office 工具」
+    // 只能在构建快照的那一刻由对话内容判定。曾经交给模型在回合中途调 enable_office_tools
+    // 解锁——标志位改了却没人再读，模型被告知工具已可用、却永远看不到它，于是一遍遍去调
+    // 一个不存在的名字，最终退化成最接近的合法工具名，把整轮烧光。
+    AssertTrue(OfficeToolRelevance.IsRelevant(new[] { "帮我做一个主题是\u201C证实商朝存在的考古证据\u201D的ppt" }),
+        "触发本次事故的原句必须被识别");
+    AssertTrue(OfficeToolRelevance.IsRelevant(new[] { "Turn this into a deck" }), "英文 deck 应被识别");
+    AssertTrue(OfficeToolRelevance.IsRelevant(new[] { "读一下 /tmp/report.XLSX" }), "扩展名大小写不敏感");
+    AssertTrue(OfficeToolRelevance.IsRelevant(new[] { "先随便聊聊", "再帮我导出成 Excel" }),
+        "判据看整段对话：意图出现在后续消息里同样算数");
+    AssertTrue(OfficeToolRelevance.IsRelevant(new[] { "写份季度报告" }), "中文\u201C报告\u201D属于文档意图");
+
+    AssertFalse(OfficeToolRelevance.IsRelevant(new[] { "帮我把这段 C# 重构一下" }), "纯编码任务不该拖上 Office 声明");
+    AssertFalse(OfficeToolRelevance.IsRelevant(new string?[] { null, "", "   " }), "空内容不得误判");
+    AssertFalse(OfficeToolRelevance.IsRelevant(Array.Empty<string?>()), "空对话不得误判");
+
+    AssertEqual(15, OfficeToolNames.All.Count, "受按需披露管辖的 Office 工具应为 15 个");
+    AssertFalse(OfficeToolNames.All.Contains("create_directory"),
+        "create_directory 不属于 Office 工具集——本次事故正是模型在 Office 工具缺席时退化到了它");
+    return Task.CompletedTask;
+}
+
+static async Task TestSearchInDirectoryAsync()
+{
+    using var harness = new TestHarness();
+    var service = new FileSystemService(
+        new FakeConfigService(CreateReadUnrestrictedConfig()), harness.PathService, Log.Logger);
+
+    Directory.CreateDirectory(Path.Combine(harness.Root, "src"));
+    Directory.CreateDirectory(Path.Combine(harness.Root, "obj"));
+    await File.WriteAllTextAsync(Path.Combine(harness.Root, "src", "alpha.cs"),
+        "using System;\nclass Alpha { void TargetSymbol() { } }\n// trailing\n");
+    await File.WriteAllTextAsync(Path.Combine(harness.Root, "src", "beta.cs"),
+        "class Beta { }\nvoid TargetSymbol() { }\nvoid TargetSymbol2() { }\n");
+    await File.WriteAllTextAsync(Path.Combine(harness.Root, "src", "notes.md"), "TargetSymbol lives in alpha.\n");
+    // 构建产物必须被整棵剪掉，否则一次搜索会被 obj/bin 里的生成代码淹没。
+    await File.WriteAllTextAsync(Path.Combine(harness.Root, "obj", "generated.cs"), "TargetSymbol generated noise\n");
+    // 二进制文件必须跳过：NUL 字节探测，不看扩展名也要拦住。
+    await File.WriteAllBytesAsync(Path.Combine(harness.Root, "src", "blob.dat"),
+        new byte[] { 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x00, 0x01 });
+
+    var all = await service.SearchInDirectoryAsync(harness.Root, "TargetSymbol", new DirectorySearchOptions());
+    AssertEqual(3, all.Files.Count, "应命中 alpha.cs / beta.cs / notes.md 三个文件");
+    AssertEqual(4, all.TotalMatches, "beta.cs 两处 + alpha.cs 一处 + notes.md 一处");
+    AssertFalse(all.Files.Any(f => f.Path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)),
+        "obj 等构建产物目录必须被剪掉");
+    AssertTrue(all.FilesSkipped >= 1, "含 NUL 字节的二进制文件必须被跳过");
+
+    var betaGroup = all.Files.Single(f => f.Path.EndsWith("beta.cs", StringComparison.Ordinal));
+    AssertEqual(2, betaGroup.TotalMatches, "同一文件内的命中应聚合计数");
+    AssertEqual(2, betaGroup.Matches[0].LineNumber, "行号应为 1-based");
+    AssertTrue(betaGroup.Matches[0].ContextBefore.Contains("class Beta", StringComparison.Ordinal), "前文上下文应保留");
+    AssertTrue(betaGroup.Matches[0].ContextAfter.Contains("TargetSymbol2", StringComparison.Ordinal), "后文上下文应保留");
+
+    var filtered = await service.SearchInDirectoryAsync(
+        harness.Root, "TargetSymbol", new DirectorySearchOptions { FilePattern = "*.cs" });
+    AssertEqual(2, filtered.Files.Count, "filePattern 应把结果限制在 .cs");
+
+    // 每文件上限只削返回条数，真实计数必须照实报告，否则模型会以为只有这么多。
+    var capped = await service.SearchInDirectoryAsync(
+        harness.Root, "TargetSymbol", new DirectorySearchOptions { FilePattern = "beta.cs", MaxMatchesPerFile = 1 });
+    AssertEqual(1, capped.Files.Single().Matches.Count, "maxMatchesPerFile 应限制返回条数");
+    AssertEqual(2, capped.Files.Single().TotalMatches, "被限制返回时仍须报告真实命中总数");
+
+    var totalCapped = await service.SearchInDirectoryAsync(
+        harness.Root, "TargetSymbol", new DirectorySearchOptions { MaxTotalMatches = 1 });
+    AssertTrue(totalCapped.Truncated, "命中总数触顶必须标记 truncated");
+    AssertTrue(totalCapped.Warnings.Count > 0, "触顶必须给出可执行的收窄建议");
+
+    var invalid = await service.SearchInDirectoryAsync(harness.Root, "([a-z", new DirectorySearchOptions());
+    AssertEqual(0, invalid.Files.Count, "非法正则不应抛异常");
+    AssertTrue(invalid.Warnings.Any(w => w.Contains("Invalid regular expression", StringComparison.Ordinal)),
+        "非法正则应以警告形式回报");
+
+    var nonRecursive = await service.SearchInDirectoryAsync(
+        harness.Root, "TargetSymbol", new DirectorySearchOptions { Recursive = false });
+    AssertEqual(0, nonRecursive.Files.Count, "recursive=false 时不得下钻子目录");
+}
+
+static Task TestToolResultBudgetAsync()
+{
+    // 未超预算：必须原样返回，常规调用不能付任何解析/重排开销。
+    var small = new FunctionResult { Success = true, Message = "ok", Data = new { path = "a.txt" } }.SerializeRaw();
+    var untouched = ToolResultTruncator.Apply(small, 60_000);
+    AssertFalse(untouched.Truncated, "结果未超预算时不应触发截断");
+    AssertEqual(small, untouched.Json, "未超预算的结果必须逐字保持原样");
+
+    // 超长数组（list_system_directory 的千条目录项）：尾部被砍，且显式标注省略量。
+    var entries = Enumerable.Range(0, 1000)
+        .Select(i => new { name = $"file_{i}.cs", fullPath = $"/very/long/workspace/path/segment/file_{i}.cs", size = i })
+        .ToList();
+    var arrayJson = new FunctionResult { Success = true, Message = "listing", Data = new { path = "/root", entries } }.SerializeRaw();
+    var arrayResult = ToolResultTruncator.Apply(arrayJson, 8_000);
+    AssertTrue(arrayResult.Truncated, "超大目录列表应被压缩");
+    AssertTrue(arrayResult.Json.Length <= 8_000, $"压缩后必须落入预算，实际 {arrayResult.Json.Length}");
+    AssertTrue(arrayResult.Json.Contains("已省略", StringComparison.Ordinal), "数组截断必须显式标注省略量");
+    AssertTrue(arrayResult.Json.Contains("file_0.cs", StringComparison.Ordinal), "数组前缀条目应保留");
+    AssertTrue(arrayResult.Json.Contains("truncationNote", StringComparison.Ordinal), "根对象必须挂截断说明");
+
+    // 超长正文 + 短元数据（parse_office_document 的整份 Markdown）：
+    // 水位填充必须削长正文、完整保留续读线索，否则模型无法接着取。
+    var huge = string.Join("\n", Enumerable.Range(0, 20_000).Select(i => $"第 {i} 段正文内容，用于撑大结果体量。"));
+    var textJson = new FunctionResult
+    {
+        Success = true,
+        Message = "parsed",
+        Data = new { outputPath = "/w/out.md", nextStartRow = 4096, markdown = huge }
+    }.SerializeRaw();
+    var textResult = ToolResultTruncator.Apply(textJson, 10_000);
+    AssertTrue(textResult.Truncated, "超大正文应被压缩");
+    AssertTrue(textResult.Json.Length <= 10_000, $"压缩后必须落入预算，实际 {textResult.Json.Length}");
+    AssertTrue(textResult.Json.Contains("/w/out.md", StringComparison.Ordinal), "短元数据（续读路径）不得被水位填充削掉");
+    AssertTrue(textResult.Json.Contains("4096", StringComparison.Ordinal), "分页游标不得被削掉");
+
+    // 病理输入：成千上万个各自很短的键，前两阶段压不动，兜底硬截断必须让预算成为硬上限。
+    var wide = new Dictionary<string, object>();
+    for (int i = 0; i < 5_000; i++) wide[$"key_{i}"] = i;
+    var wideJson = new FunctionResult { Success = true, Message = "wide", Data = wide }.SerializeRaw();
+    var wideResult = ToolResultTruncator.Apply(wideJson, 4_000);
+    AssertTrue(wideResult.Json.Length <= 4_000, $"兜底截断后必须落入预算，实际 {wideResult.Json.Length}");
+
+    // ToJson 必须优先返回闸门写入的载荷，否则截断会被调用方绕过。
+    var gated = new FunctionResult { Success = true, Message = "raw", BudgetedJson = "{\"gated\":true}" };
+    AssertEqual("{\"gated\":true}", gated.ToJson(), "ToJson 必须返回已压进预算的载荷");
+
+    return Task.CompletedTask;
 }
 
 static Task TestOfficeRangeParserAsync()

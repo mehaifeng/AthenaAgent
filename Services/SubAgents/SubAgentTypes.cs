@@ -20,25 +20,27 @@ public static class SubAgentTypes
         "self-contained summary of what you found or did — this summary is the ONLY thing returned to the orchestrator. " +
         "Do not ask questions; make reasonable assumptions and proceed.";
 
+    // search_in_directory 对每个预设都是主力定位工具：没有它，子代理只能递归列目录再逐文件搜，
+    // 把一次搜索摊成几十轮往返，而子代理的往返成本全部落在墙钟时间上。
     private static readonly string[] FileTools =
     {
-        "get_file_info", "search_in_file", "get_document_outline", "read_system_file", "write_system_file",
-        "modify_system_file", "delete_system_file", "list_system_directory", "create_directory",
+        "get_file_info", "search_in_file", "search_in_directory", "get_document_outline", "read_system_file",
+        "write_system_file", "modify_system_file", "delete_system_file", "list_system_directory", "create_directory",
         "move_system_file", "copy_system_file", "recall_from_memory"
     };
 
     private static readonly string[] ResearchTools =
     {
         "web_search", "run_browser_task", "recall_from_memory", "get_file_info", "search_in_file",
-        "get_document_outline", "read_system_file", "list_system_directory"
+        "search_in_directory", "get_document_outline", "read_system_file", "list_system_directory"
     };
 
     private static readonly string[] GeneralTools =
     {
         "web_search", "run_browser_task", "recall_from_memory", "create_new_memory",
-        "get_file_info", "search_in_file", "get_document_outline", "read_system_file", "write_system_file",
-        "modify_system_file", "list_system_directory", "create_directory", "move_system_file", "copy_system_file",
-        "execute_terminal_command", "generate_image"
+        "get_file_info", "search_in_file", "search_in_directory", "get_document_outline", "read_system_file",
+        "write_system_file", "modify_system_file", "list_system_directory", "create_directory",
+        "move_system_file", "copy_system_file", "execute_terminal_command", "generate_image"
     };
 
     private static readonly Dictionary<string, SubAgentTypePreset> _presets = new(StringComparer.OrdinalIgnoreCase)

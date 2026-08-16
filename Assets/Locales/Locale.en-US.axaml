@@ -943,7 +943,9 @@
     <system:String x:Key="Dialog.ToolApproval.AllowOnce">Once</system:String>
     <system:String x:Key="Dialog.ToolApproval.AllowSession">For this session</system:String>
     <system:String x:Key="Dialog.ToolApproval.AllowAlways">Always allow</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ScopeLabel">Applies to:</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.ReadOnly">Read-only</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.AdditiveWrite">New file only</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">Sensitive</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">Destructive</system:String>
 

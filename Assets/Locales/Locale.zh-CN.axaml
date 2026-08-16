@@ -943,7 +943,9 @@
     <system:String x:Key="Dialog.ToolApproval.AllowOnce">仅本次</system:String>
     <system:String x:Key="Dialog.ToolApproval.AllowSession">本会话内</system:String>
     <system:String x:Key="Dialog.ToolApproval.AllowAlways">始终允许</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ScopeLabel">放行范围：</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.ReadOnly">只读</system:String>
+    <system:String x:Key="Dialog.ToolApproval.Risk.AdditiveWrite">仅新建</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">敏感</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">破坏性</system:String>
 

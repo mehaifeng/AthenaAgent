@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
@@ -502,17 +503,19 @@ public class FileSystemService : IFileSystemService
         return Task.FromResult(false);
     }
 
-    public Task<bool> CreateDirectoryAsync(string absolutePath)
+    public Task<DirectoryCreateOutcome> CreateDirectoryAsync(string absolutePath)
     {
         var fullPath = Path.GetFullPath(ExpandPath(absolutePath));
         ValidatePathAndSecurity(fullPath, true, true);
-        if (!Directory.Exists(fullPath))
+        if (Directory.Exists(fullPath))
         {
-            Directory.CreateDirectory(fullPath);
-            _logger.Information("FileSystem CreateDirectory succeeded: Path={Path}", fullPath);
-            return Task.FromResult(true);
+            _logger.Debug("FileSystem CreateDirectory no-op, already exists: Path={Path}", fullPath);
+            return Task.FromResult(DirectoryCreateOutcome.AlreadyExisted);
         }
-        return Task.FromResult(false);
+
+        Directory.CreateDirectory(fullPath);
+        _logger.Information("FileSystem CreateDirectory succeeded: Path={Path}", fullPath);
+        return Task.FromResult(DirectoryCreateOutcome.Created);
     }
 
     public Task<List<FileSystemEntry>> ListDirectoryAsync(string absolutePath, bool recursive = false, string? filter = null)
@@ -586,7 +589,8 @@ public class FileSystemService : IFileSystemService
         if (!File.Exists(fullPath)) return result;
 
         var lines = await File.ReadAllLinesAsync(fullPath);
-        var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+        // 超时同 SearchInDirectoryAsync：用户提供的正则可能灾难性回溯，没有时限会挂死调用线程。
+        var regex = new Regex(pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
 
         for (int i = 0; i < lines.Length; i++)
         {
@@ -608,6 +612,311 @@ public class FileSystemService : IFileSystemService
             _logger.Information("FileSystem SearchInFile truncated: Path={Path}, MaxMatches={Max}", fullPath, maxMatches);
         }
         return result;
+    }
+
+    /// <summary>
+    /// 跨文件搜索。在此之前工具面只有单文件的 SearchInFileAsync，模型要在代码库里定位一个符号
+    /// 只能「递归列目录 → 逐文件调用」，N 次往返 + N 份结果进上下文，或者退回终端跑 grep。
+    ///
+    /// 三重边界把一次搜索的代价钉死：扫描文件数、每文件命中数、总命中数。
+    /// 二进制、超限、越权文件一律跳过而不是让整次搜索失败——半个结果远好过一个异常。
+    /// </summary>
+    public async Task<DirectorySearchResult> SearchInDirectoryAsync(
+        string absolutePath,
+        string pattern,
+        DirectorySearchOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        var rootPath = Path.GetFullPath(ExpandPath(absolutePath));
+        _logger.Debug("FileSystem SearchInDirectory: Root={Root}, Pattern={Pattern}", rootPath, pattern);
+        ValidatePathAndSecurity(rootPath, false, true);
+
+        var result = new DirectorySearchResult();
+        if (!Directory.Exists(rootPath))
+        {
+            result.Warnings.Add($"Directory not found: {rootPath}");
+            return result;
+        }
+
+        // 用户提供的正则可能灾难性回溯（如 (a+)+$）。没有超时的话一次搜索能把 UI 线程池拖死，
+        // 所以这里给引擎一个硬时限，超时按「该行不匹配」处理并在结果里说明。
+        Regex regex;
+        try
+        {
+            regex = new Regex(pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
+        }
+        catch (ArgumentException ex)
+        {
+            result.Warnings.Add($"Invalid regular expression: {ex.Message}");
+            return result;
+        }
+
+        var filePatterns = SplitFilePatterns(options.FilePattern);
+        var contextLines = Math.Clamp(options.ContextLines, 0, 20);
+        var maxPerFile = Math.Clamp(options.MaxMatchesPerFile, 1, 50);
+        var maxTotal = Math.Clamp(options.MaxTotalMatches, 1, 500);
+        var maxFiles = Math.Clamp(options.MaxFilesScanned, 1, 20_000);
+        var regexTimeouts = 0;
+
+        foreach (var file in EnumerateSearchableFiles(rootPath, filePatterns, options.Recursive, options.IncludeGeneratedDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (result.FilesScanned >= maxFiles)
+            {
+                result.Truncated = true;
+                result.Warnings.Add($"Stopped after scanning {maxFiles} files. Narrow the search with filePattern or a deeper starting path.");
+                break;
+            }
+            if (result.TotalMatches >= maxTotal)
+            {
+                result.Truncated = true;
+                result.Warnings.Add($"Stopped at {maxTotal} total matches. Refine the pattern to see the rest.");
+                break;
+            }
+
+            // 先做零成本的扩展名判定：已知的二进制/媒体文件根本不会被打开，
+            // 也就不必为它们付一次完整的安全校验（每次都要解析软链、展开黑名单目录）。
+            if (BinaryExtensions.Contains(Path.GetExtension(file)))
+            {
+                result.FilesSkipped++;
+                continue;
+            }
+
+            // 每个文件都独立过安全策略：黑名单目录/扩展名、体积配额、软链逃逸。
+            // 目录遍历会跟随软链，树内一条软链就能指向 /etc 或 ~/.ssh，因此这一步不能省。
+            // 单个文件被拒不该让整次搜索失败，计入 FilesSkipped 即可。
+            try
+            {
+                ValidatePathAndSecurity(file, false);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
+            {
+                result.FilesSkipped++;
+                continue;
+            }
+
+            // 校验通过后才允许打开文件探测内容。
+            if (await HasBinaryContentAsync(file, cancellationToken))
+            {
+                result.FilesSkipped++;
+                continue;
+            }
+
+            result.FilesScanned++;
+
+            FileSearchGroup? group = null;
+            try
+            {
+                group = await SearchOneFileAsync(file, regex, contextLines, maxPerFile, cancellationToken,
+                    () => regexTimeouts++);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug(ex, "FileSystem SearchInDirectory skipped an unreadable file: {Path}", file);
+                result.FilesSkipped++;
+                continue;
+            }
+
+            if (group is null) continue;
+
+            result.Files.Add(group);
+            result.TotalMatches += group.TotalMatches;
+        }
+
+        if (regexTimeouts > 0)
+        {
+            result.Warnings.Add(
+                $"The regular expression timed out on {regexTimeouts} line(s); those lines were treated as non-matching. Simplify the pattern.");
+        }
+
+        _logger.Information(
+            "FileSystem SearchInDirectory finished: Root={Root}, Scanned={Scanned}, Skipped={Skipped}, Files={Files}, Matches={Matches}",
+            rootPath, result.FilesScanned, result.FilesSkipped, result.Files.Count, result.TotalMatches);
+        return result;
+    }
+
+    private static async Task<FileSearchGroup?> SearchOneFileAsync(
+        string path,
+        Regex regex,
+        int contextLines,
+        int maxPerFile,
+        CancellationToken cancellationToken,
+        Action onRegexTimeout)
+    {
+        // 逐行流式读取 + 环形缓冲保留前文：整份文件绝不进内存，
+        // 因此对几百 MB 的日志做搜索也只是常数级内存开销。
+        var before = new Queue<string>(contextLines + 1);
+        var pendingAfter = new List<(FileSearchMatch Match, List<string> Lines)>();
+        FileSearchGroup? group = null;
+
+        using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var lineNumber = 0;
+        string? line;
+        while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
+        {
+            lineNumber++;
+
+            for (int i = pendingAfter.Count - 1; i >= 0; i--)
+            {
+                pendingAfter[i].Lines.Add(line);
+                if (pendingAfter[i].Lines.Count >= contextLines)
+                {
+                    pendingAfter[i].Match.ContextAfter = string.Join("\n", pendingAfter[i].Lines);
+                    pendingAfter.RemoveAt(i);
+                }
+            }
+
+            bool matched;
+            try
+            {
+                matched = regex.IsMatch(line);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                onRegexTimeout();
+                matched = false;
+            }
+
+            if (matched)
+            {
+                group ??= new FileSearchGroup { Path = path };
+                group.TotalMatches++;
+                if (group.Matches.Count < maxPerFile)
+                {
+                    var match = new FileSearchMatch
+                    {
+                        LineNumber = lineNumber,
+                        Content = line,
+                        ContextBefore = string.Join("\n", before)
+                    };
+                    group.Matches.Add(match);
+                    if (contextLines > 0) pendingAfter.Add((match, new List<string>()));
+                }
+            }
+
+            if (contextLines > 0)
+            {
+                before.Enqueue(line);
+                while (before.Count > contextLines) before.Dequeue();
+            }
+        }
+
+        foreach (var (match, lines) in pendingAfter)
+        {
+            match.ContextAfter = string.Join("\n", lines);
+        }
+
+        return group;
+    }
+
+    /// <summary>构建/依赖产物目录：搜索它们几乎总是噪音，且能让一次搜索慢上两个数量级。</summary>
+    private static readonly HashSet<string> GeneratedDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bin", "obj", "node_modules", ".git", ".vs", ".idea", "dist", "build",
+        "__pycache__", ".venv", "venv", "packages", ".gradle", "target", ".next", ".nuxt"
+    };
+
+    /// <summary>已知的二进制/压缩/媒体扩展名，直接跳过，不必读首块探测。</summary>
+    private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".dll", ".so", ".dylib", ".bin", ".obj", ".o", ".a", ".lib", ".pdb", ".class", ".jar",
+        ".zip", ".gz", ".tar", ".7z", ".rar", ".bz2", ".xz",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".svgz",
+        ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flac", ".ogg", ".webm",
+        ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".odt", ".ods",
+        ".ttf", ".otf", ".woff", ".woff2", ".eot",
+        ".db", ".sqlite", ".sqlite3", ".pyc", ".wasm"
+    };
+
+    /// <summary>逐层枚举，遇到构建产物目录整棵剪掉——比枚举后再过滤快得多。</summary>
+    private static IEnumerable<string> EnumerateSearchableFiles(
+        string root, IReadOnlyList<string> filePatterns, bool recursive, bool includeGenerated)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+
+            string[] files;
+            try
+            {
+                files = filePatterns.Count == 0
+                    ? Directory.GetFiles(current)
+                    : filePatterns.SelectMany(p => Directory.GetFiles(current, p)).Distinct().OrderBy(p => p, StringComparer.Ordinal).ToArray();
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                continue;
+            }
+
+            foreach (var file in files) yield return file;
+
+            if (!recursive) yield break;
+
+            string[] directories;
+            try
+            {
+                directories = Directory.GetDirectories(current);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                continue;
+            }
+
+            // 逆序入栈，让弹出顺序与目录名字典序一致，结果稳定可复现。
+            foreach (var directory in directories.OrderByDescending(p => p, StringComparer.Ordinal))
+            {
+                var name = Path.GetFileName(directory);
+                if (!includeGenerated && GeneratedDirectoryNames.Contains(name)) continue;
+                stack.Push(directory);
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> SplitFilePatterns(string? filePattern)
+    {
+        if (string.IsNullOrWhiteSpace(filePattern)) return Array.Empty<string>();
+        return filePattern
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>读首 4 KB 探 NUL 字节判定二进制（UTF-16 文本除外）。调用前路径必须已过安全校验。</summary>
+    private static async Task<bool> HasBinaryContentAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
+            var buffer = new byte[4096];
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            if (read == 0) return false;
+
+            // UTF-16 BOM：正文里 NUL 字节是正常的，按文本处理。
+            if (read >= 2 && ((buffer[0] == 0xFF && buffer[1] == 0xFE) || (buffer[0] == 0xFE && buffer[1] == 0xFF)))
+                return false;
+
+            for (int i = 0; i < read; i++)
+            {
+                if (buffer[i] == 0) return true;
+            }
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     public async Task<DocumentOutline> GetDocumentOutlineAsync(string absolutePath)

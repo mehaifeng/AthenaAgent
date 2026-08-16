@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.Skills;
@@ -16,7 +17,7 @@ namespace Athena.UI.Services.Functions;
 /// </summary>
 public class FunctionRegistry : IFunctionRegistry
 {
-    private readonly Dictionary<string, Func<string, Task<FunctionResult>>> _executors = new();
+    private readonly Dictionary<string, Func<JsonElement, Task<FunctionResult>>> _executors = new();
     private readonly Dictionary<string, JsonElement> _schemas = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ChatTool> _tools = new();
     private readonly ILogger _logger;
@@ -267,7 +268,9 @@ public class FunctionRegistry : IFunctionRegistry
         RegisterFunction("execute_terminal_command", cliFunctions.ExecuteTerminalCommandAsync,
             $"Executes one process or shell on the current OS ({(OperatingSystem.IsWindows() ? "Windows — use powershell/pwsh for shell built-ins" : "POSIX — use zsh/bash")}). " +
             "Pass only the executable name or path in 'command'; put every flag, path, URL, or shell expression in 'arguments'. " +
-            "Use dedicated file tools for ordinary file reads, writes, listings, moves, copies, and deletion. " +
+            "Commands that duplicate a dedicated tool are refused with the tool to use instead: ls/dir, cat/type/less/more, " +
+            "grep/findstr/rg, cp/mv, mkdir and rm/del all have first-class equivalents that page their output and stay inside " +
+            "the context budget. Composite work (pipes, redirection, several commands) still belongs here — run it through a shell. " +
             "AVOID commands that require interactive input (password prompts, y/N confirmations, sudo) — they will hang until the timeout is reached since this tool cannot supply terminal input.",
             new
             {
@@ -467,26 +470,29 @@ public class FunctionRegistry : IFunctionRegistry
 
         // --- Document Parsing (MinerU) ---
         RegisterFunction("parse_office_document", documentParserFunctions.ParseOfficeDocumentAsync,
-            "Uploads one supported local document (.pdf, .doc/.docx, .ppt/.pptx, .xls/.xlsx) to the configured MinerU service and returns Markdown. Use read_system_file for text/code and get_document_outline when structure alone is sufficient. AgentLightweight is limited to 10 MB; Precision to 200 MB. Requires Document Parsing to be enabled and is approval-gated because content leaves the device.",
+            "Uploads one supported local document (.pdf, .doc/.docx, .ppt/.pptx, .xls/.xlsx) to the configured MinerU service and returns Markdown. For anything longer than a few pages pass outputPath so the Markdown is written to a file and only a heading map comes back — a whole book returned inline would consume the entire context window. Use read_system_file for text/code and get_document_outline when structure alone is sufficient. AgentLightweight is limited to 10 MB; Precision to 200 MB. Requires Document Parsing to be enabled and is approval-gated because content leaves the device.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.([pP][dD][fF]|[dD][oO][cC][xX]?|[pP][pP][tT][xX]?|[xX][lL][sS][xX]?)$", description = "Absolute or relative path to a supported document. The file-system security policy is enforced before upload." }
+                    path = new { type = "string", minLength = 1, maxLength = 4096, pattern = "\\.([pP][dD][fF]|[dD][oO][cC][xX]?|[pP][pP][tT][xX]?|[xX][lL][sS][xX]?)$", description = "Absolute or relative path to a supported document. The file-system security policy is enforced before upload." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Optional .md destination. When supplied the Markdown is written there and the result carries only a heading map with line numbers, which you then read selectively." }
                 },
                 required = new[] { "path" }
             });
 
         // --- Self-Configuration ---
         RegisterFunction("modify_self_configuration", configFunctions.ModifyAppConfig,
-            "Changes one supported application setting after the user explicitly requests it. Read the relevant configuration section first. The key enum is the authoritative writable surface; values are strings parsed according to that key's declared type and range. Changes persist, apply to live services, and are approval-gated.",
+            "Changes one supported application setting after the user explicitly requests it. Call view_self_configuration first — it lists the exact writable keys for each section, and an unknown key here is rejected with the valid options. Values are strings parsed according to that key's declared type and range. Changes persist, apply to live services, and are approval-gated.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    key = new { type = "string", @enum = configFunctions.ModifiableKeys, description = "Exact writable configuration key." },
+                    // 此处曾内联全部 ~60 个可写键的 enum（约 1500 字符），每一轮都发，
+                    // 而改配置是极低频操作；权威校验本来就在 ConfigSurface.Apply，enum 只是冗余的第二道。
+                    key = new { type = "string", minLength = 1, maxLength = 200, description = "Exact writable configuration key such as 'Security.MaxToolResultChars'. view_self_configuration lists them per section." },
                     value = new { type = "string", minLength = 0, maxLength = 32000, description = "Typed value encoded as text: boolean true/false; integer/number invariant decimal; enum name; nullable number or empty string to clear; string list as a JSON string array or comma-separated values." }
                 },
                 required = new[] { "key", "value" }
@@ -525,6 +531,25 @@ public class FunctionRegistry : IFunctionRegistry
                     pattern = new { type = "string", minLength = 1, maxLength = 2000, description = "Case-insensitive .NET regular expression. Escape regex metacharacters for a literal search." },
                     contextLines = new { type = "integer", minimum = 0, maximum = 50, description = "Context lines on each side.", @default = 3 },
                     maxMatches = new { type = "integer", minimum = 1, maximum = 100, description = "Maximum returned matches; totalMatches still reports all matches.", @default = 10 }
+                },
+                required = new[] { "path", "pattern" }
+            });
+
+        RegisterFunction("search_in_directory", fileSystemFunctions.SearchInDirectoryAsync,
+            "Searches every text file under a directory and returns matches grouped by file. Use this FIRST to locate a symbol, string, or config key anywhere in a project — it replaces listing a tree and then calling search_in_file once per file. Build outputs and dependency folders (bin, obj, node_modules, .git, dist, target, __pycache__, venv) and binary files are skipped automatically. Results are bounded by maxMatchesPerFile and maxTotalMatches; when 'truncated' is true, narrow filePattern or the pattern itself instead of re-running the same search.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    path = new { type = "string", minLength = 1, maxLength = 4096, description = "Directory to search." },
+                    pattern = new { type = "string", minLength = 1, maxLength = 2000, description = "Case-insensitive .NET regular expression matched per line. Escape regex metacharacters for a literal search. Keep it simple: the engine aborts a line after 2 seconds." },
+                    filePattern = new { type = "string", minLength = 1, maxLength = 512, description = "Comma-separated filename wildcards such as '*.cs' or '*.cs,*.axaml'. Omit to search every text file. Narrowing this is the cheapest way to speed up a search." },
+                    recursive = new { type = "boolean", @default = true, description = "Descend into subdirectories." },
+                    contextLines = new { type = "integer", minimum = 0, maximum = 20, @default = 2, description = "Context lines on each side of a match." },
+                    maxMatchesPerFile = new { type = "integer", minimum = 1, maximum = 50, @default = 5, description = "Returned matches per file; each file still reports its true totalMatches." },
+                    maxTotalMatches = new { type = "integer", minimum = 1, maximum = 500, @default = 100, description = "Stop once this many matches have been collected across all files." },
+                    includeGeneratedDirectories = new { type = "boolean", @default = false, description = "Also search build output and dependency directories. Leave false unless the target genuinely lives there." }
                 },
                 required = new[] { "path", "pattern" }
             });
@@ -664,7 +689,7 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("create_directory", fileSystemFunctions.CreateDirectoryAsync,
-            "Creates a new directory at the specified path. If the parent directories do not exist, they will be created as well.",
+            "Creates a directory, including any missing parents. Idempotent: succeeding on a path that already exists is a no-op, and the result reports whether anything was created. There is never a reason to call it twice with the same path.",
             new
             {
                 type = "object",
@@ -855,12 +880,12 @@ public class FunctionRegistry : IFunctionRegistry
         _tools.Add(tool);
         _schemas[name] = normalizedSchema;
 
-        _executors[name] = async (argsJson) =>
+        // 形参接收 ExecuteAsync 已经解析好的 JsonElement：同一份 arguments 此前被解析两次
+        // （闸门一次、执行一次），大 payload 上是纯粹的重复开销。
+        _executors[name] = async (args) =>
         {
             try
             {
-                var args = JsonSerializer.Deserialize<JsonElement>(argsJson);
-
                 // 归一化参数名（去下划线 + 小写），容忍模型输出 snake_case / 大小写差异，
                 // 避免与 C# camelCase 形参对不上时静默丢参回落默认值。
                 var propMap = new Dictionary<string, JsonElement>();
@@ -905,10 +930,8 @@ public class FunctionRegistry : IFunctionRegistry
             catch (JsonException jsonEx)
             {
                 _logger.Warning("LLM provided invalid JSON for function {FunctionName}. Error: {Message}", name, jsonEx.Message);
-                var hint = string.Equals(name, "mcp_add_server", StringComparison.OrdinalIgnoreCase)
-                    ? " Your arguments may be truncated. Try mcp_import_json instead — pass the entire MCP config as a single JSON string to avoid nested object issues."
-                    : "";
-                return FunctionResult.FailureResult($"Invalid JSON format in arguments: {jsonEx.Message}. Please ensure you output valid JSON.{hint}");
+                return FunctionResult.FailureResult(
+                    $"Invalid JSON format in arguments: {jsonEx.Message}. Please ensure you output valid JSON.{TruncationHint(name)}");
             }
             catch (Exception ex)
             {
@@ -920,12 +943,28 @@ public class FunctionRegistry : IFunctionRegistry
         _logger.Debug("Registered function: {Name}", name);
     }
 
-    public IEnumerable<object> GetToolDefinitions() => FilterTools(_tools);
+    /// <summary>
+    /// mcp_add_server 的嵌套对象参数最容易在生成中途被截断。这条提示原先只挂在执行阶段的
+    /// catch 上，而载荷被截断时顶层解析就已经失败，提示根本到不了模型手里——现在两处都带上。
+    /// </summary>
+    private static string TruncationHint(string functionName) =>
+        string.Equals(functionName, "mcp_add_server", StringComparison.OrdinalIgnoreCase)
+            ? " Your arguments may be truncated. Try mcp_import_json instead — pass the entire MCP config as a single JSON string to avoid nested object issues."
+            : string.Empty;
 
+    public IEnumerable<object> GetToolDefinitions(bool includeOfficeTools = false)
+        => FilterTools(_tools, includeOfficeTools);
+
+    /// <summary>
+    /// 按名单取工具（子代理预设、知识库维护）。名单是调用方明确挑好的，
+    /// 不再过 Office 闸门——闸门的目的是压缩主对话的初始工具面，不是限制能力。
+    /// </summary>
     public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames)
     {
         var nameSet = new HashSet<string>(toolNames, StringComparer.OrdinalIgnoreCase);
-        return FilterTools(_tools.Where(t => t is ChatTool chatTool && nameSet.Contains(chatTool.FunctionName)));
+        return FilterTools(
+            _tools.Where(t => t is ChatTool chatTool && nameSet.Contains(chatTool.FunctionName)),
+            includeOfficeTools: true);
     }
 
     public async Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
@@ -945,7 +984,8 @@ public class FunctionRegistry : IFunctionRegistry
         catch (JsonException ex)
         {
             return FunctionResult.FailureResult(
-                $"Invalid JSON arguments: {JsonPayloadDiagnostics.Explain(ex, ("arguments", argumentsJson))}");
+                $"Invalid JSON arguments: {JsonPayloadDiagnostics.Explain(ex, ("arguments", argumentsJson))}"
+                + TruncationHint(functionName));
         }
 
         if (arguments.ValueKind != JsonValueKind.Object)
@@ -974,9 +1014,9 @@ public class FunctionRegistry : IFunctionRegistry
 
         try
         {
-            var result = await executor(argumentsJson);
+            var result = await executor(arguments);
             _logger.Information("Function {FunctionName} execution status: {Success}", functionName, result.Success);
-            return result;
+            return ApplyResultBudget(functionName, result);
         }
         catch (Exception ex)
         {
@@ -985,11 +1025,33 @@ public class FunctionRegistry : IFunctionRegistry
         }
     }
 
-    // 工具集在进程内固定，估算结果只取决于 FilterTools 的配置开关；按开关组合缓存序列化结果
-    private int _cachedToolDeclarationTokens = -1;
-    private (bool ImageGen, bool WebSearch, bool Browser, bool SubAgents, bool DocParser, bool Mcp, bool Skills) _toolTokenCacheKey;
+    /// <summary>
+    /// —— 结果体量闸门（唯一 chokepoint）——
+    /// 与审批闸门同处一点：主对话 / 子代理 / 知识库维护三条路径都经 ExecuteAsync 拿结果，
+    /// 因此没有工具能绕过预算。截断只在超预算时发生，常规调用零开销。
+    /// </summary>
+    private FunctionResult ApplyResultBudget(string functionName, FunctionResult result)
+    {
+        var budget = _configService?.Load().MaxToolResultChars ?? 0;
+        if (budget <= 0) return result;
 
-    public int GetToolDeclarationTokenCount()
+        var raw = result.SerializeRaw();
+        var outcome = ToolResultTruncator.Apply(raw, budget);
+        if (!outcome.Truncated) return result;
+
+        result.BudgetedJson = outcome.Json;
+        _logger.Warning(
+            "Tool {FunctionName} result exceeded the context budget and was compressed: {Original} -> {Final} chars (budget {Budget})",
+            functionName, raw.Length, outcome.Json.Length, budget);
+        return result;
+    }
+
+    // 工具集在进程内固定，估算结果只取决于 FilterTools 的开关组合，故按组合缓存。
+    // 必须是字典而非单槽：Office 是否携带由对话内容决定，两个调用点可能给出不同答案，
+    // 单槽会在两个取值间来回失效，每次都要重新序列化全部 49 份 schema。
+    private readonly Dictionary<(bool, bool, bool, bool, bool, bool, bool, bool), int> _toolTokenCache = new();
+
+    public int GetToolDeclarationTokenCount(bool includeOfficeTools = false)
     {
         var config = _configService?.Load();
         var key = (
@@ -999,35 +1061,48 @@ public class FunctionRegistry : IFunctionRegistry
             config?.EnableSubAgents == true,
             config?.DocumentParserEnabled == true,
             config?.EnableMcp == true,
-            config?.EnableSkills == true);
+            config?.EnableSkills == true,
+            includeOfficeTools);
 
-        if (_cachedToolDeclarationTokens >= 0 && key == _toolTokenCacheKey)
+        if (_toolTokenCache.TryGetValue(key, out var cached))
         {
-            return _cachedToolDeclarationTokens;
+            return cached;
         }
 
         int totalTokens = 0;
-        foreach (var tool in FilterTools(_tools).OfType<ChatTool>())
+        foreach (var tool in FilterTools(_tools, includeOfficeTools).OfType<ChatTool>())
         {
             // 序列化 JSON Schema 后按启发式规则估 token，用于上下文占用兜底估算
             string serializedTool = JsonSerializer.Serialize(tool, new JsonSerializerOptions { WriteIndented = false });
             totalTokens += Models.ConversationContext.EstimateTokens(serializedTool);
         }
 
-        _toolTokenCacheKey = key;
-        _cachedToolDeclarationTokens = totalTokens;
-        _logger.Debug("Calculated total tool declaration tokens: {Tokens}", totalTokens);
+        _toolTokenCache[key] = totalTokens;
+        _logger.Debug("Calculated total tool declaration tokens: {Tokens} (office={Office})", totalTokens, includeOfficeTools);
         return totalTokens;
     }
 
-    private IEnumerable<object> FilterTools(IEnumerable<object> tools)
+    private IEnumerable<object> FilterTools(IEnumerable<object> tools, bool includeOfficeTools)
     {
         var config = _configService?.Load();
+
+        // Office 工具集按需披露：15 个工具的声明约占工具列表 35% 的体量，而多数会话
+        // 从不碰 Office 文件。是否携带由调用方在构建请求快照时判定（OfficeToolRelevance），
+        // 而不是由模型在回合中途"解锁"——工具列表随快照一次性绑定，回合内不再重建。
+        var officeMode = config?.OfficeToolsMode ?? OfficeToolsMode.Auto;
+        var officeVisible = officeMode != OfficeToolsMode.Off
+            && (officeMode == OfficeToolsMode.Always || includeOfficeTools);
+
         foreach (var tool in tools)
         {
             if (tool is not ChatTool chatTool)
             {
                 yield return tool;
+                continue;
+            }
+
+            if (!officeVisible && OfficeToolNames.All.Contains(chatTool.FunctionName))
+            {
                 continue;
             }
 

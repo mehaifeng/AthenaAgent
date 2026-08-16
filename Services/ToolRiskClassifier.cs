@@ -15,14 +15,16 @@ public static class ToolRiskClassifier
     // 只读 / 无副作用：均衡模式下自动放行。
     private static readonly HashSet<string> ReadOnlyTools = new(StringComparer.OrdinalIgnoreCase)
     {
-        "read_system_file", "get_file_info", "search_in_file", "list_system_directory",
+        "read_system_file", "get_file_info", "search_in_file", "search_in_directory", "list_system_directory",
         "get_document_outline", "recall_from_memory", "view_self_configuration",
         "web_search", "list_tasks",
         // 表格/文档/演示只读：解析本地 OOXML 包，不落盘、不外发。
         "inspect_spreadsheet", "validate_spreadsheet", "inspect_document", "validate_document",
         "inspect_presentation", "validate_presentation",
         // MCP 元工具：仅返回快照/schema，无副作用。真正的调用 mcp_call_tool 仍走 fail-safe Sensitive。
-        "mcp_list_tools", "mcp_get_tool_schema", "activate_skill", "read_skill_resource"
+        "mcp_list_tools", "mcp_get_tool_schema", "activate_skill", "read_skill_resource",
+        // Office 工具集解锁：只是把工具声明与格式规范放进本次对话，本身不碰任何文件。
+        "enable_office_tools"
     };
 
     // 破坏性且不可逆：始终高危对待（终端命令单独走命令级评估）。
@@ -31,18 +33,43 @@ public static class ToolRiskClassifier
         "delete_system_file"
     };
 
+    // 只增不改：写入路径必须尚不存在（OoxmlPackageService.EnsureCanWrite 强制），
+    // 且 edit/convert 类始终写到与源不同的新路径、源文件原样保留。
+    // 这类调用毁不掉任何既有内容，而用户往往刚说完「帮我做份 PPT」——
+    // 一次 create → validate → inspect → edit → validate 却要弹 3~5 次框，
+    // 打断成本远高于它提供的边际安全。均衡模式放行，严格模式仍逐次询问。
+    // 注意：overwrite=true 会让它们变成可替换既有文件，届时降级失效（见 IsAdditiveWrite）。
+    private static readonly HashSet<string> AdditiveWriteTools = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "create_spreadsheet", "edit_spreadsheet", "modify_spreadsheet_structure", "convert_spreadsheet",
+        "create_document", "edit_document", "convert_document",
+        "create_presentation", "edit_presentation",
+        "create_directory"
+    };
+
+    // 无人值守路径（子代理）永不继承的工具：它们改的是应用自身的能力边界。
+    // 尤其 modify_self_configuration 能写 Security.ToolApprovalMode——
+    // 一旦被子代理调用，等于让后台例程自己关掉审批闸门，是一条实打实的提权路径。
+    private static readonly HashSet<string> NeverUnattendedTools = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "modify_self_configuration",
+        "mcp_add_server", "mcp_remove_server", "mcp_import_json"
+    };
+
+    /// <summary>无人值守路径是否绝不允许该工具，无论 SubAgentsInheritApproval 如何设置。</summary>
+    public static bool IsNeverUnattended(string functionName) =>
+        !string.IsNullOrEmpty(functionName) && NeverUnattendedTools.Contains(functionName);
+
     // 写本地状态 / 外部副作用 / 花钱：默认每次询问。
     private static readonly HashSet<string> SensitiveTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "write_system_file", "modify_system_file", "move_system_file", "copy_system_file",
-        "create_directory", "create_new_memory", "modify_self_configuration",
+        "create_new_memory", "modify_self_configuration",
         "run_browser_task", "generate_image", "create_task", "cancel_task",
         "parse_office_document", "dispatch_subagents",
-        // 表格/文档写入：均写到新路径且不改源文件，但仍是落盘操作。
-        "create_spreadsheet", "edit_spreadsheet", "modify_spreadsheet_structure", "convert_spreadsheet",
-        "create_document", "edit_document", "convert_document",
-        "create_presentation", "edit_presentation",
         // 单次 GET 落盘：能力上界被工具本身锁死（公网地址、非可执行、限额），但仍是写盘 + 出网。
+        // 保持敏感档——外网内容进入工作区是真实的信任边界；但审批键按 host 聚合，
+        // 放行一次 example.com 即覆盖同批次的其余下载，不会一张图一次弹窗。
         "fetch_url_to_file",
         // MCP：调用外部工具、增删外部服务器均需人工确认（新增=授权拉起外部子进程）。
         "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json"
@@ -72,10 +99,45 @@ public static class ToolRiskClassifier
 
         if (ReadOnlyTools.Contains(functionName)) return (ToolRisk.ReadOnly, null);
         if (DestructiveTools.Contains(functionName)) return (ToolRisk.Destructive, "该操作不可逆");
+
+        // overwrite=true 时这些工具可以替换既有文件，「只增不改」的前提消失，回落到敏感档。
+        if (AdditiveWriteTools.Contains(functionName))
+        {
+            return IsAdditiveWrite(argumentsJson)
+                ? (ToolRisk.AdditiveWrite, null)
+                : (ToolRisk.Sensitive, "overwrite=true 会替换已存在的文件");
+        }
+
         if (SensitiveTools.Contains(functionName)) return (ToolRisk.Sensitive, null);
 
         // 未登记工具：fail-safe 归为敏感，默认需审批。
         return (ToolRisk.Sensitive, "未分级的工具，出于安全默认需要审批");
+    }
+
+    /// <summary>
+    /// 参数是否保持了「只增不改」：没有显式 overwrite=true。
+    /// 参数不可解析时保守判否——宁可多问一次，也不要在看不懂参数时降档。
+    /// </summary>
+    private static bool IsAdditiveWrite(string? argumentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argumentsJson)) return true;
+        try
+        {
+            if (JsonNode.Parse(argumentsJson) is not JsonObject obj) return false;
+            foreach (var pair in obj)
+            {
+                if (!string.Equals(pair.Key.Replace("_", string.Empty), "overwrite", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // 模型可能给 true / "true" 两种形态，两者都要当成覆盖。
+                var raw = pair.Value?.ToString();
+                return !string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool OutlineRequiresRemoteUpload(string? argumentsJson)
@@ -144,6 +206,29 @@ public static class TerminalCommandRisk
         (new Regex(@"\bmkfs\b|\bdd\s+if=", RegexOptions.IgnoreCase), "磁盘级写入，可能抹除数据"),
     };
 
+    /// <summary>把命令藏进参数的解释器。它们的 -c/-Command 载荷需要再判一次。</summary>
+    private static readonly HashSet<string> ShellExecutables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
+        "powershell", "pwsh", "cmd"
+    };
+
+    /// <summary>取 shell 载荷里的首个命令名。分隔符两侧都看不到命令时返回空串。</summary>
+    private static string ExtractShellPayloadCommand(string commandLine)
+    {
+        // 跳过解释器自身与它的开关（-c / -Command / /c / -NoProfile …），
+        // 第一个不以 - 或 / 开头的词就是载荷的起点。
+        var tokens = commandLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 1; i < tokens.Length; i++)
+        {
+            var token = tokens[i].Trim('"', '\'');
+            if (token.Length == 0) continue;
+            if (token[0] == '-' || token[0] == '/') continue;
+            return token;
+        }
+        return string.Empty;
+    }
+
     public static (ToolRisk Risk, string? Reason) Evaluate(string? argumentsJson)
     {
         var (command, commandLine) = Parse(argumentsJson);
@@ -161,6 +246,19 @@ public static class TerminalCommandRisk
         if (!string.IsNullOrEmpty(command))
         {
             var bare = StripPath(command);
+
+            // shell -c "<payload>" 会把真实命令藏在参数里：顶层命令名是 zsh/bash/cmd，
+            // 而 DangerPatterns 只抓带标志的写法，于是 `zsh -c "rm notes.txt"` 会从
+            // 破坏性降到敏感档。这里把 payload 的首个命令再判一次，堵掉这条降档路径。
+            if (ShellExecutables.Contains(bare))
+            {
+                var payloadCommand = StripPath(ExtractShellPayloadCommand(commandLine));
+                if (!string.IsNullOrEmpty(payloadCommand) && DestructiveCommands.Contains(payloadCommand))
+                {
+                    return (ToolRisk.Destructive, $"shell 参数里的命令 '{payloadCommand}' 属高危操作");
+                }
+            }
+
             if (DestructiveCommands.Contains(bare))
             {
                 return (ToolRisk.Destructive, $"命令 '{bare}' 属高危操作");

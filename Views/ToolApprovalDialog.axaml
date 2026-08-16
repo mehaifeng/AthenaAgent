@@ -37,6 +37,15 @@
                 <SelectableTextBlock Text="{Binding CommandLine}" TextWrapping="Wrap"
                            FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Subheading}"
                            IsVisible="{Binding IsTerminal}"/>
+                <!-- 「本会话 / 始终」放行的作用域：命令名、主机名或目标目录，而不是整个工具 -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasApprovalScope}">
+                    <TextBlock Text="{loc:Loc Dialog.ToolApproval.ScopeLabel}"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center"/>
+                    <SelectableTextBlock Text="{Binding ApprovalScope}" TextWrapping="Wrap"
+                               FontFamily="Consolas, Menlo, monospace" FontSize="{DynamicResource App.FontSize.Body}"
+                               Foreground="{DynamicResource SemiColorText1}" VerticalAlignment="Center"/>
+                </StackPanel>
             </StackPanel>
         </Border>
 

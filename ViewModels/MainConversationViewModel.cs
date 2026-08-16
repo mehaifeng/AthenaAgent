@@ -950,7 +950,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         => string.Join('|',
             config.EnableMcp,
             config.EnableSkills,
-            _functionRegistry?.GetToolDeclarationTokenCount() ?? 0,
+            _functionRegistry?.GetToolDeclarationTokenCount(
+                Athena.UI.Services.OfficeToolRelevance.IsRelevant(_currentContext)) ?? 0,
             _promptService?.GetPrompt(PromptType.MainPersona).GetHashCode(StringComparison.Ordinal) ?? 0);
 
     private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -2859,8 +2860,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
 
         _currentContext.SetMainPersona(systemPrompt);
+        // 估算必须与实际下发的工具集一致：Office 工具是否携带由同一判据决定，
+        // 否则非 Office 会话会被虚报出一份并不存在的声明开销。
         _currentContext.ToolsDeclarationTokenCount = functionCallingEnabled
-            ? _functionRegistry.GetToolDeclarationTokenCount()
+            ? _functionRegistry.GetToolDeclarationTokenCount(
+                Athena.UI.Services.OfficeToolRelevance.IsRelevant(_currentContext))
             : 0;
 
         int estimated = _currentContext.EstimatedTokenCount;
