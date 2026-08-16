@@ -17,6 +17,8 @@ internal static class ToolArgumentSchemaValidator
 {
     private const int MaxErrors = 8;
 
+    private static readonly Regex LookaroundRegex = new(@"\(\?(?:=|!|<=|<!)", RegexOptions.Compiled);
+
     public static JsonElement NormalizeAndClose(object schema)
     {
         var node = JsonSerializer.SerializeToNode(schema)
@@ -48,6 +50,41 @@ internal static class ToolArgumentSchemaValidator
         }
 
         AssertRequiredPropertiesDeclared(toolName, schema, new HashSet<string>(StringComparer.Ordinal), "$");
+        AssertPatternsPortable(toolName, schema, "$");
+    }
+
+    /// <summary>
+    /// Rejects regex lookaround in schema patterns. .NET accepts it, so a lookaround pattern
+    /// looks fine locally and then makes OpenAI and Azure reject the whole tools array with
+    /// "Invalid JSON schema: regex lookaround is not supported" — a 400 that names one property
+    /// but kills every request on those endpoints, including through gateways such as OpenRouter.
+    /// Constraints that need lookaround belong in the tool implementation, not in the wire schema.
+    /// </summary>
+    private static void AssertPatternsPortable(string toolName, JsonElement schema, string path)
+    {
+        switch (schema.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in schema.EnumerateObject())
+                {
+                    if (property.NameEquals("pattern")
+                        && property.Value.ValueKind == JsonValueKind.String
+                        && LookaroundRegex.IsMatch(property.Value.GetString()!))
+                    {
+                        throw new InvalidOperationException(
+                            $"Tool '{toolName}' schema at {path}.pattern uses regex lookaround, "
+                            + "which OpenAI-compatible endpoints reject for the whole tools array.");
+                    }
+
+                    AssertPatternsPortable(toolName, property.Value, $"{path}.{property.Name}");
+                }
+                break;
+            case JsonValueKind.Array:
+                var index = 0;
+                foreach (var item in schema.EnumerateArray())
+                    AssertPatternsPortable(toolName, item, $"{path}[{index++}]");
+                break;
+        }
     }
 
     /// <summary>

@@ -753,7 +753,12 @@ public class FunctionRegistry : IFunctionRegistry
                     properties = new
                     {
                         name = new { type = "string", minLength = 1, maxLength = 200, description = "Exact activated Skill name." },
-                        relativePath = new { type = "string", minLength = 1, maxLength = 1024, pattern = "^(?![A-Za-z]:|[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+", description = "Relative text-resource path within the Skill, for example references/api.md." }
+                        // 不得使用环视：OpenAI / Azure 用不支持 lookaround 的正则引擎校验
+                        // pattern，整个 tools 数组会被 400 invalid_json_schema 顶回来。
+                        // 这里只挡住绝对路径（首字符非分隔符、全串无冒号即排除盘符），
+                        // 「不得越出 Skill 目录」由 SkillCatalogService.ReadResourceAsync 的
+                        // 归一化 + 包含性检查权威裁决。
+                        relativePath = new { type = "string", minLength = 1, maxLength = 1024, pattern = "^[^/\\\\:][^:]*$", description = "Relative text-resource path within the Skill, for example references/api.md." }
                     },
                     required = new[] { "name", "relativePath" }
                 });
