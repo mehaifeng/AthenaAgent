@@ -19,14 +19,22 @@ namespace Athena.UI.Services.Context;
 /// </summary>
 internal sealed class ResponsesCompatibilityHandler(HttpMessageHandler innerHandler) : DelegatingHandler(innerHandler)
 {
+    private const int MaxErrorBodyBytes = 256 * 1024;
+    private const int MaxLoggedBodyChars = 2048;
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.Content == null || !response.IsSuccessStatusCode)
+        if (response.Content == null)
         {
             return response;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return await ExplainErrorAsync(request, response, cancellationToken).ConfigureAwait(false);
         }
 
         var mediaType = response.Content.Headers.ContentType?.MediaType;
@@ -59,6 +67,57 @@ internal sealed class ResponsesCompatibilityHandler(HttpMessageHandler innerHand
         return response;
     }
 
+    /// <summary>
+    /// Gateways relay the upstream rejection reason in a nested field and put only their own
+    /// wrapper text in error.message, so the SDK exception reads "HTTP 400 (: ) Provider returned
+    /// error" and the actual cause never reaches the log or the chat bubble. The reason is folded
+    /// into error.message here, before the SDK builds its exception from the body.
+    /// </summary>
+    private static async Task<HttpResponseMessage> ExplainErrorAsync(
+        HttpRequestMessage request,
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        var isJson = string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase)
+                     || mediaType?.EndsWith("+json", StringComparison.OrdinalIgnoreCase) == true;
+        if (!isJson)
+        {
+            return response;
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException)
+        {
+            // The body is the only thing lost here; the status still reaches the SDK.
+            Log.Warning(ex, "Unable to read the error body of a failed Responses request");
+            return response;
+        }
+
+        if (bytes.Length == 0 || bytes.Length > MaxErrorBodyBytes)
+        {
+            return response;
+        }
+
+        var explained = GatewayErrorExplainer.Explain(bytes, out var summary);
+        Log.Warning(
+            "Responses request to {Uri} failed with HTTP {Status}: {Detail}",
+            request.RequestUri,
+            (int)response.StatusCode,
+            summary ?? Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, MaxLoggedBodyChars)));
+
+        var original = response.Content;
+        var replacement = new ByteArrayContent(explained);
+        CopyContentHeaders(original, replacement);
+        response.Content = replacement;
+        original.Dispose();
+        return response;
+    }
+
     private static void CopyContentHeaders(HttpContent source, HttpContent target)
     {
         foreach (var header in source.Headers)
@@ -71,6 +130,89 @@ internal sealed class ResponsesCompatibilityHandler(HttpMessageHandler innerHand
             target.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
     }
+}
+
+/// <summary>
+/// Folds a gateway's nested upstream error into the OpenAI error shape the SDK understands.
+/// Endpoint-agnostic: a body without a recognizable wrapper is returned byte-for-byte.
+/// </summary>
+internal static class GatewayErrorExplainer
+{
+    private const int MaxUpstreamMessageChars = 1500;
+
+    public static byte[] Explain(ReadOnlySpan<byte> utf8Json, out string? summary)
+    {
+        summary = null;
+        JsonNode? root;
+        try
+        {
+            root = JsonNode.Parse(utf8Json);
+        }
+        catch (JsonException)
+        {
+            return utf8Json.ToArray();
+        }
+
+        if (root is not JsonObject body || body["error"] is not JsonObject error)
+        {
+            return utf8Json.ToArray();
+        }
+
+        var wrapperMessage = AsText(error["message"]);
+        var metadata = error["metadata"] as JsonObject;
+        var provider = AsText(metadata?["provider_name"]);
+        var upstream = ParseUpstream(AsText(metadata?["raw"]));
+
+        var detail = upstream.Message ?? AsText(metadata?["raw"]);
+        if (string.IsNullOrWhiteSpace(detail) && string.IsNullOrWhiteSpace(provider))
+        {
+            summary = wrapperMessage;
+            return utf8Json.ToArray();
+        }
+
+        var builder = new StringBuilder(wrapperMessage ?? "Provider request failed.");
+        builder.Append(" | upstream");
+        if (!string.IsNullOrWhiteSpace(provider)) builder.Append(' ').Append(provider);
+        if (!string.IsNullOrWhiteSpace(detail)) builder.Append(": ").Append(Truncate(detail!));
+        if (!string.IsNullOrWhiteSpace(upstream.Param)) builder.Append(" (param: ").Append(upstream.Param).Append(')');
+
+        summary = builder.ToString();
+        error["message"] = summary;
+        // The wrapper's own code is often numeric, which is what leaves the SDK message reading
+        // "HTTP 400 (: )"; the upstream strings are both parseable and diagnostic.
+        if (!string.IsNullOrWhiteSpace(upstream.Code)) error["code"] = upstream.Code;
+        if (!string.IsNullOrWhiteSpace(upstream.Type)) error["type"] = upstream.Type;
+        return JsonSerializer.SerializeToUtf8Bytes(body);
+    }
+
+    private static (string? Message, string? Type, string? Code, string? Param) ParseUpstream(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return (null, null, null, null);
+        try
+        {
+            if (JsonNode.Parse(raw) is JsonObject parsed && parsed["error"] is JsonObject upstreamError)
+            {
+                return (
+                    AsText(upstreamError["message"]),
+                    AsText(upstreamError["type"]),
+                    AsText(upstreamError["code"]),
+                    AsText(upstreamError["param"]));
+            }
+        }
+        catch (JsonException)
+        {
+            // Not every gateway nests JSON in "raw"; the plain text is used as-is.
+        }
+        return (null, null, null, null);
+    }
+
+    private static string? AsText(JsonNode? node)
+        => node is JsonValue value
+            ? value.TryGetValue<string>(out var text) ? text : value.ToString()
+            : null;
+
+    private static string Truncate(string value)
+        => value.Length <= MaxUpstreamMessageChars ? value : value[..MaxUpstreamMessageChars] + "…";
 }
 
 internal static class ResponsesPayloadNormalizer
