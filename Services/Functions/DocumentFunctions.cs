@@ -67,7 +67,7 @@ public sealed class DocumentFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Document creation failed for {Path}", outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Document creation failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult($"Document creation failed: {JsonPayloadDiagnostics.Explain(ex, ("documentJson", documentJson))}"));
         }
     }
 
@@ -84,7 +84,7 @@ public sealed class DocumentFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Document edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Document edit failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult($"Document edit failed: {JsonPayloadDiagnostics.Explain(ex, ("operationsJson", operationsJson))}"));
         }
     }
 

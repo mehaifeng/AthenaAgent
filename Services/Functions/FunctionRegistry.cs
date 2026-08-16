@@ -944,7 +944,8 @@ public class FunctionRegistry : IFunctionRegistry
         }
         catch (JsonException ex)
         {
-            return FunctionResult.FailureResult($"Invalid JSON arguments: {ex.Message}");
+            return FunctionResult.FailureResult(
+                $"Invalid JSON arguments: {JsonPayloadDiagnostics.Explain(ex, ("arguments", argumentsJson))}");
         }
 
         if (arguments.ValueKind != JsonValueKind.Object)

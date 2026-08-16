@@ -68,7 +68,7 @@ public sealed class SpreadsheetFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Spreadsheet creation failed for {Path}", outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet creation failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet creation failed: {JsonPayloadDiagnostics.Explain(ex, ("workbookJson", workbookJson))}"));
         }
     }
 
@@ -90,7 +90,7 @@ public sealed class SpreadsheetFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Spreadsheet edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet edit failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet edit failed: {JsonPayloadDiagnostics.Explain(ex, ("updatesJson", updatesJson))}"));
         }
     }
 
@@ -107,7 +107,7 @@ public sealed class SpreadsheetFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Spreadsheet structure edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet structure edit failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult($"Spreadsheet structure edit failed: {JsonPayloadDiagnostics.Explain(ex, ("operationsJson", operationsJson))}"));
         }
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -46,8 +47,30 @@ public sealed class PresentationFunctions
         {
             var estimate = Math.Max(Encoding.UTF8.GetByteCount(presentationJson) * 4L, 256 * 1024L);
             var fullOutputPath = _fileSystemService.GetAbsoluteSecureWritePath(outputPath, estimate);
-            var securedJson = ResolveEmbeddedImagePaths(presentationJson);
-            var data = _pptx.Create(fullOutputPath, securedJson, overwrite);
+
+            // 所有 O(1) 前置条件先于载荷解析，并且攒齐一次报全。任一条单独失败都要模型重发上万
+            // 字符的 presentationJson；更糟的是「文件已存在」若排在 JSON 解析之后，一个语法错误
+            // 就能把它整个遮住——模型下一轮才撞见冲突，于是学会无差别补 overwrite=true，把这道
+            // 防覆盖闸门磨成了摆设。
+            var problems = new List<string>();
+            if (File.Exists(fullOutputPath) && !overwrite)
+                problems.Add("Output file already exists. Set overwrite=true only when replacement is intended.");
+
+            string? securedJson = null;
+            try
+            {
+                securedJson = ResolveEmbeddedImagePaths(presentationJson);
+            }
+            catch (Exception ex)
+            {
+                problems.Add(JsonPayloadDiagnostics.Explain(ex, ("presentationJson", presentationJson)));
+            }
+
+            if (problems.Count > 0)
+                return Task.FromResult(FunctionResult.FailureResult(
+                    "Presentation creation failed: " + string.Join(" | ", problems)));
+
+            var data = _pptx.Create(fullOutputPath, securedJson!, overwrite);
             return Task.FromResult(FunctionResult.SuccessResult("Presentation created successfully.", data));
         }
         catch (Exception ex)
@@ -70,7 +93,8 @@ public sealed class PresentationFunctions
         catch (Exception ex)
         {
             _logger.Warning(ex, "Presentation edit failed from {InputPath} to {OutputPath}", inputPath, outputPath);
-            return Task.FromResult(FunctionResult.FailureResult($"Presentation edit failed: {ex.Message}"));
+            return Task.FromResult(FunctionResult.FailureResult(
+                $"Presentation edit failed: {JsonPayloadDiagnostics.Explain(ex, ("operationsJson", operationsJson))}"));
         }
     }
 
