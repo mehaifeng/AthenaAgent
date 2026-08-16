@@ -32,6 +32,7 @@ public class FunctionRegistry : IFunctionRegistry
         FileSystemFunctions fileSystemFunctions,
         CliFunctions cliFunctions,
         WebSearchFunctions webSearchFunctions,
+        WebFetchFunctions webFetchFunctions,
         ImageGenerationFunctions imageGenerationFunctions,
         BrowserTaskFunctions browserTaskFunctions,
         SubAgentFunctions subAgentFunctions,
@@ -384,6 +385,21 @@ public class FunctionRegistry : IFunctionRegistry
                     maxResults = new { type = "integer", minimum = 1, maximum = 20, description = "Maximum number of results.", @default = 5 }
                 },
                 required = new[] { "query" }
+            });
+
+        RegisterFunction("fetch_url_to_file", webFetchFunctions.FetchUrlToFileAsync,
+            "Downloads one public http/https resource to a file inside the sandbox. Use this whenever a task needs an actual file rather than text — an image to embed in a presentation or document, a dataset to build a spreadsheet from, a PDF to parse — instead of scripting curl or urllib through execute_terminal_command. Performs a single GET: it cannot post, authenticate, execute, or reach private and loopback addresses, and it refuses executable and script formats. Pass the destination extension that matches the resource. If a host answers 429, wait before the next call rather than retrying immediately.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    url = new { type = "string", minLength = 1, maxLength = 4096, description = "Absolute http or https URL of a publicly reachable resource." },
+                    outputPath = new { type = "string", minLength = 1, maxLength = 4096, description = "Destination file path, with the extension the resource actually is (.jpg, .png, .pdf, .csv, .json ...)." },
+                    overwrite = new { type = "boolean", @default = false, description = "Replace an existing file only when explicitly intended." },
+                    timeoutSeconds = new { type = "integer", minimum = 5, maximum = 300, @default = 60, description = "Give large files a longer budget." }
+                },
+                required = new[] { "url", "outputPath" }
             });
 
         RegisterFunction("generate_image", imageGenerationFunctions.GenerateImageAsync,

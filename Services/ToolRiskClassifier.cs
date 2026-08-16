@@ -42,6 +42,8 @@ public static class ToolRiskClassifier
         "create_spreadsheet", "edit_spreadsheet", "modify_spreadsheet_structure", "convert_spreadsheet",
         "create_document", "edit_document", "convert_document",
         "create_presentation", "edit_presentation",
+        // 单次 GET 落盘：能力上界被工具本身锁死（公网地址、非可执行、限额），但仍是写盘 + 出网。
+        "fetch_url_to_file",
         // MCP：调用外部工具、增删外部服务器均需人工确认（新增=授权拉起外部子进程）。
         "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json"
     };

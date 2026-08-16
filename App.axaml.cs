@@ -1065,6 +1065,19 @@ public partial class App : Application, IAsyncDisposable
             return new WebSearchFunctions(webSearchService, logger);
         });
 
+        services.AddSingleton<WebFetchFunctions>(sp =>
+        {
+            // 重定向必须手工跟随（每一跳都要重新做地址校验），因此这里关掉自动跳转；
+            // 超时由工具按调用方给的预算逐次控制，HttpClient 自身不设上限。
+            var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };
+            var client = new System.Net.Http.HttpClient(handler) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+            // 匿名 UA 会被相当多的站点（维基媒体等）直接 403，缺省下载因此常常无谓失败。
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                $"AthenaAgent/{System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0"} (+https://github.com/mehaifeng/AthenaAgent)");
+            return new WebFetchFunctions(
+                sp.GetRequiredService<IFileSystemService>(), client, Log.ForContext<WebFetchFunctions>());
+        });
+
         services.AddSingleton<ImageGenerationFunctions>(sp =>
         {
             var imageGenerationService = sp.GetRequiredService<IImageGenerationService>();
@@ -1199,6 +1212,7 @@ public partial class App : Application, IAsyncDisposable
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
             var cliFunctions = sp.GetRequiredService<CliFunctions>();
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
+            var webFetchFunctions = sp.GetRequiredService<WebFetchFunctions>();
             var imageGenerationFunctions = sp.GetRequiredService<ImageGenerationFunctions>();
             var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
             var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
@@ -1213,7 +1227,7 @@ public partial class App : Application, IAsyncDisposable
             var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
+            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）
