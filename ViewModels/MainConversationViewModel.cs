@@ -310,9 +310,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public string ContextInspectorPolicyText => _effectiveContextPolicy == null
         ? "—"
-        : $"W {_effectiveContextPolicy.Policy.ContextWindowTokens:N0} · R {_effectiveContextPolicy.Policy.OutputReserveTokens:N0} · "
-          + $"S {_effectiveContextPolicy.Policy.SafetyMarginTokens:N0} · B {_effectiveContextPolicy.Policy.AvailableInputBudgetTokens:N0} · "
-          + $"T {_effectiveContextPolicy.Policy.CompressionThresholdTokens:N0}";
+        : _effectiveContextPolicy.Policy.BudgetSummary;
 
     public string ContextInspectorUsageText => _tokenService?.HasVisibleUsage == true
         ? $"{_tokenService.MeasurementKind} · {_tokenService.CurrentTokens:N0} / {_tokenService.MaxTokens:N0}"

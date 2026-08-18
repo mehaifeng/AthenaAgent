@@ -157,7 +157,7 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         _effective = _policyProvider.Resolve(draft)?.Policy;
         EffectivePolicyText = _effective == null
             ? L("Settings.Context.Unconfigured", "Not configured")
-            : $"W {_effective.ContextWindowTokens:N0} · R {_effective.OutputReserveTokens:N0} · S {_effective.SafetyMarginTokens:N0} · B {_effective.AvailableInputBudgetTokens:N0} · T {_effective.CompressionThresholdTokens:N0}";
+            : _effective.BudgetSummary;
         if (_effective == null)
         {
             SourceText = "—";

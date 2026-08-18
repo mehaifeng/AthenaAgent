@@ -97,6 +97,8 @@
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型不支持图像理解，请换用支持视觉的模型后再试。</system:String>
     <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">当前主对话模型无法读取图片，且没有获得可用的图像识别结果，因此无法如实描述图片内容。请配置或检查支持视觉的“图像识别”模型，或切换主对话模型后重试。</system:String>
     <system:String x:Key="Chat.Error.ToolRoundsExhausted">[已用满单次回复的最大工具轮数（{0} 轮），回复在任务中途停下。回复“继续”即可接着往下做；若这类长流程经常被截断，可在“设置 → 执行与并发 → 主对话执行 → 单次回复最大工具轮数”里调高上限。]</system:String>
+    <system:String x:Key="Chat.Error.EmptyReplyTruncated">[回复在正文出现之前就被截断了：输出预算（max_output_tokens）在模型还在思考时就用光，自动重试一次、明确要求它直接作答后仍被截断。上方的思考过程已保留。可以回复“继续”再试一次，或把任务拆成更小的步骤；若反复如此，请降低该模型的推理强度。]</system:String>
+    <system:String x:Key="Chat.Error.EmptyReplyIncomplete">[本轮响应没有正常结束：供应商既没有给出正文，也没有宣告响应完成（可能是内容过滤，或流式连接中途断开）。回复“继续”即可接着往下做。]</system:String>
     <system:String x:Key="Chat.Link.OpenFile">打开文件</system:String>
     <system:String x:Key="Chat.Link.OpenWith">打开方式</system:String>
     <system:String x:Key="Chat.Link.OpenWith.Prompt">选择用于打开此文件的应用程序</system:String>

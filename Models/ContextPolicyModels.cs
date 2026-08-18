@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using System;
 using System.Collections.Generic;
 
 namespace Athena.UI.Models;
@@ -113,7 +114,8 @@ public sealed record ResolvedContextPolicy(
     int SummaryRatio,
     ContextPolicyValueSource ContextWindowSource,
     ContextPolicyValueSource CompressionThresholdSource,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    long MaxOutputCeilingTokens = 0)
 {
     /// <summary>
     /// 单次压缩能吃下的历史上限：摘要长度封顶时，材料最多是它的 <see cref="SummaryRatio"/> 倍。
@@ -121,10 +123,42 @@ public sealed record ResolvedContextPolicy(
     /// </summary>
     public long MaxMaterialPerPassTokens => TargetSummaryTokens * SummaryRatio;
 
+    /// <summary>
+    /// 本次请求发给供应商的 max_output_tokens。
+    ///
+    /// 它和 <see cref="OutputReserveTokens"/> 是两件事，此前被同一个数字兼任，代价是模型在
+    /// 1M 窗口上也只能写 16K：
+    /// - <see cref="OutputReserveTokens"/> 是**预算保留额**——从窗口里划给输出的那一块，必须保守，
+    ///   因为它直接从输入预算里扣（窗口越小越致命），也参与执行身份与校准 profile。
+    /// - 这里返回的是**本次请求的输出上限**——窗口在装下这次输入之后还剩多少，取模型元数据允许的
+    ///   上限与之较小者。留着不用的窗口没有任何意义，不如交给模型。
+    ///
+    /// 下界永远是 <see cref="OutputReserveTokens"/>：输入预算保证了输入不会超过
+    /// <see cref="AvailableInputBudgetTokens"/>，所以余量天然不低于保留额，既有保证一分不少。
+    /// 元数据没给出模型输出上限时（Ceiling=0）退回保留额，即改动前的行为。
+    /// </summary>
+    public long ResolveRequestOutputTokens(long requestInputTokens)
+    {
+        if (MaxOutputCeilingTokens <= 0) return OutputReserveTokens;
+        var headroom = ContextWindowTokens - SafetyMarginTokens - Math.Max(0, requestInputTokens);
+        return Math.Max(OutputReserveTokens, Math.Min(MaxOutputCeilingTokens, headroom));
+    }
+
+    /// <summary>
+    /// 预算摘要（三处诊断面板共用，别再各写一份）：W 窗口 · R 输出保留额 · O 单次输出上限
+    /// （元数据给出时才显示——R 与 O 不是一回事，看不到 O 的话「元数据写着 384K 为什么只能写 16K」
+    /// 就无从解释）· S 安全余量 · B 输入预算 · T 压缩阈值。
+    /// </summary>
+    public string BudgetSummary =>
+        $"W {ContextWindowTokens:N0} · R {OutputReserveTokens:N0} · "
+        + (MaxOutputCeilingTokens > 0 ? $"O {MaxOutputCeilingTokens:N0} · " : string.Empty)
+        + $"S {SafetyMarginTokens:N0} · B {AvailableInputBudgetTokens:N0} · T {CompressionThresholdTokens:N0}";
+
     public string Identity => string.Join(':',
         ModelContextWindowTokens,
         ContextWindowTokens,
         OutputReserveTokens,
+        MaxOutputCeilingTokens,
         SafetyMarginTokens,
         AvailableInputBudgetTokens,
         CompressionThresholdTokens,

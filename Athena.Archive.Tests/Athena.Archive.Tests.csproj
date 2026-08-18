@@ -45,6 +45,9 @@
     <Compile Include="../Services/Context/EffectiveRequestRuntimeSnapshot.cs" Link="Source/Services/Context/EffectiveRequestRuntimeSnapshot.cs" />
     <Compile Include="../Services/Context/ICompletionTransport.cs" Link="Source/Services/Context/ICompletionTransport.cs" />
     <Compile Include="../Services/Context/ResponsesCallHelpers.cs" Link="Source/Services/Context/ResponsesCallHelpers.cs" />
+    <Compile Include="../Services/Context/ResponsesTransport.cs" Link="Source/Services/Context/ResponsesTransport.cs" />
+    <Compile Include="../Services/Context/ChatCompletionsTransport.cs" Link="Source/Services/Context/ChatCompletionsTransport.cs" />
+    <Compile Include="../Services/Protocol/ResponsesProtocolResolver.cs" Link="Source/Services/Protocol/ResponsesProtocolResolver.cs" />
     <Compile Include="../Services/Context/ResponsesCompatibilityHandler.cs" Link="Source/Services/Context/ResponsesCompatibilityHandler.cs" />
     <Compile Include="../Services/Context/TokenFingerprintService.cs" Link="Source/Services/Context/TokenFingerprintService.cs" />
     <Compile Include="../Services/Context/ContextRequestPreparer.cs" Link="Source/Services/Context/ContextRequestPreparer.cs" />

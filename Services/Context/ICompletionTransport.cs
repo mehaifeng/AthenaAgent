@@ -17,10 +17,16 @@ public interface ICompletionTransport
     /// <summary>
     /// 开流并把协议事件流归一化为内部增量序列。messages 是主环的规范请求形状
     /// （List&lt;ChatMessage&gt;）；Responses 实现在此处转换为 input items。
+    ///
+    /// <paramref name="maxOutputTokens"/> 逐请求给出，而不是从 <c>runtime.ChatOptions</c> 里读：
+    /// 窗口余量随工具结果逐轮变化，而快照按设计在整个用户回合内不可变
+    /// （见 <see cref="EffectiveRequestRuntimeSnapshot"/>），所以这个值必须走参数，
+    /// 实现方也不得改写快照里的 options 实例。
     /// </summary>
     IAsyncEnumerable<NormalizedUpdate> StreamUpdatesAsync(
         EffectiveRequestRuntimeSnapshot runtime,
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        int maxOutputTokens,
         CancellationToken cancellationToken);
 
     /// <summary>把「带工具调用的助手消息」追加进请求输入。</summary>

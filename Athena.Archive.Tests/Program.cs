@@ -156,6 +156,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("tool result budget compresses arrays and long text but keeps metadata", TestToolResultBudgetAsync),
     ("filesystem: directory search groups by file, prunes build output and honors caps", TestSearchInDirectoryAsync),
     ("office tool relevance is decided from the conversation when the snapshot is built", TestOfficeToolRelevanceAsync),
+    ("responses transport reports usage and finish reason for every terminal status", TestResponsesTerminalStatusAsync),
+    ("chat transport sends the per-request output cap without mutating the snapshot", TestChatTransportPerRequestOutputCapAsync),
     ("tool call batching parallelizes read-only runs without reordering writes", TestToolCallParallelismAsync),
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync)
@@ -1080,6 +1082,38 @@ static Task TestContextPolicyResolverAsync()
     AssertEqual(knownPolicy.ContextWindowTokens,
         knownPolicy.OutputReserveTokens + knownPolicy.SafetyMarginTokens + knownPolicy.AvailableInputBudgetTokens,
         "resolved budgets must conserve the full window");
+
+    // 预算保留额（从输入预算里扣的那一块）与请求上限（这次实际允许模型写多长）是两件事。
+    // 曾经由同一个数字兼任，代价是 1M 窗口 + 元数据 384K 输出的模型也只能写 16K，
+    // 思考稍长就在正文出现前被 max_output_tokens 截断。
+    var wide = resolver.Resolve(
+        CreateResolvedMetadata(1_048_576, MetadataValueSource.AutomaticOpenRouter, 384_000),
+        new AppContextPolicy(), null, AiModelRole.MainConversation);
+    AssertEqual(16_000L, wide.OutputReserveTokens, "保留额仍按角色意图保守取值，输入预算不受影响");
+    AssertEqual(384_000L, wide.MaxOutputCeilingTokens, "元数据给出的输出上限必须被记下来，而不是被保留额吃掉");
+    AssertEqual(384_000L, wide.ResolveRequestOutputTokens(38_013),
+        "窗口余量充足时，请求上限就是元数据允许的上限");
+    AssertEqual(1_048_576L - 32_768L - 900_000L, wide.ResolveRequestOutputTokens(900_000),
+        "输入变长时请求上限收窄到窗口余量，避免 input+output 越过窗口");
+    AssertTrue(wide.ResolveRequestOutputTokens(wide.AvailableInputBudgetTokens) >= wide.OutputReserveTokens,
+        "输入吃满预算时仍不得低于保留额——既有保证一分不少");
+
+    // 元数据没说模型能写多长时，维持改动前的行为：请求上限 = 保留额。
+    AssertEqual(0L, unknownPolicy.MaxOutputCeilingTokens, "输出上限未知时不得凭空造一个");
+    AssertEqual(unknownPolicy.OutputReserveTokens, unknownPolicy.ResolveRequestOutputTokens(10_000),
+        "上限未知时请求上限应退回保留额");
+
+    // 元数据上限低于保留额时，请求上限必须听元数据的下界之上者——不能反过来把 8K 的模型顶到 16K。
+    var narrow = resolver.Resolve(
+        CreateResolvedMetadata(128_000, MetadataValueSource.AutomaticOpenRouter, 8_000),
+        new AppContextPolicy(), null, AiModelRole.MainConversation);
+    AssertEqual(8_000L, narrow.OutputReserveTokens, "元数据上限低于角色意图时，保留额跟着降");
+    AssertEqual(8_000L, narrow.ResolveRequestOutputTokens(1_000), "请求上限不得越过模型自己的输出上限");
+
+    // 诊断面板必须把 O 显示出来：只看到 R=16,000 而看不到 O=384,000，
+    // 「元数据写着 384K 为什么只能写 16K」这个疑问在界面上永远无解。
+    AssertTrue(wide.BudgetSummary.Contains(" · O ", StringComparison.Ordinal), "已知输出上限时预算摘要必须列出 O");
+    AssertFalse(unknownPolicy.BudgetSummary.Contains(" · O ", StringComparison.Ordinal), "未知输出上限时不应凭空多出一段 O");
     return Task.CompletedTask;
 }
 
@@ -5036,6 +5070,149 @@ static Task TestRepeatedToolFailureGuardAsync()
     return Task.CompletedTask;
 }
 
+static async Task TestResponsesTerminalStatusAsync()
+{
+    // responses 协议有两个终止事件：response.completed 与 response.incomplete。
+    // 只认前者时，「输出被 max_output_tokens 截断」这一路既拿不到 usage 也拿不到完成原因，
+    // 主环把它读成一次正常收尾，于是回合在正文出现之前静默结束、发送态直接解锁
+    // （线上实测：DeepSeek /responses 把 16K 输出预算全写进了思考里）。
+    var (truncated, truncatedBody) = await CollectResponsesUpdatesAsync(
+        maxOutputTokens: 384_000,
+        sse: SseEvent("response.created", """{"type":"response.created","sequence_number":0,"response":{"id":"resp_1","object":"response","status":"in_progress","output":[]}}""")
+        + SseEvent("response.reasoning_summary_text.delta", """{"type":"response.reasoning_summary_text.delta","sequence_number":1,"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"边想边把预算烧光"}""")
+        + SseEvent("response.incomplete", """{"type":"response.incomplete","sequence_number":2,"response":{"id":"resp_1","object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[],"usage":{"input_tokens":38013,"output_tokens":16000,"total_tokens":54013}}}"""));
+
+    AssertEqual("边想边把预算烧光",
+        string.Concat(truncated.Select(u => u.ReasoningText)),
+        "推理文本应照常经摘要回退通道流出");
+    AssertEqual(1, truncated.Count(u => u.Usage != null),
+        "response.incomplete 自带 usage，必须照常上报（否则本轮用量与上下文锚点全部丢失）");
+    AssertEqual(38013L, truncated.Single(u => u.Usage != null).Usage!.Value.InputTokens,
+        "截断轮的输入用量应如实上报");
+    AssertEqual(TransportFinishReason.Length, truncated[^1].FinishReason,
+        "incomplete_details.reason=max_output_tokens 必须归一化为 Length，主环才知道这一轮是被截断的");
+    AssertTrue(truncatedBody.Contains("\"max_output_tokens\":384000", StringComparison.Ordinal),
+        "逐请求的输出上限必须真的发到线上，而不是沿用快照里那个保守的保留额");
+
+    // 一句终止事件都没给就断流：既不是正常收尾也不是可分类的错误，必须显式标为未完成，
+    // 否则同样会被读成「模型说完了」。
+    var (severed, _) = await CollectResponsesUpdatesAsync(
+        SseEvent("response.created", """{"type":"response.created","sequence_number":0,"response":{"id":"resp_2","object":"response","status":"in_progress","output":[]}}""")
+        + SseEvent("response.output_text.delta", """{"type":"response.output_text.delta","sequence_number":1,"item_id":"msg_1","output_index":0,"content_index":0,"delta":"半句话"}"""));
+    AssertEqual(TransportFinishReason.Incomplete, severed[^1].FinishReason,
+        "缺终止事件的流必须以 Incomplete 收尾，不能沉默地当作 Stop");
+
+    // 正常收尾这条路不能被上面的改动带偏。
+    var (completed, _) = await CollectResponsesUpdatesAsync(
+        SseEvent("response.output_text.delta", """{"type":"response.output_text.delta","sequence_number":0,"item_id":"msg_1","output_index":0,"content_index":0,"delta":"结论如下"}""")
+        + SseEvent("response.completed", """{"type":"response.completed","sequence_number":1,"response":{"id":"resp_3","object":"response","status":"completed","output":[],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}}"""));
+    AssertEqual("结论如下", string.Concat(completed.Select(u => u.Text)), "正文应逐块流出");
+    AssertEqual(120L, completed.Single(u => u.Usage != null).Usage!.Value.TotalTokens, "完成轮的 usage 仍应上报");
+    AssertEqual(TransportFinishReason.Stop, completed[^1].FinishReason, "无工具调用的完成轮仍应归一化为 Stop");
+}
+
+static async Task TestChatTransportPerRequestOutputCapAsync()
+{
+    // 逐请求的输出上限必须发到线上，同时绝不能就地改写快照里的 options：
+    // 那一份是整个用户回合共用的，估算、指纹、下一轮请求都在读它。
+    const string sse =
+        "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"结论\"},\"finish_reason\":null}]}\n\n"
+        + "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        + "data: [DONE]\n\n";
+    using var handler = new SseHttpHandler(sse);
+    using var httpClient = new HttpClient(handler);
+    var chatClient = new OpenAI.Chat.ChatClient(
+        "model",
+        new ApiKeyCredential("sk-fixture"),
+        new OpenAI.OpenAIClientOptions
+        {
+            Endpoint = new Uri("https://example.invalid/v1"),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        });
+    var snapshotOptions = new OpenAI.Chat.ChatCompletionOptions
+    {
+        MaxOutputTokenCount = 16_000,
+        Temperature = 0.7f,
+        TopP = 0.9f
+    };
+    snapshotOptions.Tools.Add(OpenAI.Chat.ChatTool.CreateFunctionTool(
+        "read_system_file", "read a file", BinaryData.FromString("""{"type":"object"}""")));
+    var runtime = CreateTransportRuntime(snapshotOptions, chatClient: chatClient);
+
+    var texts = new List<string>();
+    await foreach (var update in ChatCompletionsTransport.Instance.StreamUpdatesAsync(
+        runtime, CreateTransportMessages(), 384_000, CancellationToken.None))
+    {
+        if (update.Text != null) texts.Add(update.Text);
+    }
+
+    AssertEqual("结论", string.Concat(texts), "正文应照常流出");
+    var body = handler.LastRequestBody ?? string.Empty;
+    AssertTrue(body.Contains("\"max_completion_tokens\":384000", StringComparison.Ordinal)
+        || body.Contains("\"max_tokens\":384000", StringComparison.Ordinal),
+        $"逐请求的输出上限必须发到线上，实际请求体：{body}");
+    AssertEqual(16_000, snapshotOptions.MaxOutputTokenCount, "快照里的 options 不得被就地改写");
+    AssertTrue(body.Contains("\"read_system_file\"", StringComparison.Ordinal),
+        "为改一个数字而做的副本必须原样带上工具定义");
+    AssertTrue(body.Contains("\"top_p\":0.9", StringComparison.Ordinal),
+        "副本同样不能丢掉采样参数");
+    // usage 是 SDK 在流式请求上自动加的 stream_options.include_usage 带回来的。
+    // 副本若把它弄丢，用量与上下文锚点就会整条断掉——那正是这次要修的病。
+    AssertTrue(body.Contains("\"include_usage\":true", StringComparison.Ordinal),
+        $"流式请求必须仍然要求回报 usage，实际请求体：{body}");
+}
+
+static string SseEvent(string name, string data) => $"event: {name}\ndata: {data}\n\n";
+
+static EffectiveRequestRuntimeSnapshot CreateTransportRuntime(
+    OpenAI.Chat.ChatCompletionOptions chatOptions,
+    ResponsesClient? responsesClient = null,
+    OpenAI.Chat.ChatClient? chatClient = null)
+{
+    var metadata = CreateResolvedMetadata(128_000, MetadataValueSource.UserOverride, null);
+    var policy = new ModelContextPolicyResolver().Resolve(metadata, new AppContextPolicy(), null, AiModelRole.MainConversation);
+    return new EffectiveRequestRuntimeSnapshot(
+        "transport-fixture", chatClient!,
+        new EffectiveOpenAiModel("Deepseek", "Fixture", "https://example.invalid/v1", "secret", "model", 0.7, 16_000),
+        null, metadata, policy,
+        new OpenAiModelExecutionPolicyIdentity("provider", "model", "profile", "catalog", 128_000, 16_000, 1),
+        chatOptions, [], "tools", false, "fixture", 60, 1, DateTimeOffset.UtcNow,
+        ResponsesClient: responsesClient,
+        Transport: ResponsesTransport.Instance);
+}
+
+static List<OpenAI.Chat.ChatMessage> CreateTransportMessages() =>
+[
+    new OpenAI.Chat.SystemChatMessage("system"),
+    new OpenAI.Chat.UserChatMessage("统计两个文件里的重复项")
+];
+
+static async Task<(List<NormalizedUpdate> Updates, string RequestBody)> CollectResponsesUpdatesAsync(
+    string sse,
+    int maxOutputTokens = 16_000)
+{
+    using var handler = new SseHttpHandler(sse);
+    using var httpClient = new HttpClient(handler);
+    var client = new ResponsesClient(
+        new ApiKeyCredential("sk-fixture"),
+        new ResponsesClientOptions
+        {
+            Endpoint = new Uri("https://example.invalid/v1"),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        });
+    var runtime = CreateTransportRuntime(
+        new OpenAI.Chat.ChatCompletionOptions { MaxOutputTokenCount = 16_000 },
+        responsesClient: client);
+
+    var collected = new List<NormalizedUpdate>();
+    await foreach (var update in ResponsesTransport.Instance.StreamUpdatesAsync(
+        runtime, CreateTransportMessages(), maxOutputTokens, CancellationToken.None))
+    {
+        collected.Add(update);
+    }
+    return (collected, handler.LastRequestBody ?? string.Empty);
+}
+
 static Task TestToolCallParallelismAsync()
 {
     static string Plan(IReadOnlyList<string> names, ToolApprovalMode mode, int maxParallel) =>
@@ -5979,6 +6156,29 @@ sealed class QueueHttpHandler : HttpMessageHandler
         if (_responses.Count == 0) throw new InvalidOperationException("No queued HTTP response.");
         return Task.FromResult(_responses.Dequeue());
     }
+}
+
+/// <summary>把一段固定的 SSE 正文当作流式响应返回，并记下请求体供断言线上参数。</summary>
+sealed class SseHttpHandler(string sse) : HttpMessageHandler
+{
+    public string? LastRequestBody { get; private set; }
+
+#pragma warning disable CA2000
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Content != null)
+        {
+            LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(sse, Encoding.UTF8, "text/event-stream")
+        };
+    }
+#pragma warning restore CA2000
 }
 
 sealed class ThrowingHttpHandler(Exception exception) : HttpMessageHandler

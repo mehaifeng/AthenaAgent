@@ -1,6 +1,7 @@
 using Athena.UI.Models;
 using OpenAI.Chat;
 using System;
+using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -22,9 +23,11 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
     public async IAsyncEnumerable<NormalizedUpdate> StreamUpdatesAsync(
         EffectiveRequestRuntimeSnapshot runtime,
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        int maxOutputTokens,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var stream = runtime.ChatClient.CompleteChatStreamingAsync(messages, runtime.ChatOptions, cancellationToken);
+        var stream = runtime.ChatClient.CompleteChatStreamingAsync(
+            messages, WithMaxOutputTokens(runtime.ChatOptions, maxOutputTokens), cancellationToken);
         var sawAnyResponseData = false;
         await foreach (var update in stream)
         {
@@ -143,6 +146,29 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 逐请求的输出上限：快照里的 options 是整个回合共用的一份，绝不能就地改写
+    /// （下一轮、以及并发读它的估算/指纹路径都会跟着变）。这里按 SDK 的持久化模型做一份
+    /// 完整副本——温度、TopP、工具、推理强度乃至 Patch 扩展字段都会原样带过来——只改这一个值。
+    /// 值与快照一致时直接复用，省掉这次拷贝。
+    /// </summary>
+    private static ChatCompletionOptions WithMaxOutputTokens(ChatCompletionOptions options, int maxOutputTokens)
+    {
+        if (maxOutputTokens <= 0 || options.MaxOutputTokenCount == maxOutputTokens)
+        {
+            return options;
+        }
+
+        var copy = ModelReaderWriter.Read<ChatCompletionOptions>(ModelReaderWriter.Write(options));
+        if (copy == null)
+        {
+            return options;
+        }
+
+        copy.MaxOutputTokenCount = maxOutputTokens;
+        return copy;
     }
 
     /// <summary>把推理内容写回 chat 消息的 reasoning_content 扩展字段（DeepSeek 系校验要求回放）。</summary>

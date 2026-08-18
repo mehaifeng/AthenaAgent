@@ -47,11 +47,13 @@ public sealed class ResponsesTransport : ICompletionTransport
     public async IAsyncEnumerable<NormalizedUpdate> StreamUpdatesAsync(
         EffectiveRequestRuntimeSnapshot runtime,
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        int maxOutputTokens,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // 主枚举：responses 协议；端点不支持时切换到 chat 重发本轮。
         // 注意迭代器约束：yield 不能在带 catch 的 try 里，因此捕获只包住 MoveNextAsync。
-        var current = EnumerateResponses(runtime, messages, cancellationToken).GetAsyncEnumerator(cancellationToken);
+        var current = EnumerateResponses(runtime, messages, maxOutputTokens, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
         var usingChatFallback = false;
         try
         {
@@ -72,7 +74,7 @@ public sealed class ResponsesTransport : ICompletionTransport
                     ResponsesUnsupportedRegistry.Mark(runtime.ExecutionPolicyIdentity.ProviderId);
                     usingChatFallback = true;
                     current = ChatCompletionsTransport.Instance
-                        .StreamUpdatesAsync(runtime, messages, cancellationToken)
+                        .StreamUpdatesAsync(runtime, messages, maxOutputTokens, cancellationToken)
                         .GetAsyncEnumerator(cancellationToken);
                     continue;
                 }
@@ -121,18 +123,26 @@ public sealed class ResponsesTransport : ICompletionTransport
     private static async IAsyncEnumerable<NormalizedUpdate> EnumerateResponses(
         EffectiveRequestRuntimeSnapshot runtime,
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        int maxOutputTokens,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var options = BuildOptions(runtime, messages);
+        var options = BuildOptions(runtime, messages, maxOutputTokens);
         var stream = runtime.ResponsesClient!.CreateResponseStreamingAsync(options, cancellationToken);
 
         var itemIdToIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         var nextToolIndex = 0;
         var sawFunctionCall = false;
         var sawFullReasoningText = false;
+        var sawTerminalStatus = false;
 
         await foreach (var update in stream)
         {
+            // 终止事件有两个：response.completed 与 response.incomplete。usage 与最终 status 都挂在
+            // 事件自带的 response 上，两者必须同等对待——只认 completed，会让「输出被 max_output_tokens
+            // 截断」这一路既拿不到 usage 也拿不到完成原因，主环只能把它读成一次正常收尾，
+            // 于是回合在正文出现前静默结束（MapStatus 的 Incomplete 分支也永远走不到）。
+            ResponseResult? terminalResponse = null;
+
             switch (update)
             {
                 case StreamingResponseOutputItemAddedUpdate added when added.Item is FunctionCallResponseItem functionCall:
@@ -172,18 +182,10 @@ public sealed class ResponsesTransport : ICompletionTransport
                     }
                     break;
                 case StreamingResponseCompletedUpdate completed:
-                    if (completed.Response.Usage is { } usage)
-                    {
-                        yield return new NormalizedUpdate(
-                            Usage: new TokenUsageSnapshot(
-                                usage.InputTokenCount,
-                                usage.InputTokenDetails?.CachedTokenCount ?? 0,
-                                usage.OutputTokenCount,
-                                usage.TotalTokenCount),
-                            ReasoningTokenCount: usage.OutputTokenDetails?.ReasoningTokenCount,
-                            InputModalityUsage: ExtractInputModalityUsage(usage));
-                    }
-                    yield return new NormalizedUpdate(FinishReason: MapStatus(completed.Response, sawFunctionCall));
+                    terminalResponse = completed.Response;
+                    break;
+                case StreamingResponseIncompleteUpdate incomplete:
+                    terminalResponse = incomplete.Response;
                     break;
                 case StreamingResponseFailedUpdate failed:
                     throw new ClientResultException(
@@ -192,12 +194,41 @@ public sealed class ResponsesTransport : ICompletionTransport
                     throw new ClientResultException(
                         $"Responses stream error: {error.Message} ({error.Code})", response: null, innerException: null);
             }
+
+            if (terminalResponse == null)
+            {
+                continue;
+            }
+
+            sawTerminalStatus = true;
+            if (terminalResponse.Usage is { } usage)
+            {
+                yield return new NormalizedUpdate(
+                    Usage: new TokenUsageSnapshot(
+                        usage.InputTokenCount,
+                        usage.InputTokenDetails?.CachedTokenCount ?? 0,
+                        usage.OutputTokenCount,
+                        usage.TotalTokenCount),
+                    ReasoningTokenCount: usage.OutputTokenDetails?.ReasoningTokenCount,
+                    InputModalityUsage: ExtractInputModalityUsage(usage));
+            }
+
+            yield return new NormalizedUpdate(FinishReason: MapStatus(terminalResponse, sawFunctionCall));
+        }
+
+        // 一句终止事件都没给就把流关掉：既不是正常收尾，也不是能分类的错误。必须显式标记未完成，
+        // 否则主环会把「连接被掐断」读成「模型说完了」，回合照样静默结束。
+        if (!sawTerminalStatus)
+        {
+            Log.Warning("Responses stream ended without a terminal status event (no response.completed/incomplete/failed)");
+            yield return new NormalizedUpdate(FinishReason: TransportFinishReason.Incomplete);
         }
     }
 
     private static CreateResponseOptions BuildOptions(
         EffectiveRequestRuntimeSnapshot runtime,
-        IReadOnlyList<OpenAI.Chat.ChatMessage> messages)
+        IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
+        int maxOutputTokens)
     {
         var options = new CreateResponseOptions
         {
@@ -205,7 +236,7 @@ public sealed class ResponsesTransport : ICompletionTransport
             Instructions = BuildInstructions(messages),
             Temperature = runtime.ChatOptions.Temperature,
             TopP = runtime.ChatOptions.TopP,
-            MaxOutputTokenCount = runtime.ChatOptions.MaxOutputTokenCount,
+            MaxOutputTokenCount = maxOutputTokens > 0 ? maxOutputTokens : runtime.ChatOptions.MaxOutputTokenCount,
             StreamingEnabled = true,
             // 无状态：Athena 自管上下文（压缩/回缩/分支），绝不使用服务端 store。
             StoredOutputEnabled = false,

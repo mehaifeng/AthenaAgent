@@ -41,6 +41,12 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
         var modelOutput = model.MaxCompletionTokens.Value ?? long.MaxValue;
         var output = Math.Min(roleOutput, Math.Min(modelOutput, maxOutputAllowed));
         if (output < 0) throw new InvalidOperationException("Resolved output reserve is invalid.");
+        // 保留额之外再记一个「这个模型单次最多能写多长」。保留额必须保守（它从输入预算里扣），
+        // 但请求上限没有理由跟着它一起缩：窗口装下输入之后剩下的那部分，白留着也是浪费。
+        // 元数据没给出输出上限时留 0 = 未知，由 ResolveRequestOutputTokens 退回保留额。
+        var outputCeiling = model.MaxCompletionTokens.Value.HasValue
+            ? Math.Max(output, Math.Min(model.MaxCompletionTokens.Value.Value, maxOutputAllowed))
+            : 0L;
         var inputBudget = checked(window - output - safety);
         if (inputBudget < minInputReserve) throw new InvalidOperationException("Resolved input budget is below the minimum reserve.");
 
@@ -85,7 +91,7 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
         if (selectedCap.HasValue && selectedCap > modelWindow) warnings.Add(ModelWarnings.ContextCapClampedToModel);
         return new ResolvedContextPolicy(
             modelWindow, window, output, safety, inputBudget, threshold, autoCompress, keep, target, ratio,
-            capSource, thresholdSource, warnings);
+            capSource, thresholdSource, warnings, outputCeiling);
     }
 
     private static long DefaultThreshold(ResolvedModelMetadata model, long inputBudget) =>

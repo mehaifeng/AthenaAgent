@@ -46,6 +46,10 @@ public class OpenAIChatService : IChatService
     // 供应商把工具调用参数截断是它的失败，不该记在用户的轮数预算上——前若干次重试免费。
     // 但重试本身必须有界：否则一个稳定复现的截断会绕过轮数上限，把循环变成无限。
     private const int MaxFreeTruncatedToolCallRetries = 5;
+    // 思考写满输出预算、正文一个字都没轮到时的自救次数。这一轮对用户毫无产出，因此同样免费；
+    // 但每次重试都是一次完整的模型调用（实测可达百秒量级），所以只给一次：救不回来就如实说明，
+    // 让用户自己决定是继续、拆任务还是换模型。
+    private const int MaxFreeContentlessTruncationRetries = 1;
     private readonly object _runtimeGate = new();
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
@@ -637,6 +641,7 @@ public class OpenAIChatService : IChatService
         var maxIterations = Math.Clamp(_config.MainConversationMaxIterations, 1, MainConversationIterationCeiling);
         var disabledToolCallRetries = 0;
         var truncatedToolCallRetries = 0;
+        var contentlessTruncationRetries = 0;
         // 真实用量锚点：供应商回报的输入 token，以及它所度量的那段前缀的长度与 regime 指纹。
         // 有锚点时按「精确测量 + 增量上界」判定预算，估算器只负责尚未发送过的那一小段。
         long? anchorInputTokens = null;
@@ -918,12 +923,23 @@ public class OpenAIChatService : IChatService
             // 本次请求实际携带的前缀长度。压缩提交会移除消息，所以必须在可能的重建之后再取。
             var sentPrefixCount = context.Messages.Count;
 
+            // 本轮的 max_output_tokens：窗口装下这次输入之后还剩多少（上限取模型元数据）。
+            // 逐轮重算而不是沿用快照里的保留额——工具结果会让输入逐轮变长，余量也就随之收窄；
+            // 而保留额是按最坏情况划的一块保守预算，拿它当请求上限，等于让 1M 窗口的模型
+            // 永远只能写 16K，思考稍长就在正文出现前被截断。
+            var requestOutputTokens = ClampToInt32(
+                runtime.ContextPolicy.ResolveRequestOutputTokens(currentTokens));
+            Log.Debug(
+                "RequestOutputBudget RequestId={RequestId} MaxOutputTokens={MaxOutput} Reserve={Reserve} Ceiling={Ceiling} InputBasis={InputBasis}",
+                apiRequestId, requestOutputTokens, runtime.ContextPolicy.OutputReserveTokens,
+                runtime.ContextPolicy.MaxOutputCeilingTokens, currentTokens);
+
             IAsyncEnumerable<NormalizedUpdate>? stream = null;
             string? error = null;
 
             try
             {
-                stream = runtime.Transport!.StreamUpdatesAsync(runtime, messages, cancellationToken);
+                stream = runtime.Transport!.StreamUpdatesAsync(runtime, messages, requestOutputTokens, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -1163,13 +1179,50 @@ public class OpenAIChatService : IChatService
             {
                 var finalContent = assistantContent.ToString();
 
-                // responses 传输的 response.failed / cancelled 状态：本轮没有任何可用输出时
-                // 明确报错，而不是当作空回复静默结束。
-                if (finishReason == TransportFinishReason.Error
-                    && string.IsNullOrWhiteSpace(finalContent)
-                    && reasoningContent == null)
+                // 一个字的正文都没产出，而供应商又告诉我们这一轮并未正常收尾（failed/cancelled、
+                // 被 max_output_tokens 截断、内容过滤、或干脆没给终止事件）——这不是「空回复」，
+                // 是一次没说出口的中断，必须说出来：静默 yield break 会让发送态直接解锁，
+                // 用户只看到工具卡片和思考过程停在半路，无从判断发生了什么。
+                // 推理文本不能替空正文兜底：用户要的是回答，思考过程不是回答。
+                if (string.IsNullOrWhiteSpace(finalContent)
+                    && DescribeContentlessInterruption(finishReason) is { } interruption)
                 {
-                    yield return "[API 错误: 模型响应失败，未返回任何内容]";
+                    Log.Warning(
+                        "Reply ended before producing any content: FinishReason={FinishReason} ReasoningChars={ReasoningChars} Iteration={Iteration}",
+                        finishReason?.ToString() ?? "(none)", assistantReasoning.Length, iteration);
+
+                    // 自救一次：被 max_output_tokens 截断是一次可以明确指出病因的失败，
+                    // 而模型并不知道自己被截断了——它只是没写完。告诉它一句，通常就能直接给出结论。
+                    // 只对 Length 这么做：Incomplete/无终止事件可能是内容过滤或断流，重发未必有意义。
+                    // 这一轮什么也没产出，退还轮数预算；重试次数有界，兜底仍由轮数上限承接。
+                    if (finishReason == TransportFinishReason.Length
+                        && contentlessTruncationRetries < MaxFreeContentlessTruncationRetries)
+                    {
+                        contentlessTruncationRetries++;
+                        iteration--;
+                        Log.Information(
+                            "Retrying once after a reply was truncated before any content (attempt {Attempt}/{Limit})",
+                            contentlessTruncationRetries, MaxFreeContentlessTruncationRetries);
+                        var truncatedReplyInstruction = new UserChatMessage(
+                            "[Internal instruction: your previous reply hit the output token limit while still reasoning, so it produced no answer at all. Do not re-derive the analysis. Answer the user's request now, directly and concisely, keeping any further thinking to a minimum.]");
+                        rebuildTail.Add(truncatedReplyInstruction);
+                        messages.Add(truncatedReplyInstruction);
+                        continue;
+                    }
+
+                    // 思考文本照旧入档：这一轮真正做过的分析全在里面，丢掉等于让用户白等。
+                    if (reasoningContent != null)
+                    {
+                        context.AddAssistantMessage(string.Empty, reasoningContent: reasoningContent);
+                        onMessageAdded?.Invoke(new Models.ChatMessage
+                        {
+                            Role = "assistant",
+                            ReasoningContent = reasoningContent,
+                            Timestamp = DateTime.Now
+                        });
+                    }
+
+                    yield return interruption;
                     yield break;
                 }
 
@@ -1391,6 +1444,28 @@ public class OpenAIChatService : IChatService
                 "[Reached the maximum of {0} tool rounds for a single reply, so the reply stopped mid-task. Say “continue” to pick up where it left off; if long runs like this keep getting cut short, raise the limit under Settings → Execution & concurrency → Main conversation execution → Maximum tool rounds per reply.]"),
             maxIterations);
     }
+
+    /// <summary>
+    /// 一轮回复没有产出任何正文时，判断它究竟是「供应商宣告的正常收尾」还是「一次中断」，
+    /// 并给出用户据此就能行动的说明。返回 null 表示前者，交由既有路径静默收场。
+    /// </summary>
+    private string? DescribeContentlessInterruption(TransportFinishReason? finishReason) => finishReason switch
+    {
+        TransportFinishReason.Error => "[API 错误: 模型响应失败，未返回任何内容]",
+        // 输出预算在正文开始前就用光了。正文为空意味着这些 token 全花在了思考上，
+        // 所以出路是让模型少想、或把任务拆小，而不是原样重发同一个问题。
+        TransportFinishReason.Length => GetLocalized(
+            "Chat.Error.EmptyReplyTruncated",
+            "[The reply was cut off before any answer text appeared: the output budget (max_output_tokens) ran out while the model was still thinking, and a retry asking for a direct answer was cut off too. The reasoning above is kept. Say “continue” to try again, or split the task into smaller steps — and if this keeps happening, lower the reasoning effort for this model.]"),
+        // 服务端把响应标成 incomplete（内容过滤等），或者一句终止事件都没给就断了流。
+        TransportFinishReason.Incomplete or null => GetLocalized(
+            "Chat.Error.EmptyReplyIncomplete",
+            "[This round did not finish normally: the provider returned no answer text and never reported a completed response (content filtering, or the connection dropped mid-stream). Say “continue” to pick it up again.]"),
+        _ => null
+    };
+
+    private static int ClampToInt32(long value)
+        => value <= 0 ? 0 : value >= int.MaxValue ? int.MaxValue : (int)value;
 
     private static bool IsValidCalibrationUsage(TokenUsageSnapshot usage)
     {

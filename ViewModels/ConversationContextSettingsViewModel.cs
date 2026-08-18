@@ -58,7 +58,7 @@ public sealed class ConversationContextSettingsViewModel : ViewModelBase, IDispo
         : "—";
 
     public string EffectivePolicyText => TryResolve(out _, out _, out _, out var policy)
-        ? $"W {policy!.ContextWindowTokens:N0} · R {policy.OutputReserveTokens:N0} · S {policy.SafetyMarginTokens:N0} · B {policy.AvailableInputBudgetTokens:N0} · T {policy.CompressionThresholdTokens:N0}"
+        ? policy!.BudgetSummary
         : "—";
 
     /// <summary>
