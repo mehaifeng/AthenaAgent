@@ -431,7 +431,7 @@
     <system:String x:Key="WorkspaceContext.KeepRecent">Keep recent rounds</system:String>
     <system:String x:Key="WorkspaceContext.TargetSummary">Target summary tokens</system:String>
     <system:String x:Key="WorkspaceContext.KnowledgeBudget">Workspace knowledge budget</system:String>
-    <system:String x:Key="WorkspaceContext.Preview">Effective W / R / S / B / T preview</system:String>
+    <system:String x:Key="WorkspaceContext.Preview">Effective W / R / O / S / B / T preview</system:String>
     <system:String x:Key="WorkspaceContext.Source.Format">Context {0} · Threshold {1} · remaining fields {2}</system:String>
     <system:String x:Key="WorkspaceContext.Source.FieldInheritance">Workspace override / App default by field</system:String>
     <system:String x:Key="WorkspaceContext.Source.ModelMetadata">Model metadata</system:String>
@@ -563,8 +563,8 @@
     <system:String x:Key="ContextInspector.Tab.Preview">Compression preview</system:String>
     <system:String x:Key="ContextInspector.Tab.Raw">RAW context</system:String>
     <system:String x:Key="ContextInspector.Overview.Model">Current request model</system:String>
-    <system:String x:Key="ContextInspector.Overview.Policy">Effective W / R / S / B / T</system:String>
-    <system:String x:Key="ContextInspector.Overview.PolicyHint">W window · R output reserve · S safety margin · B input budget · T compression threshold</system:String>
+    <system:String x:Key="ContextInspector.Overview.Policy">Effective W / R / O / S / B / T</system:String>
+    <system:String x:Key="ContextInspector.Overview.PolicyHint">W window · R output reserve · O per-request output ceiling (from model metadata; each request uses the smaller of it and the remaining window, never below R, and it is hidden when the metadata does not state one) · S safety margin · B input budget · T compression threshold</system:String>
     <system:String x:Key="ContextInspector.Overview.Usage">Usage anchor</system:String>
     <system:String x:Key="ContextInspector.Overview.CachedHint">Cached input affects billing/cache reuse; it does not reduce context-window occupancy.</system:String>
     <system:String x:Key="ContextInspector.Overview.Ownership">Ownership and inheritance</system:String>

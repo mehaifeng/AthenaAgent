@@ -431,7 +431,7 @@
     <system:String x:Key="WorkspaceContext.KeepRecent">保留最近轮次</system:String>
     <system:String x:Key="WorkspaceContext.TargetSummary">摘要目标 Token</system:String>
     <system:String x:Key="WorkspaceContext.KnowledgeBudget">Workspace 知识预算</system:String>
-    <system:String x:Key="WorkspaceContext.Preview">有效 W / R / S / B / T 预览</system:String>
+    <system:String x:Key="WorkspaceContext.Preview">有效 W / R / O / S / B / T 预览</system:String>
     <system:String x:Key="WorkspaceContext.Source.Format">Context {0} · 阈值 {1} · 其余字段 {2}</system:String>
     <system:String x:Key="WorkspaceContext.Source.FieldInheritance">逐字段使用 Workspace 覆盖 / App 默认</system:String>
     <system:String x:Key="WorkspaceContext.Source.ModelMetadata">模型元数据</system:String>
@@ -563,8 +563,8 @@
     <system:String x:Key="ContextInspector.Tab.Preview">压缩预览</system:String>
     <system:String x:Key="ContextInspector.Tab.Raw">RAW Context</system:String>
     <system:String x:Key="ContextInspector.Overview.Model">当前请求模型</system:String>
-    <system:String x:Key="ContextInspector.Overview.Policy">有效 W / R / S / B / T</system:String>
-    <system:String x:Key="ContextInspector.Overview.PolicyHint">W 窗口 · R 输出预留 · S 安全余量 · B 输入预算 · T 压缩阈值</system:String>
+    <system:String x:Key="ContextInspector.Overview.Policy">有效 W / R / O / S / B / T</system:String>
+    <system:String x:Key="ContextInspector.Overview.PolicyHint">W 窗口 · R 输出预留 · O 单次输出上限（来自模型元数据；每次请求实际取它与窗口余量中的较小者，下限为 R，元数据未给出时不显示）· S 安全余量 · B 输入预算 · T 压缩阈值</system:String>
     <system:String x:Key="ContextInspector.Overview.Usage">Usage 锚点</system:String>
     <system:String x:Key="ContextInspector.Overview.CachedHint">Cached Input 只影响缓存复用或计费，不会减少 Context Window 占用。</system:String>
     <system:String x:Key="ContextInspector.Overview.Ownership">所有权与继承链</system:String>
