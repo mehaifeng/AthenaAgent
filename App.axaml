@@ -411,6 +411,88 @@
             <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
         </Style>
 
+        <!-- 「过程行」：助手气泡里穿插在正文之间的思考行与工具行共用一套语法。
+             无边框、无底色、与正文同字号，靠状态图标而不是卡片外观表达状态。
+             定义在应用级而不是各控件实例上：一条重对话里过程行数以百计，
+             每个实例自带一份 Styles 就是几百份样式集合参与匹配。 -->
+        <Style Selector="Button.process-row">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+        </Style>
+        <Style Selector="Button.process-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SemiGreyLowBrush}"/>
+        </Style>
+
+        <!-- 展开详情：左侧竖线 + 缩进，不套卡片（单边框不加圆角） -->
+        <Style Selector="Border.process-detail">
+            <Setter Property="Margin" Value="9,2,0,4"/>
+            <Setter Property="Padding" Value="10,0,0,0"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+        </Style>
+
+        <!-- 展开态换几何而不是旋转：PathIcon 的 RenderTransform 已被 Semi 主题占用（TransformGroup），
+             样式里挂 RotateTransform 不会生效，箭头会永远指向右边。 -->
+        <Style Selector="PathIcon.process-chevron">
+            <Setter Property="Width" Value="10"/>
+            <Setter Property="Height" Value="10"/>
+            <Setter Property="Opacity" Value="0.5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style Selector="PathIcon.tool-status">
+            <Setter Property="Width" Value="11"/>
+            <Setter Property="Height" Value="11"/>
+            <Setter Property="Opacity" Value="0.7"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="PathIcon.tool-status.success">
+            <Setter Property="Foreground" Value="{DynamicResource SemiGreen6}"/>
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="PathIcon.tool-status.failed">
+            <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <!-- 推理增量追加期间，灯泡只在默认前景色与纯白之间呼吸闪烁。
+             动画由 appending 类动态挂/摘，避免回复结束后继续驱动合成器。 -->
+        <Style Selector="PathIcon.reasoning-bulb">
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+            <Setter Property="Opacity" Value="0.7"/>
+        </Style>
+        <Style Selector="PathIcon.reasoning-bulb.appending">
+            <Style.Animations>
+                <Animation Duration="0:0:0.8" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="SineEaseInOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+                        <Setter Property="Opacity" Value="0.7"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Opacity" Value="1"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Button.clamp-toggle">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Caption}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+        <Style Selector="Button.clamp-toggle:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource App.EmphasisForeground}"/>
+        </Style>
+
+
         <Style Selector="lmd|CodeBlock">
             <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}"/>
             <Setter Property="Template">

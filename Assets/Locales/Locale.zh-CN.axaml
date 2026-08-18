@@ -899,8 +899,6 @@
     <system:String x:Key="Tool.CallComplete">{0} 调用完成，继续思考中…</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">参数</system:String>
     <system:String x:Key="Tool.ResultLabel">结果</system:String>
-    <system:String x:Key="Tool.GroupExpand">展开全部 {0} 次调用</system:String>
-    <system:String x:Key="Tool.GroupCollapse">收起</system:String>
     <system:String x:Key="Tool.Name.WebSearch">搜索</system:String>
     <system:String x:Key="Tool.Name.RecallMemory">回忆记忆</system:String>
     <system:String x:Key="Tool.Name.CreateMemory">写入记忆</system:String>
@@ -1064,8 +1062,8 @@
     <system:String x:Key="Chat.Context.Boundary">上下文已压缩 · {0} 条 → 摘要</system:String>
     <system:String x:Key="Chat.Context.BoundaryAt">上下文已压缩 · {0} 条 → 摘要 · {1:t}</system:String>
     <system:String x:Key="Chat.Reasoning.Header">思考过程</system:String>
-    <system:String x:Key="Chat.Reasoning.Show">展开思考过程</system:String>
-    <system:String x:Key="Chat.Reasoning.Hide">收起思考过程</system:String>
+    <system:String x:Key="Chat.Reasoning.ShowAll">显示全部</system:String>
+    <system:String x:Key="Chat.Reasoning.ShowLess">收起长文</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
     <system:String x:Key="Knowledge.SelectFile">选择文件以查看</system:String>
     <system:String x:Key="Knowledge.LoadFailed">加载失败：{0}</system:String>

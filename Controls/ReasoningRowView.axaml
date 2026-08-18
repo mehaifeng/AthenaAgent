@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Controls.ReasoningRowView"
+             x:DataType="models:ChatMessageSegment">
+    <StackPanel Margin="0,0,0,2">
+        <Button Classes="process-row reasoning-row"
+                Command="{Binding ToggleExpandedCommand}"
+                ToolTip.Tip="{loc:Loc Chat.Reasoning.Header}"
+                AutomationProperties.Name="{loc:Loc Chat.Reasoning.Header}">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0"
+                          Data="{StaticResource AthenaIconReasoning}"
+                          Classes="reasoning-bulb"
+                          Classes.appending="{Binding IsAppending}"
+                          Width="11" Height="11"
+                          Margin="0,0,6,0"
+                          VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Column="1"
+                           Text="{loc:Loc Chat.Reasoning.Header}"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           VerticalAlignment="Center"/>
+
+                <PathIcon Grid.Column="2"
+                          Classes="process-chevron"
+                          Data="{Binding ChevronIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+            </Grid>
+        </Button>
+
+        <!-- 收起时 ExpandedReasoning 为 null，思考正文子树不被实例化 -->
+        <ContentControl Content="{Binding ExpandedReasoning}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="models:ChatMessageSegment">
+                    <Border Classes="process-detail">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding VisibleText}"
+                                       MaxLines="{Binding TextMaxLines}"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                       Foreground="{DynamicResource SemiColorText3}"/>
+                            <Button Classes="clamp-toggle"
+                                    IsVisible="{Binding ShowClampToggle}"
+                                    Command="{Binding ToggleClampCommand}">
+                                <Panel>
+                                    <TextBlock Text="{loc:Loc Chat.Reasoning.ShowAll}" IsVisible="{Binding IsClamped}"/>
+                                    <TextBlock Text="{loc:Loc Chat.Reasoning.ShowLess}" IsVisible="{Binding !IsClamped}"/>
+                                </Panel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+    </StackPanel>
+</UserControl>

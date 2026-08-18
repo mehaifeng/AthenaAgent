@@ -899,8 +899,6 @@
     <system:String x:Key="Tool.CallComplete">{0} done; thinking continues…</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">Arguments</system:String>
     <system:String x:Key="Tool.ResultLabel">Result</system:String>
-    <system:String x:Key="Tool.GroupExpand">Expand all {0} calls</system:String>
-    <system:String x:Key="Tool.GroupCollapse">Collapse</system:String>
     <system:String x:Key="Tool.Name.WebSearch">Web search</system:String>
     <system:String x:Key="Tool.Name.RecallMemory">Recall memory</system:String>
     <system:String x:Key="Tool.Name.CreateMemory">Save memory</system:String>
@@ -1064,8 +1062,8 @@
     <system:String x:Key="Chat.Context.Boundary">Context compressed · {0} messages → summary</system:String>
     <system:String x:Key="Chat.Context.BoundaryAt">Context compressed · {0} messages → summary · {1:t}</system:String>
     <system:String x:Key="Chat.Reasoning.Header">Reasoning</system:String>
-    <system:String x:Key="Chat.Reasoning.Show">Show reasoning</system:String>
-    <system:String x:Key="Chat.Reasoning.Hide">Hide reasoning</system:String>
+    <system:String x:Key="Chat.Reasoning.ShowAll">Show all</system:String>
+    <system:String x:Key="Chat.Reasoning.ShowLess">Show less</system:String>
     <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>
     <system:String x:Key="Knowledge.SelectFile">Select a file to view</system:String>
     <system:String x:Key="Knowledge.LoadFailed">Failed to load: {0}</system:String>

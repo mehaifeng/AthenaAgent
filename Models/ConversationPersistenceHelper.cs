@@ -59,7 +59,7 @@ public static class ConversationPersistenceHelper
             Kind = segment.Kind,
             Text = segment.Text,
             AttachmentId = segment.AttachmentId,
-            IsGroupExpanded = segment.IsGroupExpanded
+            IsExpanded = segment.IsExpanded
         };
 
         foreach (var entry in segment.ToolCalls)
@@ -76,7 +76,6 @@ public static class ConversationPersistenceHelper
             });
         }
 
-        clone.RehookToolCalls();
         return clone;
     }
 
@@ -112,17 +111,60 @@ public static class ConversationPersistenceHelper
             attachment.Position = TimeSpan.Zero;
         }
 
-        // 还原后恢复工具组的集合监听与派生属性，并默认收起（用户未手动展开）
+        MigrateLegacyReasoning(msg);
+
+        // 所有可折叠的东西统一恢复成收起态：打开一段历史对话看到的应该是一条条摘要，
+        // 而不是上次离开时摊开的一屏参数与结果。
         foreach (var segment in msg.Segments)
         {
-            if (segment.IsToolCallGroup)
+            foreach (var entry in segment.ToolCalls)
             {
-                segment.RehookToolCalls();
-                segment.UserToggledGroup = false;
-                segment.IsGroupExpanded = false;
+                entry.IsExpanded = false;
             }
+
+            segment.UserToggled = false;
+            segment.IsExpanded = false;
+            segment.IsAppending = false;
+            segment.IsClamped = true;
         }
 
         msg.ResolveSegmentAttachments();
+    }
+
+    /// <summary>
+    /// 老归档里推理是消息级的一整块，没有位置信息。恢复时把它迁成一个排在最前的思考段，
+    /// 让老会话也走同一套分段渲染。
+    /// 注意顺序：正文尚未成段时必须先固化正文——一旦有了任何 segment，
+    /// <see cref="ChatMessage.UsesSegmentLayout"/> 即为真、legacy Markdown 渲染器关闭，
+    /// 只在 Content 里的正文会从界面消失。
+    /// </summary>
+    private static void MigrateLegacyReasoning(ChatMessage msg)
+    {
+        if (!msg.HasReasoningContent || msg.Segments.Any(segment => segment.IsReasoning))
+        {
+            return;
+        }
+
+        if (msg.Segments.Count == 0)
+        {
+            if (string.IsNullOrWhiteSpace(msg.Content))
+            {
+                return;
+            }
+
+            msg.Segments.Add(new ChatMessageSegment
+            {
+                Kind = ChatMessageSegmentKind.Markdown,
+                Text = msg.Content
+            });
+        }
+
+        msg.Segments.Insert(0, new ChatMessageSegment
+        {
+            Kind = ChatMessageSegmentKind.Reasoning,
+            Text = msg.ReasoningContent ?? string.Empty
+        });
+
+        msg.NotifySegmentsChanged();
     }
 }

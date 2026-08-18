@@ -1,0 +1,73 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Controls.ToolCallRowView"
+             x:DataType="models:ToolCallEntry">
+    <StackPanel>
+        <Button Classes="process-row"
+                Command="{Binding ToggleExpandedCommand}"
+                ToolTip.Tip="{Binding Summary}"
+                AutomationProperties.Name="{Binding Summary}">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                <!-- 状态标识：执行中/成功/失败共用一个图标，按 key 换几何、按类换颜色 -->
+                <PathIcon Grid.Column="0"
+                          Classes="tool-status"
+                          Classes.SlowSpin="{Binding IsRunning}"
+                          Classes.success="{Binding IsSuccess}"
+                          Classes.failed="{Binding IsFailed}"
+                          Data="{Binding StatusIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+
+                <PathIcon Grid.Column="1"
+                          Data="{Binding IconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                          Margin="6,0,4,0"
+                          Width="11" Height="11"
+                          Opacity="0.8"
+                          VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Column="2"
+                           Text="{Binding Summary}"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           MaxLines="1"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"/>
+
+                <PathIcon Grid.Column="3"
+                          Classes="process-chevron"
+                          IsVisible="{Binding HasDetails}"
+                          Data="{Binding ChevronIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+            </Grid>
+        </Button>
+
+        <!-- 收起时 ExpandedDetails 为 null，整棵详情子树不被实例化 -->
+        <ContentControl Content="{Binding ExpandedDetails}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="models:ToolCallEntry">
+                    <Border Classes="process-detail">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
+                                       IsVisible="{Binding HasArguments}"
+                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
+                            <SelectableTextBlock Text="{Binding Arguments}"
+                                                 IsVisible="{Binding HasArguments}"
+                                                 FontFamily="{StaticResource MonospaceFontFamily}"
+                                                 FontSize="{DynamicResource App.FontSize.Body}"
+                                                 Foreground="{DynamicResource SemiColorText2}"
+                                                 TextWrapping="Wrap"/>
+
+                            <TextBlock Text="{loc:Loc Tool.ResultLabel}"
+                                       IsVisible="{Binding HasResult}"
+                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
+                            <SelectableTextBlock Text="{Binding Result}"
+                                                 IsVisible="{Binding HasResult}"
+                                                 FontSize="{DynamicResource App.FontSize.Body}"
+                                                 Foreground="{DynamicResource SemiColorText2}"
+                                                 TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+    </StackPanel>
+</UserControl>

@@ -148,59 +148,6 @@
             </Style.Animations>
         </Style>
 
-        <!-- 推理过程折叠面板：头部为无边框轻量按钮，面板为灰底卡片，正文弱化显示 -->
-        <Style Selector="Button.reasoning-toggle">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
-        </Style>
-        <Style Selector="Button.reasoning-toggle:pointerover">
-            <Setter Property="Background" Value="{DynamicResource SemiGreyLowBrush}"/>
-        </Style>
-        <!-- 推理增量追加期间，灯泡只在默认前景色与纯白之间呼吸闪烁。
-             动画由 appending 类动态挂/摘，避免回复结束后继续驱动合成器。 -->
-        <Style Selector="PathIcon.reasoning-bulb">
-            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
-            <Setter Property="Opacity" Value="0.7"/>
-        </Style>
-        <Style Selector="PathIcon.reasoning-bulb.appending">
-            <Style.Animations>
-                <Animation Duration="0:0:0.8" IterationCount="Infinite" PlaybackDirection="Alternate" Easing="SineEaseInOut">
-                    <KeyFrame Cue="0%">
-                        <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
-                        <Setter Property="Opacity" Value="0.7"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                        <Setter Property="Foreground" Value="White"/>
-                        <Setter Property="Opacity" Value="1"/>
-                    </KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-        <Style Selector="Border.reasoning-panel">
-            <Setter Property="CornerRadius" Value="7"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
-            <Setter Property="Padding" Value="10,8"/>
-        </Style>
-        <Style Selector="PathIcon.reasoning-chevron">
-            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
-            <Setter Property="RenderTransform">
-                <RotateTransform/>
-            </Setter>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="RotateTransform.Angle" Duration="0:0:0.15"/>
-                </Transitions>
-            </Setter>
-            <Style Selector="^.reasoning-expanded">
-                <Setter Property="RotateTransform.Angle" Value="90"/>
-            </Style>
-        </Style>
-
         <!-- 消息气泡基础样式 -->
         <Style Selector="Border.message-bubble">
             <Setter Property="CornerRadius" Value="8"/>
@@ -441,33 +388,6 @@
                                         Classes.user-bubble="{Binding IsUser}"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
-                                        <!-- 推理过程折叠面板：默认收起，点击头部展开/收起。
-                                             流式回复中推理文本在每轮结束时到达，跨工具轮累计展示完整思考链。 -->
-                                        <StackPanel IsVisible="{Binding HasReasoningContent}" Margin="0,0,0,8" Spacing="4">
-                                            <Button Classes="reasoning-toggle" Padding="8,4" HorizontalAlignment="Left"
-                                                    Command="{Binding ToggleReasoningCommand}"
-                                                    ToolTip.Tip="{loc:Loc Chat.Reasoning.Header}"
-                                                    AutomationProperties.Name="{loc:Loc Chat.Reasoning.Header}">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <PathIcon Data="{StaticResource AthenaIconReasoning}"
-                                                              Classes="reasoning-bulb"
-                                                              Classes.appending="{Binding IsReasoningAppending}"
-                                                              Width="13" Height="13"
-                                                              VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{loc:Loc Chat.Reasoning.Header}" FontSize="{DynamicResource App.FontSize.Body}"/>
-                                                    <PathIcon Data="{StaticResource AthenaIconChevronRight}" Width="11" Height="11" Opacity="0.7" VerticalAlignment="Center"
-                                                              Classes="reasoning-chevron"
-                                                              Classes.reasoning-expanded="{Binding IsReasoningExpanded}"/>
-                                                </StackPanel>
-                                            </Button>
-                                            <Border Classes="reasoning-panel" IsVisible="{Binding IsReasoningExpanded}">
-                                                <TextBlock Text="{Binding ReasoningContent}"
-                                                           TextWrapping="Wrap"
-                                                           FontSize="{DynamicResource App.FontSize.Body}"
-                                                           Foreground="{DynamicResource SemiColorText3}"/>
-                                            </Border>
-                                        </StackPanel>
-
                                         <!-- Content 为 null 时不实例化重型 Markdown 模板。 -->
                                         <ContentControl Content="{Binding LegacyMarkdownContent}">
                                             <ContentControl.ContentTemplate>
@@ -481,52 +401,60 @@
                                             </ContentControl.ContentTemplate>
                                         </ContentControl>
 
+                                        <!-- 思考 / 工具 / 正文按发生顺序同列渲染：段与段的先后就是回合的先后，
+                                             不再有「顶部思考区」和「顶部工具区」这两个脱离时间轴的聚合块。 -->
                                         <ItemsControl ItemsSource="{Binding SegmentContent}">
                                             <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                    <StackPanel Margin="0,0,0,6">
-                                                        <ContentControl Content="{Binding MarkdownContent}">
-                                                            <ContentControl.ContentTemplate>
-                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                                    <lmd:MarkdownRenderer
-                                                                        loc:MarkdownHelper.Text="{Binding Text}"
-                                                                        LinkCommand="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkCommand}"
-                                                                        LinkContextMenu="{StaticResource MarkdownLinkContextMenu}"
-                                                                        HorizontalAlignment="Stretch" />
-                                                                </DataTemplate>
-                                                            </ContentControl.ContentTemplate>
-                                                        </ContentControl>
+                                                <controls:ChatSegmentTemplateSelector>
+                                                    <controls:ChatSegmentTemplateSelector.MarkdownTemplate>
+                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                            <lmd:MarkdownRenderer
+                                                                Margin="0,4,0,8"
+                                                                loc:MarkdownHelper.Text="{Binding Text}"
+                                                                LinkCommand="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkCommand}"
+                                                                LinkContextMenu="{StaticResource MarkdownLinkContextMenu}"
+                                                                HorizontalAlignment="Stretch" />
+                                                        </DataTemplate>
+                                                    </controls:ChatSegmentTemplateSelector.MarkdownTemplate>
 
-                                                        <ContentControl Content="{Binding GeneratedImageContent}">
-                                                            <ContentControl.ContentTemplate>
-                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                                    <Button Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenImageAttachmentCommand}"
-                                                                            CommandParameter="{Binding Attachment}"
-                                                                            Padding="0"
-                                                                            Background="Transparent"
-                                                                            BorderThickness="0"
-                                                                            HorizontalAlignment="Left"
-                                                                            AutomationProperties.Name="{Binding Attachment.DisplayName}">
-                                                                        <Border Classes="inline-generated-image">
-                                                                            <Image Source="{Binding Attachment.PreviewImage}"
-                                                                                   Stretch="Uniform"
-                                                                                   MaxWidth="560"/>
-                                                                        </Border>
-                                                                    </Button>
-                                                                </DataTemplate>
-                                                            </ContentControl.ContentTemplate>
-                                                        </ContentControl>
+                                                    <controls:ChatSegmentTemplateSelector.ReasoningTemplate>
+                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                            <controls:ReasoningRowView HorizontalAlignment="Stretch"/>
+                                                        </DataTemplate>
+                                                    </controls:ChatSegmentTemplateSelector.ReasoningTemplate>
 
-                                                        <ContentControl Content="{Binding ToolCallContent}">
-                                                            <ContentControl.ContentTemplate>
-                                                                <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                                    <!-- 工具调用组：自定义折叠容器（收起露 3 个 + 第 4 个 peek + 底部朦胧） -->
-                                                                    <controls:ToolCallStackView HorizontalAlignment="Stretch"/>
-                                                                </DataTemplate>
-                                                            </ContentControl.ContentTemplate>
-                                                        </ContentControl>
-                                                    </StackPanel>
-                                                </DataTemplate>
+                                                    <controls:ChatSegmentTemplateSelector.GeneratedImageTemplate>
+                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                            <Button Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenImageAttachmentCommand}"
+                                                                    CommandParameter="{Binding Attachment}"
+                                                                    Padding="0"
+                                                                    Margin="0,4,0,8"
+                                                                    Background="Transparent"
+                                                                    BorderThickness="0"
+                                                                    HorizontalAlignment="Left"
+                                                                    AutomationProperties.Name="{Binding Attachment.DisplayName}">
+                                                                <Border Classes="inline-generated-image">
+                                                                    <Image Source="{Binding Attachment.PreviewImage}"
+                                                                           Stretch="Uniform"
+                                                                           MaxWidth="560"/>
+                                                                </Border>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </controls:ChatSegmentTemplateSelector.GeneratedImageTemplate>
+
+                                                    <controls:ChatSegmentTemplateSelector.ToolCallTemplate>
+                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
+                                                            <!-- 本轮的工具调用：并行调用只是相邻的几行，没有可展开/收起的「组」 -->
+                                                            <ItemsControl ItemsSource="{Binding ToolCalls}" Margin="0,0,0,2">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="models:ToolCallEntry">
+                                                                        <controls:ToolCallRowView HorizontalAlignment="Stretch"/>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </DataTemplate>
+                                                    </controls:ChatSegmentTemplateSelector.ToolCallTemplate>
+                                                </controls:ChatSegmentTemplateSelector>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
 

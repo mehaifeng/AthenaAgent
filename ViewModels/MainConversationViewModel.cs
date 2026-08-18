@@ -31,8 +31,11 @@ namespace Athena.UI.ViewModels;
 
 public partial class MainConversationViewModel : ViewModelBase, IDisposable
 {
-    /// <summary>推理文本多回合流式时的隔断符：每轮推理结束自动收起，下一轮推理开始时在其下续写。</summary>
-    private const string ReasoningStreamSeparator = "\n\n────────────\n\n";
+    /// <summary>
+    /// 累计推理文本里的回合隔断。界面上每轮思考已经各自成段，这份累计文本只服务于
+    /// 上下文回放与压缩，因此不再掺装饰性分隔线——那是给人看的，模型只需要知道换了一轮。
+    /// </summary>
+    private const string ReasoningRoundSeparator = "\n\n";
 
     private enum TransitionStageResult
     {
@@ -2188,10 +2191,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         Messages.Add(assistantMsg);
         requestContext.Revision = _revision;
 
-        // 推理流式状态机：true = 本回合正在流式接收推理文本。
-        // 新一轮推理首个增量到达时自动展开并在已有推理内容下加隔断符；
-        // 回合结束时（onMessageAdded 到达）自动收起，等待下一轮推理重新展开。
-        var reasoningStreaming = false;
+        // 推理流式状态机：非 null = 本回合正在流式接收推理文本，增量都写进这一段。
+        // 新一轮推理首个增量到达时另起一段并按设置自动展开；
+        // 回合结束时（onMessageAdded 到达）收起该段，下一轮推理再新起一段。
+        ChatMessageSegment? activeReasoning = null;
 
         try
         {
@@ -2229,13 +2232,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         // 把本轮的阶段性正文固化为可见段并清空 Content（去重），保留所有可见段
                         CommitActiveBubbleRound(assistantMsg);
 
-                        // 本回合推理结束：收起面板（下一轮推理开始时自动重新展开）。
-                        reasoningStreaming = false;
-                        assistantMsg.IsReasoningAppending = false;
-                        assistantMsg.IsReasoningExpanded = false;
+                        // 本回合推理结束：收起该思考段（下一轮推理开始时另起一段）。
+                        activeReasoning = EndReasoningRound(activeReasoning);
 
-                        // 为本轮的每个工具调用追加一张「执行中」卡片。
-                        // 先补卡片、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
+                        // 为本轮的每个工具调用追加一行「执行中」。
+                        // 先补工具行、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
                         assistantMsg.ToolExecutionSummary = string.Empty;
                         AddToolCallEntries(assistantMsg, msg.ToolCallsJson);
                         assistantMsg.IsComposingFileText = false;
@@ -2243,25 +2244,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     }
                     else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
                     {
-                        if (reasoningStreaming)
+                        if (activeReasoning != null)
                         {
-                            // 推理增量已在 onReasoningDelta 实时流入气泡，此处只做回合收尾：收起面板。
-                            reasoningStreaming = false;
-                            assistantMsg.IsReasoningAppending = false;
-                            assistantMsg.IsReasoningExpanded = false;
+                            // 推理增量已在 onReasoningDelta 实时流入该段，此处只做回合收尾。
+                            activeReasoning = EndReasoningRound(activeReasoning);
                         }
                         else
                         {
-                            // 非流式到达（历史回载等）：直接落内容，保持默认收起。
-                            assistantMsg.ReasoningContent = msg.ReasoningContent;
+                            // 非流式到达（供应商只在回合末尾给整段推理）：补一段，保持收起。
+                            // 跨工具轮累计：每个回合的思考都值得保留（工具执行前的推理往往最有信息量）。
+                            AppendReasoningSegment(assistantMsg, msg.ReasoningContent, expanded: false);
+                            assistantMsg.ReasoningContent = string.IsNullOrEmpty(assistantMsg.ReasoningContent)
+                                ? msg.ReasoningContent
+                                : assistantMsg.ReasoningContent + ReasoningRoundSeparator + msg.ReasoningContent;
                         }
-                    }
-                    else if (msg.Role == "assistant" && !string.IsNullOrEmpty(msg.ReasoningContent))
-                    {
-                        // 跨工具轮累计推理文本：每个回合的思考都值得保留（工具执行前的推理往往最有信息量）。
-                        assistantMsg.ReasoningContent = string.IsNullOrEmpty(assistantMsg.ReasoningContent)
-                            ? msg.ReasoningContent
-                            : assistantMsg.ReasoningContent + "\n\n" + msg.ReasoningContent;
                     }
                     else if (msg.Role == "assistant" && msg.Attachments.Count > 0)
                     {
@@ -2375,7 +2371,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     }
 
                     // 工具调用参数已经开始输出，说明当前推理增量阶段已结束。
-                    assistantMsg.IsReasoningAppending = false;
+                    if (activeReasoning != null)
+                    {
+                        activeReasoning.IsAppending = false;
+                    }
+
                     if (functionName != "write_system_file" && functionName != "modify_system_file") return;
 
                     assistantMsg.IsComposingFileText = true;
@@ -2385,22 +2385,24 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;
 
-                    // 每个推理增量都会重新点亮灯泡；若供应商交错输出正文与推理，也能正确恢复动画。
-                    assistantMsg.IsReasoningAppending = true;
-                    if (!reasoningStreaming)
+                    if (activeReasoning == null)
                     {
-                        // 新一轮推理开始：先展开容器，再在已有推理内容下补隔断符，
-                        // 之后本回合增量在隔断符下继续流式追加。
-                        reasoningStreaming = true;
+                        // 新一轮推理开始：在已到达的正文/工具段之后另起一个思考段，
+                        // 之后本回合增量都追加进这一段；给模型回放的累计文本另加隔断。
                         if (!string.IsNullOrEmpty(assistantMsg.ReasoningContent))
                         {
-                            assistantMsg.ReasoningContent += ReasoningStreamSeparator;
+                            assistantMsg.ReasoningContent += ReasoningRoundSeparator;
                         }
-                        if (_configService?.Load().AutoExpandReasoning ?? true)
-                        {
-                            assistantMsg.IsReasoningExpanded = true;
-                        }
+
+                        activeReasoning = AppendReasoningSegment(
+                            assistantMsg,
+                            string.Empty,
+                            expanded: _configService?.Load().AutoExpandReasoning ?? true);
                     }
+
+                    // 每个推理增量都会重新点亮灯泡；若供应商交错输出正文与推理，也能正确恢复动画。
+                    activeReasoning.IsAppending = true;
+                    activeReasoning.Text += delta;
                     assistantMsg.ReasoningContent += delta;
                 },
                 addToContext: addToContext,
@@ -2428,8 +2430,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
                 if (!string.IsNullOrEmpty(contentDelta))
                 {
-                    // 正文开始追加后，灯泡不再闪烁；面板仍按既有回合收尾逻辑自动收起。
-                    assistantMsg.IsReasoningAppending = false;
+                    // 正文开始追加后，灯泡不再闪烁；思考段仍按既有回合收尾逻辑自动收起。
+                    if (activeReasoning != null)
+                    {
+                        activeReasoning.IsAppending = false;
+                    }
+
                     // 先写入正文、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
                     assistantMsg.ToolExecutionSummary = string.Empty; // 开始输出正式回复，隐藏工具调用状态
                     assistantMsg.IsComposingFileText = false;
@@ -2498,13 +2504,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 // 回复生命周期结束：先落内容态，最后统一撤下 loading/streaming 生命线，气泡去留由下方清理判定。
                 assistantMsg.IsLoading = false;
                 assistantMsg.IsComposingFileText = false;
-                assistantMsg.IsReasoningAppending = false;
                 assistantMsg.IsStreaming = false;
                 assistantMsg.ToolExecutionSummary = string.Empty;
                 assistantMsg.ContextMaintenanceStatus = string.Empty;
 
-                // 输出结束（成功/停止/报错均经此）：自动收起工具调用组（露 3 个 + peek），尊重用户手动操作
-                CollapseToolGroups(assistantMsg);
+                // 输出结束（成功/停止/报错均经此）：收起仍展开着的思考段，尊重用户手动操作
+                CollapseStreamingReasoning(assistantMsg);
 
                 // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
                 if (string.IsNullOrWhiteSpace(assistantMsg.Content)
@@ -4321,7 +4326,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 var arguments = node["Arguments"]?.ToString();
                 firstToolName ??= name;
 
-                group ??= GetOrCreateToolCallGroup(message);
+                group ??= AppendToolCallGroup(message);
                 group.ToolCalls.Add(new ToolCallEntry
                 {
                     ToolCallId = id,
@@ -4330,12 +4335,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     Arguments = ToolCallDisplay.PrettyArguments(arguments),
                     Status = ToolCallStatus.Running
                 });
-            }
-
-            // 流式期间展开整组，方便观察实时进度（除非用户已手动收起）
-            if (group != null && !group.UserToggledGroup)
-            {
-                group.IsGroupExpanded = true;
             }
 
             if (group != null)
@@ -4361,18 +4360,33 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
     }
 
-    // 一条消息内所有工具调用汇总进同一个组，并固定置顶（segment 索引 0），
-    // 让全部工具调用集中在气泡顶部、阶段性回复文本依次排在其下方。
-    private static ChatMessageSegment GetOrCreateToolCallGroup(ChatMessage message)
+    // 每一轮工具调用都新建一个组并追加到段尾：段的先后就是回合的先后，
+    // 于是「这段正文之后调了这些工具、然后才有下一段正文」在界面上是直读的。
+    private static ChatMessageSegment AppendToolCallGroup(ChatMessage message)
     {
-        var group = message.Segments.FirstOrDefault(s => s.IsToolCallGroup);
-        if (group == null)
-        {
-            group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
-            message.Segments.Insert(0, group);
-        }
-
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        message.Segments.Add(group);
         return group;
+    }
+
+    // 新一轮推理开始：追加一个思考段。正文可能已经流在 Content 里而尚未建段
+    // （首轮 AppendAssistantMarkdownSegment 会跳过建段），此时必须先固化成 Markdown 段——
+    // 一旦有了任何 segment，UsesSegmentLayout 就为真、legacy 渲染器关闭，
+    // 已经流出来的正文会当场从界面消失。
+    private static ChatMessageSegment AppendReasoningSegment(ChatMessage message, string text, bool expanded)
+    {
+        EnsureSegmentLayout(message);
+
+        var segment = new ChatMessageSegment
+        {
+            Kind = ChatMessageSegmentKind.Reasoning,
+            Text = text,
+            IsExpanded = expanded
+        };
+
+        message.Segments.Add(segment);
+        message.NotifySegmentsChanged();
+        return segment;
     }
 
     // 工具结果回填到对应项：按 ToolCallId 匹配，标记成功/失败并填入结果预览。
@@ -4411,14 +4425,38 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         return success;
     }
 
-    // 工具轮全部完成、开始/结束输出最终正文时收起工具组（尊重用户已手动展开/收起的意愿）。
-    private static void CollapseToolGroups(ChatMessage message)
+    // 本回合推理收尾：停灯泡、收起（除非用户手动展开过）。返回 null，让调用方顺手清空活动段。
+    private static ChatMessageSegment? EndReasoningRound(ChatMessageSegment? segment)
+    {
+        if (segment == null)
+        {
+            return null;
+        }
+
+        segment.IsAppending = false;
+        if (!segment.UserToggled)
+        {
+            segment.IsExpanded = false;
+        }
+
+        return null;
+    }
+
+    // 回复结束：收起仍展开着的思考段（尊重用户已手动展开的意愿），并停掉灯泡动画。
+    // 工具行本来就默认收起，无需处理。
+    private static void CollapseStreamingReasoning(ChatMessage message)
     {
         foreach (var seg in message.Segments)
         {
-            if (seg.IsToolCallGroup && !seg.UserToggledGroup)
+            if (!seg.IsReasoning)
             {
-                seg.IsGroupExpanded = false;
+                continue;
+            }
+
+            seg.IsAppending = false;
+            if (!seg.UserToggled)
+            {
+                seg.IsExpanded = false;
             }
         }
     }
@@ -4460,8 +4498,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
 
         bubble.Content = string.Empty;
-        // 推理文本不清空：跨工具轮累计展示完整思考链（CommitActiveBubbleRound 只固化正文段）
-        // 下一段正文另起一段（工具组置顶后，相邻轮文本之间不再有工具段天然分隔）
+        // 推理文本不清空：它是给模型回放的累计副本（CommitActiveBubbleRound 只固化正文段）。
+        // 下一段正文另起一段：本轮工具段通常已天然隔开，但工具 JSON 解析失败时不会有工具段，
+        // 这个标志是那种情况下的保底，避免两轮正文被拼成一段。
         _forceNewAssistantTextSegment = true;
         bubble.NotifySegmentsChanged();
     }

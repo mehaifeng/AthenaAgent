@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -103,29 +102,15 @@ public partial class ChatMessage : ObservableObject
     private string? _toolCallsJson;
 
     /// <summary>
-    /// DeepSeek thinking 模式等模型要求回放的推理内容
+    /// DeepSeek thinking 模式等模型要求回放的推理内容。跨轮累计，是发给模型的权威副本；
+    /// 界面上的分段展示由 <see cref="ChatMessageSegmentKind.Reasoning"/> 段承载。
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasReasoningContent))]
     private string? _reasoningContent;
 
-    /// <summary>
-    /// 当前是否正在向该气泡追加模型推理增量。仅驱动思考灯泡动画，回合结束后立即复位。
-    /// </summary>
-    [ObservableProperty]
-    private bool _isReasoningAppending;
-
-    /// <summary>
-    /// 推理内容折叠面板是否展开。默认收起，点击面板头部切换。
-    /// </summary>
-    [ObservableProperty]
-    private bool _isReasoningExpanded;
-
-    /// <summary>该助手消息是否带有可展示的推理文本。</summary>
+    /// <summary>该助手消息是否带有可回放的推理文本。</summary>
     public bool HasReasoningContent => !string.IsNullOrWhiteSpace(ReasoningContent);
-
-    [RelayCommand]
-    private void ToggleReasoning() => IsReasoningExpanded = !IsReasoningExpanded;
 
     [ObservableProperty]
     private string? _outputAudioReferenceId;

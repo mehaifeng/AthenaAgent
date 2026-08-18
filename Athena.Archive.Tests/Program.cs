@@ -82,6 +82,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("planner narrows the compressible window until it is feasible", TestPlannerNarrowsUntilFeasibleAsync),
     ("compression strength drives summary length and per-pass capacity", TestCompressionStrengthAsync),
     ("clone message preserves stable id for fork anchoring", TestCloneMessagePreservesIdAsync),
+    ("legacy message-level reasoning is restored as a leading segment without losing the body", TestLegacyReasoningMigrationAsync),
     ("summary context obeys 10-message and 1000-char budget", TestSummaryContextBudgetAsync),
     ("upsert persists linked image session", TestImageSessionUpsertAsync),
     ("image session snapshot reloads persisted lineage", TestImageSessionSnapshotAsync),
@@ -2267,6 +2268,45 @@ static Task TestCloneMessagePreservesIdAsync()
     var attachment = new ChatAttachment { Id = "att-1", FileName = "a.png", StoredPath = "/tmp/a.png" };
     var attachmentClone = ConversationPersistenceHelper.CloneAttachment(attachment);
     AssertEqual("att-1", attachmentClone.Id, "cloned attachment keeps id so segments and image sessions stay linked");
+    return Task.CompletedTask;
+}
+
+// 老归档里推理是消息级的一整块（没有段）。恢复时要迁成一个思考段，
+// 而且必须先把正文固化成 Markdown 段：只要出现任何 segment，legacy Markdown 渲染器就会关闭，
+// 只存在于 Content 里的正文会从界面上消失。
+static Task TestLegacyReasoningMigrationAsync()
+{
+    var legacy = new ChatMessage
+    {
+        Role = "assistant",
+        Content = "the visible answer",
+        ReasoningContent = "why I answered that"
+    };
+
+    ConversationPersistenceHelper.PrepareRestoredMessage(legacy);
+
+    AssertEqual(2, legacy.Segments.Count, "legacy reasoning must migrate alongside a materialized body segment");
+    AssertEqual(ChatMessageSegmentKind.Reasoning, legacy.Segments[0].Kind, "reasoning leads the restored message");
+    AssertEqual("why I answered that", legacy.Segments[0].Text, "reasoning text survives the migration");
+    AssertEqual(ChatMessageSegmentKind.Markdown, legacy.Segments[1].Kind, "the body must become a segment of its own");
+    AssertEqual("the visible answer", legacy.Segments[1].Text, "the body text must survive the layout switch");
+    AssertFalse(legacy.Segments[0].IsExpanded, "restored reasoning starts collapsed");
+    AssertEqual("why I answered that", legacy.ReasoningContent, "the replay copy stays on the message for the model");
+
+    // 二次恢复不得重复插入
+    ConversationPersistenceHelper.PrepareRestoredMessage(legacy);
+    AssertEqual(2, legacy.Segments.Count, "migration must be idempotent across repeated restores");
+
+    // 已经是分段布局的消息不受影响
+    var modern = new ChatMessage { Role = "assistant", ReasoningContent = "round one" };
+    modern.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "round one", IsExpanded = true });
+    var toolRound = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+    toolRound.ToolCalls.Add(new ToolCallEntry { ToolCallId = "call-1", Name = "read_file", IsExpanded = true });
+    modern.Segments.Add(toolRound);
+    ConversationPersistenceHelper.PrepareRestoredMessage(modern);
+    AssertEqual(2, modern.Segments.Count, "a message that already has reasoning segments is left alone");
+    AssertFalse(modern.Segments[0].IsExpanded, "restored reasoning segments collapse");
+    AssertFalse(modern.Segments[1].ToolCalls[0].IsExpanded, "restored tool rows collapse");
     return Task.CompletedTask;
 }
 

@@ -81,6 +81,7 @@ Task.Run(TestChatReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
 TestReasoningBubbleState();
 TestReasoningBulbVisualState();
+TestAssistantBubbleLayoutVisual(outputPath);
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
@@ -4566,18 +4567,41 @@ static void TestReasoningBubbleState()
     var message = new ChatMessage { Role = "assistant", ReasoningContent = " step one " };
     if (!message.HasReasoningContent)
         throw new InvalidOperationException("HasReasoningContent must be true when reasoning text is present");
-    if (message.IsReasoningExpanded)
-        throw new InvalidOperationException("Reasoning panel must start collapsed");
-    message.ToggleReasoningCommand.Execute(null);
-    if (!message.IsReasoningExpanded)
-        throw new InvalidOperationException("ToggleReasoning must expand the panel");
-    message.ToggleReasoningCommand.Execute(null);
-    if (message.IsReasoningExpanded)
-        throw new InvalidOperationException("ToggleReasoning must collapse the panel");
     message.ReasoningContent = null;
     if (message.HasReasoningContent)
         throw new InvalidOperationException("HasReasoningContent must clear with the reasoning text");
-    Console.WriteLine("[PASS] reasoning bubble state: HasReasoningContent and ToggleReasoning");
+
+    var segment = new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = " step one " };
+    if (!segment.IsReasoning || segment.ReasoningContent == null)
+        throw new InvalidOperationException("A Reasoning segment must expose itself through ReasoningContent");
+    if (segment.IsExpanded || segment.UserToggled)
+        throw new InvalidOperationException("Reasoning segments must start collapsed and untouched");
+    segment.ToggleExpandedCommand.Execute(null);
+    if (!segment.IsExpanded || !segment.UserToggled)
+        throw new InvalidOperationException("ToggleExpanded must expand the segment and record the manual toggle");
+    segment.ToggleExpandedCommand.Execute(null);
+    if (segment.IsExpanded)
+        throw new InvalidOperationException("ToggleExpanded must collapse the segment again");
+
+    // 限高：短文本不限，长文本限行；追加期间改为尾随窗口，避免正在生长的思考撑高整条对话。
+    if (segment.NeedsClamp || segment.TextMaxLines != 0 || segment.ShowClampToggle)
+        throw new InvalidOperationException("Short reasoning text must not be clamped");
+    segment.Text = new string('x', 900);
+    if (!segment.NeedsClamp || segment.TextMaxLines == 0 || !segment.ShowClampToggle)
+        throw new InvalidOperationException("Long reasoning text must clamp once the round has ended");
+    if (segment.VisibleText.Length != segment.Text.Length)
+        throw new InvalidOperationException("A finished reasoning segment renders its full text, clamped by line count");
+    segment.IsAppending = true;
+    if (segment.VisibleText.Length >= segment.Text.Length || !segment.Text.EndsWith(segment.VisibleText, StringComparison.Ordinal))
+        throw new InvalidOperationException("While appending, a long reasoning segment must render a trailing window");
+    if (segment.TextMaxLines != 0 || segment.ShowClampToggle)
+        throw new InvalidOperationException("The trailing window already bounds the height; no line clamp or toggle while appending");
+    segment.IsAppending = false;
+    segment.ToggleClampCommand.Execute(null);
+    if (segment.IsClamped || segment.TextMaxLines != 0)
+        throw new InvalidOperationException("ToggleClamp must release the line clamp");
+
+    Console.WriteLine("[PASS] reasoning segment state: per-segment toggle, manual-toggle memory, and height clamp");
 }
 
 static void TestReasoningBulbVisualState()
@@ -4587,9 +4611,16 @@ static void TestReasoningBulbVisualState()
     {
         Role = "assistant",
         ReasoningContent = "active reasoning",
-        IsReasoningAppending = true,
         IsStreaming = true
     };
+    var reasoning = new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Reasoning,
+        Text = "active reasoning",
+        IsAppending = true
+    };
+    message.Segments.Add(reasoning);
+    message.NotifySegmentsChanged();
     chat.Messages.Add(message);
 
     var view = new MainConversationView { DataContext = chat };
@@ -4603,8 +4634,12 @@ static void TestReasoningBulbVisualState()
             ?? throw new InvalidOperationException("Reasoning bulb icon was not rendered.");
         if (!bulb.Classes.Contains("appending"))
             throw new InvalidOperationException("Reasoning bulb must attach its animation class while reasoning appends.");
+        // 过程行的样式住在 App.axaml，而行本身是嵌套的 UserControl：样式没落到位是静默失效
+        // （灯泡不呼吸、行还是 Semi 默认按钮样子），这里用 Opacity 证明它确实匹配上了。
+        if (Math.Abs(bulb.Opacity - 1.0) < 0.001)
+            throw new InvalidOperationException("Reasoning bulb did not pick up the app-level process-row styling.");
 
-        message.IsReasoningAppending = false;
+        reasoning.IsAppending = false;
         Dispatcher.UIThread.RunJobs();
         if (bulb.Classes.Contains("appending"))
             throw new InvalidOperationException("Reasoning bulb must detach its animation class after appending stops.");
@@ -4618,6 +4653,143 @@ static void TestReasoningBulbVisualState()
     }
 
     Console.WriteLine("[PASS] reasoning bulb animation class follows the live append state");
+}
+
+// 助手气泡的分散布局：思考、工具、正文按段序同列渲染，各自独立折叠。
+// 除了截图，还断言视觉树里的行序与段序一致——顺序错乱正是这次改造要根治的问题。
+static void TestAssistantBubbleLayoutVisual(string outputPath)
+{
+    using var chat = new MainConversationViewModel();
+    chat.Messages.Add(new ChatMessage { Role = "user", Content = "把工具调用和思考打散到正文里" });
+
+    var assistant = new ChatMessage { Role = "assistant", ReasoningContent = "round one\n\nround two" };
+    assistant.Segments.Add(new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Reasoning,
+        Text = "先确认当前的渲染结构：段是有序的，但工具组被固定插到了索引 0。",
+        IsExpanded = true
+    });
+    assistant.Segments.Add(new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Markdown,
+        Text = "我先看一下当前的渲染结构。"
+    });
+    var firstRound = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+    firstRound.ToolCalls.Add(new ToolCallEntry
+    {
+        ToolCallId = "call-1",
+        Name = "read_file",
+        Summary = "读取文件 MainConversationView.axaml",
+        Arguments = "{\n  \"path\": \"Views/MainConversationView.axaml\"\n}",
+        Result = "1350 行",
+        Status = ToolCallStatus.Success,
+        IsExpanded = true
+    });
+    firstRound.ToolCalls.Add(new ToolCallEntry
+    {
+        ToolCallId = "call-2",
+        Name = "search_in_directory",
+        Summary = "搜索目录 Segments",
+        Arguments = "{\n  \"query\": \"Segments\"\n}",
+        Status = ToolCallStatus.Running
+    });
+    assistant.Segments.Add(firstRound);
+    assistant.Segments.Add(new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Markdown,
+        Text = "工具调用被固定插到了 segment 0，所以永远堆在顶部。"
+    });
+    assistant.Segments.Add(new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Reasoning,
+        Text = "第二轮思考：改成按轮次追加即可。"
+    });
+    var secondRound = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+    secondRound.ToolCalls.Add(new ToolCallEntry
+    {
+        ToolCallId = "call-3",
+        Name = "write_system_file",
+        Summary = "写入文件 ChatMessageSegment.cs",
+        Arguments = "{\n  \"path\": \"Models/ChatMessageSegment.cs\"\n}",
+        Result = "权限不足",
+        Status = ToolCallStatus.Failed
+    });
+    assistant.Segments.Add(secondRound);
+    assistant.Segments.Add(new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Markdown,
+        Text = "改完了。"
+    });
+    assistant.NotifySegmentsChanged();
+    chat.Messages.Add(assistant);
+
+    var view = new MainConversationView { DataContext = chat };
+    var window = new Window { Width = 900, Height = 760, Content = view };
+    try
+    {
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var rows = window.GetVisualDescendants().OfType<ToolCallRowView>().ToList();
+        if (rows.Count != 3)
+            throw new InvalidOperationException($"Expected one row per tool call, rendered {rows.Count}.");
+        if (rows.Select(row => (row.DataContext as ToolCallEntry)?.ToolCallId).SequenceEqual(new[] { "call-1", "call-2", "call-3" }) == false)
+            throw new InvalidOperationException("Tool call rows are not rendered in call order.");
+
+        // 思考行与工具行必须夹在正文之间：按纵坐标排序后，行序应与段序一致。
+        var reasoningHeaders = window.GetVisualDescendants().OfType<Button>()
+            .Where(button => button.Classes.Contains("reasoning-row"))
+            .ToList();
+        if (reasoningHeaders.Count != 2)
+            throw new InvalidOperationException($"Expected one header per reasoning segment, rendered {reasoningHeaders.Count}.");
+        var firstReasoningTop = reasoningHeaders[0].TranslatePoint(default, window)?.Y ?? -1;
+        var firstToolTop = rows[0].TranslatePoint(default, window)?.Y ?? -1;
+        var secondReasoningTop = reasoningHeaders[1].TranslatePoint(default, window)?.Y ?? -1;
+        var lastToolTop = rows[2].TranslatePoint(default, window)?.Y ?? -1;
+        if (firstReasoningTop < 0 || firstToolTop <= firstReasoningTop
+            || secondReasoningTop <= firstToolTop || lastToolTop <= secondReasoningTop)
+            throw new InvalidOperationException(
+                $"Process rows must follow segment order top-to-bottom: {firstReasoningTop}, {firstToolTop}, {secondReasoningTop}, {lastToolTop}");
+
+        // 折叠指示必须真的换向。旋转 RenderTransform 在 PathIcon 上不生效（Semi 主题已占用它，
+        // 留下一个单位矩阵 TransformGroup），所以展开/收起是两个几何互斥显示——这里守住它。
+        var expandedChevron = Application.Current?.FindResource("AthenaIconChevronDown") as Geometry;
+        var collapsedChevron = Application.Current?.FindResource("AthenaIconChevronRight") as Geometry;
+        if (expandedChevron == null || collapsedChevron == null)
+            throw new InvalidOperationException("Chevron icon geometries are missing from the icon contract.");
+        var visibleChevrons = window.GetVisualDescendants().OfType<PathIcon>()
+            .Where(icon => icon.IsVisible && icon.Classes.Contains("process-chevron"))
+            .ToList();
+        // 展开的两行（首个思考段 + call-1）指向下，其余三行指向右。
+        if (visibleChevrons.Count(icon => ReferenceEquals(icon.Data, expandedChevron)) != 2
+            || visibleChevrons.Count(icon => ReferenceEquals(icon.Data, collapsedChevron)) != 3)
+            throw new InvalidOperationException(
+                $"Expanded rows must show a down chevron and collapsed rows a right one; rendered {visibleChevrons.Count} chevrons.");
+
+        // 收起的过程行是绝大多数，它的控件预算决定了长对话滚不滚得动：
+        // 一条 20 轮的重对话有几百行，每行多 10 个控件就是几千个控件的布局与命中测试。
+        // 收起态绝不能实例化参数/结果子树，也不能为「三选一」的状态图标各摆一个 PathIcon。
+        var collapsedRow = rows[1];
+        var collapsedVisuals = collapsedRow.GetVisualDescendants().Count();
+        if (collapsedVisuals > 26)
+            throw new InvalidOperationException($"A collapsed tool row must stay lean; it now costs {collapsedVisuals} visuals.");
+        if (collapsedRow.GetVisualDescendants().OfType<SelectableTextBlock>().Any())
+            throw new InvalidOperationException("A collapsed tool row must not build its arguments/result subtree.");
+        if (collapsedRow.GetVisualDescendants().OfType<PathIcon>().Count() > 3)
+            throw new InvalidOperationException("A tool row shows one status icon, one tool icon and one chevron — no hidden spares.");
+        var collapsedReasoning = chat.Messages[1].Segments.First(segment => segment.IsReasoning && !segment.IsExpanded);
+        if (collapsedReasoning.ExpandedReasoning != null)
+            throw new InvalidOperationException("A collapsed reasoning segment must not hand out its detail content.");
+
+        var bubblePath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-assistant-bubble.png");
+        SaveWindowFrame(window, bubblePath);
+        Console.WriteLine($"[PASS] assistant bubble interleaves reasoning, tool rows and text in segment order: {bubblePath}");
+    }
+    finally
+    {
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
 }
 
 static async Task TestReasoningStreamingInBubbleAsync()
@@ -4638,10 +4810,11 @@ static async Task VerifyReasoningAutoExpandAsync(bool autoExpand, bool expectedE
     streamingService.AfterReasoningDelta = () =>
     {
         var activeBubble = chat.Messages.LastOrDefault(message => message.Role == "assistant" && !message.IsHidden);
-        if (activeBubble != null)
+        var activeReasoning = activeBubble?.Segments.LastOrDefault(segment => segment.IsReasoning);
+        if (activeReasoning != null)
         {
-            expandedStates.Add(activeBubble.IsReasoningExpanded);
-            appendingStates.Add(activeBubble.IsReasoningAppending);
+            expandedStates.Add(activeReasoning.IsExpanded);
+            appendingStates.Add(activeReasoning.IsAppending);
         }
     };
     chat.InputText = "think";
@@ -4660,16 +4833,34 @@ static async Task VerifyReasoningAutoExpandAsync(bool autoExpand, bool expectedE
     var expected = "round one reasoning continues" + ReasoningStreamingChatService.Separator + "round two reasoning";
     if (bubble.ReasoningContent != expected)
         throw new InvalidOperationException($"Reasoning must stream with a separator between rounds: '{bubble.ReasoningContent}'");
+
+    // 段序即回合序：第一轮思考 → 该轮的工具调用 → 第二轮思考。
+    // 思考和工具都不再被聚合到气泡顶部，否则「哪次思考之后调了什么」就读不出来了。
+    var kinds = bubble.Segments.Select(segment => segment.Kind).ToList();
+    var expectedKinds = new[]
+    {
+        ChatMessageSegmentKind.Reasoning,
+        ChatMessageSegmentKind.ToolCallGroup,
+        ChatMessageSegmentKind.Reasoning
+    };
+    if (!kinds.SequenceEqual(expectedKinds))
+        throw new InvalidOperationException(
+            $"Segments must stay in arrival order: [{string.Join(", ", kinds)}]");
+    if (bubble.Segments[0].Text != "round one reasoning continues" || bubble.Segments[2].Text != "round two reasoning")
+        throw new InvalidOperationException("Each round's reasoning must land in its own segment, not one accumulated blob.");
+    if (bubble.Segments[1].ToolCalls.Count != 1 || bubble.Segments[1].ToolCalls[0].IsExpanded)
+        throw new InvalidOperationException("Tool call rows must be recorded once and start collapsed.");
+
     if (expandedStates.Count == 0 || expandedStates.Any(state => state != expectedExpandedWhileStreaming))
         throw new InvalidOperationException(
             $"AutoExpandReasoning={autoExpand} produced unexpected streaming expansion states: [{string.Join(", ", expandedStates)}]");
     if (appendingStates.Count == 0 || appendingStates.Any(state => !state))
         throw new InvalidOperationException(
             $"Reasoning bulb must be active while deltas append: [{string.Join(", ", appendingStates)}]");
-    if (bubble.IsReasoningAppending)
+    if (bubble.Segments.Any(segment => segment.IsReasoning && segment.IsAppending))
         throw new InvalidOperationException("Reasoning bulb animation state must stop when the round ends.");
-    if (bubble.IsReasoningExpanded)
-        throw new InvalidOperationException("Reasoning panel must auto-collapse when the round ends.");
+    if (bubble.Segments.Any(segment => segment.IsReasoning && segment.IsExpanded))
+        throw new InvalidOperationException("Reasoning segments must auto-collapse when the round ends.");
     chat.Dispose();
 }
 
@@ -6933,7 +7124,8 @@ sealed class ConnectionProbeHandler : HttpMessageHandler
 /// <summary>推理流式夹具：两轮推理（中间夹一轮工具调用），推理增量经 onReasoningDelta 逐片发出。</summary>
 sealed class ReasoningStreamingChatService : HeadlessChatService
 {
-    public const string Separator = "\n\n────────────\n\n";
+    // 界面上每轮思考各自成段，累计文本只服务于上下文回放，因此隔断是朴素的空行。
+    public const string Separator = "\n\n";
     public Action? AfterReasoningDelta { get; set; }
 
     public override async IAsyncEnumerable<string> StreamMessageAsync(
