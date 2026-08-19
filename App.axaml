@@ -319,6 +319,37 @@
             <conv:StringToTransformConverter x:Key="StringToTransformConverter"/>
             <conv:LinkSchemeConverter x:Key="LinkSchemeConverter"/>
 
+            <!-- 「过程行」按钮主题：只有一层 Border，刻意不走 Semi 的按钮主题。
+                 光标压在助手气泡上滚动时，内容在光标下移动，:pointerover 会沿命中链逐元素翻转，
+                 每翻转一个元素就要重算它能匹配到的样式；Semi 的按钮主题为各种变体
+                 （solid/outline/borderless × primary/secondary/danger × 各状态）挂了大量嵌套样式，
+                 而气泡里过程行数以百计，一次滚动要跨过几十行。 -->
+            <ControlTheme x:Key="ProcessRowTheme" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="4,1"/>
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="PART_RowBackground"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              HorizontalAlignment="Stretch"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter>
+                <Style Selector="^:pointerover /template/ Border#PART_RowBackground">
+                    <Setter Property="Background" Value="{DynamicResource SemiGreyLowBrush}"/>
+                </Style>
+            </ControlTheme>
+
             <!-- 字体设置 -->
             <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
             <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif</FontFamily>
@@ -413,20 +444,9 @@
 
         <!-- 「过程行」：助手气泡里穿插在正文之间的思考行与工具行共用一套语法。
              无边框、无底色、与正文同字号，靠状态图标而不是卡片外观表达状态。
-             定义在应用级而不是各控件实例上：一条重对话里过程行数以百计，
+             行本身的外观在 ProcessRowTheme（见上方 Resources），以下是行内零件。
+             一律定义在应用级而不是各控件实例上：一条重对话里过程行数以百计，
              每个实例自带一份 Styles 就是几百份样式集合参与匹配。 -->
-        <Style Selector="Button.process-row">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="4,1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Foreground" Value="{DynamicResource SemiColorText2}"/>
-        </Style>
-        <Style Selector="Button.process-row:pointerover">
-            <Setter Property="Background" Value="{DynamicResource SemiGreyLowBrush}"/>
-        </Style>
 
         <!-- 展开详情：左侧竖线 + 缩进，不套卡片（单边框不加圆角） -->
         <Style Selector="Border.process-detail">

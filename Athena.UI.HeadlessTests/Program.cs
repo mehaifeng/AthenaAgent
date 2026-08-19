@@ -79,6 +79,12 @@ Task.Run(TestResponsesThirdPartyNoIncludeAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestChatReasoningEffortAsync).GetAwaiter().GetResult();
 Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
+if (Environment.GetEnvironmentVariable("ATHENA_SCROLL_PERF") == "1")
+{
+    ProbeScrollOverBubble();
+    Environment.Exit(0);
+}
+
 TestReasoningBubbleState();
 TestReasoningBulbVisualState();
 TestAssistantBubbleLayoutVisual(outputPath);
@@ -4655,6 +4661,117 @@ static void TestReasoningBulbVisualState()
     Console.WriteLine("[PASS] reasoning bulb animation class follows the live append state");
 }
 
+// 滚动手感诊断（ATHENA_SCROLL_PERF=1 才跑，不参与常规断言）。
+// 起因：光标压在助手气泡上滚动明显卡，压在空白处不卡。真因不是光栅化也不是命中测试，
+// 而是内容在光标下移动时 :pointerover 不断跨元素翻转，翻转触发的样式重算与重绘要钱。
+// 这段代码是当时定位它的手段，保留下来以便下次「滚动变卡」时能直接复量而不是猜。
+static void ProbeScrollOverBubble()
+{
+    using var chat = new MainConversationViewModel();
+    for (var m = 0; m < 20; m++)
+    {
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = $"第 {m} 个问题" });
+        var assistant = new ChatMessage { Role = "assistant" };
+        for (var r = 0; r < 3; r++)
+        {
+            assistant.Segments.Add(new ChatMessageSegment
+            {
+                Kind = ChatMessageSegmentKind.Reasoning,
+                Text = string.Concat(Enumerable.Repeat($"第 {m}-{r} 轮思考。", 12))
+            });
+            var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+            for (var c = 0; c < 4; c++)
+            {
+                group.ToolCalls.Add(new ToolCallEntry
+                {
+                    ToolCallId = $"call-{m}-{r}-{c}",
+                    Name = "read_file",
+                    Summary = $"读取文件 Views/Segment{m}_{r}_{c}.axaml",
+                    Arguments = "{\n  \"path\": \"Views/MainConversationView.axaml\"\n}",
+                    Result = string.Concat(Enumerable.Repeat("结果预览行。", 40)),
+                    Status = ToolCallStatus.Success
+                });
+            }
+            assistant.Segments.Add(group);
+            assistant.Segments.Add(new ChatMessageSegment
+            {
+                Kind = ChatMessageSegmentKind.Markdown,
+                Text = $"第 {m}-{r} 段回复正文，说明刚才那几次调用的结论。"
+            });
+        }
+        assistant.NotifySegmentsChanged();
+        chat.Messages.Add(assistant);
+    }
+
+    var view = new MainConversationView { DataContext = chat };
+    var window = new Window { Width = 1100, Height = 900, Content = view };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    var scroll = window.GetVisualDescendants().OfType<ScrollViewer>().First(sv => sv.Name == "ChatScrollViewer");
+    Console.WriteLine($"[SCROLL] visuals={window.GetVisualDescendants().Count()} extent={scroll.Extent.Height:F0} viewport={scroll.Viewport.Height:F0}");
+
+    // 光标不动、内容在动 ⇒ 指针下的元素不断改变，等价于在两点之间反复移动指针。
+    // 这一步不滚动，量的就是命中测试 + pointerover 翻转 + 悬停副作用。
+    var messageRows = window.GetVisualDescendants().OfType<Grid>()
+        .Where(g => g.Classes.Contains("message-row"))
+        .Select(g => g.TranslatePoint(default, window)?.Y ?? -1)
+        .Where(y => y > 100 && y < 700)
+        .ToList();
+
+    PointerChurn("warmup", new Point(300, 300), new Point(300, 340));
+    PointerChurn("within-one-element", new Point(1000, 300), new Point(1000, 340));
+    PointerChurn("across-process-rows", new Point(300, 300), new Point(300, 340));
+    if (messageRows.Count >= 2)
+    {
+        PointerChurn("across-message-rows", new Point(300, messageRows[0] + 5), new Point(300, messageRows[1] + 5));
+    }
+
+    Wheel("warmup", new Point(300, 400));
+    Wheel("wheel-over-bubble", new Point(300, 400));
+    Wheel("wheel-over-blank", new Point(1000, 400));
+
+    window.Close();
+    Dispatcher.UIThread.RunJobs();
+
+    void PointerChurn(string label, Point a, Point b)
+    {
+        window.MouseMove(a);
+        Dispatcher.UIThread.RunJobs();
+
+        var steps = new List<double>();
+        for (var i = 0; i < 200; i++)
+        {
+            var step = Stopwatch.StartNew();
+            window.MouseMove(i % 2 == 0 ? b : a);
+            steps.Add(step.Elapsed.TotalMilliseconds);
+        }
+
+        steps.Sort();
+        Console.WriteLine($"[SCROLL][{label}] pointer move median={steps[steps.Count / 2]:F3}ms p90={steps[(int)(steps.Count * 0.9)]:F3}ms");
+    }
+
+    void Wheel(string label, Point cursor)
+    {
+        scroll.Offset = new Vector(0, 0);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(cursor);
+        Dispatcher.UIThread.RunJobs();
+
+        var steps = new List<double>();
+        for (var i = 0; i < 60; i++)
+        {
+            var step = Stopwatch.StartNew();
+            window.MouseWheel(cursor, new Vector(0, -3));
+            Dispatcher.UIThread.RunJobs();
+            steps.Add(step.Elapsed.TotalMilliseconds);
+        }
+
+        steps.Sort();
+        Console.WriteLine($"[SCROLL][{label}] wheel median={steps[steps.Count / 2]:F2}ms p90={steps[(int)(steps.Count * 0.9)]:F2}ms");
+    }
+}
+
 // 助手气泡的分散布局：思考、工具、正文按段序同列渲染，各自独立折叠。
 // 除了截图，还断言视觉树里的行序与段序一致——顺序错乱正是这次改造要根治的问题。
 static void TestAssistantBubbleLayoutVisual(string outputPath)
@@ -4780,6 +4897,59 @@ static void TestAssistantBubbleLayoutVisual(string outputPath)
         var collapsedReasoning = chat.Messages[1].Segments.First(segment => segment.IsReasoning && !segment.IsExpanded);
         if (collapsedReasoning.ExpandedReasoning != null)
             throw new InvalidOperationException("A collapsed reasoning segment must not hand out its detail content.");
+
+        // 过程行必须走最小模板：Semi 的按钮主题为各种变体挂了大量嵌套样式，而光标压在气泡上
+        // 滚动时，内容在光标下移动会让 :pointerover 逐行翻转，每翻转一次都要重算这些样式。
+        if (!rows[0].GetVisualDescendants().OfType<Border>().Any(border => border.Name == "PART_RowBackground"))
+            throw new InvalidOperationException("Process rows must use the minimal ProcessRowTheme template.");
+
+        // 自定义模板最容易丢掉可命中的背景，点击就会从行上穿过去。这里真点一下。
+        // 坐标必须在布局落定之后再取：展开的详情会把后面的行往下推，而无头环境下
+        // 布局比渲染慢一拍——先逼一帧渲染，TranslatePoint 才给出最终位置。
+        using (var settle = window.CaptureRenderedFrame()) { }
+        Dispatcher.UIThread.RunJobs();
+        var collapsedEntry = (ToolCallEntry)rows[1].DataContext!;
+        var collapsedButton = rows[1].GetVisualDescendants().OfType<Button>().First();
+        var rowCenter = collapsedButton.TranslatePoint(
+                            new Point(collapsedButton.Bounds.Width / 2, collapsedButton.Bounds.Height / 2), window)
+            ?? throw new InvalidOperationException("Could not locate the collapsed tool row.");
+        window.MouseMove(rowCenter);
+        Dispatcher.UIThread.RunJobs();
+        if (!collapsedButton.IsPointerOver)
+            throw new InvalidOperationException($"The pointer at {rowCenter} did not land on the tool row.");
+        window.MouseDown(rowCenter, MouseButton.Left);
+        window.MouseUp(rowCenter, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        if (!collapsedEntry.IsExpanded)
+            throw new InvalidOperationException("Clicking a process row must toggle it; the row template needs a hit-testable background.");
+        collapsedEntry.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        // 悬停操作按钮：用类绑定 + 无过渡。淡入过渡会在每次跨消息行时把整块子树重绘 150ms，
+        // 而滚动时光标每秒要跨好几条消息行（实测跨行一次的指针处理 16.9ms → 1.1ms）。
+        var assistantRow = window.GetVisualDescendants().OfType<Grid>()
+            .First(grid => grid.Classes.Contains("message-row") && ReferenceEquals(grid.DataContext, assistant));
+        var actions = assistantRow.GetVisualDescendants().OfType<StackPanel>()
+            .First(panel => panel.Classes.Contains("bubble-actions"));
+        if (actions.Transitions is { Count: > 0 })
+            throw new InvalidOperationException("Bubble action buttons must not animate on hover; scrolling pays for it every crossing.");
+
+        window.MouseMove(new Point(5, 5));
+        Dispatcher.UIThread.RunJobs();
+        if (actions.Opacity != 0)
+            throw new InvalidOperationException("Bubble action buttons must stay hidden while the pointer is elsewhere.");
+
+        var hoverPoint = assistantRow.TranslatePoint(new Point(30, 30), window)
+            ?? throw new InvalidOperationException("Could not locate the assistant message row.");
+        window.MouseMove(hoverPoint);
+        Dispatcher.UIThread.RunJobs();
+        if (Math.Abs(actions.Opacity - 1.0) > 0.001)
+            throw new InvalidOperationException($"Hovering a message row must reveal its actions at once (opacity {actions.Opacity}).");
+
+        window.MouseMove(new Point(5, 5));
+        Dispatcher.UIThread.RunJobs();
+        if (actions.Opacity != 0)
+            throw new InvalidOperationException("Leaving a message row must hide its actions again.");
 
         var bubblePath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-assistant-bubble.png");
         SaveWindowFrame(window, bubblePath);

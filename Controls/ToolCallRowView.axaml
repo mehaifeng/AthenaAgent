@@ -6,6 +6,7 @@
              x:DataType="models:ToolCallEntry">
     <StackPanel>
         <Button Classes="process-row"
+                Theme="{StaticResource ProcessRowTheme}"
                 Command="{Binding ToggleExpandedCommand}"
                 ToolTip.Tip="{Binding Summary}"
                 AutomationProperties.Name="{Binding Summary}">

@@ -6,6 +6,7 @@
              x:DataType="models:ChatMessageSegment">
     <StackPanel Margin="0,0,0,2">
         <Button Classes="process-row reasoning-row"
+                Theme="{StaticResource ProcessRowTheme}"
                 Command="{Binding ToggleExpandedCommand}"
                 ToolTip.Tip="{loc:Loc Chat.Reasoning.Header}"
                 AutomationProperties.Name="{loc:Loc Chat.Reasoning.Header}">
