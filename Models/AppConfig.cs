@@ -131,8 +131,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _browserViewportHeight = 900;
 
+    // 一步最多 5 个动作，但导航/点击之后按提示词要求必须收尾，实际大多数步只走 1–2 个
+    // 动作。12 步连"打开→登录→检索→取数"这种最普通的流程都跑不完。
     [ObservableProperty]
-    private int _browserMaxSteps = 12;
+    private int _browserMaxSteps = 25;
 
     [ObservableProperty]
     private int _browserOperationTimeoutSeconds = 30;
@@ -140,17 +142,16 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _browserSessionTtlMinutes = 10;
 
+    // 默认开启：关掉意味着每个任务都从零登录态起步，凡是需要登录的站点必然卡在门口。
+    // 存的是 Playwright storage state（cookie + localStorage），落在 AthenaData 沙箱内。
     [ObservableProperty]
-    private bool _browserPersistSession = false;
+    private bool _browserPersistSession = true;
 
     [ObservableProperty]
     private bool _browserDownloadEnabled = false;
 
     [ObservableProperty]
     private double _browserScreenshotScale = 1.0;
-
-    [ObservableProperty]
-    private int _browserImageQuality = 85;
 
     [ObservableProperty]
     private int _browserSomMaxElements = 80;

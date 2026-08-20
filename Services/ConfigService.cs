@@ -91,7 +91,7 @@ public class ConfigService : IConfigService
 
     public async Task SaveAsync(AppConfig config)
     {
-        config.ConfigSchemaVersion = 6;
+        config.ConfigSchemaVersion = 7;
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);
@@ -155,7 +155,7 @@ public class ConfigService : IConfigService
     {
         var root = JsonNode.Parse(json) as JsonObject;
         var version = root?["configSchemaVersion"]?.GetValue<int>() ?? 0;
-        if (version > 6)
+        if (version > 7)
         {
             BackupExistingConfig($"future-v{version}");
             throw new UnsupportedConfigSchemaException(version);
@@ -191,7 +191,8 @@ public class ConfigService : IConfigService
                 KeepRecentRounds = legacyKeepRecentRounds,
                 TargetSummaryTokens = 8192
             };
-            config.ConfigSchemaVersion = 6;
+            config.ConfigSchemaVersion = 7;
+            AppConfigNormalizer.MigrateBrowserDefaults(config);
             AppConfigNormalizer.NormalizeContextPolicy(config);
             AppConfigNormalizer.NormalizeProtocol(config);
             AppConfigNormalizer.NormalizeVirtualPet(config);
@@ -199,7 +200,19 @@ public class ConfigService : IConfigService
             return config;
         }
 
-        config.ConfigSchemaVersion = 6;
+        if (version == 6)
+        {
+            // v6 → v7：浏览器智能体的旧默认值（12 步上限、不保留登录态）就地抬到新默认。
+            config.ConfigSchemaVersion = 7;
+            AppConfigNormalizer.MigrateBrowserDefaults(config);
+            AppConfigNormalizer.NormalizeContextPolicy(config);
+            AppConfigNormalizer.NormalizeProtocol(config);
+            AppConfigNormalizer.NormalizeVirtualPet(config);
+            migrated = true;
+            return config;
+        }
+
+        config.ConfigSchemaVersion = 7;
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);

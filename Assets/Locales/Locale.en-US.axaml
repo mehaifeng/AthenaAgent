@@ -863,7 +863,6 @@
     <system:String x:Key="Config.BrowserSomMaxElements">Max marked elements:</system:String>
     <system:String x:Key="Config.BrowserSomIncludeText">Include element text:</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">Screenshot scale:</system:String>
-    <system:String x:Key="Config.BrowserImageQuality">Image quality:</system:String>
     <system:String x:Key="Config.CredentialSource">API Key source:</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">Same as primary</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">Custom</system:String>

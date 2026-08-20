@@ -375,7 +375,7 @@ public class BrowserVisionService : IBrowserVisionService
             new SystemChatMessage(BrowserPrompts.VisionDecisionPrompt),
             new UserChatMessage(
                 ChatMessageContentPart.CreateTextPart(prompt),
-                ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), observation.ScreenshotMimeType, ChatImageDetailLevel.Low))
+                ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), observation.ScreenshotMimeType, ChatImageDetailLevel.High))
         };
     }
 
@@ -476,7 +476,10 @@ public class BrowserVisionService : IBrowserVisionService
                 new SystemChatMessage(BrowserPrompts.AgentOutputPrompt),
                 new UserChatMessage(
                     ChatMessageContentPart.CreateTextPart(prompt),
-                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), browserState.ScreenshotMimeType ?? "image/png", ChatImageDetailLevel.Low))
+                    // High（不是 Low）：Low 会把整图压进 512px 见方，SoM 序号缩到几个像素，
+                    // 等于每步付了截图与标注的成本却送去一张读不出标号的缩略图。代价是
+                    // 每步图像 token 从约 85 涨到千级——这是让视觉真正起作用的价钱。
+                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(imageBytes), browserState.ScreenshotMimeType ?? "image/png", ChatImageDetailLevel.High))
             };
         }
 

@@ -18,6 +18,13 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 {
     private const int NewTabDetectTimeoutMs = 1500;
     private const int NewTabLoadTimeoutMs = 3000;
+
+    // 导航后放给页面自行安顿的预算。只在导航之后花，不在每次观察时花——真实站点有广告、
+    // 埋点、轮询和长连接，network idle 几乎永远等不到，逐步等就是每步白扔一秒。
+    private const int NavigationSettleTimeoutMs = 1000;
+
+    // 真实浏览器优先级：本机 Chrome > Edge > Playwright 自带 Chromium。
+    private static readonly string[] RealBrowserChannels = { "chrome", "msedge" };
     private readonly IBrowserSessionManager _sessionManager;
     private readonly ISomAnnotator _somAnnotator;
     private readonly ILogger _logger;
@@ -26,6 +33,10 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     private IPlaywright? _playwright;
     private IBrowser? _browser;
     private bool _headless = true;
+    private string? _browserChannel;
+    private string? _browserUserAgent;
+    private volatile bool _channelProbed;
+    private string? _resolvedChannel;
 
     public PlaywrightBrowserService(IBrowserSessionManager sessionManager, ISomAnnotator somAnnotator, ILogger logger)
     {
@@ -39,7 +50,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         try
         {
             using var playwright = await Playwright.CreateAsync();
-            await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });
+            // 探测走与真实任务同一条启动路径，否则状态页说"就绪"、任务却用着另一个浏览器。
+            var (probeBrowser, channel) = await LaunchBrowserAsync(playwright, headless: true);
+            await using var browser = probeBrowser;
             await using var context = await browser.NewContextAsync();
             var page = await context.NewPageAsync();
             await page.SetContentAsync("<html><body>ok</body></html>");
@@ -48,7 +61,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             return new BrowserRuntimeStatus
             {
                 State = BrowserRuntimeState.Ready,
-                Message = "Playwright Chromium runtime is ready."
+                Message = channel == null
+                    ? "Browser runtime is ready (Playwright bundled Chromium). Install Google Chrome for better site compatibility."
+                    : $"Browser runtime is ready (local {channel})."
             };
         }
         catch (PlaywrightException ex) when (LooksLikeMissingDriver(ex))
@@ -146,7 +161,9 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 Width = Math.Max(320, options.Viewport.Width),
                 Height = Math.Max(240, options.Viewport.Height)
             },
-            DeviceScaleFactor = (float)options.Viewport.DeviceScaleFactor
+            DeviceScaleFactor = (float)options.Viewport.DeviceScaleFactor,
+            // 无头时抹掉 UA 里的 HeadlessChrome 标记；有头真实浏览器下为 null，原样保留。
+            UserAgent = _browserUserAgent
         };
 
         if (!string.IsNullOrWhiteSpace(storageStatePath) && File.Exists(storageStatePath))
@@ -179,6 +196,7 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = runtimeSession.Options.OperationTimeoutSeconds * 1000
             });
+            await SettleAfterNavigationAsync(runtimeSession);
 
             await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
             _logger.Information("Browser Navigate succeeded: SessionId={SessionId}, Url={Url}", sessionId, runtimeSession.Page.Url);
@@ -249,7 +267,6 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             IncludeElementText = runtimeSession.Options.SomIncludeText,
             DrawAnnotations = false,
             ScreenshotScale = runtimeSession.Options.ScreenshotScale,
-            ImageQuality = runtimeSession.Options.ImageQuality,
             Elements = new List<SomElement>()
         }, cancellationToken);
         runtimeSession.UpdateActiveTabSnapshot(title, runtimeSession.Page.Url);
@@ -885,6 +902,17 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 return _browser;
             }
 
+            // headless 变了本该重启浏览器，但所有会话共享这一个浏览器进程：正在跑的任务
+            // 会连同它们的 context 一起被带走。有活动会话时保持现状，改动留到下次冷启动生效
+            // ——这也是浏览器任务能并行的前提，否则并发下任何一次配置读取都可能踹掉同伴。
+            if (_browser?.IsConnected == true && !_runtimeSessions.IsEmpty)
+            {
+                _logger.Warning(
+                    "Headless mode change deferred: {Count} browser session(s) still running. Requested={Requested}, Current={Current}",
+                    _runtimeSessions.Count, headless, _headless);
+                return _browser;
+            }
+
             if (_browser != null)
             {
                 await _browser.CloseAsync();
@@ -892,14 +920,101 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             }
 
             _playwright ??= await Playwright.CreateAsync();
-            _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = headless });
+            (_browser, _browserChannel) = await LaunchBrowserAsync(_playwright, headless);
             _headless = headless;
+            _browserUserAgent = await ProbeUserAgentOverrideAsync(_browser);
+
+            _logger.Information(
+                "Browser launched: Channel={Channel}, Headless={Headless}, UserAgentOverridden={Overridden}",
+                _browserChannel ?? "bundled-chromium", headless, _browserUserAgent != null);
 
             return _browser;
         }
         finally
         {
             _initializationLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// 优先驱动本机安装的真实 Chrome/Edge，装不到才退回 Playwright 自带的 Chromium。
+    /// 自带 Chromium 缺少 Chrome 的专有组件、UA 也带 HeadlessChrome 标记，是最容易被风控
+    /// 识别的一档；用真实浏览器是提升任务成功率里成本最低的一步。
+    /// </summary>
+    private async Task<(IBrowser Browser, string? Channel)> LaunchBrowserAsync(IPlaywright playwright, bool headless)
+    {
+        // 探测结果记忆一次。GetRuntimeStatusAsync 每个浏览器任务都会跑一遍，而一次失败的
+        // 通道尝试要花掉一两秒——不记住的话，本机没装 Chrome 就等于给每个任务加了这笔钱。
+        // 竞态最多导致多探一次，无副作用，因此不加锁。
+        if (_channelProbed)
+        {
+            try
+            {
+                return (await playwright.Chromium.LaunchAsync(CreateLaunchOptions(headless, _resolvedChannel)), _resolvedChannel);
+            }
+            catch (Exception ex) when (_resolvedChannel != null)
+            {
+                // 之前能用的浏览器被卸载/升级坏了：重新探一遍，别把整个功能卡死在这。
+                _logger.Warning(ex, "Browser channel {Channel} stopped working; re-probing", _resolvedChannel);
+                _channelProbed = false;
+            }
+        }
+
+        foreach (var channel in RealBrowserChannels)
+        {
+            try
+            {
+                var browser = await playwright.Chromium.LaunchAsync(CreateLaunchOptions(headless, channel));
+                _resolvedChannel = channel;
+                _channelProbed = true;
+                return (browser, channel);
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug(ex, "Browser channel {Channel} is unavailable on this machine", channel);
+            }
+        }
+
+        var bundled = await playwright.Chromium.LaunchAsync(CreateLaunchOptions(headless, null));
+        _resolvedChannel = null;
+        _channelProbed = true;
+        return (bundled, null);
+    }
+
+    private static BrowserTypeLaunchOptions CreateLaunchOptions(bool headless, string? channel) => new()
+    {
+        Headless = headless,
+        Channel = channel,
+        // --enable-automation 是 Playwright 的默认参数之一，它把 navigator.webdriver 置真、
+        // 并在有头模式下挂出"受自动化控制"横幅；AutomationControlled 关掉剩余的注入痕迹。
+        // 参数不存在时忽略它是空操作，所以这里无条件传。
+        IgnoreDefaultArgs = new[] { "--enable-automation" },
+        Args = new[] { "--disable-blink-features=AutomationControlled" }
+    };
+
+    /// <summary>
+    /// 无头 Chrome 的 UA 里带 <c>HeadlessChrome/</c>，这是最廉价也最常被用到的识别位。
+    /// 只在确实需要改写时返回值：真实有头浏览器的 UA 原样保留最安全。
+    ///
+    /// 注意这只改 <c>navigator.userAgent</c>，改不了 UA Client Hints（sec-ch-ua 里的 brand
+    /// 在无头下仍是 HeadlessChrome）。要过更严格的风控只能关掉 Browser.Headless。
+    /// </summary>
+    private async Task<string?> ProbeUserAgentOverrideAsync(IBrowser browser)
+    {
+        try
+        {
+            await using var context = await browser.NewContextAsync();
+            var page = await context.NewPageAsync();
+            var userAgent = await page.EvaluateAsync<string>("() => navigator.userAgent");
+            if (string.IsNullOrWhiteSpace(userAgent)) return null;
+
+            var cleaned = userAgent.Replace("HeadlessChrome/", "Chrome/", StringComparison.Ordinal);
+            return string.Equals(cleaned, userAgent, StringComparison.Ordinal) ? null : cleaned;
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug(ex, "User agent probe failed; the browser default will be used as-is");
+            return null;
         }
     }
 
@@ -1101,7 +1216,6 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             IncludeElementText = runtimeSession.Options.SomIncludeText,
             DrawAnnotations = runtimeSession.Options.ObservationMode == BrowserObservationMode.VisionWithSom,
             ScreenshotScale = runtimeSession.Options.ScreenshotScale,
-            ImageQuality = runtimeSession.Options.ImageQuality,
             Elements = elements
         }, cancellationToken);
     }
@@ -1119,15 +1233,23 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         {
             // Dynamic pages can keep navigating; a later observe retry will catch real context loss.
         }
+    }
 
+    /// <summary>
+    /// 导航之后给页面一点安顿时间。<see cref="WaitForPageStableAsync"/> 每步都跑，不能带上
+    /// 这个等待：真实站点上 network idle 基本等不到，每步都会吃满超时，一次任务就是白扔
+    /// 十几秒。只有刚发生过导航的那一次值得付这笔钱。
+    /// </summary>
+    private static async Task SettleAfterNavigationAsync(RuntimeSession runtimeSession)
+    {
         try
         {
             await runtimeSession.Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions
             {
-                Timeout = 1000
+                Timeout = NavigationSettleTimeoutMs
             });
         }
-        catch (TimeoutException)
+        catch (Exception)
         {
             // Network idle is a best-effort stabilizer only.
         }

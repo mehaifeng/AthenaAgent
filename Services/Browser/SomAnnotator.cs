@@ -54,13 +54,15 @@ public class SomAnnotator : ISomAnnotator
             {
                 Style = SKPaintStyle.Stroke,
                 Color = new SKColor(255, 71, 87),
-                StrokeWidth = Math.Max(1, bitmap.Width / 1280f),
+                StrokeWidth = Math.Max(2f, bitmap.Width / 640f),
                 IsAntialias = true
             };
             using var labelPaint = new SKPaint
             {
                 Style = SKPaintStyle.Fill,
-                Color = new SKColor(255, 71, 87, 128),
+                // 近乎不透明：半透明底色叠在页面内容上时白色数字会糊掉，而这个数字是标注
+                // 存在的唯一理由。
+                Color = new SKColor(255, 71, 87, 230),
                 IsAntialias = true
             };
             using var textPaint = new SKPaint
@@ -69,7 +71,9 @@ public class SomAnnotator : ISomAnnotator
                 IsAntialias = true
             };
             using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
-            using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 120f, 10f, 12f));
+            // 序号字号按图宽缩放，1280 宽约 18px。原先是 10–12px：模型侧即使按高清晰度
+            // 读图也要经过缩放，10px 的数字到那头就是几个像素，等于没标。
+            using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 70f, 14f, 22f));
 
             if (request.DrawAnnotations)
             {
@@ -82,7 +86,9 @@ public class SomAnnotator : ISomAnnotator
 
             using var image = surface.Snapshot();
             using var outputImage = ResizeImageIfNeeded(image, request.ScreenshotScale);
-            using var encoded = outputImage.Encode(SKEncodedImageFormat.Png, Math.Clamp(request.ImageQuality, 30, 100));
+            // PNG 是无损格式，Skia 的 PNG 编码器忽略 quality 参数——这里传 100 只是把
+            // "没有质量档可调"写明白，别再挂一个不起作用的设置项出来。
+            using var encoded = outputImage.Encode(SKEncodedImageFormat.Png, 100);
             var annotatedBytes = encoded.ToArray();
 
             return await CreateObservationAsync(request, annotatedBytes, cancellationToken);

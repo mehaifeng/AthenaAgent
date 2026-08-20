@@ -24,6 +24,7 @@ using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.Services.Protocol;
+using Athena.UI.Services.SubAgents;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using OpenAI.Responses;
@@ -66,6 +67,7 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestBrowserAgentHardening();
 TestVirtualPetStateMachine();
 TestVirtualPetMotionEngine();
 TestPetDexSpriteVisual(outputPath);
@@ -1429,6 +1431,63 @@ static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMess
         Dispatcher.UIThread.RunJobs();
         Thread.Sleep(10);
     }
+}
+
+static void TestBrowserAgentHardening()
+{
+    // —— 并行：子代理侧的浏览器闸必须已撤除 ——
+    // 那把闸挡的从来不是浏览器本身：每个会话拿的是独立 BrowserContext，本就能并发。
+    if (SubAgentToolGates.Category("run_browser_task") != ToolGateCategory.None)
+        throw new InvalidOperationException("run_browser_task 仍在工具闸里排队：每个任务独占隔离的 BrowserContext，不应再互斥。");
+    if (SubAgentToolGates.Category("write_system_file") != ToolGateCategory.Write)
+        throw new InvalidOperationException("写工具闸不应被一并撤掉。");
+
+    // Off 档全程不弹窗，浏览器任务可成批；Balanced 会弹窗，必须退回串行。
+    if (!ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Off))
+        throw new InvalidOperationException("Off 档下浏览器任务应可并发。");
+    if (ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Balanced))
+        throw new InvalidOperationException("Balanced 档下浏览器任务会弹窗，不得并发。");
+    if (ToolCallParallelism.IsParallelSafe("write_system_file", "{}", ToolApprovalMode.Off))
+        throw new InvalidOperationException("写工具不得因浏览器例外被一并放行。");
+
+    // —— 默认值 ——
+    var defaults = new AppConfig();
+    if (defaults.BrowserMaxSteps != 25)
+        throw new InvalidOperationException("浏览器步数默认值应为 25：12 步跑不完一个真实流程。");
+    if (!defaults.BrowserPersistSession)
+        throw new InvalidOperationException("默认应保留浏览器登录态，否则每个任务都从零登录态起步。");
+
+    // —— v6 → v7 一次性迁移 ——
+    var legacy = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false };
+    AppConfigNormalizer.MigrateBrowserDefaults(legacy);
+    if (legacy.BrowserMaxSteps != 25 || !legacy.BrowserPersistSession)
+        throw new InvalidOperationException("旧的浏览器默认值未在迁移中归位。");
+
+    // 用户自己填过的步数不属于"旧默认"，迁移必须放过——否则每次保存都会跟用户较劲。
+    var chosen = new AppConfig { BrowserMaxSteps = 40 };
+    AppConfigNormalizer.MigrateBrowserDefaults(chosen);
+    if (chosen.BrowserMaxSteps != 40)
+        throw new InvalidOperationException("迁移覆盖了用户显式设置的浏览器步数预算。");
+
+    // 每次保存都会跑的归一化不得做一次性迁移。
+    var stable = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false };
+    AppConfigNormalizer.NormalizeBrowser(stable);
+    if (stable.BrowserMaxSteps != 12 || stable.BrowserPersistSession)
+        throw new InvalidOperationException("NormalizeBrowser 属于每次保存路径，不得做一次性迁移。");
+
+    // —— 配置面：不再暴露对 PNG 无效的图片质量旋钮 ——
+    var surface = new ConfigSurfaceService();
+    var browserFields = JsonSerializer.SerializeToNode(surface.BuildView(new AppConfig(), "Browser"))!
+        ["sections"]!.AsArray()
+        .First(section => section!["name"]!.GetValue<string>() == "Browser")!["fields"]!.AsArray()
+        .Select(field => field!["key"]!.GetValue<string>())
+        .ToList();
+    if (browserFields.Contains("Browser.ImageQuality"))
+        throw new InvalidOperationException("Browser.ImageQuality 是空旋钮（PNG 编码器忽略 quality 参数），不应再出现在配置面。");
+    if (!browserFields.Contains("Browser.MaxSteps"))
+        throw new InvalidOperationException("配置面缺少 Browser.MaxSteps。");
+
+    Console.WriteLine("[PASS] Browser agent hardening: gate lifted, batching allowed under Off, legacy defaults migrated, dead knob retired");
 }
 
 static void TestVirtualPetStateMachine()

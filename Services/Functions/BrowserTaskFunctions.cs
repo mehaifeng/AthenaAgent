@@ -52,17 +52,6 @@ public class BrowserTaskFunctions
                 completionStatus = result.CompletionStatus.ToString(),
                 requiresUserInput = result.RequiresUserInput,
                 error = result.Error,
-                goals = result.GoalResults.Select(g => new
-                {
-                    index = g.Index,
-                    type = g.Type.ToString(),
-                    label = g.Label,
-                    value = g.Value,
-                    status = g.Status.ToString(),
-                    attempts = g.Attempts,
-                    message = g.Message,
-                    elementId = g.ElementId
-                }).ToList(),
                 markedElements = result.FinalObservation?.Elements.Select(e => new
                 {
                     id = e.ElementId,

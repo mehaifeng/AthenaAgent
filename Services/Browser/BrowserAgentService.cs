@@ -27,7 +27,6 @@ public class BrowserAgentService : IBrowserAgentService
     public BrowserAgentService(
         IHeadlessBrowserService browserService,
         IBrowserVisionService browserVisionService,
-        IBrowserTaskPlanner _,
         IConfigService configService,
         ILogger logger)
     {
@@ -74,7 +73,6 @@ public class BrowserAgentService : IBrowserAgentService
         BrowserSession? session = null;
         var history = new List<BrowserActionResult>();
         var evidence = new List<string>();
-        var goalResults = new List<BrowserGoalResult>();
         BrowserStateSummary? finalState = null;
         var completionStatus = BrowserTaskCompletionStatus.Unknown;
         var longTermMemory = new StringBuilder();
@@ -261,7 +259,6 @@ public class BrowserAgentService : IBrowserAgentService
                 FinalObservation = finalObservation,
                 ActionHistory = history,
                 CompletionStatus = completionStatus,
-                GoalResults = goalResults,
                 Error = completionStatus is BrowserTaskCompletionStatus.Failed or BrowserTaskCompletionStatus.MaxStepsReached
                     ? history.LastOrDefault(item => !item.Success)?.Error ?? history.LastOrDefault(item => !item.Success)?.Message
                     : null
@@ -281,7 +278,6 @@ public class BrowserAgentService : IBrowserAgentService
                 FinalObservation = finalState?.Observation,
                 ActionHistory = history,
                 CompletionStatus = BrowserTaskCompletionStatus.Failed,
-                GoalResults = goalResults
             };
         }
         finally
@@ -684,7 +680,6 @@ public class BrowserAgentService : IBrowserAgentService
             SomMaxElements = config.BrowserSomMaxElements,
             SomIncludeText = config.BrowserSomIncludeText,
             ScreenshotScale = config.BrowserScreenshotScale,
-            ImageQuality = config.BrowserImageQuality,
             OperationTimeoutSeconds = config.BrowserOperationTimeoutSeconds,
             SessionTtlMinutes = config.BrowserSessionTtlMinutes,
             Viewport = new BrowserViewport

@@ -45,7 +45,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
-    ("config v5 default context values migrate to v6 auto without losing providers", TestConfigV5DefaultMigrationAsync),
+    ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
     ("future config schema is backed up and rejected", TestFutureConfigSchemaAsync),
     ("metadata profiles and nested overrides persist in v6", TestMetadataProfilePersistenceAsync),
@@ -238,7 +238,10 @@ static async Task TestConfigV5DefaultMigrationAsync()
 
     var service = new ConfigService(harness.PathService);
     var migrated = await service.LoadAsync();
-    AssertEqual(6, migrated.ConfigSchemaVersion, "v5 should migrate to v6");
+    AssertEqual(7, migrated.ConfigSchemaVersion, "v5 should migrate all the way to the current schema");
+    // v5 的配置早于浏览器智能体的新默认值，迁移必须一路走到 v7，而不是停在 v6。
+    AssertEqual(25, migrated.BrowserMaxSteps, "v5 config should pick up the v7 browser step budget");
+    AssertTrue(migrated.BrowserPersistSession, "v5 config should pick up the v7 browser session persistence");
     AssertEqual(ContextPolicyMode.Auto, migrated.ContextPolicy.Mode, "historical 128K/64K defaults should become Auto");
     AssertEqual<long?>(null, migrated.ContextPolicy.CustomCapTokens, "auto migration should not retain a cap");
     AssertEqual(1_000_000, migrated.MaxContextTokens, "compatibility mirror should follow unknown-model 1M default");
@@ -248,7 +251,7 @@ static async Task TestConfigV5DefaultMigrationAsync()
     AssertEqual("chat-model", migrated.AiModels.MainConversation.Model, "role selection must survive migration");
 
     using var document = JsonDocument.Parse(File.ReadAllText(harness.PathService.GetConfigFilePath()));
-    AssertEqual(6, document.RootElement.GetProperty("configSchemaVersion").GetInt32(), "migration should be atomically persisted");
+    AssertEqual(7, document.RootElement.GetProperty("configSchemaVersion").GetInt32(), "migration should be atomically persisted");
 }
 
 static async Task TestConfigV5CustomMigrationAsync()

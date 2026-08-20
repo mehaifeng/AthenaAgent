@@ -1041,21 +1041,13 @@ public partial class App : Application, IAsyncDisposable
             return new BrowserVisionService(configService, logger, localizationService);
         });
 
-        services.AddSingleton<IBrowserTaskPlanner>(sp =>
-        {
-            var configService = sp.GetRequiredService<IConfigService>();
-            var logger = Log.ForContext<BrowserTaskPlanner>();
-            return new BrowserTaskPlanner(configService, logger);
-        });
-
         services.AddSingleton<IBrowserAgentService>(sp =>
         {
             var browserService = sp.GetRequiredService<IHeadlessBrowserService>();
             var browserVisionService = sp.GetRequiredService<IBrowserVisionService>();
-            var taskPlanner = sp.GetRequiredService<IBrowserTaskPlanner>();
             var configService = sp.GetRequiredService<IConfigService>();
             var logger = Log.ForContext<BrowserAgentService>();
-            return new BrowserAgentService(browserService, browserVisionService, taskPlanner, configService, logger);
+            return new BrowserAgentService(browserService, browserVisionService, configService, logger);
         });
 
         services.AddSingleton<WebSearchFunctions>(sp =>

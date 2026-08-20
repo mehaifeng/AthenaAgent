@@ -27,7 +27,13 @@ public static class ToolCallParallelism
     public static bool IsParallelSafe(string functionName, string? argumentsJson, ToolApprovalMode mode)
     {
         if (mode != ToolApprovalMode.Off && mode != ToolApprovalMode.Balanced) return false;
-        return ToolRiskClassifier.Classify(functionName, argumentsJson).Risk == ToolRisk.ReadOnly;
+        if (ToolRiskClassifier.Classify(functionName, argumentsJson).Risk == ToolRisk.ReadOnly) return true;
+
+        // 浏览器任务是唯一的例外：每个任务独占一个隔离的 BrowserContext，彼此不共享状态，
+        // 而且几乎全是网络与模型等待——「比较这三个网站」串行跑就是三倍墙钟时间。
+        // 但它是敏感档、正常会弹窗，所以只在 Off（全程不弹窗）下才允许成批。
+        return mode == ToolApprovalMode.Off
+            && string.Equals(functionName, "run_browser_task", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

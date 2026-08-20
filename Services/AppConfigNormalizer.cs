@@ -68,8 +68,24 @@ public static class AppConfigNormalizer
         config.BrowserOperationTimeoutSeconds = Math.Clamp(config.BrowserOperationTimeoutSeconds, 5, 300);
         config.BrowserSessionTtlMinutes = Math.Clamp(config.BrowserSessionTtlMinutes, 1, 120);
         config.BrowserScreenshotScale = Math.Clamp(config.BrowserScreenshotScale, 0.25, 2.0);
-        config.BrowserImageQuality = Math.Clamp(config.BrowserImageQuality, 30, 100);
         config.BrowserSomMaxElements = Math.Clamp(config.BrowserSomMaxElements, 10, 200);
+    }
+
+    /// <summary>
+    /// v6 → v7：浏览器智能体的两个旧默认值就地抬到新默认。
+    ///
+    /// 一次性迁移，不能放进 <see cref="NormalizeBrowser"/>——那个每次保存都跑，按值改写
+    /// 会把用户后来自己填的数字反复改掉。只动"看上去仍是旧默认"的项：
+    /// 12 步跑不完任何一个真实流程；PersistSession 关着意味着每个任务都从零登录态起步。
+    /// </summary>
+    public static void MigrateBrowserDefaults(AppConfig config)
+    {
+        const int LegacyDefaultMaxSteps = 12;
+        if (config.BrowserMaxSteps == LegacyDefaultMaxSteps) config.BrowserMaxSteps = 25;
+
+        if (!config.BrowserPersistSession) config.BrowserPersistSession = true;
+
+        NormalizeBrowser(config);
     }
 
     /// <summary>钳制终端输出截断上限到合法区间（1K~1M 字符，防止手滑填 0 或超大值）。</summary>

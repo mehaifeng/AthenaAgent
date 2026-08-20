@@ -24,13 +24,12 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger _logger;
 
-    // 分类工具闸：仅串行有竞态风险的工具，其余并行。避免长耗时浏览器任务堵死快速只读工具。
-    private readonly SemaphoreSlim _browserGate = new(1, 1);  // 单 Playwright 会话，浏览器任务互斥
+    // 分类工具闸：仅串行有竞态风险的工具，其余并行。浏览器任务不在其列——每个任务独占
+    // 一个隔离的 BrowserContext，让一批子代理排在一个四分钟的浏览器任务后面毫无必要。
     private readonly SemaphoreSlim _writeGate = new(1, 1);    // 文件系统 / 知识库向量库写入互斥
 
     private SemaphoreSlim? GateFor(string toolName) => SubAgentToolGates.Category(toolName) switch
     {
-        ToolGateCategory.Browser => _browserGate,
         ToolGateCategory.Write => _writeGate,
         _ => null
     };
@@ -179,7 +178,6 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
 
     public void Dispose()
     {
-        _browserGate.Dispose();
         _writeGate.Dispose();
     }
 }

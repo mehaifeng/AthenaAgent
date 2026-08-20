@@ -863,7 +863,6 @@
     <system:String x:Key="Config.BrowserSomMaxElements">最大标注元素数：</system:String>
     <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本：</system:String>
     <system:String x:Key="Config.BrowserScreenshotScale">截图缩放：</system:String>
-    <system:String x:Key="Config.BrowserImageQuality">图片质量：</system:String>
     <system:String x:Key="Config.CredentialSource">API Key 来源：</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">与主对话模型相同</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">自定义</system:String>
