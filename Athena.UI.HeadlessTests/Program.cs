@@ -89,6 +89,7 @@ TestReasoningBubbleState();
 TestReasoningBulbVisualState();
 TestAssistantBubbleLayoutVisual(outputPath);
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
+TestInterleavedReasoningSegmentOrder();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackChatAsync).GetAwaiter().GetResult();
 Task.Run(TestImageFallbackResponsesAsync).GetAwaiter().GetResult();
@@ -4607,7 +4608,67 @@ static void TestReasoningBubbleState()
     if (segment.IsClamped || segment.TextMaxLines != 0)
         throw new InvalidOperationException("ToggleClamp must release the line clamp");
 
+    VerifyTrailingWindowStability();
     Console.WriteLine("[PASS] reasoning segment state: per-segment toggle, manual-toggle memory, and height clamp");
+}
+
+// 尾随窗口必须分段前进：窗口起点每动一次，整块文本就左移一次、换行随之全部重排。
+// 按「末尾 N 字」逐字重切等于每个增量都重排一遍——顶部的字看上去也在追加，读起来一片乱。
+static void VerifyTrailingWindowStability()
+{
+    const int charBudget = 480;   // ChatMessageSegment.ClampCharBudget
+    const int maxLines = 12;      // ChatMessageSegment.ClampMaxLines
+
+    var streaming = new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Reasoning,
+        Text = new string('x', 900),
+        IsAppending = true
+    };
+
+    var previous = streaming.VisibleText;
+    var movedFrames = 0;
+    const int frames = 60;
+    for (var i = 0; i < frames; i++)
+    {
+        streaming.Text += "delta";
+        var visible = streaming.VisibleText;
+
+        // 上一帧的可见文本仍是这一帧的前缀 = 顶部没动，增量只在底部生长
+        if (!visible.StartsWith(previous, StringComparison.Ordinal))
+        {
+            movedFrames++;
+            if (!previous.EndsWith(visible[..^"delta".Length], StringComparison.Ordinal))
+                throw new InvalidOperationException("尾随窗口只能从头部丢字，绝不能回退或跳字");
+        }
+
+        if (visible.Length > charBudget)
+            throw new InvalidOperationException($"尾随窗口超出字符预算：{visible.Length} 字");
+        if (!streaming.Text.EndsWith(visible, StringComparison.Ordinal))
+            throw new InvalidOperationException("尾随窗口必须始终贴着文本末尾");
+
+        previous = visible;
+    }
+
+    if (movedFrames * 5 > frames)
+        throw new InvalidOperationException(
+            $"尾随窗口起点前进得太频繁（{frames} 帧里动了 {movedFrames} 帧）：每次前进都会让整段思考重排一次");
+
+    // 行数这一半不能省：逐条列步骤的思考几百字就能排出几十行，字符预算根本挡不住高度。
+    var dense = new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.Reasoning,
+        Text = string.Join('\n', Enumerable.Range(0, 40).Select(index => $"第 {index} 步"))
+    };
+    if (dense.Text.Length > charBudget)
+        throw new InvalidOperationException("这条用例要验证的是「字数没超但行数超了」，请调短每行");
+    if (!dense.NeedsClamp || dense.TextMaxLines != maxLines)
+        throw new InvalidOperationException("行数超限的短文本同样要限高");
+
+    dense.IsAppending = true;
+    var windowLines = dense.VisibleText.Count(character => character == '\n') + 1;
+    if (windowLines > maxLines)
+        throw new InvalidOperationException($"追加期间尾随窗口保留了 {windowLines} 行，超出限高");
 }
 
 static void TestReasoningBulbVisualState()
@@ -5032,6 +5093,59 @@ static async Task VerifyReasoningAutoExpandAsync(bool autoExpand, bool expectedE
     if (bubble.Segments.Any(segment => segment.IsReasoning && segment.IsExpanded))
         throw new InvalidOperationException("Reasoning segments must auto-collapse when the round ends.");
     chat.Dispose();
+}
+
+// 供应商在同一回合里交错输出「思考 → 正文 → 思考」时，后半段思考必须另起一段接在正文之后。
+// 续写上一段等于把「看完正文之后才想的事」倒插回正文上方那个框里，气泡的时间顺序当场错乱。
+// 注意：本例真的 yield 非空正文，所以只能在主线程（Avalonia 属主线程）驱动——
+// 回合结束时的 App.StartTrayFlashing() 会向 UI 线程投递作业，池线程泵会撞线程校验。
+static void TestInterleavedReasoningSegmentOrder()
+{
+    var service = new InterleavedReasoningChatService();
+    var configService = new HeadlessConfigService(new AppConfig { AutoExpandReasoning = true });
+    using var chat = new MainConversationViewModel(
+        service, configService, null, null, null, null, null, null);
+
+    chat.InputText = "interleave";
+    var task = chat.SendMessageCommand.ExecuteAsync(null);
+    PumpUntil(() => task.IsCompleted, 10_000, "交错思考回合没有在预期时间内结束");
+    task.GetAwaiter().GetResult();
+    Dispatcher.UIThread.RunJobs();
+
+    var bubble = chat.Messages.LastOrDefault(message => message.Role == "assistant" && !message.IsHidden)
+        ?? throw new InvalidOperationException("交错思考回合结束后没有可见的助手气泡");
+
+    var kinds = bubble.Segments.Select(segment => segment.Kind).ToList();
+    var expectedKinds = new[]
+    {
+        ChatMessageSegmentKind.Reasoning,
+        ChatMessageSegmentKind.Markdown,
+        ChatMessageSegmentKind.Reasoning,
+        ChatMessageSegmentKind.ToolCallGroup,
+        ChatMessageSegmentKind.Markdown
+    };
+    if (!kinds.SequenceEqual(expectedKinds))
+        throw new InvalidOperationException(
+            $"正文之后的思考必须另起一段接在正文之后：[{string.Join(", ", kinds)}]");
+
+    if (bubble.Segments[0].Text != InterleavedReasoningChatService.FirstThought
+        || bubble.Segments[2].Text != InterleavedReasoningChatService.SecondThought)
+        throw new InvalidOperationException(
+            $"两段思考的内容串了：'{bubble.Segments[0].Text}' / '{bubble.Segments[2].Text}'");
+
+    // 「最后一段是不是 Markdown」曾是补建正文段的判据：正文后面跟了思考段时它会再补一份。
+    var openingTextSegments = bubble.Segments.Count(segment =>
+        segment.IsMarkdown && segment.Text == InterleavedReasoningChatService.FirstReply);
+    if (openingTextSegments != 1)
+        throw new InvalidOperationException($"工具轮之前的正文出现了 {openingTextSegments} 份");
+
+    var expectedReplay = InterleavedReasoningChatService.FirstThought
+        + ReasoningStreamingChatService.Separator
+        + InterleavedReasoningChatService.SecondThought;
+    if (bubble.ReasoningContent != expectedReplay)
+        throw new InvalidOperationException($"回放副本的隔断不对：'{bubble.ReasoningContent}'");
+
+    Console.WriteLine("[PASS] interleaved reasoning starts a new segment after streamed text instead of growing the one above it");
 }
 
 static async Task TestResponsesEndpointUnsupportedFallbackAsync()
@@ -7342,6 +7456,47 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         // 其后台任务向 UI 线程投递 InvokeAsync 作业，池线程 RunJobs 泵执行时会因线程
         // 所有权校验崩溃（headless 套件环境限制，与生产逻辑无关）。
         yield return string.Empty;
+    }
+}
+
+// 同一回合里交错输出：思考 → 正文 → 思考 → 工具调用 → 正文。
+// Responses 这类协议会在一次回复里穿插多个 reasoning/message 项，正文之后再冒出思考并不罕见。
+sealed class InterleavedReasoningChatService : HeadlessChatService
+{
+    public const string FirstThought = "先想一下";
+    public const string SecondThought = "看完自己写的又想查一下";
+    public const string FirstReply = "我先说一句。";
+
+    public override async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
+    {
+        await Task.CompletedTask;
+        onReasoningDelta?.Invoke(FirstThought);
+        yield return FirstReply;
+        onReasoningDelta?.Invoke(SecondThought);
+        onMessageAdded?.Invoke(new ChatMessage
+        {
+            Role = "assistant",
+            Content = FirstReply,
+            ToolCallsJson = """[{"Id":"call_probe","FunctionName":"probe","Arguments":"{}"}]""",
+            ReasoningContent = FirstThought + SecondThought
+        });
+        onMessageAdded?.Invoke(new ChatMessage { Role = "tool", ToolCallId = "call_probe", ToolName = "probe", Content = "{}" });
+        yield return "查完了。";
+        onMessageAdded?.Invoke(new ChatMessage { Role = "assistant", Content = "查完了。" });
     }
 }
 

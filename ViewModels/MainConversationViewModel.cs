@@ -101,6 +101,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 工具轮封口后置位，使下一段阶段性正文另起一个 Markdown 段（工具组置顶后不再天然分隔相邻文本）。
     private bool _forceNewAssistantTextSegment;
 
+    // 本轮流式正文是否已经落进某个 Markdown 段。工具轮封口据此决定要不要补建段——
+    // 不能用「最后一段是不是 Markdown」来判断：正文之后又来一段思考时最后一段是思考段，
+    // 于是本轮正文会被再补一份，气泡里出现两句一模一样的话。
+    private bool _activeTextMaterialized;
+
     // 批量恢复消息期间抑制 CollectionChanged 的逐条重算，灌完统一算一次
     private bool _isBulkLoadingMessages;
 
@@ -2177,6 +2182,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IsSending = true;
         ConversationExecutionCoordinator.Lease? executionLease = null;
         _forceNewAssistantTextSegment = false;
+        _activeTextMaterialized = false;
         var modelSettings = _configService?.Load().AiModels.MainConversation;
         var assistantMsg = new ChatMessage
         {
@@ -2195,6 +2201,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 新一轮推理首个增量到达时另起一段并按设置自动展开；
         // 回合结束时（onMessageAdded 到达）收起该段，下一轮推理再新起一段。
         ChatMessageSegment? activeReasoning = null;
+
+        // 该思考段之后已经有正文落地。供应商在同一回合里交错输出「思考 → 正文 → 思考」时，
+        // 后半段思考绝不能续写 activeReasoning：那个框排在正文上方，续写等于把「看完正文
+        // 之后才想的事」倒插回正文前面，气泡的时间顺序当场错乱。置位后另起一段接在末尾。
+        var reasoningSealedByText = false;
 
         try
         {
@@ -2385,10 +2396,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;
 
-                    if (activeReasoning == null)
+                    if (activeReasoning == null || reasoningSealedByText)
                     {
-                        // 新一轮推理开始：在已到达的正文/工具段之后另起一个思考段，
-                        // 之后本回合增量都追加进这一段；给模型回放的累计文本另加隔断。
+                        // 新一段思考开始：在已到达的正文/工具段之后另起一个思考段，
+                        // 之后的增量都追加进这一段；给模型回放的累计文本另加隔断。
+                        // 上一段（若有）就地收尾：同一时刻只留一个展开着的思考框。
+                        activeReasoning = EndReasoningRound(activeReasoning);
                         if (!string.IsNullOrEmpty(assistantMsg.ReasoningContent))
                         {
                             assistantMsg.ReasoningContent += ReasoningRoundSeparator;
@@ -2398,6 +2411,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                             assistantMsg,
                             string.Empty,
                             expanded: _configService?.Load().AutoExpandReasoning ?? true);
+                        reasoningSealedByText = false;
                     }
 
                     // 每个推理增量都会重新点亮灯泡；若供应商交错输出正文与推理，也能正确恢复动画。
@@ -2434,6 +2448,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     if (activeReasoning != null)
                     {
                         activeReasoning.IsAppending = false;
+                        // 正文已经排在这段思考之后，这段就此封口：再来的推理增量另起一段。
+                        reasoningSealedByText = true;
                     }
 
                     // 先写入正文、再关闭 loading：切换过程中气泡始终有可见内容承接，避免空气泡塌缩。
@@ -4241,7 +4257,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         return ConversationPersistenceHelper.CloneAttachment(attachment);
     }
 
-    private static void EnsureSegmentLayout(ChatMessage message)
+    private void EnsureSegmentLayout(ChatMessage message)
     {
         if (message.Segments.Count > 0)
         {
@@ -4255,6 +4271,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 Kind = ChatMessageSegmentKind.Markdown,
                 Text = message.Content
             });
+            // 本轮正文已经有段承载：工具轮封口时不要再补一份。
+            _activeTextMaterialized = true;
         }
 
         message.NotifySegmentsChanged();
@@ -4266,6 +4284,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             return;
         }
+
+        _activeTextMaterialized = true;
 
         // 工具轮刚封口：本段正文另起一个 Markdown 段，避免与上一轮文本拼接成一段
         if (_forceNewAssistantTextSegment)
@@ -4287,6 +4307,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        // 末尾是思考段/工具段（正文之后又插了别的）：正文另起一段接在后面，保持时间顺序。
         message.Segments.Add(new ChatMessageSegment
         {
             Kind = ChatMessageSegmentKind.Markdown,
@@ -4373,7 +4394,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // （首轮 AppendAssistantMarkdownSegment 会跳过建段），此时必须先固化成 Markdown 段——
     // 一旦有了任何 segment，UsesSegmentLayout 就为真、legacy 渲染器关闭，
     // 已经流出来的正文会当场从界面消失。
-    private static ChatMessageSegment AppendReasoningSegment(ChatMessage message, string text, bool expanded)
+    private ChatMessageSegment AppendReasoningSegment(ChatMessage message, string text, bool expanded)
     {
         EnsureSegmentLayout(message);
 
@@ -4482,22 +4503,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 保留 Content 会让其重复计入；但可见的 Markdown 段必须保留，否则阶段性回复会从界面消失。
     private void CommitActiveBubbleRound(ChatMessage bubble)
     {
-        if (!string.IsNullOrWhiteSpace(bubble.Content))
+        if (!string.IsNullOrWhiteSpace(bubble.Content) && !_activeTextMaterialized)
         {
-            var last = bubble.Segments.LastOrDefault();
-            if (last == null || !last.IsMarkdown)
+            // 首轮（流式时 Segments 还为空，AppendAssistantMarkdownSegment 会跳过建段）：补建一段承载前导正文。
+            // 判据是「这段正文有没有进过 Markdown 段」而不是「最后一段是不是 Markdown」：
+            // 正文之后又来一段思考时，最后一段是思考段，按位置判断会把正文再补一份。
+            bubble.Segments.Add(new ChatMessageSegment
             {
-                // 首轮（流式时 Segments 还为空，AppendAssistantMarkdownSegment 会跳过建段）：补建一段承载前导正文
-                bubble.Segments.Add(new ChatMessageSegment
-                {
-                    Kind = ChatMessageSegmentKind.Markdown,
-                    Text = bubble.Content
-                });
-            }
-            // 末尾已是 Markdown 段时，流式正文已逐字写入其中，无需重复添加
+                Kind = ChatMessageSegmentKind.Markdown,
+                Text = bubble.Content
+            });
         }
 
         bubble.Content = string.Empty;
+        _activeTextMaterialized = false;
         // 推理文本不清空：它是给模型回放的累计副本（CommitActiveBubbleRound 只固化正文段）。
         // 下一段正文另起一段：本轮工具段通常已天然隔开，但工具 JSON 解析失败时不会有工具段，
         // 这个标志是那种情况下的保底，避免两轮正文被拼成一段。
