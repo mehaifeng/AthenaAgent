@@ -155,7 +155,7 @@ public class ConfigService : IConfigService
     {
         var root = JsonNode.Parse(json) as JsonObject;
         var version = root?["configSchemaVersion"]?.GetValue<int>() ?? 0;
-        if (version > 7)
+        if (version > 8)
         {
             BackupExistingConfig($"future-v{version}");
             throw new UnsupportedConfigSchemaException(version);
@@ -191,7 +191,7 @@ public class ConfigService : IConfigService
                 KeepRecentRounds = legacyKeepRecentRounds,
                 TargetSummaryTokens = 8192
             };
-            config.ConfigSchemaVersion = 7;
+            config.ConfigSchemaVersion = 8;
             AppConfigNormalizer.MigrateBrowserDefaults(config);
             AppConfigNormalizer.NormalizeContextPolicy(config);
             AppConfigNormalizer.NormalizeProtocol(config);
@@ -200,10 +200,11 @@ public class ConfigService : IConfigService
             return config;
         }
 
-        if (version == 6)
+        if (version is 6 or 7)
         {
             // v6 → v7：浏览器智能体的旧默认值（12 步上限、不保留登录态）就地抬到新默认。
-            config.ConfigSchemaVersion = 7;
+            // v7 → v8：SoM 标注上限 80 抬到 150——同一个一次性迁移，只改仍是旧默认的项。
+            config.ConfigSchemaVersion = 8;
             AppConfigNormalizer.MigrateBrowserDefaults(config);
             AppConfigNormalizer.NormalizeContextPolicy(config);
             AppConfigNormalizer.NormalizeProtocol(config);
@@ -212,7 +213,7 @@ public class ConfigService : IConfigService
             return config;
         }
 
-        config.ConfigSchemaVersion = 7;
+        config.ConfigSchemaVersion = 8;
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);

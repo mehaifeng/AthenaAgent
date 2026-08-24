@@ -413,11 +413,19 @@ public class BrowserVisionService : IBrowserVisionService
             box = new { e.BoundingBox.X, e.BoundingBox.Y, e.BoundingBox.Width, e.BoundingBox.Height }
         }));
 
+        // 历史里必须带上"作用在谁身上、写了什么值"。只报 action 名和成功与否的话，一串
+        // 12 条 {"action":"input","success":true} 在模型看来毫无区别，它无从发现自己正在把
+        // 同一个值反复敲进同一个框——而这正是表单类任务最常见的空转形态。
         var recentActionsJson = JsonSerializer.Serialize(actionHistory.TakeLast(12).Select(a => new
         {
             action = a.ActionName ?? a.Action.ToString(),
             success = a.Success,
             done = a.IsDone,
+            target = a.Effect?.ElementId,
+            // input 时是写入的文本，click 时是被点元素的描述。
+            requested = TrimForPrompt(a.Effect?.RequestedText, 120),
+            valueAfter = TrimForPrompt(a.Effect?.ValueAfter, 120),
+            changed = a.Effect?.Changed,
             message = a.Message,
             error = a.Error,
             extractedContent = TrimForPrompt(a.ExtractedContent ?? a.ExtractedText, 1200),
@@ -442,6 +450,7 @@ public class BrowserVisionService : IBrowserVisionService
             <step>
             {stepInfo.StepNumber}/{stepInfo.MaxSteps}
             </step>
+            {BuildStagnationNotice(stepInfo.RepeatedStateCount)}
 
             <agent_memory>
             {TrimForPrompt(stepInfo.LongTermMemory, 4000)}
@@ -805,6 +814,25 @@ public class BrowserVisionService : IBrowserVisionService
         }
 
         return int.TryParse(ReadJsonElementString(value), out var parsed) ? parsed : null;
+    }
+
+    /// <summary>
+    /// 原地打转的明示。模型看不出"这一屏我已经见过三次"——每一步它拿到的都是一张崭新的截图，
+    /// 而它自己的历史里全是 success=true。这段话是它唯一的外部证据，所以要说清事实（重复了
+    /// 几次）并给出出路，而不是泛泛地劝它"换个思路"。
+    /// </summary>
+    private static string BuildStagnationNotice(int repeatedStateCount)
+    {
+        if (repeatedStateCount <= 0) return string.Empty;
+
+        return $"""
+
+            <no_progress_warning>
+            This exact page state has now been observed {repeatedStateCount} times in this task: your recent actions changed nothing on the page, even where they reported success.
+            Stop repeating them. Consider that a value written into a field may never have reached the site's own widget: re-open the picker/suggestion panel and commit the choice from the panel itself, use keyboard navigation (ArrowDown then Enter) inside it, or reach the target through a different route such as navigating directly to a result URL.
+            If nothing can advance the task, finish with success=false and state precisely what was tried and what blocked it.
+            </no_progress_warning>
+            """;
     }
 
     private static string? TrimForPrompt(string? value, int maxLength)

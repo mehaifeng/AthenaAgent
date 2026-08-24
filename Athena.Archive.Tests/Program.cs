@@ -238,10 +238,11 @@ static async Task TestConfigV5DefaultMigrationAsync()
 
     var service = new ConfigService(harness.PathService);
     var migrated = await service.LoadAsync();
-    AssertEqual(7, migrated.ConfigSchemaVersion, "v5 should migrate all the way to the current schema");
-    // v5 的配置早于浏览器智能体的新默认值，迁移必须一路走到 v7，而不是停在 v6。
+    AssertEqual(8, migrated.ConfigSchemaVersion, "v5 should migrate all the way to the current schema");
+    // v5 的配置早于浏览器智能体的新默认值，迁移必须一路走到最新版，而不是停在中间某一版。
     AssertEqual(25, migrated.BrowserMaxSteps, "v5 config should pick up the v7 browser step budget");
     AssertTrue(migrated.BrowserPersistSession, "v5 config should pick up the v7 browser session persistence");
+    AssertEqual(150, migrated.BrowserSomMaxElements, "v5 config should pick up the v8 Set-of-Marks budget");
     AssertEqual(ContextPolicyMode.Auto, migrated.ContextPolicy.Mode, "historical 128K/64K defaults should become Auto");
     AssertEqual<long?>(null, migrated.ContextPolicy.CustomCapTokens, "auto migration should not retain a cap");
     AssertEqual(1_000_000, migrated.MaxContextTokens, "compatibility mirror should follow unknown-model 1M default");
@@ -251,7 +252,7 @@ static async Task TestConfigV5DefaultMigrationAsync()
     AssertEqual("chat-model", migrated.AiModels.MainConversation.Model, "role selection must survive migration");
 
     using var document = JsonDocument.Parse(File.ReadAllText(harness.PathService.GetConfigFilePath()));
-    AssertEqual(7, document.RootElement.GetProperty("configSchemaVersion").GetInt32(), "migration should be atomically persisted");
+    AssertEqual(8, document.RootElement.GetProperty("configSchemaVersion").GetInt32(), "migration should be atomically persisted");
 }
 
 static async Task TestConfigV5CustomMigrationAsync()

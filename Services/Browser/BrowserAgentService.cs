@@ -4,6 +4,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -17,6 +18,13 @@ public class BrowserAgentService : IBrowserAgentService
     private const int MaxActionsPerStep = 5;
     private const int MaxConsecutiveFailures = 3;
     private const int OpenLoopWindow = 6;
+
+    // 原地打转的两道线。动作本身"成功"却什么也没改变时，连续失败计数永远是 0，步数上限
+    // 是唯一的刹车——实测一次 12306 选站任务就这样烧掉 25 步 / 10 分钟，期间同一张标注图
+    // 逐字节重复出现了三次。第 3 次重复时把这件事明确写给模型（它自己看不出来），
+    // 第 6 次仍在同一状态就直接收尾，把"卡在哪、试过什么"交回给调用方，而不是继续烧步数。
+    private const int StuckStateNoticeThreshold = 3;
+    private const int StuckStateAbortThreshold = 6;
 
     private readonly IHeadlessBrowserService _browserService;
     private readonly IBrowserVisionService _browserVisionService;
@@ -50,8 +58,8 @@ public class BrowserAgentService : IBrowserAgentService
 
         var config = _configService.Load();
         _logger.Information(
-            "BrowserAgent task started: Instruction={Preview}, MaxSteps={MaxSteps}",
-            Trim(request.Instruction, 200), ResolveMaxSteps(request, config));
+            "BrowserAgent task started: Instruction={Preview}, MaxSteps={MaxSteps}, SomMaxElements={SomMaxElements}",
+            Trim(request.Instruction, 200), ResolveMaxSteps(request, config), ResolveSomMaxElements(request, config));
 
         if (!config.BrowserEnabled)
         {
@@ -80,10 +88,11 @@ public class BrowserAgentService : IBrowserAgentService
         var consecutiveFailures = 0;
         var openLoopRecoveryAttempted = false;
         var reachedMaxSteps = false;
+        var stateVisits = new Dictionary<string, int>(StringComparer.Ordinal);
 
         try
         {
-            session = await BrowserSession.CreateAsync(_browserService, CreateSessionOptions(config), _logger, cancellationToken);
+            session = await BrowserSession.CreateAsync(_browserService, CreateSessionOptions(config, request), _logger, cancellationToken);
             await session.StartAsync(cancellationToken);
             _logger.Information("BrowserAgent session created: SessionId={SessionId}", session.SessionId);
 
@@ -124,6 +133,29 @@ public class BrowserAgentService : IBrowserAgentService
                     var useVision = config.BrowserObservationMode != BrowserObservationMode.DomOnly;
                     finalState = await session.GetStateAsync(useVision, cancellationToken);
 
+                    var signature = ComputeStateSignature(finalState);
+                    stateVisits.TryGetValue(signature, out var previousVisits);
+                    var stateVisitCount = previousVisits + 1;
+                    stateVisits[signature] = stateVisitCount;
+
+                    if (stateVisitCount >= StuckStateAbortThreshold)
+                    {
+                        _logger.Warning(
+                            "BrowserAgent stuck-state abort: Step={Step}, IdenticalObservations={Count}",
+                            step, stateVisitCount);
+                        var stuckFailure = BrowserActionFailure(
+                            BrowserActionType.Finish,
+                            session.SessionId,
+                            $"Browser task stopped: the page state repeated identically {stateVisitCount} times, so the actions taken were changing nothing. "
+                            + "The remaining steps would have repeated the same loop.");
+                        stuckFailure.IsDone = true;
+                        stuckFailure.CompletionSuccess = false;
+                        stuckFailure.IsRecoverableFailure = false;
+                        RecordResult(history, evidence, longTermMemory, readState, stuckFailure);
+                        completionStatus = BrowserTaskCompletionStatus.Failed;
+                        break;
+                    }
+
                     var stepInfo = new BrowserAgentStepInfo
                     {
                         StepNumber = step,
@@ -131,7 +163,8 @@ public class BrowserAgentService : IBrowserAgentService
                         ConsecutiveFailures = consecutiveFailures,
                         LongTermMemory = longTermMemory.ToString(),
                         ReadState = readState.ToString(),
-                        UseVision = useVision
+                        UseVision = useVision,
+                        RepeatedStateCount = stateVisitCount >= StuckStateNoticeThreshold ? stateVisitCount : 0
                     };
 
                     var modelOutput = await _browserVisionService.DecideNextActionsAsync(
@@ -667,17 +700,47 @@ public class BrowserAgentService : IBrowserAgentService
         return trimmed.EndsWith("/", StringComparison.Ordinal) ? trimmed[..^1] : trimmed;
     }
 
+    /// <summary>
+    /// 一次观察的状态指纹。首选带标注截图的字节：页面没变 → 元素框没变 → 标注图逐字节相同，
+    /// 这正好是"模型眼里这一页有没有变过"。DomOnly 模式下没有截图，退回 URL + DOM 版本 +
+    /// 各元素当前值——值必须参与，否则往输入框里填了字也会被判成同一个状态。
+    /// </summary>
+    private static string ComputeStateSignature(BrowserStateSummary state)
+    {
+        if (!string.IsNullOrEmpty(state.ScreenshotBase64))
+        {
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(state.ScreenshotBase64)));
+        }
+
+        var builder = new StringBuilder(state.Url ?? string.Empty);
+        builder.Append('|').Append(state.DomVersion);
+        foreach (var element in state.Elements)
+        {
+            builder.Append('|').Append(element.StableKey).Append('=').Append(element.Value);
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
     private static int ResolveMaxSteps(BrowserTaskRequest request, AppConfig config) =>
         Math.Clamp(request.MaxSteps ?? config.BrowserMaxSteps, 1, 50);
 
-    private static BrowserSessionOptions CreateSessionOptions(AppConfig config) =>
+    /// <summary>
+    /// 标注上限允许被单次任务覆盖：页面密度差得很远，一个搜索页 40 个标记就够，
+    /// 后台表格/长列表 150 个都嫌少，而这件事只有发起任务的模型看得见。
+    /// 上界与 <see cref="AppConfigNormalizer.NormalizeBrowser"/> 保持一致。
+    /// </summary>
+    private static int ResolveSomMaxElements(BrowserTaskRequest request, AppConfig config) =>
+        Math.Clamp(request.SomMaxElements ?? config.BrowserSomMaxElements, 10, 300);
+
+    private static BrowserSessionOptions CreateSessionOptions(AppConfig config, BrowserTaskRequest request) =>
         new()
         {
             Headless = config.BrowserHeadless,
             PersistSession = config.BrowserPersistSession,
             DownloadEnabled = config.BrowserDownloadEnabled,
             ObservationMode = config.BrowserObservationMode,
-            SomMaxElements = config.BrowserSomMaxElements,
+            SomMaxElements = ResolveSomMaxElements(request, config),
             SomIncludeText = config.BrowserSomIncludeText,
             ScreenshotScale = config.BrowserScreenshotScale,
             OperationTimeoutSeconds = config.BrowserOperationTimeoutSeconds,

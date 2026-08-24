@@ -54,7 +54,7 @@ public class SomAnnotator : ISomAnnotator
             {
                 Style = SKPaintStyle.Stroke,
                 Color = new SKColor(255, 71, 87),
-                StrokeWidth = Math.Max(2f, bitmap.Width / 640f),
+                StrokeWidth = Math.Max(1.5f, bitmap.Width / 900f),
                 IsAntialias = true
             };
             using var labelPaint = new SKPaint
@@ -71,9 +71,11 @@ public class SomAnnotator : ISomAnnotator
                 IsAntialias = true
             };
             using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
-            // 序号字号按图宽缩放，1280 宽约 18px。原先是 10–12px：模型侧即使按高清晰度
-            // 读图也要经过缩放，10px 的数字到那头就是几个像素，等于没标。
-            using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 70f, 14f, 22f));
+            // 序号字号按图宽缩放，1280 宽约 12px。两头都是坑：10px 以下的数字经模型侧缩放
+            // 就剩几个像素，等于没标；而 18px 的号码牌在密集页面上会盖住相邻控件本身，模型
+            // 看得见号却看不清被标的是什么。截图按 High 细节度上传（1280×900 → 约 0.85 倍），
+            // 12px 到模型那头仍有 10px 上下，三位数也读得出来。
+            using var labelFont = new SKFont(typeface, Math.Clamp(bitmap.Width / 110f, 10f, 15f));
 
             if (request.DrawAnnotations)
             {
@@ -133,8 +135,9 @@ public class SomAnnotator : ISomAnnotator
         var label = element.Index.ToString();
         var textWidth = labelFont.MeasureText(label);
         var metrics = labelFont.Metrics;
-        var labelWidth = textWidth + 8;
-        var labelHeight = metrics.Descent - metrics.Ascent + 4;
+        // 内边距跟着字号一起收：号码牌是纯粹的遮挡面积，留白越多盖掉的页面内容越多。
+        var labelWidth = textWidth + 5;
+        var labelHeight = metrics.Descent - metrics.Ascent + 2;
         var labelX = Math.Max(0, rect.Left);
         var labelY = Math.Max(0, rect.Top - labelHeight);
         if (labelY <= 0)
@@ -143,8 +146,8 @@ public class SomAnnotator : ISomAnnotator
         }
 
         var labelRect = SKRect.Create(labelX, labelY, labelWidth, labelHeight);
-        canvas.DrawRoundRect(labelRect, 3, 3, labelPaint);
-        canvas.DrawText(label, labelX + 4, labelY + 2 - metrics.Ascent, SKTextAlign.Left, labelFont, textPaint);
+        canvas.DrawRoundRect(labelRect, 2, 2, labelPaint);
+        canvas.DrawText(label, labelX + 2.5f, labelY + 1 - metrics.Ascent, SKTextAlign.Left, labelFont, textPaint);
     }
 
     private async Task<SomObservation> CreateObservationAsync(SomAnnotationRequest request, byte[] screenshotBytes, CancellationToken cancellationToken)

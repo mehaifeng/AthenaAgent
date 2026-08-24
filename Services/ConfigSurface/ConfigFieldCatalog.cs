@@ -286,7 +286,7 @@ public static class ConfigFieldCatalog
                 "Screenshot scale factor for the vision pipeline.", numberRange: (0.25, 2.0)),
             Field("Browser.SomMaxElements", "Browser", ConfigFieldType.Integer,
                 c => c.BrowserSomMaxElements, (c, v) => c.BrowserSomMaxElements = (int)v!,
-                "Maximum annotated elements in a Set-of-Marks screenshot.", range: (10, 200)),
+                "Maximum annotated elements in a Set-of-Marks screenshot.", range: (10, 300)),
             Field("Browser.SomIncludeText", "Browser", ConfigFieldType.Boolean,
                 c => c.BrowserSomIncludeText, (c, v) => c.BrowserSomIncludeText = (bool)v!,
                 "Include text content in Set-of-Marks annotations."),

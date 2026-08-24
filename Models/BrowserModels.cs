@@ -92,7 +92,7 @@ public class BrowserSessionOptions
     public bool PersistSession { get; set; }
     public bool DownloadEnabled { get; set; }
     public BrowserObservationMode ObservationMode { get; set; } = BrowserObservationMode.VisionWithSom;
-    public int SomMaxElements { get; set; } = 80;
+    public int SomMaxElements { get; set; } = 150;
     public bool SomIncludeText { get; set; } = true;
     public double ScreenshotScale { get; set; } = 1.0;
     public BrowserViewport Viewport { get; set; } = new();
@@ -190,7 +190,7 @@ public class SomAnnotationRequest
     public int ViewportHeight { get; set; }
     public int ScrollX { get; set; }
     public int ScrollY { get; set; }
-    public int MaxElements { get; set; } = 80;
+    public int MaxElements { get; set; } = 150;
     public bool IncludeElementText { get; set; } = true;
     public bool DrawAnnotations { get; set; } = true;
     public double ScreenshotScale { get; set; } = 1.0;
@@ -339,6 +339,9 @@ public class BrowserAgentStepInfo
     public string LongTermMemory { get; set; } = string.Empty;
     public string ReadState { get; set; } = string.Empty;
     public bool UseVision { get; set; }
+
+    /// <summary>当前页面状态在本次任务中出现过的次数；0 表示尚未到达需要提醒的重复次数。</summary>
+    public int RepeatedStateCount { get; set; }
 }
 
 public class BrowserActionDefinition
@@ -393,6 +396,9 @@ public class BrowserTaskRequest
     public string Instruction { get; set; } = string.Empty;
     public string? StartUrl { get; set; }
     public int? MaxSteps { get; set; }
+
+    /// <summary>本次任务的 SoM 标注上限；为 null 时用 Browser.SomMaxElements 设置值。</summary>
+    public int? SomMaxElements { get; set; }
     public bool CloseSessionOnCompletion { get; set; } = true;
     public List<BrowserActionRequest> PlannedActions { get; set; } = new();
 }

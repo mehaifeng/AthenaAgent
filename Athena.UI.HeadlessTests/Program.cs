@@ -20,6 +20,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.Browser;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
@@ -1456,12 +1457,26 @@ static void TestBrowserAgentHardening()
         throw new InvalidOperationException("浏览器步数默认值应为 25：12 步跑不完一个真实流程。");
     if (!defaults.BrowserPersistSession)
         throw new InvalidOperationException("默认应保留浏览器登录态，否则每个任务都从零登录态起步。");
+    if (defaults.BrowserSomMaxElements != 150)
+        throw new InvalidOperationException("SoM 标注上限默认值应为 150：80 个盖不住一个真实页面的可交互元素。");
 
-    // —— v6 → v7 一次性迁移 ——
-    var legacy = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false };
+    // —— 旧默认值的一次性迁移（v6 → v7 的步数/登录态，v7 → v8 的标注上限）——
+    var legacy = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false, BrowserSomMaxElements = 80 };
     AppConfigNormalizer.MigrateBrowserDefaults(legacy);
-    if (legacy.BrowserMaxSteps != 25 || !legacy.BrowserPersistSession)
+    if (legacy.BrowserMaxSteps != 25 || !legacy.BrowserPersistSession || legacy.BrowserSomMaxElements != 150)
         throw new InvalidOperationException("旧的浏览器默认值未在迁移中归位。");
+
+    // 用户自己填的标注上限同样不该被迁移改写。
+    var chosenMarks = new AppConfig { BrowserSomMaxElements = 60 };
+    AppConfigNormalizer.MigrateBrowserDefaults(chosenMarks);
+    if (chosenMarks.BrowserSomMaxElements != 60)
+        throw new InvalidOperationException("迁移覆盖了用户显式设置的标注上限。");
+
+    // 上界抬到 300：模型可以在单次任务里要更多标记，钳制区间必须跟着放开。
+    var greedy = new AppConfig { BrowserSomMaxElements = 500 };
+    AppConfigNormalizer.NormalizeBrowser(greedy);
+    if (greedy.BrowserSomMaxElements != 300)
+        throw new InvalidOperationException("标注上限的钳制区间应为 10~300。");
 
     // 用户自己填过的步数不属于"旧默认"，迁移必须放过——否则每次保存都会跟用户较劲。
     var chosen = new AppConfig { BrowserMaxSteps = 40 };
@@ -1487,7 +1502,31 @@ static void TestBrowserAgentHardening()
     if (!browserFields.Contains("Browser.MaxSteps"))
         throw new InvalidOperationException("配置面缺少 Browser.MaxSteps。");
 
-    Console.WriteLine("[PASS] Browser agent hardening: gate lifted, batching allowed under Off, legacy defaults migrated, dead knob retired");
+    // —— send_keys 键名归一化 ——
+    // 模型写的是自然语言里的键名。原样透传给 Playwright 换来的是 Unknown key，
+    // 一次拼写差异就烧掉一整步，而那一步往往正是"提交表单"。
+    foreach (var (raw, expected) in new[]
+             {
+                 ("ENTER", "Enter"), ("enter", "Enter"), ("Return", "Enter"),
+                 ("esc", "Escape"), ("TAB", "Tab"), ("pageup", "PageUp"),
+                 ("down", "ArrowDown"), ("arrow_up", "ArrowUp"),
+                 ("ctrl+a", "Control+a"), ("CMD+Shift+P", "Meta+Shift+P"),
+                 ("f12", "F12"), (" Enter ", "Enter")
+             })
+    {
+        var actual = BrowserKeyNames.Normalize(raw);
+        if (actual != expected)
+            throw new InvalidOperationException($"键名归一化错误：{raw} → {actual}，应为 {expected}。");
+    }
+
+    // 单字符是字面量，大小写在 Playwright 里有语义，不能被"顺手规范化"掉。
+    if (BrowserKeyNames.Normalize("a") != "a" || BrowserKeyNames.Normalize("A") != "A")
+        throw new InvalidOperationException("单字符键必须原样传递。");
+    // 认不出来的键名交给 Playwright 报错，不要在这里猜。
+    if (BrowserKeyNames.Normalize("MediaTrackNext") != "MediaTrackNext")
+        throw new InvalidOperationException("未知键名不应被改写。");
+
+    Console.WriteLine("[PASS] Browser agent hardening: gate lifted, batching allowed under Off, legacy defaults migrated, key names normalized, dead knob retired");
 }
 
 static void TestVirtualPetStateMachine()

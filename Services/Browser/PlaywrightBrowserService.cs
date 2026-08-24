@@ -23,6 +23,12 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
     // 埋点、轮询和长连接，network idle 几乎永远等不到，逐步等就是每步白扔一秒。
     private const int NavigationSettleTimeoutMs = 1000;
 
+    // 真实按键的节奏与长度上限。25ms/字符对站点脚本足够像人手输入，一个站名/城市名也就
+    // 几百毫秒——相对每步几十秒的模型等待可以忽略；上限则挡住"把一整段文本一个字一个字敲
+    // 进 textarea"这种把一步拖成几十秒的用法，那种场景本来也不需要联想事件。
+    private const int RealKeystrokeDelayMs = 25;
+    private const int MaxRealKeystrokeChars = 120;
+
     // 真实浏览器优先级：本机 Chrome > Edge > Playwright 自带 Chromium。
     private static readonly string[] RealBrowserChannels = { "chrome", "msedge" };
     private readonly IBrowserSessionManager _sessionManager;
@@ -348,6 +354,41 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             var centerY = box.Y + box.Height / 2;
 
             await runtimeSession.Page.Mouse.ClickAsync((float)centerX, (float)centerY);
+
+            // 先用真实按键敲一遍。JS 赋值只会派发 input/change，而联想框、城市选择面板、
+            // 日期控件普遍监听 keydown/keyup——它们收不到按键就不会过滤、不会写回站点自己的
+            // 隐藏字段，于是"值看着对了、站点一无所知"，模型只能对着没反应的面板反复点。
+            var typedWithRealKeys = await TryTypeWithRealKeystrokesAsync(runtimeSession, element, requestedText);
+            if (typedWithRealKeys)
+            {
+                await _sessionManager.TouchAsync(sessionId, runtimeSession.Page.Url, cancellationToken);
+                var typedEffect = new BrowserActionEffect
+                {
+                    ElementId = element.ElementId,
+                    TargetStableKey = element.StableKey,
+                    TargetSelector = element.Selector,
+                    RequestedText = element.IsSensitive ? null : requestedText,
+                    ValueBefore = element.IsSensitive ? null : element.Value,
+                    ValueAfter = element.IsSensitive ? null : requestedText,
+                    Changed = !string.Equals(element.Value ?? string.Empty, requestedText, StringComparison.Ordinal),
+                    Skipped = false,
+                    MatchesRequestedValue = true,
+                    SkipReason = null
+                };
+
+                var typedResult = new BrowserActionResult
+                {
+                    Success = true,
+                    Action = BrowserActionType.Type,
+                    Message = "Type completed with real keystrokes: target value verified. If this field has a suggestion or picker panel, the panel is now filtered — commit the choice before moving on.",
+                    SessionId = sessionId,
+                    Url = runtimeSession.Page.Url,
+                    Effect = typedEffect
+                };
+                typedResult.Metadata["typedWithRealKeys"] = "true";
+                return typedResult;
+            }
+
             var fillResult = await runtimeSession.Page.EvaluateAsync<TypeFillResult>(FillEditableElementScript, new
             {
                 x = centerX,
@@ -391,9 +432,11 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
             var message = fillResult.Skipped
                 ? "Type skipped: target already contains the requested value."
-                : "Type completed: target value verified.";
+                // 走到这里说明真实按键没能落到这个字段上，值是直接赋进去的。站点的联想/选择
+                // 控件很可能完全没有察觉，必须把这一点讲给模型，否则它会把"值对了"当成"选中了"。
+                : "Type completed by direct value assignment: the field did not accept real keystrokes, so any suggestion or picker panel on this site may not have reacted. Verify the site registered the choice instead of assuming it did.";
 
-            return new BrowserActionResult
+            var filledResult = new BrowserActionResult
             {
                 Success = true,
                 Action = BrowserActionType.Type,
@@ -402,11 +445,58 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
                 Url = runtimeSession.Page.Url,
                 Effect = effect
             };
+            filledResult.Metadata["typedWithRealKeys"] = "false";
+            return filledResult;
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "Browser Type failed: SessionId={SessionId}", sessionId);
             return BrowserActionFailure(BrowserActionType.Type, sessionId, $"Type failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 用真实按键把文本敲进当前获得焦点的可编辑元素，并读回焦点元素的值做校验。
+    /// 校验故意读"焦点元素"而不是按坐标命中的元素：真实按键往往会顶出一层联想面板，
+    /// 那层面板正好盖在输入框上，按坐标去找会找到面板、判定为"没有可编辑目标"。
+    /// 校验不通过时返回 false，调用方回落到 JS 赋值——即改动前的行为。
+    /// </summary>
+    private async Task<bool> TryTypeWithRealKeystrokesAsync(RuntimeSession runtimeSession, SomElement element, string requestedText)
+    {
+        // <select> 要的是选项而不是字符；超长文本按 25ms/字符敲会把一步拖成几十秒，
+        // 而长文本粘进 textarea 本来也用不着联想事件。
+        if (string.Equals(element.TagName, "select", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(element.InputType, "file", StringComparison.OrdinalIgnoreCase)
+            || requestedText.Length > MaxRealKeystrokeChars)
+        {
+            return false;
+        }
+
+        try
+        {
+            var keyboard = runtimeSession.Page.Keyboard;
+            await keyboard.PressAsync("ControlOrMeta+a");
+            await keyboard.PressAsync("Delete");
+            if (requestedText.Length > 0)
+            {
+                await keyboard.TypeAsync(requestedText, new KeyboardTypeOptions { Delay = RealKeystrokeDelayMs });
+            }
+
+            var focused = await runtimeSession.Page.EvaluateAsync<FocusedValueResult>(ReadFocusedValueScript);
+            if (focused is { Found: true } && string.Equals(focused.Value ?? string.Empty, requestedText, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            _logger.Debug(
+                "Real keystrokes did not land on the focused element; falling back to value assignment. Element={ElementId}, FocusedTag={Tag}",
+                element.ElementId, focused?.TagName);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug(ex, "Real keystroke typing failed; falling back to value assignment. Element={ElementId}", element.ElementId);
+            return false;
         }
     }
 
@@ -625,7 +715,8 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
             var runtimeSession = GetRuntimeSession(sessionId);
             var pageBefore = runtimeSession.Page;
             var activeTabBefore = runtimeSession.GetActiveTabId();
-            var follow = await ExecuteWithAutoTabFollowAsync(runtimeSession, () => pageBefore.Keyboard.PressAsync(key), cancellationToken);
+            var normalizedKey = BrowserKeyNames.Normalize(key);
+            var follow = await ExecuteWithAutoTabFollowAsync(runtimeSession, () => pageBefore.Keyboard.PressAsync(normalizedKey), cancellationToken);
             var pageAfter = runtimeSession.Page;
             await _sessionManager.TouchAsync(sessionId, pageAfter.Url, cancellationToken);
             var result = BrowserActionSuccess(BrowserActionType.PressKey, sessionId, "Key press completed.", pageAfter.Url);
@@ -1539,6 +1630,52 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
 
     private static string? FirstNonWhiteSpace(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private const string ReadFocusedValueScript = """
+        () => {
+          const deepActive = () => {
+            let element = document.activeElement;
+            let depth = 0;
+            while (element && depth < 12) {
+              depth += 1;
+              if (element.shadowRoot && element.shadowRoot.activeElement) {
+                element = element.shadowRoot.activeElement;
+                continue;
+              }
+
+              if (element.tagName && element.tagName.toLowerCase() === 'iframe') {
+                try {
+                  const frameDoc = element.contentDocument;
+                  if (frameDoc && frameDoc.activeElement && frameDoc.activeElement !== frameDoc.body) {
+                    element = frameDoc.activeElement;
+                    continue;
+                  }
+                } catch {
+                  // Cross-origin iframe is not accessible by script.
+                }
+              }
+
+              break;
+            }
+
+            return element;
+          };
+
+          const target = deepActive();
+          if (!target || !target.tagName) return { Found: false, Value: null, TagName: null };
+
+          const tagName = target.tagName.toLowerCase();
+          if (tagName === 'input' || tagName === 'textarea') {
+            return { Found: true, Value: target.value || '', TagName: tagName };
+          }
+
+          if (target.isContentEditable) {
+            return { Found: true, Value: target.innerText || target.textContent || '', TagName: tagName };
+          }
+
+          return { Found: false, Value: null, TagName: tagName };
+        }
+        """;
 
     private const string FillEditableElementScript = """
         ({ x, y, text }) => {
@@ -2828,6 +2965,13 @@ public class PlaywrightBrowserService : IHeadlessBrowserService, IAsyncDisposabl
         public bool MatchesRequestedValue { get; set; }
         public string? SkipReason { get; set; }
         public bool IsSensitive { get; set; }
+    }
+
+    private sealed class FocusedValueResult
+    {
+        public bool Found { get; set; }
+        public string? Value { get; set; }
+        public string? TagName { get; set; }
     }
 
     private sealed class ScrollPosition

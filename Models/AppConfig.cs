@@ -154,7 +154,7 @@ public partial class AppConfig : ObservableObject
     private double _browserScreenshotScale = 1.0;
 
     [ObservableProperty]
-    private int _browserSomMaxElements = 80;
+    private int _browserSomMaxElements = 150;
 
     [ObservableProperty]
     private bool _browserSomIncludeText = true;

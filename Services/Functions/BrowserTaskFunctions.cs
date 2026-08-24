@@ -19,7 +19,7 @@ public class BrowserTaskFunctions
         _logger = logger.ForContext<BrowserTaskFunctions>();
     }
 
-    public async Task<FunctionResult> RunBrowserTaskAsync(string instruction, string? startUrl = null, int? maxSteps = null)
+    public async Task<FunctionResult> RunBrowserTaskAsync(string instruction, string? startUrl = null, int? maxSteps = null, int? somMaxElements = null)
     {
         try
         {
@@ -36,6 +36,7 @@ public class BrowserTaskFunctions
                 Instruction = instruction,
                 StartUrl = startUrl,
                 MaxSteps = maxSteps,
+                SomMaxElements = somMaxElements,
                 CloseSessionOnCompletion = true
             }, cancellationToken);
 

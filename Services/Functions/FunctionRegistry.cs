@@ -429,7 +429,8 @@ public class FunctionRegistry : IFunctionRegistry
                 {
                     instruction = new { type = "string", minLength = 1, maxLength = 8000, description = "Self-contained browser goal, constraints, and stopping condition." },
                     startUrl = new { type = "string", minLength = 1, maxLength = 4096, pattern = "^https?://", description = "Optional initial HTTP(S) URL." },
-                    maxSteps = new { type = "integer", minimum = 1, maximum = 50, description = "Optional hard step limit. If omitted, the current Browser.MaxSteps setting is used." }
+                    maxSteps = new { type = "integer", minimum = 1, maximum = 50, description = "Optional hard step limit. If omitted, the current Browser.MaxSteps setting is used." },
+                    somMaxElements = new { type = "integer", minimum = 10, maximum = 300, description = "Optional cap on how many interactive elements each screenshot numbers (Set-of-Marks). If omitted, the current Browser.SomMaxElements setting is used. Raise it for dense pages such as long tables, dashboards, or admin consoles where the target control may fall outside the default budget; lower it for simple pages to keep the screenshot uncluttered." }
                 },
                 required = new[] { "instruction" }
             });

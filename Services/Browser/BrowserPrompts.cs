@@ -30,6 +30,8 @@ public static class BrowserPrompts
         - Do not repeat the same click/input target in consecutive steps when recent_actions_json indicates no progress or repeated new tab opening.
         - Do not continue a multi-action sequence after search, navigate, go_back, switch_tab, evaluate, or any action likely to change the page.
         - Do not type into a field if browser_state already shows the requested value.
+        - A field that opens a suggestion list, station/city picker, or date panel is not filled until the choice is committed from that panel: click the matching entry, or press ArrowDown then Enter inside it. The visible text alone often leaves the site's own hidden value empty, and the form then submits as if the field were blank.
+        - If such a panel does not narrow down to what you typed, the site ignored the input entirely. Do not retype the same value: pick the entry from the panel's own tabs/list, or navigate directly to a result URL that carries the values as query parameters.
         - For extraction, report only information observed in browser_state, action results, or screenshot.
         - If login, payment, captcha, two-factor auth, destructive actions, or private network access is required, return done with success=false and explain the blocker.
         - Keep actions compact. Use at most 5 actions per step.
