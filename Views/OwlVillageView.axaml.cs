@@ -40,7 +40,7 @@ public partial class OwlVillageView : UserControl
     {
         if (DataContext is MainConversationViewModel vm && vm.Orchestrator is { } orchestrator)
         {
-            SubAgentViewModel.RepositionWander(orchestrator.ActiveAgents.ToList());
+            SubAgentViewModel.RepositionWander(orchestrator.ActiveAgents.OfType<SubAgentViewModel>().ToList());
         }
     }
 
@@ -49,7 +49,7 @@ public partial class OwlVillageView : UserControl
         if (DataContext is MainConversationViewModel vm && vm.Orchestrator is { } orchestrator)
         {
             var now = DateTime.UtcNow;
-            foreach (var owl in orchestrator.ActiveAgents)
+            foreach (var owl in orchestrator.ActiveAgents.OfType<SubAgentViewModel>())
             {
                 owl.AdvanceSprite(now);
             }

@@ -1104,6 +1104,11 @@ public partial class App : Application, IAsyncDisposable
             return new BrowserTaskFunctions(browserAgentService, logger);
         });
 
+        // 猫头鹰呈现对象的工厂：实现挂在 ViewModels 层，编排器只认 ISubAgentPresenterFactory。
+        // 依赖方向由此变成 ViewModels → Services，服务层不再 new 任何 ViewModel。
+        services.AddSingleton<ISubAgentPresenterFactory>(sp =>
+            new SubAgentPresenterFactory(sp.GetService<ILocalizationService>()));
+
         // 子代理编排器（单例）。惰性解析 IFunctionRegistry（经 IServiceProvider）以断开构造环。
         services.AddSingleton<ISubAgentOrchestrator>(sp =>
         {

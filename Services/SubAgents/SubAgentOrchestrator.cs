@@ -1,6 +1,5 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
-using Athena.UI.ViewModels;
 using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -34,7 +33,7 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
         _ => null
     };
 
-    public ObservableCollection<SubAgentViewModel> ActiveAgents { get; } = new();
+    public ObservableCollection<ISubAgentProgress> ActiveAgents { get; } = new();
 
     public SubAgentOrchestrator(IConfigService configService, IServiceProvider serviceProvider, ILogger logger)
     {
@@ -52,31 +51,29 @@ public sealed class SubAgentOrchestrator : ISubAgentOrchestrator, IDisposable
 
         // 惰性解析 IFunctionRegistry，断开 Registry → SubAgentFunctions → Orchestrator → Registry 的构造环。
         var functionRegistry = _serviceProvider.GetRequiredService<IFunctionRegistry>();
-        // 惰性解析本地化服务：子代理状态文本按当前语言渲染，并随语言切换刷新。
-        var localizationService = _serviceProvider.GetService(typeof(ILocalizationService))
-            as ILocalizationService;
+        // 惰性解析猫头鹰工厂：展示层提供实现，编排器不 new ViewModel（同样为了断开
+        // Services → ViewModels 的反向依赖）。
+        var presenterFactory = _serviceProvider.GetRequiredService<ISubAgentPresenterFactory>();
 
         var config = _configService.Load();
         var maxParallel = Math.Max(1, config.SubAgentMaxParallel);
         var timeoutSeconds = Math.Max(1, config.SubAgentTimeoutSeconds);
         using var concurrencyGate = new SemaphoreSlim(maxParallel, maxParallel);
 
-        var runs = new List<(SubAgentViewModel Vm, SubAgentTaskInput Task)>(tasks.Length);
+        var runs = new List<(ISubAgentProgress Vm, SubAgentTaskInput Task)>(tasks.Length);
         foreach (var task in tasks)
         {
             // 每只猫头鹰一个独立取消源：联动批次令牌（"停止"）+ 自身超时上限。
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
-            var vm = new SubAgentViewModel(localizationService)
-            {
-                Title = string.IsNullOrWhiteSpace(task.Title) ? "subtask" : task.Title,
-                AgentType = SubAgentTypes.Resolve(task.AgentType).Name,
-                State = SubAgentState.Pending,
-                CurrentAction = "queued…",
-                Cts = cts,
-                TimeoutAt = DateTime.UtcNow.AddSeconds(timeoutSeconds)
-            };
+            var vm = presenterFactory.Create();
+            vm.Title = string.IsNullOrWhiteSpace(task.Title) ? "subtask" : task.Title;
+            vm.AgentType = SubAgentTypes.Resolve(task.AgentType).Name;
+            vm.State = SubAgentState.Pending;
+            vm.CurrentAction = "queued…";
+            vm.Cts = cts;
+            vm.TimeoutAt = DateTime.UtcNow.AddSeconds(timeoutSeconds);
             runs.Add((vm, task));
             Post(() => ActiveAgents.Add(vm));
         }

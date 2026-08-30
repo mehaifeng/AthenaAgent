@@ -1,7 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.Interfaces;
-using Athena.UI.ViewModels;
 using OpenAI;
 using OpenAI.Chat;
 using OpenAI.Responses;
@@ -36,7 +35,7 @@ public sealed class SubAgentRunner
 
     public async Task<SubAgentResult> RunAsync(
         SubAgentTaskInput task,
-        SubAgentViewModel vm,
+        ISubAgentProgress vm,
         Func<string, SemaphoreSlim?> gateFor,
         Action<Action> uiPost,
         CancellationToken cancellationToken)
@@ -262,7 +261,7 @@ public sealed class SubAgentRunner
     }
 
     private static SubAgentResult Succeed(
-        SubAgentViewModel vm, Action<Action> uiPost, SubAgentTaskInput task, string summary, bool success = true)
+        ISubAgentProgress vm, Action<Action> uiPost, SubAgentTaskInput task, string summary, bool success = true)
     {
         var text = string.IsNullOrWhiteSpace(summary) ? "(no output)" : summary.Trim();
         uiPost(() =>
@@ -286,7 +285,7 @@ public sealed class SubAgentRunner
         };
     }
 
-    private static SubAgentResult Fail(SubAgentViewModel vm, Action<Action> uiPost, SubAgentTaskInput task, string error)
+    private static SubAgentResult Fail(ISubAgentProgress vm, Action<Action> uiPost, SubAgentTaskInput task, string error)
     {
         uiPost(() =>
         {

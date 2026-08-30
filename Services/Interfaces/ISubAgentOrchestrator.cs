@@ -1,5 +1,4 @@
 using Athena.UI.Models;
-using Athena.UI.ViewModels;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,8 +11,12 @@ namespace Athena.UI.Services.Interfaces;
 /// </summary>
 public interface ISubAgentOrchestrator
 {
-    /// <summary>当前活动 / 已完成的子代理集合，供 UI（侧边 Dock + 猫头鹰小镇）直接绑定。</summary>
-    ObservableCollection<SubAgentViewModel> ActiveAgents { get; }
+    /// <summary>
+    /// 当前活动 / 已完成的子代理集合，供 UI（侧边 Dock + 猫头鹰小镇）绑定。
+    /// 元素的运行期类型是展示层的 SubAgentViewModel，但本层只认进度面：
+    /// 抽象一旦在签名里点名 ViewModel，就再也不可能有非 UI 实现。
+    /// </summary>
+    ObservableCollection<ISubAgentProgress> ActiveAgents { get; }
 
     /// <summary>并行执行一批子代理任务，阻塞到全部结束，返回合并后的摘要文本。</summary>
     Task<string> DispatchBatchAsync(SubAgentTaskInput[] tasks, CancellationToken cancellationToken);

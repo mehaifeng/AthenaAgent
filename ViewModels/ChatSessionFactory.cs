@@ -1,8 +1,15 @@
+using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
-using Athena.UI.ViewModels;
 
-namespace Athena.UI.Services;
+namespace Athena.UI.ViewModels;
 
+/// <summary>
+/// 会话 ViewModel 的生产装配点。它做的是组合根的活儿——把 19 个服务拼成一个
+/// MainConversationViewModel——所以属于展示层，不属于 Services：服务层的签名里
+/// 不该出现 ViewModel（见 CLAUDE.md「Review Rules」第 4 条）。
+/// 这里传进去的每个依赖都是非空的，因此产物的
+/// <see cref="MainConversationViewModel.MissingCriticalDependencies"/> 必须为空集。
+/// </summary>
 public sealed class ChatSessionFactory
 {
     private readonly IChatService _chatService;

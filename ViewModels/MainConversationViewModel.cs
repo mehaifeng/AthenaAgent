@@ -508,7 +508,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private bool _hasRunningSubAgents;
 
     // 已挂 State 监听的猫头鹰集合；集合变更时全量对账（Reset 拿不到旧项，无法逐项退订）。
-    private readonly HashSet<SubAgentViewModel> _trackedSubAgents = new();
+    private readonly HashSet<ISubAgentProgress> _trackedSubAgents = new();
 
     private void OnActiveSubAgentsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -568,7 +568,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             var agents = Orchestrator?.ActiveAgents;
             if (agents == null || agents.Count == 0 || HasRunningSubAgents) return;
 
-            foreach (var agent in agents)
+            // IsVanishing 是纯展示态（淡出动画），不在 ISubAgentProgress 上——
+            // 本类属于展示层，认识具体呈现类型是允许的；服务层不认识才是重点。
+            foreach (var agent in agents.OfType<SubAgentViewModel>())
             {
                 agent.IsVanishing = true;
             }
@@ -788,7 +790,45 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     #endregion
 
+    /// <summary>
+    /// 设计器 / 单元测试用的空壳构造。生产装配走 <see cref="ChatSessionFactory"/>，
+    /// 那条路径上每个依赖都是非空的。
+    ///
+    /// 依赖之所以保留可空，是因为测试要能只装配它这次真正关心的那几个协作者——
+    /// 强行全非空只会逼出 20 多套完整依赖图，让测试更难写也更易碎。代价是
+    /// 接错线不会在装配期爆炸，而是让功能"安静地不发生"；<see cref="MissingCriticalDependencies"/>
+    /// 就是用来补回那个信号的：构造时把缺口记进日志，生产路径上它必须为空。
+    /// </summary>
     public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+
+    /// <summary>
+    /// 生产装配必需、但本实例上缺失的依赖名。设计器/测试构造会有值；
+    /// 经 <see cref="ChatSessionFactory"/> 装配出来的实例必须为空集。
+    /// </summary>
+    public IReadOnlyList<string> MissingCriticalDependencies { get; private set; } = [];
+
+    // 缺了这些，界面还在但对应功能整块不工作：发不出消息、读不到配置、
+    // 调不了工具、算不出上下文余量。它们是"接错线"与"功能没开"之间的分界。
+    private void RecordMissingCriticalDependencies()
+    {
+        var missing = new List<string>();
+        if (_chatService == null) missing.Add(nameof(IChatService));
+        if (_configService == null) missing.Add(nameof(IConfigService));
+        if (_promptService == null) missing.Add(nameof(IPromptService));
+        if (_functionRegistry == null) missing.Add(nameof(IFunctionRegistry));
+        if (_tokenService == null) missing.Add(nameof(ITokenService));
+        if (_localizationService == null) missing.Add(nameof(ILocalizationService));
+        MissingCriticalDependencies = missing;
+
+        if (missing.Count > 0)
+        {
+            // 设计器/测试构造走到这里是正常的；生产启动日志里出现这行就是组合根接错了。
+            Log.Warning(
+                "MainConversationViewModel constructed without {Count} production dependency/dependencies: {Missing}. "
+                + "Expected only for designer or test construction.",
+                missing.Count, string.Join(", ", missing));
+        }
+    }
 
     public MainConversationViewModel(
         IChatService? chatService,
@@ -843,6 +883,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _compressionPlanner = compressionPlanner;
         _compressionCandidateGenerator = compressionCandidateGenerator;
         _compressionValidator = compressionValidator;
+        RecordMissingCriticalDependencies();
         if (_contextPolicyProvider != null)
             _contextPolicyProvider.EffectivePolicyChanged += OnEffectivePolicyChanged;
 

@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Serialization;
 
 namespace Athena.UI.Models;
@@ -47,4 +48,12 @@ public sealed class SubAgentResult
     public string AgentType { get; init; } = string.Empty;
     public bool Success { get; init; }
     public string Summary { get; init; } = string.Empty;
+}
+
+/// <summary>子代理过程日志的一条记录（助手文本 / 工具结果），供"查看过程"展示。</summary>
+public sealed class SubAgentLogEntry
+{
+    public string Kind { get; init; } = string.Empty;   // "assistant" | "tool"
+    public string Text { get; init; } = string.Empty;
+    public DateTime Timestamp { get; } = DateTime.Now;
 }

@@ -14,18 +14,10 @@ using System.Threading;
 
 namespace Athena.UI.ViewModels;
 
-/// <summary>子代理过程日志的一条记录（助手文本 / 工具结果），供"查看过程"展示。</summary>
-public sealed class SubAgentLogEntry
-{
-    public string Kind { get; init; } = string.Empty;   // "assistant" | "tool"
-    public string Text { get; init; } = string.Empty;
-    public DateTime Timestamp { get; } = DateTime.Now;
-}
-
 /// <summary>
 /// 单只"猫头鹰"子代理的实时状态。UI 直接绑定本对象；编排器/Runner 在 UI 线程更新它。
 /// </summary>
-public partial class SubAgentViewModel : ObservableObject, IDisposable
+public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 {
     private enum OwlMotion
     {
