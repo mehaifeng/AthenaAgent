@@ -9,6 +9,7 @@
     <Compile Remove="Stubs/AppConfig.cs" />
     <PackageReference Include="Avalonia" Version="12.1.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Cronos" Version="0.13.0" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.6.26359.118" />
     <PackageReference Include="OpenAI" Version="2.12.0" />
@@ -109,9 +110,21 @@
     <Compile Include="../Services/DocumentOutlineExtractor.cs" Link="Source/Services/DocumentOutlineExtractor.cs" />
     <Compile Include="../Services/Interfaces/IFileSystemService.cs" Link="Source/Services/Interfaces/IFileSystemService.cs" />
     <Compile Include="../Models/ImageGenerationSessionRecord.cs" Link="Source/Models/ImageGenerationSessionRecord.cs" />
-    <Compile Include="../Models/RecurrenceRule.cs" Link="Source/Models/RecurrenceRule.cs" />
-    <Compile Include="../Models/ScheduledTask.cs" Link="Source/Models/ScheduledTask.cs" />
     <Compile Include="../Models/TaskExecution.cs" Link="Source/Models/TaskExecution.cs" />
+    <!-- cron 定时任务 -->
+    <Compile Include="../Models/CronTask.cs" Link="Source/Models/CronTask.cs" />
+    <Compile Include="../Models/CronValidation.cs" Link="Source/Models/CronValidation.cs" />
+    <Compile Include="../Services/Cron/CronScheduleService.cs" Link="Source/Services/Cron/CronScheduleService.cs" />
+    <Compile Include="../Services/Cron/CronTaskStore.cs" Link="Source/Services/Cron/CronTaskStore.cs" />
+    <Compile Include="../Services/Cron/CronTaskService.cs" Link="Source/Services/Cron/CronTaskService.cs" />
+    <Compile Include="../Services/Cron/CronSessionLauncher.cs" Link="Source/Services/Cron/CronSessionLauncher.cs" />
+    <Compile Include="../Services/Cron/CronExecutionWorker.cs" Link="Source/Services/Cron/CronExecutionWorker.cs" />
+    <Compile Include="../Services/Functions/CronTaskFunctions.cs" Link="Source/Services/Functions/CronTaskFunctions.cs" />
+    <Compile Include="../Services/Interfaces/ICronScheduleService.cs" Link="Source/Services/Interfaces/ICronScheduleService.cs" />
+    <Compile Include="../Services/Interfaces/ICronTaskStore.cs" Link="Source/Services/Interfaces/ICronTaskStore.cs" />
+    <Compile Include="../Services/Interfaces/ICronTaskService.cs" Link="Source/Services/Interfaces/ICronTaskService.cs" />
+    <Compile Include="../Services/Interfaces/ICronSessionLauncher.cs" Link="Source/Services/Interfaces/ICronSessionLauncher.cs" />
+    <Compile Include="../Services/Interfaces/ISystemClock.cs" Link="Source/Services/Interfaces/ISystemClock.cs" />
     <Compile Include="../Services/ConversationArchiveService.cs" Link="Source/Services/ConversationArchiveService.cs" />
     <Compile Include="../Services/ConversationArchiveStore.cs" Link="Source/Services/ConversationArchiveStore.cs" />
     <Compile Include="../Services/ContextCompressionService.cs" Link="Source/Services/ContextCompressionService.cs" />
@@ -124,7 +137,6 @@
     <Compile Include="../Services/ImageGenerationSessionService.cs" Link="Source/Services/ImageGenerationSessionService.cs" />
     <Compile Include="../Services/OpenAIImageGenerationService.cs" Link="Source/Services/OpenAIImageGenerationService.cs" />
     <Compile Include="../Services/Functions/ImageGenerationFunctions.cs" Link="Source/Services/Functions/ImageGenerationFunctions.cs" />
-    <Compile Include="../Services/Functions/ProactiveMessagingFunctions.cs" Link="Source/Services/Functions/ProactiveMessagingFunctions.cs" />
     <Compile Include="../Services/Functions/ToolArgumentSchemaValidator.cs" Link="Source/Services/Functions/ToolArgumentSchemaValidator.cs" />
     <Compile Include="../Services/Functions/TerminalOutputTruncator.cs" Link="Source/Services/Functions/TerminalOutputTruncator.cs" />
     <Compile Include="../Services/ToolApprovalKey.cs" Link="Source/Services/ToolApprovalKey.cs" />
@@ -132,8 +144,6 @@
     <Compile Include="../Services/RepeatedToolFailureGuard.cs" Link="Source/Services/RepeatedToolFailureGuard.cs" />
     <Compile Include="../Services/OfficeToolRelevance.cs" Link="Source/Services/OfficeToolRelevance.cs" />
     <Compile Include="../Services/Functions/ToolResultTruncator.cs" Link="Source/Services/Functions/ToolResultTruncator.cs" />
-    <Compile Include="../Services/RecurrenceService.cs" Link="Source/Services/RecurrenceService.cs" />
-    <Compile Include="../Services/TaskScheduler.cs" Link="Source/Services/TaskScheduler.cs" />
     <Compile Include="../Services/Interfaces/IAttachmentStoreService.cs" Link="Source/Services/Interfaces/IAttachmentStoreService.cs" />
     <Compile Include="../Services/Interfaces/IConfigService.cs" Link="Source/Services/Interfaces/IConfigService.cs" />
     <Compile Include="../Services/Interfaces/IEmbeddingService.cs" Link="Source/Services/Interfaces/IEmbeddingService.cs" />
@@ -148,8 +158,6 @@
     <Compile Include="../Services/Interfaces/IPlatformPathService.cs" Link="Source/Services/Interfaces/IPlatformPathService.cs" />
     <Compile Include="../Services/Interfaces/IWorkspaceService.cs" Link="Source/Services/Interfaces/IWorkspaceService.cs" />
     <Compile Include="../Services/Interfaces/IPromptService.cs" Link="Source/Services/Interfaces/IPromptService.cs" />
-    <Compile Include="../Services/Interfaces/IRecurrenceService.cs" Link="Source/Services/Interfaces/IRecurrenceService.cs" />
-    <Compile Include="../Services/Interfaces/ITaskScheduler.cs" Link="Source/Services/Interfaces/ITaskScheduler.cs" />
     <!-- MCP 扩展相关 -->
     <Compile Include="../Models/McpServerConfig.cs" Link="Source/Models/McpServerConfig.cs" />
     <Compile Include="../Models/Mcp/McpToolDescriptor.cs" Link="Source/Models/Mcp/McpToolDescriptor.cs" />

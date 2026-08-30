@@ -1,10 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:conv="using:Athena.UI.Converters"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
-             xmlns:controls="using:Athena.UI.Controls"
              mc:Ignorable="d"
              d:DesignWidth="1100"
              d:DesignHeight="760"
@@ -14,6 +15,10 @@
     <Design.DataContext>
         <vm:TasksViewModel/>
     </Design.DataContext>
+
+    <UserControl.Resources>
+        <conv:ToolIconKeyToGeometryConverter x:Key="IconKeyToGeometry"/>
+    </UserControl.Resources>
 
     <UserControl.Styles>
         <Style Selector="ListBoxItem">
@@ -45,288 +50,249 @@
     </UserControl.Styles>
 
     <Grid Margin="5" ColumnDefinitions="3*,5,7*">
-        <!-- 新任务表单直接进入主页左栏。 -->
+
+        <!-- 左栏：创建/编辑共用同一个编辑器 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
-                CornerRadius="8"
-                DataContext="{Binding TaskDraft}">
-            <Grid RowDefinitions="*,Auto">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="14" Spacing="15">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="{loc:Loc TaskDialog.TaskIntent}"
-                                       FontWeight="SemiBold"/>
-                            <TextBox Text="{Binding Intent}"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
-                                     MinHeight="86"
-                                     MaxHeight="130"
-                                     PlaceholderText="{loc:Loc TaskDialog.IntentPlaceholder}"/>
-                            <TextBlock Text="{loc:Loc TaskDialog.IntentHint}"
-                                       TextWrapping="Wrap"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.62"/>
-                        </StackPanel>
+                CornerRadius="8">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Border Padding="14,10"
+                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                        BorderThickness="0,0,0,1">
+                    <TextBlock FontWeight="SemiBold"
+                               Text="{Binding Editor.SaveButtonText}"/>
+                </Border>
 
-                        <Separator/>
+                <views:CronTaskEditorView Grid.Row="1" DataContext="{Binding Editor}"/>
 
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="{loc:Loc TaskDialog.TriggerTime}"
-                                       FontWeight="SemiBold"/>
-                            <Grid ColumnDefinitions="Auto,*"
-                                  RowDefinitions="Auto,Auto"
-                                  ColumnSpacing="10"
-                                  RowSpacing="8">
-                                <TextBlock Text="{loc:Loc TaskDialog.Date}"
-                                           VerticalAlignment="Center"/>
-                                <CalendarDatePicker Grid.Column="1"
-                                                    SelectedDate="{Binding TriggerDate}"
-                                                    HorizontalAlignment="Stretch"/>
-                                <TextBlock Grid.Row="1"
-                                           Text="{loc:Loc TaskDialog.Time}"
-                                           VerticalAlignment="Center"/>
-                                <TimePicker Grid.Row="1"
-                                            Grid.Column="1"
-                                            SelectedTime="{Binding TriggerTime}"
-                                            HorizontalAlignment="Stretch"/>
-                            </Grid>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="{loc:Loc TaskDialog.Recurrence}"
-                                       FontWeight="SemiBold"/>
-                            <ComboBox ItemsSource="{Binding RecurrencePresetDisplayNames}"
-                                      SelectedIndex="{Binding SelectedRecurrencePresetIndex}"
-                                      HorizontalAlignment="Stretch"/>
-
-                            <Border IsVisible="{Binding IsCustomRecurrenceVisible}"
-                                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    Padding="10">
-                                <StackPanel Spacing="10">
-                                    <ComboBox ItemsSource="{Binding CustomModeDisplayNames}"
-                                              SelectedIndex="{Binding SelectedCustomModeIndex}"
-                                              HorizontalAlignment="Stretch"/>
-
-                                    <Grid IsVisible="{Binding IsIntervalEditorVisible}"
-                                          ColumnDefinitions="Auto,72,*"
-                                          ColumnSpacing="7">
-                                        <TextBlock Text="{loc:Loc TaskDialog.Every}"
-                                                   VerticalAlignment="Center"/>
-                                        <controls:SafeNumericUpDown Grid.Column="1"
-                                                                    Minimum="1"
-                                                                    Value="{Binding CustomInterval}"
-                                                                    FormatString="N0"/>
-                                        <ComboBox Grid.Column="2"
-                                                  ItemsSource="{Binding IntervalUnitDisplayNames}"
-                                                  SelectedIndex="{Binding SelectedIntervalUnitIndex}"/>
-                                    </Grid>
-
-                                    <StackPanel IsVisible="{Binding IsWeeklyDaysEditorVisible}"
-                                                Spacing="8">
-                                        <Grid ColumnDefinitions="Auto,72,*"
-                                              ColumnSpacing="7">
-                                            <TextBlock Text="{loc:Loc TaskDialog.EveryNWeeks}"
-                                                       VerticalAlignment="Center"/>
-                                            <controls:SafeNumericUpDown Grid.Column="1"
-                                                                        Minimum="1"
-                                                                        Value="{Binding CustomInterval}"
-                                                                        FormatString="N0"/>
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{loc:Loc TaskDialog.WeeksSuffix}"
-                                                       VerticalAlignment="Center"/>
-                                        </Grid>
-                                        <ItemsControl ItemsSource="{Binding WeekdaySelections}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel ItemWidth="54"
-                                                               ItemHeight="31"/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="vm:WeekdaySelectionItem">
-                                                    <ToggleButton Content="{Binding DisplayName}"
-                                                                  IsChecked="{Binding IsSelected}"
-                                                                  HorizontalAlignment="Stretch"
-                                                                  VerticalAlignment="Stretch"/>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-
-                            <TextBlock IsVisible="{Binding ShowMinuteSchedulingHint}"
-                                       Text="{Binding MinuteSchedulingHint}"
-                                       TextWrapping="Wrap"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.62"/>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="{loc:Loc TaskDialog.TaskType}"
-                                       FontWeight="SemiBold"/>
-                            <ComboBox ItemsSource="{Binding TaskTypeDisplayNames}"
-                                      SelectedIndex="{Binding SelectedTaskTypeIndex}"
-                                      HorizontalAlignment="Stretch"/>
-                            <TextBlock Text="{Binding TaskTypeDescription}"
-                                       TextWrapping="Wrap"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.62"/>
-                        </StackPanel>
-
-                        <Border BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                                BorderThickness="1"
-                                Padding="10"
-                                CornerRadius="6">
-                            <StackPanel Spacing="5">
-                                <TextBlock FontSize="{DynamicResource App.FontSize.Body}"
-                                           TextWrapping="Wrap">
-                                    <Run Text="{loc:Loc TaskDialog.PreviewRule}"/>
-                                    <Run Text="{Binding RecurrenceSummaryPreview}"/>
-                                </TextBlock>
-                                <TextBlock FontSize="{DynamicResource App.FontSize.Body}"
-                                           TextWrapping="Wrap">
-                                    <Run Text="{loc:Loc TaskDialog.FirstActualTrigger}"/>
-                                    <Run Text="{Binding FirstTriggerPreview}"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-
-                        <Border IsVisible="{Binding HasValidationError}"
-                                Background="#18C62828"
-                                BorderBrush="#88C62828"
-                                BorderThickness="1"
-                                CornerRadius="6"
-                                Padding="9">
-                            <TextBlock Text="{Binding ValidationError}"
-                                       TextWrapping="Wrap"
-                                       Foreground="#C62828"
-                                       FontSize="{DynamicResource App.FontSize.Body}"/>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <Border Grid.Row="1"
+                <Border Grid.Row="2"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,1,0,0"
                         Padding="12">
-                    <Button Command="{Binding $parent[UserControl].((vm:TasksViewModel)DataContext).CreateTaskCommand}"
-                            Theme="{StaticResource AccentButtonTheme}"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            IsEnabled="{Binding CanConfirm}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource AthenaIconTaskCreate}" Width="13" Height="13"
-                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
-                            <TextBlock Text="{loc:Loc TaskDialog.BtnCreate}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
+                    <StackPanel Spacing="8">
+                        <Button Command="{Binding SaveTaskCommand}"
+                                Theme="{StaticResource AccentButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                IsEnabled="{Binding Editor.CanSave}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource AthenaIconTaskCreate}" Width="13" Height="13"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="{Binding Editor.SaveButtonText}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{Binding CancelEditCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                IsVisible="{Binding Editor.IsEditing}"
+                                Content="{loc:Loc Cron.Editor.CancelEdit}"/>
+
+                        <TextBlock Text="{Binding StatusMessage}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                   Opacity="0.7"
+                                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>
 
-        <!-- 右侧是可横向利用空间的任务宽列表。 -->
+        <!-- 右栏：任务卡片列表 -->
         <Border Grid.Column="2"
                 Background="{DynamicResource App.WorkspaceRightBackground}"
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
-            <Grid RowDefinitions="Auto,*">
+            <Grid RowDefinitions="Auto,Auto,*">
                 <Border Padding="12,9"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,0,0,1">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Orientation="Horizontal"
-                                    Spacing="8"
-                                    VerticalAlignment="Center">
-                            <TextBlock Text="{loc:Loc Tasks.ActiveRoutines}"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding ScheduledTasks.Count}"
-                                       VerticalAlignment="Center"
-                                       FontWeight="SemiBold"/>
-                            <Separator Width="1"
-                                       Height="14"
-                                       Margin="7,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Text="{loc:Loc Tasks.SystemIdle}"
-                                       VerticalAlignment="Center"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.65"/>
-                        </StackPanel>
-                        <Button Grid.Column="1"
-                                Command="{Binding ClearAllTasksCommand}"
-                                Padding="10,4"
-                                ToolTip.Tip="{loc:Loc Tasks.BtnPurgeAll}">
-                            <PathIcon Data="{StaticResource AthenaIconDelete}"
-                                      Width="15"
-                                      Height="15"/>
-                        </Button>
-                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <PathIcon Data="{StaticResource AthenaIconScheduledRun}" Width="15" Height="15" Opacity="0.75"/>
+                        <TextBlock Text="{loc:Loc Cron.Tasks.Header}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Tasks.Count}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                    </StackPanel>
                 </Border>
 
-                <ListBox Grid.Row="1"
+                <Border Grid.Row="1"
+                        IsVisible="{Binding HasCorruptedRecords}"
+                        Background="#18C62828"
+                        BorderBrush="#88C62828"
+                        BorderThickness="0,0,0,1"
+                        Padding="12,8">
+                    <TextBlock Text="{Binding CorruptedRecordsMessage}"
+                               TextWrapping="Wrap"
+                               Foreground="#C62828"
+                               FontSize="{DynamicResource App.FontSize.Body}"/>
+                </Border>
+
+                <TextBlock Grid.Row="2"
+                           IsVisible="{Binding !HasTasks}"
+                           Text="{loc:Loc Cron.Tasks.Empty}"
+                           TextWrapping="Wrap"
+                           Margin="24"
+                           Opacity="0.6"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"/>
+
+                <ListBox Grid.Row="2"
                          Margin="10"
-                         ItemsSource="{Binding ScheduledTasks}"
+                         IsVisible="{Binding HasTasks}"
+                         ItemsSource="{Binding Tasks}"
+                         SelectedItem="{Binding SelectedTask}"
                          Background="Transparent"
                          BorderThickness="0"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="vm:CronTaskItemViewModel">
                             <Border Classes="task-item-card">
-                                <Grid ColumnDefinitions="*,Auto"
-                                      ColumnSpacing="14">
-                                    <StackPanel Spacing="9">
-                                        <TextBlock Text="{Binding Intent}"
-                                                   TextWrapping="Wrap"
-                                                   FontSize="{DynamicResource App.FontSize.Heading}"
-                                                   FontWeight="Medium"/>
-                                        <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,*"
-                                              ColumnSpacing="7">
-                                            <TextBlock Text="{loc:Loc Tasks.Trig}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       Opacity="0.6"/>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{Binding TriggerTimeDisplay}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       FontWeight="SemiBold"/>
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{loc:Loc Tasks.Rec}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       Opacity="0.6"/>
-                                            <TextBlock Grid.Column="3"
-                                                       Text="{Binding RecurrenceDisplay}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       FontWeight="SemiBold"/>
-                                            <TextBlock Grid.Column="4"
-                                                       Text="{loc:Loc Tasks.Type}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       Opacity="0.6"/>
-                                            <TextBlock Grid.Column="5"
-                                                       Text="{Binding TaskTypeDisplay}"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       FontWeight="SemiBold"/>
-                                        </Grid>
-                                    </StackPanel>
+                                <StackPanel Spacing="10">
 
-                                    <Button Grid.Column="1"
-                                            Command="{Binding $parent[ListBox].((vm:TasksViewModel)DataContext).DeleteTaskCommand}"
-                                            CommandParameter="{Binding}"
-                                            Classes="danger"
-                                            Theme="{StaticResource BorderlessButtonTheme}"
-                                            VerticalAlignment="Center"
-                                            Padding="5"
-                                            ToolTip.Tip="{loc:Loc History.BtnDel}">
-                                        <PathIcon Data="{StaticResource AthenaIconDelete}"
-                                                  Width="14"
-                                                  Height="14"
-                                                  Opacity="0.65"/>
-                                    </Button>
-                                </Grid>
+                                    <!-- 标题行 + 操作 -->
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="5">
+                                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                                <TextBlock Text="{Binding Name}"
+                                                           TextWrapping="Wrap"
+                                                           FontSize="{DynamicResource App.FontSize.Heading}"
+                                                           FontWeight="Medium"/>
+                                                <Border IsVisible="{Binding ShowRunOnceBadge}"
+                                                        Background="{DynamicResource SemiGrey2}"
+                                                        CornerRadius="4"
+                                                        Padding="6,1"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding RunOnceText}"
+                                                               FontSize="{DynamicResource App.FontSize.Body}"/>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding Instruction}"
+                                                       TextWrapping="Wrap"
+                                                       MaxLines="2"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                                       Opacity="0.7"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    Spacing="2"
+                                                    VerticalAlignment="Top">
+                                            <Button Command="{Binding RunNowCommand}"
+                                                    Theme="{StaticResource BorderlessButtonTheme}"
+                                                    Padding="5"
+                                                    ToolTip.Tip="{loc:Loc Cron.Action.RunNow}">
+                                                <PathIcon Data="{StaticResource AthenaIconTaskRunNow}" Width="14" Height="14" Opacity="0.7"/>
+                                            </Button>
+                                            <Button Command="{Binding ToggleEnabledCommand}"
+                                                    Theme="{StaticResource BorderlessButtonTheme}"
+                                                    Padding="5"
+                                                    ToolTip.Tip="{Binding ToggleEnabledText}">
+                                                <PathIcon Data="{Binding ToggleEnabledIconKey, Converter={StaticResource IconKeyToGeometry}}"
+                                                          Width="14" Height="14" Opacity="0.7"/>
+                                            </Button>
+                                            <Button Command="{Binding EditCommand}"
+                                                    Theme="{StaticResource BorderlessButtonTheme}"
+                                                    Padding="5"
+                                                    ToolTip.Tip="{loc:Loc Cron.Action.Edit}">
+                                                <PathIcon Data="{StaticResource AthenaIconEdit}" Width="14" Height="14" Opacity="0.7"/>
+                                            </Button>
+                                            <Button Command="{Binding DeleteCommand}"
+                                                    Classes="danger"
+                                                    Theme="{StaticResource BorderlessButtonTheme}"
+                                                    Padding="5"
+                                                    ToolTip.Tip="{loc:Loc Cron.Action.Delete}">
+                                                <PathIcon Data="{StaticResource AthenaIconDelete}" Width="14" Height="14" Opacity="0.65"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- 调度元信息 -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="7">
+                                        <TextBlock Text="{loc:Loc Cron.Card.Schedule}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ScheduleDescription}"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{loc:Loc Cron.Card.NextRun}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding NextRunText}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="4"
+                                                   Text="{Binding TimeZoneId}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.55"/>
+                                        <TextBlock Grid.Column="5"
+                                                   Text="{Binding StatusText}"
+                                                   Margin="8,0,0,0"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   FontWeight="SemiBold"
+                                                   Opacity="0.8"/>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding CronExpression}"
+                                               FontFamily="{DynamicResource MonospaceFontFamily}"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
+                                               Opacity="0.55"/>
+
+                                    <!-- 近期运行：点进去就是那次触发开出的会话 -->
+                                    <Expander IsVisible="{Binding HasRuns}"
+                                              Header="{loc:Loc Cron.Card.RecentRuns}"
+                                              HorizontalAlignment="Stretch">
+                                        <ItemsControl ItemsSource="{Binding Runs}" Margin="0,6,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CronTaskRunItemViewModel">
+                                                    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto"
+                                                          ColumnSpacing="8"
+                                                          Margin="0,0,0,4">
+                                                        <PathIcon Data="{Binding StateIconKey, Converter={StaticResource IconKeyToGeometry}}"
+                                                                  Width="12" Height="12"
+                                                                  VerticalAlignment="Center"
+                                                                  Opacity="0.7"/>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding StateText}"
+                                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                                   FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding TimestampText}"
+                                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                                   Opacity="0.7"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="3"
+                                                                   Text="{Binding TriggerText}"
+                                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                                   Opacity="0.55"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="4"
+                                                                   Text="{Binding DetailText}"
+                                                                   IsVisible="{Binding HasDetail}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                                   Opacity="0.55"
+                                                                   VerticalAlignment="Center"/>
+                                                        <Button Grid.Column="5"
+                                                                Command="{Binding OpenConversationCommand}"
+                                                                IsVisible="{Binding CanOpenConversation}"
+                                                                Theme="{StaticResource BorderlessButtonTheme}"
+                                                                Padding="4"
+                                                                ToolTip.Tip="{loc:Loc Cron.Action.OpenSession}">
+                                                            <PathIcon Data="{StaticResource AthenaIconChevronRight}"
+                                                                      Width="11" Height="11" Opacity="0.6"/>
+                                                        </Button>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+                                </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

@@ -5,7 +5,7 @@ This guide focuses on the following:
 - How the three-pane workspace and main conversation work (including attachments, screenshots, and sub-agents).
 - What App Settings and Provider Models control.
 - How to enable and manage Skills, MCP, voice, images, search, and document parsing.
-- How proactive messages work and how to set them up.
+- How cron scheduled tasks work (each firing opens its own new session) and how to set them up.
 - How the Knowledge Base page works, and how the LLM uses it to actively learn your preferences.
 
 ## 2. Three-Pane Workspace and Main Conversation
@@ -108,26 +108,35 @@ MCP (Model Context Protocol) lets Athena connect to external servers and use the
 
 Only add servers you trust. An MCP server may access local files, the network, or third-party services; review the requested action whenever an approval prompt appears.
 
-## 7. Proactive Messages
-Proactive messages are triggered by the system scheduling mechanism. At trigger time, Athena activates the current main conversation, flashes the tray indicator, and injects the task intent so the assistant can initiate the interaction.
+## 7. Scheduled Tasks (cron)
+Scheduled tasks are described with a standard five-field cron expression. **Every firing opens a brand-new session** instead of injecting a message into the chat you are looking at: the new session appears in the session tree with a clock icon, but the selection does not move, so you can keep working and read the result later.
 
 ### 7.1 Creation methods
-You can create proactive messages in two ways:
-1. Manual creation: open the Tasks page, create a task, set trigger time, intent, and recurrence, then set task type to `Foreground / Proactive`.
-2. LLM-assisted creation: directly tell the LLM your reminder goal and schedule in chat, and it will create the proactive task through built-in system mechanisms.
+1. Manual creation: open the Tasks page, fill in a name and an instruction, then pick a common preset (daily 09:00, weekdays 09:00, hourly, …) or write a cron expression directly. The editor shows a plain-language description and **the next 5 run times** as you type — a cron expression is unreadable, and that preview is your main way to confirm you wrote what you meant.
+2. LLM-assisted creation: tell the LLM your goal and cadence in chat, and it will translate the cadence into a cron expression and create the task.
 
-### 7.2 Intent writing template (recommended)
-Write intent as an executable instruction, not a vague reminder:
+### 7.2 Writing the schedule
+- The five fields are: minute, hour, day-of-month, month, day-of-week. For example `0 9 * * 1-5` = weekdays at 09:00, `*/30 * * * *` = every 30 minutes, `0 8 1 * *` = 08:00 on the 1st of each month.
+- **Seconds are not supported**: the scheduler checks once per whole minute, so six-field expressions are rejected and the finest granularity is one minute.
+- The time zone lives under **Advanced** and defaults to your system zone. The expression is evaluated in that zone, and run times are displayed in it.
+
+### 7.3 Instruction template (recommended)
+The new session has **no memory of your current chat**, so the instruction must stand alone:
 - Goal: what should be advanced.
-- Context: project/state anchor.
+- Context: which project/workspace it applies to.
 - Output: expected response format.
 
 Example:
-- "Every day 09:30, review Athena doc progress and output: yesterday changes, today risks, next 3 actions."
+- "Review Athena doc progress and output: yesterday's changes, today's risks, next 3 actions."
 
-### 7.3 Usage notes
-- Proactive is for interruptions you want to see and interact with.
-- Background is for silent execution without interrupting chat flow.
+### 7.4 Usage notes
+- **Run only once**: runs at the first scheduled occurrence and then disables itself. It is never retried on failure.
+- **Notify when it succeeds**: controls whether a successful run leaves an unread marker. Failures always show up regardless of this setting.
+- **Missed runs are skipped, never backfilled**: occurrences crossed while the app was closed produce a single "Skipped" record, and the next run is computed from now — a pile of sessions at startup would be a disaster, not a compensation.
+- **Run now** is an extra run: it also opens its own new session, but it does not consume or move the next scheduled occurrence.
+- At most 2 scheduled sessions run at a time; the rest queue.
+- Nothing fires while the app is closed (this is in-app scheduling, not an OS-level cron).
+- Each task keeps its 20 most recent run records; the arrow beside a record jumps straight to the session that run created.
 
 ## 8. Knowledge Base and Long-Term Memory
 

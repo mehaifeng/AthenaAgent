@@ -46,21 +46,29 @@
                                 <TextBlock Text="!" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiRed6}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowArchiveFailedIndicator}"/>
                                 <TextBlock Text="!" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiRed6}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowScheduledFailureIndicator}"/>
+                                <TextBlock Text="!" FontWeight="Bold" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiRed6}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowInterruptedIndicator}"/>
                                 <TextBlock Text="✓" FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource SemiGreen6}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding ShowCompletionIndicator}"/>
                             </Grid>
-                            <!-- 分支标识：分支会话显示分支图标；分支的分支（深度≥2）在图标右侧追加 (n) -->
+                            <!-- 来源标识：分支会话显示分支图标（深度≥2 追加 (n)）；cron 触发的会话显示时钟。
+                                 两者互斥（定时会话总是全新的，不可能同时是分支），共用同一列。 -->
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3"
-                                        Margin="8,0,0,0" VerticalAlignment="Center"
-                                        IsVisible="{Binding ShowForkIcon}">
+                                        Margin="8,0,0,0" VerticalAlignment="Center">
                                 <PathIcon Data="{StaticResource AthenaIconBranch}" Width="12" Height="12"
                                           Foreground="{DynamicResource App.IconForeground}"
-                                          VerticalAlignment="Center"/>
+                                          VerticalAlignment="Center"
+                                          IsVisible="{Binding ShowForkIcon}"/>
                                 <TextBlock Text="{Binding ForkBadgeText}" IsVisible="{Binding HasForkBadge}"
                                            FontSize="{DynamicResource App.FontSize.Micro}"
                                            Foreground="{DynamicResource App.IconMutedForeground}"
                                            VerticalAlignment="Center"/>
+                                <PathIcon Data="{StaticResource AthenaIconScheduledRun}" Width="12" Height="12"
+                                          Foreground="{DynamicResource App.IconForeground}"
+                                          VerticalAlignment="Center"
+                                          ToolTip.Tip="{loc:Loc Cron.Session.Tooltip}"
+                                          IsVisible="{Binding IsScheduledRun}"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Body}"
                                        Margin="8,0,0,0"

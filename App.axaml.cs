@@ -11,6 +11,7 @@ using Avalonia.Markup.Xaml;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using Athena.UI.Services;
+using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
@@ -546,6 +547,18 @@ public partial class App : Application, IAsyncDisposable
 
     private async Task CleanupAsync()
     {
+        // cron 执行器必须在这里显式 await 停机：它的 IDisposable 刻意不做 sync-over-async，
+        // 只有这条路径能把在途运行的终态真正写回磁盘（否则要等下次启动才收敛为 Interrupted）。
+        try
+        {
+            if (Services?.GetService(typeof(CronExecutionWorker)) is CronExecutionWorker cronWorker)
+                await cronWorker.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to stop the cron execution worker");
+        }
+
         try
         {
             await PersistSessionStateAsync();
@@ -742,12 +755,12 @@ public partial class App : Application, IAsyncDisposable
         // 本地化服务（单例）
         services.AddSingleton<ILocalizationService, LocalizationService>();
 
-        // 重复规则服务（单例）
-        services.AddSingleton<IRecurrenceService>(sp =>
+        // cron 调度求值（单例）
+        services.AddSingleton<ISystemClock, SystemClock>();
+        services.AddSingleton<ICronScheduleService>(sp =>
         {
             var localizationService = sp.GetRequiredService<ILocalizationService>();
-            var logger = Log.ForContext<RecurrenceService>();
-            return new RecurrenceService(localizationService, logger);
+            return new CronScheduleService(localizationService, Log.ForContext<CronScheduleService>());
         });
 
         // 日志服务（单例）
@@ -837,17 +850,24 @@ public partial class App : Application, IAsyncDisposable
             return new FileSystemService(configService, pathService, logger);
         });
 
-        // 任务调度器（单例，UI 和 Function Calling 共享）
-        services.AddSingleton<ITaskScheduler>(sp =>
-        {
-            var logger = Log.ForContext<Services.TaskScheduler>();
-            var pathService = sp.GetRequiredService<IPlatformPathService>();
-            var recurrenceService = sp.GetRequiredService<IRecurrenceService>();
-            var scheduler = new Services.TaskScheduler(logger, pathService, recurrenceService);
-            scheduler.Start(); // 启动调度器
-            Log.Information("Task scheduler started");
-            return scheduler;
-        });
+        // cron 任务栈（单例）。依赖方向严格单向：
+        //   worker -> (task service, session launcher)，launcher 的宿主由主窗口在运行期挂载。
+        // 执行器刻意不在这里 Start：必须等主窗口、工作区与会话树就绪之后才启动，
+        // 否则第一批到期任务会撞上一棵还不存在的会话树。
+        services.AddSingleton<ICronTaskStore>(sp =>
+            new CronTaskStore(sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
+        services.AddSingleton<ICronTaskService>(sp => new CronTaskService(
+            sp.GetRequiredService<ICronTaskStore>(),
+            sp.GetRequiredService<ICronScheduleService>(),
+            sp.GetRequiredService<ISystemClock>(),
+            Log.Logger));
+        services.AddSingleton<ICronSessionLauncher>(_ => new CronSessionLauncher(Log.Logger));
+        services.AddSingleton<IConversationNavigator>(_ => new ConversationNavigator(Log.Logger));
+        services.AddSingleton<CronExecutionWorker>(sp => new CronExecutionWorker(
+            sp.GetRequiredService<ICronTaskService>(),
+            sp.GetRequiredService<ICronSessionLauncher>(),
+            sp.GetRequiredService<ISystemClock>(),
+            Log.Logger));
 
         // Embedding 服务（单例，用于向量语义检索）
         services.AddSingleton<IEmbeddingService>(sp =>
@@ -897,13 +917,11 @@ public partial class App : Application, IAsyncDisposable
         });
 
         // Function 相关类（使用工厂方法提供 Logger）
-        services.AddSingleton<ProactiveMessagingFunctions>(sp =>
-        {
-            var taskScheduler = sp.GetRequiredService<ITaskScheduler>();
-            var recurrenceService = sp.GetRequiredService<IRecurrenceService>();
-            var logger = Log.ForContext<ProactiveMessagingFunctions>();
-            return new ProactiveMessagingFunctions(taskScheduler, recurrenceService, logger);
-        });
+        services.AddSingleton<CronTaskFunctions>(sp => new CronTaskFunctions(
+            sp.GetRequiredService<ICronTaskService>(),
+            sp.GetRequiredService<ICronScheduleService>(),
+            sp.GetRequiredService<CronExecutionWorker>(),
+            Log.Logger));
 
         services.AddSingleton<KnowledgeBaseFunctions>(sp =>
         {
@@ -1198,7 +1216,7 @@ public partial class App : Application, IAsyncDisposable
 
         services.AddSingleton<IFunctionRegistry>(sp =>
         {
-            var proactiveFunctions = sp.GetRequiredService<ProactiveMessagingFunctions>();
+            var cronTaskFunctions = sp.GetRequiredService<CronTaskFunctions>();
             var knowledgeFunctions = sp.GetRequiredService<KnowledgeBaseFunctions>();
             var configFunctions = sp.GetRequiredService<ConfigurationFunctions>();
             var fileSystemFunctions = sp.GetRequiredService<FileSystemFunctions>();
@@ -1219,7 +1237,7 @@ public partial class App : Application, IAsyncDisposable
             var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(proactiveFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
+            return new FunctionRegistry(cronTaskFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）
@@ -1364,7 +1382,11 @@ public partial class App : Application, IAsyncDisposable
         {
             var chatService = sp.GetService<IChatService>();
             var configService = sp.GetService<IConfigService>();
-            var taskScheduler = sp.GetService<ITaskScheduler>();
+            var cronTaskService = sp.GetService<ICronTaskService>();
+            var cronScheduleService = sp.GetService<ICronScheduleService>();
+            var cronExecutionWorker = sp.GetService<CronExecutionWorker>();
+            var cronSessionLauncher = sp.GetService<ICronSessionLauncher>();
+            var conversationNavigator = sp.GetService<IConversationNavigator>();
             var promptService = sp.GetService<IPromptService>();
             var logService = sp.GetService<ILogService>();
             var knowledgeBaseService = sp.GetService<IKnowledgeBaseService>();
@@ -1400,7 +1422,6 @@ public partial class App : Application, IAsyncDisposable
             return new MainWindowViewModel(
                 chatService,
                 configService,
-                taskScheduler,
                 null,
                 promptService,
                 logService,
@@ -1430,7 +1451,12 @@ public partial class App : Application, IAsyncDisposable
                 appSettingsFactory,
                 terminalPanelViewModel,
                 contextPolicyProvider,
-                sp.GetRequiredService<IConversationTitleGenerator>());
+                sp.GetRequiredService<IConversationTitleGenerator>(),
+                cronTaskService,
+                cronScheduleService,
+                cronExecutionWorker,
+                cronSessionLauncher,
+                conversationNavigator);
         });
 
         Log.Debug("Dependency injection services configured");

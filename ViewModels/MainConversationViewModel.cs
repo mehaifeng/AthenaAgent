@@ -47,7 +47,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private readonly IChatService? _chatService;
     private readonly IConfigService? _configService;
     private readonly IPromptService? _promptService;
-    private readonly ITaskScheduler? _taskScheduler;
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
@@ -161,6 +160,33 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public string? ForkedFromHistoryId => _forkedFromHistoryId;
 
     public string? ForkedAtMessageId => _forkedAtMessageId;
+
+    /// <summary>创建本会话的 cron 任务 ID；普通会话为 null。</summary>
+    public string? CreatedByCronTaskId => _createdByCronTaskId;
+
+    /// <summary>对应的那一次 cron 运行 ID。</summary>
+    public string? CronTaskRunId => _cronTaskRunId;
+
+    /// <summary>该次 cron 触发的计划时刻（UTC）；手动运行为 null。</summary>
+    public DateTimeOffset? ScheduledFiredAt => _scheduledFiredAt;
+
+    public bool IsScheduledRun => !string.IsNullOrWhiteSpace(_createdByCronTaskId);
+
+    /// <summary>
+    /// 打上 cron 溯源标记。必须在会话创建后、第一次持久化之前调用，
+    /// 否则第一版快照会以普通会话落库，重启后就再也认不出它是定时产物。
+    /// </summary>
+    public void MarkAsScheduledRun(string cronTaskId, string cronTaskRunId, DateTimeOffset? scheduledFiredAt)
+    {
+        _createdByCronTaskId = cronTaskId;
+        _cronTaskRunId = cronTaskRunId;
+        _scheduledFiredAt = scheduledFiredAt;
+        OnPropertyChanged(nameof(CreatedByCronTaskId));
+        OnPropertyChanged(nameof(CronTaskRunId));
+        OnPropertyChanged(nameof(ScheduledFiredAt));
+        OnPropertyChanged(nameof(IsScheduledRun));
+        MarkPersistenceMetadataChanged();
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
@@ -429,6 +455,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private string? _forkedFromConversationId;
     private string? _forkedFromHistoryId;
     private string? _forkedAtMessageId;
+
+    // cron 溯源元数据：本会话若由定时任务触发，归档时随快照持久化，重启后据此恢复时钟标记
+    private string? _createdByCronTaskId;
+    private string? _cronTaskRunId;
+    private DateTimeOffset? _scheduledFiredAt;
 
     // 会话内压缩撤销栈：每次压缩入栈一个检查点，撤销时弹出还原。切换/重置会话时清空。
     private readonly Stack<CompressionCheckpoint> _compressionHistory = new();
@@ -757,14 +788,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     #endregion
 
-    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     public MainConversationViewModel(
         IChatService? chatService,
         IConfigService? configService,
         IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
-        ITaskScheduler? taskScheduler,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
         ILocalizationService? localizationService,
@@ -793,7 +823,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _chatService = chatService;
         _configService = configService;
         _promptService = promptService;
-        _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
         _localizationService = localizationService;
@@ -1995,43 +2024,43 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 处理来自调度器的主动消息
+    /// 在本会话里执行一次 cron 计划指令。
+    ///
+    /// 这里没有"忙则推迟"的分支：每次 cron 触发都开一个全新会话，本实例刚被创建，
+    /// 结构上不可能正在发送或压缩。旧实现里那套 Busy 排队逻辑正是为"往当前会话插消息"
+    /// 服务的，随该设计一并去掉。
     /// </summary>
-    public async Task<TaskExecutionResult> ProcessProactiveMessageAsync(string intent)
+    public async Task<TaskExecutionResult> RunScheduledInstructionAsync(string instruction, CancellationToken cancellationToken = default)
     {
         if (_chatService == null || _promptService == null)
         {
-            _logger.Warning("Ignoring proactive message trigger: service not initialized");
+            _logger.Warning("Ignoring scheduled instruction: chat or prompt service is not initialized");
             return TaskExecutionResult.Failed("Chat service or prompt service is not available.");
         }
 
-        if (IsSending || IsCompressing)
+        if (string.IsNullOrWhiteSpace(instruction))
         {
-            _logger.Warning("Delaying proactive message trigger: currently busy (IsSending={IsSending}, IsCompressing={IsCompressing})", IsSending, IsCompressing);
-            return TaskExecutionResult.Busy("Foreground chat is busy.");
+            return TaskExecutionResult.Failed("The scheduled instruction is empty.");
         }
 
-        _logger.Information("Starting proactive message processing: {Intent}", intent);
+        cancellationToken.ThrowIfCancellationRequested();
+        _logger.Information("Running scheduled instruction in conversation {ConversationId}", _conversationId);
 
-        // 构造主动触发指令
-        var proactivePrompt = _promptService.GetProactiveMessagePrompt(intent, DateTime.Now);
+        var scheduledPrompt = _promptService.GetProactiveMessagePrompt(instruction, DateTime.Now);
 
-        // 重要：为了绕过大多数 LLM API 不允许以 System 消息结尾或纯 System 消息序列的限制，
-        // 我们将主动指令作为一条“隐藏的用户消息”注入。
-        var triggerMsg = new ChatMessage
+        // 多数 LLM API 不允许消息序列以 System 结尾，因此计划指令作为一条“隐藏的用户消息”注入：
+        // 上下文里有它，UI 里看不见它。
+        Messages.Add(new ChatMessage
         {
             Role = "user",
-            Content = proactivePrompt,
-            IsHidden = true, // 在 UI 中不可见
+            Content = scheduledPrompt,
+            IsHidden = true,
             Timestamp = DateTime.Now
-        };
+        });
 
-        Messages.Add(triggerMsg);
-
-        // 确保上下文包含这条新消息
         UpdateConversationContext();
 
-        // 触发 AI 响应（addToContext 为 false 因为我们已经手动添加到 Messages 列表并更新了 Context）
+        // addToContext 为 false：上面已手动入列并刷新过上下文。
         return await GetAiResponseAsync(string.Empty, addToContext: false);
     }
 
@@ -2089,6 +2118,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
+            CreatedByCronTaskId = _createdByCronTaskId,
+            CronTaskRunId = _cronTaskRunId,
+            ScheduledFiredAt = _scheduledFiredAt,
             WorkspaceId = _currentContext.WorkspaceId,
             Messages = messages,
             ImageSession = imageSessionSnapshot,
@@ -2119,6 +2151,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forkedFromConversationId = null;
         _forkedFromHistoryId = null;
         _forkedAtMessageId = null;
+        // 重置等于开一段全新对话；沿用旧的 cron 溯源会让新内容被错误地归到那次触发名下。
+        _createdByCronTaskId = null;
+        _cronTaskRunId = null;
+        _scheduledFiredAt = null;
 
         _compressionHistory.Clear();
         _contextAnchors = new List<ContextAnchorRecord>();
@@ -2564,8 +2600,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     _ = RunAudioGenerationAsync(assistantMsg, epoch, forcePlay: false);
                 }
             }
-
-            await NotifySchedulerAvailabilityAsync();
         }
 
         return outcome;
@@ -2634,6 +2668,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
+            CreatedByCronTaskId = _createdByCronTaskId,
+            CronTaskRunId = _cronTaskRunId,
+            ScheduledFiredAt = _scheduledFiredAt,
             Messages = messages,
             WorkspaceId = workspaceId,
             Draft = InputText,
@@ -3043,7 +3080,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         finally
         {
             IsCompressing = false;
-            await NotifySchedulerAvailabilityAsync();
         }
     }
 
@@ -3324,23 +3360,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         foreach (var checkpoint in newest) _compressionHistory.Push(checkpoint);
     }
 
-    private async Task NotifySchedulerAvailabilityAsync()
-    {
-        if (_taskScheduler == null || IsSending || IsCompressing)
-        {
-            return;
-        }
-
-        try
-        {
-            await _taskScheduler.RunDueTasksAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Failed to notify task scheduler to re-check due tasks");
-        }
-    }
-
     [RelayCommand(CanExecute = nameof(CanUndoCompression))]
     private async Task UndoCompressionAsync() => await InternalUndoCompressionAsync();
 
@@ -3384,7 +3403,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             finally
             {
                 IsCompressing = false;
-                await NotifySchedulerAvailabilityAsync();
             }
         }
 
@@ -3507,6 +3525,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forkedFromConversationId = history.ForkedFromConversationId;
         _forkedFromHistoryId = history.ForkedFromHistoryId;
         _forkedAtMessageId = history.ForkedAtMessageId;
+        _createdByCronTaskId = history.CreatedByCronTaskId;
+        _cronTaskRunId = history.CronTaskRunId;
+        _scheduledFiredAt = history.ScheduledFiredAt;
 
         CurrentWorkspace = !string.IsNullOrEmpty(history.WorkspaceId)
             ? AvailableWorkspaces.FirstOrDefault(workspace => workspace.Id == history.WorkspaceId)
@@ -3702,6 +3723,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
+            CreatedByCronTaskId = _createdByCronTaskId,
+            CronTaskRunId = _cronTaskRunId,
+            ScheduledFiredAt = _scheduledFiredAt,
             Messages = Messages
                 .Where(ConversationPersistenceHelper.ShouldPersistMessage)
                 .Select(ConversationPersistenceHelper.CloneMessage)
@@ -3744,6 +3768,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forkedFromConversationId = snapshot.ForkedFromConversationId;
         _forkedFromHistoryId = snapshot.ForkedFromHistoryId;
         _forkedAtMessageId = snapshot.ForkedAtMessageId;
+        _createdByCronTaskId = snapshot.CreatedByCronTaskId;
+        _cronTaskRunId = snapshot.CronTaskRunId;
+        _scheduledFiredAt = snapshot.ScheduledFiredAt;
 
         _compressionHistory.Clear();
         _contextAnchors = new List<ContextAnchorRecord>(snapshot.Anchors ?? []);

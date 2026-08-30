@@ -27,7 +27,7 @@ public class FunctionRegistry : IFunctionRegistry
     public bool HasFunctions => _tools.Count > 0;
 
     public FunctionRegistry(
-        ProactiveMessagingFunctions proactiveFunctions,
+        CronTaskFunctions cronTaskFunctions,
         KnowledgeBaseFunctions knowledgeFunctions,
         ConfigurationFunctions configFunctions,
         FileSystemFunctions fileSystemFunctions,
@@ -286,57 +286,50 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "command" }
             });
 
-        // --- Tasks & Reminders ---
-        RegisterFunction("create_task", proactiveFunctions.ScheduleProactiveMessage,
-            "Schedules a reminder or follow-up after the user has requested one. Times are interpreted in the app's local timezone unless an explicit UTC offset is supplied. Recurrence must use one of the three structured shapes in the schema.",
+        // --- Scheduled (cron) Tasks ---
+        RegisterFunction("create_task", cronTaskFunctions.CreateTask,
+            "Creates a scheduled task after the user has asked for one. Scheduling is expressed ONLY as a standard five-field cron expression (minute hour day-of-month month day-of-week); "
+            + "natural-language times such as 'in 2 hours' or 'tomorrow morning' are NOT accepted — convert them to cron yourself, or ask the user when they want it to repeat. "
+            + "Six-field expressions with seconds are rejected because the scheduler checks once per whole minute. "
+            + "Every firing opens a BRAND-NEW conversation session and never interrupts the session the user is looking at, so write 'instruction' as a self-contained brief: the new session has no memory of this conversation.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    scheduledTime = new { type = "string", minLength = 1, maxLength = 200, description = "Trigger boundary. Prefer ISO 8601/RFC 3339 (with offset when relevant). Also accepts current-culture absolute dates, English 'in N minutes/hours/days/weeks' and 'tomorrow morning/afternoon/evening', plus Chinese 'N分钟/小时/天/周后', '明天/明早/明天下午/明晚/后天'." },
-                    intent = new { type = "string", minLength = 1, maxLength = 4000, description = "Self-contained reminder/follow-up intent." },
-                    recurrence = new
-                    {
-                        description = "Optional recurrence rule; omit it for a one-time task.",
-                        oneOf = new object[]
-                        {
-                            new
-                            {
-                                type = "object",
-                                properties = new { mode = new { type = "string", @enum = new[] { "none" } } },
-                                required = new[] { "mode" }
-                            },
-                            new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    mode = new { type = "string", @enum = new[] { "interval" } },
-                                    interval = new { type = "integer", minimum = 1, maximum = 10000 },
-                                    unit = new { type = "string", @enum = new[] { "minute", "hour", "day", "week" } }
-                                },
-                                required = new[] { "mode", "interval", "unit" }
-                            },
-                            new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    mode = new { type = "string", @enum = new[] { "weekly_days" } },
-                                    interval = new { type = "integer", minimum = 1, maximum = 520 },
-                                    daysOfWeek = new { type = "array", minItems = 1, maxItems = 7, items = new { type = "string", @enum = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" } } }
-                                },
-                                required = new[] { "mode", "interval", "daysOfWeek" }
-                            }
-                        }
-                    }
+                    name = new { type = "string", minLength = 1, maxLength = 120, description = "Short human-readable task name shown in the task list." },
+                    instruction = new { type = "string", minLength = 1, maxLength = 4000, description = "Self-contained instruction handed to the new session when the task fires. Assume no prior context." },
+                    cronExpression = new { type = "string", minLength = 1, maxLength = 200, description = "Standard five-field cron: minute hour day-of-month month day-of-week. Examples: \"0 9 * * 1-5\" (weekdays at 09:00), \"*/30 * * * *\" (every 30 minutes), \"0 8 1 * *\" (08:00 on the 1st of each month)." },
+                    timeZoneId = new { type = "string", maxLength = 100, description = "IANA id such as 'Asia/Shanghai' or a Windows id such as 'China Standard Time'. Defaults to the machine's local time zone." },
+                    runOnce = new { type = "boolean", description = "True for a one-time task: it runs at the first scheduled occurrence and then disables itself. It is never retried on failure.", @default = false },
+                    notifyOnCompletion = new { type = "boolean", description = "True to surface an unread marker when the run succeeds. Failures always surface regardless of this flag.", @default = true },
+                    workspaceId = new { type = "string", maxLength = 128, description = "Workspace the new session should belong to. Omit for the global group." }
                 },
-                required = new[] { "scheduledTime", "intent" }
+                required = new[] { "name", "instruction", "cronExpression" }
             });
 
-        RegisterFunction("cancel_task", proactiveFunctions.CancelScheduledMessage,
-            "Cancels a previously scheduled task using its unique ID.",
+        RegisterFunction("update_task", cronTaskFunctions.UpdateTask,
+            "Replaces every field of an existing scheduled task. Read the current values with list_tasks first and pass them back unchanged for anything you are not modifying — omitted optional fields fall back to their defaults, not to the previous values. Changing the schedule recomputes the next run from now.",
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    taskId = new { type = "string", minLength = 1, maxLength = 128, description = "Task ID returned by create_task or list_tasks." },
+                    name = new { type = "string", minLength = 1, maxLength = 120, description = "Short human-readable task name." },
+                    instruction = new { type = "string", minLength = 1, maxLength = 4000, description = "Self-contained instruction handed to the new session when the task fires." },
+                    cronExpression = new { type = "string", minLength = 1, maxLength = 200, description = "Standard five-field cron expression." },
+                    timeZoneId = new { type = "string", maxLength = 100, description = "IANA or Windows time zone id. Defaults to the machine's local time zone." },
+                    runOnce = new { type = "boolean", description = "True for a one-time task.", @default = false },
+                    notifyOnCompletion = new { type = "boolean", description = "True to surface an unread marker on success.", @default = true },
+                    workspaceId = new { type = "string", maxLength = 128, description = "Workspace for the new sessions. Omit for the global group." },
+                    isEnabled = new { type = "boolean", description = "False pauses the task without deleting it.", @default = true }
+                },
+                required = new[] { "taskId", "name", "instruction", "cronExpression" }
+            });
+
+        RegisterFunction("cancel_task", cronTaskFunctions.CancelTask,
+            "Deletes a scheduled task permanently using its unique ID. To pause a task instead, call update_task with isEnabled=false.",
             new
             {
                 type = "object",
@@ -344,9 +337,18 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "taskId" }
             });
 
-        RegisterFunction("list_tasks", proactiveFunctions.ListScheduledMessages,
-            "Lists all currently active scheduled tasks. Use this to review or manage pending reminders.",
+        RegisterFunction("list_tasks", cronTaskFunctions.ListTasks,
+            "Lists every scheduled task with its cron expression, plain-language description, time zone, next run, the next five upcoming runs, and recent run records (each carrying the conversation it created).",
             new { type = "object", properties = new { } });
+
+        RegisterFunction("run_task_now", cronTaskFunctions.RunTaskNow,
+            "Runs a scheduled task immediately in its own brand-new session. This is an extra run: it does NOT consume or move the task's next scheduled occurrence, and it does not disable a runOnce task.",
+            new
+            {
+                type = "object",
+                properties = new { taskId = new { type = "string", minLength = 1, maxLength = 128, description = "Task ID returned by create_task or list_tasks." } },
+                required = new[] { "taskId" }
+            });
 
         // --- Long-term Memory ---
         RegisterFunction("create_new_memory", knowledgeFunctions.CreateKnowledgeFile,

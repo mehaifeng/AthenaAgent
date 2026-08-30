@@ -73,8 +73,7 @@
       <BuiltInSkillsTarget>$(TargetDir)AthenaData/Skills</BuiltInSkillsTarget>
     </PropertyGroup>
     <ItemGroup>
-      <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*"
-                    Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
+      <BuiltInSkill Include="$(BuiltInSkillsSource)/**/*" Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
       <!-- Copy never deletes, so a Skill file removed from the source would linger in the output
            forever. Clear only the directories we own; user-imported Skills share this folder. -->
       <BuiltInSkillRoot Include="$([System.IO.Directory]::GetDirectories('$(BuiltInSkillsSource)'))" />
@@ -93,8 +92,7 @@
       <BuiltInSkillsPublishTarget>$(PublishDir)AthenaData/Skills</BuiltInSkillsPublishTarget>
     </PropertyGroup>
     <ItemGroup>
-      <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*"
-                              Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
+      <BuiltInSkillForPublish Include="$(BuiltInSkillsSource)/**/*" Exclude="$(BuiltInSkillsSource)/**/bin/**/*;$(BuiltInSkillsSource)/**/obj/**/*" />
       <BuiltInSkillRootForPublish Include="$([System.IO.Directory]::GetDirectories('$(BuiltInSkillsSource)'))" />
     </ItemGroup>
     <RemoveDir Directories="@(BuiltInSkillRootForPublish->'$(BuiltInSkillsPublishTarget)/%(Filename)%(Extension)')" />
@@ -112,6 +110,8 @@
     <PackageReference Include="AvaloniaTerminal" Version="1.0.0" />
 
     <PackageReference Include="CliWrap" Version="3.10.2" />
+
+    <PackageReference Include="Cronos" Version="0.13.0" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Porta.Pty" Version="1.0.7" />
 

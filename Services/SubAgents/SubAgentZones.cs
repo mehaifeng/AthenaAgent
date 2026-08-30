@@ -36,8 +36,10 @@ public static class SubAgentZones
         ["view_self_configuration"] = SubAgentZone.Workshop,
         ["modify_self_configuration"] = SubAgentZone.Workshop,
         ["create_task"] = SubAgentZone.Workshop,
+        ["update_task"] = SubAgentZone.Workshop,
         ["cancel_task"] = SubAgentZone.Workshop,
         ["list_tasks"] = SubAgentZone.Workshop,
+        ["run_task_now"] = SubAgentZone.Workshop,
     };
 
     public static SubAgentZone ForTool(string functionName)

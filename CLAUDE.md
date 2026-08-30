@@ -47,7 +47,7 @@ Companion docs at the root: `AGENTS.md`, `CONTEXT.md`, and `README.md` / `README
 - **Screenshot Capture**: In-app screenshot tool with option to hide or retain the window during capture.
 - **In-App Updates**: `GitHubUpdateService` checks GitHub releases; the separate `Athena.Updater` performs the swap. Windows releases ship both a zip (for in-app updates) and a bilingual Inno Setup installer. (macOS DMGs are unsigned/ad-hoc signed — see project memory on Gatekeeper/App Translocation.)
 - **Conversation Archive & Rewind/Fork**: Sessions are persisted and browsable; any turn can be rewound or forked into a branch session (fork markers live on the branch side, attachments are physically cloned, sessions support master/branch nesting). Archive logic is covered by `Athena.Archive.Tests`.
-- **Proactive Messaging**: Integrated task scheduler with recurrence support for reminders and follow-ups.
+- **Cron Scheduled Tasks**: Standard five-field cron (`minute hour day-of-month month day-of-week`) is the only scheduling semantics; six-field expressions with seconds are rejected because `CronExecutionWorker` checks once per whole minute. `Services/Cron/` splits the concerns deliberately: `CronScheduleService` evaluates expressions (Cronos never leaks out of it), `CronTaskStore`/`CronTaskService` own persistence and the run state machine, `CronExecutionWorker` pumps due runs (concurrency fixed at 2, FIFO), and `CronSessionLauncher` turns a claimed run into a session. **Every firing opens a brand-new session and never changes `SelectedConversation`** — that is the whole design, and `MainWindowViewModel.AttachScheduledSessionAsync` must never touch the selection. DI runs one way only (`worker → task service + launcher`); the launcher's host and the task page's navigator are attached by the main window at runtime, which is what keeps the graph acyclic. Missed occurrences are fixed-policy **Skip**: however many were crossed while the app was closed, exactly one `Skipped` record is written and the next run is computed from now — never a backlog of sessions at startup. `RunOnce` disables the task the moment it is *claimed* (not when it succeeds), so a failure is not retried. DST follows Cronos semantics, pinned by tests: a missing spring-forward time fires at the transition instant, an ambiguous fall-back time fires once for fixed-time expressions and twice for interval ones.
 - **Multi-lingual**: Full runtime localization support (English, Chinese) via `AssetLoader` stream parsing.
 
 ## 🛠️ Building and Running
@@ -84,7 +84,7 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
     - `KnowledgeBaseFunctions`: Semantic memory management (`create_new_memory`, `recall_from_memory`).
     - `WebSearchFunctions`: Real-time web information retrieval.
     - `CliFunctions`: Execution of safe terminal commands.
-    - `ProactiveMessagingFunctions`: Automated task and reminder management (`create_task`, `list_tasks`, `cancel_task`).
+    - `CronTaskFunctions`: cron scheduled tasks (`create_task`, `update_task`, `list_tasks`, `cancel_task`, `run_task_now`). Schedules are cron expressions only — the old natural-language time parsing ("in 2 hours", "明天下午") is gone, and every failure returns structured validation so the model can correct itself instead of retrying the same bad input.
     - `ConfigurationFunctions`: Dynamic application setting inspection/updates (`view_self_configuration`, `modify_self_configuration`).
     - `ImageGenerationFunctions`: Image generation (`generate_image`) with cross-turn continuity.
     - `BrowserTaskFunctions`: Vision-guided web automation (`run_browser_task`).
@@ -95,10 +95,11 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
   - `Browser/`: Playwright-based browser agent — session management, action registry, vision service, Set-of-Marks annotator, and task planner.
   - `SubAgents/`: Sub-agent orchestration — `SubAgentOrchestrator`, `SubAgentRunner`, type presets (`SubAgentTypes`), per-type tool gating (`SubAgentToolGates`), model resolution, and owl-village zone layout.
   - `Ooxml/`: `OoxmlPackageService` — shared base for in-process OOXML editing (bounded ZIP access, part/relationship resolution, schema-ordered element insertion, atomic output). Format services derive from it; `Spreadsheets/` is the first, with docx/pptx planned.
+  - `Cron/`: cron scheduling — `CronScheduleService` (expression evaluation, preview, description), `CronTaskStore` (atomic `cron_tasks.json` with per-record corruption isolation), `CronTaskService` (CRUD, claim/complete, Skip policy), `CronExecutionWorker` (minute-aligned checks, concurrency 2, FIFO), `CronSessionLauncher` (claimed run → new session).
   - `Parsers/`: Document parsing (`MinerUDocumentParserService`).
   - `Interfaces/`: Service abstractions for clean DI.
   - `Platform/`: OS-specific implementations (e.g., `DesktopPlatformPathService`).
-  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `TaskScheduler` / `RecurrenceService`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `FunctionRegistry` / `ToolArgumentSchemaValidator`, `DiffApplier` (powers `modify_system_file`).
+  - Notable services: `OpenAIChatService`, `OpenAIEmbeddingService`, `OpenAIImageGenerationService`, `VectorStoreService`, `KnowledgeBaseMaintenanceService`, `TokenService`, `CronScheduleService` / `CronTaskService` / `CronExecutionWorker`, `LibVlcAudioPlaybackService`, `ConversationArchiveService`, `AttachmentStoreService`, `GitHubUpdateService`, `ModelCatalogService`, `FunctionRegistry` / `ToolArgumentSchemaValidator`, `DiffApplier` (powers `modify_system_file`).
 - `Styles/`: Global styles and icon geometries.
   - **Icons come from CoreUI Icons Free, never from Semi.** `Styles/CoreIcons.axaml` is
     generated — edit `Scripts/coreui-icons.manifest` and run
@@ -116,7 +117,8 @@ Avalonia headless assertion suite — a console program with 60+ sequential case
   - `MainWindowViewModel`: Orchestrates the three-pane shell, workspace conversation tree, and feature windows.
   - `MainConversationViewModel`: Primary AI interaction interface; each conversation session owns one instance.
   - `KnowledgeBaseViewModel`: Local knowledge management, maintenance, and vector-index controls.
-  - `TasksViewModel`: Proactive task list and scheduling.
+  - `TasksViewModel`: cron task list projection, CRUD/pause/run-now, and run-record navigation. It holds no scheduling state and never reaches into `MainWindowViewModel`'s collections — jumping to a run's session goes through `IConversationNavigator`.
+  - `CronTaskEditorViewModel`: shared create/edit editor. Its "next 5 runs" preview is load-bearing: a cron expression is unreadable, and that list is the only way a user can confirm they wrote what they meant.
   - `LogsViewModel`: Runtime system diagnostics.
   - `AboutViewModel`: Version and project info.
   - `AppSettingsWindowViewModel`: App Settings window composition without leaking the main-window DataContext.

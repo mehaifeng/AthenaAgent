@@ -48,9 +48,14 @@ public interface IPlatformPathService
     string GetImageGenerationSessionDirectory();
 
     /// <summary>
-    /// 获取任务调度器文件路径
+    /// 获取 cron 定时任务存储文件路径
     /// </summary>
-    string GetTaskSchedulerFilePath();
+    string GetCronTasksFilePath();
+
+    /// <summary>
+    /// 获取已废弃的旧任务调度文件路径。仅用于启动时删除遗留文件，绝不读取其内容。
+    /// </summary>
+    string GetLegacyScheduledTasksFilePath();
 
     /// <summary>
     /// 获取向量数据库文件路径

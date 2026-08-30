@@ -103,6 +103,29 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public bool IsForked => !string.IsNullOrWhiteSpace(ForkedFromConversationId);
 
+    /// <summary>创建本会话的 cron 任务 ID；定时触发的会话在树中带时钟标记。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsScheduledRun))]
+    private string? _createdByCronTaskId;
+
+    [ObservableProperty]
+    private string? _cronTaskRunId;
+
+    public bool IsScheduledRun => !string.IsNullOrWhiteSpace(CreatedByCronTaskId);
+
+    /// <summary>
+    /// 定时运行失败。失败必须始终可见，与任务的 NotifyOnCompletion 无关——
+    /// 一个静默失败的定时任务等于没有定时任务。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(StatusGlyph))]
+    [NotifyPropertyChangedFor(nameof(HasStatusIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowScheduledFailureIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowInterruptedIndicator))]
+    [NotifyPropertyChangedFor(nameof(ShowCompletionIndicator))]
+    private bool _scheduledRunFailed;
+
     /// <summary>
     /// 分支深度：0=非分支，1=直接分支（父非分支），2=分支的分支，以此类推。
     /// 由会话树构建与分支创建时计算，驱动左侧树的分支图标与索引编号。
@@ -222,17 +245,22 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     public bool IsQueued => Chat.IsQueued;
 
     public bool HasStatusIndicator =>
-        IsWaitingForApproval || IsQueued || IsRunning || IsArchivePending || IsArchiveFailed || WasInterrupted || HasUnreadCompletion;
+        IsWaitingForApproval || IsQueued || IsRunning || IsArchivePending || IsArchiveFailed
+        || ScheduledRunFailed || WasInterrupted || HasUnreadCompletion;
 
     public bool ShowWaitingIndicator => IsWaitingForApproval;
     public bool ShowQueuedIndicator => !IsWaitingForApproval && IsQueued;
     public bool ShowRunningIndicator => !IsWaitingForApproval && !IsQueued && IsRunning;
     public bool ShowArchivePendingIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && IsArchivePending;
     public bool ShowArchiveFailedIndicator => !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && IsArchiveFailed;
+    public bool ShowScheduledFailureIndicator =>
+        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && ScheduledRunFailed;
     public bool ShowInterruptedIndicator =>
-        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && WasInterrupted;
+        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed
+        && !ScheduledRunFailed && WasInterrupted;
     public bool ShowCompletionIndicator =>
-        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed && !WasInterrupted && HasUnreadCompletion;
+        !IsWaitingForApproval && !IsQueued && !IsRunning && !IsArchivePending && !IsArchiveFailed
+        && !ScheduledRunFailed && !WasInterrupted && HasUnreadCompletion;
 
     public string StatusText => IsWaitingForApproval
         ? L("Session.Status.WaitingForApproval", "Awaiting approval")
@@ -248,17 +276,19 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
                         ? string.IsNullOrWhiteSpace(ArchiveStatusText)
                             ? L("Session.Status.ArchiveFailed", "Archive failed; retry pending")
                             : ArchiveStatusText
-                        : WasInterrupted
-                            ? L("Session.Status.Interrupted", "Interrupted")
-                            : HasUnreadCompletion
-                                ? L("Session.Status.Completed", "Completed")
-                                : string.Empty;
+                        : ScheduledRunFailed
+                            ? L("Session.Status.ScheduledRunFailed", "Scheduled run failed")
+                            : WasInterrupted
+                                ? L("Session.Status.Interrupted", "Interrupted")
+                                : HasUnreadCompletion
+                                    ? L("Session.Status.Completed", "Completed")
+                                    : string.Empty;
 
     public string StatusGlyph => IsWaitingForApproval
         ? "◆"
         : IsQueued || IsRunning || IsArchivePending
             ? "●"
-            : IsArchiveFailed || WasInterrupted
+            : IsArchiveFailed || ScheduledRunFailed || WasInterrupted
                 ? "!"
                 : HasUnreadCompletion
                     ? "✓"
@@ -295,9 +325,34 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     partial void OnIsSelectedChanged(bool value)
     {
-        if (value) HasUnreadCompletion = false;
+        // 选中即视为"已读"：未读点和失败标记都在这里清掉，这是不抢焦点的设计得以成立的前提——
+        // 不打扰的代价是用户只能靠这些标记发现某次定时运行发生过。
+        if (value)
+        {
+            HasUnreadCompletion = false;
+            ScheduledRunFailed = false;
+        }
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusGlyph));
+    }
+
+    /// <summary>
+    /// 写入一次 cron 运行的结果。成功是否提示由任务的 notifyOnCompletion 决定，
+    /// 失败/中断则无条件显示。
+    /// </summary>
+    public void ApplyScheduledRunOutcome(CronRunState state, bool notifyOnCompletion)
+    {
+        switch (state)
+        {
+            case CronRunState.Succeeded:
+                ScheduledRunFailed = false;
+                if (notifyOnCompletion && !IsSelected) HasUnreadCompletion = true;
+                break;
+            case CronRunState.Failed:
+            case CronRunState.Interrupted:
+                if (!IsSelected) ScheduledRunFailed = true;
+                break;
+        }
     }
 
     [RelayCommand]
@@ -582,7 +637,10 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             RuntimeStatus = snapshot.RuntimeStatus,
             ForkedFromConversationId = snapshot.ForkedFromConversationId,
             ForkedFromHistoryId = snapshot.ForkedFromHistoryId,
-            ForkedAtMessageId = snapshot.ForkedAtMessageId
+            ForkedAtMessageId = snapshot.ForkedAtMessageId,
+            CreatedByCronTaskId = snapshot.CreatedByCronTaskId,
+            CronTaskRunId = snapshot.CronTaskRunId,
+            ScheduledFiredAt = snapshot.ScheduledFiredAt
         };
     }
 

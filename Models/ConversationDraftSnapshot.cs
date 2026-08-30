@@ -46,6 +46,15 @@ public class ConversationDraftSnapshot
     public string? ForkedAtMessageId { get; set; }
 
     /// <summary>
+    /// cron 溯源元数据：定时触发产生的会话重启后仍需携带
+    /// </summary>
+    public string? CreatedByCronTaskId { get; set; }
+
+    public string? CronTaskRunId { get; set; }
+
+    public DateTimeOffset? ScheduledFiredAt { get; set; }
+
+    /// <summary>
     /// 当前消息列表
     /// </summary>
     public List<ChatMessage> Messages { get; set; } = new();

@@ -8,7 +8,6 @@ public sealed class ChatSessionFactory
     private readonly IChatService _chatService;
     private readonly IConfigService _configService;
     private readonly IPromptService _promptService;
-    private readonly ITaskScheduler _taskScheduler;
     private readonly IFunctionRegistry _functionRegistry;
     private readonly ILocalizationService _localizationService;
     private readonly IAttachmentStoreService _attachmentStoreService;
@@ -30,7 +29,6 @@ public sealed class ChatSessionFactory
         IChatService chatService,
         IConfigService configService,
         IPromptService promptService,
-        ITaskScheduler taskScheduler,
         IFunctionRegistry functionRegistry,
         ILocalizationService localizationService,
         IAttachmentStoreService attachmentStoreService,
@@ -51,7 +49,6 @@ public sealed class ChatSessionFactory
         _chatService = chatService;
         _configService = configService;
         _promptService = promptService;
-        _taskScheduler = taskScheduler;
         _functionRegistry = functionRegistry;
         _localizationService = localizationService;
         _attachmentStoreService = attachmentStoreService;
@@ -78,7 +75,6 @@ public sealed class ChatSessionFactory
             _configService,
             null,
             _promptService,
-            _taskScheduler,
             _functionRegistry,
             tokenService,
             _localizationService,

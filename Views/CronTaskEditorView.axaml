@@ -1,0 +1,173 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:loc="using:Athena.UI.Markup"
+             mc:Ignorable="d"
+             d:DesignWidth="380"
+             d:DesignHeight="760"
+             x:Class="Athena.UI.Views.CronTaskEditorView"
+             x:DataType="vm:CronTaskEditorViewModel">
+
+    <Design.DataContext>
+        <vm:CronTaskEditorViewModel/>
+    </Design.DataContext>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="14" Spacing="15">
+
+            <!-- 名称 -->
+            <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Loc Cron.Editor.Name}" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Name}"
+                         MaxLength="120"
+                         PlaceholderText="{loc:Loc Cron.Editor.NamePlaceholder}"/>
+            </StackPanel>
+
+            <!-- 指令 -->
+            <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Loc Cron.Editor.Instruction}" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Instruction}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         MinHeight="86"
+                         MaxHeight="140"
+                         PlaceholderText="{loc:Loc Cron.Editor.InstructionPlaceholder}"/>
+                <TextBlock Text="{loc:Loc Cron.Editor.InstructionHint}"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <Separator/>
+
+            <!-- 调度 -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="{loc:Loc Cron.Editor.Schedule}" FontWeight="SemiBold"/>
+                <ComboBox ItemsSource="{Binding Presets}"
+                          SelectedItem="{Binding SelectedPreset}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CronPresetOption">
+                            <TextBlock Text="{Binding DisplayName}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBox Text="{Binding CronExpression}"
+                         FontFamily="{DynamicResource MonospaceFontFamily}"
+                         MaxLength="200"
+                         PlaceholderText="{loc:Loc Cron.Editor.ExpressionPlaceholder}"/>
+                <TextBlock Text="{loc:Loc Cron.Editor.ExpressionHint}"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           Opacity="0.62"/>
+
+                <TextBlock Text="{Binding ScheduleDescription}"
+                           TextWrapping="Wrap"
+                           FontWeight="Medium"
+                           IsVisible="{Binding ScheduleDescription, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            </StackPanel>
+
+            <!-- 未来 5 次触发：cron 表达式不可读，这份预览是用户唯一的确认手段 -->
+            <Border BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="10"
+                    IsVisible="{Binding HasUpcomingRuns}">
+                <StackPanel Spacing="5">
+                    <TextBlock Text="{loc:Loc Cron.Editor.UpcomingRuns}"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Opacity="0.7"/>
+                    <ItemsControl ItemsSource="{Binding UpcomingRuns}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Text="{Binding}"
+                                           FontFamily="{DynamicResource MonospaceFontFamily}"
+                                           FontSize="{DynamicResource App.FontSize.Body}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- 校验错误 -->
+            <Border IsVisible="{Binding HasValidationError}"
+                    Background="#18C62828"
+                    BorderBrush="#88C62828"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="9">
+                <TextBlock Text="{Binding ValidationError}"
+                           TextWrapping="Wrap"
+                           Foreground="#C62828"
+                           FontSize="{DynamicResource App.FontSize.Body}"/>
+            </Border>
+
+            <Separator/>
+
+            <!-- 选项 -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="{loc:Loc Cron.Editor.Options}" FontWeight="SemiBold"/>
+
+                <CheckBox IsChecked="{Binding RunOnce}"
+                          Content="{loc:Loc Cron.Editor.RunOnce}"/>
+                <TextBlock Text="{loc:Loc Cron.Editor.RunOnceHint}"
+                           TextWrapping="Wrap"
+                           Margin="26,0,0,0"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           Opacity="0.62"/>
+
+                <CheckBox IsChecked="{Binding NotifyOnCompletion}"
+                          Content="{loc:Loc Cron.Editor.NotifyOnCompletion}"/>
+                <TextBlock Text="{loc:Loc Cron.Editor.NotifyOnCompletionHint}"
+                           TextWrapping="Wrap"
+                           Margin="26,0,0,0"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           Opacity="0.62"/>
+
+                <CheckBox IsChecked="{Binding IsEnabled}"
+                          Content="{loc:Loc Cron.Editor.Enabled}"/>
+            </StackPanel>
+
+            <!-- 工作区 -->
+            <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Loc Cron.Editor.Workspace}" FontWeight="SemiBold"/>
+                <ComboBox ItemsSource="{Binding AvailableWorkspaces}"
+                          SelectedItem="{Binding SelectedWorkspace}"
+                          PlaceholderText="{loc:Loc Cron.Editor.WorkspaceGlobal}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:WorkspaceProfile">
+                            <TextBlock Text="{Binding Name}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="{loc:Loc Cron.Editor.WorkspaceHint}"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource App.FontSize.Body}"
+                           Opacity="0.62"/>
+            </StackPanel>
+
+            <!-- 高级：时区 -->
+            <Expander IsExpanded="{Binding IsAdvancedExpanded}"
+                      Header="{loc:Loc Cron.Editor.Advanced}"
+                      HorizontalAlignment="Stretch">
+                <StackPanel Spacing="6" Margin="0,8,0,0">
+                    <TextBlock Text="{loc:Loc Cron.Editor.TimeZone}"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Opacity="0.7"/>
+                    <ComboBox ItemsSource="{Binding AvailableTimeZoneIds}"
+                              SelectedItem="{Binding TimeZoneId}"
+                              HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="{loc:Loc Cron.Editor.TimeZoneHint}"
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource App.FontSize.Body}"
+                               Opacity="0.62"/>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

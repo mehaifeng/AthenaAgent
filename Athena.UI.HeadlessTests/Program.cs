@@ -17,6 +17,7 @@ using Athena.UI;
 using Athena.UI.Controls;
 using Athena.UI.Models;
 using Athena.UI.Services;
+using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
@@ -152,7 +153,6 @@ using var shellConfigurationSession = new AppConfigurationSession(shellConfigSer
 var mainViewModel = new MainWindowViewModel(
     chatService: null,
     configService: null,
-    taskScheduler: null,
     contextCompressionService: null,
     promptService: null,
     logService: null,
@@ -616,7 +616,6 @@ var forkStore = new HeadlessConversationStore();
 var forkViewModel = new MainWindowViewModel(
     chatService: null,
     configService: null,
-    taskScheduler: null,
     contextCompressionService: null,
     promptService: null,
     logService: null,
@@ -675,7 +674,6 @@ var silentTitleStore = new HeadlessConversationStore();
 var silentTitleVm = new MainWindowViewModel(
     chatService: null,
     configService: null,
-    taskScheduler: null,
     contextCompressionService: null,
     promptService: null,
     logService: null,
@@ -757,7 +755,6 @@ var sameTitleGen = new StubTitleGenerator("AI标题:");
 var sameTitleVm = new MainWindowViewModel(
     chatService: null,
     configService: null,
-    taskScheduler: null,
     contextCompressionService: null,
     promptService: null,
     logService: null,
@@ -974,7 +971,6 @@ var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace]);
 var archiveTreeViewModel = new MainWindowViewModel(
     chatService: null,
     configService: null,
-    taskScheduler: null,
     contextCompressionService: null,
     promptService: null,
     logService: null,
@@ -1395,6 +1391,329 @@ using (previewHost)
         throw new InvalidOperationException("Office preview session release failed to remove the session.");
 }
 Console.WriteLine("[PASS] office preview assets embedded, routes served, and preview session/token URL built");
+
+// --- cron 定时任务：编辑器、任务页、会话宿主、导航、通知语义、图标与本地化 ---
+{
+    // 本段要反复切换选中项和往会话树里插会话，所以用一棵自己的树，而不是共享的展示用 fixture：
+    // MainWindowViewModel 的构造函数会异步重建会话树，共享 fixture 的分组会在任意一次
+    // dispatcher 泵送时被换掉，断言就会变成在测一棵早已不存在的树。
+    var cronMainViewModel = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        contextCompressionService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null,
+        conversationStore: new HeadlessConversationStore());
+    PumpUntil(() => !cronMainViewModel.IsConversationTreeLoading, failureMessage: "Cron host tree initialization did not complete.");
+    cronMainViewModel.ConversationGroups.Clear();
+
+    var cronGlobalGroup = new WorkspaceConversationGroupViewModel(null);
+    cronMainViewModel.ConversationGroups.Add(cronGlobalGroup);
+    var cronWorkspace = new WorkspaceProfile { Name = "Cron workspace", DirectoryPath = "/tmp/cron-workspace" };
+    var cronWorkspaceGroup = new WorkspaceConversationGroupViewModel(cronWorkspace);
+    cronMainViewModel.ConversationGroups.Add(cronWorkspaceGroup);
+
+    // 会话树在切走一个"空会话"时会主动清理它（OnSelectedConversationChanged），
+    // 因此这两个基准会话各带一条消息，才能在反复切换中存活。
+    ConversationSessionItemViewModel MakeCronSession(string title)
+    {
+        var chat = new MainConversationViewModel();
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "keep alive", Timestamp = DateTime.Now });
+        return new ConversationSessionItemViewModel(chat, cronWorkspace, null) { Title = title };
+    }
+
+    var cronBaselineSession = MakeCronSession("Cron baseline session");
+    var cronOtherSession = MakeCronSession("Cron other session");
+    cronWorkspaceGroup.Conversations.Add(cronBaselineSession);
+    cronWorkspaceGroup.Conversations.Add(cronOtherSession);
+    cronMainViewModel.SelectedConversation = cronBaselineSession;
+
+    var cronRoot = Path.Combine(Path.GetTempPath(), "athena-headless-cron", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(cronRoot);
+    var cronLocalization = new HeadlessLocalizationService();
+    var cronSchedule = new CronScheduleService(cronLocalization);
+    var cronClock = new HeadlessSystemClock(new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero));
+    using var cronStore = new CronTaskStore(new TemporaryPathService(cronRoot), Serilog.Log.Logger);
+    using var cronService = new CronTaskService(cronStore, cronSchedule, cronClock, Serilog.Log.Logger);
+
+    // 编辑器：实时校验 + 人话说明 + 未来 5 次预览，这三样必须同时成立。
+    using (var editor = new CronTaskEditorViewModel(cronSchedule, cronLocalization))
+    {
+        editor.Instruction = "summarise";
+        editor.TimeZoneId = "UTC";
+        editor.CronExpression = "0 9 * * 1-5";
+        if (editor.HasValidationError)
+            throw new InvalidOperationException($"A valid five-field expression must not report an error: {editor.ValidationError}");
+        if (editor.UpcomingRuns.Count != CronTaskEditorViewModel.PreviewCount)
+            throw new InvalidOperationException("The editor must preview exactly five upcoming runs - it is the only way a user can confirm a cron expression.");
+        if (!editor.HasUpcomingRuns || !editor.CanSave)
+            throw new InvalidOperationException("A valid draft with an instruction must be saveable.");
+        if (editor.ScheduleDescription != "Weekdays at 09:00")
+            throw new InvalidOperationException($"The editor must describe the schedule in plain language, got '{editor.ScheduleDescription}'.");
+
+        editor.CronExpression = "0 0 9 * * *";
+        if (!editor.HasValidationError || editor.CanSave)
+            throw new InvalidOperationException("A six-field expression must block saving in the editor, not just in the service.");
+        if (editor.UpcomingRuns.Count != 0)
+            throw new InvalidOperationException("An invalid expression must clear the preview instead of leaving stale times on screen.");
+
+        editor.CronExpression = "0 9 * * *";
+        editor.TimeZoneId = "Nowhere/Nothing";
+        if (!editor.HasValidationError)
+            throw new InvalidOperationException("An unknown time zone must be reported in the editor.");
+        editor.TimeZoneId = "UTC";
+
+        // 预设选中即填入表达式；反过来手输已知表达式也要回选到对应预设。
+        var weekdayPreset = editor.Presets.Single(preset => preset.Expression == "0 9 * * 1-5");
+        editor.SelectedPreset = weekdayPreset;
+        if (editor.CronExpression != "0 9 * * 1-5")
+            throw new InvalidOperationException("Choosing a preset must fill the expression box.");
+        editor.CronExpression = "*/30 * * * *";
+        if (editor.SelectedPreset?.Expression != "*/30 * * * *")
+            throw new InvalidOperationException("Typing a known expression must select the matching preset.");
+        editor.CronExpression = "7 3 * * *";
+        if (editor.SelectedPreset?.Expression != null)
+            throw new InvalidOperationException("An expression outside the presets must fall back to the custom entry.");
+
+        editor.ResetToNew();
+        if (editor.IsEditing || editor.Instruction.Length != 0)
+            throw new InvalidOperationException("Resetting the editor must clear both the edit target and the draft fields.");
+    }
+
+    // 任务页：投影、编辑装载、启停、立即运行、以及运行记录到会话的导航。
+    var cronNavigator = new ConversationNavigator(Serilog.Log.Logger);
+    var cronLauncher = new HeadlessCronSessionLauncher();
+    using var cronWorker = new CronExecutionWorker(cronService, cronLauncher, cronClock, Serilog.Log.Logger);
+    // 执行器必须真的跑起来：未启动时 RunNowAsync 会（正确地）拒绝领取，
+    // 那样这段测的就不是"立即运行"而是它的拒绝路径了。
+    PumpForCompletion(cronWorker.StartAsync(), "the cron execution worker start");
+    using (var tasksViewModel = new TasksViewModel(cronService, cronSchedule, cronWorker, cronNavigator, null, cronLocalization))
+    {
+        tasksViewModel.Editor.Name = "Morning digest";
+        tasksViewModel.Editor.Instruction = "summarise yesterday";
+        tasksViewModel.Editor.CronExpression = "0 9 * * 1-5";
+        tasksViewModel.Editor.TimeZoneId = "UTC";
+        PumpForCompletion(tasksViewModel.SaveTaskCommand.ExecuteAsync(null), "the cron task save");
+        PumpUntil(() => tasksViewModel.Tasks.Count == 1, 5000, "The created cron task never reached the task list projection.");
+
+        var item = tasksViewModel.Tasks[0];
+        if (item.Name != "Morning digest" || item.ScheduleDescription != "Weekdays at 09:00")
+            throw new InvalidOperationException("The task card must show the name and a plain-language schedule.");
+        if (item.TimeZoneId != "UTC" || item.NextRunText.Length == 0)
+            throw new InvalidOperationException("The task card must show its time zone and next run.");
+        if (tasksViewModel.Editor.IsEditing)
+            throw new InvalidOperationException("Saving a new task must leave the editor back in create mode.");
+
+        tasksViewModel.EditTaskCommand.Execute(item);
+        if (!tasksViewModel.Editor.IsEditing || tasksViewModel.Editor.CronExpression != "0 9 * * 1-5")
+            throw new InvalidOperationException("Editing a task must load it into the same editor.");
+        tasksViewModel.Editor.CronExpression = "0 18 * * 1-5";
+        PumpForCompletion(tasksViewModel.SaveTaskCommand.ExecuteAsync(null), "the cron task update");
+        PumpUntil(() => tasksViewModel.Tasks[0].CronExpression == "0 18 * * 1-5", 5000, "Editing a task did not persist through the service.");
+
+        PumpForCompletion(tasksViewModel.ToggleTaskEnabledCommand.ExecuteAsync(tasksViewModel.Tasks[0]), "the cron task pause");
+        PumpUntil(() => !tasksViewModel.Tasks[0].IsEnabled, 5000, "Pausing a task did not reach the projection.");
+        if (tasksViewModel.Tasks[0].NextRunText != "Paused")
+            throw new InvalidOperationException("A paused task must say so instead of showing a stale next run.");
+        PumpForCompletion(tasksViewModel.ToggleTaskEnabledCommand.ExecuteAsync(tasksViewModel.Tasks[0]), "the cron task resume");
+        PumpUntil(() => tasksViewModel.Tasks[0].IsEnabled, 5000, "Resuming a task did not reach the projection.");
+
+        var taskId = tasksViewModel.Tasks[0].Id;
+        var nextBeforeManualRun = cronService.GetTask(taskId)!.NextOccurrence;
+        PumpForCompletion(tasksViewModel.RunTaskNowCommand.ExecuteAsync(tasksViewModel.Tasks[0]), "the manual cron run");
+        PumpUntil(() => cronService.GetTask(taskId)!.RecentRuns.Count > 0, 5000, "Run-now did not create a run record.");
+        // 等执行器把这次手动运行跑完再断言，否则后面覆写会话 id 会和执行器的写回抢同一条记录。
+        PumpUntil(() => cronWorker.IsIdle, 20000, "The manual cron run never finished.");
+        if (cronService.GetTask(taskId)!.NextOccurrence != nextBeforeManualRun)
+            throw new InvalidOperationException("Run-now must not move the next scheduled occurrence.");
+        if (cronService.GetTask(taskId)!.RecentRuns[0].State != CronRunState.Succeeded)
+            throw new InvalidOperationException("A manual run that actually executed must be recorded as succeeded.");
+
+        // 运行记录 -> 会话跳转：走导航边界，任务页不碰主窗口的集合。
+        PumpForCompletion(
+            cronService.CompleteRunAsync(
+                taskId,
+                cronService.GetTask(taskId)!.RecentRuns[0].RunId,
+                CronRunState.Succeeded,
+                cronClock.UtcNow,
+                cronBaselineSession.ConversationId,
+                cronBaselineSession.HistoryId),
+            "the cron run completion write-back");
+        PumpUntil(() => tasksViewModel.Tasks[0].Runs.Count > 0, 5000, "The completed run never reached the run projection.");
+
+        var runItem = tasksViewModel.Tasks[0].Runs[0];
+        if (!runItem.CanOpenConversation || runItem.StateText != "Succeeded")
+            throw new InvalidOperationException("A completed run must be openable and labelled by state.");
+
+        cronMainViewModel.SelectedConversation = cronOtherSession;
+        cronNavigator.AttachTarget(cronMainViewModel);
+        tasksViewModel.OpenRunConversationCommand.Execute(runItem);
+        Dispatcher.UIThread.RunJobs();
+        if (!ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession))
+            throw new InvalidOperationException("Opening a run must navigate to the session that run created.");
+
+        // 记录里的会话已经不存在时，导航必须安全失败并给出提示，而不是抛异常。
+        var orphanRun = new CronTaskRunItemViewModel(
+            new CronTaskRunRecord { State = CronRunState.Succeeded, HistoryId = "no-such-history" },
+            "UTC", cronSchedule, cronLocalization);
+        tasksViewModel.OpenRunConversationCommand.Execute(orphanRun);
+        if (tasksViewModel.StatusMessage.Length == 0)
+            throw new InvalidOperationException("Navigating to a missing session must report it rather than fail silently.");
+        cronNavigator.DetachTarget(cronMainViewModel);
+    }
+
+    // 会话宿主：新会话进入任务的工作区、插入会话树、绝不改变当前选中项。
+    cronMainViewModel.SelectedConversation = cronBaselineSession;
+    var hostedTask = new CronTask
+    {
+        Id = "host-task",
+        Name = "Hosted digest",
+        Instruction = "collect the overnight build results",
+        CronExpression = "0 9 * * *",
+        TimeZoneId = "UTC",
+        WorkspaceId = cronWorkspace.Id,
+        NotifyOnCompletion = true
+    };
+    var hostedRun = new CronTaskRunRecord { ScheduledFor = cronClock.UtcNow };
+    var workspaceConversationCount = cronWorkspaceGroup.Conversations.Count;
+    var attachment = PumpForResult(cronMainViewModel.AttachScheduledSessionAsync(hostedTask, hostedRun), "the scheduled session attachment");
+    Dispatcher.UIThread.RunJobs();
+
+    if (cronWorkspaceGroup.Conversations.Count != workspaceConversationCount + 1)
+        throw new InvalidOperationException("A scheduled run must insert its session into the task's workspace group.");
+    if (!ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession))
+        throw new InvalidOperationException("A scheduled run must never steal the current selection - that is the whole point of opening a new session.");
+    if (attachment.WorkspaceFellBack)
+        throw new InvalidOperationException("A task bound to an existing workspace must not report a fallback.");
+
+    var scheduledSession = cronWorkspaceGroup.Conversations[0];
+    if (scheduledSession.CreatedByCronTaskId != hostedTask.Id || scheduledSession.CronTaskRunId != hostedRun.RunId)
+        throw new InvalidOperationException("The scheduled session must carry its cron provenance.");
+    if (!scheduledSession.IsScheduledRun)
+        throw new InvalidOperationException("A cron-created session must identify itself as a scheduled run.");
+    if (scheduledSession.Title != hostedTask.Name)
+        throw new InvalidOperationException("A scheduled session should start with the task name as its placeholder title.");
+    if (scheduledSession.ConversationId == cronBaselineSession.ConversationId
+        || scheduledSession.ConversationId != attachment.ConversationId)
+        throw new InvalidOperationException("Every scheduled run must own a fresh, independent conversation id.");
+    if (!scheduledSession.Chat.IsScheduledRun || scheduledSession.Chat.ScheduledFiredAt != hostedRun.ScheduledFor)
+        throw new InvalidOperationException("The chat view model must be marked as a scheduled run before its first snapshot.");
+
+    // 溯源必须进入持久化快照，否则重启后再也认不出它是定时产物。
+    var scheduledSnapshot = scheduledSession.Chat.CapturePersistenceSnapshot(
+        scheduledSession.HistoryId, scheduledSession.Title, DateTime.Now, false, cronWorkspace.Id);
+    if (scheduledSnapshot.CreatedByCronTaskId != hostedTask.Id
+        || scheduledSnapshot.CronTaskRunId != hostedRun.RunId
+        || scheduledSnapshot.ScheduledFiredAt != hostedRun.ScheduledFor)
+        throw new InvalidOperationException("Cron provenance must reach the persistence snapshot.");
+
+    var restoredHistory = new ConversationHistoryItem
+    {
+        Id = scheduledSession.HistoryId,
+        ConversationId = scheduledSnapshot.ConversationId,
+        CreatedByCronTaskId = scheduledSnapshot.CreatedByCronTaskId,
+        CronTaskRunId = scheduledSnapshot.CronTaskRunId,
+        ScheduledFiredAt = scheduledSnapshot.ScheduledFiredAt
+    };
+    if (!restoredHistory.IsScheduledRun)
+        throw new InvalidOperationException("A history item carrying a cron task id must report itself as a scheduled run.");
+    using (var restoredChat = new MainConversationViewModel())
+    {
+        restoredChat.RestorePersistedConversation(restoredHistory);
+        if (restoredChat.CreatedByCronTaskId != hostedTask.Id
+            || restoredChat.CronTaskRunId != hostedRun.RunId
+            || restoredChat.ScheduledFiredAt != hostedRun.ScheduledFor)
+            throw new InvalidOperationException("Cron provenance must survive a restore.");
+    }
+
+    // 通知语义：成功按开关，失败无条件可见。
+    scheduledSession.ApplyScheduledRunOutcome(CronRunState.Succeeded, notifyOnCompletion: true);
+    if (!scheduledSession.HasUnreadCompletion)
+        throw new InvalidOperationException("A successful run with notifications on must leave an unread marker.");
+    scheduledSession.HasUnreadCompletion = false;
+    scheduledSession.ApplyScheduledRunOutcome(CronRunState.Succeeded, notifyOnCompletion: false);
+    if (scheduledSession.HasUnreadCompletion)
+        throw new InvalidOperationException("A successful run with notifications off must stay silent.");
+    scheduledSession.ApplyScheduledRunOutcome(CronRunState.Failed, notifyOnCompletion: false);
+    if (!scheduledSession.ScheduledRunFailed || !scheduledSession.ShowScheduledFailureIndicator)
+        throw new InvalidOperationException("A failed run must always surface, regardless of the notification setting.");
+    if (scheduledSession.StatusText != "Scheduled run failed")
+        throw new InvalidOperationException("A failed scheduled run must say so in the session status.");
+    scheduledSession.IsSelected = true;
+    if (scheduledSession.ScheduledRunFailed)
+        throw new InvalidOperationException("Selecting the session must clear the failure marker - that is how the user acknowledges it.");
+    scheduledSession.IsSelected = false;
+
+    // 工作区已不存在时降级到全局分组，并如实上报。
+    var orphanTask = new CronTask
+    {
+        Id = "orphan-task",
+        Name = "Orphaned digest",
+        Instruction = "still needs to run",
+        CronExpression = "0 9 * * *",
+        TimeZoneId = "UTC",
+        WorkspaceId = "workspace-that-no-longer-exists"
+    };
+    var globalCount = cronGlobalGroup.Conversations.Count;
+    var orphanAttachment = PumpForResult(
+        cronMainViewModel.AttachScheduledSessionAsync(orphanTask, new CronTaskRunRecord()),
+        "the workspace-fallback session attachment");
+    Dispatcher.UIThread.RunJobs();
+    if (!orphanAttachment.WorkspaceFellBack)
+        throw new InvalidOperationException("A missing workspace must be reported as a fallback so the run record can say why.");
+    if (cronGlobalGroup.Conversations.Count != globalCount + 1)
+        throw new InvalidOperationException("A task whose workspace vanished must still get a session, in the global group.");
+    if (!ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession))
+        throw new InvalidOperationException("The workspace fallback path must also leave the selection alone.");
+
+    // 图标：cron 用到的语义键必须真的解析得出几何，否则图标会静默消失。
+    foreach (var iconKey in new[]
+             {
+                 "AthenaIconScheduledRun", "AthenaIconTaskRunNow", "AthenaIconTaskPause",
+                 "AthenaIconTaskResume", "AthenaIconRunSucceeded", "AthenaIconRunFailed", "AthenaIconRunSkipped"
+             })
+    {
+        if (Application.Current?.TryFindResource(iconKey, out var geometry) != true || geometry is not Avalonia.Media.Geometry)
+            throw new InvalidOperationException($"The cron icon alias {iconKey} did not resolve to a geometry.");
+    }
+
+    // 本地化：cron 文案在两种语言下都必须存在，缺一个就会静默回退成英文默认值。
+    foreach (var language in new[] { "en-US", "zh-CN" })
+    {
+        var localization = new LocalizationService();
+        localization.SwitchLanguage(language);
+        foreach (var key in new[]
+                 {
+                     "Cron.Tasks.Header", "Cron.Tasks.Empty", "Cron.Editor.Name", "Cron.Editor.Instruction",
+                     "Cron.Editor.Schedule", "Cron.Editor.UpcomingRuns", "Cron.Editor.RunOnce",
+                     "Cron.Editor.NotifyOnCompletion", "Cron.Editor.Workspace", "Cron.Editor.TimeZone",
+                     "Cron.Editor.Create", "Cron.Editor.Save", "Cron.Card.Schedule", "Cron.Card.NextRun",
+                     "Cron.Card.RecentRuns", "Cron.Action.RunNow", "Cron.Action.Pause", "Cron.Action.Resume",
+                     "Cron.Action.OpenSession", "Cron.RunState.Succeeded", "Cron.RunState.Skipped",
+                     "Cron.Trigger.Manual", "Cron.Store.CorruptedRecords", "Session.Status.ScheduledRunFailed",
+                     "Tool.Name.UpdateTask", "Tool.Name.RunTaskNow"
+                 })
+        {
+            if (localization.GetString(key, "__MISSING__") == "__MISSING__")
+                throw new InvalidOperationException($"Locale {language} is missing the cron string {key}.");
+        }
+    }
+
+    PumpForCompletion(cronWorker.StopAsync(), "the cron execution worker stop");
+    cronMainViewModel.Dispose();
+    Directory.Delete(cronRoot, recursive: true);
+    Console.WriteLine("[PASS] cron editor previews and validates, the task page projects and navigates, and scheduled sessions never steal the selection");
+}
 diffWindow.Close();
 workbench.Dispose();
 sessionCommandChecks.Dispose();
@@ -1432,6 +1751,20 @@ static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMess
         Dispatcher.UIThread.RunJobs();
         Thread.Sleep(10);
     }
+}
+
+// 等待一个 Task 完成，期间持续泵送 dispatcher。任何在 UI 线程上等待异步操作的地方都必须走这里，
+// 否则 await 续延排在 dispatcher 队列里、而队列被这次等待占住，就是一个死锁。
+static void PumpForCompletion(Task task, string what, int timeoutMs = 20000)
+{
+    PumpUntil(() => task.IsCompleted, timeoutMs, $"Timed out waiting for {what}.");
+    task.GetAwaiter().GetResult();
+}
+
+static T PumpForResult<T>(Task<T> task, string what, int timeoutMs = 20000)
+{
+    PumpUntil(() => task.IsCompleted, timeoutMs, $"Timed out waiting for {what}.");
+    return task.GetAwaiter().GetResult();
 }
 
 static void TestBrowserAgentHardening()
@@ -1806,7 +2139,6 @@ static void TestShellPanelBackgroundThemeResolution()
     var vm = new MainWindowViewModel(
         chatService: null,
         configService: null,
-        taskScheduler: null,
         contextCompressionService: null,
         promptService: null,
         logService: null,
@@ -1988,7 +2320,6 @@ static void TestColorSchemeShellPanelRepaint()
     var vm = new MainWindowViewModel(
         chatService: null,
         configService: null,
-        taskScheduler: null,
         contextCompressionService: null,
         promptService: null,
         logService: null,
@@ -2501,7 +2832,6 @@ static void TestLifecycle()
             null,
             null,
             null,
-            null,
             localizationService,
             archiveService: archiveService);
         var session = new ConversationSessionItemViewModel(conversation, null, null);
@@ -2745,7 +3075,6 @@ static void TestModelWarningLocalization()
         null,
         null,
         null,
-        null,
         localization,
         contextPolicyProvider: new HeadlessContextPolicyProvider(
             100_000,
@@ -2767,7 +3096,6 @@ static async Task TestContextInspectorBehaviorAsync()
     using var chat = new MainConversationViewModel(
         new HeadlessChatService(),
         new HeadlessConfigService(new AppConfig()),
-        null,
         null,
         null,
         null,
@@ -2815,7 +3143,7 @@ static async Task TestContextInspectorBehaviorAsync()
 
     var blockingRawService = new BlockingRawContextChatService();
     using (var rawChat = new MainConversationViewModel(
-               blockingRawService, null, null, null, null, null, null, new HeadlessLocalizationService()))
+               blockingRawService, null, null, null, null, null, new HeadlessLocalizationService()))
     {
         rawChat.IsContextInspectorOpen = true;
         var rawBuild = rawChat.RefreshRawContextCommand.ExecuteAsync(null);
@@ -2840,7 +3168,7 @@ static async Task TestContextInspectorBehaviorAsync()
     rawConfig.AiModels.MainConversation.Model = "raw-model";
     var rawOpenAi = new OpenAIChatService(rawConfig, new HeadlessPromptService());
     using (var millionRawChat = new MainConversationViewModel(
-               rawOpenAi, null, null, null, null, null, null, new HeadlessLocalizationService()))
+               rawOpenAi, null, null, null, null, null, new HeadlessLocalizationService()))
     {
         millionRawChat.RestorePersistedConversation(new ConversationHistoryItem
         {
@@ -3422,8 +3750,8 @@ static void TestMultiSessionPolicyPropagation()
     var provider = new HeadlessContextPolicyProvider(100_000);
     var firstTokens = new TokenService();
     var secondTokens = new TokenService();
-    using var first = new MainConversationViewModel(null, null, null, null, null, null, firstTokens, null, contextPolicyProvider: provider);
-    using var second = new MainConversationViewModel(null, null, null, null, null, null, secondTokens, null, contextPolicyProvider: provider);
+    using var first = new MainConversationViewModel(null, null, null, null, null, firstTokens, null, contextPolicyProvider: provider);
+    using var second = new MainConversationViewModel(null, null, null, null, null, secondTokens, null, contextPolicyProvider: provider);
     if (firstTokens.MaxTokens != 100_000 || secondTokens.MaxTokens != 100_000)
         throw new InvalidOperationException("Sessions did not resolve their initial effective policy.");
 
@@ -3440,7 +3768,7 @@ static void TestMultiSessionPolicyPropagation()
 static void TestTokenUsageVisualGate()
 {
     var tokens = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
-    using var viewModel = new MainConversationViewModel(null, null, null, null, null, null, tokens, null);
+    using var viewModel = new MainConversationViewModel(null, null, null, null, null, tokens, null);
     var view = new MainConversationView { DataContext = viewModel };
     var window = new Window { Content = view, Width = 900, Height = 600 };
     window.Show();
@@ -6784,7 +7112,8 @@ sealed class HeadlessPathService : IPlatformPathService
     public string GetPendingArchiveDirectory() => Path.Combine(Root, "pending");
     public string GetAttachmentDirectory() => Path.Combine(Root, "attachments");
     public string GetImageGenerationSessionDirectory() => Path.Combine(Root, "images");
-    public string GetTaskSchedulerFilePath() => Path.Combine(Root, "tasks.json");
+    public string GetCronTasksFilePath() => Path.Combine(Root, "cron_tasks.json");
+    public string GetLegacyScheduledTasksFilePath() => Path.Combine(Root, "scheduled_tasks.json");
     public string GetVectorStoreFilePath() => Path.Combine(Root, "vectors.db");
     public string GetWorkspacesDirectory() => Path.Combine(Root, "workspaces");
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(Root, workspaceId);
@@ -6800,7 +7129,8 @@ sealed class TemporaryPathService(string root) : IPlatformPathService
     public string GetPendingArchiveDirectory() => Path.Combine(root, "pending");
     public string GetAttachmentDirectory() => Path.Combine(root, "attachments");
     public string GetImageGenerationSessionDirectory() => Path.Combine(root, "images");
-    public string GetTaskSchedulerFilePath() => Path.Combine(root, "tasks.json");
+    public string GetCronTasksFilePath() => Path.Combine(root, "cron_tasks.json");
+    public string GetLegacyScheduledTasksFilePath() => Path.Combine(root, "scheduled_tasks.json");
     public string GetVectorStoreFilePath() => Path.Combine(root, "vectors.db");
     public string GetWorkspacesDirectory() => Path.Combine(root, "workspaces");
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(root, workspaceId);
@@ -8183,4 +8513,37 @@ sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWork
         Task.FromResult<string?>($"/tmp/{workspaceId}/workspace.md");
     public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget) => null;
     public Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+sealed class HeadlessSystemClock(DateTimeOffset start) : ISystemClock
+{
+    private long ticks = start.UtcTicks;
+
+    public DateTimeOffset UtcNow => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
+
+    public void Advance(TimeSpan delta) => Interlocked.Add(ref ticks, delta.Ticks);
+}
+
+/// <summary>无头套件里的假启动器：立即成功，不真的开会话。</summary>
+sealed class HeadlessCronSessionLauncher : ICronSessionLauncher
+{
+    public bool IsReady => true;
+
+    public int LaunchCount { get; private set; }
+
+    public void AttachHost(ICronSessionHost host) { }
+
+    public void DetachHost(ICronSessionHost host) { }
+
+    public Task<CronSessionLaunchResult> LaunchAsync(CronTask task, CronTaskRunRecord run, CancellationToken cancellationToken)
+    {
+        LaunchCount++;
+        return Task.FromResult(new CronSessionLaunchResult
+        {
+            Succeeded = true,
+            State = CronRunState.Succeeded,
+            ConversationId = "headless-conv-" + run.RunId,
+            HistoryId = "headless-hist-" + run.RunId
+        });
+    }
 }

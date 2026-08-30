@@ -73,6 +73,24 @@ public class ConversationHistoryItem
     /// </summary>
     public string? ForkedAtMessageId { get; set; }
 
+    /// <summary>
+    /// 创建本会话的 cron 任务 ID（仅定时触发的会话携带；null 表示普通会话）
+    /// </summary>
+    public string? CreatedByCronTaskId { get; set; }
+
+    /// <summary>
+    /// 对应的那一次 cron 运行 ID，用于从任务运行记录跳回这个会话
+    /// </summary>
+    public string? CronTaskRunId { get; set; }
+
+    /// <summary>
+    /// 该次 cron 触发的计划时刻（UTC）；手动运行为 null
+    /// </summary>
+    public DateTimeOffset? ScheduledFiredAt { get; set; }
+
+    [JsonIgnore]
+    public bool IsScheduledRun => !string.IsNullOrWhiteSpace(CreatedByCronTaskId);
+
     [JsonIgnore]
     public bool IsForked => !string.IsNullOrWhiteSpace(ForkedFromConversationId);
 

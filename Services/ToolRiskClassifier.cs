@@ -65,7 +65,8 @@ public static class ToolRiskClassifier
     {
         "write_system_file", "modify_system_file", "move_system_file", "copy_system_file",
         "create_new_memory", "modify_self_configuration",
-        "run_browser_task", "generate_image", "create_task", "cancel_task",
+        // cron 任务写的是"以后会自动跑什么"，包括 run_task_now 这个立刻开出一个自主会话的按钮。
+        "run_browser_task", "generate_image", "create_task", "update_task", "cancel_task", "run_task_now",
         "parse_office_document", "dispatch_subagents",
         // 单次 GET 落盘：能力上界被工具本身锁死（公网地址、非可执行、限额），但仍是写盘 + 出网。
         // 保持敏感档——外网内容进入工作区是真实的信任边界；但审批键按 host 聚合，

@@ -103,6 +103,15 @@
     <StaticResource x:Key="AthenaIconTaskList" ResourceKey="CoreIconList"/>
     <StaticResource x:Key="AthenaIconTaskCreate" ResourceKey="CoreIconAlarm"/>
     <StaticResource x:Key="AthenaIconSubAgents" ResourceKey="CoreIconGroup"/>
+
+    <!-- cron scheduling: the clock marks both the task itself and the sessions it opens -->
+    <StaticResource x:Key="AthenaIconScheduledRun" ResourceKey="CoreIconAlarm"/>
+    <StaticResource x:Key="AthenaIconTaskRunNow" ResourceKey="CoreIconMediaPlay"/>
+    <StaticResource x:Key="AthenaIconTaskPause" ResourceKey="CoreIconBan"/>
+    <StaticResource x:Key="AthenaIconTaskResume" ResourceKey="CoreIconReload"/>
+    <StaticResource x:Key="AthenaIconRunSucceeded" ResourceKey="CoreIconCheckCircle"/>
+    <StaticResource x:Key="AthenaIconRunFailed" ResourceKey="CoreIconWarning"/>
+    <StaticResource x:Key="AthenaIconRunSkipped" ResourceKey="CoreIconHistory"/>
     <StaticResource x:Key="AthenaIconDirectory" ResourceKey="CoreIconFolder"/>
 
     <!-- Workspace file-tree types (WorkspaceFileNodeViewModel.IconKey) -->

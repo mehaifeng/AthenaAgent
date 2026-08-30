@@ -57,8 +57,10 @@ public static class ToolCallDisplay
 
         // 计划任务与自我配置
         "create_task" => "AthenaIconTaskCreate",
+        "update_task" => "AthenaIconTaskCreate",
         "list_tasks" => "AthenaIconTaskList",
         "cancel_task" => "AthenaIconBlocked",
+        "run_task_now" => "AthenaIconScheduledRun",
         "view_self_configuration" => "AthenaIconSettings",
         "modify_self_configuration" => "AthenaIconSettings",
 
@@ -93,7 +95,8 @@ public static class ToolCallDisplay
             "execute_terminal_command" => Str(args, "command"),
             "generate_image" => Str(args, "prompt"),
             "run_browser_task" => Str(args, "instruction") ?? Str(args, "intent"),
-            "create_task" => Str(args, "instruction"),
+            "create_task" or "update_task" => Str(args, "name") ?? Str(args, "instruction"),
+            "run_task_now" or "cancel_task" => Str(args, "taskId"),
             "create_new_memory" => Str(args, "content") ?? Str(args, "intent"),
             _ => FirstStringValue(args)
         };
@@ -200,8 +203,10 @@ public static class ToolCallDisplay
             "generate_image" => ("Tool.Name.GenerateImage", "Generate image"),
             "run_browser_task" => ("Tool.Name.BrowserTask", "Browser task"),
             "create_task" => ("Tool.Name.CreateTask", "Create task"),
+            "update_task" => ("Tool.Name.UpdateTask", "Update task"),
             "list_tasks" => ("Tool.Name.ListTasks", "List tasks"),
             "cancel_task" => ("Tool.Name.CancelTask", "Cancel task"),
+            "run_task_now" => ("Tool.Name.RunTaskNow", "Run task now"),
             "view_self_configuration" => ("Tool.Name.ViewConfiguration", "View configuration"),
             "modify_self_configuration" => ("Tool.Name.ModifyConfiguration", "Modify configuration"),
             _ => (string.Empty, functionName)

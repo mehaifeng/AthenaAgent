@@ -247,14 +247,6 @@
     <system:String x:Key="Config.BtnUndoCompression">撤销压缩</system:String>
 
     <!-- Tasks Tab -->
-    <system:String x:Key="Tasks.Header">定时任务</system:String>
-    <system:String x:Key="Tasks.BtnNewRoutine">新建任务</system:String>
-    <system:String x:Key="Tasks.BtnPurgeAll">清空</system:String>
-    <system:String x:Key="Tasks.ActiveRoutines">活动中的任务：</system:String>
-    <system:String x:Key="Tasks.SystemIdle">暂无任务</system:String>
-    <system:String x:Key="Tasks.Trig">触发于：</system:String>
-    <system:String x:Key="Tasks.Rec">循环：</system:String>
-    <system:String x:Key="Tasks.Type">类型：</system:String>
 
     <!-- 共享时间与会话文案 -->
     <system:String x:Key="History.TimeAll">全部</system:String>
@@ -678,69 +670,8 @@
     <system:String x:Key="About.Update.Progress.Extracting">正在解压更新…</system:String>
     <system:String x:Key="About.Update.Progress.Launching">正在启动更新程序…</system:String>
 
-    <!-- Create Task Dialog -->
-    <system:String x:Key="TaskDialog.Title">新建定时任务</system:String>
-    <system:String x:Key="TaskDialog.TriggerTime">触发时间</system:String>
-    <system:String x:Key="TaskDialog.Date">日期：</system:String>
-    <system:String x:Key="TaskDialog.Time">时间：</system:String>
-    <system:String x:Key="TaskDialog.TaskIntent">任务内容</system:String>
-    <system:String x:Key="TaskDialog.IntentHint">任务触发时，Athena 应当做什么？</system:String>
-    <system:String x:Key="TaskDialog.IntentPlaceholder">例：提醒我查看项目进度</system:String>
-    <system:String x:Key="TaskDialog.Recurrence">循环规则</system:String>
-    <system:String x:Key="TaskDialog.Repeat">循环：</system:String>
-    <system:String x:Key="TaskDialog.RepeatPreset">预设：</system:String>
-    <system:String x:Key="TaskDialog.CustomMode">自定义方式：</system:String>
-    <system:String x:Key="TaskDialog.Custom.IntervalMode">按间隔循环</system:String>
-    <system:String x:Key="TaskDialog.Custom.WeeklyDaysMode">按星期循环</system:String>
-    <system:String x:Key="TaskDialog.IntervalEditor">按间隔循环</system:String>
-    <system:String x:Key="TaskDialog.WeeklyDaysEditor">按星期循环</system:String>
-    <system:String x:Key="TaskDialog.Every">每</system:String>
-    <system:String x:Key="TaskDialog.EveryNWeeks">每</system:String>
-    <system:String x:Key="TaskDialog.WeeksSuffix">周</system:String>
-    <system:String x:Key="TaskDialog.MinuteHint">高频前台任务会依次执行；单次任务等待触发，循环任务重叠时跳过本轮。</system:String>
-    <system:String x:Key="TaskDialog.Validation.FutureTrigger">首次触发时间必须在未来。</system:String>
-    <system:String x:Key="TaskDialog.FirstTriggerUnavailable">无法触发</system:String>
-    <system:String x:Key="TaskDialog.Preview">预览</system:String>
-    <system:String x:Key="TaskDialog.PreviewWill">Athena 将在</system:String>
-    <system:String x:Key="TaskDialog.PreviewTriggerAt">触发：</system:String>
-    <system:String x:Key="TaskDialog.PreviewRule">规则：</system:String>
-    <system:String x:Key="TaskDialog.FirstActualTrigger">首次实际触发：</system:String>
-    <system:String x:Key="TaskDialog.BtnCancel">取消</system:String>
-    <system:String x:Key="TaskDialog.BtnCreate">创建</system:String>
-    <system:String x:Key="TaskDialog.TaskType">任务类型</system:String>
-    <system:String x:Key="TaskDialog.Type">类型：</system:String>
-    <system:String x:Key="TaskDialog.ProactiveHint">到时间后主动在对话中发送消息，可用于提醒或发起交流。</system:String>
-    <system:String x:Key="TaskDialog.BackgroundHint">到时间后在后台静默执行（如整理记忆、清理日志），不会打扰你。</system:String>
 
-    <!-- Task Type -->
-    <system:String x:Key="TaskType.Proactive">前台（主动通知）</system:String>
-    <system:String x:Key="TaskType.Background">后台（静默执行）</system:String>
 
-    <!-- Recurrence -->
-    <system:String x:Key="Recurrence.None">不循环</system:String>
-    <system:String x:Key="Recurrence.Daily">每天</system:String>
-    <system:String x:Key="Recurrence.Weekly">每周</system:String>
-    <system:String x:Key="Recurrence.NoneDisplay">仅一次</system:String>
-    <system:String x:Key="Recurrence.DailyDisplay">每天</system:String>
-    <system:String x:Key="Recurrence.WeeklyDisplay">每周</system:String>
-    <system:String x:Key="Recurrence.WeeklyPresetDisplay">每周</system:String>
-    <system:String x:Key="Recurrence.WorkdaysDisplay">工作日</system:String>
-    <system:String x:Key="Recurrence.CustomDisplay">自定义</system:String>
-    <system:String x:Key="Recurrence.EveryMinute">每分钟</system:String>
-    <system:String x:Key="Recurrence.EveryHour">每小时</system:String>
-    <system:String x:Key="Recurrence.EveryDay">每天</system:String>
-    <system:String x:Key="Recurrence.EveryWeek">每周</system:String>
-    <system:String x:Key="Recurrence.EveryNUnits">每 {0} {1}</system:String>
-    <system:String x:Key="Recurrence.WeeklyDaysEveryWeek">每周的 {0}</system:String>
-    <system:String x:Key="Recurrence.WeeklyDaysEveryNWeeks">每 {0} 周的 {1}</system:String>
-    <system:String x:Key="Recurrence.Unit.Minute">分钟</system:String>
-    <system:String x:Key="Recurrence.Unit.Minutes">分钟</system:String>
-    <system:String x:Key="Recurrence.Unit.Hour">小时</system:String>
-    <system:String x:Key="Recurrence.Unit.Hours">小时</system:String>
-    <system:String x:Key="Recurrence.Unit.Day">天</system:String>
-    <system:String x:Key="Recurrence.Unit.Days">天</system:String>
-    <system:String x:Key="Recurrence.Unit.Week">周</system:String>
-    <system:String x:Key="Recurrence.Unit.Weeks">周</system:String>
     <system:String x:Key="Day.Monday">周一</system:String>
     <system:String x:Key="Day.Tuesday">周二</system:String>
     <system:String x:Key="Day.Wednesday">周三</system:String>
@@ -748,13 +679,6 @@
     <system:String x:Key="Day.Friday">周五</system:String>
     <system:String x:Key="Day.Saturday">周六</system:String>
     <system:String x:Key="Day.Sunday">周日</system:String>
-    <system:String x:Key="Day.MondayShort">周一</system:String>
-    <system:String x:Key="Day.TuesdayShort">周二</system:String>
-    <system:String x:Key="Day.WednesdayShort">周三</system:String>
-    <system:String x:Key="Day.ThursdayShort">周四</system:String>
-    <system:String x:Key="Day.FridayShort">周五</system:String>
-    <system:String x:Key="Day.SaturdayShort">周六</system:String>
-    <system:String x:Key="Day.SundayShort">周日</system:String>
 
     <!-- Status Messages -->
     <system:String x:Key="Status.Testing">正在测试连接…</system:String>
@@ -769,7 +693,6 @@
     <system:String x:Key="Dialog.NothingToUndoCompression">当前对话没有可撤销的压缩。</system:String>
     <system:String x:Key="Dialog.ConfirmResetConfig">确认要将所有设置恢复为默认值吗？此操作不可撤销。</system:String>
     <system:String x:Key="Dialog.ConfirmClearSummary">确认清空压缩摘要吗？已保存的消息仍会保留，只有摘要会被清除。</system:String>
-    <system:String x:Key="Dialog.ConfirmPurgeTasks">确认删除所有任务吗？</system:String>
     <system:String x:Key="Dialog.ConfirmDeleteFile">确认删除「{0}」吗？此操作不可撤销。</system:String>
 
     <!-- Web Search -->
@@ -921,9 +844,6 @@
     <system:String x:Key="Tool.Name.ViewConfiguration">查看配置</system:String>
     <system:String x:Key="Tool.Name.ModifyConfiguration">修改配置</system:String>
 
-    <!-- Additional Recurrence Options -->
-    <system:String x:Key="Recurrence.Every3Days">每 3 天</system:String>
-    <system:String x:Key="Recurrence.Every2Weeks">每 2 周</system:String>
 
     <!-- Conversation History -->
     <system:String x:Key="History.EmptyConversation">空对话</system:String>
@@ -1337,4 +1257,92 @@
 
     <!-- 托盘提示 -->
     <system:String x:Key="Tray.ToolTip">Athena</system:String>
+
+    <!-- Cron scheduled tasks -->
+    <system:String x:Key="Cron.Session.Tooltip">由定时任务创建</system:String>
+    <system:String x:Key="Cron.Tasks.Header">定时任务</system:String>
+    <system:String x:Key="Cron.Tasks.Empty">还没有定时任务。在左侧创建一个：每次触发都会开出一个全新会话，绝不会打断你正在看的对话。</system:String>
+    <system:String x:Key="Cron.Store.CorruptedRecords">有 {0} 条已存储的任务记录无法读取，已跳过。</system:String>
+    <system:String x:Key="Cron.Editor.Name">任务名称</system:String>
+    <system:String x:Key="Cron.Editor.NamePlaceholder">例如：每日项目晨报</system:String>
+    <system:String x:Key="Cron.Editor.Instruction">执行指令</system:String>
+    <system:String x:Key="Cron.Editor.InstructionPlaceholder">例如：总结昨天的提交，列出今天需要评审的内容</system:String>
+    <system:String x:Key="Cron.Editor.InstructionHint">每次运行都会开一个全新会话，它对当前这段对话毫无记忆，所以指令要写成自包含的。</system:String>
+    <system:String x:Key="Cron.Editor.Schedule">调度</system:String>
+    <system:String x:Key="Cron.Editor.ExpressionPlaceholder">分 时 日 月 周</system:String>
+    <system:String x:Key="Cron.Editor.ExpressionHint">标准五段 cron。不支持秒：触发引擎按整分钟检查。</system:String>
+    <system:String x:Key="Cron.Editor.UpcomingRuns">接下来 5 次触发</system:String>
+    <system:String x:Key="Cron.Editor.NoUpcoming">该表达式没有未来的触发时刻。</system:String>
+    <system:String x:Key="Cron.Editor.InstructionRequired">必须填写执行指令：它就是新会话要做的事。</system:String>
+    <system:String x:Key="Cron.Editor.Options">选项</system:String>
+    <system:String x:Key="Cron.Editor.RunOnce">只执行一次</system:String>
+    <system:String x:Key="Cron.Editor.RunOnceHint">在第一个计划触发时刻执行一次后自动停用；失败也不会重试。</system:String>
+    <system:String x:Key="Cron.Editor.NotifyOnCompletion">成功时提示</system:String>
+    <system:String x:Key="Cron.Editor.NotifyOnCompletionHint">失败始终会在会话列表中显示，与本开关无关。</system:String>
+    <system:String x:Key="Cron.Editor.Enabled">启用</system:String>
+    <system:String x:Key="Cron.Editor.Workspace">工作区</system:String>
+    <system:String x:Key="Cron.Editor.WorkspaceGlobal">全局（不绑定工作区）</system:String>
+    <system:String x:Key="Cron.Editor.WorkspaceHint">新会话落入该工作区；工作区已不存在时退回全局分组。</system:String>
+    <system:String x:Key="Cron.Editor.Advanced">高级</system:String>
+    <system:String x:Key="Cron.Editor.TimeZone">时区</system:String>
+    <system:String x:Key="Cron.Editor.TimeZoneHint">cron 表达式按该时区求值，运行时间也按该时区显示。</system:String>
+    <system:String x:Key="Cron.Editor.Save">保存修改</system:String>
+    <system:String x:Key="Cron.Editor.Create">创建任务</system:String>
+    <system:String x:Key="Cron.Editor.CancelEdit">取消编辑</system:String>
+    <system:String x:Key="Cron.Preset.DailyMorning">每天 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Weekdays">工作日 09:00</system:String>
+    <system:String x:Key="Cron.Preset.WeeklyMonday">每周一 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Hourly">每小时</system:String>
+    <system:String x:Key="Cron.Preset.Every30Minutes">每 30 分钟</system:String>
+    <system:String x:Key="Cron.Preset.MonthlyFirst">每月 1 日 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Custom">自定义表达式</system:String>
+    <system:String x:Key="Cron.Describe.Unset">未设置调度</system:String>
+    <system:String x:Key="Cron.Describe.EveryMinute">每分钟</system:String>
+    <system:String x:Key="Cron.Describe.EveryNMinutes">每 {0} 分钟</system:String>
+    <system:String x:Key="Cron.Describe.HourlyAtMinute">每小时第 {0} 分</system:String>
+    <system:String x:Key="Cron.Describe.EveryNHours">每 {0} 小时的第 {1} 分</system:String>
+    <system:String x:Key="Cron.Describe.Daily">每天 {0}</system:String>
+    <system:String x:Key="Cron.Describe.Weekdays">工作日 {0}</system:String>
+    <system:String x:Key="Cron.Describe.Weekends">周末 {0}</system:String>
+    <system:String x:Key="Cron.Describe.WeeklyOn">每{0} {1}</system:String>
+    <system:String x:Key="Cron.Describe.MonthlyOnDay">每月 {0} 日 {1}</system:String>
+    <system:String x:Key="Cron.Describe.DaySeparator">、</system:String>
+    <system:String x:Key="Cron.Card.Schedule">调度：</system:String>
+    <system:String x:Key="Cron.Card.NextRun">下次：</system:String>
+    <system:String x:Key="Cron.Card.RecentRuns">近期运行</system:String>
+    <system:String x:Key="Cron.NextRun.None">无后续触发</system:String>
+    <system:String x:Key="Cron.NextRun.Paused">已暂停</system:String>
+    <system:String x:Key="Cron.Status.Paused">已暂停</system:String>
+    <system:String x:Key="Cron.Status.Running">运行中</system:String>
+    <system:String x:Key="Cron.Status.Active">生效中</system:String>
+    <system:String x:Key="Cron.RunOnce.Badge">单次</system:String>
+    <system:String x:Key="Cron.Action.Pause">暂停</system:String>
+    <system:String x:Key="Cron.Action.Resume">恢复</system:String>
+    <system:String x:Key="Cron.Action.RunNow">立即运行</system:String>
+    <system:String x:Key="Cron.Action.Edit">编辑</system:String>
+    <system:String x:Key="Cron.Action.Delete">删除</system:String>
+    <system:String x:Key="Cron.Action.OpenSession">打开这次运行的会话</system:String>
+    <system:String x:Key="Cron.Confirm.Delete">确定删除定时任务“{0}”吗？它已经创建的会话会保留。</system:String>
+    <system:String x:Key="Cron.Toast.Created">任务已创建。</system:String>
+    <system:String x:Key="Cron.Toast.Updated">任务已更新。</system:String>
+    <system:String x:Key="Cron.Toast.Deleted">任务已删除。</system:String>
+    <system:String x:Key="Cron.Toast.Paused">任务已暂停。</system:String>
+    <system:String x:Key="Cron.Toast.Resumed">任务已恢复。</system:String>
+    <system:String x:Key="Cron.Toast.RunNowQueued">已排入一次手动运行；它会开出自己的新会话，且不改变下一次计划触发。</system:String>
+    <system:String x:Key="Cron.Toast.RunNowFailed">无法排入手动运行。</system:String>
+    <system:String x:Key="Cron.Toast.ConversationMissing">这次运行对应的会话已不存在。</system:String>
+    <system:String x:Key="Cron.RunState.Queued">排队中</system:String>
+    <system:String x:Key="Cron.RunState.Running">运行中</system:String>
+    <system:String x:Key="Cron.RunState.Succeeded">成功</system:String>
+    <system:String x:Key="Cron.RunState.Failed">失败</system:String>
+    <system:String x:Key="Cron.RunState.Interrupted">已中断</system:String>
+    <system:String x:Key="Cron.RunState.Skipped">已跳过</system:String>
+    <system:String x:Key="Cron.Trigger.Scheduled">计划触发</system:String>
+    <system:String x:Key="Cron.Trigger.Manual">手动运行</system:String>
+    <system:String x:Key="Cron.Run.NoTimestamp">—</system:String>
+    <system:String x:Key="Cron.Run.DurationMinutes">{0:0.0} 分钟</system:String>
+    <system:String x:Key="Cron.Run.DurationSeconds">{0:0.0} 秒</system:String>
+    <system:String x:Key="Session.Status.ScheduledRunFailed">定时运行失败</system:String>
+    <system:String x:Key="Tool.Name.UpdateTask">更新任务</system:String>
+    <system:String x:Key="Tool.Name.RunTaskNow">立即运行任务</system:String>
 </ResourceDictionary>

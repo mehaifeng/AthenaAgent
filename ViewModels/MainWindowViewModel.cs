@@ -1,5 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services;
+using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Views;
 using Avalonia.Controls;
@@ -22,7 +23,7 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class MainWindowViewModel : ViewModelBase, IDisposable
+public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSessionHost, IConversationNavigationTarget
 {
     private readonly ILogger _logger = Log.ForContext<MainWindowViewModel>();
     private readonly ILocalizationService? _localizationService;
@@ -34,7 +35,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IUserInteractionService? _userInteractionService;
     private readonly AppConfigurationSession? _configurationSession;
     private readonly IPlatformPathService? _platformPathService;
-    private readonly ITaskScheduler? _taskScheduler;
+    private readonly ICronSessionLauncher? _cronSessionLauncher;
+    private readonly IConversationNavigator? _conversationNavigator;
+    private readonly CronExecutionWorker? _cronExecutionWorker;
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly ILogService? _logService;
     private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
@@ -266,7 +269,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel(
         IChatService? chatService,
         IConfigService? configService,
-        ITaskScheduler? taskScheduler,
         IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
         ILogService? logService,
@@ -296,7 +298,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Func<AppSettingsWindowViewModel>? appSettingsFactory = null,
         TerminalPanelViewModel? terminalPanelViewModel = null,
         IContextPolicyProvider? contextPolicyProvider = null,
-        IConversationTitleGenerator? titleGenerator = null)
+        IConversationTitleGenerator? titleGenerator = null,
+        ICronTaskService? cronTaskService = null,
+        ICronScheduleService? cronScheduleService = null,
+        CronExecutionWorker? cronExecutionWorker = null,
+        ICronSessionLauncher? cronSessionLauncher = null,
+        IConversationNavigator? conversationNavigator = null)
     {
         _titleGenerator = titleGenerator;
         _localizationService = localizationService;
@@ -307,7 +314,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         _contextPolicyProvider = contextPolicyProvider;
         _userInteractionService = userInteractionService;
         _platformPathService = platformPathService;
-        _taskScheduler = taskScheduler;
+        _cronExecutionWorker = cronExecutionWorker;
+        _cronSessionLauncher = cronSessionLauncher;
+        _conversationNavigator = conversationNavigator;
         Workbench = workbench;
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
@@ -326,8 +335,14 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         // pipeline as sessions loaded into the tree. The factory is the composition root for that
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
-            ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, taskScheduler, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
-        _tasksViewModel = new TasksViewModel(taskScheduler, localizationService);
+            ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
+        _tasksViewModel = new TasksViewModel(
+            cronTaskService,
+            cronScheduleService ?? new Services.Cron.CronScheduleService(localizationService),
+            cronExecutionWorker,
+            conversationNavigator,
+            workspaceService,
+            localizationService);
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel(
             fileSystemService,
             platformPathService,
@@ -348,10 +363,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             archiveService.ArchiveFailed += OnArchiveFailed;
         }
 
-        if (taskScheduler != null)
-        {
-            taskScheduler.ProactiveMessageTriggered += OnProactiveMessageTriggered;
-        }
+        // cron 侧的挂载：worker → launcher → 本窗口。依赖方向单向，不成环。
+        _cronSessionLauncher?.AttachHost(this);
+        _conversationNavigator?.AttachTarget(this);
 
         _logger.Information("MainWindowViewModel initialized");
 
@@ -369,32 +383,114 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         Dispatcher.UIThread.Post(async () => await RefreshCompactLogsAsync());
     }
 
-    private void OnProactiveMessageTriggered(object? sender, ProactiveMessageEventArgs e)
+    /// <summary>
+    /// cron 触发的落地点：造一个全新会话、绑定工作区、插入会话树，然后交回给 launcher 去跑。
+    ///
+    /// 这里有一条绝不能破的规则：**不碰 <see cref="SelectedConversation"/>**。
+    /// 整套"每次触发开新 session"的设计就是为了不打断用户正在看的那个会话；
+    /// 一旦这里顺手选中新会话，用户的视图会被凭空抢走，等于回到了旧的插消息行为。
+    /// </summary>
+    public async Task<CronSessionAttachment> AttachScheduledSessionAsync(CronTask task, CronTaskRunRecord run)
     {
-        // 必须在 UI 线程处理，因为会更新当前会话与 ObservableCollection。
-        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        if (!Dispatcher.UIThread.CheckAccess())
         {
-            var executionResult = TaskExecutionResult.Failed("Proactive task did not start.");
-            _logger.Information("Proactive message trigger event received: {Intent}", e.Intent);
+            return await Dispatcher.UIThread.InvokeAsync(() => AttachScheduledSessionAsync(task, run));
+        }
 
-            try
-            {
-                App.StartTrayFlashing();
-                executionResult = await MainConversationViewModel.ProcessProactiveMessageAsync(e.Intent);
-            }
-            catch (Exception ex)
-            {
-                executionResult = TaskExecutionResult.Failed(ex.Message);
-                _logger.Error(ex, "Exception while processing proactive message: {TaskId}", e.TaskId);
-            }
-            finally
-            {
-                if (sender is ITaskScheduler taskScheduler)
-                {
-                    await taskScheduler.CompleteTaskExecutionAsync(e.TaskId, executionResult.Outcome, executionResult.Note);
-                }
-            }
-        });
+        var globalGroup = GlobalConversationGroup;
+        var targetGroup = string.IsNullOrWhiteSpace(task.WorkspaceId)
+            ? globalGroup
+            : ConversationGroups.FirstOrDefault(group => group.Workspace?.Id == task.WorkspaceId);
+
+        var workspaceFellBack = !string.IsNullOrWhiteSpace(task.WorkspaceId) && targetGroup == null;
+        targetGroup ??= globalGroup ?? ConversationGroups.FirstOrDefault();
+
+        if (targetGroup == null)
+        {
+            throw new InvalidOperationException("The conversation tree has no group to place the scheduled session in.");
+        }
+
+        if (workspaceFellBack)
+        {
+            _logger.Warning(
+                "Cron task {TaskId} targets workspace {WorkspaceId}, which no longer exists; placing its session in the global group",
+                task.Id, task.WorkspaceId);
+        }
+
+        var chat = CreateChatSession();
+        await chat.InitializeWorkspacesAsync();
+        chat.AssignWorkspace(targetGroup.Workspace);
+        // 溯源必须在第一次持久化之前打上，否则首版快照会以普通会话落库，重启后再也认不出它。
+        chat.MarkAsScheduledRun(task.Id, run.RunId, run.ScheduledFor);
+
+        var session = new ConversationSessionItemViewModel(chat, targetGroup.Workspace, _conversationStore, null, _localizationService)
+        {
+            CreatedByCronTaskId = task.Id,
+            CronTaskRunId = run.RunId
+        };
+        // 占位标题在静默标题生成完成之前也能让用户看出这是哪个任务跑出来的。
+        session.Title = task.Name;
+
+        WireSession(session);
+        targetGroup.Conversations.Insert(0, session);
+        RefreshPinnedConversations();
+        OnConversationSearchTextChanged(ConversationSearchText);
+
+        _logger.Information(
+            "Scheduled session created for cron task {TaskId} run {RunId}: conversation={ConversationId}, workspace={WorkspaceId}",
+            task.Id, run.RunId, session.ConversationId, targetGroup.Workspace?.Id);
+
+        return new CronSessionAttachment
+        {
+            ConversationId = session.ConversationId,
+            HistoryId = session.HistoryId,
+            WorkspaceFellBack = workspaceFellBack,
+            RunInstructionAsync = (instruction, cancellationToken) =>
+                Dispatcher.UIThread.InvokeAsync(() => chat.RunScheduledInstructionAsync(instruction, cancellationToken)),
+            ReportOutcome = (state, notifyOnCompletion) =>
+                RunOnUiThread(() => CompleteScheduledSession(session, state, notifyOnCompletion))
+        };
+    }
+
+    /// <summary>把一次定时运行的结果反映到会话树条目上，并触发静默标题生成。</summary>
+    private void CompleteScheduledSession(
+        ConversationSessionItemViewModel session,
+        CronRunState state,
+        bool notifyOnCompletion)
+    {
+        session.ApplyScheduledRunOutcome(state, notifyOnCompletion);
+
+        var isFailure = state is CronRunState.Failed or CronRunState.Interrupted;
+        // 失败始终提示；成功才看 notifyOnCompletion。托盘本身已会在窗口处于前台时跳过闪烁。
+        if (isFailure || notifyOnCompletion) App.StartTrayFlashing();
+
+        _ = GenerateSilentTitleAsync(session);
+        _ = session.PersistNowAsync();
+    }
+
+    /// <summary>
+    /// 任务页"打开这次运行的会话"的落点。任务页只认 <see cref="IConversationNavigator"/>，
+    /// 不直接翻本窗口的集合。
+    /// </summary>
+    public bool TryNavigateToConversation(string? historyId, string? conversationId)
+    {
+        if (string.IsNullOrWhiteSpace(historyId) && string.IsNullOrWhiteSpace(conversationId)) return false;
+
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            return Dispatcher.UIThread.InvokeAsync(() => TryNavigateToConversation(historyId, conversationId)).GetAwaiter().GetResult();
+        }
+
+        var session = ConversationGroups
+            .SelectMany(group => group.Conversations)
+            .FirstOrDefault(candidate =>
+                (!string.IsNullOrWhiteSpace(historyId) && string.Equals(candidate.HistoryId, historyId, StringComparison.Ordinal))
+                || (!string.IsNullOrWhiteSpace(conversationId) && string.Equals(candidate.ConversationId, conversationId, StringComparison.Ordinal)));
+
+        if (session == null) return false;
+
+        SelectedConversation = session;
+        return true;
     }
 
     private void OnArchiveStaged(object? sender, ConversationArchiveResultEventArgs e)
@@ -495,6 +591,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
             ForkedFromConversationId = history.ForkedFromConversationId,
             ForkedFromHistoryId = history.ForkedFromHistoryId,
+            CreatedByCronTaskId = history.CreatedByCronTaskId,
+            CronTaskRunId = history.CronTaskRunId,
             ForkDepth = ResolveForkDepth(history)
         };
         session.SetArchiveCompleted();
@@ -508,7 +606,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private MainConversationViewModel CreateChatSession() =>
         _chatSessionFactory?.Create()
         ?? new MainConversationViewModel(
-            null,
             null,
             null,
             null,
@@ -617,6 +714,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
                     ForkedFromConversationId = history.ForkedFromConversationId,
                     ForkedFromHistoryId = history.ForkedFromHistoryId,
+                    CreatedByCronTaskId = history.CreatedByCronTaskId,
+                    CronTaskRunId = history.CronTaskRunId,
                     ForkDepth = forkDepths.TryGetValue(history.Id, out var forkDepth) ? forkDepth : 0
                 };
                 WireSession(session);
@@ -645,6 +744,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         finally
         {
             IsConversationTreeLoading = false;
+            // cron 执行器必须等到这里才启动：工作区分组和会话树都已就位，
+            // 第一批到期任务才有地方落。提前启动只会让它们撞上一棵空树。
+            await StartCronExecutionAsync();
+        }
+    }
+
+    private async Task StartCronExecutionAsync()
+    {
+        if (_cronExecutionWorker == null) return;
+        try
+        {
+            await _cronExecutionWorker.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to start the cron execution worker");
         }
     }
 
@@ -1080,8 +1195,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             _conversationArchiveService.ArchiveCompleted -= OnArchiveCompleted;
             _conversationArchiveService.ArchiveFailed -= OnArchiveFailed;
         }
-        if (_taskScheduler != null)
-            _taskScheduler.ProactiveMessageTriggered -= OnProactiveMessageTriggered;
+        _cronSessionLauncher?.DetachHost(this);
+        _conversationNavigator?.DetachTarget(this);
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         TrackMainLayout(null);

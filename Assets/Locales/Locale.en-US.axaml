@@ -247,14 +247,6 @@
     <system:String x:Key="Config.BtnUndoCompression">Undo compression</system:String>
 
     <!-- Tasks Tab -->
-    <system:String x:Key="Tasks.Header">Scheduled tasks</system:String>
-    <system:String x:Key="Tasks.BtnNewRoutine">New task</system:String>
-    <system:String x:Key="Tasks.BtnPurgeAll">Clear all</system:String>
-    <system:String x:Key="Tasks.ActiveRoutines">Active tasks:</system:String>
-    <system:String x:Key="Tasks.SystemIdle">No tasks</system:String>
-    <system:String x:Key="Tasks.Trig">Triggers at:</system:String>
-    <system:String x:Key="Tasks.Rec">Repeat:</system:String>
-    <system:String x:Key="Tasks.Type">Type:</system:String>
 
     <!-- Shared time and conversation labels -->
     <system:String x:Key="History.TimeAll">All</system:String>
@@ -678,69 +670,8 @@
     <system:String x:Key="About.Update.Progress.Extracting">Extracting update…</system:String>
     <system:String x:Key="About.Update.Progress.Launching">Launching updater…</system:String>
 
-    <!-- Create Task Dialog -->
-    <system:String x:Key="TaskDialog.Title">New scheduled task</system:String>
-    <system:String x:Key="TaskDialog.TriggerTime">Trigger time</system:String>
-    <system:String x:Key="TaskDialog.Date">Date:</system:String>
-    <system:String x:Key="TaskDialog.Time">Time:</system:String>
-    <system:String x:Key="TaskDialog.TaskIntent">Task content</system:String>
-    <system:String x:Key="TaskDialog.IntentHint">When this task triggers, what should Athena do?</system:String>
-    <system:String x:Key="TaskDialog.IntentPlaceholder">e.g., Remind me to check the project status</system:String>
-    <system:String x:Key="TaskDialog.Recurrence">Repeat rule</system:String>
-    <system:String x:Key="TaskDialog.Repeat">Repeat:</system:String>
-    <system:String x:Key="TaskDialog.RepeatPreset">Preset:</system:String>
-    <system:String x:Key="TaskDialog.CustomMode">Custom mode:</system:String>
-    <system:String x:Key="TaskDialog.Custom.IntervalMode">By interval</system:String>
-    <system:String x:Key="TaskDialog.Custom.WeeklyDaysMode">By weekday</system:String>
-    <system:String x:Key="TaskDialog.IntervalEditor">Repeat by interval</system:String>
-    <system:String x:Key="TaskDialog.WeeklyDaysEditor">Repeat by weekday</system:String>
-    <system:String x:Key="TaskDialog.Every">Every</system:String>
-    <system:String x:Key="TaskDialog.EveryNWeeks">Every</system:String>
-    <system:String x:Key="TaskDialog.WeeksSuffix">week(s)</system:String>
-    <system:String x:Key="TaskDialog.MinuteHint">High-frequency foreground tasks run in order. One-time tasks wait; recurring tasks skip this round if they collide.</system:String>
-    <system:String x:Key="TaskDialog.Validation.FutureTrigger">The first trigger time must be in the future.</system:String>
-    <system:String x:Key="TaskDialog.FirstTriggerUnavailable">Unreachable</system:String>
-    <system:String x:Key="TaskDialog.Preview">Preview</system:String>
-    <system:String x:Key="TaskDialog.PreviewWill">Athena will</system:String>
-    <system:String x:Key="TaskDialog.PreviewTriggerAt">at</system:String>
-    <system:String x:Key="TaskDialog.PreviewRule">Rule:</system:String>
-    <system:String x:Key="TaskDialog.FirstActualTrigger">First trigger:</system:String>
-    <system:String x:Key="TaskDialog.BtnCancel">Cancel</system:String>
-    <system:String x:Key="TaskDialog.BtnCreate">Create</system:String>
-    <system:String x:Key="TaskDialog.TaskType">Task type</system:String>
-    <system:String x:Key="TaskDialog.Type">Type:</system:String>
-    <system:String x:Key="TaskDialog.ProactiveHint">Sends a proactive message in the chat at the trigger time, useful for reminders or kicking off a conversation.</system:String>
-    <system:String x:Key="TaskDialog.BackgroundHint">Runs silently in the background at the trigger time (e.g., memory maintenance, log cleanup) without disturbing you.</system:String>
 
-    <!-- Task Type -->
-    <system:String x:Key="TaskType.Proactive">Foreground (proactive)</system:String>
-    <system:String x:Key="TaskType.Background">Background (silent)</system:String>
 
-    <!-- Recurrence -->
-    <system:String x:Key="Recurrence.None">None</system:String>
-    <system:String x:Key="Recurrence.Daily">Daily</system:String>
-    <system:String x:Key="Recurrence.Weekly">Weekly</system:String>
-    <system:String x:Key="Recurrence.NoneDisplay">Once</system:String>
-    <system:String x:Key="Recurrence.DailyDisplay">Daily</system:String>
-    <system:String x:Key="Recurrence.WeeklyDisplay">Weekly</system:String>
-    <system:String x:Key="Recurrence.WeeklyPresetDisplay">Weekly</system:String>
-    <system:String x:Key="Recurrence.WorkdaysDisplay">Weekdays</system:String>
-    <system:String x:Key="Recurrence.CustomDisplay">Custom</system:String>
-    <system:String x:Key="Recurrence.EveryMinute">Every minute</system:String>
-    <system:String x:Key="Recurrence.EveryHour">Every hour</system:String>
-    <system:String x:Key="Recurrence.EveryDay">Every day</system:String>
-    <system:String x:Key="Recurrence.EveryWeek">Every week</system:String>
-    <system:String x:Key="Recurrence.EveryNUnits">Every {0} {1}</system:String>
-    <system:String x:Key="Recurrence.WeeklyDaysEveryWeek">Weekly on {0}</system:String>
-    <system:String x:Key="Recurrence.WeeklyDaysEveryNWeeks">Every {0} weeks on {1}</system:String>
-    <system:String x:Key="Recurrence.Unit.Minute">minute</system:String>
-    <system:String x:Key="Recurrence.Unit.Minutes">minutes</system:String>
-    <system:String x:Key="Recurrence.Unit.Hour">hour</system:String>
-    <system:String x:Key="Recurrence.Unit.Hours">hours</system:String>
-    <system:String x:Key="Recurrence.Unit.Day">day</system:String>
-    <system:String x:Key="Recurrence.Unit.Days">days</system:String>
-    <system:String x:Key="Recurrence.Unit.Week">week</system:String>
-    <system:String x:Key="Recurrence.Unit.Weeks">weeks</system:String>
     <system:String x:Key="Day.Monday">Monday</system:String>
     <system:String x:Key="Day.Tuesday">Tuesday</system:String>
     <system:String x:Key="Day.Wednesday">Wednesday</system:String>
@@ -748,13 +679,6 @@
     <system:String x:Key="Day.Friday">Friday</system:String>
     <system:String x:Key="Day.Saturday">Saturday</system:String>
     <system:String x:Key="Day.Sunday">Sunday</system:String>
-    <system:String x:Key="Day.MondayShort">Mon</system:String>
-    <system:String x:Key="Day.TuesdayShort">Tue</system:String>
-    <system:String x:Key="Day.WednesdayShort">Wed</system:String>
-    <system:String x:Key="Day.ThursdayShort">Thu</system:String>
-    <system:String x:Key="Day.FridayShort">Fri</system:String>
-    <system:String x:Key="Day.SaturdayShort">Sat</system:String>
-    <system:String x:Key="Day.SundayShort">Sun</system:String>
 
     <!-- Status Messages -->
     <system:String x:Key="Status.Testing">Testing connection…</system:String>
@@ -769,7 +693,6 @@
     <system:String x:Key="Dialog.NothingToUndoCompression">There is no compression to undo in the current chat.</system:String>
     <system:String x:Key="Dialog.ConfirmResetConfig">Reset all settings to default? This cannot be undone.</system:String>
     <system:String x:Key="Dialog.ConfirmClearSummary">Clear the compressed summary? Saved messages are kept; only the summary will be cleared.</system:String>
-    <system:String x:Key="Dialog.ConfirmPurgeTasks">Delete all tasks?</system:String>
     <system:String x:Key="Dialog.ConfirmDeleteFile">Delete "{0}"? This cannot be undone.</system:String>
 
     <!-- Web Search -->
@@ -921,9 +844,6 @@
     <system:String x:Key="Tool.Name.ViewConfiguration">View configuration</system:String>
     <system:String x:Key="Tool.Name.ModifyConfiguration">Modify configuration</system:String>
 
-    <!-- Additional Recurrence Options -->
-    <system:String x:Key="Recurrence.Every3Days">Every 3 days</system:String>
-    <system:String x:Key="Recurrence.Every2Weeks">Every 2 weeks</system:String>
 
     <!-- Conversation History -->
     <system:String x:Key="History.EmptyConversation">Empty chat</system:String>
@@ -1337,4 +1257,92 @@
 
     <!-- Tray tooltip -->
     <system:String x:Key="Tray.ToolTip">Athena</system:String>
+
+    <!-- Cron scheduled tasks -->
+    <system:String x:Key="Cron.Session.Tooltip">Created by a scheduled task</system:String>
+    <system:String x:Key="Cron.Tasks.Header">Scheduled tasks</system:String>
+    <system:String x:Key="Cron.Tasks.Empty">No scheduled tasks yet. Create one on the left: every time it fires, it opens its own new session and never interrupts the chat you are looking at.</system:String>
+    <system:String x:Key="Cron.Store.CorruptedRecords">{0} stored task record(s) could not be read and were skipped.</system:String>
+    <system:String x:Key="Cron.Editor.Name">Task name</system:String>
+    <system:String x:Key="Cron.Editor.NamePlaceholder">e.g., Morning project digest</system:String>
+    <system:String x:Key="Cron.Editor.Instruction">Instruction</system:String>
+    <system:String x:Key="Cron.Editor.InstructionPlaceholder">e.g., Summarise yesterday's commits and list what needs review today</system:String>
+    <system:String x:Key="Cron.Editor.InstructionHint">Each run starts a brand-new session with no memory of this chat, so write a self-contained brief.</system:String>
+    <system:String x:Key="Cron.Editor.Schedule">Schedule</system:String>
+    <system:String x:Key="Cron.Editor.ExpressionPlaceholder">minute hour day-of-month month day-of-week</system:String>
+    <system:String x:Key="Cron.Editor.ExpressionHint">Standard five-field cron. Seconds are not supported: the scheduler checks once per whole minute.</system:String>
+    <system:String x:Key="Cron.Editor.UpcomingRuns">Next 5 runs</system:String>
+    <system:String x:Key="Cron.Editor.NoUpcoming">This expression has no future occurrence.</system:String>
+    <system:String x:Key="Cron.Editor.InstructionRequired">An instruction is required: it is what the new session is asked to do.</system:String>
+    <system:String x:Key="Cron.Editor.Options">Options</system:String>
+    <system:String x:Key="Cron.Editor.RunOnce">Run only once</system:String>
+    <system:String x:Key="Cron.Editor.RunOnceHint">Runs at the first scheduled occurrence, then disables itself. It is never retried on failure.</system:String>
+    <system:String x:Key="Cron.Editor.NotifyOnCompletion">Notify when it succeeds</system:String>
+    <system:String x:Key="Cron.Editor.NotifyOnCompletionHint">Failures always show up in the session list regardless of this setting.</system:String>
+    <system:String x:Key="Cron.Editor.Enabled">Enabled</system:String>
+    <system:String x:Key="Cron.Editor.Workspace">Workspace</system:String>
+    <system:String x:Key="Cron.Editor.WorkspaceGlobal">Global (no workspace)</system:String>
+    <system:String x:Key="Cron.Editor.WorkspaceHint">New sessions land in this workspace. If it no longer exists, they fall back to the global group.</system:String>
+    <system:String x:Key="Cron.Editor.Advanced">Advanced</system:String>
+    <system:String x:Key="Cron.Editor.TimeZone">Time zone</system:String>
+    <system:String x:Key="Cron.Editor.TimeZoneHint">The cron expression is evaluated in this zone, and run times are displayed in it.</system:String>
+    <system:String x:Key="Cron.Editor.Save">Save changes</system:String>
+    <system:String x:Key="Cron.Editor.Create">Create task</system:String>
+    <system:String x:Key="Cron.Editor.CancelEdit">Cancel editing</system:String>
+    <system:String x:Key="Cron.Preset.DailyMorning">Every day at 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Weekdays">Weekdays at 09:00</system:String>
+    <system:String x:Key="Cron.Preset.WeeklyMonday">Every Monday at 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Hourly">Every hour</system:String>
+    <system:String x:Key="Cron.Preset.Every30Minutes">Every 30 minutes</system:String>
+    <system:String x:Key="Cron.Preset.MonthlyFirst">1st of the month at 09:00</system:String>
+    <system:String x:Key="Cron.Preset.Custom">Custom expression</system:String>
+    <system:String x:Key="Cron.Describe.Unset">Not scheduled</system:String>
+    <system:String x:Key="Cron.Describe.EveryMinute">Every minute</system:String>
+    <system:String x:Key="Cron.Describe.EveryNMinutes">Every {0} minutes</system:String>
+    <system:String x:Key="Cron.Describe.HourlyAtMinute">Hourly at minute {0}</system:String>
+    <system:String x:Key="Cron.Describe.EveryNHours">Every {0} hours at minute {1}</system:String>
+    <system:String x:Key="Cron.Describe.Daily">Every day at {0}</system:String>
+    <system:String x:Key="Cron.Describe.Weekdays">Weekdays at {0}</system:String>
+    <system:String x:Key="Cron.Describe.Weekends">Weekends at {0}</system:String>
+    <system:String x:Key="Cron.Describe.WeeklyOn">Every {0} at {1}</system:String>
+    <system:String x:Key="Cron.Describe.MonthlyOnDay">Day {0} of every month at {1}</system:String>
+    <system:String x:Key="Cron.Describe.DaySeparator">, </system:String>
+    <system:String x:Key="Cron.Card.Schedule">Schedule:</system:String>
+    <system:String x:Key="Cron.Card.NextRun">Next run:</system:String>
+    <system:String x:Key="Cron.Card.RecentRuns">Recent runs</system:String>
+    <system:String x:Key="Cron.NextRun.None">No upcoming run</system:String>
+    <system:String x:Key="Cron.NextRun.Paused">Paused</system:String>
+    <system:String x:Key="Cron.Status.Paused">Paused</system:String>
+    <system:String x:Key="Cron.Status.Running">Running</system:String>
+    <system:String x:Key="Cron.Status.Active">Active</system:String>
+    <system:String x:Key="Cron.RunOnce.Badge">Once</system:String>
+    <system:String x:Key="Cron.Action.Pause">Pause</system:String>
+    <system:String x:Key="Cron.Action.Resume">Resume</system:String>
+    <system:String x:Key="Cron.Action.RunNow">Run now</system:String>
+    <system:String x:Key="Cron.Action.Edit">Edit</system:String>
+    <system:String x:Key="Cron.Action.Delete">Delete</system:String>
+    <system:String x:Key="Cron.Action.OpenSession">Open this run's session</system:String>
+    <system:String x:Key="Cron.Confirm.Delete">Delete the scheduled task “{0}”? Sessions it already created are kept.</system:String>
+    <system:String x:Key="Cron.Toast.Created">Task created.</system:String>
+    <system:String x:Key="Cron.Toast.Updated">Task updated.</system:String>
+    <system:String x:Key="Cron.Toast.Deleted">Task deleted.</system:String>
+    <system:String x:Key="Cron.Toast.Paused">Task paused.</system:String>
+    <system:String x:Key="Cron.Toast.Resumed">Task resumed.</system:String>
+    <system:String x:Key="Cron.Toast.RunNowQueued">A manual run was queued; it opens its own new session and does not change the next scheduled run.</system:String>
+    <system:String x:Key="Cron.Toast.RunNowFailed">Could not queue a manual run.</system:String>
+    <system:String x:Key="Cron.Toast.ConversationMissing">That run's session is no longer available.</system:String>
+    <system:String x:Key="Cron.RunState.Queued">Queued</system:String>
+    <system:String x:Key="Cron.RunState.Running">Running</system:String>
+    <system:String x:Key="Cron.RunState.Succeeded">Succeeded</system:String>
+    <system:String x:Key="Cron.RunState.Failed">Failed</system:String>
+    <system:String x:Key="Cron.RunState.Interrupted">Interrupted</system:String>
+    <system:String x:Key="Cron.RunState.Skipped">Skipped</system:String>
+    <system:String x:Key="Cron.Trigger.Scheduled">Scheduled</system:String>
+    <system:String x:Key="Cron.Trigger.Manual">Manual</system:String>
+    <system:String x:Key="Cron.Run.NoTimestamp">—</system:String>
+    <system:String x:Key="Cron.Run.DurationMinutes">{0:0.0} min</system:String>
+    <system:String x:Key="Cron.Run.DurationSeconds">{0:0.0} s</system:String>
+    <system:String x:Key="Session.Status.ScheduledRunFailed">Scheduled run failed</system:String>
+    <system:String x:Key="Tool.Name.UpdateTask">Update task</system:String>
+    <system:String x:Key="Tool.Name.RunTaskNow">Run task now</system:String>
 </ResourceDictionary>

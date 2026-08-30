@@ -417,8 +417,10 @@ public partial class SubAgentViewModel : ObservableObject, IDisposable
         if (CurrentAction.StartsWith("view_self_configuration", StringComparison.Ordinal)
             || CurrentAction.StartsWith("modify_self_configuration", StringComparison.Ordinal)) return L("SubAgent.Action.Config", "Processing configuration");
         if (CurrentAction.StartsWith("create_task", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("update_task", StringComparison.Ordinal)
             || CurrentAction.StartsWith("list_tasks", StringComparison.Ordinal)
-            || CurrentAction.StartsWith("cancel_task", StringComparison.Ordinal)) return L("SubAgent.Action.Task", "Processing task");
+            || CurrentAction.StartsWith("cancel_task", StringComparison.Ordinal)
+            || CurrentAction.StartsWith("run_task_now", StringComparison.Ordinal)) return L("SubAgent.Action.Task", "Processing task");
         if (CurrentAction.StartsWith("get_file_info", StringComparison.Ordinal)
             || CurrentAction.StartsWith("search_in_file", StringComparison.Ordinal)
             || CurrentAction.StartsWith("get_document_outline", StringComparison.Ordinal)

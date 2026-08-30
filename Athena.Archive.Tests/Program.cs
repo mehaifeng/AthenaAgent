@@ -16,6 +16,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services;
+using Athena.UI.Services.Cron;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
@@ -95,11 +96,21 @@ var tests = new (string Name, Func<Task> Run)[]
     ("image generation rejects missing continuity image files", TestMissingReferenceImageAsync),
     ("fallback summary still saves without secondary model", TestFallbackSummaryAsync),
     ("archive queue stages locally and retries on restart", TestArchiveQueueReplayAsync),
-    ("recurrence migration and validation works", TestRecurrenceMigrationAndValidationAsync),
-    ("first trigger handles weekday boundaries", TestFirstTriggerCalculationAsync),
-    ("scheduler serializes foreground work and skips recurring collisions", TestSchedulerForegroundSerialPolicyAsync),
-    ("scheduler advances long-running recurring task to next future slot", TestSchedulerLongRunningRecurringAsync),
-    ("create_task returns structured success and validation failures", TestCreateTaskStructuredResponsesAsync),
+    ("cron validation accepts five fields and rejects seconds, macros and bad zones", TestCronExpressionValidationAsync),
+    ("cron preview returns five occurrences and descriptions read as plain language", TestCronPreviewAndDescriptionAsync),
+    ("cron DST semantics are pinned for spring-forward and fall-back", TestCronDaylightSavingSemanticsAsync),
+    ("cron task CRUD validates, clones and recomputes the next run", TestCronTaskCrudAsync),
+    ("cron tasks and run records survive a restart", TestCronPersistenceRoundTripAsync),
+    ("cron run records are capped at twenty", TestCronRunRecordCapAsync),
+    ("corrupted cron records are isolated without blocking startup", TestCronCorruptedRecordIsolationAsync),
+    ("the obsolete recurrence store is deleted and never migrated", TestCronLegacyStoreDeletedAsync),
+    ("runOnce disables on claim and missed occurrences are skipped exactly once", TestCronClaimRunOnceAndSkipAsync),
+    ("a manual cron run never moves the next scheduled occurrence", TestCronManualRunDoesNotMoveScheduleAsync),
+    ("orphaned cron runs converge to interrupted on restart", TestCronOrphanedRunsBecomeInterruptedAsync),
+    ("cron worker caps concurrency at two, runs FIFO and never records a phantom success", TestCronWorkerConcurrencyAndFailurePropagationAsync),
+    ("cron checks align to whole minutes", TestCronWorkerMinuteAlignmentAsync),
+    ("cron tools return structured validation and honour manual-run semantics", TestCronTaskFunctionsAsync),
+    ("cron provenance survives the archive snapshot, history item and SQLite payload", TestCronProvenanceUpsertAsync),
     ("conversation queue releases its model slot while awaiting approval", TestConversationExecutionPauseAsync),
     ("workspace mutations serialize per workspace and parallelize across workspaces", TestWorkspaceOperationCoordinatorAsync),
     ("workspace diff aligns inserted and removed lines with visual metadata", TestWorkspaceDiffBuilderAsync),
@@ -2217,6 +2228,46 @@ static async Task TestUpsertAsync()
     AssertEqual("changed content", loaded?.Messages.First().Content, "messages should be replaced");
 }
 
+static async Task TestCronProvenanceUpsertAsync()
+{
+    using var harness = new TestHarness();
+    var service = harness.CreateHistoryService();
+    var capturedAt = new DateTime(2026, 6, 1, 9, 0, 0, DateTimeKind.Local);
+    var firedAt = new DateTimeOffset(2026, 6, 1, 1, 0, 0, TimeSpan.Zero);
+
+    var snapshot = new ConversationArchiveSnapshot
+    {
+        HistoryId = Guid.NewGuid().ToString("N"),
+        CapturedAt = capturedAt,
+        ForceGenerateSummary = false,
+        CreatedByCronTaskId = "cron-task-1",
+        CronTaskRunId = "cron-run-1",
+        ScheduledFiredAt = firedAt,
+        Messages = [new ChatMessage { Role = "assistant", Content = "digest", Timestamp = capturedAt }]
+    };
+
+    var saved = await service.UpsertFromSnapshotAsync(snapshot);
+    var loaded = await service.LoadByIdAsync(saved.Id);
+
+    AssertEqual("cron-task-1", loaded?.CreatedByCronTaskId, "the cron task id should round-trip through SQLite");
+    AssertEqual("cron-run-1", loaded?.CronTaskRunId, "the cron run id should round-trip through SQLite");
+    AssertEqual(firedAt, loaded?.ScheduledFiredAt, "the scheduled instant should round-trip through SQLite");
+    AssertTrue(loaded?.IsScheduledRun == true, "a restored cron session must still report itself as a scheduled run");
+
+    // 后续归档若不再携带溯源（例如用户在该会话里继续对话后触发的保存），既有标记不能被抹掉。
+    var followUp = new ConversationArchiveSnapshot
+    {
+        HistoryId = saved.Id,
+        CapturedAt = capturedAt.AddMinutes(5),
+        ForceGenerateSummary = false,
+        Messages = [new ChatMessage { Role = "user", Content = "follow up", Timestamp = capturedAt.AddMinutes(4) }]
+    };
+    await service.UpsertFromSnapshotAsync(followUp);
+    var reloaded = await service.LoadByIdAsync(saved.Id);
+    AssertEqual("cron-task-1", reloaded?.CreatedByCronTaskId, "cron provenance must survive follow-up upserts");
+    AssertEqual(firedAt, reloaded?.ScheduledFiredAt, "the scheduled instant must survive follow-up upserts");
+}
+
 static async Task TestForkMetadataUpsertAsync()
 {
     using var harness = new TestHarness();
@@ -3496,222 +3547,522 @@ static async Task TestArchiveQueueReplayAsync()
     AssertEqual(1, succeedingHistory.SavedItems.Count, "replayed archive should be delivered to archive store");
 }
 
-static Task TestRecurrenceMigrationAndValidationAsync()
+// ---------------------------------------------------------------------------
+// cron 定时任务
+// ---------------------------------------------------------------------------
+
+static string NewCronRoot()
 {
-    var service = new RecurrenceService(new TestLocalizationService());
-    var anchor = new DateTime(2026, 5, 14, 9, 0, 0, DateTimeKind.Local);
+    var root = Path.Combine(Path.GetTempPath(), "athena-cron-tests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    return root;
+}
 
-    var none = service.MigrateLegacyRule("none", anchor);
-    var daily = service.MigrateLegacyRule("daily", anchor);
-    var weekly = service.MigrateLegacyRule("weekly", anchor);
-    var everyThreeDays = service.MigrateLegacyRule("every 3 days", anchor);
-    var everyTwoWeeks = service.MigrateLegacyRule("every 2 weeks", anchor);
+static CronTaskService NewCronTaskService(string root, out CronScheduleService scheduleService, ISystemClock? clock = null)
+{
+    scheduleService = new CronScheduleService(new TestLocalizationService());
+    return new CronTaskService(
+        new CronTaskStore(new TestPlatformPathService(root), Serilog.Log.Logger),
+        scheduleService,
+        clock ?? new SystemClock(),
+        Serilog.Log.Logger);
+}
 
-    AssertEqual(RecurrenceMode.None, none.Mode, "none should migrate to none");
-    AssertEqual(RecurrenceMode.Interval, daily.Mode, "daily should migrate to interval");
-    AssertEqual(1, daily.Interval, "daily interval should be 1");
-    AssertEqual(RecurrenceUnit.Day, daily.Unit, "daily unit should be day");
-    AssertEqual(RecurrenceMode.WeeklyDays, weekly.Mode, "weekly should migrate to weekly_days");
-    AssertEqual(anchor.DayOfWeek, weekly.DaysOfWeek?.Single() ?? DayOfWeek.Sunday, "weekly should keep the anchor weekday");
-    AssertEqual(3, everyThreeDays.Interval, "every 3 days interval should be 3");
-    AssertEqual(RecurrenceUnit.Day, everyThreeDays.Unit, "every 3 days unit should be day");
-    AssertEqual(2, everyTwoWeeks.Interval, "every 2 weeks interval should be 2");
-    AssertEqual(RecurrenceUnit.Week, everyTwoWeeks.Unit, "every 2 weeks unit should be week");
-
-    var invalidInterval = service.Validate(new RecurrenceRule
+static CronTaskDraft NewCronDraft(string expression = "0 9 * * *", string timeZoneId = "UTC", bool runOnce = false)
+    => new()
     {
-        Mode = RecurrenceMode.Interval,
-        Interval = 0,
-        Unit = RecurrenceUnit.Minute
-    });
-    AssertFalse(invalidInterval.IsValid, "zero interval should be invalid");
+        Name = "digest",
+        Instruction = "summarise yesterday",
+        CronExpression = expression,
+        TimeZoneId = timeZoneId,
+        RunOnce = runOnce,
+        NotifyOnCompletion = true,
+        IsEnabled = true
+    };
 
-    var invalidDays = service.Validate(new RecurrenceRule
-    {
-        Mode = RecurrenceMode.WeeklyDays,
-        Interval = 1,
-        DaysOfWeek = []
-    });
-    AssertFalse(invalidDays.IsValid, "weekly_days without days should be invalid");
+static Task TestCronExpressionValidationAsync()
+{
+    var service = new CronScheduleService(new TestLocalizationService());
+
+    AssertTrue(service.Validate("0 9 * * 1-5", "UTC").IsValid, "a standard five-field expression should validate");
+    AssertTrue(service.Validate("*/15 * * * *", "UTC").IsValid, "step values should validate");
+    AssertTrue(service.Validate("  0   9  *  *  *  ", "UTC").IsValid, "extra whitespace should be folded, not rejected");
+    AssertEqual("0 9 * * *", service.Validate("  0   9  *  *  *  ", "UTC").NormalizedExpression,
+        "validation should hand back the whitespace-normalised expression");
+
+    // 六段（含秒）必须被显式拒绝：引擎按整分钟检查，接受秒字段等于承诺做不到的事。
+    var seconds = service.Validate("0 0 9 * * *", "UTC");
+    AssertFalse(seconds.IsValid, "a six-field expression with seconds must be rejected");
+    AssertEqual("seconds_not_supported", seconds.Issues[0].Code, "the seconds rejection must be identifiable by code");
+
+    var macro = service.Validate("@daily", "UTC");
+    AssertFalse(macro.IsValid, "cron macros must be rejected so that five explicit fields stay the only shape");
+    AssertEqual("macro_not_supported", macro.Issues[0].Code, "macro rejection must be identifiable by code");
+
+    var tooFew = service.Validate("0 9 * *", "UTC");
+    AssertFalse(tooFew.IsValid, "a four-field expression must be rejected");
+    AssertEqual("invalid_field_count", tooFew.Issues[0].Code, "field-count rejection must be identifiable by code");
+
+    var garbage = service.Validate("99 * * * *", "UTC");
+    AssertFalse(garbage.IsValid, "an out-of-range minute must be rejected");
+    AssertEqual("invalid_cron_expression", garbage.Issues[0].Code, "parse rejection must be identifiable by code");
+
+    AssertFalse(service.Validate(null, "UTC").IsValid, "a null expression must be rejected");
+    AssertFalse(service.Validate("   ", "UTC").IsValid, "a blank expression must be rejected");
+
+    var badZone = service.Validate("0 9 * * *", "Nowhere/Nothing");
+    AssertFalse(badZone.IsValid, "an unknown time zone must be rejected");
+    AssertEqual("invalid_time_zone", badZone.Issues[0].Code, "time-zone rejection must be identifiable by code");
+    AssertTrue(badZone.NormalizedExpression == null, "a failed validation must not hand back a normalised expression");
+
+    AssertTrue(service.ResolveTimeZone("Nowhere/Nothing") == null, "resolving an unknown zone should return null, not throw");
 
     return Task.CompletedTask;
 }
 
-static Task TestFirstTriggerCalculationAsync()
+static Task TestCronPreviewAndDescriptionAsync()
 {
-    var service = new RecurrenceService(new TestLocalizationService());
-    var now = new DateTime(2026, 5, 14, 8, 0, 0, DateTimeKind.Local);
-    var boundary = new DateTime(2026, 5, 16, 9, 0, 0, DateTimeKind.Local); // Saturday
-    var rule = new RecurrenceRule
-    {
-        Mode = RecurrenceMode.WeeklyDays,
-        Interval = 1,
-        DaysOfWeek =
-        [
-            DayOfWeek.Monday,
-            DayOfWeek.Tuesday,
-            DayOfWeek.Wednesday,
-            DayOfWeek.Thursday,
-            DayOfWeek.Friday
-        ]
-    };
+    var service = new CronScheduleService(new TestLocalizationService());
+    var from = new DateTimeOffset(2026, 3, 2, 0, 0, 0, TimeSpan.Zero);
 
-    var firstTrigger = service.GetFirstTriggerTime(boundary, rule, now);
-    AssertEqual(new DateTime(2026, 5, 18, 9, 0, 0, DateTimeKind.Local), firstTrigger, "workday recurrence should skip to the next matching weekday");
+    var preview = service.Preview("0 9 * * *", "UTC", from, 5);
+    AssertEqual(5, preview.Count, "preview should return exactly the requested number of occurrences");
+    for (var i = 0; i < preview.Count; i++)
+    {
+        AssertEqual(new DateTimeOffset(2026, 3, 2 + i, 9, 0, 0, TimeSpan.Zero), preview[i], $"preview slot {i} should be the next daily 09:00");
+    }
+
+    AssertEqual(0, service.Preview("0 9 * * *", "Nowhere/Nothing", from, 5).Count,
+        "an unresolvable time zone must yield an empty preview instead of throwing");
+    AssertEqual(0, service.Preview("0 9 * * *", "UTC", from, 0).Count, "a zero count should yield nothing");
+
+    // 下一次触发必须严格晚于给定时刻，否则同一次触发会在同一分钟内被反复领取。
+    var exact = new DateTimeOffset(2026, 3, 2, 9, 0, 0, TimeSpan.Zero);
+    AssertEqual(new DateTimeOffset(2026, 3, 3, 9, 0, 0, TimeSpan.Zero), service.GetNextOccurrence("0 9 * * *", "UTC", exact),
+        "the next occurrence must be strictly after the given instant");
+
+    AssertEqual("Every day at 09:00", service.Describe("0 9 * * *"), "a daily expression should read as plain language");
+    AssertEqual("Weekdays at 09:00", service.Describe("0 9 * * 1-5"), "Monday-to-Friday should read as weekdays");
+    AssertEqual("Weekends at 09:00", service.Describe("0 9 * * 0,6"), "Saturday and Sunday should read as weekends");
+    AssertEqual("Every 30 minutes", service.Describe("*/30 * * * *"), "a minute step should read as an interval");
+    AssertEqual("Every minute", service.Describe("* * * * *"), "a bare star minute should read as every minute");
+    AssertEqual("Hourly at minute 5", service.Describe("5 * * * *"), "a fixed minute should read as hourly");
+    AssertEqual("Day 1 of every month at 09:00", service.Describe("0 9 1 * *"), "a monthly expression should read as a day of month");
+    AssertEqual("0 9 1-5 * 2", service.Describe("0 9 1-5 * 2"), "an expression outside the known shapes should be echoed verbatim");
+
     return Task.CompletedTask;
 }
 
-static async Task TestSchedulerForegroundSerialPolicyAsync()
+static Task TestCronDaylightSavingSemanticsAsync()
 {
-    using var harness = new TestHarness();
-    var recurrenceService = new RecurrenceService(new TestLocalizationService());
-    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
-    scheduler.Start();
+    var service = new CronScheduleService(new TestLocalizationService());
+    const string zone = "America/New_York";
 
-    var dispatchedTaskIds = new List<string>();
-    scheduler.ProactiveMessageTriggered += (_, e) => dispatchedTaskIds.Add(e.TaskId);
+    // 春季跳变：2026-03-08 当地 02:00 不存在（时钟 02:00 -> 03:00）。
+    // Cronos 的语义是在跳变发生的那一瞬间触发，而不是跳过这一天。这条断言把该行为钉死。
+    var beforeSpring = new DateTimeOffset(2026, 3, 7, 17, 0, 0, TimeSpan.Zero);
+    var springRun = service.GetNextOccurrence("0 2 * * *", zone, beforeSpring);
+    AssertTrue(springRun != null, "a daily 02:00 task must still fire on the spring-forward day");
+    AssertEqual(new DateTimeOffset(2026, 3, 8, 7, 0, 0, TimeSpan.Zero), springRun,
+        "on the spring-forward day the missing 02:00 fires at the transition instant (07:00Z = local 03:00 EDT)");
 
-    var now = DateTime.Now;
-    var oneTimeTask = new ScheduledTask
-    {
-        Id = "one-time-a",
-        TriggerTime = now.AddMinutes(1),
-        ScheduleBoundary = now.AddMinutes(1),
-        Intent = "one-time-a",
-        RecurrenceRule = RecurrenceRule.None(),
-        CreatedAt = now,
-        TaskType = TaskType.Proactive
-    };
-    var recurringTask = new ScheduledTask
-    {
-        Id = "recurring-b",
-        TriggerTime = now.AddMinutes(1),
-        ScheduleBoundary = now.AddMinutes(1),
-        Intent = "recurring-b",
-        RecurrenceRule = new RecurrenceRule
-        {
-            Mode = RecurrenceMode.Interval,
-            Interval = 1,
-            Unit = RecurrenceUnit.Minute
-        },
-        CreatedAt = now,
-        TaskType = TaskType.Proactive
-    };
+    var afterSpring = service.GetNextOccurrence("0 2 * * *", zone, springRun!.Value);
+    AssertEqual(new DateTimeOffset(2026, 3, 9, 6, 0, 0, TimeSpan.Zero), afterSpring,
+        "the day after the transition returns to a normal local 02:00 EDT");
 
-    await scheduler.ScheduleAsync(oneTimeTask);
-    await scheduler.ScheduleAsync(recurringTask);
-    oneTimeTask.TriggerTime = DateTime.Now.AddSeconds(-5);
-    recurringTask.TriggerTime = DateTime.Now.AddSeconds(-5);
+    // 秋季重叠：2026-11-01 当地 01:30 出现两次。固定时刻的表达式只触发一次（夏令时那次）。
+    var beforeFall = new DateTimeOffset(2026, 10, 31, 16, 0, 0, TimeSpan.Zero);
+    var fallRun = service.GetNextOccurrence("30 1 * * *", zone, beforeFall);
+    AssertEqual(new DateTimeOffset(2026, 11, 1, 5, 30, 0, TimeSpan.Zero), fallRun,
+        "on the fall-back day an ambiguous local 01:30 fires once, at the daylight-time occurrence");
 
-    await scheduler.RunDueTasksAsync();
-    AssertEqual(1, dispatchedTaskIds.Count, "only one foreground task should dispatch at a time");
-    AssertEqual("one-time-a", dispatchedTaskIds[0], "one-time task should win when due at the same time");
-    AssertTrue(recurringTask.TriggerTime > DateTime.Now, "recurring collision should be skipped to a future time");
+    var nextFall = service.GetNextOccurrence("30 1 * * *", zone, fallRun!.Value);
+    AssertEqual(new DateTimeOffset(2026, 11, 2, 6, 30, 0, TimeSpan.Zero), nextFall,
+        "the repeated hour must not produce a second firing of the same fixed-time expression");
 
-    var waitingTask = new ScheduledTask
-    {
-        Id = "one-time-c",
-        TriggerTime = DateTime.Now.AddSeconds(-5),
-        ScheduleBoundary = DateTime.Now.AddMinutes(2),
-        Intent = "one-time-c",
-        RecurrenceRule = RecurrenceRule.None(),
-        CreatedAt = now,
-        TaskType = TaskType.Proactive
-    };
-    await scheduler.ScheduleAsync(waitingTask);
-    waitingTask.TriggerTime = DateTime.Now.AddSeconds(-5);
+    // 间隔型表达式在重复的那个小时里两次都触发——这也是 Cronos 的官方语义，同样固定住。
+    var hourly = service.Preview("0 * * * *", zone, new DateTimeOffset(2026, 11, 1, 4, 30, 0, TimeSpan.Zero), 3);
+    AssertEqual(new DateTimeOffset(2026, 11, 1, 5, 0, 0, TimeSpan.Zero), hourly[0], "hourly fires at 01:00 EDT");
+    AssertEqual(new DateTimeOffset(2026, 11, 1, 6, 0, 0, TimeSpan.Zero), hourly[1], "hourly fires again at the repeated 01:00 EST");
+    AssertEqual(new DateTimeOffset(2026, 11, 1, 7, 0, 0, TimeSpan.Zero), hourly[2], "hourly then continues at 02:00 EST");
 
-    await scheduler.RunDueTasksAsync();
-    AssertEqual(1, dispatchedTaskIds.Count, "new one-time task should wait while another foreground task is still running");
-    AssertFalse(waitingTask.IsExecuted, "waiting one-time task should stay pending");
-
-    await scheduler.CompleteTaskExecutionAsync(oneTimeTask.Id, TaskExecutionOutcome.Succeeded, "done");
-    AssertEqual(2, dispatchedTaskIds.Count, "scheduler should dispatch the waiting one-time task after completion");
-    AssertEqual("one-time-c", dispatchedTaskIds[1], "waiting task should run next");
-
-    await scheduler.CompleteTaskExecutionAsync(waitingTask.Id, TaskExecutionOutcome.Succeeded, "done");
-    AssertTrue(waitingTask.IsExecuted, "one-time waiting task should complete after execution");
+    return Task.CompletedTask;
 }
 
-static async Task TestSchedulerLongRunningRecurringAsync()
+static async Task TestCronTaskCrudAsync()
 {
-    using var harness = new TestHarness();
-    var recurrenceService = new RecurrenceService(new TestLocalizationService());
-    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
-    scheduler.Start();
-    scheduler.ProactiveMessageTriggered += (_, _) => { };
+    var root = NewCronRoot();
+    using var service = NewCronTaskService(root, out _);
 
-    var boundary = DateTime.Now.AddMinutes(-5);
-    var task = new ScheduledTask
-    {
-        Id = "recurring-long",
-        TriggerTime = DateTime.Now.AddMinutes(1),
-        ScheduleBoundary = boundary,
-        Intent = "recurring-long",
-        RecurrenceRule = new RecurrenceRule
-        {
-            Mode = RecurrenceMode.Interval,
-            Interval = 1,
-            Unit = RecurrenceUnit.Minute
-        },
-        CreatedAt = DateTime.Now,
-        TaskType = TaskType.Proactive
-    };
+    var invalid = await service.CreateAsync(new CronTaskDraft { Name = "x", Instruction = "do", CronExpression = "0 0 9 * * *" });
+    AssertFalse(invalid.Success, "a six-field expression must not create a task");
+    AssertEqual(0, service.GetTasks().Count, "a rejected create must not leave a task behind");
 
-    await scheduler.ScheduleAsync(task);
-    task.TriggerTime = DateTime.Now.AddSeconds(-5);
-    await scheduler.RunDueTasksAsync();
-    await scheduler.CompleteTaskExecutionAsync(task.Id, TaskExecutionOutcome.Succeeded, "completed after long run");
+    var noInstruction = await service.CreateAsync(new CronTaskDraft { Name = "x", Instruction = "  ", CronExpression = "0 9 * * *", TimeZoneId = "UTC" });
+    AssertFalse(noInstruction.Success, "a task without an instruction must be rejected");
+    AssertTrue(noInstruction.Validation.Issues.Any(issue => issue.Code == "missing_instruction"),
+        "the missing instruction must be reported by code");
 
-    AssertTrue(task.TriggerTime > DateTime.Now, "recurring task should advance to a future slot after completion");
-    AssertTrue(task.TriggerTime < DateTime.Now.AddMinutes(2), "recurring task should not replay every missed interval");
+    var created = await service.CreateAsync(NewCronDraft());
+    AssertTrue(created.Success, "a valid draft should create a task");
+    AssertTrue(created.Task!.NextOccurrence != null, "a newly created enabled task must have a next occurrence");
+    var taskId = created.Task.Id;
+
+    // 对外交出的是深拷贝：改它不能影响服务内部状态。
+    created.Task.Name = "mutated";
+    AssertEqual("digest", service.GetTask(taskId)!.Name, "the service must hand out clones, not its own instances");
+
+    var updated = await service.UpdateAsync(taskId, NewCronDraft("0 18 * * *"));
+    AssertTrue(updated.Success, "updating an existing task should succeed");
+    AssertEqual("0 18 * * *", service.GetTask(taskId)!.CronExpression, "the update must persist the new expression");
+
+    AssertFalse((await service.UpdateAsync("missing-id", NewCronDraft())).Success, "updating an unknown id must fail");
+    AssertEqual("task_not_found", (await service.UpdateAsync("missing-id", NewCronDraft())).Validation.Issues[0].Code,
+        "an unknown id must be reported by code");
+
+    var paused = await service.SetEnabledAsync(taskId, false);
+    AssertTrue(paused.Success, "pausing should succeed");
+    AssertFalse(paused.Task!.IsEnabled, "pausing must clear IsEnabled");
+    AssertTrue(paused.Task.NextOccurrence == null, "a paused task must not keep a next occurrence");
+
+    var resumed = await service.SetEnabledAsync(taskId, true);
+    AssertTrue(resumed.Task!.NextOccurrence != null, "resuming must recompute the next occurrence");
+
+    AssertTrue(await service.DeleteAsync(taskId), "deleting an existing task should report success");
+    AssertFalse(await service.DeleteAsync(taskId), "deleting a missing task should report failure");
+    AssertEqual(0, service.GetTasks().Count, "the store should be empty after the delete");
 }
 
-static async Task TestCreateTaskStructuredResponsesAsync()
+static async Task TestCronPersistenceRoundTripAsync()
 {
-    using var harness = new TestHarness();
-    var recurrenceService = new RecurrenceService(new TestLocalizationService());
-    using var scheduler = new Athena.UI.Services.TaskScheduler(Log.ForContext<Athena.UI.Services.TaskScheduler>(), harness.PathService, recurrenceService);
-    var functions = new ProactiveMessagingFunctions(scheduler, recurrenceService, Log.ForContext<ProactiveMessagingFunctions>());
+    var root = NewCronRoot();
+    string taskId;
+    using (var service = NewCronTaskService(root, out _))
+    {
+        var created = await service.CreateAsync(NewCronDraft("0 9 * * 1-5", "Asia/Shanghai"));
+        AssertTrue(created.Success, "creating the task should succeed");
+        taskId = created.Task!.Id;
+        await service.CompleteRunAsync(taskId, (await service.ClaimManualAsync(taskId, DateTimeOffset.UtcNow))!.Run.RunId,
+            CronRunState.Succeeded, DateTimeOffset.UtcNow, "conv-1", "hist-1", note: "ok");
+    }
 
-    var success = await functions.ScheduleProactiveMessage(
-        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
-        "check progress",
-        new RecurrenceRuleInput
+    using var reloaded = NewCronTaskService(root, out _);
+    var task = reloaded.GetTask(taskId);
+    AssertTrue(task != null, "the task should survive a restart");
+    AssertEqual("0 9 * * 1-5", task!.CronExpression, "the cron expression should round-trip");
+    AssertEqual("Asia/Shanghai", task.TimeZoneId, "the time zone should round-trip");
+    AssertEqual(1, task.RecentRuns.Count, "the run record should round-trip");
+    AssertEqual("conv-1", task.RecentRuns[0].ConversationId, "the run's conversation id should round-trip");
+    AssertEqual("hist-1", task.RecentRuns[0].HistoryId, "the run's history id should round-trip");
+    AssertEqual(CronRunState.Succeeded, task.RecentRuns[0].State, "the run state should round-trip");
+
+    var json = File.ReadAllText(Path.Combine(root, "cron_tasks.json"));
+    AssertTrue(json.Contains("\"schemaVersion\"", StringComparison.Ordinal), "the store must carry a schema version");
+}
+
+static async Task TestCronRunRecordCapAsync()
+{
+    var root = NewCronRoot();
+    using var service = NewCronTaskService(root, out _);
+    var taskId = (await service.CreateAsync(NewCronDraft())).Task!.Id;
+
+    for (var i = 0; i < CronTask.MaxRunRecords + 7; i++)
+    {
+        var claim = await service.ClaimManualAsync(taskId, DateTimeOffset.UtcNow);
+        await service.CompleteRunAsync(taskId, claim!.Run.RunId, CronRunState.Succeeded, DateTimeOffset.UtcNow, note: $"run-{i}");
+    }
+
+    var task = service.GetTask(taskId)!;
+    AssertEqual(CronTask.MaxRunRecords, task.RecentRuns.Count, "run records must be capped at the documented maximum");
+    AssertEqual($"run-{CronTask.MaxRunRecords + 6}", task.RecentRuns[0].Note, "the newest run must be first");
+
+    using var reloaded = NewCronTaskService(root, out _);
+    AssertEqual(CronTask.MaxRunRecords, reloaded.GetTask(taskId)!.RecentRuns.Count, "the cap must hold across a restart");
+}
+
+static Task TestCronCorruptedRecordIsolationAsync()
+{
+    var root = NewCronRoot();
+    var path = Path.Combine(root, "cron_tasks.json");
+
+    // 一条好记录 + 一条缺 id + 一条 cron 字段类型错误：只应丢掉后两条，绝不让整个任务系统罢工。
+    File.WriteAllText(path, """
+    {
+      "schemaVersion": 1,
+      "tasks": [
+        { "id": "good", "name": "good", "instruction": "do", "cronExpression": "0 9 * * *", "timeZoneId": "UTC", "isEnabled": true },
+        { "name": "no id", "instruction": "do", "cronExpression": "0 9 * * *", "timeZoneId": "UTC" },
+        { "id": "bad-types", "name": 12, "instruction": "do", "cronExpression": ["0 9 * * *"], "timeZoneId": "UTC" }
+      ]
+    }
+    """);
+
+    using var service = NewCronTaskService(root, out _);
+    AssertEqual(1, service.GetTasks().Count, "only the intact record should load");
+    AssertEqual("good", service.GetTasks()[0].Id, "the intact record must be the surviving one");
+    AssertEqual(2, service.CorruptedRecordCount, "both damaged records must be counted");
+
+    // 整个文件不可解析时也必须能启动，并把坏文件隔离到一边而不是原地覆盖。
+    var secondRoot = NewCronRoot();
+    File.WriteAllText(Path.Combine(secondRoot, "cron_tasks.json"), "{ this is not json");
+    using var recovered = NewCronTaskService(secondRoot, out _);
+    AssertEqual(0, recovered.GetTasks().Count, "an unreadable store should start empty rather than crash");
+    AssertTrue(File.Exists(Path.Combine(secondRoot, "cron_tasks.json.corrupt")), "the unreadable store should be quarantined");
+
+    return Task.CompletedTask;
+}
+
+static Task TestCronLegacyStoreDeletedAsync()
+{
+    var root = NewCronRoot();
+    var legacyPath = Path.Combine(root, "scheduled_tasks.json");
+    File.WriteAllText(legacyPath, """[{"Id":"old","Intent":"legacy"}]""");
+
+    using var service = NewCronTaskService(root, out _);
+    AssertFalse(File.Exists(legacyPath), "the obsolete recurrence store must be deleted, never migrated");
+    AssertEqual(0, service.GetTasks().Count, "no legacy task may be imported");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestCronClaimRunOnceAndSkipAsync()
+{
+    var root = NewCronRoot();
+    using var service = NewCronTaskService(root, out _);
+
+    // RunOnce：领取的瞬间就停用，而不是等运行成功之后——失败也不重试是刻意的。
+    var once = (await service.CreateAsync(NewCronDraft("*/5 * * * *", "UTC", runOnce: true))).Task!;
+    var dueNow = once.NextOccurrence!.Value;
+    var claims = await service.ClaimDueAsync(dueNow.AddSeconds(1));
+    AssertEqual(1, claims.Count, "the due run-once task should be claimed exactly once");
+
+    var afterClaim = service.GetTask(once.Id)!;
+    AssertFalse(afterClaim.IsEnabled, "a run-once task must disable itself the moment it is claimed");
+    AssertTrue(afterClaim.NextOccurrence == null, "a claimed run-once task must have no further occurrence");
+    AssertEqual(0, (await service.ClaimDueAsync(dueNow.AddMinutes(30))).Count, "a disabled run-once task must never be claimed again");
+
+    // 失败之后依然不复活。
+    await service.CompleteRunAsync(once.Id, claims[0].Run.RunId, CronRunState.Failed, dueNow.AddMinutes(1), error: "boom");
+    AssertFalse(service.GetTask(once.Id)!.IsEnabled, "a failed run-once task must not re-enable itself");
+
+    // Skip：应用停机期间跨过的触发只记一条 Skipped，绝不补跑全部。
+    var recurring = (await service.CreateAsync(NewCronDraft("*/5 * * * *"))).Task!;
+    var longAfter = recurring.NextOccurrence!.Value.AddHours(6);
+    var skipClaims = await service.ClaimDueAsync(longAfter);
+    AssertEqual(0, skipClaims.Count, "a missed occurrence must not be executed");
+
+    var skipped = service.GetTask(recurring.Id)!;
+    AssertEqual(1, skipped.RecentRuns.Count, "however many occurrences were missed, exactly one Skipped record is written");
+    AssertEqual(CronRunState.Skipped, skipped.RecentRuns[0].State, "the missed occurrence must be recorded as skipped");
+    AssertTrue(skipped.IsEnabled, "a recurring task must stay enabled after skipping");
+    AssertTrue(skipped.NextOccurrence > longAfter, "the next occurrence must be recomputed from now, not from the missed slot");
+
+    // 错过的单次任务：记一条 Skipped 后停用。
+    var missedOnce = (await service.CreateAsync(NewCronDraft("*/5 * * * *", "UTC", runOnce: true))).Task!;
+    await service.ClaimDueAsync(missedOnce.NextOccurrence!.Value.AddHours(6));
+    var missedOnceAfter = service.GetTask(missedOnce.Id)!;
+    AssertFalse(missedOnceAfter.IsEnabled, "a missed run-once task must be disabled, not carried forward");
+    AssertEqual(CronRunState.Skipped, missedOnceAfter.RecentRuns[0].State, "the missed one-shot must be recorded as skipped");
+}
+
+static async Task TestCronManualRunDoesNotMoveScheduleAsync()
+{
+    var root = NewCronRoot();
+    using var service = NewCronTaskService(root, out _);
+
+    var task = (await service.CreateAsync(NewCronDraft("0 9 * * *", "UTC", runOnce: true))).Task!;
+    var scheduledNext = task.NextOccurrence;
+
+    var claim = await service.ClaimManualAsync(task.Id, DateTimeOffset.UtcNow);
+    AssertTrue(claim != null, "a manual run should be claimable");
+    AssertEqual(CronRunTrigger.Manual, claim!.Run.Trigger, "a manual run must be tagged as manual");
+    AssertTrue(claim.Run.ScheduledFor == null, "a manual run has no scheduled instant");
+
+    var after = service.GetTask(task.Id)!;
+    AssertEqual(scheduledNext, after.NextOccurrence, "a manual run must not move the next scheduled occurrence");
+    AssertTrue(after.IsEnabled, "a manual run must not consume a run-once task's single scheduled execution");
+
+    AssertTrue(await service.ClaimManualAsync("missing", DateTimeOffset.UtcNow) == null, "claiming an unknown task should yield null");
+}
+
+static async Task TestCronOrphanedRunsBecomeInterruptedAsync()
+{
+    var root = NewCronRoot();
+    string taskId;
+
+    using (var service = NewCronTaskService(root, out _))
+    {
+        taskId = (await service.CreateAsync(NewCronDraft())).Task!.Id;
+        var claim = await service.ClaimManualAsync(taskId, DateTimeOffset.UtcNow);
+        await service.MarkRunStartedAsync(taskId, claim!.Run.RunId, DateTimeOffset.UtcNow);
+        // 刻意不写终态：模拟进程在运行途中退出。
+        AssertEqual(CronRunState.Running, service.GetTask(taskId)!.RecentRuns[0].State, "the run should be left in flight");
+    }
+
+    using var restarted = NewCronTaskService(root, out _);
+    AssertEqual(CronRunState.Running, restarted.GetTask(taskId)!.RecentRuns[0].State,
+        "loading alone must not rewrite run state; reconciliation is an explicit startup step");
+
+    var reconciled = await restarted.ReconcileOrphanedRunsAsync(DateTimeOffset.UtcNow);
+    AssertEqual(1, reconciled, "the orphaned run should be reconciled");
+    var run = restarted.GetTask(taskId)!.RecentRuns[0];
+    AssertEqual(CronRunState.Interrupted, run.State, "an orphaned run must converge to interrupted, never to succeeded");
+    AssertTrue(run.CompletedAt != null, "the reconciled run must carry a completion instant");
+
+    AssertEqual(0, await restarted.ReconcileOrphanedRunsAsync(DateTimeOffset.UtcNow), "reconciliation must be idempotent");
+}
+
+static async Task TestCronWorkerConcurrencyAndFailurePropagationAsync()
+{
+    var root = NewCronRoot();
+    var clock = new TestSystemClock(new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero));
+    using var service = NewCronTaskService(root, out _, clock);
+    var launcher = new TestCronSessionLauncher();
+    using var worker = new CronExecutionWorker(service, launcher, clock, Serilog.Log.Logger);
+
+    // 六个每分钟任务同时到期，考察并发上限与 FIFO。
+    var ids = new List<string>();
+    for (var i = 0; i < 6; i++)
+    {
+        ids.Add((await service.CreateAsync(new CronTaskDraft
         {
-            Mode = "interval",
-            Interval = 1,
-            Unit = "day"
-        });
+            Name = $"task-{i}",
+            Instruction = $"instruction-{i}",
+            CronExpression = "* * * * *",
+            TimeZoneId = "UTC",
+            NotifyOnCompletion = true,
+            IsEnabled = true
+        })).Task!.Id);
+    }
 
-    AssertTrue(success.Success, "valid create_task request should succeed");
-    var successData = JsonSerializer.SerializeToElement(success.Data);
-    AssertTrue(successData.GetProperty("validation").GetProperty("isValid").GetBoolean(), "success result should include valid validation data");
-    AssertTrue(successData.TryGetProperty("normalizedRecurrence", out _), "success result should include normalized recurrence");
+    await worker.StartAsync();
+    clock.Advance(TimeSpan.FromMinutes(1));
+    var claimed = await worker.RunDueChecksAsync();
+    AssertEqual(6, claimed, "all six due tasks should be claimed in one check");
 
-    var failure = await functions.ScheduleProactiveMessage(
-        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
-        "broken rule",
-        new RecurrenceRuleInput
-        {
-            Mode = "weekly_days",
-            Interval = 1,
-            DaysOfWeek = []
-        });
+    await AwaitWithTimeout(WaitUntilAsync(() => worker.IsIdle, TimeSpan.FromSeconds(20)), "cron worker drain");
 
-    AssertFalse(failure.Success, "invalid create_task request should fail");
-    var failureData = JsonSerializer.SerializeToElement(failure.Data);
-    AssertFalse(failureData.GetProperty("validation").GetProperty("isValid").GetBoolean(), "failure result should include invalid validation data");
-    AssertTrue(failureData.GetProperty("validation").GetProperty("issues").GetArrayLength() > 0, "failure result should expose structured validation issues");
+    AssertEqual(6, launcher.CompletedCount, "every claimed run should reach the launcher");
+    AssertTrue(launcher.PeakConcurrency <= CronExecutionWorker.MaxConcurrentRuns,
+        $"cron concurrency must never exceed {CronExecutionWorker.MaxConcurrentRuns}, observed {launcher.PeakConcurrency}");
+    AssertTrue(launcher.PeakConcurrency > 1, "with six queued runs the worker should actually use its second slot");
+    AssertEqual(
+        string.Join(",", ids),
+        string.Join(",", launcher.StartOrder),
+        "queued runs must start in FIFO order");
 
-    var missingMode = await functions.ScheduleProactiveMessage(
-        DateTime.Now.AddHours(2).ToString("yyyy-MM-dd HH:mm"),
-        "must not silently become one-time",
-        new RecurrenceRuleInput());
-    AssertFalse(missingMode.Success, "present-but-empty recurrence must be rejected instead of silently becoming none");
+    foreach (var id in ids)
+    {
+        AssertEqual(CronRunState.Succeeded, service.GetTask(id)!.RecentRuns[0].State, "a successful launch should be recorded as succeeded");
+    }
 
-    var chineseRelative = await functions.ScheduleProactiveMessage("2小时后", "中文相对时间");
-    AssertTrue(chineseRelative.Success, "documented Chinese relative time should parse successfully");
+    // 启动器失败：绝不能被写成成功。
+    // 先清掉上面那六个任务，否则它们会在同一分钟一起到期，把后面的断言搅浑。
+    foreach (var id in ids) await service.DeleteAsync(id);
+    launcher.Reset();
+    launcher.FailNext = true;
+    var failing = (await service.CreateAsync(NewCronDraft("* * * * *"))).Task!;
+    clock.Advance(TimeSpan.FromMinutes(1));
+    await worker.RunDueChecksAsync();
+    await AwaitWithTimeout(WaitUntilAsync(() => worker.IsIdle, TimeSpan.FromSeconds(20)), "cron worker failure drain");
+
+    var failedRun = service.GetTask(failing.Id)!.RecentRuns[0];
+    AssertEqual(CronRunState.Failed, failedRun.State, "a launcher failure must be recorded as failed, never as succeeded");
+    AssertTrue(!string.IsNullOrWhiteSpace(failedRun.Error), "a failed run must carry an error message");
+
+    // 宿主未就绪同样不算成功。
+    await service.DeleteAsync(failing.Id);
+    launcher.Reset();
+    launcher.HostUnavailable = true;
+    var unhosted = (await service.CreateAsync(NewCronDraft("* * * * *"))).Task!;
+    clock.Advance(TimeSpan.FromMinutes(1));
+    await worker.RunDueChecksAsync();
+    await AwaitWithTimeout(WaitUntilAsync(() => worker.IsIdle, TimeSpan.FromSeconds(20)), "cron worker unhosted drain");
+    AssertEqual(CronRunState.Failed, service.GetTask(unhosted.Id)!.RecentRuns[0].State,
+        "a run that never executed because the host was missing must not be recorded as succeeded");
+
+    await worker.StopAsync();
+}
+
+static Task TestCronWorkerMinuteAlignmentAsync()
+{
+    AssertEqual(
+        TimeSpan.FromSeconds(23),
+        CronExecutionWorker.TimeUntilNextWholeMinute(new DateTimeOffset(2026, 5, 1, 8, 30, 37, TimeSpan.Zero)),
+        "the first check must be aligned to the next whole minute rather than one minute from startup");
+    AssertEqual(
+        TimeSpan.FromMinutes(1),
+        CronExecutionWorker.TimeUntilNextWholeMinute(new DateTimeOffset(2026, 5, 1, 8, 30, 0, TimeSpan.Zero)),
+        "starting exactly on a minute boundary should wait a whole minute, not fire twice in the same minute");
+    return Task.CompletedTask;
+}
+
+static async Task TestCronTaskFunctionsAsync()
+{
+    var root = NewCronRoot();
+    var clock = new TestSystemClock(new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero));
+    using var service = NewCronTaskService(root, out var scheduleService, clock);
+    var launcher = new TestCronSessionLauncher();
+    using var worker = new CronExecutionWorker(service, launcher, clock, Serilog.Log.Logger);
+    var functions = new CronTaskFunctions(service, scheduleService, worker, Serilog.Log.Logger);
+
+    var badExpression = await functions.CreateTask("digest", "summarise", "0 0 9 * * *");
+    AssertFalse(badExpression.Success, "create_task must reject a six-field expression");
+    AssertTrue(SerializeFunctionData(badExpression).Contains("seconds_not_supported", StringComparison.Ordinal),
+        "create_task must return the structured reason for the rejection");
+
+    var badZone = await functions.CreateTask("digest", "summarise", "0 9 * * *", "Nowhere/Nothing");
+    AssertFalse(badZone.Success, "create_task must reject an unknown time zone");
+    AssertTrue(SerializeFunctionData(badZone).Contains("invalid_time_zone", StringComparison.Ordinal),
+        "create_task must return the structured time-zone failure");
+
+    var created = await functions.CreateTask("digest", "summarise yesterday", "0 9 * * 1-5", "UTC");
+    AssertTrue(created.Success, "create_task should accept a valid five-field expression");
+    var payload = SerializeFunctionData(created);
+    AssertTrue(payload.Contains("Weekdays at 09:00", StringComparison.Ordinal), "create_task should return the plain-language description");
+    AssertTrue(payload.Contains("upcomingOccurrencesLocal", StringComparison.Ordinal), "create_task should return the upcoming occurrences");
+
+    var taskId = service.GetTasks().Single().Id;
+
+    var listed = await functions.ListTasks();
+    AssertTrue(listed.Success, "list_tasks should succeed");
+    AssertTrue(SerializeFunctionData(listed).Contains(taskId, StringComparison.Ordinal), "list_tasks should include the created task");
+
+    var updated = await functions.UpdateTask(taskId, "digest", "summarise yesterday", "0 18 * * *", "UTC");
+    AssertTrue(updated.Success, "update_task should succeed for an existing task");
+    AssertEqual("0 18 * * *", service.GetTask(taskId)!.CronExpression, "update_task must persist the new expression");
+
+    AssertFalse((await functions.UpdateTask("missing", "n", "i", "0 9 * * *")).Success, "update_task must fail for an unknown id");
+    AssertFalse((await functions.RunTaskNow("missing")).Success, "run_task_now must fail for an unknown id");
+
+    var scheduledNext = service.GetTask(taskId)!.NextOccurrence;
+    await worker.StartAsync();
+    var ran = await functions.RunTaskNow(taskId);
+    AssertTrue(ran.Success, "run_task_now should queue a manual run");
+    AssertEqual(scheduledNext, service.GetTask(taskId)!.NextOccurrence, "run_task_now must not move the next scheduled occurrence");
+    await AwaitWithTimeout(WaitUntilAsync(() => worker.IsIdle, TimeSpan.FromSeconds(20)), "manual run drain");
+    await worker.StopAsync();
+
+    AssertEqual(CronRunTrigger.Manual, service.GetTask(taskId)!.RecentRuns[0].Trigger, "the manual run should be recorded as manual");
+
+    var cancelled = await functions.CancelTask(taskId);
+    AssertTrue(cancelled.Success, "cancel_task should delete an existing task");
+    AssertFalse((await functions.CancelTask(taskId)).Success, "cancel_task must fail for an already-deleted task");
+    AssertTrue(SerializeFunctionData(await functions.CancelTask(taskId)).Contains("task_not_found", StringComparison.Ordinal),
+        "cancel_task must return the structured not-found reason");
+}
+
+static string SerializeFunctionData(FunctionResult result)
+    => System.Text.Json.JsonSerializer.Serialize(new { result.Message, result.Data });
+
+static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+{
+    var deadline = DateTime.UtcNow + timeout;
+    while (!condition())
+    {
+        if (DateTime.UtcNow > deadline) throw new TimeoutException("condition was not met before the timeout");
+        await Task.Delay(10);
+    }
 }
 
 static string DiffNormalize(string s) => s.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -5789,7 +6140,8 @@ sealed class TestPlatformPathService(string root) : IPlatformPathService
         return path;
     }
 
-    public string GetTaskSchedulerFilePath() => Path.Combine(root, "tasks.json");
+    public string GetCronTasksFilePath() => Path.Combine(root, "cron_tasks.json");
+    public string GetLegacyScheduledTasksFilePath() => Path.Combine(root, "scheduled_tasks.json");
 
     public string GetVectorStoreFilePath() => Path.Combine(root, "vectors.db");
 
@@ -6259,3 +6611,84 @@ sealed class BlockingMetadataHttpHandler : HttpMessageHandler
 }
 
 #pragma warning restore CS0067
+
+sealed class TestSystemClock(DateTimeOffset start) : ISystemClock
+{
+    private long _ticks = start.UtcTicks;
+
+    public DateTimeOffset UtcNow => new(Interlocked.Read(ref _ticks), TimeSpan.Zero);
+
+    public void Advance(TimeSpan delta) => Interlocked.Add(ref _ticks, delta.Ticks);
+}
+
+/// <summary>记录并发峰值与启动顺序的假启动器；可被要求失败或声称宿主不可用。</summary>
+sealed class TestCronSessionLauncher : ICronSessionLauncher
+{
+    private readonly object _sync = new();
+    private int _active;
+
+    public bool IsReady => !HostUnavailable;
+
+    public bool FailNext { get; set; }
+
+    public bool HostUnavailable { get; set; }
+
+    public int PeakConcurrency { get; private set; }
+
+    public int CompletedCount { get; private set; }
+
+    public List<string> StartOrder { get; } = new();
+
+    public void AttachHost(ICronSessionHost host) { }
+
+    public void DetachHost(ICronSessionHost host) { }
+
+    public void Reset()
+    {
+        lock (_sync)
+        {
+            FailNext = false;
+            HostUnavailable = false;
+            PeakConcurrency = 0;
+            CompletedCount = 0;
+            StartOrder.Clear();
+        }
+    }
+
+    public async Task<CronSessionLaunchResult> LaunchAsync(CronTask task, CronTaskRunRecord run, CancellationToken cancellationToken)
+    {
+        if (HostUnavailable) return CronSessionLaunchResult.NotReady();
+
+        lock (_sync)
+        {
+            StartOrder.Add(task.Id);
+            _active++;
+            if (_active > PeakConcurrency) PeakConcurrency = _active;
+        }
+
+        try
+        {
+            await Task.Delay(60, cancellationToken);
+            if (FailNext)
+            {
+                return new CronSessionLaunchResult { Succeeded = false, State = CronRunState.Failed, Error = "simulated launch failure" };
+            }
+
+            return new CronSessionLaunchResult
+            {
+                Succeeded = true,
+                State = CronRunState.Succeeded,
+                ConversationId = "conv-" + run.RunId,
+                HistoryId = "hist-" + run.RunId
+            };
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                _active--;
+                CompletedCount++;
+            }
+        }
+    }
+}
