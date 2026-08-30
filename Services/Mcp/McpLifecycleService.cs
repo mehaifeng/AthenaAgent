@@ -42,11 +42,8 @@ public sealed class McpLifecycleService : IAsyncDisposable
         await ApplyAsync(_configService.Load()).ConfigureAwait(false);
     }
 
-    private async void OnConfigChanged(object? sender, AppConfig config)
-    {
-        try { await ApplyAsync(config).ConfigureAwait(false); }
-        catch (Exception ex) { _logger.Error(ex, "Failed to apply MCP configuration change"); }
-    }
+    private void OnConfigChanged(object? sender, AppConfig config)
+        => AsyncEventGuard.Run(() => ApplyAsync(config), "McpLifecycleService.OnConfigChanged");
 
     /// <summary>
     /// 计算目标状态（EnableMcp 关闭时目标为空集）与已应用状态的差异，只对新增/变更/删除的服务器动手。

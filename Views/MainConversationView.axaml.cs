@@ -1,3 +1,4 @@
+using Athena.UI.Services;
 using Athena.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
@@ -150,7 +151,10 @@ public partial class MainConversationView : UserControl
         base.OnDetachedFromVisualTree(e);
     }
 
-    private async void OnMessageInputPastingFromClipboard(object? sender, RoutedEventArgs e)
+    private void OnMessageInputPastingFromClipboard(object? sender, RoutedEventArgs e)
+        => AsyncEventGuard.Run(() => OnMessageInputPastingFromClipboardAsync(sender, e), nameof(OnMessageInputPastingFromClipboard));
+
+    private async Task OnMessageInputPastingFromClipboardAsync(object? sender, RoutedEventArgs e)
     {
         if (_viewModel == null) return;
 
@@ -195,7 +199,10 @@ public partial class MainConversationView : UserControl
         e.Handled = true;
     }
 
-    private async void OnFilesDrop(object? sender, DragEventArgs e)
+    private void OnFilesDrop(object? sender, DragEventArgs e)
+        => AsyncEventGuard.Run(() => OnFilesDropAsync(sender, e), nameof(OnFilesDrop));
+
+    private async Task OnFilesDropAsync(object? sender, DragEventArgs e)
     {
         if (_viewModel?.CanAcceptAttachments != true)
         {

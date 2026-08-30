@@ -1,3 +1,4 @@
+using Serilog;
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -204,7 +205,11 @@ public partial class SkillsViewModel : ViewModelBase, IDisposable
             else
                 Process.Start(new ProcessStartInfo("xdg-open", $"\"{path}\"") { UseShellExecute = true });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // 打不开文件管理器不影响任何应用状态，但静默会让用户以为点击没生效。
+            Log.Debug(ex, "Could not open {Path} in the system file manager", path);
+        }
     }
 
     private string GetString(string key, string fallback) => _localization?.GetString(key, fallback) ?? fallback;

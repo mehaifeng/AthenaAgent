@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Avalonia.Threading;
@@ -44,25 +45,21 @@ public sealed class AppConfigurationApplier : IDisposable
         _configService.ConfigChanged += OnConfigChanged;
     }
 
-    private async void OnConfigChanged(object? sender, AppConfig config)
+    private void OnConfigChanged(object? sender, AppConfig config)
+        => AsyncEventGuard.Run(() => OnConfigChangedAsync(config), "AppConfigurationApplier.OnConfigChanged");
+
+    private async Task OnConfigChangedAsync(AppConfig config)
     {
-        try
+        Apply(config);
+        var nextIdentity = ComputeEmbeddingIdentity(config);
+        if (nextIdentity != _embeddingIdentity)
         {
-            Apply(config);
-            var nextIdentity = ComputeEmbeddingIdentity(config);
-            if (nextIdentity != _embeddingIdentity)
+            _embeddingIdentity = nextIdentity;
+            if (_knowledgeBaseService != null)
             {
-                _embeddingIdentity = nextIdentity;
-                if (_knowledgeBaseService != null)
-                {
-                    await _knowledgeBaseService.RefreshVectorCacheAsync();
-                    _logger.Information("Embedding configuration changed; vector cache invalidated");
-                }
+                await _knowledgeBaseService.RefreshVectorCacheAsync();
+                _logger.Information("Embedding configuration changed; vector cache invalidated");
             }
-        }
-        catch (Exception exception)
-        {
-            _logger.Error(exception, "Failed to apply saved application configuration");
         }
     }
 

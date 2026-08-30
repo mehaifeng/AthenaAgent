@@ -1,3 +1,4 @@
+using Athena.UI.Services;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -400,7 +401,10 @@ public partial class WorkspaceWorkbenchView : UserControl
             QueueRenameTextBoxFocus(textBox, selectAll: true);
     }
 
-    private async void OnRenameTextBoxKeyDown(object? sender, KeyEventArgs e)
+    private void OnRenameTextBoxKeyDown(object? sender, KeyEventArgs e)
+        => AsyncEventGuard.Run(() => OnRenameTextBoxKeyDownAsync(sender, e), nameof(OnRenameTextBoxKeyDown));
+
+    private async Task OnRenameTextBoxKeyDownAsync(object? sender, KeyEventArgs e)
     {
         if (sender is not TextBox textBox
             || textBox.DataContext is not WorkspaceFileNodeViewModel node
@@ -422,7 +426,10 @@ public partial class WorkspaceWorkbenchView : UserControl
         if (node.IsRenaming) QueueRenameTextBoxFocus(textBox, selectAll: false);
     }
 
-    private async void OnRenameTextBoxLostFocus(object? sender, RoutedEventArgs e)
+    private void OnRenameTextBoxLostFocus(object? sender, RoutedEventArgs e)
+        => AsyncEventGuard.Run(() => OnRenameTextBoxLostFocusAsync(sender, e), nameof(OnRenameTextBoxLostFocus));
+
+    private async Task OnRenameTextBoxLostFocusAsync(object? sender, RoutedEventArgs e)
     {
         if (sender is not TextBox textBox
             || textBox.DataContext is not WorkspaceFileNodeViewModel { IsRenaming: true } node
@@ -481,7 +488,10 @@ public partial class WorkspaceWorkbenchView : UserControl
         e.Handled = true;
     }
 
-    private async void OnReviewSplitterDragCompleted(object? sender, VectorEventArgs e)
+    private void OnReviewSplitterDragCompleted(object? sender, VectorEventArgs e)
+        => AsyncEventGuard.Run(() => OnReviewSplitterDragCompletedAsync(sender, e), nameof(OnReviewSplitterDragCompleted));
+
+    private async Task OnReviewSplitterDragCompletedAsync(object? sender, VectorEventArgs e)
     {
         SyncActualWidthsFromColumns();
         _preferredReviewWidth = Math.Max(ReviewPaneMinWidth, _actualReviewWidth);
@@ -515,7 +525,10 @@ public partial class WorkspaceWorkbenchView : UserControl
         e.Handled = true;
     }
 
-    private async void OnEditorSplitterDragCompleted(object? sender, VectorEventArgs e)
+    private void OnEditorSplitterDragCompleted(object? sender, VectorEventArgs e)
+        => AsyncEventGuard.Run(() => OnEditorSplitterDragCompletedAsync(sender, e), nameof(OnEditorSplitterDragCompleted));
+
+    private async Task OnEditorSplitterDragCompletedAsync(object? sender, VectorEventArgs e)
     {
         SyncActualWidthsFromColumns();
         _preferredEditorWidth = Math.Max(EditorPaneMinWidth, _actualEditorWidth);

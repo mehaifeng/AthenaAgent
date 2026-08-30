@@ -123,7 +123,10 @@ public sealed class TerminalSessionManager : ITerminalSessionManager
         await DisposeSessionsAsync(all);
     }
 
-    private async void OnSessionExited(object? sender, EventArgs e)
+    private void OnSessionExited(object? sender, EventArgs e)
+        => AsyncEventGuard.Run(() => OnSessionExitedAsync(sender, e), nameof(OnSessionExited));
+
+    private async Task OnSessionExitedAsync(object? sender, EventArgs e)
     {
         if (sender is not TerminalSession session) return;
         session.Exited -= OnSessionExited;

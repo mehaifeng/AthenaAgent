@@ -121,7 +121,15 @@ public class ConfigService : IConfigService
                         return true;
                     }
                 }
-                catch { }
+                catch (IOException)
+                {
+                    // 文件被删除/占用时读不到写入时间：缓存判定失败即可，
+                    // 走下面的完整重载路径，不是错误。
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // 同上：权限变化只影响这次缓存命中判断。
+                }
             }
         }
 

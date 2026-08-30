@@ -194,7 +194,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         _debounceTimer?.Change(1000, Timeout.Infinite); // 1秒防抖
     }
 
-    private async void ProcessPendingUpdates(object? state)
+    private void ProcessPendingUpdates(object? state)
+        => AsyncEventGuard.Run(() => ProcessPendingUpdatesAsync(state), nameof(ProcessPendingUpdates));
+
+    private async Task ProcessPendingUpdatesAsync(object? state)
     {
         var filesToUpdate = _pendingUpdates.Keys.ToList();
         foreach (var relativePath in filesToUpdate)

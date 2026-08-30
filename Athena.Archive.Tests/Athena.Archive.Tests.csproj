@@ -170,5 +170,7 @@
     <Compile Include="../Services/Mcp/McpConfigDiff.cs" Link="Source/Services/Mcp/McpConfigDiff.cs" />
     <Compile Include="../Services/Mcp/McpManagementFunctions.cs" Link="Source/Services/Mcp/McpManagementFunctions.cs" />
     <Compile Include="../Services/Mcp/McpLifecycleService.cs" Link="Source/Services/Mcp/McpLifecycleService.cs" />
+    <!-- async void 事件处理器的异常护栏；McpLifecycleService 的配置变更处理器经它转发。 -->
+    <Compile Include="../Services/AsyncEventGuard.cs" Link="Source/Services/AsyncEventGuard.cs" />
   </ItemGroup>
 </Project>

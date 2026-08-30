@@ -148,7 +148,10 @@ public sealed class SkillCatalogService : ISkillCatalogService
         {
             if (!string.IsNullOrEmpty(destination) && Directory.Exists(destination))
             {
-                try { Directory.Delete(destination, recursive: true); } catch { }
+                // 尽力清掉半成品目录。这里已在外层 catch 内，清理失败不能盖过
+                // 真正的导入错误——那才是要报给用户的东西。
+                try { Directory.Delete(destination, recursive: true); }
+                catch (Exception cleanupEx) { _logger.Debug(cleanupEx, "Could not remove the partial Skill import at {Path}", destination); }
             }
             _logger.Warning(ex, "Failed to import Skill from {Source}", sourcePath);
             return new SkillImportValidationResult(false, $"Import failed: {ex.Message}");
@@ -506,7 +509,10 @@ public sealed class SkillCatalogService : ISkillCatalogService
         {
             if (!string.IsNullOrEmpty(TemporaryRoot) && Directory.Exists(TemporaryRoot))
             {
-                try { Directory.Delete(TemporaryRoot, recursive: true); } catch { }
+                // Dispose 里抛异常会顶掉正在传播的真实异常；临时目录残留由系统清理兜底。
+                try { Directory.Delete(TemporaryRoot, recursive: true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
     }

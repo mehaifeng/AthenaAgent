@@ -1,3 +1,4 @@
+using Athena.UI.Services;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
@@ -328,7 +329,10 @@ public partial class MainWindow : Window
         rightWidth = rightMinWidth + (rightExtra * scale);
     }
 
-    private async void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+    private void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+        => AsyncEventGuard.Run(() => OnSideSplitterDragCompletedAsync(sender, e), nameof(OnSideSplitterDragCompleted));
+
+    private async Task OnSideSplitterDragCompletedAsync(object? sender, Avalonia.Input.VectorEventArgs e)
     {
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _viewModel == null || _leftShellColumn == null || _rightShellColumn == null) return;
@@ -345,7 +349,10 @@ public partial class MainWindow : Window
         await _viewModel.SaveConfigurationNowAsync();
     }
 
-    private async void OnRightRowSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+    private void OnRightRowSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
+        => AsyncEventGuard.Run(() => OnRightRowSplitterDragCompletedAsync(sender, e), nameof(OnRightRowSplitterDragCompleted));
+
+    private async Task OnRightRowSplitterDragCompletedAsync(object? sender, Avalonia.Input.VectorEventArgs e)
     {
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _viewModel == null || _rightLogRow == null) return;
