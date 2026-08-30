@@ -472,15 +472,24 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     /// 任务页"打开这次运行的会话"的落点。任务页只认 <see cref="IConversationNavigator"/>，
     /// 不直接翻本窗口的集合。
     /// </summary>
-    public bool TryNavigateToConversation(string? historyId, string? conversationId)
+    public async Task<bool> TryNavigateToConversationAsync(string? historyId, string? conversationId)
     {
         if (string.IsNullOrWhiteSpace(historyId) && string.IsNullOrWhiteSpace(conversationId)) return false;
 
+        // 选中会话必须在 UI 线程上做，但绝不阻塞等它：await InvokeAsync 会在等待期间
+        // 让出调用线程，而 GetAwaiter().GetResult() 会把它钉死——后台线程钉住 UI 线程、
+        // UI 线程又在等后台，就是 PersistSessionStateAsync 注释里那种只能强杀的退出死锁。
         if (!Dispatcher.UIThread.CheckAccess())
         {
-            return Dispatcher.UIThread.InvokeAsync(() => TryNavigateToConversation(historyId, conversationId)).GetAwaiter().GetResult();
+            return await Dispatcher.UIThread.InvokeAsync(
+                () => TryNavigateToConversationCore(historyId, conversationId));
         }
 
+        return TryNavigateToConversationCore(historyId, conversationId);
+    }
+
+    private bool TryNavigateToConversationCore(string? historyId, string? conversationId)
+    {
         var session = ConversationGroups
             .SelectMany(group => group.Conversations)
             .FirstOrDefault(candidate =>

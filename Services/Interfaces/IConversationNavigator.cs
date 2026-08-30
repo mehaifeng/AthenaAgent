@@ -1,3 +1,5 @@
+using System.Threading.Tasks;
+
 namespace Athena.UI.Services.Interfaces;
 
 /// <summary>
@@ -7,8 +9,13 @@ namespace Athena.UI.Services.Interfaces;
 /// </summary>
 public interface IConversationNavigationTarget
 {
-    /// <summary>按历史条目 ID 或会话 ID 选中一个会话；找不到返回 false。</summary>
-    bool TryNavigateToConversation(string? historyId, string? conversationId);
+    /// <summary>
+    /// 按历史条目 ID 或会话 ID 选中一个会话；找不到返回 false。
+    /// 异步是为了让后台调用方能 await 而不是阻塞：选中会话必须在 UI 线程上做，
+    /// 同步签名会逼实现方 <c>InvokeAsync(...).GetAwaiter().GetResult()</c>，
+    /// 那正是本项目退出流程栽过的那种互等死锁。
+    /// </summary>
+    Task<bool> TryNavigateToConversationAsync(string? historyId, string? conversationId);
 }
 
 /// <summary>可注入的跳转入口；宿主未挂载时安全地返回 false。</summary>
@@ -20,5 +27,5 @@ public interface IConversationNavigator
 
     void DetachTarget(IConversationNavigationTarget target);
 
-    bool TryNavigateToConversation(string? historyId, string? conversationId);
+    Task<bool> TryNavigateToConversationAsync(string? historyId, string? conversationId);
 }

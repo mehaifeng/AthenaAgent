@@ -48,11 +48,11 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         var items = new List<ConversationHistoryItem>();
         var repairedItems = new List<ConversationHistoryItem>();
         await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync();
+        await connection.OpenAsync().ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT payload FROM conversations ORDER BY updated_at DESC";
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        await using var reader = await command.ExecuteReaderAsync().ConfigureAwait(false);
+        while (await reader.ReadAsync().ConfigureAwait(false))
         {
             try
             {
@@ -74,7 +74,7 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
 
         foreach (var repairedItem in repairedItems)
         {
-            await SaveAsync(repairedItem);
+            await SaveAsync(repairedItem).ConfigureAwait(false);
         }
         return items;
     }
@@ -84,17 +84,17 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         try
         {
             await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync().ConfigureAwait(false);
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT payload FROM conversations WHERE id = $id";
             command.Parameters.AddWithValue("$id", ValidateId(id));
-            var payload = await command.ExecuteScalarAsync() as string;
+            var payload = await command.ExecuteScalarAsync().ConfigureAwait(false) as string;
             if (payload == null) return null;
             var item = JsonSerializer.Deserialize<ConversationHistoryItem>(payload, JsonOptions);
             if (item != null && ConversationPersistenceRecovery.Repair(item))
             {
                 _logger.Warning("Idempotently repaired compression session persistence invariant: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
-                await SaveAsync(item);
+                await SaveAsync(item).ConfigureAwait(false);
             }
             return item;
         }
@@ -105,15 +105,19 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         }
     }
 
+    // 本文件每个 await 都必须 ConfigureAwait(false)。_writeGate 同时被这里的异步路径和
+    // 草稿存储的同步 Save()/Delete()（_writeGate.Wait()）持有：续体一旦贴回 UI 线程，
+    // 而 UI 线程正阻塞在 Wait() 上，异步持有者就永远拿不到线程去 Release——闸门再不打开，
+    // 界面永久冻结。与 MainWindowViewModel.PersistSessionStateAsync 注释记载的退出死锁同形。
     public async Task SaveAsync(ConversationHistoryItem item)
     {
-        await _writeGate.WaitAsync();
+        await _writeGate.WaitAsync().ConfigureAwait(false);
         try
         {
             var payload = JsonSerializer.Serialize(item, JsonOptions);
             var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
             await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync().ConfigureAwait(false);
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, revision, payload_hash, payload)
@@ -139,10 +143,10 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
             command.Parameters.AddWithValue("$revision", item.Revision);
             command.Parameters.AddWithValue("$payloadHash", payloadHash);
             command.Parameters.AddWithValue("$payload", payload);
-            var affected = await command.ExecuteNonQueryAsync();
+            var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
             if (affected == 0)
             {
-                await ValidateRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash);
+                await ValidateRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash).ConfigureAwait(false);
             }
         }
         finally
@@ -160,8 +164,8 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         await using var current = connection.CreateCommand();
         current.CommandText = "SELECT revision, payload_hash FROM conversations WHERE id = $id";
         current.Parameters.AddWithValue("$id", ValidateId(id));
-        await using var reader = await current.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
+        await using var reader = await current.ExecuteReaderAsync().ConfigureAwait(false);
+        if (!await reader.ReadAsync().ConfigureAwait(false))
         {
             throw new InvalidOperationException("Conversation write was rejected but the current row is missing.");
         }
@@ -186,15 +190,15 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
 
     public async Task DeleteAsync(string id)
     {
-        await _writeGate.WaitAsync();
+        await _writeGate.WaitAsync().ConfigureAwait(false);
         try
         {
             await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            await connection.OpenAsync().ConfigureAwait(false);
             await using var command = connection.CreateCommand();
             command.CommandText = "DELETE FROM conversations WHERE id = $id";
             command.Parameters.AddWithValue("$id", ValidateId(id));
-            await command.ExecuteNonQueryAsync();
+            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
         finally
         {

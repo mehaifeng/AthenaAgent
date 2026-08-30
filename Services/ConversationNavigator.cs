@@ -1,6 +1,7 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
+using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
 
@@ -28,7 +29,7 @@ public sealed class ConversationNavigator : IConversationNavigator
         if (ReferenceEquals(_target, target)) _target = null;
     }
 
-    public bool TryNavigateToConversation(string? historyId, string? conversationId)
+    public async Task<bool> TryNavigateToConversationAsync(string? historyId, string? conversationId)
     {
         var target = _target;
         if (target == null)
@@ -39,7 +40,7 @@ public sealed class ConversationNavigator : IConversationNavigator
 
         try
         {
-            return target.TryNavigateToConversation(historyId, conversationId);
+            return await target.TryNavigateToConversationAsync(historyId, conversationId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

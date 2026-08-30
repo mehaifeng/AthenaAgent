@@ -222,11 +222,11 @@ public partial class TasksViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand]
-    private void OpenRunConversation(CronTaskRunItemViewModel? run)
+    private async Task OpenRunConversationAsync(CronTaskRunItemViewModel? run)
     {
         if (run == null || _navigator == null || !run.CanOpenConversation) return;
 
-        StatusMessage = _navigator.TryNavigateToConversation(run.HistoryId, run.ConversationId)
+        StatusMessage = await _navigator.TryNavigateToConversationAsync(run.HistoryId, run.ConversationId)
             ? string.Empty
             : L("Cron.Toast.ConversationMissing", "That run's session is no longer available.");
     }
