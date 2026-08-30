@@ -134,7 +134,10 @@ public partial class ChatMessageSegment : ObservableObject
     [NotifyPropertyChangedFor(nameof(TextMaxLines))]
     private bool _isClamped = true;
 
+    // 生成的 ICommand 属性是公开可读的，不挡住就会被写进归档（历史归档里留有
+    // toggleExpandedCommand / toggleClampCommand 两个空对象）。命令是行为不是状态。
     [RelayCommand]
+    [property: JsonIgnore]
     private void ToggleExpanded()
     {
         UserToggled = true;
@@ -142,6 +145,7 @@ public partial class ChatMessageSegment : ObservableObject
     }
 
     [RelayCommand]
+    [property: JsonIgnore]
     private void ToggleClamp() => IsClamped = !IsClamped;
 
     [JsonIgnore]

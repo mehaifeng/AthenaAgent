@@ -172,7 +172,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chat transport sends the per-request output cap without mutating the snapshot", TestChatTransportPerRequestOutputCapAsync),
     ("tool call batching parallelizes read-only runs without reordering writes", TestToolCallParallelismAsync),
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
-    ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync)
+    ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
+    ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync)
 };
 
 var failures = new List<string>();
@@ -5935,6 +5936,138 @@ static ChatAttachment CreateImageAttachment(string id, string fileName, string s
         MimeType = "image/png",
         CreatedAt = createdAt
     };
+}
+
+// 持久化是白名单，不是"类型碰巧暴露了什么"。
+//
+// ChatMessage / ChatMessageSegment / ToolCallEntry 同时是渲染模型和磁盘 schema，
+// 于是每个计算属性、每个瞬时 UI 标志、每个 [RelayCommand] 生成的命令属性都会被
+// System.Text.Json 写进归档——它们是 get-only 的，反序列化时全部丢弃，只写不读。
+//
+// 权威定义：持久化字段集合 == ConversationPersistenceHelper.CloneMessage 复制的集合。
+// CloneMessage 拒绝复制的、PrepareRestoredMessage 会重置的，都不该落盘。
+//
+// 这条断言存在的原因：加固之前 ChatMessage 每条消息写 51 个字段，而真正会被恢复的只有 17 个。
+// 拿真实归档（24 个会话 / 794 条消息）按白名单重新序列化，从 6 589 718 降到 4 067 605 字节——
+// 38.3% 的归档是只写不读的状态（存储用 WriteIndented = true，每个废字段自占一行）。
+// 派生属性把 content 复制进 displayText、把整个附件数组复制进 attachmentPanelItems；
+// 而且因为 ConversationArchiveStore
+// 靠 payload_hash 未变来跳过写入，isLoading 这类流式期间翻转的瞬时标志会让去重失效、
+// 强制整份 payload 重写。当时只有会让序列化器崩溃的两个属性
+// （LegacyMarkdownContent => this 无限递归、SegmentContent）被发现过，另外 25 个
+// 静默存在了整个生命周期——这个不对称正是本断言的意义。
+//
+// 失败时：给新属性加 [JsonIgnore]，不要扩白名单，除非该字段真的会被恢复。
+static Task TestPersistedMessageFieldWhitelistAsync()
+{
+    // 必须与 ConversationArchiveStore.JsonOptions 一致，否则测的不是真实落盘形态。
+    var options = new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    // 全字段填满：默认值可能因缺省而缺席，掩盖真正的泄漏。
+    var message = new ChatMessage
+    {
+        Id = "m1",
+        Role = "assistant",
+        Content = "body",
+        Timestamp = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Local),
+        ProviderId = "p1",
+        ModelId = "model-x",
+        IsHeartbeat = true,
+        ToolCallId = "call-1",
+        ToolCallsJson = "[]",
+        ReasoningContent = "thought",
+        OutputAudioReferenceId = "audio-1",
+        AudioErrorMessage = "boom",
+        IsCompressed = true,
+        IsHidden = true,
+        ToolName = "web_search",
+        // 以下九项是瞬时 UI 态：CloneMessage 拒绝复制 / PrepareRestoredMessage 会重置
+        IsLoading = true,
+        IsStreaming = true,
+        IsGeneratingAudio = true,
+        IsComposingFileText = true,
+        AudioFeatureEnabled = true,
+        IsCompressionBoundary = true,
+        CanRewind = true,
+        ContextMaintenanceStatus = "compressing",
+        ToolExecutionSummary = "calling web_search",
+    };
+    message.Attachments.Add(new ChatAttachment { Id = "a1", FileName = "f.png", Kind = AttachmentKind.Image });
+
+    var segment = new ChatMessageSegment
+    {
+        Kind = ChatMessageSegmentKind.ToolCallGroup,
+        Text = "seg",
+        AttachmentId = "a1",
+        IsExpanded = true,
+        UserToggled = true,
+        IsAppending = true,
+        IsClamped = false,
+    };
+    segment.ToolCalls.Add(new ToolCallEntry
+    {
+        ToolCallId = "call-1",
+        Name = "web_search",
+        Summary = "searching",
+        Arguments = "{}",
+        Result = "ok",
+        Status = ToolCallStatus.Success,
+        IsExpanded = true,
+    });
+    message.Segments.Add(segment);
+
+    var serialized = JsonSerializer.Serialize(message, options);
+    using var document = JsonDocument.Parse(serialized);
+    var root = document.RootElement;
+
+    // 与 CloneMessage 逐字段对齐。
+    AssertPersistedFields(
+        root,
+        new[]
+        {
+            "id", "role", "content", "timestamp", "providerId", "modelId", "isHeartbeat",
+            "toolCallId", "toolCallsJson", "reasoningContent", "outputAudioReferenceId",
+            "audioErrorMessage", "attachments", "segments", "isCompressed", "isHidden", "toolName",
+        },
+        "ChatMessage");
+
+    AssertPersistedFields(
+        root.GetProperty("segments")[0],
+        new[] { "kind", "text", "attachmentId", "toolCalls" },
+        "ChatMessageSegment");
+
+    AssertPersistedFields(
+        root.GetProperty("segments")[0].GetProperty("toolCalls")[0],
+        new[] { "toolCallId", "name", "summary", "arguments", "result", "status" },
+        "ToolCallEntry");
+
+    // 反向保护：归档里出现命令属性说明 [RelayCommand] 生成的 ICommand 又漏了出去。
+    AssertFalse(
+        serialized.Contains("Command\":", StringComparison.Ordinal),
+        "归档里不应出现任何 ICommand 属性——命令是行为不是状态，用 [property: JsonIgnore] 挡住");
+
+    return Task.CompletedTask;
+}
+
+static void AssertPersistedFields(JsonElement element, string[] expected, string typeName)
+{
+    var actual = element.EnumerateObject().Select(property => property.Name).ToArray();
+
+    var leaked = actual.Except(expected, StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+    AssertTrue(
+        leaked.Length == 0,
+        $"{typeName} 把非持久化字段写进了归档: {string.Join(", ", leaked)}。"
+        + "派生属性/瞬时 UI 态/命令属性都要加 [JsonIgnore] 或 [property: JsonIgnore]，不要扩白名单。");
+
+    var missing = expected.Except(actual, StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+    AssertTrue(
+        missing.Length == 0,
+        $"{typeName} 少写了应持久化的字段: {string.Join(", ", missing)}。"
+        + "白名单跟 CloneMessage 对齐——真丢了数据，比多写几个字节严重得多。");
 }
 
 sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost

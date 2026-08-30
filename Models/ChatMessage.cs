@@ -67,6 +67,7 @@ public partial class ChatMessage : ObservableObject
     /// 是否正在加载中
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
@@ -76,6 +77,7 @@ public partial class ChatMessage : ObservableObject
     /// Whether the model is streaming text for a file-write tool call.
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(ShowDefaultThinkingText))]
     [NotifyPropertyChangedFor(nameof(ShowComposingFileText))]
     private bool _isComposingFileText;
@@ -85,6 +87,7 @@ public partial class ChatMessage : ObservableObject
     /// 保证空气泡在 loading→内容 的切换缝隙里也不会塌缩消失。
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
     private bool _isStreaming;
@@ -110,6 +113,7 @@ public partial class ChatMessage : ObservableObject
     private string? _reasoningContent;
 
     /// <summary>该助手消息是否带有可回放的推理文本。</summary>
+    [JsonIgnore]
     public bool HasReasoningContent => !string.IsNullOrWhiteSpace(ReasoningContent);
 
     [ObservableProperty]
@@ -125,6 +129,7 @@ public partial class ChatMessage : ObservableObject
     /// 语音异步生成时为 true，仅驱动本气泡的"生成语音中"提示，不影响任何命令可用性。
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
     private bool _isGeneratingAudio;
@@ -134,6 +139,7 @@ public partial class ChatMessage : ObservableObject
     /// 仅决定「生成语音」按钮是否出现，不影响任何已有音频的播放。
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
     private bool _audioFeatureEnabled;
 
@@ -151,6 +157,7 @@ public partial class ChatMessage : ObservableObject
     /// 纯 UI 派生态，由 VM 统一重算，不参与持久化（CloneMessage 不复制它）。
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     private bool _isCompressionBoundary;
 
     /// <summary>
@@ -159,6 +166,7 @@ public partial class ChatMessage : ObservableObject
     /// 「xxx 调用完毕，持续思考中…」被覆盖后再也回不来。
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(HasContextMaintenanceStatus))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
@@ -166,36 +174,45 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowComposingFileText))]
     private string _contextMaintenanceStatus = string.Empty;
 
+    [JsonIgnore]
     public bool HasContextMaintenanceStatus => !string.IsNullOrEmpty(ContextMaintenanceStatus);
 
     /// <summary>
     /// 是否允许回滚/fork（仅 user 消息，发送/压缩期间由 VM 统一关闭）
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(CanShowRewind))]
     private bool _canRewind;
 
     /// <summary>
     /// 是否显示回滚/fork 按钮（允许操作且未压缩）
     /// </summary>
+    [JsonIgnore]
     public bool CanShowRewind => CanRewind && !IsCompressed;
 
     /// <summary>
     /// 是否真正有可见内容需要展示
     /// </summary>
+    [JsonIgnore]
     public bool IsContentVisible => !string.IsNullOrWhiteSpace(Content);
 
+    [JsonIgnore]
     public bool HasAttachments => Attachments.Count > 0;
 
+    [JsonIgnore]
     public bool HasSegments => Segments.Count > 0;
 
+    [JsonIgnore]
     public bool UsesSegmentLayout => HasSegments;
 
+    [JsonIgnore]
     public bool HasImageSegments => Segments.Any(segment => segment.IsGeneratedImage);
 
     /// <summary>
     /// 无 Segment 布局时，user / assistant 消息统一使用 Markdown 渲染
     /// </summary>
+    [JsonIgnore]
     public bool ShouldShowLegacyMarkdown => !UsesSegmentLayout && IsContentVisible;
 
     /// <summary>非空时才实例化 legacy Markdown 模板。</summary>
@@ -206,11 +223,13 @@ public partial class ChatMessage : ObservableObject
     [JsonIgnore]
     public IEnumerable<ChatMessageSegment>? SegmentContent => UsesSegmentLayout ? Segments : null;
 
+    [JsonIgnore]
     public IEnumerable<ChatAttachment> AttachmentPanelItems =>
         UsesSegmentLayout
             ? Attachments.Where(attachment => !attachment.IsImage)
             : Attachments;
 
+    [JsonIgnore]
     public bool ShouldShowAttachmentPanel => AttachmentPanelItems.Any();
 
     /// <summary>
@@ -224,12 +243,14 @@ public partial class ChatMessage : ObservableObject
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）
     /// 注意：Role 为 tool 或 system 时强制不可见
     /// </summary>
+    [JsonIgnore]
     public bool IsBubbleVisible => !IsHidden && Role != "system" && Role != "tool" && (IsContentVisible || HasSegments || HasAttachments || HasToolExecutionSummary || HasContextMaintenanceStatus || HasAudioError || IsLoading || IsStreaming || IsGeneratingAudio);
 
     /// <summary>
     /// 工具执行摘要提示
     /// </summary>
     [ObservableProperty]
+    [property: JsonIgnore]
     [NotifyPropertyChangedFor(nameof(HasToolExecutionSummary))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
@@ -243,6 +264,7 @@ public partial class ChatMessage : ObservableObject
     [ObservableProperty]
     private string _toolName = string.Empty;
 
+    [JsonIgnore]
     public bool HasToolExecutionSummary => !string.IsNullOrEmpty(ToolExecutionSummary);
 
     /// <summary>
@@ -250,15 +272,20 @@ public partial class ChatMessage : ObservableObject
     /// 不能只靠 IsVisible 隐藏：Avalonia 对不可见元素的关键帧动画仍会持续
     /// 驱动合成器逐帧渲染（AvaloniaUI/Avalonia#17139）。
     /// </summary>
+    [JsonIgnore]
     public bool ShowThinkingIndicator => IsLoading && !HasToolExecutionSummary && !HasContextMaintenanceStatus;
 
+    [JsonIgnore]
     public bool ShowDefaultThinkingText => !HasToolExecutionSummary && !HasContextMaintenanceStatus && !IsComposingFileText;
 
+    [JsonIgnore]
     public bool ShowComposingFileText => !HasToolExecutionSummary && !HasContextMaintenanceStatus && IsComposingFileText;
 
+    [JsonIgnore]
     public bool HasAudioError => !string.IsNullOrWhiteSpace(AudioErrorMessage);
 
     /// <summary>该消息是否已带有语音附件。</summary>
+    [JsonIgnore]
     public bool HasAudioAttachment => Attachments.Any(a => a.IsAudio);
 
     /// <summary>
@@ -266,6 +293,7 @@ public partial class ChatMessage : ObservableObject
     /// 尚无语音附件、且当前既未在生成语音、也不在流式回复中。
     /// 覆盖两类场景：语音生成被新消息挤掉后的手动补生成，以及历史消息补生成。
     /// </summary>
+    [JsonIgnore]
     public bool CanGenerateAudio =>
         AudioFeatureEnabled
         && Role == "assistant"
@@ -278,21 +306,25 @@ public partial class ChatMessage : ObservableObject
     /// <summary>
     /// 是否可以复制该消息
     /// </summary>
+    [JsonIgnore]
     public bool CanCopy => true;
 
     /// <summary>
     /// 显示文本；Segment 布局启用时 legacy renderer 不可见，返回空避免其做无效 Markdown 解析。
     /// </summary>
+    [JsonIgnore]
     public string DisplayText => UsesSegmentLayout ? string.Empty : Content;
 
     /// <summary>
     /// 时间戳显示格式
     /// </summary>
+    [JsonIgnore]
     public string TimestampText => Timestamp.ToString("[HH:mm:ss]");
 
     /// <summary>
     /// 角色显示图标
     /// </summary>
+    [JsonIgnore]
     public string RoleIcon => Role switch
     {
         "user" => ">",
@@ -305,11 +337,13 @@ public partial class ChatMessage : ObservableObject
     /// <summary>
     /// 是否为用户消息
     /// </summary>
+    [JsonIgnore]
     public bool IsUser => Role == "user";
 
     /// <summary>
     /// 是否在 UI 中可见（system 和 tool 消息只对 LLM 可见，不对用户显示）
     /// </summary>
+    [JsonIgnore]
     public bool IsVisibleToUser => Role != "system" && Role != "tool";
 
     public void NotifyAttachmentsChanged()

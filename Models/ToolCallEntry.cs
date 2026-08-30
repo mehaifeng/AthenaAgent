@@ -52,7 +52,9 @@ public partial class ToolCallEntry : ObservableObject
     [NotifyPropertyChangedFor(nameof(ExpandedDetails))]
     private bool _isExpanded;
 
+    // 见 ChatMessageSegment：生成的 ICommand 属性不挡住就会进归档。
     [RelayCommand]
+    [property: JsonIgnore]
     private void ToggleExpanded() => IsExpanded = !IsExpanded;
 
     [JsonIgnore]
