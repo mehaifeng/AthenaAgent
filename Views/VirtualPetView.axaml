@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:controls="using:Athena.UI.Controls"
+             xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.VirtualPetView"
              x:DataType="vm:VirtualPetViewModel"
              Width="{Binding ViewWidth}" Height="{Binding ViewHeight}"
@@ -30,21 +31,184 @@
                 </Animation>
             </Style.Animations>
         </Style>
+        <Style Selector="Border.pet-bubble">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground1}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MaxWidth" Value="230"/>
+        </Style>
+        <Style Selector="Border.pet-cue">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground1}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="MinWidth" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="Padding" Value="4,0"/>
+        </Style>
+        <Style Selector="TextBlock.pet-stat-label">
+            <Setter Property="Opacity" Value="0.7"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="TextBlock.pet-stat-value">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+        </Style>
     </UserControl.Styles>
 
-    <!-- A plain Border intentionally replaces Button: theme pointer-over templates
-         must never paint a hover plate behind the transparent pixel-art sprite. -->
-    <Border x:Name="PetSurface"
-            Classes="pet"
-            Classes.celebrating="{Binding IsCelebrating}"
-            Opacity="1"
-            Cursor="Hand"
-            ToolTip.Tip="{Binding StatusText}">
-        <controls:PetDexSprite PetSlug="{Binding PetSlug}"
-                               AnimationState="{Binding AnimationState}"
-                               FrameIndex="{Binding FrameIndex}"
-                               Width="{Binding PetWidth}"
-                               Height="{Binding PetHeight}"
-                               IsHitTestVisible="False"/>
-    </Border>
+    <!-- 根用 Canvas 而不是 Panel：Panel 会用自己的尺寸（= 宠物大小）去约束子元素，
+         挂在宠物上方的气泡因此会被量成 0 高，什么都画不出来。Canvas 用无限可用空间测量，
+         再按 Left/Top/Right/Bottom 摆放，溢出部分靠 ClipToBounds=False 照常渲染。
+         气泡和提示符都不参与命中测试，不会挡住宠物本身的点击与拖拽。 -->
+    <Canvas>
+        <!-- 一个普通 Border 刻意代替 Button：主题的 pointer-over 模板绝不能在
+             透明像素画背后画出一块悬停底板。 -->
+        <Border x:Name="PetSurface"
+                Classes="pet"
+                Canvas.Left="0"
+                Canvas.Top="0"
+                Classes.celebrating="{Binding IsCelebrating}"
+                Opacity="1"
+                Cursor="Hand"
+                ToolTip.Tip="{Binding StatusText}">
+            <controls:PetDexSprite PetSlug="{Binding PetSlug}"
+                                   AnimationState="{Binding AnimationState}"
+                                   FrameIndex="{Binding FrameIndex}"
+                                   Width="{Binding PetWidth}"
+                                   Height="{Binding PetHeight}"
+                                   IsHitTestVisible="False"/>
+            <Border.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Pat}" Command="{Binding PatCommand}"/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Feed}" Command="{Binding FeedCommand}"/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Play}" Command="{Binding PlayCommand}"/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Speak}" Command="{Binding SpeakCommand}"/>
+                    <Separator/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Profile}" Command="{Binding ToggleProfileCommand}"/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Rest}" Command="{Binding RestCommand}"/>
+                    <Separator/>
+                    <MenuItem Header="{loc:Loc Pet.Menu.Hide}" Command="{Binding HideCommand}"/>
+                </ContextMenu>
+            </Border.ContextMenu>
+        </Border>
+
+        <!-- 状态/需求提示符：右上角小角标。 -->
+        <Border Classes="pet-cue"
+                Canvas.Top="-4"
+                Canvas.Right="-6"
+                IsHitTestVisible="False"
+                IsVisible="{Binding HasCue}">
+            <TextBlock Text="{Binding CueSymbol}"
+                       FontSize="11"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- 台词气泡：挂在宠物正上方，纯展示。 -->
+        <Border Classes="pet-bubble"
+                Canvas.Right="0"
+                Canvas.Bottom="{Binding BubbleOffsetY}"
+                IsHitTestVisible="False"
+                IsVisible="{Binding HasBubble}">
+            <TextBlock Text="{Binding BubbleText}"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       MaxWidth="210"/>
+        </Border>
+
+        <!-- 宠物档案：Popup 而不是内嵌面板——它比宠物大得多，
+             需要自己的层级和"点外部关闭"，这两样 Popup 都自带。 -->
+        <Popup x:Name="PetProfilePopup"
+               PlacementTarget="{Binding #PetSurface}"
+               Placement="TopEdgeAlignedRight"
+               VerticalOffset="-8"
+               IsLightDismissEnabled="True"
+               IsOpen="{Binding IsProfileOpen, Mode=TwoWay}">
+            <Border Background="{DynamicResource SemiColorBackground1}"
+                    BorderBrush="{DynamicResource SemiColorBorder}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="14"
+                    Width="260"
+                    BoxShadow="0 6 20 0 #22000000">
+                <StackPanel Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding PetDisplayName}" FontWeight="Bold" FontSize="14"/>
+                        <TextBlock Text="{Binding RankTitle}" Opacity="0.75" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="3">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Level}"/>
+                            <TextBlock Grid.Column="1" Classes="pet-stat-value" Text="{Binding LevelProgressText}"/>
+                        </Grid>
+                        <ProgressBar Minimum="0" Maximum="1" Value="{Binding LevelProgress}" Height="6"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="3">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Mood}"/>
+                            <TextBlock Grid.Column="1" Classes="pet-stat-value" Text="{Binding MoodValue, StringFormat={}{0:F0}}"/>
+                        </Grid>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding MoodValue}" Height="6"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="3">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Energy}"/>
+                            <TextBlock Grid.Column="1" Classes="pet-stat-value" Text="{Binding EnergyValue, StringFormat={}{0:F0}}"/>
+                        </Grid>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding EnergyValue}" Height="6"/>
+                    </StackPanel>
+
+                    <Border Height="1" Background="{DynamicResource SemiColorBorder}" Opacity="0.6"/>
+
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Days}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Classes="pet-stat-value" Text="{Binding CompanionDays}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Bond}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Classes="pet-stat-value" Text="{Binding BondValue}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.NeedsMet}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Classes="pet-stat-value" Text="{Binding TotalNeedsMet}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Pats}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Classes="pet-stat-value" Text="{Binding TotalPats}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.Conversations}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Classes="pet-stat-value" Text="{Binding TotalConversations}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="0" Classes="pet-stat-label" Text="{loc:Loc Pet.Profile.ToolCalls}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Classes="pet-stat-value" Text="{Binding TotalToolCalls}"/>
+                    </Grid>
+
+                    <TextBlock Text="{Binding NeedText}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding HasActiveNeed}"
+                               Opacity="0.85"/>
+
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0"
+                                x:Name="PetProfilePatButton"
+                                Content="{loc:Loc Pet.Menu.Pat}"
+                                Command="{Binding PatCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                x:Name="PetProfileFeedButton"
+                                Content="{loc:Loc Pet.Menu.Feed}"
+                                Command="{Binding FeedCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                x:Name="PetProfilePlayButton"
+                                Content="{loc:Loc Pet.Menu.Play}"
+                                Command="{Binding PlayCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Canvas>
 </UserControl>

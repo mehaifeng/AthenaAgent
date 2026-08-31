@@ -12,6 +12,9 @@ public sealed class VirtualPetMotionEngine
     private const double Gravity = 1350;
     private const double RoamStartHopChance = 0.25;
     private const double IdleHopRatePerSecond = 0.1;
+
+    /// <summary>一次"陪它玩"冲刺持续多久。够看清它跑出去又停下来。</summary>
+    private const double PlayBurstSeconds = 1.8;
     private readonly Random _random;
     private double _fullMinX;
     private double _fullMinY;
@@ -22,6 +25,7 @@ public sealed class VirtualPetMotionEngine
     private double _walkVelocityY;
     private double _roamTime;
     private double _roamWait = 1.2;
+    private double _playBurstTime;
 
     public VirtualPetMotionEngine(int? randomSeed = null)
     {
@@ -33,6 +37,9 @@ public sealed class VirtualPetMotionEngine
     public double HorizontalVelocity => _throwVelocityX + _walkVelocityX;
     public double VerticalVelocity => _throwVelocityY + _walkVelocityY;
     public bool IsDragging { get; private set; }
+
+    /// <summary>是否正在执行一次"陪它玩"冲刺。</summary>
+    public bool IsPlaying => _playBurstTime > 0;
 
     public void SetBounds(
         double width,
@@ -60,6 +67,28 @@ public sealed class VirtualPetMotionEngine
         _throwVelocityX = 0;
         _throwVelocityY = 0;
         _roamTime = 0;
+        _playBurstTime = 0;
+    }
+
+    /// <summary>
+    /// "陪它玩"：一次明确的横向冲刺（重力开启时外加一跳）。
+    /// 它<b>不</b>受漫游开关约束——这是用户刚刚下达的指令，不是自发行为；
+    /// 关掉漫游的人想要的是"别自己乱跑"，不是"点了陪玩也不动"。
+    /// </summary>
+    public void TriggerPlayBurst(bool gravityEnabled)
+    {
+        if (IsDragging) return;
+        _playBurstTime = PlayBurstSeconds;
+        _roamWait = 0;
+        _roamTime = 0;
+        var speed = 120 + _random.NextDouble() * 70;
+        _walkVelocityX = (_random.Next(2) == 0 ? -1 : 1) * speed;
+        _walkVelocityY = 0;
+        if (gravityEnabled && Y >= -1)
+        {
+            var targetHeight = Math.Clamp(-_roamMinY * 0.3, 40, 110);
+            _throwVelocityY = -Math.Sqrt(2 * Gravity * targetHeight);
+        }
     }
 
     public void DragTo(double x, double y, double elapsedSeconds)
@@ -144,10 +173,23 @@ public sealed class VirtualPetMotionEngine
         _walkVelocityY = 0;
         _roamTime = 0;
         _roamWait = 0.8;
+        _playBurstTime = 0;
     }
 
     private void UpdateRoaming(double dt, bool enabled, bool gravityEnabled)
     {
+        // 冲刺优先于漫游开关：它由一次显式的用户操作触发，跑完才交还控制权。
+        if (_playBurstTime > 0)
+        {
+            _playBurstTime -= dt;
+            if (_playBurstTime <= 0)
+            {
+                _walkVelocityX = 0;
+                _walkVelocityY = 0;
+                _roamWait = 0.8;
+            }
+            return;
+        }
         if (!enabled)
         {
             StopAutomaticMotion();

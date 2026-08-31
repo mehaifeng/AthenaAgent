@@ -42,3 +42,9 @@ using System.Diagnostics.CodeAnalysis;
     Justification = "Conversation and session ownership transfers to the conversation tree, which disposes removed sessions.",
     Scope = "type",
     Target = "~T:Athena.UI.ViewModels.MainWindowViewModel")]
+[assembly: SuppressMessage(
+    "Reliability",
+    "CA2000:Dispose objects before losing scope",
+    Justification = "The detached pet services are handed to the returned view model, which disposes exactly what it created.",
+    Scope = "member",
+    Target = "~M:Athena.UI.ViewModels.VirtualPetViewModel.CreateDetached(Athena.UI.Services.Interfaces.ILocalizationService)~Athena.UI.ViewModels.VirtualPetViewModel")]

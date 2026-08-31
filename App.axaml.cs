@@ -22,6 +22,7 @@ using Athena.UI.Services.Skills;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ConfigSurface;
+using Athena.UI.Services.VirtualPet;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Athena.UI.Markup;
@@ -793,6 +794,26 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<IPlatformPathService>(),
                 new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
                 Log.ForContext<PetDexCatalogService>()));
+        // 虚拟宠物：养成状态是全应用单例（每个会话一个 ViewModel，但窗口上只有一只宠物）。
+        services.AddSingleton<IPetProfileStore>(sp =>
+            new PetProfileStore(
+                sp.GetRequiredService<IPlatformPathService>(),
+                Log.ForContext<PetProfileStore>()));
+        services.AddSingleton<IVirtualPetProgressionService>(sp =>
+            new VirtualPetProgressionService(
+                sp.GetRequiredService<IPetProfileStore>(),
+                sp.GetRequiredService<ISystemClock>(),
+                Log.ForContext<VirtualPetProgressionService>()));
+        services.AddSingleton<IPetChatterService>(sp =>
+        {
+            var configService = sp.GetRequiredService<IConfigService>();
+            return new PetChatterService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<ILocalizationService>(),
+                sp.GetRequiredService<ISystemClock>(),
+                () => configService.Load().VirtualPetChatterEnabled,
+                Log.ForContext<PetChatterService>());
+        });
         services.AddSingleton<ConversationExecutionCoordinator>();
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();

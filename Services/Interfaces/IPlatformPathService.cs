@@ -67,6 +67,9 @@ public interface IPlatformPathService
     /// </summary>
     string GetWorkspacesDirectory();
 
+    /// <summary>获取虚拟宠物养成存档路径。</summary>
+    string GetPetProfileFilePath() => Path.Combine(GetAppDataDirectory(), "pet_profile.json");
+
     /// <summary>获取模型元数据、目录缓存与校准数据根目录。</summary>
     string GetModelMetadataDirectory() => Path.Combine(GetAppDataDirectory(), "ModelMetadata");
 

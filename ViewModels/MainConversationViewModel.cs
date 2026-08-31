@@ -130,10 +130,28 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private bool _isQueued;
 
     partial void OnIsSendingChanged(bool value)
-        => Pet.SetConversationActivity(value, IsQueued);
+    {
+        Pet.SetConversationActivity(value, IsQueued);
+        SyncPetFileAcceptance();
+        // 新一轮开始时清零本轮工具计数；收尾时一次性汇总给养成服务。
+        if (value) _turnToolCallCount = 0;
+    }
 
     partial void OnIsQueuedChanged(bool value)
         => Pet.SetConversationActivity(IsSending, value);
+
+    partial void OnIsCompressingChanged(bool value) => SyncPetFileAcceptance();
+
+    partial void OnIsResettingChanged(bool value) => SyncPetFileAcceptance();
+
+    /// <summary>
+    /// 宠物只在会话真的能收附件时才接住拖进来的文件；否则拖放效果就该是"不接受"，
+    /// 而不是接住之后无声无息地丢掉。
+    /// </summary>
+    private void SyncPetFileAcceptance() => Pet.CanAcceptFiles = CanAcceptAttachments;
+
+    /// <summary>本轮已完成的工具调用数。</summary>
+    private int _turnToolCallCount;
 
     public string ActivityStatusText => IsQueued
         ? GetString("Session.Activity.Queued", "Queued")
@@ -799,7 +817,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// 接错线不会在装配期爆炸，而是让功能"安静地不发生"；<see cref="MissingCriticalDependencies"/>
     /// 就是用来补回那个信号的：构造时把缺口记进日志，生产路径上它必须为空。
     /// </summary>
-    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
+    public MainConversationViewModel() : this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null) { }
 
     /// <summary>
     /// 生产装配必需、但本实例上缺失的依赖名。设计器/测试构造会有值；
@@ -851,9 +869,18 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IContextPolicyProvider? contextPolicyProvider = null,
         ICompressionPlanner? compressionPlanner = null,
         ICompressionCandidateGenerator? compressionCandidateGenerator = null,
-        ICompressionValidator? compressionValidator = null)
+        ICompressionValidator? compressionValidator = null,
+        IVirtualPetProgressionService? petProgressionService = null,
+        IPetChatterService? petChatterService = null)
     {
-        Pet = new VirtualPetViewModel(localizationService);
+        // 宠物是装饰件，缺了它不该拖垮会话装配——但"缺"必须是显式选择的另一条路径，
+        // 而不是一堆 null 条件调用（见 CLAUDE.md「Review Rules」第 1 条）。
+        Pet = petProgressionService != null && petChatterService != null
+            ? new VirtualPetViewModel(petProgressionService, petChatterService, localizationService)
+            : VirtualPetViewModel.CreateDetached(localizationService);
+        Pet.FilesDropped += OnPetFilesDropped;
+        Pet.HideRequested += OnPetHideRequested;
+        Pet.CanAcceptFiles = CanAcceptAttachments;
         Orchestrator = subAgentOrchestrator;
         if (Orchestrator != null)
         {
@@ -1043,6 +1070,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrWhiteSpace(InputText) && PendingAttachments.Count == 0) return;
 
         var userContent = InputText;
+        // 只是给宠物台词一个"现在在聊什么"的线索；仅在模型台词开启时才会随请求发出。
+        Pet.SetTopicHint(userContent);
         var attachments = PendingAttachments.Select(CloneAttachmentForMessage).ToList();
         InputText = string.Empty;
         PendingAttachments.Clear();
@@ -1848,6 +1877,21 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// 解析完成前会阻止发送，确保附带的文档内容随消息一并送达 AI。
     /// </summary>
 
+    /// <summary>宠物叼来一批文件：和拖到输入区完全等价，只是入口不同。</summary>
+    private void OnPetFilesDropped(object? sender, IReadOnlyList<IStorageFile> files)
+        => AsyncEventGuard.Run(() => AddStorageFilesAsync(files), nameof(OnPetFilesDropped));
+
+    /// <summary>宠物菜单里的"先不看它"。宠物自己不碰配置，写盘由会话代劳。</summary>
+    private void OnPetHideRequested(object? sender, EventArgs e)
+    {
+        if (_configService == null) return;
+        var config = _configService.Load();
+        if (!config.VirtualPetEnabled) return;
+        config.VirtualPetEnabled = false;
+        Pet.IsEnabled = false;
+        _ = _configService.SaveAsync(config);
+    }
+
     public async Task AddStorageFilesAsync(IEnumerable<IStorageFile> files)
     {
         if (_attachmentStoreService == null || !CanAcceptAttachments) return;
@@ -2416,6 +2460,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                             .SelectMany(segment => segment.ToolCalls)
                             .FirstOrDefault(tool => tool.IsRunning)?.Name;
                         Pet.FinishTool(toolSucceeded != false, nextRunningTool);
+                        _turnToolCallCount++;
 
                         // 工具执行完毕，等待大模型下一步指示——保留思考动画
                         assistantMsg.ToolExecutionSummary = string.Empty;
@@ -2621,7 +2666,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 IsSending = false;
                 Pet.CompleteResponse(
                     outcome.Outcome == TaskExecutionOutcome.Succeeded,
-                    outcome.Outcome == TaskExecutionOutcome.Interrupted);
+                    outcome.Outcome == TaskExecutionOutcome.Interrupted,
+                    _turnToolCallCount);
                 if (_policyRefreshPending)
                 {
                     _policyRefreshPending = false;
@@ -4621,6 +4667,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _subAgentClearTimer?.Stop();
         _subAgentClearTimer = null;
+        Pet.FilesDropped -= OnPetFilesDropped;
+        Pet.HideRequested -= OnPetHideRequested;
         Pet.Dispose();
 
         _responseCts?.Cancel();

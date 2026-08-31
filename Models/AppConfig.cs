@@ -285,6 +285,16 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private VirtualPetRoamArea _virtualPetRoamArea = VirtualPetRoamArea.LowerHalf;
 
+    // 互动闭环：摸头/投喂/陪玩、成长数值、以及宠物主动提出的需求。
+    // 关掉它，宠物退回纯粹的状态指示器（拖动与漫游不受影响）。
+    [ObservableProperty]
+    private bool _virtualPetInteractionEnabled = true;
+
+    // 由 Companion 角色模型生成宠物台词。默认关闭：这会把宠物状态和一小段当前话题
+    // 发给模型端点，属于要用户显式同意的事。关闭时使用本地台词库。
+    [ObservableProperty]
+    private bool _virtualPetChatterEnabled;
+
     // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
     [ObservableProperty]
     private bool _onboardingCompleted;

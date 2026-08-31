@@ -286,6 +286,22 @@
                               Content="{loc:Loc Settings.General.VirtualPetReducedMotion}"
                               IsEnabled="{Binding State.Config.VirtualPetEnabled}"
                               IsChecked="{Binding State.Config.VirtualPetReducedMotion}"/>
+                    <CheckBox x:Name="VirtualPetInteractionEnabledCheckBox"
+                              Content="{loc:Loc Settings.General.VirtualPetInteraction}"
+                              IsEnabled="{Binding State.Config.VirtualPetEnabled}"
+                              IsChecked="{Binding State.Config.VirtualPetInteractionEnabled}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetInteractionHint}"
+                               Margin="26,0,0,0"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                    <CheckBox x:Name="VirtualPetChatterEnabledCheckBox"
+                              Content="{loc:Loc Settings.General.VirtualPetChatter}"
+                              IsEnabled="{Binding State.Config.VirtualPetInteractionEnabled}"
+                              IsChecked="{Binding State.Config.VirtualPetChatterEnabled}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetChatterHint}"
+                               Margin="26,0,0,0"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                 </StackPanel>
             </Border>
         </StackPanel>

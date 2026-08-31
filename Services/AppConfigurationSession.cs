@@ -345,6 +345,7 @@ public sealed class AppConfigurationSession : IDisposable
         yield return models.SubAgent;
         yield return models.KnowledgeMaintenance;
         yield return models.ImageRecognition;
+        yield return models.Companion;
     }
 
     private void ThrowIfDisposed()

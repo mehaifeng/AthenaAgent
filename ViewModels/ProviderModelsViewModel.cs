@@ -275,6 +275,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         AddRole(GetString("ProviderModels.Role.SubAgent", "Sub-agent"), Config.AiModels.SubAgent, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.KnowledgeMaintenance", "Knowledge maintenance"), Config.AiModels.KnowledgeMaintenance, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.ImageRecognition", "Image recognition"), Config.AiModels.ImageRecognition, ModelCapability.Text);
+        AddRole(GetString("ProviderModels.Role.Companion", "Virtual pet"), Config.AiModels.Companion, ModelCapability.Text);
     }
 
     private void AddRole(string name, ModelRoleSettings settings, ModelCapability requiredCapability)

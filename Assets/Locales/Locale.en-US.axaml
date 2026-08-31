@@ -1228,6 +1228,62 @@
     <system:String x:Key="Pet.Status.Complete">Response complete</system:String>
     <system:String x:Key="Pet.Status.Error">Something needs attention</system:String>
     <system:String x:Key="Pet.Status.Sleeping">Resting</system:String>
+    <system:String x:Key="Pet.Status.Identity">{0} · Lv.{1} {2}</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInteraction">Enable pet interaction</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInteractionHint">Click to pat, right-click for the care menu, drop files onto it to attach them. The pet grows and asks for what it needs.</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChatter">Model-written pet lines</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChatterHint">Uses the Virtual pet model role (falls back to Title generation). Sends only the pet's own state plus a short topic hint. Off means built-in lines only.</system:String>
+    <system:String x:Key="ProviderModels.Role.Companion">Virtual pet</system:String>
+    <!-- 宠物互动菜单 -->
+    <system:String x:Key="Pet.Menu.Pat">Pat</system:String>
+    <system:String x:Key="Pet.Menu.Feed">Feed a snack</system:String>
+    <system:String x:Key="Pet.Menu.Play">Play</system:String>
+    <system:String x:Key="Pet.Menu.Speak">Say something</system:String>
+    <system:String x:Key="Pet.Menu.Profile">Pet profile</system:String>
+    <system:String x:Key="Pet.Menu.Rest">Let it rest</system:String>
+    <system:String x:Key="Pet.Menu.Hide">Hide the pet</system:String>
+    <!-- 宠物档案面板 -->
+    <system:String x:Key="Pet.Profile.Level">Level</system:String>
+    <system:String x:Key="Pet.Profile.MaxLevel">MAX</system:String>
+    <system:String x:Key="Pet.Profile.Mood">Mood</system:String>
+    <system:String x:Key="Pet.Profile.Energy">Energy</system:String>
+    <system:String x:Key="Pet.Profile.Bond">Interactions</system:String>
+    <system:String x:Key="Pet.Profile.Days">Days together</system:String>
+    <system:String x:Key="Pet.Profile.NeedsMet">Needs answered</system:String>
+    <system:String x:Key="Pet.Profile.Pats">Pats</system:String>
+    <system:String x:Key="Pet.Profile.Conversations">Conversations watched</system:String>
+    <system:String x:Key="Pet.Profile.ToolCalls">Tool calls watched</system:String>
+    <!-- 等级称号 -->
+    <system:String x:Key="Pet.Rank.Hatchling">Hatchling</system:String>
+    <system:String x:Key="Pet.Rank.Buddy">Buddy</system:String>
+    <system:String x:Key="Pet.Rank.Companion">Companion</system:String>
+    <system:String x:Key="Pet.Rank.Confidant">Confidant</system:String>
+    <system:String x:Key="Pet.Rank.Soulmate">Soulmate</system:String>
+    <!-- 宠物需求 -->
+    <system:String x:Key="Pet.Need.Hungry">Hungry — feed it a snack</system:String>
+    <system:String x:Key="Pet.Need.Bored">Bored — play with it</system:String>
+    <system:String x:Key="Pet.Need.Lonely">Lonely — give it a pat</system:String>
+    <!-- 本地台词库：同一场景的多句用 | 分隔，随机挑一句 -->
+    <system:String x:Key="Pet.Line.Greeting">Back again!|There you are.|Ready when you are.</system:String>
+    <system:String x:Key="Pet.Line.Pat">That spot, yes.|Hey hey!|Do that again.</system:String>
+    <system:String x:Key="Pet.Line.Pat.Low">…thanks. I needed that.|Mm. Better.</system:String>
+    <system:String x:Key="Pet.Line.Pat.High">Best day!|I could do this forever.</system:String>
+    <system:String x:Key="Pet.Line.PatCooldown">Still fluffy from the last one.|Give me a second.|Okay, okay.</system:String>
+    <system:String x:Key="Pet.Line.Feed">Crunch. Excellent.|My favourite!|Ten out of ten.</system:String>
+    <system:String x:Key="Pet.Line.FeedCooldown">Still full, honestly.|Save it for later?</system:String>
+    <system:String x:Key="Pet.Line.Play">Race you!|Watch this!|Zoom.</system:String>
+    <system:String x:Key="Pet.Line.PlayCooldown">Catching my breath.|One moment, still dizzy.</system:String>
+    <system:String x:Key="Pet.Line.LevelUp">I levelled up!|Look at me go!|New rank unlocked.</system:String>
+    <system:String x:Key="Pet.Line.NeedHungry">Getting a bit hungry…|Snack? Please?</system:String>
+    <system:String x:Key="Pet.Line.NeedBored">I'm bored…|Let's do something.</system:String>
+    <system:String x:Key="Pet.Line.NeedLonely">You've been quiet.|Still here, you know.</system:String>
+    <system:String x:Key="Pet.Line.NeedMet">You understood me!|That's exactly it.|Thank you!</system:String>
+    <system:String x:Key="Pet.Line.FileCaught">Got it!|Caught it. Where to?|Dropped it in the box.</system:String>
+    <system:String x:Key="Pet.Line.ResponseDone">All done!|That went well.|Nice one.</system:String>
+    <system:String x:Key="Pet.Line.Sleepy">So sleepy…|Just resting my eyes.</system:String>
+    <system:String x:Key="Pet.Line.Idle">Hi.|What's next?|I'm around.</system:String>
+    <system:String x:Key="Pet.Line.Idle.Low">Kind of a long day.|Meh.</system:String>
+    <system:String x:Key="Pet.Line.Idle.High">Everything's great!|Feeling good today.</system:String>
 
     <!-- Skills -->
     <system:String x:Key="Skills.Status.Summary">{0} active · {1} disabled · {2} issues</system:String>

@@ -40,6 +40,7 @@ public sealed class OpenAiModelRuntimeFactory
             AiModelRole.SubAgent => config.AiModels.SubAgent,
             AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
             AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
+            AiModelRole.Companion => config.AiModels.Companion,
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
         };
 
@@ -121,6 +122,7 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.SubAgent => config.AiModels.SubAgent,
         AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
         AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
+        AiModelRole.Companion => config.AiModels.Companion,
         _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
     };
 
@@ -155,6 +157,8 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.SubAgent => 0.3,
         AiModelRole.KnowledgeMaintenance => 0.1,
         AiModelRole.ImageRecognition => 0.1,
+        // 宠物台词要的是变化，不是稳定：同一场景连着出现同一句话就露馅了。
+        AiModelRole.Companion => 0.9,
         _ => 0.3
     };
 
@@ -164,6 +168,7 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.Embedding => 0,
         AiModelRole.KnowledgeMaintenance => 4096,
         AiModelRole.ImageRecognition => 4096,
+        AiModelRole.Companion => 256,
         _ => 16000
     };
 

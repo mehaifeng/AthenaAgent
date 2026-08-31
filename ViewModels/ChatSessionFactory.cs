@@ -31,6 +31,8 @@ public sealed class ChatSessionFactory
     private readonly ICompressionPlanner _compressionPlanner;
     private readonly ICompressionCandidateGenerator _compressionCandidateGenerator;
     private readonly ICompressionValidator _compressionValidator;
+    private readonly IVirtualPetProgressionService _petProgressionService;
+    private readonly IPetChatterService _petChatterService;
 
     public ChatSessionFactory(
         IChatService chatService,
@@ -51,7 +53,9 @@ public sealed class ChatSessionFactory
         IContextPolicyProvider contextPolicyProvider,
         ICompressionPlanner compressionPlanner,
         ICompressionCandidateGenerator compressionCandidateGenerator,
-        ICompressionValidator compressionValidator)
+        ICompressionValidator compressionValidator,
+        IVirtualPetProgressionService petProgressionService,
+        IPetChatterService petChatterService)
     {
         _chatService = chatService;
         _configService = configService;
@@ -72,6 +76,8 @@ public sealed class ChatSessionFactory
         _compressionPlanner = compressionPlanner;
         _compressionCandidateGenerator = compressionCandidateGenerator;
         _compressionValidator = compressionValidator;
+        _petProgressionService = petProgressionService;
+        _petChatterService = petChatterService;
     }
 
     public MainConversationViewModel Create()
@@ -98,6 +104,8 @@ public sealed class ChatSessionFactory
             _contextPolicyProvider,
             _compressionPlanner,
             _compressionCandidateGenerator,
-            _compressionValidator);
+            _compressionValidator,
+            _petProgressionService,
+            _petChatterService);
     }
 }

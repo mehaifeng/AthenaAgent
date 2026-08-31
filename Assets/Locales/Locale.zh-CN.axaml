@@ -1228,6 +1228,62 @@
     <system:String x:Key="Pet.Status.Complete">回复完成</system:String>
     <system:String x:Key="Pet.Status.Error">有一件事需要留意</system:String>
     <system:String x:Key="Pet.Status.Sleeping">休息中</system:String>
+    <system:String x:Key="Pet.Status.Identity">{0} · Lv.{1} {2}</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInteraction">启用宠物互动</system:String>
+    <system:String x:Key="Settings.General.VirtualPetInteractionHint">单击摸摸头、右键打开互动菜单、把文件拖到它身上直接变成附件。宠物会成长，也会主动提出自己的需求。</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChatter">用模型生成宠物台词</system:String>
+    <system:String x:Key="Settings.General.VirtualPetChatterHint">使用"虚拟宠物"模型角色（未配置时借用标题生成角色）。只发送宠物自身状态和一小段当前话题。关闭则只用内置台词。</system:String>
+    <system:String x:Key="ProviderModels.Role.Companion">虚拟宠物</system:String>
+    <!-- 宠物互动菜单 -->
+    <system:String x:Key="Pet.Menu.Pat">摸摸头</system:String>
+    <system:String x:Key="Pet.Menu.Feed">喂点心</system:String>
+    <system:String x:Key="Pet.Menu.Play">陪它玩</system:String>
+    <system:String x:Key="Pet.Menu.Speak">说句话</system:String>
+    <system:String x:Key="Pet.Menu.Profile">宠物档案</system:String>
+    <system:String x:Key="Pet.Menu.Rest">让它休息</system:String>
+    <system:String x:Key="Pet.Menu.Hide">隐藏宠物</system:String>
+    <!-- 宠物档案面板 -->
+    <system:String x:Key="Pet.Profile.Level">等级</system:String>
+    <system:String x:Key="Pet.Profile.MaxLevel">满级</system:String>
+    <system:String x:Key="Pet.Profile.Mood">心情</system:String>
+    <system:String x:Key="Pet.Profile.Energy">精力</system:String>
+    <system:String x:Key="Pet.Profile.Bond">互动次数</system:String>
+    <system:String x:Key="Pet.Profile.Days">相处天数</system:String>
+    <system:String x:Key="Pet.Profile.NeedsMet">回应过的需求</system:String>
+    <system:String x:Key="Pet.Profile.Pats">摸头次数</system:String>
+    <system:String x:Key="Pet.Profile.Conversations">见证的对话</system:String>
+    <system:String x:Key="Pet.Profile.ToolCalls">见证的工具调用</system:String>
+    <!-- 等级称号 -->
+    <system:String x:Key="Pet.Rank.Hatchling">初识</system:String>
+    <system:String x:Key="Pet.Rank.Buddy">伙伴</system:String>
+    <system:String x:Key="Pet.Rank.Companion">老友</system:String>
+    <system:String x:Key="Pet.Rank.Confidant">挚友</system:String>
+    <system:String x:Key="Pet.Rank.Soulmate">形影不离</system:String>
+    <!-- 宠物需求 -->
+    <system:String x:Key="Pet.Need.Hungry">有点饿了 — 喂它点心</system:String>
+    <system:String x:Key="Pet.Need.Bored">有点无聊 — 陪它玩会儿</system:String>
+    <system:String x:Key="Pet.Need.Lonely">想被理一理 — 摸摸头</system:String>
+    <!-- 本地台词库：同一场景的多句用 | 分隔，随机挑一句 -->
+    <system:String x:Key="Pet.Line.Greeting">你回来啦！|在的在的。|随时可以开始。</system:String>
+    <system:String x:Key="Pet.Line.Pat">就是这儿！|嘿嘿。|再来一下嘛。</system:String>
+    <system:String x:Key="Pet.Line.Pat.Low">……谢谢，我需要这个。|嗯，好一点了。</system:String>
+    <system:String x:Key="Pet.Line.Pat.High">今天真不错！|可以一直摸下去。</system:String>
+    <system:String x:Key="Pet.Line.PatCooldown">毛还没顺回来呢。|等我一下下。|好啦好啦。</system:String>
+    <system:String x:Key="Pet.Line.Feed">咔嚓，好吃！|这个我最喜欢！|满分。</system:String>
+    <system:String x:Key="Pet.Line.FeedCooldown">其实还挺饱的。|留着待会儿吃？</system:String>
+    <system:String x:Key="Pet.Line.Play">追我呀！|看我的！|嗖——</system:String>
+    <system:String x:Key="Pet.Line.PlayCooldown">让我喘口气。|还有点晕，稍等。</system:String>
+    <system:String x:Key="Pet.Line.LevelUp">我升级啦！|看我厉害吧！|解锁新称号。</system:String>
+    <system:String x:Key="Pet.Line.NeedHungry">有点饿了……|能给点吃的吗？</system:String>
+    <system:String x:Key="Pet.Line.NeedBored">好无聊啊……|我们做点什么吧。</system:String>
+    <system:String x:Key="Pet.Line.NeedLonely">你好久没理我了。|我还在这儿呢。</system:String>
+    <system:String x:Key="Pet.Line.NeedMet">你懂我！|对，就是这个！|谢谢你！</system:String>
+    <system:String x:Key="Pet.Line.FileCaught">叼到啦！|接住了，放哪儿？|已经放进框里了。</system:String>
+    <system:String x:Key="Pet.Line.ResponseDone">搞定！|挺顺利的。|不错嘛。</system:String>
+    <system:String x:Key="Pet.Line.Sleepy">好困……|就眯一小会儿。</system:String>
+    <system:String x:Key="Pet.Line.Idle">嗨。|接下来做什么？|我在的。</system:String>
+    <system:String x:Key="Pet.Line.Idle.Low">今天有点长啊。|唔……</system:String>
+    <system:String x:Key="Pet.Line.Idle.High">一切都很好！|今天状态不错。</system:String>
 
     <!-- Skills -->
     <system:String x:Key="Skills.Status.Summary">{0} 启用 · {1} 已禁用 · {2} 有问题</system:String>

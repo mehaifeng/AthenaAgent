@@ -27,6 +27,7 @@ using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.Services.Protocol;
 using Athena.UI.Services.SubAgents;
+using Athena.UI.Services.VirtualPet;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using OpenAI.Responses;
@@ -39,6 +40,7 @@ using System.ClientModel.Primitives;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 
 try
 {
@@ -71,8 +73,12 @@ AppBuilder.Configure<App>()
 
 TestBrowserAgentHardening();
 TestVirtualPetStateMachine();
+TestVirtualPetProgression();
+TestVirtualPetInteractionSurface();
+TestVirtualPetChatterLibrary();
 TestVirtualPetMotionEngine();
 TestPetDexSpriteVisual(outputPath);
+TestVirtualPetInteractionVisual(outputPath);
 Task.Run(TestPetDexCatalogAsync).GetAwaiter().GetResult();
 TestPetSettingsVisual(outputPath);
 Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
@@ -1888,7 +1894,7 @@ static void TestVirtualPetStateMachine()
             throw new InvalidOperationException($"Bundled PetDex pet '{builtIn.Slug}' could not be loaded.");
     }
 
-    using var pet = new VirtualPetViewModel();
+    using var pet = VirtualPetViewModel.CreateDetached();
     if (pet.State != VirtualPetState.Idle
         || pet.AnimationState != PetDexAnimationState.Idle
         || pet.FrameIndex != 0
@@ -1953,6 +1959,281 @@ static void TestVirtualPetStateMachine()
         throw new InvalidOperationException("Virtual pet accessibility settings were not applied.");
 
     Console.WriteLine("[PASS] virtual pet uses validated PetDex packages and deterministic activity priorities");
+}
+
+static void TestVirtualPetProgression()
+{
+    // 等级曲线是养成的骨架：写死在这里的三个点一旦被改动，档案面板上所有进度条都会错位。
+    if (VirtualPetProgressionRules.ExpForLevel(1) != 0
+        || VirtualPetProgressionRules.ExpForLevel(2) != 25
+        || VirtualPetProgressionRules.ExpForLevel(3) != 75
+        || VirtualPetProgressionRules.LevelForExp(24) != 1
+        || VirtualPetProgressionRules.LevelForExp(25) != 2
+        || VirtualPetProgressionRules.LevelForExp(int.MaxValue) != VirtualPetProgressionRules.MaxLevel)
+        throw new InvalidOperationException("宠物等级曲线与规则常量不一致。");
+
+    var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    using (var progression = new VirtualPetProgressionService(new InMemoryPetProfileStore(), clock, Log.Logger))
+    {
+        // 第一次互动同时拿到基础经验和当日首次奖励。
+        var first = progression.Interact("boba", PetInteractionKind.Pat);
+        if (!first.Accepted
+            || first.ExpGained != VirtualPetProgressionRules.PatExp + VirtualPetProgressionRules.DailyFirstInteractionExp
+            || first.Snapshot.TotalPats != 1
+            || first.Snapshot.CompanionDays != 1
+            || first.Snapshot.Bond != 1)
+            throw new InvalidOperationException("首次摸头没有同时结算基础经验与当日首次奖励。");
+
+        // 冷却挡的是收益，不是反馈：动画和台词照给，数值不动。
+        var blocked = progression.Interact("boba", PetInteractionKind.Pat);
+        if (blocked.Accepted
+            || blocked.ExpGained != 0
+            || blocked.CooldownRemaining <= TimeSpan.Zero
+            || blocked.Snapshot.Exp != first.Snapshot.Exp
+            || blocked.Snapshot.TotalPats != 1)
+            throw new InvalidOperationException("冷却期内的摸头不应产生任何收益。");
+
+        clock.Advance(VirtualPetProgressionRules.PatCooldown + TimeSpan.FromSeconds(1));
+        var again = progression.Interact("boba", PetInteractionKind.Pat);
+        if (!again.Accepted || again.ExpGained != VirtualPetProgressionRules.PatExp)
+            throw new InvalidOperationException("冷却结束后应恢复计数，且同一天不再发放每日奖励。");
+
+        // 养成按 slug 分账：换一只宠物是认识新伙伴，不是把上一只清零。
+        var other = progression.Interact("cache-capy", PetInteractionKind.Pat);
+        if (other.Snapshot.TotalPats != 1 || other.Snapshot.Exp == again.Snapshot.Exp)
+            throw new InvalidOperationException("不同宠物的养成记录串到一起了。");
+    }
+
+    // 需求：饿了要投喂，摸头不算数——头顶的提示符就是这次点击该做什么的说明。
+    var needClock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    var today = needClock.UtcNow.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    var hungryStore = new InMemoryPetProfileStore(new VirtualPetProfileDocument
+    {
+        Pets =
+        [
+            new VirtualPetCompanionRecord
+            {
+                Slug = "boba",
+                Exp = 30,
+                Mood = 60,
+                Energy = 20,
+                FirstMetAt = needClock.UtcNow,
+                LastTickAt = needClock.UtcNow,
+                LastInteractionAt = needClock.UtcNow,
+                LastCompanionDate = today,
+                CompanionDays = 3
+            }
+        ]
+    });
+    using (var progression = new VirtualPetProgressionService(hungryStore, needClock, Log.Logger))
+    {
+        needClock.Advance(VirtualPetProgressionRules.MinTickInterval + TimeSpan.FromSeconds(1));
+        var hungry = progression.Advance("boba", busy: false);
+        if (hungry.ActiveNeed != PetNeedKind.Hungry)
+            throw new InvalidOperationException("精力见底时宠物应该提出「饿了」。");
+
+        var pat = progression.Interact("boba", PetInteractionKind.Pat);
+        if (pat.SatisfiedANeed || pat.Snapshot.ActiveNeed != PetNeedKind.Hungry)
+            throw new InvalidOperationException("用错的互动不该清掉需求，否则提示符就没有意义了。");
+
+        var feed = progression.Interact("boba", PetInteractionKind.Feed);
+        if (!feed.Accepted
+            || feed.SatisfiedNeed != PetNeedKind.Hungry
+            || feed.ExpGained != VirtualPetProgressionRules.FeedExp + VirtualPetProgressionRules.NeedMetBonusExp
+            || feed.Snapshot.ActiveNeed != PetNeedKind.None
+            || feed.Snapshot.TotalNeedsMet != 1
+            || feed.Snapshot.Energy <= hungry.Energy)
+            throw new InvalidOperationException("对症的互动应满足需求、给出额外经验并补充精力。");
+    }
+
+    // 需求挂太久扣一次心情，且只扣一次——否则一个没人管的宠物会被扣到 0。
+    var neglectClock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    var neglectStore = new InMemoryPetProfileStore(new VirtualPetProfileDocument
+    {
+        Pets =
+        [
+            new VirtualPetCompanionRecord
+            {
+                Slug = "boba",
+                Mood = 50,
+                Energy = 20,
+                FirstMetAt = neglectClock.UtcNow,
+                LastTickAt = neglectClock.UtcNow,
+                LastInteractionAt = neglectClock.UtcNow,
+                ActiveNeed = PetNeedKind.Hungry,
+                NeedRaisedAt = neglectClock.UtcNow - VirtualPetProgressionRules.NeedNeglectAfter - TimeSpan.FromMinutes(1)
+            }
+        ]
+    });
+    using (var progression = new VirtualPetProgressionService(neglectStore, neglectClock, Log.Logger))
+    {
+        neglectClock.Advance(VirtualPetProgressionRules.MinTickInterval + TimeSpan.FromSeconds(1));
+        var penalised = progression.Advance("boba", busy: false);
+        neglectClock.Advance(VirtualPetProgressionRules.MinTickInterval + TimeSpan.FromSeconds(1));
+        var stable = progression.Advance("boba", busy: false);
+        if (penalised.Mood > 50 + VirtualPetProgressionRules.NeedNeglectMood + 0.5
+            || stable.Mood < penalised.Mood - 0.5)
+            throw new InvalidOperationException("需求被忽略的心情惩罚必须发生，且每次需求只发生一次。");
+    }
+
+    // 时间推进：闲着回精力、忙起来掉精力、心情向基线回归；时钟被往回拨时什么都不做。
+    var tickClock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    var tickStore = new InMemoryPetProfileStore(new VirtualPetProfileDocument
+    {
+        Pets =
+        [
+            new VirtualPetCompanionRecord
+            {
+                Slug = "boba",
+                Mood = 90,
+                Energy = 50,
+                FirstMetAt = tickClock.UtcNow,
+                LastTickAt = tickClock.UtcNow,
+                LastInteractionAt = tickClock.UtcNow
+            }
+        ]
+    });
+    using (var progression = new VirtualPetProgressionService(tickStore, tickClock, Log.Logger))
+    {
+        tickClock.Advance(TimeSpan.FromHours(2));
+        var rested = progression.Advance("boba", busy: false);
+        if (rested.Energy <= 50 || rested.Mood >= 90 || rested.Mood <= VirtualPetProgressionRules.MoodBaseline)
+            throw new InvalidOperationException("休息两小时应恢复精力，并让心情向基线靠拢而不越过它。");
+
+        tickClock.Advance(TimeSpan.FromHours(3));
+        var worked = progression.Advance("boba", busy: true);
+        if (worked.Energy >= rested.Energy)
+            throw new InvalidOperationException("忙碌期间精力应当下降。");
+    }
+
+    Console.WriteLine("[PASS] virtual pet progression: level curve, cooldowns, per-pet ledgers, needs, neglect, lazy time advance");
+}
+
+static void TestVirtualPetInteractionSurface()
+{
+    var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    var store = new InMemoryPetProfileStore(new VirtualPetProfileDocument
+    {
+        Pets =
+        [
+            new VirtualPetCompanionRecord
+            {
+                Slug = PetDexPetLibrary.DefaultSlug,
+                Mood = 60,
+                Energy = 20,
+                FirstMetAt = clock.UtcNow,
+                LastTickAt = clock.UtcNow,
+                LastInteractionAt = clock.UtcNow,
+                LastCompanionDate = clock.UtcNow.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            }
+        ]
+    });
+    using var progression = new VirtualPetProgressionService(store, clock, Log.Logger);
+    using var chatter = PetChatterService.CreateLocalOnly(new HeadlessLocalizationService(), Log.Logger);
+    using var pet = new VirtualPetViewModel(progression, chatter, new HeadlessLocalizationService());
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = true,
+        VirtualPetChatterEnabled = true
+    });
+
+    // 模型台词开着但没有可用模型：命令必须不可执行，而不是点了没反应。
+    if (pet.CanSpeak || pet.SpeakCommand.CanExecute(null))
+        throw new InvalidOperationException("没有可用模型时「说句话」必须是禁用的。");
+
+    // ViewModel 的瞬时状态和气泡用的是真实时钟（生产里 Advance 收到的就是 DateTime.UtcNow），
+    // 养成数值用的是可拨动的注入时钟；两者在这里分别推进。
+    var start = DateTime.UtcNow;
+    pet.PokeCommand.Execute(null);
+    if (pet.TotalPats != 1 || !pet.HasBubble || pet.State != VirtualPetState.Interacting)
+        throw new InvalidOperationException("点一下宠物应当摸头、出气泡并播放互动动画。");
+
+    // 气泡自己会过期，不需要谁来收拾。
+    pet.Advance(start + VirtualPetViewModel.BubbleDuration + TimeSpan.FromSeconds(1));
+    if (pet.HasBubble)
+        throw new InvalidOperationException("气泡到点没有自动消失。");
+
+    // 需求出现后，同样的一次点击含义变成"回应需求"。
+    clock.Advance(VirtualPetProgressionRules.MinTickInterval + TimeSpan.FromSeconds(1));
+    pet.Advance(start + TimeSpan.FromSeconds(30));
+    if (pet.ActiveNeed != PetNeedKind.Hungry || !pet.HasActiveNeed || pet.CueSymbol != "♨")
+        throw new InvalidOperationException("宠物的需求没有出现在头顶的提示符上。");
+
+    pet.PokeCommand.Execute(null);
+    if (pet.TotalFeeds != 1 || pet.ActiveNeed != PetNeedKind.None || pet.TotalNeedsMet != 1)
+        throw new InvalidOperationException("有需求时的点击应当直接回应那个需求。");
+
+    // 拖放的闸门：视图画的拖放效果和命令路径必须用同一个判断，
+    // 否则会出现"看上去能放、放下去没反应"。
+    var caught = 0;
+    pet.FilesDropped += (_, files) => caught += files.Count;
+    pet.CanAcceptFiles = false;
+    if (pet.CanCatchFiles)
+        throw new InvalidOperationException("会话不能收附件时，宠物不该接住文件。");
+    pet.CanAcceptFiles = true;
+    if (!pet.CanCatchFiles)
+        throw new InvalidOperationException("会话能收附件时，宠物应当接住拖进来的文件。");
+    pet.IsEnabled = false;
+    if (pet.CanCatchFiles)
+        throw new InvalidOperationException("宠物被隐藏后不该继续接文件。");
+    pet.IsEnabled = true;
+    pet.AcceptDroppedFiles([]);
+    if (caught != 0)
+        throw new InvalidOperationException("空的拖放不该惊动会话。");
+
+    // 关掉互动开关 = 退回纯状态指示器：命令不可执行、需求不再显示。
+    var before = pet.BondValue;
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = false
+    });
+    pet.PokeCommand.Execute(null);
+    if (pet.PatCommand.CanExecute(null)
+        || pet.BondValue != before
+        || pet.HasBubble
+        || pet.HasActiveNeed)
+        throw new InvalidOperationException("关闭互动后宠物仍然可以被投喂或显示需求。");
+
+    Console.WriteLine("[PASS] virtual pet interaction: poke answers the active need, bubbles expire, drops are gated, the switch really switches off");
+}
+
+static void TestVirtualPetChatterLibrary()
+{
+    // 台词库是宠物唯一的兜底表达手段：任何一个场景缺文案，气泡就会显示成一个省略号。
+    var localization = new LocalizationService();
+    using var chatter = PetChatterService.CreateLocalOnly(localization, Log.Logger);
+    foreach (var language in new[] { "zh-CN", "en-US" })
+    {
+        localization.SwitchLanguage(language);
+        foreach (var topic in Enum.GetValues<PetChatterTopic>())
+        {
+            foreach (var band in Enum.GetValues<PetMoodBand>())
+            {
+                var line = chatter.GetLocalLine(topic, band);
+                if (string.IsNullOrWhiteSpace(line) || line == "…" || line.Contains('|', StringComparison.Ordinal))
+                    throw new InvalidOperationException($"台词场景 {topic}/{band} 在 {language} 下没有可用文案。");
+            }
+        }
+    }
+
+    // SwitchLanguage 改的是整个应用的资源字典，不是这个实例自己的：
+    // 循环停在 en-US 会让后面每一个界面断言都拿到英文文案（套件整体按 zh-CN 断言）。
+    localization.SwitchLanguage("zh-CN");
+
+    // 模型很爱加引号、加粗、加解释；这些直接进气泡就不像宠物在说话了。
+    if (PetChatterService.Sanitize("**\"好耶\"**\n（解释：它很开心）") != "好耶")
+        throw new InvalidOperationException("模型台词的引号/加粗/多余行没有被清理干净。");
+    if (PetChatterService.Sanitize("   ") != null)
+        throw new InvalidOperationException("空白台词必须被判为不可用，好让调用方回退本地台词。");
+    var shortened = PetChatterService.Sanitize(new string('喵', PetChatterService.MaxLineChars * 2));
+    if (shortened is null || shortened.Length > PetChatterService.MaxLineChars + 1)
+        throw new InvalidOperationException("超长台词没有被截断，气泡会被撑破。");
+
+    Console.WriteLine("[PASS] virtual pet chatter: every scene has local lines in both locales, model output is sanitized");
 }
 
 static void TestVirtualPetMotionEngine()
@@ -2044,6 +2325,128 @@ static void TestPetDexSpriteVisual(string outputPath)
     SaveWindowFrame(window, posePath);
     window.Close();
     Console.WriteLine($"[PASS] PetDex pet poses captured at {posePath}");
+}
+
+static void TestVirtualPetInteractionVisual(string outputPath)
+{
+    // 互动界面全在 XAML 里：气泡靠溢出渲染、提示符是负外边距角标、菜单挂在宠物身上。
+    // 这些东西坏掉时不会抛异常，只会安静地不出现——所以这里把它们从视觉树里找出来。
+    var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    var store = new InMemoryPetProfileStore(new VirtualPetProfileDocument
+    {
+        Pets =
+        [
+            new VirtualPetCompanionRecord
+            {
+                Slug = PetDexPetLibrary.DefaultSlug,
+                Exp = 120,
+                Mood = 72,
+                Energy = 20,
+                CompanionDays = 6,
+                TotalPats = 14,
+                TotalFeeds = 3,
+                TotalPlays = 5,
+                TotalConversations = 21,
+                TotalToolCalls = 48,
+                FirstMetAt = clock.UtcNow,
+                LastTickAt = clock.UtcNow,
+                LastInteractionAt = clock.UtcNow
+            }
+        ]
+    });
+    using var progression = new VirtualPetProgressionService(store, clock, Log.Logger);
+    using var chatter = PetChatterService.CreateLocalOnly(new LocalizationService(), Log.Logger);
+    using var pet = new VirtualPetViewModel(progression, chatter, new LocalizationService());
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = true,
+        VirtualPetScale = 0.5
+    });
+
+    var view = new VirtualPetView { DataContext = pet };
+    var window = new Window
+    {
+        Width = 420,
+        Height = 260,
+        CanResize = false,
+        Background = new SolidColorBrush(Color.Parse("#111217")),
+        Content = new Panel
+        {
+            Margin = new Thickness(150, 130, 0, 0),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            Children = { view }
+        }
+    };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    // 需求要真的走到头顶的提示符上。
+    clock.Advance(VirtualPetProgressionRules.MinTickInterval + TimeSpan.FromSeconds(1));
+    // Advance 就是视图计时器每帧调的那一个；这里自己驱动它，免得断言依赖无头计时器的调度时机。
+    PumpUntil(
+        () =>
+        {
+            pet.Advance(DateTime.UtcNow);
+            return pet.ActiveNeed == PetNeedKind.Hungry;
+        },
+        3000,
+        "宠物的需求没有在界面轮询里出现。");
+    pet.PatCommand.Execute(null);
+    Dispatcher.UIThread.RunJobs();
+
+    var surface = view.FindControl<Border>("PetSurface")
+                  ?? throw new InvalidOperationException("宠物表面没有创建。");
+    var menu = surface.ContextMenu
+               ?? throw new InvalidOperationException("宠物没有互动菜单，右键就是唯一的次级入口。");
+    var headers = menu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString()).ToList();
+    var expectedHeaders = new[] { "Pet.Menu.Pat", "Pet.Menu.Feed", "Pet.Menu.Play", "Pet.Menu.Speak", "Pet.Menu.Profile", "Pet.Menu.Rest", "Pet.Menu.Hide" }
+        .Select(key => new LocalizationService().GetString(key, key))
+        .ToList();
+    if (!headers.SequenceEqual(expectedHeaders))
+        throw new InvalidOperationException($"互动菜单项与预期不符：[{string.Join(",", headers)}]");
+    // 菜单项的命令绑定要等菜单真的打开、拿到宿主的 DataContext 之后才求值，
+    // 所以必须开一次再查——否则"点了没反应"这类问题测不出来。
+    menu.Open(surface);
+    Dispatcher.UIThread.RunJobs();
+    if (!menu.IsOpen)
+        throw new InvalidOperationException("宠物的互动菜单打不开。");
+    if (menu.Items.OfType<MenuItem>().Any(item => item.Command == null))
+        throw new InvalidOperationException("互动菜单里有没接命令的项，点了不会发生任何事。");
+    menu.Close();
+    Dispatcher.UIThread.RunJobs();
+
+    // 光"在视觉树里"不够：气泡和提示符是溢出到宠物外面的，一旦被父容器按宠物尺寸
+    // 约束，它们会被量成 0 高——存在、可见、但什么都画不出来。所以这里量它们的实际尺寸。
+    var textBlocks = view.GetVisualDescendants().OfType<TextBlock>().ToList();
+    var bubbleText = textBlocks.FirstOrDefault(text => text.Text == pet.BubbleText);
+    if (!pet.HasBubble || bubbleText is null || bubbleText.Bounds.Height <= 0 || bubbleText.Bounds.Width <= 0)
+        throw new InvalidOperationException("台词气泡没有量出可见尺寸。");
+    var cueText = textBlocks.FirstOrDefault(text => text.Text == pet.CueSymbol);
+    if (!pet.HasCue || cueText is null || cueText.Bounds.Height <= 0 || cueText.Bounds.Width <= 0)
+        throw new InvalidOperationException("需求提示符没有量出可见尺寸。");
+
+    // 档案面板是 Popup：关着的时候不该建子树，打开后必须真的有内容。
+    var popup = view.FindControl<Avalonia.Controls.Primitives.Popup>("PetProfilePopup")
+                ?? throw new InvalidOperationException("宠物档案 Popup 没有创建。");
+    pet.ToggleProfileCommand.Execute(null);
+    Dispatcher.UIThread.RunJobs();
+    if (!popup.IsOpen)
+        throw new InvalidOperationException("宠物档案没有跟随 IsProfileOpen 打开。");
+    var profileButtons = popup.Child?.GetVisualDescendants().OfType<Button>().ToList() ?? [];
+    if (profileButtons.Count < 3 || profileButtons.Any(button => button.Command == null))
+        throw new InvalidOperationException("档案面板里的快捷互动按钮没有接上命令。");
+    pet.CloseProfileCommand.Execute(null);
+    Dispatcher.UIThread.RunJobs();
+
+    var directory = Path.GetDirectoryName(outputPath)!;
+    Directory.CreateDirectory(directory);
+    var capturePath = Path.Combine(directory, "athena-pet-interaction.png");
+    SaveWindowFrame(window, capturePath);
+    window.Close();
+    Console.WriteLine($"[PASS] virtual pet interaction surface rendered to {capturePath}");
 }
 
 static async Task TestPetDexCatalogAsync()
