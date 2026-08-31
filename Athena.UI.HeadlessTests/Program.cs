@@ -75,10 +75,12 @@ TestBrowserAgentHardening();
 TestVirtualPetStateMachine();
 TestVirtualPetProgression();
 TestVirtualPetInteractionSurface();
+TestVirtualPetSpeakUsesModelLine();
 TestVirtualPetChatterLibrary();
 TestVirtualPetMotionEngine();
 TestPetDexSpriteVisual(outputPath);
 TestVirtualPetInteractionVisual(outputPath);
+TestVirtualPetProfileDismiss();
 Task.Run(TestPetDexCatalogAsync).GetAwaiter().GetResult();
 TestPetSettingsVisual(outputPath);
 Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
@@ -2201,6 +2203,90 @@ static void TestVirtualPetInteractionSurface()
     Console.WriteLine("[PASS] virtual pet interaction: poke answers the active need, bubbles expire, drops are gated, the switch really switches off");
 }
 
+/// <summary>
+/// 右键 → "说句话" 必须真的能把模型那句显示出来。
+///
+/// 曾经不能，而且是两个原因叠在一起：
+/// 1. 气泡只活 4.5 秒（<see cref="VirtualPetViewModel.BubbleDuration"/>），而一次模型调用被允许
+///    慢到 8 秒（<see cref="PetChatterService.ModelTimeout"/>）。凡是超过 4.5 秒才回来的台词，
+///    都会撞上"气泡已经过期"而被丢掉——也就是说，只有快过 4.5 秒的模型才有机会显示。
+/// 2. 45 秒最短间隔对后台自动台词和用户手点一视同仁，而自动台词（每次回答完成、每次摸头喂食）
+///    会不断占掉这个间隔，于是用户点"说句话"经常静默退回本地台词。
+/// 两条都只表现为"宠物说了句话，但不是模型说的"，没有任何报错。
+/// </summary>
+static void TestVirtualPetSpeakUsesModelLine()
+{
+    // 宽限期盖不住模型超时的话，慢回来的台词照样会被丢掉——这条先于一切。
+    if (VirtualPetViewModel.ModelLineGrace <= PetChatterService.ModelTimeout)
+        throw new InvalidOperationException("气泡等待模型台词的宽限期不长于模型超时，慢回来的台词还是会被丢掉。");
+
+    var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    using var progression = new VirtualPetProgressionService(new InMemoryPetProfileStore(), clock, Log.Logger);
+    var chatter = new DeferredPetChatterStub();
+    using var pet = new VirtualPetViewModel(progression, chatter, new LocalizationService());
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = true,
+        VirtualPetChatterEnabled = true
+    });
+
+    if (!pet.SpeakCommand.CanExecute(null))
+        throw new InvalidOperationException("模型台词可用时\"说句话\"应当可执行。");
+    pet.SpeakCommand.Execute(null);
+    var localLine = pet.BubbleText;
+    if (string.IsNullOrEmpty(localLine))
+        throw new InvalidOperationException("\"说句话\"没有先显示本地台词。");
+    if (chatter.LastRequest is not { UserRequested: true })
+        throw new InvalidOperationException("\"说句话\"没有把请求标成用户明确动作，会被后台台词占掉的最短间隔挡回去。");
+
+    // 视图的计时器是按真实时间推进气泡的，这里直接喂一个"模型还没回来、气泡按老规矩早该消失"的时刻。
+    var slowReply = DateTime.UtcNow + VirtualPetViewModel.BubbleDuration + TimeSpan.FromSeconds(1.5);
+    pet.Advance(slowReply);
+    if (!pet.HasBubble || pet.BubbleText != localLine)
+        throw new InvalidOperationException("模型台词还在路上，气泡就先消失了——那句台词永远没机会显示出来。");
+
+    chatter.Complete("我在想事情");
+    PumpUntil(() => pet.BubbleText == "我在想事情", 2000, "模型台词回来了却没有替换掉本地台词。");
+    if (!pet.HasBubble)
+        throw new InvalidOperationException("模型台词替换之后气泡没有重新计时。");
+
+    // 但宽限期必须有上限：一个永远不回来的请求不能把气泡永久钉在屏幕上。
+    var stuck = new DeferredPetChatterStub();
+    using var stuckPet = new VirtualPetViewModel(progression, stuck, new LocalizationService());
+    stuckPet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = true,
+        VirtualPetChatterEnabled = true
+    });
+    stuckPet.SpeakCommand.Execute(null);
+    stuckPet.Advance(DateTime.UtcNow + VirtualPetViewModel.ModelLineGrace + TimeSpan.FromSeconds(1));
+    if (stuckPet.HasBubble)
+        throw new InvalidOperationException("模型迟迟不回来，气泡被永久按住了。");
+
+    // 限流语义：最短间隔只挡后台台词，每小时上限对谁都生效。
+    // 直接断言占位判定，而不是真发一次请求——发出去就分不清"被限流"和"调用失败"。
+    var throttleClock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    using var throttle = PetChatterService.CreateLocalOnly(new LocalizationService(), Log.Logger, throttleClock);
+    if (!throttle.TryReserveSlot(userRequested: false))
+        throw new InvalidOperationException("第一次后台台词就被限流挡住了。");
+    throttleClock.Advance(TimeSpan.FromSeconds(10));
+    if (throttle.TryReserveSlot(userRequested: false))
+        throw new InvalidOperationException("最短间隔没生效，后台台词可以连着发。");
+    if (!throttle.TryReserveSlot(userRequested: true))
+        throw new InvalidOperationException("用户点\"说句话\"被后台台词刚占掉的最短间隔挡住了。");
+    for (var i = 0; i < PetChatterService.MaxModelCallsPerHour - 2; i++)
+        if (!throttle.TryReserveSlot(userRequested: true))
+            throw new InvalidOperationException($"每小时上限之内的第 {i + 3} 次调用被错误地挡住了。");
+    if (throttle.TryReserveSlot(userRequested: true))
+        throw new InvalidOperationException("每小时上限对用户明确动作也失效了——装饰件不能产生无上限的 API 开销。");
+
+    Console.WriteLine("[PASS] 说句话能等到并显示模型台词，限流只挡后台不挡用户，每小时上限照旧封顶");
+}
+
 static void TestVirtualPetChatterLibrary()
 {
     // 台词库是宠物唯一的兜底表达手段：任何一个场景缺文案，气泡就会显示成一个省略号。
@@ -2413,7 +2499,11 @@ static void TestVirtualPetInteractionVisual(string outputPath)
     Dispatcher.UIThread.RunJobs();
     if (!menu.IsOpen)
         throw new InvalidOperationException("宠物的互动菜单打不开。");
-    if (menu.Items.OfType<MenuItem>().Any(item => item.Command == null))
+    // "宠物档案"是唯一走 Click 处理器的项——面板必须等菜单关完再开（见 VirtualPetView.OnPetMenuClosed），
+    // 它的通路由 TestVirtualPetProfileDismiss 端到端守着。其余的项点了就得有事发生。
+    var profileHeader = new LocalizationService().GetString("Pet.Menu.Profile", "Pet.Menu.Profile");
+    if (menu.Items.OfType<MenuItem>()
+        .Any(item => item.Header?.ToString() != profileHeader && item.Command == null))
         throw new InvalidOperationException("互动菜单里有没接命令的项，点了不会发生任何事。");
     menu.Close();
     Dispatcher.UIThread.RunJobs();
@@ -2447,6 +2537,115 @@ static void TestVirtualPetInteractionVisual(string outputPath)
     SaveWindowFrame(window, capturePath);
     window.Close();
     Console.WriteLine($"[PASS] virtual pet interaction surface rendered to {capturePath}");
+}
+
+/// <summary>
+/// 右键 → "宠物档案" → 点面板外部，整条路都要走得通。
+/// 曾经走不通：一个窗口只有一层 LightDismissOverlayLayer，右键菜单和档案面板共用它，
+/// 而 MenuItem 是先 RaiseClick 再关菜单的——面板在 Click 里打开、点亮遮罩，紧接着菜单
+/// 关闭又把它熄灭，于是面板显示正常但"点外部关闭"彻底失效，只有别的窗口抢走焦点才关得掉。
+/// 直接 Execute ToggleProfileCommand 测不出这个（没有菜单来熄灭遮罩），必须真的走一遍菜单。
+/// </summary>
+static void TestVirtualPetProfileDismiss()
+{
+    var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
+    using var progression = new VirtualPetProgressionService(new InMemoryPetProfileStore(), clock, Log.Logger);
+    using var chatter = PetChatterService.CreateLocalOnly(new LocalizationService(), Log.Logger);
+    using var pet = new VirtualPetViewModel(progression, chatter, new LocalizationService());
+    pet.ApplySettings(new AppConfig
+    {
+        VirtualPetEnabled = true,
+        VirtualPetSlug = PetDexPetLibrary.DefaultSlug,
+        VirtualPetInteractionEnabled = true,
+        VirtualPetScale = 0.5
+    });
+
+    // 窗口要比面板大得多，否则"面板外部"根本没有可点的地方。
+    var view = new VirtualPetView { DataContext = pet };
+    var window = new Window
+    {
+        Width = 900,
+        Height = 700,
+        CanResize = false,
+        Content = new Panel
+        {
+            Margin = new Thickness(700, 560, 0, 0),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            Children = { view }
+        }
+    };
+    window.Show();
+    Settle(window);
+
+    var surface = view.FindControl<Border>("PetSurface")
+                  ?? throw new InvalidOperationException("宠物表面没有创建。");
+    var popup = view.FindControl<Avalonia.Controls.Primitives.Popup>("PetProfilePopup")
+                ?? throw new InvalidOperationException("宠物档案 Popup 没有创建。");
+    var menu = surface.ContextMenu
+               ?? throw new InvalidOperationException("宠物没有互动菜单。");
+    var profileHeader = new LocalizationService().GetString("Pet.Menu.Profile", "Pet.Menu.Profile");
+
+    menu.Open(surface);
+    Settle(window);
+    var profileItem = menu.Items.OfType<MenuItem>()
+                          .FirstOrDefault(item => item.Header?.ToString() == profileHeader)
+                      ?? throw new InvalidOperationException("互动菜单里没有\"宠物档案\"项。");
+    ClickControl(profileItem);
+    Settle(window);
+    if (menu.IsOpen)
+        throw new InvalidOperationException("点了菜单项之后菜单没关。");
+    if (!pet.IsProfileOpen || !popup.IsOpen)
+        throw new InvalidOperationException("从右键菜单点\"宠物档案\"没有把面板打开。");
+
+    var panelRect = PopupRectInWindow(popup, window);
+    var outside = new[]
+        {
+            new Point(8, 8),
+            new Point(window.ClientSize.Width - 8, window.ClientSize.Height - 8),
+            new Point(8, window.ClientSize.Height - 8),
+            new Point(window.ClientSize.Width - 8, 8)
+        }
+        .FirstOrDefault(point => !panelRect.Contains(point), new Point(8, 8));
+    window.MouseMove(outside);
+    window.MouseDown(outside, MouseButton.Left);
+    window.MouseUp(outside, MouseButton.Left);
+    Settle(window);
+
+    if (pet.IsProfileOpen || popup.IsOpen)
+        throw new InvalidOperationException(
+            $"点击面板外部（{outside}，面板在 {panelRect}）没有关闭宠物档案——窗口那层 dismiss 遮罩又被谁熄灭了。");
+
+    window.Close();
+    Console.WriteLine("[PASS] 宠物档案面板可以点外部关闭");
+
+    static void Settle(Window window)
+    {
+        Dispatcher.UIThread.RunJobs();
+        using (window.CaptureRenderedFrame()) { }
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    static void ClickControl(Control control)
+    {
+        var host = TopLevel.GetTopLevel(control)
+                   ?? throw new InvalidOperationException("控件不在任何顶层里。");
+        var point = control.TranslatePoint(
+                        new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), (Visual)host)
+                    ?? throw new InvalidOperationException("控件没有量出位置。");
+        host.MouseMove(point);
+        host.MouseDown(point, MouseButton.Left);
+        host.MouseUp(point, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    // 无头平台把 Popup 挂成窗口内的浮层，所以"外部"必须按窗口坐标算，别一头撞在面板自己身上。
+    static Rect PopupRectInWindow(Avalonia.Controls.Primitives.Popup popup, Window window)
+    {
+        if (popup.Child is not { } child) return default;
+        var origin = child.TranslatePoint(new Point(0, 0), window);
+        return origin is null ? default : new Rect(origin.Value, child.Bounds.Size);
+    }
 }
 
 static async Task TestPetDexCatalogAsync()
@@ -8916,6 +9115,27 @@ sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWork
         Task.FromResult<string?>($"/tmp/{workspaceId}/workspace.md");
     public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget) => null;
     public Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+/// <summary>台词桩：本地台词固定，模型那句由测试决定什么时候回来——或者永远不回来。</summary>
+sealed class DeferredPetChatterStub : IPetChatterService
+{
+    private readonly TaskCompletionSource<string?> _pending =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public PetChatterRequest? LastRequest { get; private set; }
+
+    public bool IsModelChatterAvailable => true;
+
+    public string GetLocalLine(PetChatterTopic topic, PetMoodBand band) => $"local:{topic}";
+
+    public Task<string?> TryGenerateAsync(PetChatterRequest request, CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        return _pending.Task;
+    }
+
+    public void Complete(string line) => _pending.TrySetResult(line);
 }
 
 sealed class HeadlessSystemClock(DateTimeOffset start) : ISystemClock

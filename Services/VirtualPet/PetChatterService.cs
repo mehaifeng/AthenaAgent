@@ -20,7 +20,9 @@ namespace Athena.UI.Services.VirtualPet;
 /// 1. <b>永不阻塞表现</b>。气泡先用本地台词显示出来，模型那句到了才替换；请求超时/限流/未配置
 ///    都只是"没有替换"，用户看不到任何失败。
 /// 2. <b>严格限流</b>。最短间隔 + 每小时上限 + 同时只允许一个在途请求。宠物是个装饰件，
-///    绝不允许它在后台悄悄产生持续的 API 开销。
+///    绝不允许它在后台悄悄产生持续的 API 开销。<b>最短间隔只管后台台词</b>：用户右键点
+///    "说句话"是一次明确动作，不该因为二十秒前有一句自动台词就静默失败——限流要挡的是
+///    "无人看管的持续开销"，而每小时上限（对谁都生效）才是那道成本上限。
 /// 3. <b>最小上下文</b>。只发宠物自己的状态和一小段话题，不发整段对话。
 /// </summary>
 public sealed class PetChatterService : IPetChatterService, IDisposable
@@ -84,8 +86,11 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
     /// 设计器 / 测试构造：没有模型工厂，只有本地台词库。
     /// 显式命名的工厂方法，而不是"依赖可空、悄悄不工作"（见 CLAUDE.md「Review Rules」第 1 条）。
     /// </summary>
-    public static PetChatterService CreateLocalOnly(ILocalizationService? localizationService, ILogger logger)
-        => new(null, localizationService, new SystemClock(), () => false, logger, modelBacked: false);
+    public static PetChatterService CreateLocalOnly(
+        ILocalizationService? localizationService,
+        ILogger logger,
+        ISystemClock? clock = null)
+        => new(null, localizationService, clock ?? new SystemClock(), () => false, logger, modelBacked: false);
 
     public bool IsModelChatterAvailable
     {
@@ -112,7 +117,7 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
     {
         if (_modelFactory == null || !_isEnabled()) return null;
         if (!TryResolveRole(out var role, out var effective)) return null;
-        if (!TryReserveSlot()) return null;
+        if (!TryReserveSlot(request.UserRequested)) return null;
         if (!await _inFlight.WaitAsync(0, cancellationToken).ConfigureAwait(false)) return null;
 
         try
@@ -199,13 +204,17 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
         return false;
     }
 
-    /// <summary>限流。占用成功才真的发请求；失败时不留下任何痕迹。</summary>
-    private bool TryReserveSlot()
+    /// <summary>
+    /// 限流。占用成功才真的发请求；失败时不留下任何痕迹。
+    /// <paramref name="userRequested"/> 只豁免最短间隔，不豁免每小时上限——那道才是成本上限。
+    /// 公开是为了让测试直接断言这套语义，而不必真的发一次请求（发出去就分不清"被限流"和"调用失败"）。
+    /// </summary>
+    public bool TryReserveSlot(bool userRequested)
     {
         var now = _clock.UtcNow;
         lock (_gate)
         {
-            if (now - _lastModelCallAt < MinModelInterval) return false;
+            if (!userRequested && now - _lastModelCallAt < MinModelInterval) return false;
             while (_recentCalls.Count > 0 && now - _recentCalls.Peek() > TimeSpan.FromHours(1))
                 _recentCalls.Dequeue();
             if (_recentCalls.Count >= MaxModelCallsPerHour) return false;

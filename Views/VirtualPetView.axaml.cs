@@ -24,6 +24,7 @@ public partial class VirtualPetView : UserControl
     private readonly DispatcherTimer _motionTimer;
     private readonly VirtualPetMotionEngine _motion = new();
     private VirtualPetViewModel? _boundPet;
+    private bool _profileRequestedFromMenu;
     private Point _dragStartPointer;
     private double _dragStartX;
     private double _dragStartY;
@@ -84,6 +85,24 @@ public partial class VirtualPetView : UserControl
         if (_boundPet != null) _boundPet.PlayBurstRequested -= OnPlayBurstRequested;
         _boundPet = pet;
         if (_boundPet != null) _boundPet.PlayBurstRequested += OnPlayBurstRequested;
+    }
+
+    /// <summary>右键菜单里点了"档案"。只记下来，真正打开推迟到菜单关完——原因见 OnPetMenuClosed。</summary>
+    private void OnPetProfileMenuItemClick(object? sender, RoutedEventArgs e) => _profileRequestedFromMenu = true;
+
+    /// <summary>
+    /// 一个窗口只有一层 LightDismissOverlayLayer，右键菜单和档案面板共用它：谁打开谁把它点亮，
+    /// 谁关闭谁把它熄灭——不管当时是不是还有别的 Popup 开着。而 MenuItem 是先 RaiseClick
+    /// 再关菜单的，所以在 Click 里直接开面板，等于让紧随其后的菜单关闭把面板刚点亮的遮罩关掉：
+    /// 面板照常显示，"点面板外部关闭"却彻底失效（实测：点侧栏按钮会正常触发那个按钮，面板不关；
+    /// 只有别的窗口抢走焦点，Popup 才会因为宿主窗口失活而关）。
+    /// 所以等菜单真的关完再开面板，这时遮罩由面板自己点亮，并且没人再来熄灭它。
+    /// </summary>
+    private void OnPetMenuClosed(object? sender, RoutedEventArgs e)
+    {
+        if (!_profileRequestedFromMenu) return;
+        _profileRequestedFromMenu = false;
+        (DataContext as VirtualPetViewModel)?.ToggleProfileCommand.Execute(null);
     }
 
     private void OnPlayBurstRequested(object? sender, EventArgs e)

@@ -175,7 +175,12 @@ public sealed record PetChatterRequest(
     PetNeedKind ActiveNeed,
     string? RecentToolName,
     string? RecentUserText,
-    string Language);
+    string Language,
+    /// <summary>
+    /// 用户明确要求的（右键 →"说句话"），而不是后台自动触发的。
+    /// 限流对两者一视同仁的话，一次自动台词就会让紧接着的手动请求静默失败。
+    /// </summary>
+    bool UserRequested = false);
 
 /// <summary>
 /// 养成规则的唯一出处。每一个数字都在这里，测试直接引用这些常量，

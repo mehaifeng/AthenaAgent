@@ -52,6 +52,13 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     /// <summary>气泡停留时长。够读完一句 20 字的话，又不至于一直挡着界面。</summary>
     public static readonly TimeSpan BubbleDuration = TimeSpan.FromSeconds(4.5);
 
+    /// <summary>
+    /// 等模型台词期间，气泡最多能被按住多久。必须盖得住 <see cref="PetChatterService.ModelTimeout"/>：
+    /// 气泡只活 4.5 秒，而一次模型调用允许慢到 8 秒，先到期就等于那句台词永远显示不出来。
+    /// 上限本身也是必要的——一个挂死的请求不能把气泡永久钉在屏幕上。
+    /// </summary>
+    public static readonly TimeSpan ModelLineGrace = PetChatterService.ModelTimeout + TimeSpan.FromSeconds(1);
+
     /// <summary>养成推进的调用节流。服务端自己还有 5 秒的最小间隔，这里只是少拿几次锁。</summary>
     private static readonly TimeSpan ProgressionPollInterval = TimeSpan.FromSeconds(1);
 
@@ -76,6 +83,9 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     private string? _topicHint;
     private PetNeedKind _lastAnnouncedNeed = PetNeedKind.None;
     private long _bubbleToken;
+    /// <summary>正在等模型台词的那个气泡；0 表示没有在途请求。</summary>
+    private long _pendingModelLineToken;
+    private DateTime _modelLineGraceUntil = DateTime.MinValue;
     private bool _disposed;
 
     [ObservableProperty]
@@ -492,7 +502,8 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     {
         Touch();
         ClearTransient();
-        ShowLine(PetChatterTopic.Idle, withModelLine: true);
+        // userRequested：这一句是用户点出来的，不该被后台台词刚用掉的最短间隔挡回去。
+        ShowLine(PetChatterTopic.Idle, withModelLine: true, userRequested: true);
     }
 
     [RelayCommand]
@@ -585,17 +596,20 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     /// 先把本地台词放进气泡，再（可选地）用模型那句替换。顺序是刻意的：
     /// 用户永远立刻看到一句话，模型慢了、限流了、没配置，都只是"没有被替换"。
     /// </summary>
-    private void ShowLine(PetChatterTopic topic, bool withModelLine)
+    private void ShowLine(PetChatterTopic topic, bool withModelLine, bool userRequested = false)
     {
         if (!InteractionEnabled) return;
         var token = ++_bubbleToken;
         BubbleText = _chatter.GetLocalLine(topic, Snapshot.MoodBand);
-        _bubbleUntil = DateTime.UtcNow + BubbleDuration;
-        if (withModelLine && ChatterEnabled && _chatter.IsModelChatterAvailable)
-            _ = ReplaceWithModelLineAsync(topic, token);
+        var now = DateTime.UtcNow;
+        _bubbleUntil = now + BubbleDuration;
+        if (!withModelLine || !ChatterEnabled || !_chatter.IsModelChatterAvailable) return;
+        _pendingModelLineToken = token;
+        _modelLineGraceUntil = now + ModelLineGrace;
+        _ = ReplaceWithModelLineAsync(topic, token, userRequested);
     }
 
-    private async Task ReplaceWithModelLineAsync(PetChatterTopic topic, long token)
+    private async Task ReplaceWithModelLineAsync(PetChatterTopic topic, long token, bool userRequested)
     {
         try
         {
@@ -608,7 +622,8 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
                 Snapshot.ActiveNeed,
                 _lastToolName,
                 _topicHint,
-                _localizationService?.CurrentLanguage ?? "en-US");
+                _localizationService?.CurrentLanguage ?? "en-US",
+                userRequested);
             var line = await _chatter.TryGenerateAsync(request);
             // 气泡在等待期间可能已经被换成别的场景，甚至已经消失：只认自己那一次。
             if (string.IsNullOrWhiteSpace(line) || token != _bubbleToken || !HasBubble) return;
@@ -619,11 +634,21 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
         {
             _logger.Debug(ex, "Pet chatter replacement failed; keeping the local line");
         }
+        finally
+        {
+            // 请求有结果了（哪怕是 null 或异常），气泡就该恢复正常的到期节奏。
+            if (_pendingModelLineToken == token) _pendingModelLineToken = 0;
+        }
     }
 
     private void ExpireBubble(DateTime now)
     {
-        if (HasBubble && now >= _bubbleUntil) ClearBubble();
+        if (!HasBubble) return;
+        // 模型台词还在路上时不让气泡到期：此刻的本地台词是它的占位符。气泡只活 4.5 秒，
+        // 而一次模型调用允许慢到 8 秒——先到期就等于慢回来的那句永远显示不出来，
+        // "说句话"于是看起来从不走模型。宽限期有上限，挂死的请求按不住气泡。
+        if (_pendingModelLineToken == _bubbleToken && now < _modelLineGraceUntil) return;
+        if (now >= _bubbleUntil) ClearBubble();
     }
 
     private void ClearBubble()

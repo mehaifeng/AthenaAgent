@@ -81,13 +81,14 @@
                                    Height="{Binding PetHeight}"
                                    IsHitTestVisible="False"/>
             <Border.ContextMenu>
-                <ContextMenu>
+                <ContextMenu Closed="OnPetMenuClosed">
                     <MenuItem Header="{loc:Loc Pet.Menu.Pat}" Command="{Binding PatCommand}"/>
                     <MenuItem Header="{loc:Loc Pet.Menu.Feed}" Command="{Binding FeedCommand}"/>
                     <MenuItem Header="{loc:Loc Pet.Menu.Play}" Command="{Binding PlayCommand}"/>
                     <MenuItem Header="{loc:Loc Pet.Menu.Speak}" Command="{Binding SpeakCommand}"/>
                     <Separator/>
-                    <MenuItem Header="{loc:Loc Pet.Menu.Profile}" Command="{Binding ToggleProfileCommand}"/>
+                    <!-- 唯一一个不绑命令的菜单项：面板必须等这个菜单关完再开，原因见 OnPetMenuClosed。 -->
+                    <MenuItem Header="{loc:Loc Pet.Menu.Profile}" Click="OnPetProfileMenuItemClick"/>
                     <MenuItem Header="{loc:Loc Pet.Menu.Rest}" Command="{Binding RestCommand}"/>
                     <Separator/>
                     <MenuItem Header="{loc:Loc Pet.Menu.Hide}" Command="{Binding HideCommand}"/>
@@ -120,7 +121,9 @@
         </Border>
 
         <!-- 宠物档案：Popup 而不是内嵌面板——它比宠物大得多，
-             需要自己的层级和"点外部关闭"，这两样 Popup 都自带。 -->
+             需要自己的层级和"点外部关闭"，这两样 Popup 都自带。
+             但"自带"有个前提：整个窗口只有一层 LightDismissOverlayLayer，谁开谁点亮、
+             谁关谁熄灭。所以它绝不能在右键菜单还没关完的时候打开，详见 OnPetMenuClosed。 -->
         <Popup x:Name="PetProfilePopup"
                PlacementTarget="{Binding #PetSurface}"
                Placement="TopEdgeAlignedRight"
