@@ -474,16 +474,17 @@ public partial class WorkspaceWorkbenchView : UserControl
         _internalDragCumulativeDelta += e.Vector.X;
         var pairWidth = _internalDragFirstStartWidth + _internalDragSecondStartWidth;
         var secondMinWidth = IsEditorVisible ? EditorPaneMinWidth : FileTreePaneMinWidth;
-        var reviewWidth = Math.Clamp(
+        var (reviewWidth, secondWidth) = ClampAdjacentPaneWidths(
             _internalDragFirstStartWidth + _internalDragCumulativeDelta,
+            pairWidth,
             ReviewPaneMinWidth,
-            pairWidth - secondMinWidth);
+            secondMinWidth);
 
         _actualReviewWidth = reviewWidth;
         if (IsEditorVisible)
-            _actualEditorWidth = pairWidth - reviewWidth;
+            _actualEditorWidth = secondWidth;
         else
-            _actualFileTreeWidth = pairWidth - reviewWidth;
+            _actualFileTreeWidth = secondWidth;
         ApplyColumns();
         e.Handled = true;
     }
@@ -514,15 +515,33 @@ public partial class WorkspaceWorkbenchView : UserControl
     {
         _internalDragCumulativeDelta += e.Vector.X;
         var pairWidth = _internalDragFirstStartWidth + _internalDragSecondStartWidth;
-        var editorWidth = Math.Clamp(
+        var (editorWidth, fileTreeWidth) = ClampAdjacentPaneWidths(
             _internalDragFirstStartWidth + _internalDragCumulativeDelta,
+            pairWidth,
             EditorPaneMinWidth,
-            pairWidth - FileTreePaneMinWidth);
+            FileTreePaneMinWidth);
 
         _actualEditorWidth = editorWidth;
-        _actualFileTreeWidth = pairWidth - editorWidth;
+        _actualFileTreeWidth = fileTreeWidth;
         ApplyColumns();
         e.Handled = true;
+    }
+
+    internal static (double FirstWidth, double SecondWidth) ClampAdjacentPaneWidths(
+        double desiredFirstWidth,
+        double pairWidth,
+        double firstMinWidth,
+        double secondMinWidth)
+    {
+        // ActualWidth is a floating-point layout result. At the exact minimum it can
+        // undershoot the mathematical sum by one ULP, which would make Clamp's max
+        // smaller than its min and turn an ordinary splitter drag into a fatal exception.
+        var constrainedPairWidth = Math.Max(pairWidth, firstMinWidth + secondMinWidth);
+        var firstWidth = Math.Clamp(
+            desiredFirstWidth,
+            firstMinWidth,
+            constrainedPairWidth - secondMinWidth);
+        return (firstWidth, constrainedPairWidth - firstWidth);
     }
 
     private void OnEditorSplitterDragCompleted(object? sender, VectorEventArgs e)

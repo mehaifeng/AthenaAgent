@@ -117,6 +117,7 @@ TestWorkspaceInlineRenameVisual();
 Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceEditorRestoreAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceDiffRestoreAsync).GetAwaiter().GetResult();
+TestWorkspaceSplitterMinimumBoundary();
 Task.Run(TestWorkspaceGitDiffAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceCommitAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceCommitUnstagedAsync).GetAwaiter().GetResult();
@@ -7293,6 +7294,40 @@ static async Task TestWorkspaceDiffRestoreAsync()
         }
         if (Directory.Exists(appData)) Directory.Delete(appData, recursive: true);
     }
+}
+
+static void TestWorkspaceSplitterMinimumBoundary()
+{
+    // Reproduce the crash value from the release log: the measured pair is one
+    // representable double below the two declared minimum widths.
+    var reviewAndEditor = WorkspaceWorkbenchView.ClampAdjacentPaneWidths(
+        desiredFirstWidth: 260,
+        pairWidth: Math.BitDecrement(260d + 248d),
+        firstMinWidth: 260,
+        secondMinWidth: 248);
+    if (reviewAndEditor.FirstWidth < 260 || reviewAndEditor.SecondWidth < 248)
+        throw new InvalidOperationException(
+            $"Review/editor splitter escaped its minimums: {reviewAndEditor.FirstWidth}, {reviewAndEditor.SecondWidth}.");
+
+    var reviewAndTree = WorkspaceWorkbenchView.ClampAdjacentPaneWidths(
+        desiredFirstWidth: double.MaxValue,
+        pairWidth: Math.BitDecrement(260d + 100d),
+        firstMinWidth: 260,
+        secondMinWidth: 100);
+    if (reviewAndTree.FirstWidth < 260 || reviewAndTree.SecondWidth < 100)
+        throw new InvalidOperationException(
+            $"Review/tree splitter escaped its minimums: {reviewAndTree.FirstWidth}, {reviewAndTree.SecondWidth}.");
+
+    var editorAndTree = WorkspaceWorkbenchView.ClampAdjacentPaneWidths(
+        desiredFirstWidth: double.MinValue,
+        pairWidth: Math.BitDecrement(248d + 100d),
+        firstMinWidth: 248,
+        secondMinWidth: 100);
+    if (editorAndTree.FirstWidth < 248 || editorAndTree.SecondWidth < 100)
+        throw new InvalidOperationException(
+            $"Editor/tree splitter escaped its minimums: {editorAndTree.FirstWidth}, {editorAndTree.SecondWidth}.");
+
+    Console.WriteLine("[PASS] workspace splitters tolerate floating-point undershoot at their combined minimum widths");
 }
 
 static async Task TestWorkspaceGitDiffAsync()
