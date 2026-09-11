@@ -27,6 +27,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 {
     private readonly ILogger _logger = Log.ForContext<MainWindowViewModel>();
     private readonly ILocalizationService? _localizationService;
+    private readonly ISystemNotificationService? _notifications;
+    private readonly IAppForegroundProbe? _foregroundProbe;
     private readonly ChatSessionFactory? _chatSessionFactory;
     private readonly IConversationArchiveService? _conversationArchiveService;
     private readonly IConversationArchiveStore? _conversationStore;
@@ -303,8 +305,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         ICronScheduleService? cronScheduleService = null,
         CronExecutionWorker? cronExecutionWorker = null,
         ICronSessionLauncher? cronSessionLauncher = null,
-        IConversationNavigator? conversationNavigator = null)
+        IConversationNavigator? conversationNavigator = null,
+        ISystemNotificationService? notifications = null,
+        IAppForegroundProbe? foregroundProbe = null)
     {
+        _notifications = notifications;
+        _foregroundProbe = foregroundProbe;
         _titleGenerator = titleGenerator;
         _localizationService = localizationService;
         _chatSessionFactory = chatSessionFactory;
@@ -462,10 +468,44 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
         var isFailure = state is CronRunState.Failed or CronRunState.Interrupted;
         // 失败始终提示；成功才看 notifyOnCompletion。托盘本身已会在窗口处于前台时跳过闪烁。
-        if (isFailure || notifyOnCompletion) App.StartTrayFlashing();
+        if (isFailure || notifyOnCompletion)
+        {
+            App.StartTrayFlashing();
+            NotifyScheduledRunCompleted(session, isFailure);
+        }
 
         _ = GenerateSilentTitleAsync(session);
         _ = session.PersistNowAsync();
+    }
+
+    /// <summary>
+    /// 定时运行结束时的系统通知。这是三个通知场景里最需要它的一个——
+    /// 会话是在后台新开的，用户根本不知道发生过什么。
+    ///
+    /// 用 Normal 而不是 Critical：跑完的任务不阻塞任何东西，
+    /// 而且会话树上的未读点/失败点本来就会一直留着，通知消失并不会丢失现场。
+    /// </summary>
+    private void NotifyScheduledRunCompleted(ConversationSessionItemViewModel session, bool isFailure)
+    {
+        if (_notifications == null) return;
+        // 前台时不发：未读点已经在用户眼前了。
+        if (_foregroundProbe?.IsForeground ?? false) return;
+
+        var title = isFailure
+            ? _localizationService?.GetString("Notification.Cron.FailedTitle", "A scheduled task did not finish")
+              ?? "A scheduled task did not finish"
+            : _localizationService?.GetString("Notification.Cron.DoneTitle", "A scheduled task finished")
+              ?? "A scheduled task finished";
+
+        _ = _notifications.ShowAsync(new SystemNotificationRequest
+        {
+            Title = title,
+            // 标题此刻是任务名（静默标题生成还没跑完），这正是用户能认出来的那个名字。
+            Body = session.Title,
+            Urgency = SystemNotificationUrgency.Normal,
+            // 按会话取键：每次触发都是一个新会话，所以多次运行不会互相顶掉。
+            Key = "athena.cron:" + session.ConversationId
+        });
     }
 
     /// <summary>

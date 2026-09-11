@@ -17,6 +17,7 @@ using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Browser;
+using Athena.UI.Services.Notifications;
 using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
 using Athena.UI.Services.ModelMetadata;
@@ -784,6 +785,14 @@ public partial class App : Application, IAsyncDisposable
             var logger = Log.ForContext<ScreenCaptureService>();
             return new ScreenCaptureService(cliService, logger);
         });
+        // 系统通知（应用不在前台时把用户叫回来）与「应用是否在前台」的探针。
+        // 通知服务读配置开关，所以依赖 IConfigService；注册顺序无所谓，DI 惰性求值。
+        services.AddSingleton<IAppForegroundProbe, DesktopAppForegroundProbe>();
+        services.AddSingleton<ISystemNotificationService>(sp =>
+            new SystemNotificationService(
+                sp.GetRequiredService<ICliService>(),
+                Log.ForContext<SystemNotificationService>(),
+                sp.GetService<IConfigService>()));
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
@@ -1180,7 +1189,9 @@ public partial class App : Application, IAsyncDisposable
             new ApprovalQueueViewModel(
                 sp.GetService<IConversationSessionAccessor>(),
                 Log.ForContext<ApprovalQueueViewModel>(),
-                sp.GetService<ILocalizationService>()));
+                sp.GetService<ILocalizationService>(),
+                sp.GetService<ISystemNotificationService>(),
+                sp.GetService<IAppForegroundProbe>()));
         services.AddSingleton<IToolApprovalPrompter>(sp => sp.GetRequiredService<ApprovalQueueViewModel>());
 
         // 工具审批服务（策略大脑 + 审计）。被 FunctionRegistry 这个唯一 chokepoint 调用。
@@ -1482,7 +1493,9 @@ public partial class App : Application, IAsyncDisposable
                 cronScheduleService,
                 cronExecutionWorker,
                 cronSessionLauncher,
-                conversationNavigator);
+                conversationNavigator,
+                sp.GetService<ISystemNotificationService>(),
+                sp.GetService<IAppForegroundProbe>());
         });
 
         Log.Debug("Dependency injection services configured");

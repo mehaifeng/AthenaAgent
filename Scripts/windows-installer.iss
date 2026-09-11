@@ -68,8 +68,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+; AppUserModelID 不是可选的装饰：未打包的 Win32 应用发 WinRT toast 时，
+; CreateToastNotifier 的 AUMID 必须能对应到一个带 System.AppUserModel.ID 的
+; 开始菜单快捷方式，否则 Show() 既不报错也不显示任何东西。
+; WindowsShortcutAumid 就是从 {group}\Athena.lnk 上读回这个值的；读不到时它会
+; 自己把属性补上去（覆盖不了才退回 PowerShell 的 AUMID，署名变成「Windows PowerShell」）。
+; 装机时就写好可以省掉首次通知那一次 shell COM 往返。改这里请同步那边的候选路径与常量。
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; AppUserModelID: "com.athena.ai"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; AppUserModelID: "com.athena.ai"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

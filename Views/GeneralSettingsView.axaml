@@ -154,6 +154,13 @@
                                Margin="26,0,0,0"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
+                    <CheckBox x:Name="SystemNotificationsCheckBox"
+                              Content="{loc:Loc Settings.General.SystemNotifications}"
+                              IsChecked="{Binding State.Config.SystemNotificationsEnabled}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.SystemNotificationsHint}"
+                               Margin="26,0,0,0"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                     <CheckBox x:Name="VirtualPetEnabledCheckBox"
                               Content="{loc:Loc Settings.General.VirtualPet}"
                               IsChecked="{Binding State.Config.VirtualPetEnabled}"/>

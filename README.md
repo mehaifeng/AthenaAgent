@@ -66,7 +66,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **Runtime**: .NET 10
 - **UI Themes**: Semi.Avalonia, Irihi.Ursa.Themes.Semi
 - **AI SDK**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Audio/TTS, Tool Calling; shared retry and timeout policy)
-- **Markdown**: LiveMarkdown.Avalonia (streaming output with inline images)
+- **Markdown**: LiveMarkdown.Avalonia (streaming output with inline images, math, and native Mermaid diagrams)
 - **Browser Automation**: Microsoft.Playwright
 - **Audio**: LibVLCSharp
 - **Database**: SQLite (for vector storage)

@@ -50,6 +50,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private readonly IFunctionRegistry? _functionRegistry;
     private readonly ITokenService? _tokenService;
     private readonly ILocalizationService? _localizationService;
+    private readonly ISystemNotificationService? _notifications;
+    private readonly IAppForegroundProbe? _foregroundProbe;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly ISystemAudioService? _systemAudioService;
     // Cancels in-flight system (afplay/aplay/powershell) playback so Stop can
@@ -871,8 +873,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         ICompressionCandidateGenerator? compressionCandidateGenerator = null,
         ICompressionValidator? compressionValidator = null,
         IVirtualPetProgressionService? petProgressionService = null,
-        IPetChatterService? petChatterService = null)
+        IPetChatterService? petChatterService = null,
+        ISystemNotificationService? notifications = null,
+        IAppForegroundProbe? foregroundProbe = null)
     {
+        _notifications = notifications;
+        _foregroundProbe = foregroundProbe;
         // 宠物是装饰件，缺了它不该拖垮会话装配——但"缺"必须是显式选择的另一条路径，
         // 而不是一堆 null 条件调用（见 CLAUDE.md「Review Rules」第 1 条）。
         Pet = petProgressionService != null && petChatterService != null
@@ -2149,6 +2155,35 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         return await GetAiResponseAsync(string.Empty, addToContext: false);
     }
 
+    /// <summary>
+    /// 一轮回复收尾时把不在场的用户叫回来。
+    ///
+    /// 定时会话在这里被排除：它有自己的完成通知，那条知道任务名和成败，
+    /// 比一句「Athena 已回复」有用得多——而计划运行同样会流经这段代码，
+    /// 不排除的话一次 cron 触发就会连弹两条。
+    /// </summary>
+    private void NotifyAssistantReplied(string content)
+    {
+        if (_notifications == null || IsScheduledRun) return;
+        // 人就在跟前，气泡本身就是通知。
+        if (_foregroundProbe?.IsForeground ?? false) return;
+
+        var title = _localizationService?.GetString("Notification.AssistantTitle", "Athena has replied")
+                    ?? "Athena has replied";
+
+        // 不 await：通知后端要拉起子进程，回合收尾不该等它。
+        // ShowAsync 自身不抛，长度也由服务统一截断。
+        _ = _notifications.ShowAsync(new SystemNotificationRequest
+        {
+            Title = title,
+            Body = content,
+            Urgency = SystemNotificationUrgency.Normal,
+            // 按会话取键：同一个会话在用户离开期间又回了一轮就替换掉上一条，
+            // 但两个不同会话各自回完是两件事，不该互相顶掉。
+            Key = "athena.reply:" + _conversationId
+        });
+    }
+
     private void BeginConversationTransition()
     {
         Interlocked.Increment(ref _conversationEpoch);
@@ -2594,6 +2629,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             if (string.IsNullOrEmpty(assistantMsg.ToolCallsJson) && !string.IsNullOrEmpty(assistantMsg.Content))
             {
                 App.StartTrayFlashing();
+                NotifyAssistantReplied(assistantMsg.Content);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

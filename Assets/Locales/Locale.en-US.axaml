@@ -8,6 +8,10 @@
     <system:String x:Key="MainWindow.MaximizeRestore">Maximize/restore</system:String>
     <system:String x:Key="MainWindow.Close">Close</system:String>
     <system:String x:Key="Notification.AssistantTitle">Athena has replied</system:String>
+    <system:String x:Key="Notification.Approval.Title">Athena is waiting for your approval</system:String>
+    <system:String x:Key="Notification.Approval.BodyMultiple">{0} (and {1} more waiting)</system:String>
+    <system:String x:Key="Notification.Cron.DoneTitle">A scheduled task finished</system:String>
+    <system:String x:Key="Notification.Cron.FailedTitle">A scheduled task did not finish</system:String>
     <system:String x:Key="Tray.Show">Show main window</system:String>
     <system:String x:Key="Tray.Quit">Quit</system:String>
     <system:String x:Key="Skills.Title">Skills</system:String>
@@ -369,6 +373,8 @@
     <system:String x:Key="Settings.General.RewindHint">When enabled, rewinding a conversation happens immediately without a confirmation prompt.</system:String>
     <system:String x:Key="Settings.General.AutoExpandReasoning">Automatically expand reasoning</system:String>
     <system:String x:Key="Settings.General.AutoExpandReasoningHint">When enabled, the reasoning area expands whenever the model starts a new reasoning round. It still collapses when that round finishes.</system:String>
+    <system:String x:Key="Settings.General.SystemNotifications">Send system notifications while Athena is in the background</system:String>
+    <system:String x:Key="Settings.General.SystemNotificationsHint">Covers a tool call waiting for your approval, a finished reply, and a scheduled task that has run. A scheduled task's own "notify when it succeeds" switch still applies on top of this. On macOS the notification is delivered through Script Editor and must be allowed there once.</system:String>
     <system:String x:Key="Settings.Context.Title">Conversation &amp; context</system:String>
     <system:String x:Key="Settings.Context.Description">Manage application-wide context defaults. Conversation state and summaries are not edited here.</system:String>
     <system:String x:Key="Settings.Context.Budget">Context budget</system:String>

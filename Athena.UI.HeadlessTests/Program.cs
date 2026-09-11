@@ -8,6 +8,7 @@ using Avalonia.Controls.Chrome;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
@@ -21,6 +22,7 @@ using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.Notifications;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
@@ -71,6 +73,7 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+TestMermaidMarkdownRendering();
 TestBrowserAgentHardening();
 TestVirtualPetStateMachine();
 TestVirtualPetProgression();
@@ -154,6 +157,9 @@ TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestSelfConfigurationSurface();
+TestNotificationPayloadEncoding();
+TestApprovalNotificationWiring();
+TestReplyFinishedNotification();
 TestLifecycle();
 
 var shellConfigService = new HeadlessConfigService(new AppConfig());
@@ -1405,6 +1411,7 @@ Console.WriteLine("[PASS] office preview assets embedded, routes served, and pre
     // 本段要反复切换选中项和往会话树里插会话，所以用一棵自己的树，而不是共享的展示用 fixture：
     // MainWindowViewModel 的构造函数会异步重建会话树，共享 fixture 的分组会在任意一次
     // dispatcher 泵送时被换掉，断言就会变成在测一棵早已不存在的树。
+    var cronNotifications = new RecordingNotificationService();
     var cronMainViewModel = new MainWindowViewModel(
         chatService: null,
         configService: null,
@@ -1421,7 +1428,9 @@ Console.WriteLine("[PASS] office preview assets embedded, routes served, and pre
         systemAudioService: null,
         archiveService: null,
         imageGenerationSessionService: null,
-        conversationStore: new HeadlessConversationStore());
+        conversationStore: new HeadlessConversationStore(),
+        notifications: cronNotifications,
+        foregroundProbe: new StubForegroundProbe { IsForeground = false });
     PumpUntil(() => !cronMainViewModel.IsConversationTreeLoading, failureMessage: "Cron host tree initialization did not complete.");
     cronMainViewModel.ConversationGroups.Clear();
 
@@ -1616,6 +1625,37 @@ Console.WriteLine("[PASS] office preview assets embedded, routes served, and pre
         throw new InvalidOperationException("Every scheduled run must own a fresh, independent conversation id.");
     if (!scheduledSession.Chat.IsScheduledRun || scheduledSession.Chat.ScheduledFiredAt != hostedRun.ScheduledFor)
         throw new InvalidOperationException("The chat view model must be marked as a scheduled run before its first snapshot.");
+
+    // 定时运行结束时的系统通知：会话是在后台新开的，不提示的话用户根本不知道发生过什么。
+    attachment.ReportOutcome(CronRunState.Succeeded, true);
+    Dispatcher.UIThread.RunJobs();
+    if (cronNotifications.Shown.Count != 1)
+        throw new InvalidOperationException(
+            $"A completed scheduled run must reach the user through the OS, got {cronNotifications.Shown.Count} notifications.");
+    var cronShown = cronNotifications.Shown[0];
+    if (cronShown.Key != "athena.cron:" + scheduledSession.ConversationId)
+        throw new InvalidOperationException("Each run owns a fresh session, so its notification must be keyed per session rather than collapsing onto one.");
+    if (!cronShown.Body.Contains(hostedTask.Name, StringComparison.Ordinal))
+        throw new InvalidOperationException($"The notification must name the task the user recognises, got '{cronShown.Body}'.");
+    if (cronShown.Urgency != SystemNotificationUrgency.Critical
+        && cronShown.Urgency != SystemNotificationUrgency.Normal)
+        throw new InvalidOperationException("Unexpected urgency for a finished run.");
+
+    // 成功 + NotifyOnCompletion=false 是用户明说的"别打扰我"。
+    attachment.ReportOutcome(CronRunState.Succeeded, false);
+    Dispatcher.UIThread.RunJobs();
+    if (cronNotifications.Shown.Count != 1)
+        throw new InvalidOperationException("A successful run with notifications turned off must stay silent.");
+
+    // 失败无视那个开关：一个静默失败的定时任务等于没有定时任务。
+    attachment.ReportOutcome(CronRunState.Failed, false);
+    Dispatcher.UIThread.RunJobs();
+    if (cronNotifications.Shown.Count != 2)
+        throw new InvalidOperationException("A failed run must be surfaced regardless of the task's notify-on-completion setting.");
+    cronNotifications.Shown.Clear();
+
+    // 恢复成功态，后面的持久化断言不该看到这次故意制造的失败。
+    scheduledSession.ScheduledRunFailed = false;
 
     // 溯源必须进入持久化快照，否则重启后再也认不出它是定时产物。
     var scheduledSnapshot = scheduledSession.Chat.CapturePersistenceSnapshot(
@@ -3385,6 +3425,245 @@ static string DescribeIconHost(PathIcon icon)
             return automationName;
     }
     return icon.Classes.Count > 0 ? string.Join('.', icon.Classes) : "(anonymous)";
+}
+
+// Mermaid is an optional LiveMarkdown package: keeping only the package reference is not enough.
+// This exercises Athena's configured parser and node registry together, so a fenced block cannot
+// silently regress to a syntax-highlighted code block after a startup/configuration refactor.
+static void TestMermaidMarkdownRendering()
+{
+    const string markdown =
+        """
+        ```mermaid
+        graph TD
+            A[Question] --> B[Answer]
+        ```
+        """;
+
+    var renderer = new LiveMarkdown.Avalonia.MarkdownRenderer();
+    var window = new Window
+    {
+        Width = 800,
+        Height = 600,
+        Content = renderer
+    };
+    window.Show();
+    try
+    {
+        Athena.UI.Markup.MarkdownHelper.SetText(renderer, markdown);
+
+        // LiveMarkdown 2.2.1 parses pending text from ArrangeCore, so the renderer must be
+        // attached to a laid-out window; this also matches the real conversation-bubble path.
+        PumpUntil(
+            () => renderer.GetLogicalDescendants().OfType<LiveMarkdown.Avalonia.MermaidPresenter>().Any(),
+            5_000,
+            "A mermaid fenced block was not rendered as a native Mermaid presenter.");
+
+        if (renderer.GetLogicalDescendants().OfType<LiveMarkdown.Avalonia.CodeBlock>().Any())
+            throw new InvalidOperationException("A mermaid fenced block must not fall back to a normal code block.");
+    }
+    finally
+    {
+        window.Close();
+    }
+
+    Console.WriteLine("[PASS] mermaid fences render as native diagrams");
+}
+
+// 三端通知后端的转义/编码规则。这些字符串最终由 gdbus、osascript、powershell.exe
+// 各自的解析器再读一遍，而其中两条在开发机（Windows）上根本跑不到——
+// 它们的正确性只能靠断言守着，不能靠"看起来没问题"。
+static void TestNotificationPayloadEncoding()
+{
+    // gdbus 把每个 argv 元素当 GVariant 文本解析，裸的 `Hello world` 就是语法错误，
+    // 引号必须在参数值里面；单引号与反斜杠还得再转义一层。
+    var gvariant = LinuxNotificationBackend.GVariantString("it's a \\path\nsecond line");
+    if (!gvariant.StartsWith('\'') || !gvariant.EndsWith('\''))
+        throw new InvalidOperationException($"A GVariant string literal must be quoted, got {gvariant}.");
+    if (gvariant.Contains("\\\\path", StringComparison.Ordinal) == false)
+        throw new InvalidOperationException($"A backslash must be escaped for GVariant, got {gvariant}.");
+    if (!gvariant.Contains("it\\'s", StringComparison.Ordinal))
+        throw new InvalidOperationException($"An embedded quote must be escaped for GVariant, got {gvariant}.");
+    if (gvariant.Contains('\n'))
+        throw new InvalidOperationException("A raw newline would break the GVariant literal.");
+
+    // 替换与撤回都要靠守护进程返回的 id，解析不出来就等于没有这两个能力。
+    if (LinuxNotificationBackend.ParseGdbusNotificationId("(uint32 42,)\n") != 42u)
+        throw new InvalidOperationException("The notification id must be read back out of the gdbus reply.");
+    if (LinuxNotificationBackend.ParseGdbusNotificationId("()") != null)
+        throw new InvalidOperationException("A reply without an id must not be mistaken for id 0.");
+
+    // AppleScript 的字符串字面量不能跨行，裸换行会让整段脚本语法错误。
+    var applescript = MacOsNotificationBackend.AppleScriptString("say \"hi\"\nnow");
+    if (applescript.Contains('\n'))
+        throw new InvalidOperationException("A raw newline would break the AppleScript literal.");
+    if (!applescript.Contains("\\\"hi\\\"", StringComparison.Ordinal))
+        throw new InvalidOperationException($"An embedded double quote must be escaped for AppleScript, got {applescript}.");
+
+    // toast XML 会被嵌进 PowerShell 的单引号字面量，所以转义后不能再剩任何裸引号。
+    var xml = WindowsToastNotificationBackend.XmlEscape("a & b <tag> \"q\" 'apos'");
+    if (xml.Contains('\'') || xml.Contains('"') || xml.Contains('<') || xml.Contains('>'))
+        throw new InvalidOperationException($"XML escaping must leave no bare markup or quote characters, got {xml}.");
+
+    // -EncodedCommand 是刻意的选择：把脚本当普通命令行参数传时，
+    // toast XML 里 template="ToastGeneric" 的双引号会在命令行重解析中被吃掉，
+    // LoadXml 直接以 0xC00CE502 失败。Base64 之后没有任何一层还能改写它。
+    const string script = "$x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"/></visual></toast>');";
+    var encoded = WindowsToastNotificationBackend.EncodeCommand(script);
+    foreach (var ch in encoded)
+    {
+        if (!char.IsAsciiLetterOrDigit(ch) && ch != '+' && ch != '/' && ch != '=')
+            throw new InvalidOperationException($"An encoded command must contain nothing a command line could reinterpret, found '{ch}'.");
+    }
+    if (System.Text.Encoding.Unicode.GetString(Convert.FromBase64String(encoded)) != script)
+        throw new InvalidOperationException("-EncodedCommand expects UTF-16LE; the script did not round-trip.");
+
+    // Tag 是撤回时的唯一句柄，必须按 Key 稳定，并且落在 Windows 的 64 字符上限内。
+    var tag = WindowsToastNotificationBackend.TagForKey("athena.tool-approval");
+    if (tag != WindowsToastNotificationBackend.TagForKey("athena.tool-approval"))
+        throw new InvalidOperationException("A toast tag must be stable, otherwise the notification cannot be withdrawn.");
+    if (tag.Length > 64)
+        throw new InvalidOperationException($"A toast tag must stay within 64 characters, got {tag.Length}.");
+    if (tag == WindowsToastNotificationBackend.TagForKey("athena.other"))
+        throw new InvalidOperationException("Two different keys must not collapse onto one toast.");
+
+    if (SystemNotificationService.Truncate(new string('x', 500), 400).Length != 400)
+        throw new InvalidOperationException("An oversized body must be truncated before it reaches a process argument.");
+
+    Console.WriteLine("[PASS] notification payloads survive each platform's own parser");
+}
+
+// 审批是三个通知场景里唯一会阻塞流程的：没人回应，这一轮就一直挂到超时。
+// 这里钉住三件事——后台才发、发的是 Critical、队列清空后撤回。
+static void TestApprovalNotificationWiring()
+{
+    var request = new ToolApprovalRequest
+    {
+        FunctionName = "execute_terminal_command",
+        Risk = ToolRisk.Destructive,
+        Summary = "execute_terminal_command: git push --force",
+        ApprovalKey = "terminal:git"
+    };
+
+    var backgroundNotifications = new RecordingNotificationService();
+    var background = new ApprovalQueueViewModel(
+        null,
+        Log.Logger,
+        null,
+        backgroundNotifications,
+        new StubForegroundProbe { IsForeground = false });
+
+    var pending = background.PromptAsync(request, CancellationToken.None);
+    PumpUntil(
+        () => backgroundNotifications.Shown.Count > 0,
+        5000,
+        "A tool approval arriving while the app is in the background must raise a system notification.");
+
+    var shown = backgroundNotifications.Shown[0];
+    if (shown.Urgency != SystemNotificationUrgency.Critical)
+        throw new InvalidOperationException("An approval that stalls the turn must not be posted as a dismissable, low-priority hint.");
+    if (string.IsNullOrEmpty(shown.Key))
+        throw new InvalidOperationException("Without a stable key the approval notification can never be replaced or withdrawn.");
+    if (!shown.Body.Contains("git push", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The notification must name the call that is waiting, got '{shown.Body}'.");
+
+    PumpUntil(() => background.Pending.Count == 1, 5000, "The request should be queued for the user.");
+    background.Pending[0].DenyCommand.Execute(null);
+    PumpForCompletion(pending, "the approval decision");
+    PumpUntil(
+        () => backgroundNotifications.Withdrawn.Contains(shown.Key!),
+        5000,
+        "Once the queue is empty the notification must be withdrawn, not left pointing at a resolved call.");
+
+    var foregroundNotifications = new RecordingNotificationService();
+    var foreground = new ApprovalQueueViewModel(
+        null,
+        Log.Logger,
+        null,
+        foregroundNotifications,
+        new StubForegroundProbe { IsForeground = true });
+
+    var foregroundPending = foreground.PromptAsync(request, CancellationToken.None);
+    PumpUntil(() => foreground.Pending.Count == 1, 5000, "The request should still be queued when the user is present.");
+    if (foregroundNotifications.Shown.Count != 0)
+        throw new InvalidOperationException("The user is already looking at the approval window; a system notification is pure noise.");
+    foreground.Pending[0].DenyCommand.Execute(null);
+    PumpForCompletion(foregroundPending, "the foreground approval decision");
+
+    Console.WriteLine("[PASS] approval notifications fire only when nobody is watching, and are withdrawn once answered");
+}
+
+// 回合结束时的通知。三条规则各自都有一个具体的失败模式在后面顶着：
+// 前台还发 = 对着正在看气泡的人弹提示；定时会话也发 = 一次 cron 触发弹两条；
+// 键不按会话分 = 两个会话各自回完，后一条把前一条顶掉。
+//
+// 注意：本例真的 yield 非空正文，所以只能在主线程（Avalonia 属主线程）驱动——
+// 回合结束时的 App.StartTrayFlashing() 会向 UI 线程投递作业，池线程泵会撞线程校验。
+static void TestReplyFinishedNotification()
+{
+    static (MainConversationViewModel Chat, RecordingNotificationService Notifications) Build(bool isForeground)
+    {
+        var notifications = new RecordingNotificationService();
+        var chat = new MainConversationViewModel(
+            new PlainReplyChatService(),
+            new HeadlessConfigService(new AppConfig()),
+            null,
+            null,
+            null,
+            null,
+            null,
+            notifications: notifications,
+            foregroundProbe: new StubForegroundProbe { IsForeground = isForeground });
+        return (chat, notifications);
+    }
+
+    static void RunTurn(MainConversationViewModel chat)
+    {
+        chat.InputText = "hello";
+        var task = chat.SendMessageCommand.ExecuteAsync(null);
+        PumpUntil(() => task.IsCompleted, 10_000, "The reply turn did not finish in time.");
+        task.GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    var (backgroundChat, backgroundNotifications) = Build(isForeground: false);
+    using (backgroundChat)
+    {
+        RunTurn(backgroundChat);
+        if (backgroundNotifications.Shown.Count != 1)
+            throw new InvalidOperationException(
+                $"A reply that lands while the user is away must reach them, got {backgroundNotifications.Shown.Count} notifications.");
+        var shown = backgroundNotifications.Shown[0];
+        if (shown.Urgency != SystemNotificationUrgency.Normal)
+            throw new InvalidOperationException("A finished reply blocks nothing; only an approval earns a non-expiring notification.");
+        if (shown.Key != "athena.reply:" + backgroundChat.ConversationId)
+            throw new InvalidOperationException(
+                $"Replies must be keyed per conversation so two sessions do not overwrite each other, got '{shown.Key}'.");
+        if (!shown.Body.Contains(PlainReplyChatService.Reply, StringComparison.Ordinal))
+            throw new InvalidOperationException($"The notification must carry the reply itself, got '{shown.Body}'.");
+    }
+
+    var (foregroundChat, foregroundNotifications) = Build(isForeground: true);
+    using (foregroundChat)
+    {
+        RunTurn(foregroundChat);
+        if (foregroundNotifications.Shown.Count != 0)
+            throw new InvalidOperationException("The user is watching the bubble arrive; a system notification is pure noise.");
+    }
+
+    // 计划运行同样流经这段收尾代码，而它已经有一条知道任务名和成败的完成通知。
+    // 这里直接打上溯源标记走普通回合，走的是同一个判据（IsScheduledRun）。
+    var (scheduledChat, scheduledNotifications) = Build(isForeground: false);
+    using (scheduledChat)
+    {
+        scheduledChat.MarkAsScheduledRun("task-1", "run-1", DateTimeOffset.UtcNow);
+        RunTurn(scheduledChat);
+        if (scheduledNotifications.Shown.Count != 0)
+            throw new InvalidOperationException(
+                "A scheduled run already gets its own completion notification; firing the generic 'Athena replied' one too means two toasts per cron trigger.");
+    }
+
+    Console.WriteLine("[PASS] a finished reply notifies only an absent user, and never doubles up with a scheduled run's own notification");
 }
 
 static void TestLifecycle()
@@ -9168,5 +9447,59 @@ sealed class HeadlessCronSessionLauncher : ICronSessionLauncher
             ConversationId = "headless-conv-" + run.RunId,
             HistoryId = "headless-hist-" + run.RunId
         });
+    }
+}
+
+/// <summary>记录调用而不真的去拉起 gdbus / osascript / powershell 的通知服务。</summary>
+sealed class RecordingNotificationService : ISystemNotificationService
+{
+    public bool IsSupported => true;
+
+    public List<SystemNotificationRequest> Shown { get; } = new();
+
+    public List<string> Withdrawn { get; } = new();
+
+    public Task ShowAsync(SystemNotificationRequest request, CancellationToken cancellationToken = default)
+    {
+        Shown.Add(request);
+        return Task.CompletedTask;
+    }
+
+    public Task WithdrawAsync(string key, CancellationToken cancellationToken = default)
+    {
+        Withdrawn.Add(key);
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>「应用在不在前台」的固定答案。无头环境里没有真实的窗口激活态可读。</summary>
+sealed class StubForegroundProbe : IAppForegroundProbe
+{
+    public bool IsForeground { get; set; }
+}
+
+/// <summary>只吐一段普通正文的假聊天服务：用于验证回合收尾时的通知判据。</summary>
+sealed class PlainReplyChatService : HeadlessChatService
+{
+    public const string Reply = "the overnight build is green";
+
+    public override async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default)
+    {
+        await Task.CompletedTask;
+        yield return Reply;
     }
 }

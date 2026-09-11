@@ -44,6 +44,13 @@
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
+  <!-- 通知后端的转义/编码是纯函数，而它们的正确性在 Windows 上无法靠肉眼确认
+       （gdbus 的 GVariant 字面量、AppleScript 字符串、PowerShell -EncodedCommand）。
+       开放给无头套件，让这些规则有断言兜着。 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Athena.UI.HeadlessTests" />
+  </ItemGroup>
+
   <!-- AthenaSoul.md 作为嵌入式资源 -->
   <ItemGroup>
     <EmbeddedResource Include="Assets\AthenaSoul.md">
@@ -154,6 +161,7 @@
   <ItemGroup>
     <PackageReference Include="LiveMarkdown.Avalonia" Version="2.2.1" />
     <PackageReference Include="LiveMarkdown.Avalonia.Math" Version="2.2.1" />
+    <PackageReference Include="LiveMarkdown.Avalonia.Mermaid" Version="2.2.1" />
     <PackageReference Include="LiveMarkdown.Avalonia.Svg.Skia" Version="2.2.1" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />

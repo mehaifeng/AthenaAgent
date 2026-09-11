@@ -32,12 +32,14 @@ public static class MarkdownConfiguration
         MarkdownRenderer.ConfigurePipeline += pipeline => pipeline
             .UseEmojiAndSmiley()
             .UseMathematics()
+            .UseMermaid()
             .UseDetailsBlocks();
 
         MarkdownNode.Edit(builder => builder
             .Register<EmojiInlineNode>()
             .Register<MathInlineNode>()
             .Register<MathBlockNode>()
+            .Register<MermaidBlockNode>()
             .Register<DetailsBlockNode>());
     }
 }

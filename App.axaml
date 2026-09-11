@@ -397,6 +397,7 @@
         <semi:SemiTheme Locale="zh-CN" />
         <semi:UrsaSemiTheme Locale="zh-CN"/>
         <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml"/>
+        <StyleInclude Source="avares://LiveMarkdown.Avalonia.Mermaid/Styles.axaml"/>
         <StyleInclude Source="avares://AvaloniaTerminal/Styles/Colors.axaml"/>
 
         <Style Selector="Window, UserControl, TextBlock, SelectableTextBlock, TextBox, Button, ToggleButton, CheckBox, RadioButton, ComboBox, ComboBoxItem, ListBoxItem, TreeViewItem, MenuItem">

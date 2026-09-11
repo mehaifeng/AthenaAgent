@@ -257,6 +257,13 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _autoExpandReasoning = true;
 
+    // 应用不在前台时，用操作系统的通知把用户叫回来。默认开启：目前唯一的使用者是
+    // 工具审批，而一个没人看见的审批请求会让整个回合一直卡到超时——
+    // 这类「不提示就等于卡死」的场景默认静音没有道理。
+    // 通知只负责叫人回来，回来之后靠会话树上的未读标记找现场。
+    [ObservableProperty]
+    private bool _systemNotificationsEnabled = true;
+
     // 窗口内常驻的 PetDex 宠物；Owl Village 保持独立的原始精灵资源。
     [ObservableProperty]
     private bool _virtualPetEnabled;

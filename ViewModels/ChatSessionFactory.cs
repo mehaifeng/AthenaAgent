@@ -4,7 +4,7 @@ using Athena.UI.Services.Interfaces;
 namespace Athena.UI.ViewModels;
 
 /// <summary>
-/// 会话 ViewModel 的生产装配点。它做的是组合根的活儿——把 19 个服务拼成一个
+/// 会话 ViewModel 的生产装配点。它做的是组合根的活儿——把整套服务拼成一个
 /// MainConversationViewModel——所以属于展示层，不属于 Services：服务层的签名里
 /// 不该出现 ViewModel（见 CLAUDE.md「Review Rules」第 4 条）。
 /// 这里传进去的每个依赖都是非空的，因此产物的
@@ -33,6 +33,8 @@ public sealed class ChatSessionFactory
     private readonly ICompressionValidator _compressionValidator;
     private readonly IVirtualPetProgressionService _petProgressionService;
     private readonly IPetChatterService _petChatterService;
+    private readonly ISystemNotificationService _notifications;
+    private readonly IAppForegroundProbe _foregroundProbe;
 
     public ChatSessionFactory(
         IChatService chatService,
@@ -55,7 +57,9 @@ public sealed class ChatSessionFactory
         ICompressionCandidateGenerator compressionCandidateGenerator,
         ICompressionValidator compressionValidator,
         IVirtualPetProgressionService petProgressionService,
-        IPetChatterService petChatterService)
+        IPetChatterService petChatterService,
+        ISystemNotificationService notifications,
+        IAppForegroundProbe foregroundProbe)
     {
         _chatService = chatService;
         _configService = configService;
@@ -78,6 +82,8 @@ public sealed class ChatSessionFactory
         _compressionValidator = compressionValidator;
         _petProgressionService = petProgressionService;
         _petChatterService = petChatterService;
+        _notifications = notifications;
+        _foregroundProbe = foregroundProbe;
     }
 
     public MainConversationViewModel Create()
@@ -106,6 +112,8 @@ public sealed class ChatSessionFactory
             _compressionCandidateGenerator,
             _compressionValidator,
             _petProgressionService,
-            _petChatterService);
+            _petChatterService,
+            _notifications,
+            _foregroundProbe);
     }
 }

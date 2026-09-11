@@ -8,6 +8,10 @@
     <system:String x:Key="MainWindow.MaximizeRestore">最大化/还原</system:String>
     <system:String x:Key="MainWindow.Close">关闭</system:String>
     <system:String x:Key="Notification.AssistantTitle">Athena 已回复</system:String>
+    <system:String x:Key="Notification.Approval.Title">Athena 正在等待你的确认</system:String>
+    <system:String x:Key="Notification.Approval.BodyMultiple">{0}（另有 {1} 项待确认）</system:String>
+    <system:String x:Key="Notification.Cron.DoneTitle">定时任务已完成</system:String>
+    <system:String x:Key="Notification.Cron.FailedTitle">定时任务未能完成</system:String>
     <system:String x:Key="Tray.Show">显示主窗口</system:String>
     <system:String x:Key="Tray.Quit">退出</system:String>
     <system:String x:Key="Skills.Title">Skills</system:String>
@@ -369,6 +373,8 @@
     <system:String x:Key="Settings.General.RewindHint">启用后，回溯对话会立即执行，不再显示确认提示。</system:String>
     <system:String x:Key="Settings.General.AutoExpandReasoning">自动展开思考内容</system:String>
     <system:String x:Key="Settings.General.AutoExpandReasoningHint">启用后，模型每次开始输出新一轮推理内容时会自动展开思考区域；推理结束后仍会自动收起。</system:String>
+    <system:String x:Key="Settings.General.SystemNotifications">应用不在前台时发送系统通知</system:String>
+    <system:String x:Key="Settings.General.SystemNotificationsHint">涵盖工具调用等待确认、回复结束、定时任务跑完三种情况。定时任务自身的「成功时提示」开关仍在此之上生效。macOS 上通知经由「脚本编辑器」发出，需要在系统设置中允许一次。</system:String>
     <system:String x:Key="Settings.Context.Title">对话与上下文</system:String>
     <system:String x:Key="Settings.Context.Description">管理应用级上下文默认策略；具体会话状态与摘要不在此修改。</system:String>
     <system:String x:Key="Settings.Context.Budget">上下文预算</system:String>
