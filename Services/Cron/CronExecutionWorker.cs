@@ -30,6 +30,7 @@ public sealed class CronExecutionWorker : IDisposable
     private readonly SemaphoreSlim _slots = new(MaxConcurrentRuns, MaxConcurrentRuns);
     private readonly SemaphoreSlim _queueSignal = new(0);
     private readonly SemaphoreSlim _checkGate = new(1, 1);
+    private readonly SemaphoreSlim _launchOrderGate = new(1, 1);
     private readonly ConcurrentQueue<CronTaskClaim> _queue = new();
 
     private CancellationTokenSource? _lifetime;
@@ -228,9 +229,24 @@ public sealed class CronExecutionWorker : IDisposable
 
         try
         {
-            await _taskService.MarkRunStartedAsync(task.Id, run.RunId, _clock.UtcNow);
+            Task<CronSessionLaunchResult> launchTask;
+            await _launchOrderGate.WaitAsync(token);
+            try
+            {
+                // The pump dequeues in FIFO order, but MarkRunStartedAsync persists
+                // asynchronously. Without this narrow gate the second claim can finish
+                // that write first and enter the launcher ahead of the first claim.
+                // Capture the launch task while ordered, then release immediately so
+                // the two sessions still execute concurrently.
+                await _taskService.MarkRunStartedAsync(task.Id, run.RunId, _clock.UtcNow);
+                launchTask = _launcher.LaunchAsync(task, run, token);
+            }
+            finally
+            {
+                _launchOrderGate.Release();
+            }
 
-            var result = await _launcher.LaunchAsync(task, run, token);
+            var result = await launchTask;
 
             await _taskService.CompleteRunAsync(
                 task.Id,
@@ -295,5 +311,6 @@ public sealed class CronExecutionWorker : IDisposable
         _slots.Dispose();
         _queueSignal.Dispose();
         _checkGate.Dispose();
+        _launchOrderGate.Dispose();
     }
 }
