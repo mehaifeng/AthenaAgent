@@ -10,7 +10,6 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System;
 using System.Collections.Concurrent;
@@ -180,7 +179,10 @@ public partial class MainWindow : Window
     private void OnColorSchemeChanged(string _) => ApplyShellPanelMaterial();
 
     /// <summary>日志 / 终端切页的淡入时长。比 shell 的悬停反馈长一点——这是换了一整块内容，不是状态反馈。</summary>
-    private const int UtilityTabFadeMs = 180;
+    private const int UtilityTabFadeMs = 220;
+
+    /// <summary>切页时新内容从下方抬起的距离。纯透明度变化在 220ms 里几乎看不出来，位移才读得出"动"。</summary>
+    private const double UtilityTabRiseY = 6d;
 
     /// <summary>
     /// 日志 / 终端切页淡入。Avalonia 的 TabControl 没有 transition 属性，内容由模板里
@@ -195,25 +197,58 @@ public partial class MainWindow : Window
     private void OnUtilityTabSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
-        Dispatcher.UIThread.Post(() =>
-        {
-            var page = _utilityTabControl?.GetVisualDescendants()
-                .OfType<Control>()
-                .FirstOrDefault(c => c.Classes.Contains("utility-tab-page"));
-            if (page != null) _ = FadeInUtilityTabAsync(page);
-        });
+        // **同步启动，不要 Post。** 曾经这里 Post 了一拍，结果是肉眼可见的"闪两下"：
+        // SelectionChanged 触发时新页已经在可视树里了（实测），延后一拍意味着它先按
+        // 完全不透明画了一帧，然后才被按到 0 再爬回来——出现、闪掉、再淡入。
+        // Animation.RunAsync 的 Cue 0 会立即接管属性、中间不留渲染帧，所以同步调用就没有那一帧。
+        var page = _utilityTabControl?.GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(c => c.Classes.Contains("utility-tab-page"));
+        // 找不到就什么都不做：宁可没有淡入，也不要先改属性再补动画（那又是那一帧的来源）。
+        if (page != null) _ = FadeInUtilityTabAsync(page);
     }
 
     private static async Task FadeInUtilityTabAsync(Control page)
     {
+        // 刻意不预设局部值：FillMode.None 下动画结束后属性回落到局部值，
+        // 若预设成 0，页面就永远留在透明上（这是"局部值必须等于动画终值"那条规则的反面）。
+        // 这里局部值保持未设（默认完全可见），动画只负责那 220ms 的斜坡。
+        var animation = new Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(UtilityTabFadeMs),
+            Easing = new CubicEaseOut(),
+            FillMode = FillMode.None,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0d),
+                    Setters =
+                    {
+                        new Setter(Visual.OpacityProperty, 0d),
+                        new Setter(TranslateTransform.YProperty, UtilityTabRiseY)
+                    }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1d),
+                    Setters =
+                    {
+                        new Setter(Visual.OpacityProperty, 1d),
+                        new Setter(TranslateTransform.YProperty, 0d)
+                    }
+                }
+            }
+        };
+
         try
         {
-            await AnimateOpacityAsync(page, 0, 1, UtilityTabFadeMs);
+            await animation.RunAsync(page);
         }
         catch (Exception ex)
         {
-            // 淡入失败不影响内容本身：AnimateAsync 收尾会把 Opacity 固化成 1，
-            // 这里丢掉的只是那 180ms。
+            // 淡入失败不影响内容本身：FillMode.None 下属性回落到局部值（完全可见），
+            // 这里丢掉的只是那 220ms。
             Serilog.Log.Debug(ex, "Utility tab fade-in failed");
         }
     }
