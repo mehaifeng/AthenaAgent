@@ -14,12 +14,21 @@ namespace Athena.UI.Views;
 internal static class ShellMaterial
 {
     /// <summary>
-    /// 玻璃模式下面板背景画笔的不透明度上限。
+    /// 深色主题下面板背景画笔的不透明度上限。
     /// 这一道夹取本身是必需的，不是审美选择：PanelTransparency 停在 0 时面板完全不透明，
     /// 不夹的话模糊底图会被面板自身彻底盖住，开关看起来失效。
-    /// 0.62 这个具体数字是起始值——往上玻璃感变弱，往下正文对比度变差，真机上再校准。
     /// </summary>
-    public const double GlassTintOpacity = 0.62;
+    public const double GlassTintOpacityDark = 0.62;
+
+    /// <summary>
+    /// 浅色主题下面板背景画笔的不透明度上限，明显高于深色。
+    /// 这一条不是取值而是看图定的：0.62 在浅色下会让左侧会话树的文字掉到读不动
+    /// （深色下同样的 0.62 完全没问题）。原因是浅色正文是深色字压浅底，
+    /// 底图透上来抬高的是"底"的亮度方差，直接吃掉字的对比度；
+    /// 深色正文是浅色字压深底，同样的方差反而被字的亮度盖住。
+    /// 也就是说这个不对称是必然的，不是随手调的数字——改浅色这一档前先截图看文字。
+    /// </summary>
+    public const double GlassTintOpacityLight = 0.80;
 
     /// <summary>
     /// 玻璃模式下模糊底图层的不透明度。比清晰底图（0.24）高，是因为模糊会把对比度压掉，
@@ -55,8 +64,10 @@ internal static class ShellMaterial
     public const double GlassBorderAlphaLight = 0.62;
 
     /// <summary>
-    /// 面板背景画笔的实际不透明度：玻璃模式在用户滑块之上再夹一道上限。
+    /// 面板背景画笔的实际不透明度：玻璃模式在用户滑块之上再夹一道上限，上限随主题。
     /// </summary>
-    public static double ResolveTintOpacity(double shellPanelOpacity, bool glassEnabled) =>
-        glassEnabled ? System.Math.Min(shellPanelOpacity, GlassTintOpacity) : shellPanelOpacity;
+    public static double ResolveTintOpacity(double shellPanelOpacity, bool glassEnabled, bool isLightTheme) =>
+        glassEnabled
+            ? System.Math.Min(shellPanelOpacity, isLightTheme ? GlassTintOpacityLight : GlassTintOpacityDark)
+            : shellPanelOpacity;
 }

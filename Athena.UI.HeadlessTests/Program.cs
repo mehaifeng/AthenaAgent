@@ -334,9 +334,14 @@ if (windowResources["App.PanelShadow"] is not BoxShadows noShadow || noShadow.Co
 
 shellConfigService.Load().MainLayout.PanelGlassEnabled = true;
 Dispatcher.UIThread.RunJobs();
-var expectedGlassTint = ShellMaterial.ResolveTintOpacity(1.0, glassEnabled: true);
-if (Math.Abs(expectedGlassTint - ShellMaterial.GlassTintOpacity) > 0.001)
-    throw new InvalidOperationException("ShellMaterial.ResolveTintOpacity must clamp an opaque panel down to GlassTintOpacity when glass is on.");
+var isLightAtCapture = Application.Current?.RequestedThemeVariant == ThemeVariant.Light;
+var expectedGlassTint = ShellMaterial.ResolveTintOpacity(1.0, glassEnabled: true, isLightTheme: isLightAtCapture);
+var expectedClamp = isLightAtCapture ? ShellMaterial.GlassTintOpacityLight : ShellMaterial.GlassTintOpacityDark;
+if (Math.Abs(expectedGlassTint - expectedClamp) > 0.001)
+    throw new InvalidOperationException("ShellMaterial.ResolveTintOpacity must clamp an opaque panel down to the theme's glass tint ceiling when glass is on.");
+// 浅色主题的上限必须高于深色：0.62 在浅色下会把深色正文的对比度吃掉（截图确认过）。
+if (ShellMaterial.GlassTintOpacityLight <= ShellMaterial.GlassTintOpacityDark)
+    throw new InvalidOperationException("The light-theme glass tint ceiling must stay above the dark one, or light-theme body text loses contrast against the backdrop.");
 foreach (var panel in shellPanels)
 {
     if (panel.Background is not ISolidColorBrush glassTint

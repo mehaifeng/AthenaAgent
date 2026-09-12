@@ -190,7 +190,8 @@ public partial class MainWindow : Window
     private void ApplyShellPanelMaterial()
     {
         var glass = _viewModel?.PanelGlassEnabled == true;
-        var opacity = ShellMaterial.ResolveTintOpacity(_viewModel?.ShellPanelOpacity ?? 1.0, glass);
+        var isLight = Application.Current?.RequestedThemeVariant == ThemeVariant.Light;
+        var opacity = ShellMaterial.ResolveTintOpacity(_viewModel?.ShellPanelOpacity ?? 1.0, glass, isLight);
         var color = ResolveShellPanelBackgroundColor();
         var brush = new SolidColorBrush(color, opacity);
         foreach (var panel in _shellPanels)
