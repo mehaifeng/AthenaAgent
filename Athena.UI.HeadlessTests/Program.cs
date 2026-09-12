@@ -507,8 +507,15 @@ var terminalPanel = window.GetVisualDescendants().OfType<TerminalPanelView>().Si
 if (terminalPanel == null
     || terminalPanel.FindControl<Button>("AddTerminalButton") == null)
     throw new InvalidOperationException("The Terminal tab did not render its terminal host and add button.");
+// 切页淡入：Avalonia 的 TabControl 没有 transition 属性，而 Style.Animations 也不会因为
+// 内容被重新挂载而重播（实测：切回去那一刻 Opacity 就是 1）——所以淡入由
+// MainWindow.OnUtilityTabSelectionChanged 驱动。这里两头都钉住：切换后必须从透明起步，
+// 并且必须自己走到完全不透明。后半条不只是断言，也是让动画落定——不settle的话，
+// 这一页会在整个套件剩余时间里停在半透明上，后面截的 main-window.png 就是灰的。
+SettleUtilityTabFade(window, "terminal");
 mainViewModel.SelectedUtilityTabIndex = 0;
 Dispatcher.UIThread.RunJobs();
+SettleUtilityTabFade(window, "log");
 var launcherButtons = window.GetVisualDescendants().OfType<Button>()
     .Where(button => button.Classes.Contains("launcher"))
     .ToList();
@@ -1971,6 +1978,22 @@ static double MaterialOpacity(Visual visual)
 {
     var baseValue = visual.GetBaseValue(Visual.OpacityProperty);
     return baseValue.HasValue ? baseValue.Value : visual.Opacity;
+}
+
+// 断言切页淡入真的跑了，并把它推到落定。
+// 谓词里显式推帧：无头平台的渲染计时器不会自己走针，不推就永远停在第一个关键帧。
+static void SettleUtilityTabFade(Window window, string tabName)
+{
+    var page = window.GetVisualDescendants().OfType<Control>()
+        .FirstOrDefault(c => c.Classes.Contains("utility-tab-page"));
+    if (page == null)
+        throw new InvalidOperationException($"The {tabName} tab content must carry the utility-tab-page class that the fade-in targets.");
+    if (page.Opacity > 0.95)
+        throw new InvalidOperationException($"Switching to the {tabName} tab must start a fade from transparent; opacity was already {page.Opacity:F2}, so OnUtilityTabSelectionChanged never ran.");
+    PumpUntil(
+        () => { AvaloniaHeadlessPlatform.ForceRenderTimerTick(); return page.Opacity >= 0.99; },
+        5000,
+        $"The {tabName} tab fade never reached full opacity; the panel would stay dimmed.");
 }
 
 static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)

@@ -685,7 +685,7 @@
                                                    Foreground="{DynamicResource SemiRed5}"/>
                                     </StackPanel>
                                 </TabItem.Header>
-                                <Grid RowDefinitions="Auto,*">
+                                <Grid RowDefinitions="Auto,*" Classes="utility-tab-page">
                                     <Button HorizontalAlignment="Right"
                                             Margin="5,3,5,0"
                                             Padding="7,3"
@@ -727,7 +727,8 @@
                                         <TextBlock Text="{loc:Loc Terminal.Header}" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </TabItem.Header>
-                                <views:TerminalPanelView DataContext="{Binding TerminalPanelViewModel}"/>
+                                <views:TerminalPanelView Classes="utility-tab-page"
+                                                         DataContext="{Binding TerminalPanelViewModel}"/>
                             </TabItem>
                         </TabControl>
                     </Border>

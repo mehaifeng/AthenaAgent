@@ -10,6 +10,8 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -38,6 +40,7 @@ public partial class MainWindow : Window
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
     private Image? _glassBackdropImage;
+    private TabControl? _utilityTabControl;
     private Grid? _mainShellGrid;
     private Grid? _rightPanelGrid;
     private ColumnDefinition? _leftShellColumn;
@@ -67,6 +70,9 @@ public partial class MainWindow : Window
         _rightTopRow = _rightPanelGrid?.RowDefinitions[0];
         _rightLogRow = _rightPanelGrid?.RowDefinitions[2];
         _workspaceWorkbench = this.FindControl<WorkspaceWorkbenchView>("WorkspaceWorkbench");
+        _utilityTabControl = this.FindControl<TabControl>("UtilityTabControl");
+        if (_utilityTabControl != null)
+            _utilityTabControl.SelectionChanged += OnUtilityTabSelectionChanged;
         if (_workspaceWorkbench != null)
             _workspaceWorkbench.MinimumRequiredWidthChanged += OnWorkbenchMinimumRequiredWidthChanged;
         // 收集三块 shell 面板（左/中/右），面板透明度只作用于其背景画笔。
@@ -172,6 +178,45 @@ public partial class MainWindow : Window
     }
 
     private void OnColorSchemeChanged(string _) => ApplyShellPanelMaterial();
+
+    /// <summary>日志 / 终端切页的淡入时长。比 shell 的悬停反馈长一点——这是换了一整块内容，不是状态反馈。</summary>
+    private const int UtilityTabFadeMs = 180;
+
+    /// <summary>
+    /// 日志 / 终端切页淡入。Avalonia 的 TabControl 没有 transition 属性，内容由模板里
+    /// 单个 ContentPresenter 承载；切页时旧内容确实会被摘下、新内容挂上（实测
+    /// DetachedFromVisualTree / AttachedToVisualTree 各触发一次），但 **Style.Animations
+    /// 不会因为重新挂载而重播**（同样实测：切回来那一刻 Opacity 就是 1，动画根本没起）。
+    /// 所以这里只能由 SelectionChanged 驱动，而不是纯 XAML。
+    ///
+    /// 必须 Post 一拍再找元素：SelectionChanged 触发时 ContentPresenter 的 Content 已经换了，
+    /// 但新内容的可视子树要等下一次布局才实例化，当场找只会找到旧的那个（或什么都找不到）。
+    /// </summary>
+    private void OnUtilityTabSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var page = _utilityTabControl?.GetVisualDescendants()
+                .OfType<Control>()
+                .FirstOrDefault(c => c.Classes.Contains("utility-tab-page"));
+            if (page != null) _ = FadeInUtilityTabAsync(page);
+        });
+    }
+
+    private static async Task FadeInUtilityTabAsync(Control page)
+    {
+        try
+        {
+            await AnimateOpacityAsync(page, 0, 1, UtilityTabFadeMs);
+        }
+        catch (Exception ex)
+        {
+            // 淡入失败不影响内容本身：AnimateAsync 收尾会把 Opacity 固化成 1，
+            // 这里丢掉的只是那 180ms。
+            Serilog.Log.Debug(ex, "Utility tab fade-in failed");
+        }
+    }
 
     /// <summary>
     /// 面板材质的唯一改写点。按 ShellPanelOpacity + PanelGlassEnabled 重建：
