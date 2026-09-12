@@ -289,7 +289,7 @@ foreach (var panel in shellPanels)
     if (panel.Opacity < 0.999)
         throw new InvalidOperationException("Shell panels must keep Opacity=1 so their content stays opaque; only the Background brush is translucent.");
     if (panel.Background is not ISolidColorBrush solid)
-        throw new InvalidOperationException("Shell panel Background must be a SolidColorBrush set by MainWindow.ApplyShellPanelOpacity.");
+        throw new InvalidOperationException("Shell panel Background must be a SolidColorBrush set by MainWindow.ApplyShellPanelMaterial.");
     if (Math.Abs(solid.Opacity - 0.5) > 0.001)
         throw new InvalidOperationException($"Shell panel Background brush opacity must follow ShellPanelOpacity (expected 0.5, got {solid.Opacity}).");
 }
@@ -312,6 +312,73 @@ if (windowResources["App.PanelBackgroundBrush"] is not ISolidColorBrush resetPan
     || windowResources["Chat.UserBubbleBg"] is not ISolidColorBrush resetBubbleBrush
     || Math.Abs(resetBubbleBrush.Opacity - 1.0) > 0.001)
     throw new InvalidOperationException("Panel and bubble background brushes must return to full opacity after transparency reset.");
+
+// ── 毛玻璃材质 ───────────────────────────────────────────────────────────────
+// 这一段钉住 ShellMaterial 的四条规则，每一条都是"不这样做开关就等于没开"：
+//   1. 玻璃模式把面板不透明度夹到 GlassTintOpacity 以下。此刻 PanelTransparency 已被
+//      上一段重置为 0（面板完全不透明），若不夹，玻璃会被面板自身彻底盖住。
+//   2. 描边换成半透明白高光——玻璃观感里模糊只占一件，描边和投影占两件。
+//   3. 投影从"无"变成有。
+//   4. 模糊底图层抬到 GlassBackdropOpacity 且位图就位，清晰底图层同步压暗
+//      （两层都留满会叠成双影）。两个不透明度都经 MaterialOpacity 读本地值——
+//      详见那个辅助函数上的注释。
+// 关闭后这四项必须逐一回到原值：材质开关不可以留下残留状态。
+var glassBackdrop = window.GetVisualDescendants().OfType<Image>()
+    .FirstOrDefault(image => image.Name == "GlassBackdropImage");
+var baseBackdrop = window.GetVisualDescendants().OfType<Image>()
+    .FirstOrDefault(image => image.Name == "BaseBackgroundImage");
+if (glassBackdrop == null || baseBackdrop == null)
+    throw new InvalidOperationException("MainWindow must carry both the sharp (BaseBackgroundImage) and blurred (GlassBackdropImage) backdrop layers.");
+if (windowResources["App.PanelShadow"] is not BoxShadows noShadow || noShadow.Count != 0)
+    throw new InvalidOperationException("App.PanelShadow must be empty while the glass material is off.");
+
+shellConfigService.Load().MainLayout.PanelGlassEnabled = true;
+Dispatcher.UIThread.RunJobs();
+var expectedGlassTint = ShellMaterial.ResolveTintOpacity(1.0, glassEnabled: true);
+if (Math.Abs(expectedGlassTint - ShellMaterial.GlassTintOpacity) > 0.001)
+    throw new InvalidOperationException("ShellMaterial.ResolveTintOpacity must clamp an opaque panel down to GlassTintOpacity when glass is on.");
+foreach (var panel in shellPanels)
+{
+    if (panel.Background is not ISolidColorBrush glassTint
+        || Math.Abs(glassTint.Opacity - expectedGlassTint) > 0.001)
+        throw new InvalidOperationException($"Shell panel tint must be clamped to GlassTintOpacity ({expectedGlassTint}) while glass is on, otherwise an opaque panel hides the glass entirely.");
+}
+if (windowResources["App.PanelBackgroundBrush"] is not ISolidColorBrush glassPanelBrush
+    || Math.Abs(glassPanelBrush.Opacity - expectedGlassTint) > 0.001)
+    throw new InvalidOperationException("App.PanelBackgroundBrush (workbench panels) must follow the clamped glass tint too.");
+if (windowResources["App.PanelBorderBrush"] is not ISolidColorBrush glassBorder
+    || glassBorder.Color.R != 255 || glassBorder.Color.G != 255 || glassBorder.Color.B != 255
+    || glassBorder.Opacity >= 1.0)
+    throw new InvalidOperationException("App.PanelBorderBrush must become a translucent white rim while glass is on.");
+if (windowResources["App.PanelShadow"] is not BoxShadows glassShadow || glassShadow.Count == 0)
+    throw new InvalidOperationException("App.PanelShadow must carry a shadow while glass is on.");
+if (glassBackdrop.Source == null)
+    throw new InvalidOperationException("The blurred backdrop layer must have its bitmap in place while glass is on.");
+if (Math.Abs(MaterialOpacity(glassBackdrop) - ShellMaterial.GlassBackdropOpacity) > 0.001)
+    throw new InvalidOperationException("The blurred backdrop layer must be raised to GlassBackdropOpacity while glass is on.");
+if (Math.Abs(MaterialOpacity(baseBackdrop) - ShellMaterial.GlassBaseImageOpacity) > 0.001)
+    throw new InvalidOperationException("The sharp backdrop layer must be dimmed to GlassBaseImageOpacity while glass is on, otherwise the two layers stack into a double image.");
+if (glassBackdrop.Source is Bitmap decoded && decoded.PixelSize.Width > ShellMaterial.GlassBackdropDecodeWidth)
+    throw new InvalidOperationException($"The blurred backdrop must be decoded down to {ShellMaterial.GlassBackdropDecodeWidth}px — the upscale is what produces the blur, and a full-size bitmap produces none.");
+
+shellConfigService.Load().MainLayout.PanelGlassEnabled = false;
+Dispatcher.UIThread.RunJobs();
+foreach (var panel in shellPanels)
+{
+    if (panel.Background is not ISolidColorBrush restoredTint || Math.Abs(restoredTint.Opacity - 1.0) > 0.001)
+        throw new InvalidOperationException("Shell panel tint must return to the unclamped ShellPanelOpacity after glass is switched off.");
+}
+if (windowResources["App.PanelShadow"] is not BoxShadows clearedShadow || clearedShadow.Count != 0)
+    throw new InvalidOperationException("App.PanelShadow must go back to empty after glass is switched off.");
+if (windowResources["App.PanelBorderBrush"] is ISolidColorBrush restoredBorder
+    && restoredBorder.Color.R == 255 && restoredBorder.Color.G == 255 && restoredBorder.Color.B == 255
+    && restoredBorder.Opacity < 1.0)
+    throw new InvalidOperationException("App.PanelBorderBrush must drop the white glass rim after glass is switched off.");
+if (Math.Abs(MaterialOpacity(glassBackdrop)) > 0.001)
+    throw new InvalidOperationException("The blurred backdrop layer must go back to fully transparent after glass is switched off.");
+if (Math.Abs(MaterialOpacity(baseBackdrop) - ShellMaterial.BaseImageOpacity) > 0.001)
+    throw new InvalidOperationException("The sharp backdrop layer must return to its non-glass opacity after glass is switched off.");
+
 contextInspectorButton.Command.Execute(null);
 Dispatcher.UIThread.RunJobs();
 if (contextInspectorDrawer.IsVisible)
@@ -472,7 +539,7 @@ AssertEveryIconResolved(window);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
 await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
-Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, and permanent chat");
+Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, permanent chat, and panel material (transparency + glass)");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
 Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, title-bar commands, and search spacing");
 window.Close();
@@ -1790,6 +1857,16 @@ Environment.Exit(Environment.ExitCode);
 // 不要在主线程写「await Task.Delay + RunJobs」——await 续延会投进 dispatcher 队列，
 // 而 RunJobs 在 await 之后才执行，形成死锁。轮询等待一律用本函数。
 // （局部函数不能带 /// XML 文档注释，故用普通注释。）
+// 读"材质代码同步落定的那个不透明度"，绕开动画层。
+// 两层底图挂着 260ms 的 DoubleTransition，Opacity 的 getter 在斜坡期间返回动画瞬时值；
+// 而无头平台的渲染计时器不会自己走针，斜坡可能压根不推进——断言 Opacity 等于断言
+// "当前这一帧碰巧渲染到哪了"。GetBaseValue 返回本地值，也就是这里真正要钉的东西。
+static double MaterialOpacity(Visual visual)
+{
+    var baseValue = visual.GetBaseValue(Visual.OpacityProperty);
+    return baseValue.HasValue ? baseValue.Value : visual.Opacity;
+}
+
 static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
 {
     var deadline = Environment.TickCount + timeoutMs;

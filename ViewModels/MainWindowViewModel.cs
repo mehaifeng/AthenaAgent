@@ -59,6 +59,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     /// <summary>XAML 直接消费的 Border.Opacity 值：透明度 0 对应不透明（Opacity=1），透明度 0.8 对应 20% 不透明（Opacity=0.2）。</summary>
     public double ShellPanelOpacity => 1.0 - PanelTransparency;
 
+    /// <summary>
+    /// 面板是否使用毛玻璃材质。这里只暴露用户意图，材质本身（tint 上限、描边、投影、模糊底图）
+    /// 由 MainWindow.ApplyShellPanelMaterial 渲染——ViewModel 不持有任何画笔或效果。
+    /// </summary>
+    public bool PanelGlassEnabled => Config?.MainLayout.PanelGlassEnabled == true;
+
     private MainLayoutSettings? _trackedMainLayout;
 
     private void TrackMainLayout(MainLayoutSettings? layout)
@@ -78,6 +84,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         {
             OnPropertyChanged(nameof(PanelTransparency));
             OnPropertyChanged(nameof(ShellPanelOpacity));
+        }
+        else if (e.PropertyName == nameof(MainLayoutSettings.PanelGlassEnabled))
+        {
+            OnPropertyChanged(nameof(PanelGlassEnabled));
         }
     }
 
@@ -951,6 +961,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
         OnPropertyChanged(nameof(PanelTransparency));
         OnPropertyChanged(nameof(ShellPanelOpacity));
+        OnPropertyChanged(nameof(PanelGlassEnabled));
         TrackMainLayout(config.MainLayout);
     }
 

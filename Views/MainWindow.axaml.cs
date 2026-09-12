@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private Image? _themeSplashImage;
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
+    private Image? _glassBackdropImage;
     private Grid? _mainShellGrid;
     private Grid? _rightPanelGrid;
     private ColumnDefinition? _leftShellColumn;
@@ -55,6 +56,7 @@ public partial class MainWindow : Window
         _themeSplashImage = this.FindControl<Image>("ThemeSplashImage");
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
+        _glassBackdropImage = this.FindControl<Image>("GlassBackdropImage");
         _titleBarMaximizeIcon = this.FindControl<PathIcon>("TitleBarMaximizeIcon");
         _titleBarRestoreIcon = this.FindControl<PathIcon>("TitleBarRestoreIcon");
         UpdateMaximizeRestoreIcons();
@@ -75,7 +77,7 @@ public partial class MainWindow : Window
             appNotify.PropertyChanged += OnApplicationPropertyChanged;
         // 配色方案切换不改 RequestedThemeVariant，必须单独订阅重解析面板背景。
         App.ColorSchemeChanged += OnColorSchemeChanged;
-        ApplyShellPanelOpacity();
+        ApplyShellPanelMaterial();
         DataContextChanged += OnMainDataContextChanged;
         SizeChanged += (_, _) => ApplySavedLayout();
         // 窗口显示之前就设置好 Splash 图片的初始状态：
@@ -151,35 +153,44 @@ public partial class MainWindow : Window
         {
             _viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
             ApplySavedLayout();
-            ApplyShellPanelOpacity();
+            ApplyShellPanelMaterial();
         }
     }
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
-        else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelOpacity();
+        else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
+        else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
     }
 
     private void OnApplicationPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         // 运行时切换主题：RequestedThemeVariant 一落地就要重解析背景色（此时主题字典已换新）。
         if (e.PropertyName == nameof(Application.RequestedThemeVariant))
-            ApplyShellPanelOpacity();
+            ApplyShellPanelMaterial();
     }
 
-    private void OnColorSchemeChanged(string _) => ApplyShellPanelOpacity();
+    private void OnColorSchemeChanged(string _) => ApplyShellPanelMaterial();
 
     /// <summary>
-    /// 按 ShellPanelOpacity 重建所有受全局透明度控制的背景画笔：左右两块 shell 面板 +
-    /// 右侧工作区的差异审查/文件编辑/文件树/日志区域（App.PanelBackgroundBrush）+
-    /// 主对话气泡（Chat.UserBubbleBg / Chat.AssistantBubbleBg）。
+    /// 面板材质的唯一改写点。按 ShellPanelOpacity + PanelGlassEnabled 重建：
+    /// 背景画笔（左中右 shell 面板 + 右侧工作区四块面板的 App.PanelBackgroundBrush
+    /// + 主对话气泡 Chat.UserBubbleBg / Chat.AssistantBubbleBg）、
+    /// 描边画笔（App.PanelBorderBrush）、投影（App.PanelShadow）、模糊底图层，
+    /// 以及会话行选中态淡入的同色零透明度起点（App.SelectedBackgroundFaded）——
+    /// 后者与材质无关，但它和上面几个一样是"随主题/配色重解析的窗口级画笔"，
+    /// 触发条件完全相同，再拆一套解析管线只会多一处漏更新的地方。
     /// 只让背景变透明使雅典娜图像透出，文字/图标/文件等内容保持完全不透明
     /// （对整个 Border 设 Opacity 会让整个子树一起变淡）。
+    ///
+    /// 新增面板不要再自己挂类或加绑定：消费 App.PanelBackgroundBrush /
+    /// App.PanelBorderBrush / App.PanelShadow 三个键就自动跟随材质。
     /// </summary>
-    private void ApplyShellPanelOpacity()
+    private void ApplyShellPanelMaterial()
     {
-        var opacity = _viewModel?.ShellPanelOpacity ?? 1.0;
+        var glass = _viewModel?.PanelGlassEnabled == true;
+        var opacity = ShellMaterial.ResolveTintOpacity(_viewModel?.ShellPanelOpacity ?? 1.0, glass);
         var color = ResolveShellPanelBackgroundColor();
         var brush = new SolidColorBrush(color, opacity);
         foreach (var panel in _shellPanels)
@@ -193,6 +204,92 @@ public partial class MainWindow : Window
         Resources["App.PanelBackgroundBrush"] = brush;
         Resources["Chat.UserBubbleBg"] = RebuildBrushWithOpacity("Chat.UserBubbleBg", opacity);
         Resources["Chat.AssistantBubbleBg"] = RebuildBrushWithOpacity("Chat.AssistantBubbleBg", opacity);
+        // 会话行选中态淡入的起点色：与 App.SelectedBackground 同色、透明度 0。
+        // 不能让 BrushTransition 从 Transparent 起步——直通 alpha 插值会中途经过
+        // "半透明白"，深色主题下就是闪一下白光（AvaloniaUI/Avalonia#15419）。
+        Resources["App.SelectedBackgroundFaded"] = RebuildBrushWithOpacity("App.SelectedBackground", 0.0);
+
+        // 玻璃质感的三件套里，模糊只占一件——真正让人认出"玻璃"的是描边高光和投影。
+        // 关闭时这两个键回落到原来的 SemiGreyLowBrush / 无投影，观感与改动前完全一致。
+        Resources["App.PanelBorderBrush"] = ResolvePanelBorderBrush(glass);
+        Resources["App.PanelShadow"] = glass ? GlassPanelShadow : default(BoxShadows);
+
+        ApplyGlassBackdrop(glass);
+    }
+
+    /// <summary>玻璃模式的面板投影。半径给得比位移大，读起来是"浮起来"而不是"下面垫了一条黑边"。</summary>
+    private static readonly BoxShadows GlassPanelShadow = BoxShadows.Parse("0 6 22 0 #26000000");
+
+    /// <summary>
+    /// 面板描边：非玻璃沿用主题的 SemiGreyLowBrush；玻璃换成白色高光。
+    /// 浅色主题下要给到 0.62 才看得见边，深色主题 0.16 就够——再高会变成一道亮框。
+    /// </summary>
+    private IBrush ResolvePanelBorderBrush(bool glass)
+    {
+        var variant = Application.Current?.RequestedThemeVariant;
+        if (glass)
+        {
+            var alpha = variant == ThemeVariant.Light
+                ? ShellMaterial.GlassBorderAlphaLight
+                : ShellMaterial.GlassBorderAlphaDark;
+            return new SolidColorBrush(Colors.White, alpha);
+        }
+
+        if (variant != null && this.TryFindResource("SemiGreyLowBrush", variant, out var value) && value is IBrush themed)
+            return themed;
+        return new SolidColorBrush(Color.Parse("#3A3A3A"));
+    }
+
+    /// <summary>
+    /// 驱动模糊底图层：玻璃开启时把它抬到 GlassBackdropOpacity，同时把清晰底图压到
+    /// GlassBaseImageOpacity（两层都留满会叠成双影）；关闭时反向。
+    ///
+    /// 这里只赋终值，260ms 的淡入淡出由两个 Image 在 XAML 里声明的 DoubleTransition 完成。
+    /// 刻意不用 Animation.RunAsync 手写：那需要"先把局部值预置为动画终值"来躲收尾闪帧
+    /// （主题过渡里那条注释），还要处理快速来回切换时前一次收尾抹掉后一次结果的竞态，
+    /// 而声明式过渡两者都不存在——状态是同步落定的，动画只是它的视觉斜坡。
+    /// </summary>
+    private void ApplyGlassBackdrop(bool glass)
+    {
+        if (_glassBackdropImage == null || _baseBackgroundImage == null) return;
+
+        var backdrop = glass ? LoadGlassBackdropBitmap() : null;
+        if (glass && backdrop == null)
+        {
+            // 位图解码失败：玻璃退化为"tint + 描边 + 投影"，没有模糊底图。
+            // 这是可见但可接受的降级——一个装饰性材质不该让窗口起不来，
+            // 失败原因已由 LoadGlassBackdropBitmap 记进日志。
+            _glassBackdropImage.Opacity = 0;
+            _baseBackgroundImage.Opacity = ShellMaterial.BaseImageOpacity;
+            return;
+        }
+
+        if (backdrop != null) _glassBackdropImage.Source = backdrop;
+        _glassBackdropImage.Opacity = glass ? ShellMaterial.GlassBackdropOpacity : 0d;
+        _baseBackgroundImage.Opacity = glass ? ShellMaterial.GlassBaseImageOpacity : ShellMaterial.BaseImageOpacity;
+        // 关闭时故意不置 Source = null：位图本身是进程级缓存的（_glassBackdropCache），
+        // 置空省不下内存，只会把"淡出还没结束就把图抹掉"变成一个要防的竞态。
+    }
+
+    /// <summary>已解码的模糊底图缓存（按主题变体）。96px 的位图极小，常驻比每次切换重解码划算。</summary>
+    private static readonly ConcurrentDictionary<string, Bitmap> _glassBackdropCache = new();
+
+    private static Bitmap? LoadGlassBackdropBitmap()
+    {
+        var key = Application.Current?.RequestedThemeVariant == ThemeVariant.Light ? "Light" : "Dark";
+        try
+        {
+            return _glassBackdropCache.GetOrAdd(key, static k =>
+            {
+                using var stream = AssetLoader.Open(new Uri($"avares://Athena.UI/Assets/{k}.webp"));
+                return Bitmap.DecodeToWidth(stream, ShellMaterial.GlassBackdropDecodeWidth);
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Glass backdrop bitmap decode failed; panels fall back to tint-only glass");
+            return null;
+        }
     }
 
     private SolidColorBrush RebuildBrushWithOpacity(string resourceKey, double opacity)

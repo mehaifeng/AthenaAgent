@@ -101,7 +101,8 @@
         <Border Grid.Column="0"
                 MinWidth="260"
                 IsVisible="{Binding IsReviewVisible}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                BoxShadow="{DynamicResource App.PanelShadow}"
                 BorderThickness="1"
                 CornerRadius="8"
                 Background="{DynamicResource App.PanelBackgroundBrush}">
@@ -357,7 +358,8 @@
 
         <Border Grid.Column="2"
                 IsVisible="{Binding IsEditorVisible}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                BoxShadow="{DynamicResource App.PanelShadow}"
                 BorderThickness="1"
                 CornerRadius="8"
                 Background="{DynamicResource App.PanelBackgroundBrush}">
@@ -541,7 +543,8 @@
 
         <Border Grid.Column="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserColumn}"
                 Grid.ColumnSpan="{Binding IsEditorVisible, Converter={StaticResource EditorPaneGridConverter}, ConverterParameter=BrowserSpan}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                BoxShadow="{DynamicResource App.PanelShadow}"
                 BorderThickness="1"
                 CornerRadius="8"
                 Background="{DynamicResource App.PanelBackgroundBrush}">

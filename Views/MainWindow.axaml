@@ -116,13 +116,39 @@
     <Window.Styles>
         <Style Selector="Border.shell-panel">
             <Setter Property="Background" Value="{DynamicResource SemiColorBackground0}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.PanelBorderBrush}"/>
+            <Setter Property="BoxShadow" Value="{DynamicResource App.PanelShadow}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="10"/>
             <!-- 面板透明度：只让面板 Background 画笔变透明以透出背景图像，内容（文字/图标/文件等）保持完全不透明。
-                 画笔由 MainWindow.ApplyShellPanelOpacity 按 ShellPanelOpacity 动态构造并赋值，
-                 不能对整个 Border 设 Opacity —— 那会让整个子树合成后一起变淡。 -->
+                 画笔由 MainWindow.ApplyShellPanelMaterial 按 ShellPanelOpacity 动态构造并赋值，
+                 不能对整个 Border 设 Opacity —— 那会让整个子树合成后一起变淡。
+                 描边与投影同样走窗口级动态资源（App.PanelBorderBrush / App.PanelShadow），
+                 由同一个 ApplyShellPanelMaterial 重建：新增面板只要消费这三个键就自动跟随材质，
+                 不需要再挂类或加绑定。 -->
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.26" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
         </Style>
+        <!-- ══ 微交互动效层 ════════════════════════════════════════════════════
+             时长三档：120ms 按下反馈 / 180ms 悬停与选中 / 260ms 材质切换，缓动统一
+             CubicEaseOut。这三档和曲线是取值，没有测量撑着，随便调。
+             下面三条边界不一样——它们来自 CLAUDE.md 里已经量过的数字，不要越过：
+               1. 选择器只覆盖 MainWindow 作用域的 shell 类，MainConversationView
+                  一个都不用——消息列表不虚拟化，一条 hover 过渡在那里量到 16.9ms/行
+                  （无过渡 1.1ms）。任何往消息列表里加动效的改动都必须先用
+                  ATHENA_SCROLL_PERF=1 重测。
+               1b. BrushTransition 的起点不能是 Transparent：直通 alpha 插值会经过
+                  半透明白，深色主题下闪白光（AvaloniaUI/Avalonia#15419）。这就是
+                  hover 态（起点由 Semi 主题决定，控制不了）没有画笔过渡、
+                  只有选中态有的原因——后者两端都由我们自己给。
+               2. 全部是自身属性选择器，没有 `A:pointerover B` 跨元素后代选择器——
+                  那种选择器每次悬停翻转都要重算整条后代样式链。
+               3. 没有 IterationCount="Infinite"。过渡跟随属性变化，属性不动就没有帧，
+                  不存在隐藏元素上仍在驱动合成器逐帧重绘的问题（Avalonia#17139）。
+             ═══════════════════════════════════════════════════════════════════ -->
         <Style Selector="Button.launcher">
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -130,6 +156,34 @@
             <Setter Property="Padding" Value="11,9"/>
             <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
             <Setter Property="Height" Value="40"/>
+            <!-- RenderTransformOrigin 必须显式给中心：默认是左上角，scale 会把按钮往右下推而不是原地缩。 -->
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Setter Property="RenderTransform" Value="none"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.launcher:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.97)"/>
+        </Style>
+        <!-- 标题栏按钮：悬停轻微放大。这里敢加 transform 是因为它们是固定的 5 个按钮，
+             不在任何列表里，悬停翻转次数由鼠标路过决定而不是由滚动决定。 -->
+        <Style Selector="Button.titlebar-action">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
+            <Setter Property="RenderTransform" Value="none"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.titlebar-action:pointerover">
+            <Setter Property="RenderTransform" Value="scale(1.12)"/>
+        </Style>
+        <Style Selector="Button.titlebar-action:pressed">
+            <Setter Property="RenderTransform" Value="scale(0.9)"/>
         </Style>
         <Style Selector="Button.session-row">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -138,6 +192,19 @@
             <Setter Property="Padding" Value="4,2"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <!-- 选中态淡入。起点刻意不用 Transparent：BrushTransition 走直通 alpha 插值，
+             从 Transparent（#00FFFFFF）过渡到深色选中色会在中途经过"半透明白"，
+             深色主题下肉眼就是闪一下白光（AvaloniaUI/Avalonia#15419）。
+             App.SelectedBackgroundFaded 是同色零透明度版本，由 ApplyShellPanelMaterial
+             用 RebuildBrushWithOpacity 生成，插值全程同色，只有 alpha 在动。 -->
+        <Style Selector="Grid.conversation-row">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackgroundFaded}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.18" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
         </Style>
         <!-- 当前打开（选中）的会话行高亮。IsSelected 由 MainWindowViewModel 随 SelectedConversation 维护。 -->
         <Style Selector="Grid.conversation-row.selected">
@@ -193,6 +260,11 @@
         </Style>
         <Style Selector="GridSplitter.layout-splitter">
             <Setter Property="Background" Value="{DynamicResource SemiColorBorder}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.18" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="GridSplitter.layout-splitter:pointerover">
             <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
@@ -203,7 +275,32 @@
     </Window.Styles>
 
     <Grid RowDefinitions="30,*">
-        <Image Grid.RowSpan="2" x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
+        <!-- 两层底图的 Opacity 过渡就是材质切换的视觉斜坡。260ms 是取值，不是测量结论。
+             终值由 ApplyShellPanelMaterial 同步赋，这里只负责斜坡。
+             注意底图的 Opacity 只有材质代码会写——主题过渡动的是 RenderTransform 与 Effect，
+             不会和这条过渡打架。 -->
+        <Image Grid.RowSpan="2" x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False">
+            <Image.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.26" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Image.Transitions>
+        </Image>
+        <!-- 毛玻璃底图层：同一张背景图解码到 96px 再由 UniformToFill 升采样铺满窗口。
+             HighQuality 插值（mipmap + 三次卷积）把 15 倍放大变成一层高斯模糊，
+             运行期成本为零——刻意不用 Effect="blur(n)"，那是每帧一次全窗口离屏渲染，
+             而这张图是静态的。Source / Opacity 由 ApplyShellPanelMaterial 驱动；
+             关闭时只把 Opacity 归零、刻意保留 Source（位图是进程级缓存的，置空省不下内存，
+             只会把"淡出还没结束就把图抹掉"变成一个要防的竞态）。
+             位置在清晰底图之上、主题过渡层之下：主题切换时过渡层照旧盖住两者。 -->
+        <Image Grid.RowSpan="2" x:Name="GlassBackdropImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"
+               RenderOptions.BitmapInterpolationMode="HighQuality">
+            <Image.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.26" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Image.Transitions>
+        </Image>
         <Image Grid.RowSpan="2" x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
         <Border Grid.Row="0"
@@ -228,7 +325,7 @@
                             Spacing="4"
                             VerticalAlignment="Center">
                     <Button x:Name="TitleBarThemeButton"
-                            Classes="icon-plain"
+                            Classes="icon-plain titlebar-action"
                             Margin="0,0,10,0"
                             Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
                             Tag="{Binding MainConversationViewModel.ThemeIcon}"
@@ -243,7 +340,7 @@
                         </Panel>
                     </Button>
                     <Button x:Name="TitleBarAppSettingsButton"
-                            Classes="icon-plain"
+                            Classes="icon-plain titlebar-action"
                             Margin="0,0,10,0"
                             Command="{Binding OpenAppSettingsCommand}"
                             ToolTip.Tip="{loc:Loc Settings.Window.Title}">
@@ -252,7 +349,7 @@
                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMinimizeButton"
-                            Classes="icon-plain"
+                            Classes="icon-plain titlebar-action"
                             Margin="0,0,10,0"
                             Click="OnTitleBarMinimizeClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
@@ -261,7 +358,7 @@
                                   Foreground="{DynamicResource App.IconForeground}"/>
                     </Button>
                     <Button x:Name="TitleBarMaximizeButton"
-                            Classes="icon-plain"
+                            Classes="icon-plain titlebar-action"
                             Margin="0,0,10,0"
                             Click="OnTitleBarMaximizeRestoreClick"
                             ToolTip.Tip="{loc:Loc MainWindow.MaximizeRestore}">
@@ -281,7 +378,7 @@
                          window glyphs fill 81-94%, so equal Width values draw a visibly smaller
                          close button. All three land on ~13px of actual ink. -->
                     <Button x:Name="TitleBarCloseButton"
-                            Classes="icon-plain"
+                            Classes="icon-plain titlebar-action"
                             Margin="0,0,10,0"
                             Click="OnTitleBarCloseClick"
                             ToolTip.Tip="{loc:Loc MainWindow.Close}">
@@ -508,7 +605,8 @@
                     <Border Grid.Row="{Binding Workbench.LogGridRow}"
                             Grid.RowSpan="{Binding Workbench.LogGridRowSpan}"
                             BorderThickness="1"
-                            BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                            BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                            BoxShadow="{DynamicResource App.PanelShadow}"
                             CornerRadius="8"
                             Background="{DynamicResource App.PanelBackgroundBrush}">
                         <TabControl x:Name="UtilityTabControl"

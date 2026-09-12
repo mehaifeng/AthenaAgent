@@ -369,6 +369,8 @@
     <system:String x:Key="Settings.General.FontScale.Maximum">最大</system:String>
     <system:String x:Key="Settings.General.PanelOpacity">面板透明度</system:String>
     <system:String x:Key="Settings.General.PanelOpacity.Description">让背景的图像从主窗口的三块面板背后淡淡透出，0% 表示完全遮住（与原观感一致），80% 为最透明。标题栏不受影响。</system:String>
+    <system:String x:Key="Settings.General.PanelGlass">面板毛玻璃</system:String>
+    <system:String x:Key="Settings.General.PanelGlass.Description">面板改用毛玻璃材质：背景图模糊后从面板下透出，并加上浅色描边与投影。开启后面板至少保持一定通透度（否则玻璃会被面板自身盖住），上面的透明度滑块仍然可以调得更透。</system:String>
     <system:String x:Key="Settings.General.Interaction">交互</system:String>
     <system:String x:Key="Settings.General.RewindHint">启用后，回溯对话会立即执行，不再显示确认提示。</system:String>
     <system:String x:Key="Settings.General.AutoExpandReasoning">自动展开思考内容</system:String>

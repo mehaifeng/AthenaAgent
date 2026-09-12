@@ -354,4 +354,11 @@ public partial class MainLayoutSettings : ObservableObject
         else if (value > 0.8)
             PanelTransparency = 0.8;
     }
+
+    // 毛玻璃材质：面板从"实心/半透明"切换为"模糊底图透出 + 浅色描边 + 投影"。
+    // 与 PanelTransparency 正交——滑块仍然决定通透程度，开关只决定材质；
+    // 但玻璃模式会把面板不透明度夹到 ShellMaterial.GlassTintOpacity 以下，
+    // 否则滑块停在 0（面板完全不透明）时玻璃会被面板自身彻底盖住，开关看起来失效。
+    [ObservableProperty]
+    private bool _panelGlassEnabled;
 }

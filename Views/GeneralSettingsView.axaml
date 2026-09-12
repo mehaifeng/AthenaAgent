@@ -129,6 +129,12 @@
                     <TextBlock Text="{loc:Loc Settings.General.PanelOpacity.Description}"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
+                    <CheckBox x:Name="PanelGlassCheckBox"
+                              Content="{loc:Loc Settings.General.PanelGlass}"
+                              IsChecked="{Binding State.Config.MainLayout.PanelGlassEnabled}"/>
+                    <TextBlock Text="{loc:Loc Settings.General.PanelGlass.Description}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
                 </StackPanel>
             </Border>
 
