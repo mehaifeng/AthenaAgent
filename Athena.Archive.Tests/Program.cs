@@ -1047,7 +1047,7 @@ static async Task TestLocalContextDataClearAsync()
 
     var calibrationPath = ((IPlatformPathService)harness.PathService).GetTokenCalibrationFilePath();
     var calibrationDirectory = Path.GetDirectoryName(calibrationPath)!;
-    if (!OperatingSystem.IsWindows())
+    if (ReadOnlyDirectoryBlocksWrites())
     {
         var originalMode = File.GetUnixFileMode(calibrationDirectory);
         try
@@ -1759,7 +1759,7 @@ static async Task TestWorkspaceContextOverridePersistenceAsync()
     AssertFalse(Directory.EnumerateFiles(harness.PathService.GetWorkspacesDirectory(), ".*.tmp").Any(),
         "cancelled workspace policy writes should clean temporary files");
 
-    if (!OperatingSystem.IsWindows())
+    if (ReadOnlyDirectoryBlocksWrites())
     {
         var directory = harness.PathService.GetWorkspacesDirectory();
         var originalMode = File.GetUnixFileMode(directory);
@@ -5382,6 +5382,42 @@ static async Task AssertThrowsAsync<TException>(Func<Task> action, string messag
     }
 
     throw new InvalidOperationException($"{message}. Expected exception: {typeof(TException).Name}");
+}
+
+// 探测"把目录改成只读"在这个环境里能否真的拦住写入。
+// 需要它的是下面两处"期待写入被拒绝"的断言，而它们有一个从未写出来的前提：进程不是 root。
+// root 持有 CAP_DAC_OVERRIDE，绕过 DAC 权限检查，目录改成 0500 也照样写得进去，
+// 于是 failed 永远是 false、断言永远失败——Claude Code on the web 的远程容器里
+// agent 正是以 root 运行，整个套件在那里会永远退出 1，而两条失败都不是真的回归
+// （在 main 上同样失败，已核对）。
+//
+// 刻意用"探测能力"而不是"查 euid"：断言需要的前提就是这个能力本身，
+// 直接测它比从身份反推更准（某些挂载选项同样拦不住写入）。
+// 这不是把断言关掉：非 root 的 Linux（本地开发机、CI）照旧执行它，失败照旧是失败。
+static bool ReadOnlyDirectoryBlocksWrites()
+{
+    if (OperatingSystem.IsWindows()) return false;
+    var probe = Directory.CreateTempSubdirectory("athena-readonly-probe-");
+    try
+    {
+        File.SetUnixFileMode(probe.FullName, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            File.WriteAllText(Path.Combine(probe.FullName, "probe"), "x");
+            return false;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return true;
+        }
+    }
+    finally
+    {
+        File.SetUnixFileMode(
+            probe.FullName,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        probe.Delete(true);
+    }
 }
 
 static void AssertTrue(bool condition, string message)

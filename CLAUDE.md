@@ -65,6 +65,28 @@ Ensure you have the .NET 10 SDK installed.
 | **Release** | `dotnet build -c Release` |
 | **Headless Tests** | `Scripts/run-headless-tests.ps1` (PowerShell) or `Scripts/run-headless-tests.sh` (Git Bash/CI) |
 
+### Claude Code on the web (`.claude/hooks/session-start.sh`)
+
+Remote sessions start without a .NET SDK. The SessionStart hook installs
+`dotnet-sdk-10.0` **from the Ubuntu archive** (`noble-updates/main`) and warms the
+NuGet cache with a solution restore; it is a no-op on a local machine (`CLAUDE_CODE_REMOTE`).
+Two things about it are load-bearing:
+
+- **Do not switch it to `dotnet-install.sh`.** `dot.net/v1/dotnet-install.sh` redirects to
+  `builds.dotnet.microsoft.com`, which — along with `aka.ms`,
+  `download.visualstudio.microsoft.com` and `dotnetcli.azureedge.net` — answers 403 to CONNECT
+  under the session's egress policy. `archive.ubuntu.com` over port 80 is reachable directly.
+- **`apt-get update`'s exit code is not a gate.** The container ships deadsnakes/ondrej PPA
+  sources that are 403 under the same policy, and apt downgrades a single failed source to a
+  warning and still returns 0 — so the code proves neither success nor failure. The real gate is
+  the `install` plus the `dotnet --list-sdks` recheck after it.
+
+Also: the remote agent runs as **root**, and root bypasses DAC permission checks
+(`CAP_DAC_OVERRIDE`). Two `Athena.Archive.Tests` cases chmod a directory to `0500` and assert the
+write is refused, which cannot hold as root — they are guarded by
+`ReadOnlyDirectoryBlocksWrites()`, which probes the capability instead of inferring it from the
+uid, so the assertions still run (and still fail) anywhere they are meaningful.
+
 ### Headless Tests (`Athena.UI.HeadlessTests`)
 
 Avalonia headless assertion suite — a console program with 60+ sequential cases (~2 min total). Assertion messages are written in zh-CN because the harness pins the zh-CN culture at startup.
