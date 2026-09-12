@@ -23,6 +23,15 @@
 
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
             <Grid Classes="conversation-row" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsSearchMatch}">
+                <!-- 选中指示条：从中心纵向长出来。用 Classes.on 直接绑 IsSelected，
+                     而不是 `Grid.conversation-row.selected Border.row-accent` 这种跨元素后代
+                     选择器——后者每次状态翻转都要重算整条后代样式链（CLAUDE.md 里量过的那条）。
+                     scaleY 是合成器变换，不触发布局，所以这条动画不会让会话树重排。 -->
+                <Border Classes="row-accent" Classes.on="{Binding IsSelected}"
+                        Width="3" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                        Margin="0,3" CornerRadius="2"
+                        Background="{DynamicResource App.IconAccentForeground}"
+                        IsHitTestVisible="False"/>
                 <Grid IsVisible="{Binding !IsRenaming}" ColumnDefinitions="*,Auto">
                     <Button Classes="session-row"
                             Command="{Binding $parent[Window].DataContext.SelectConversationCommand}"
@@ -165,6 +174,12 @@
                 </Transitions>
             </Setter>
         </Style>
+        <!-- launcher 的 Background 交给 Semi 主题：它是一块真实的按钮表面，
+             覆盖成自建画笔会把它压平。这里只做位移——底色照旧瞬时切换，
+             颜色snap配合尺度动画是原生 UI 的常见做法，不会显得断。 -->
+        <Style Selector="Button.launcher:pointerover">
+            <Setter Property="RenderTransform" Value="scale(1.025)"/>
+        </Style>
         <Style Selector="Button.launcher:pressed">
             <Setter Property="RenderTransform" Value="scale(0.97)"/>
         </Style>
@@ -191,7 +206,16 @@
             <Setter Property="Height" Value="28"/>
             <Setter Property="Padding" Value="4,2"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Background" Value="Transparent"/>
+            <!-- 同上：同色零透明度起点，只过渡画笔不过渡 transform（这是个可滚动列表）。 -->
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.session-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
         </Style>
         <!-- 选中态淡入。起点刻意不用 Transparent：BrushTransition 走直通 alpha 插值，
              从 Transparent（#00FFFFFF）过渡到深色选中色会在中途经过"半透明白"，
@@ -205,6 +229,18 @@
                     <BrushTransition Property="Background" Duration="0:0:0.18" Easing="CubicEaseOut"/>
                 </Transitions>
             </Setter>
+        </Style>
+        <Style Selector="Border.row-accent">
+            <Setter Property="RenderTransformOrigin" Value="0%,50%"/>
+            <Setter Property="RenderTransform" Value="scaleY(0)"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.row-accent.on">
+            <Setter Property="RenderTransform" Value="scaleY(1)"/>
         </Style>
         <!-- 当前打开（选中）的会话行高亮。IsSelected 由 MainWindowViewModel 随 SelectedConversation 维护。 -->
         <Style Selector="Grid.conversation-row.selected">
@@ -220,14 +256,31 @@
                 </Animation>
             </Style.Animations>
         </Style>
+        <!-- 图标按钮的悬停/按下反馈。起点用 App.HoverOverlayFaded（同色零透明度）而不是
+             Transparent：BrushTransition 走直通 alpha 插值，从 Transparent（#00FFFFFF）
+             过渡到深色覆盖层会中途经过半透明白，深色主题下就是闪一下白光
+             （AvaloniaUI/Avalonia#15419）。三支覆盖画笔由 ApplyShellPanelMaterial 同色生成。
+             这里不加 transform：icon-plain 会出现在会话树的行里，而列表滚动时指针底下的行
+             会逐个翻转 :pointerover，能少一个动画属性就少一个。 -->
         <Style Selector="Button.icon-plain">
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="4"/>
             <Setter Property="MinWidth" Value="24"/>
             <Setter Property="MinHeight" Value="24"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.icon-plain:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
+        </Style>
+        <Style Selector="Button.icon-plain:pressed">
+            <Setter Property="Background" Value="{DynamicResource App.PressOverlay}"/>
         </Style>
         <Style Selector="Button.nav-expand">
             <Setter Property="Padding" Value="2,0"/>

@@ -384,6 +384,80 @@ if (Math.Abs(MaterialOpacity(glassBackdrop)) > 0.001)
 if (Math.Abs(MaterialOpacity(baseBackdrop) - ShellMaterial.BaseImageOpacity) > 0.001)
     throw new InvalidOperationException("The sharp backdrop layer must return to its non-glass opacity after glass is switched off.");
 
+// ── Shell 微交互动效 ────────────────────────────────────────────────────────
+// 这一段钉住三条，每一条都对应一个真出现过的缺陷：
+//   1. 三支覆盖画笔必须同色、只差 alpha。这是 #15419 的解法本身——BrushTransition 走
+//      直通 alpha 插值，两端同色才不可能在中途串出别的颜色（从 Transparent 起步会经过
+//      半透明白，深色主题下肉眼就是闪一下）。写成断言是因为"把起点改回 Transparent"
+//      是个看起来完全无害、在浅色主题下也看不出问题的改动。
+//   2. 图标按钮和会话行悬停时必须真的有底色。Window.Styles 的优先级高于 ControlTheme，
+//      所以 `Background="Transparent"` 会把 Semi 主题自带的悬停底色整个遮掉——
+//      这正是此前全 shell 图标按钮没有任何悬停反馈的原因。
+//   3. 选中指示条靠 scaleY 长出来，未选中必须是 0。
+// 一律读 GetBaseValue：过渡会在斜坡期间遮住 getter，而无头渲染计时器不会自己走针。
+{
+    static ISolidColorBrush? OverlayBrush(IResourceDictionary res, string key) =>
+        res[key] as ISolidColorBrush;
+
+    var hoverFaded = OverlayBrush(windowResources, "App.HoverOverlayFaded");
+    var hover = OverlayBrush(windowResources, "App.HoverOverlay");
+    var press = OverlayBrush(windowResources, "App.PressOverlay");
+    if (hoverFaded == null || hover == null || press == null)
+        throw new InvalidOperationException("ApplyShellPanelMaterial must publish App.HoverOverlayFaded / App.HoverOverlay / App.PressOverlay.");
+    if (hoverFaded.Color != hover.Color || hover.Color != press.Color)
+        throw new InvalidOperationException("The hover/press overlay brushes must share one color and differ only in alpha — a BrushTransition between different colors flashes through the interpolated hue (AvaloniaUI/Avalonia#15419).");
+    if (Math.Abs(hoverFaded.Opacity) > 0.001)
+        throw new InvalidOperationException("App.HoverOverlayFaded must have zero alpha; it is the transition's starting point.");
+    if (!(press.Opacity > hover.Opacity && hover.Opacity > 0))
+        throw new InvalidOperationException("The press overlay must be heavier than hover, and hover must be visible at all.");
+
+    static double BaseAlpha(Avalonia.Controls.Primitives.TemplatedControl c)
+    {
+        var baseValue = c.GetBaseValue(Avalonia.Controls.Primitives.TemplatedControl.BackgroundProperty);
+        var brush = (baseValue.HasValue ? baseValue.Value : c.Background) as ISolidColorBrush;
+        return brush?.Opacity ?? -1;
+    }
+
+    var hoverTargets = new List<Avalonia.Controls.Primitives.TemplatedControl>();
+    hoverTargets.Add(window.GetVisualDescendants().OfType<Button>()
+        .First(b => b.Classes.Contains("icon-plain") && b.IsVisible && b.Bounds.Width > 0));
+    hoverTargets.Add(window.GetVisualDescendants().OfType<Button>()
+        .First(b => b.Classes.Contains("session-row") && b.IsVisible && b.Bounds.Width > 0));
+
+    foreach (var target in hoverTargets)
+    {
+        var className = target.Classes.Contains("icon-plain") ? "icon-plain" : "session-row";
+        if (Math.Abs(BaseAlpha(target)) > 0.001)
+            throw new InvalidOperationException($"An idle .{className} button must sit at the zero-alpha overlay, not at an opaque or Transparent brush.");
+        var center = target.TranslatePoint(new Point(target.Bounds.Width / 2, target.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(center);
+        Dispatcher.UIThread.RunJobs();
+        if (BaseAlpha(target) < 0.001)
+            throw new InvalidOperationException($"A hovered .{className} button must pick up a visible overlay; Window.Styles outranks the Semi ControlTheme, so without an explicit :pointerover rule it has no hover feedback at all.");
+    }
+    window.MouseMove(new Point(5, 5));
+    Dispatcher.UIThread.RunJobs();
+
+    static double AccentScaleY(Border b)
+    {
+        var baseValue = b.GetBaseValue(Visual.RenderTransformProperty);
+        var transform = (baseValue.HasValue ? baseValue.Value : b.RenderTransform)
+            as Avalonia.Media.Transformation.TransformOperations;
+        return transform?.Value.M22 ?? -1;
+    }
+
+    var accents = window.GetVisualDescendants().OfType<Border>()
+        .Where(b => b.Classes.Contains("row-accent")).ToList();
+    if (accents.Count == 0)
+        throw new InvalidOperationException("Conversation rows must carry the selection accent bar.");
+    foreach (var accent in accents)
+    {
+        var expected = accent.Classes.Contains("on") ? 1.0 : 0.0;
+        if (Math.Abs(AccentScaleY(accent) - expected) > 0.001)
+            throw new InvalidOperationException($"A {(expected > 0 ? "selected" : "unselected")} row's accent bar must sit at scaleY {expected}.");
+    }
+}
+
 contextInspectorButton.Command.Execute(null);
 Dispatcher.UIThread.RunJobs();
 if (contextInspectorDrawer.IsVisible)
@@ -544,7 +618,7 @@ AssertEveryIconResolved(window);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
 await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
-Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, permanent chat, and panel material (transparency + glass)");
+Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, permanent chat, panel material (transparency + glass), and shell micro-interactions");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
 Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, title-bar commands, and search spacing");
 window.Close();
