@@ -64,23 +64,6 @@ internal static class ShellMaterial
     public const double GlassBorderAlphaLight = 0.62;
 
     /// <summary>
-    /// 悬停覆盖层的透明度（深色主题用白、浅色主题用黑）。
-    /// 这一层的存在本身是必需的，不是装饰：Window.Styles 里的 `Button.icon-plain`
-    /// 把 Background 钉成 Transparent，而 Avalonia 的 Style 优先级高于 ControlTheme，
-    /// 于是 Semi 主题自带的悬停底色被整个遮掉——全 shell 的图标按钮此前没有任何悬停反馈。
-    /// </summary>
-    public const double HoverOverlayAlphaDark = 0.08;
-
-    /// <inheritdoc cref="HoverOverlayAlphaDark"/>
-    public const double HoverOverlayAlphaLight = 0.06;
-
-    /// <summary>按下态的覆盖层透明度，要明显重于悬停，否则"按下去了"读不出来。</summary>
-    public const double PressOverlayAlphaDark = 0.15;
-
-    /// <inheritdoc cref="PressOverlayAlphaDark"/>
-    public const double PressOverlayAlphaLight = 0.11;
-
-    /// <summary>
     /// 面板背景画笔的实际不透明度：玻璃模式在用户滑块之上再夹一道上限，上限随主题。
     /// </summary>
     public static double ResolveTintOpacity(double shellPanelOpacity, bool glassEnabled, bool isLightTheme) =>

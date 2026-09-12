@@ -210,17 +210,10 @@ public partial class MainWindow : Window
         // "半透明白"，深色主题下就是闪一下白光（AvaloniaUI/Avalonia#15419）。
         Resources["App.SelectedBackgroundFaded"] = RebuildBrushWithOpacity("App.SelectedBackground", 0.0);
 
-        // 悬停/按下覆盖层。三支画笔必须同色、只差 alpha——这正是 #15419 的解法：
-        // BrushTransition 走直通 alpha 插值，只要两端同色，中途就不可能串出别的颜色。
-        // Faded 是"透明"的正确写法：用同色零透明度，而不是 Transparent（#00FFFFFF）。
-        var overlayColor = isLight ? Colors.Black : Colors.White;
-        Resources["App.HoverOverlayFaded"] = new SolidColorBrush(overlayColor, 0.0);
-        Resources["App.HoverOverlay"] = new SolidColorBrush(
-            overlayColor,
-            isLight ? ShellMaterial.HoverOverlayAlphaLight : ShellMaterial.HoverOverlayAlphaDark);
-        Resources["App.PressOverlay"] = new SolidColorBrush(
-            overlayColor,
-            isLight ? ShellMaterial.PressOverlayAlphaLight : ShellMaterial.PressOverlayAlphaDark);
+        // 悬停/按下覆盖层不在这里构造：它们只依赖明暗变体，不依赖配色方案，也不依赖面板材质，
+        // 所以是静态资源，定义在 Styles/Overlays.axaml（应用级合并字典）里。
+        // 合并字典不受 App.SetColorScheme 整本替换 ThemeDictionaries 的影响——
+        // 写进 App.axaml 的主题字典反而会在切配色方案时整个丢掉。
 
         // 玻璃质感的三件套里，模糊只占一件——真正让人认出"玻璃"的是描边高光和投影。
         // 关闭时这两个键回落到原来的 SemiGreyLowBrush / 无投影，观感与改动前完全一致。

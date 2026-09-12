@@ -204,7 +204,10 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="Height" Value="28"/>
-            <Setter Property="Padding" Value="4,2"/>
+            <!-- 左内边距要留出选中指示条的宽度（3px）再加一段呼吸间距，
+                 否则条和会话图标是贴着的。这是行内容的缩进，不是条的位置——
+                 条绝对定位在行左缘，给它加 Margin 只会让条自己变窄。 -->
+            <Setter Property="Padding" Value="12,2"/>
             <Setter Property="BorderThickness" Value="0"/>
             <!-- 同上：同色零透明度起点，只过渡画笔不过渡 transform（这是个可滚动列表）。 -->
             <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
@@ -230,12 +233,33 @@
                 </Transitions>
             </Setter>
         </Style>
+        <!-- 工作区窗格进场。刻意用一次性 Style.Animations 而不是"基础 Opacity=0 + .shown 置 1"：
+             后者一旦 class 绑定失灵，右上角就是一块永远看不见的空白——正是 CLAUDE.md 规则 1
+             说的那种静默失败。这里的局部值始终是"完全可见"，动画只是在 class 挂上的那一刻
+             播一遍；没有 FillMode，播完属性就回落到局部值。class 没挂上 = 没有动画，而不是消失。
+             它够不到 workbench 的视觉用例：那些用例自建 Window 承载 view，吃不到 MainWindow 的样式。 -->
+        <Style Selector="views|WorkspaceWorkbenchView.shown">
+            <Style.Animations>
+                <Animation Duration="0:0:0.26" Easing="CubicEaseOut">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0"/>
+                        <Setter Property="TranslateTransform.Y" Value="8"/>
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="1"/>
+                        <Setter Property="TranslateTransform.Y" Value="0"/>
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
         <Style Selector="Border.row-accent">
             <Setter Property="RenderTransformOrigin" Value="0%,50%"/>
             <Setter Property="RenderTransform" Value="scaleY(0)"/>
             <Setter Property="Transitions">
                 <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut"/>
+                    <!-- 0.38s：这是一条"长出来/收回去"的动作，不是状态反馈，
+                         快了就只剩一次闪烁，看不出它在生长。 -->
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.38" Easing="CubicEaseOut"/>
                 </Transitions>
             </Setter>
         </Style>
@@ -292,24 +316,6 @@
         </Style>
         <Style Selector="StackPanel.nav-group">
             <Setter Property="Spacing" Value="0"/>
-        </Style>
-        <Style Selector="Button.window-caption">
-            <Setter Property="Width" Value="46"/>
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="MinWidth" Value="0"/>
-            <Setter Property="MinHeight" Value="0"/>
-            <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-        </Style>
-        <Style Selector="Button.window-caption:pointerover">
-            <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
-        </Style>
-        <Style Selector="Button.window-caption.close:pointerover">
-            <Setter Property="Background" Value="{DynamicResource SemiRed6}"/>
         </Style>
         <Style Selector="GridSplitter.layout-splitter">
             <Setter Property="Background" Value="{DynamicResource SemiColorBorder}"/>
@@ -644,9 +650,12 @@
                         <RowDefinition Height="5"/>
                         <RowDefinition Height="190" MinHeight="120"/>
                     </Grid.RowDefinitions>
+                    <!-- IsVisible 照旧独占布局；Classes.shown 只驱动那一次进场动画。
+                         打开一个文件时右上窗格从"凭空出现"变成"淡着抬起来"。 -->
                     <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
                                                   DataContext="{Binding Workbench}"
-                                                  IsVisible="{Binding ShowWorkbenchPane}"/>
+                                                  IsVisible="{Binding ShowWorkbenchPane}"
+                                                  Classes.shown="{Binding ShowWorkbenchPane}"/>
                     <GridSplitter Grid.Row="1"
                                   Classes="layout-splitter"
                                   Height="5"

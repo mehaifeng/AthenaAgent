@@ -396,14 +396,41 @@ if (Math.Abs(MaterialOpacity(baseBackdrop) - ShellMaterial.BaseImageOpacity) > 0
 //   3. 选中指示条靠 scaleY 长出来，未选中必须是 0。
 // 一律读 GetBaseValue：过渡会在斜坡期间遮住 getter，而无头渲染计时器不会自己走针。
 {
-    static ISolidColorBrush? OverlayBrush(IResourceDictionary res, string key) =>
-        res[key] as ISolidColorBrush;
+    // 走完整的资源查找链，而不是 window.Resources 索引器：覆盖层是应用级合并字典
+    // （Styles/Overlays.axaml）里的静态资源，窗口自己的字典里没有它们。
+    static ISolidColorBrush? OverlayBrush(Window w, string key)
+    {
+        var variant = Application.Current?.RequestedThemeVariant ?? ThemeVariant.Dark;
+        return w.TryFindResource(key, variant, out var value) ? value as ISolidColorBrush : null;
+    }
 
-    var hoverFaded = OverlayBrush(windowResources, "App.HoverOverlayFaded");
-    var hover = OverlayBrush(windowResources, "App.HoverOverlay");
-    var press = OverlayBrush(windowResources, "App.PressOverlay");
+    var hoverFaded = OverlayBrush(window, "App.HoverOverlayFaded");
+    var hover = OverlayBrush(window, "App.HoverOverlay");
+    var press = OverlayBrush(window, "App.PressOverlay");
     if (hoverFaded == null || hover == null || press == null)
-        throw new InvalidOperationException("ApplyShellPanelMaterial must publish App.HoverOverlayFaded / App.HoverOverlay / App.PressOverlay.");
+        throw new InvalidOperationException("Styles/Overlays.axaml must supply App.HoverOverlayFaded / App.HoverOverlay / App.PressOverlay.");
+
+    // 覆盖层必须活过配色方案切换。App.SetColorScheme 是整本替换
+    // Resources.ThemeDictionaries[Dark/Light]，所以只写在 App.axaml 主题字典里的键
+    // 会在切到非 Default 方案时整个消失——这正是它们放在合并字典里的原因。
+    // 这条断言就是防止有人"顺手"把它们挪回 App.axaml。
+    var originalScheme = App.CurrentColorScheme;
+    App.SetColorScheme("Cyberpunk");
+    Dispatcher.UIThread.RunJobs();
+    try
+    {
+        foreach (var key in new[] { "App.HoverOverlayFaded", "App.HoverOverlay", "App.PressOverlay" })
+        {
+            if (OverlayBrush(window, key) == null)
+                throw new InvalidOperationException($"{key} disappeared after a color-scheme switch — it must live in a merged dictionary, not in App.axaml's ThemeDictionaries, which SetColorScheme replaces wholesale.");
+        }
+    }
+    finally
+    {
+        // 配色方案是全局状态，和 SwitchLanguage 一样：不切回去，后面每个用例都在别的配色下跑。
+        App.SetColorScheme(originalScheme);
+        Dispatcher.UIThread.RunJobs();
+    }
     if (hoverFaded.Color != hover.Color || hover.Color != press.Color)
         throw new InvalidOperationException("The hover/press overlay brushes must share one color and differ only in alpha — a BrushTransition between different colors flashes through the interpolated hue (AvaloniaUI/Avalonia#15419).");
     if (Math.Abs(hoverFaded.Opacity) > 0.001)
