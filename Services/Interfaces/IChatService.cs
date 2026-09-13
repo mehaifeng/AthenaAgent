@@ -7,6 +7,18 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Interfaces;
 
 /// <summary>
+/// 一轮请求以「错误文本」而不是异常收场时的失败信号。
+///
+/// 错误文本照旧流进气泡——交互式会话里那是比异常好得多的呈现方式。但流本身是正常结束的，
+/// 调用方一个异常都拿不到，于是「这一轮到底成没成」无从判断：一次供应商故障因此被
+/// 定时任务记成 succeeded、还弹了「已完成」通知，而流水线其实停在半路。
+/// 需要知道结果的调用方（cron）订阅这个回调；交互式发送忽略它即可。
+/// </summary>
+/// <param name="Message">已脱敏、可直接落进运行记录的失败说明。</param>
+/// <param name="Category">供应商错误归类；请求尚未发出（运行时快照都没建起来）时为 null。</param>
+public sealed record ChatTurnFailure(string Message, ProviderErrorCategory? Category);
+
+/// <summary>
 /// AI 对话服务接口
 /// </summary>
 public interface IChatService
@@ -23,6 +35,10 @@ public interface IChatService
     /// <param name="skipCompressionToken">
     /// 只取消自动压缩、不取消整轮请求。用户放弃这次压缩时，本轮仍带原上下文继续发出。
     /// </param>
+    /// <param name="onProviderError">
+    /// 本轮因 API/供应商故障收场时的回调（见 <see cref="ChatTurnFailure"/>）。
+    /// 错误文本仍会照常出现在返回的流里，这个回调只是把「失败」这件事说出来。
+    /// </param>
     /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -38,7 +54,8 @@ public interface IChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default);
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null);
 
     /// <summary>
     /// 测试 API 连接

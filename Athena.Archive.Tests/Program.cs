@@ -169,6 +169,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("filesystem: directory search groups by file, prunes build output and honors caps", TestSearchInDirectoryAsync),
     ("office tool relevance is decided from the conversation when the snapshot is built", TestOfficeToolRelevanceAsync),
     ("responses transport reports usage and finish reason for every terminal status", TestResponsesTerminalStatusAsync),
+    ("a failed response carries the provider's own reason, and never triggers the chat fallback", TestResponsesFailureDetailAsync),
     ("chat transport sends the per-request output cap without mutating the snapshot", TestChatTransportPerRequestOutputCapAsync),
     ("tool call batching parallelizes read-only runs without reordering writes", TestToolCallParallelismAsync),
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
@@ -5592,6 +5593,55 @@ static async Task TestChatTransportPerRequestOutputCapAsync()
     // 副本若把它弄丢，用量与上下文锚点就会整条断掉——那正是这次要修的病。
     AssertTrue(body.Contains("\"include_usage\":true", StringComparison.Ordinal),
         $"流式请求必须仍然要求回报 usage，实际请求体：{body}");
+}
+
+static async Task TestResponsesFailureDetailAsync()
+{
+    // response.failed 事件里供应商写清了原因，我们却只往异常里拼了一个 response id。
+    // 2026-09-13 那次 OpenRouter 故障因此在气泡和日志里都只剩
+    // 「Responses request failed (response gen-…)」——限流还是上游 5xx 根本分不出来。
+    // 更贵的是 ProviderErrorClassifier 按消息文本匹关键字，原文丢了就只能落到兜底的
+    // ProviderRawError，没有任何一条提示或重试策略能对症。
+    static async Task<Exception?> CaptureAsync(string sse)
+    {
+        try
+        {
+            await CollectResponsesUpdatesAsync(sse);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    var withError = await CaptureAsync(SseEvent("response.failed",
+        """{"type":"response.failed","sequence_number":1,"response":{"id":"gen-1789283107","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"Provider returned error"}}}"""));
+    AssertTrue(withError is ClientResultException,
+        $"response.failed 必须抛出可被分类器识别的供应商异常，实际是 {withError?.GetType().Name ?? "（没有异常）"}");
+    var failureText = withError!.Message;
+    AssertTrue(failureText.Contains("gen-1789283107", StringComparison.Ordinal),
+        $"response id 仍要留着，那是回供应商后台查这次生成的唯一线索，实际消息：{failureText}");
+    AssertTrue(failureText.Contains("server_error", StringComparison.Ordinal),
+        $"供应商给的 error code 必须进消息，否则分类器无从下手，实际消息：{failureText}");
+    AssertTrue(failureText.Contains("Provider returned error", StringComparison.Ordinal),
+        $"供应商给的 error message 必须原样带上，实际消息：{failureText}");
+
+    // 连 error 都不给的端点也不能退回一个只有 id 的空壳：得说清「对方没给」，
+    // 否则读日志的人分不清是供应商没说，还是我们又丢了一次。
+    var withoutError = await CaptureAsync(SseEvent("response.failed",
+        """{"type":"response.failed","sequence_number":1,"response":{"id":"gen-empty","object":"response","status":"failed","output":[]}}"""));
+    AssertTrue(withoutError?.Message.Contains("without an error payload", StringComparison.Ordinal) == true,
+        $"没有 error 载荷时必须明说，实际消息：{withoutError?.Message}");
+
+    // 带上原文之后新出现的风险：IsEndpointUnsupported 是按「/responses」+「not found」
+    // 这类关键字判端点降级的，供应商错误正文里恰好写了这些词，就会把整个会话永久降级到
+    // Chat Completions——而流都已经建立起来了，端点显然支持这个协议。
+    // 夹具里 ChatClient 是 null，真降级了这里拿到的会是 NullReferenceException。
+    var misleading = await CaptureAsync(SseEvent("response.failed",
+        """{"type":"response.failed","sequence_number":1,"response":{"id":"gen-bait","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"upstream for /responses returned not found"}}}"""));
+    AssertTrue(misleading is ClientResultException,
+        $"已经建立过流的失败绝不能被读成「端点不支持」而降级重发，实际是 {misleading?.GetType().Name ?? "（没有异常）"}");
 }
 
 static string SseEvent(string name, string data) => $"event: {name}\ndata: {data}\n\n";
