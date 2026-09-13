@@ -65,5 +65,15 @@ public sealed class UpdateSession
     public string InstallDirectory { get; init; } = string.Empty;
     public string StagingDirectory { get; init; } = string.Empty;
     public string EntryExecutable { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 本次要装上的版本号，供更新器同步写回 macOS .app 的 Info.plist。
+    /// </summary>
+    /// <remarks>
+    /// 会话由<em>旧</em>版应用写出，更新器却来自<em>新</em>下载的包，所以新更新器一定会读到
+    /// 不带本字段的旧会话。更新器必须能从缺省值继续，不能因此中断更新。
+    /// </remarks>
+    public string Version { get; init; } = string.Empty;
+
     public List<string> PreservePaths { get; init; } = new();
 }

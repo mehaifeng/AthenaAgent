@@ -2,7 +2,11 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Off, like Athena.UI and Athena.Archive.Tests. MacAppBundle.cs is compiled into
+         the test project too, and a file that is shared with a project without implicit
+         usings has to spell its usings out — which IDE0005 (error here) then rejects
+         in any project that does have them. -->
+    <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Athena.Updater</AssemblyName>
     <RootNamespace>Athena.Updater</RootNamespace>

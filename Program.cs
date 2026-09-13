@@ -32,8 +32,13 @@ class Program
 
         // macOS DMG 安装：Playwright 驱动打包在 Contents/Resources/.playwright
         //（放在 Contents/MacOS 下会令 codesign 将其误判为嵌套代码对象导致签名失败），
-        // 故将驱动搜索路径指向 Resources。平铺安装（tar.gz/应用内更新）时驱动就在
-        // 应用目录下，保持默认搜索即可，且更新后优先使用随包更新的新驱动。
+        // 故将驱动搜索路径指向 Resources。平铺安装（tar.gz）时驱动就在应用目录下，
+        // 保持默认搜索即可。
+        //
+        // 应用内更新装的是平铺包，会把 .playwright 写进 Contents/MacOS，随后由
+        // Athena.Updater 归位到 Resources（见 MacAppBundle.RelocatePlaywrightDriver）。
+        // 这里"MacOS 下没有驱动才改指 Resources"的判断因此还兼作兜底：万一归位失败，
+        // 用的仍是随包更新的那份新驱动，而不是 DMG 里的旧驱动。
         var baseDirectory = AppContext.BaseDirectory;
         var resourcesDriverPath = Path.Combine(baseDirectory, "..", "Resources", ".playwright");
         if (Directory.Exists(resourcesDriverPath) && !Directory.Exists(Path.Combine(baseDirectory, ".playwright")))
