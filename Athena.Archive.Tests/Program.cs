@@ -173,7 +173,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("tool call batching parallelizes read-only runs without reordering writes", TestToolCallParallelismAsync),
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
-    ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync)
+    ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
+    ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync)
 };
 
 var failures = new List<string>();
@@ -6104,6 +6105,102 @@ static void AssertPersistedFields(JsonElement element, string[] expected, string
         missing.Length == 0,
         $"{typeName} 少写了应持久化的字段: {string.Join(", ", missing)}。"
         + "白名单跟 CloneMessage 对齐——真丢了数据，比多写几个字节严重得多。");
+}
+
+static Task TestUpdaterRestoresBundleDriverLayoutAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-bundle-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        // —— 布局识别：只认 <X>.app/Contents/MacOS，且必须有 Info.plist ——
+        var bundle = Path.Combine(root, "Athena.app");
+        var macOs = Path.Combine(bundle, "Contents", "MacOS");
+        var resources = Path.Combine(bundle, "Contents", "Resources");
+        Directory.CreateDirectory(macOs);
+        Directory.CreateDirectory(resources);
+
+        AssertTrue(
+            Athena.Updater.MacAppBundle.ResolveBundleRoot(macOs) == null,
+            "没有 Info.plist 时只凭路径名就当成 .app，会把普通目录里的文件搬到别处去");
+
+        File.WriteAllText(Path.Combine(bundle, "Contents", "Info.plist"), "<plist/>");
+        AssertEqual(bundle, Athena.Updater.MacAppBundle.ResolveBundleRoot(macOs), "应识别出 .app 根目录");
+        // 会话里的 InstallDirectory 来自 AppDomain.CurrentDomain.BaseDirectory，必带尾部分隔符。
+        AssertEqual(
+            bundle,
+            Athena.Updater.MacAppBundle.ResolveBundleRoot(macOs + Path.DirectorySeparatorChar),
+            "带尾部分隔符的安装目录必须同样能识别——真实会话传进来的就是这种形状");
+
+        var flat = Path.Combine(root, "flat");
+        Directory.CreateDirectory(flat);
+        AssertTrue(
+            Athena.Updater.MacAppBundle.ResolveBundleRoot(flat) == null,
+            "tar.gz 平铺安装不是 .app，不能触发归位");
+        AssertTrue(
+            Athena.Updater.MacAppBundle.ResolveBundleRoot(Path.Combine(bundle, "Contents", "Frameworks")) == null,
+            "Contents 下的其它目录不是可执行目录，不该被当成安装目录");
+
+        // —— 归位：更新写进 MacOS 的新驱动覆盖 Resources 里的旧驱动 ——
+        static void WriteDriver(string parent, string marker)
+        {
+            var pkg = Path.Combine(parent, ".playwright", "package");
+            Directory.CreateDirectory(pkg);
+            File.WriteAllText(Path.Combine(pkg, "package.json"), marker);
+        }
+
+        WriteDriver(resources, "old-from-dmg");
+        WriteDriver(macOs, "new-from-update");
+
+        AssertTrue(Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(macOs), "应报告完成了一次归位");
+        AssertFalse(
+            Directory.Exists(Path.Combine(macOs, ".playwright")),
+            "Contents/MacOS 下留着驱动，codesign 会把它的 node 二进制当成嵌套代码对象而拒签整个 .app，"
+            + "而且 128MB 驱动会存两份");
+        AssertEqual(
+            "new-from-update",
+            File.ReadAllText(Path.Combine(resources, ".playwright", "package", "package.json")),
+            "归位必须保留随包更新的新驱动。反过来（删掉 MacOS 那份、留 Resources 的旧驱动）"
+            + "会让浏览器自动化悄悄退回旧驱动");
+        AssertEqual(
+            0,
+            Directory.GetDirectories(resources, ".playwright.retired-*").Length,
+            "退役的旧驱动副本必须删干净，否则省下的 128MB 又占回去了");
+
+        // 归位后正是 Athena.UI/Program.cs 判定"改指 Resources"的条件。
+        AssertTrue(
+            Directory.Exists(Path.Combine(resources, ".playwright"))
+            && !Directory.Exists(Path.Combine(macOs, ".playwright")),
+            "归位后的形状必须与 DMG 全新安装一致，否则 PLAYWRIGHT_DRIVER_SEARCH_PATH 不会指向 Resources");
+
+        // —— 幂等：没有待归位的驱动就什么都不做 ——
+        AssertFalse(
+            Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(macOs),
+            "MacOS 下没有驱动时不该报告归位");
+        AssertEqual(
+            "new-from-update",
+            File.ReadAllText(Path.Combine(resources, ".playwright", "package", "package.json")),
+            "空跑一次不得动已经归位好的驱动");
+
+        // —— 平铺安装：驱动就该留在应用目录下 ——
+        WriteDriver(flat, "flat-install");
+        AssertFalse(Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(flat), "平铺安装不该发生归位");
+        AssertTrue(
+            Directory.Exists(Path.Combine(flat, ".playwright")),
+            "平铺安装的驱动被搬走就再也找不到了");
+
+        return Task.CompletedTask;
+    }
+    finally
+    {
+        try
+        {
+            Directory.Delete(root, true);
+        }
+        catch (IOException)
+        {
+            // 临时目录清理失败不影响断言结论，留给操作系统回收。
+        }
+    }
 }
 
 sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost
