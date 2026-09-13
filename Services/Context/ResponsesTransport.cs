@@ -8,10 +8,12 @@ using OpenAI.Responses;
 using Serilog;
 using System;
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading;
 
 namespace Athena.UI.Services.Context;
@@ -28,6 +30,17 @@ public static class ResponsesUnsupportedRegistry
 
     public static bool IsMarked(string providerId) => Unsupported.ContainsKey(providerId);
 }
+
+/// <summary>
+/// 一个 <c>response.failed</c> / <c>error</c> 事件从已经打开的 /responses 流里到达。
+///
+/// 单独一个类型只为一件事：让 ResponsesTransport 的 IsEndpointUnsupported 一眼把它排除。
+/// 流都建立起来了，端点显然支持这个协议——而现在异常消息里带上了供应商错误原文，
+/// 原文里恰好出现「not found」就会被那个按关键字匹配的判断读成「端点不支持」，
+/// 于是一次普通的上游故障会把整个会话永久降级到 Chat Completions。
+/// </summary>
+internal sealed class ResponsesStreamFailureException(string message)
+    : ClientResultException(message, response: null, innerException: null);
 
 /// <summary>
 /// Responses API 传输实现：把主环的规范请求形状（List&lt;ChatMessage&gt;）翻译为 input items，
@@ -188,11 +201,10 @@ public sealed class ResponsesTransport : ICompletionTransport
                     terminalResponse = incomplete.Response;
                     break;
                 case StreamingResponseFailedUpdate failed:
-                    throw new ClientResultException(
-                        $"Responses request failed (response {failed.Response.Id})", response: null, innerException: null);
+                    throw new ResponsesStreamFailureException(DescribeFailedResponse(failed.Response));
                 case StreamingResponseErrorUpdate error:
-                    throw new ClientResultException(
-                        $"Responses stream error: {error.Message} ({error.Code})", response: null, innerException: null);
+                    throw new ResponsesStreamFailureException(
+                        $"Responses stream error: {error.Message} (code={error.Code}, param={error.Param})");
             }
 
             if (terminalResponse == null)
@@ -343,12 +355,90 @@ public sealed class ResponsesTransport : ICompletionTransport
         }
     }
 
+    /// <summary>原始 error JSON 进异常消息的上限：够看清原因，又不至于把一整个响应糊进气泡。</summary>
+    private const int RawErrorCharBudget = 2000;
+
+    /// <summary>
+    /// 把 <c>response.failed</c> 里能拿到的一切都写进异常消息。
+    ///
+    /// 这里曾经只拼一个 response id，于是气泡和日志里都只剩
+    /// 「Responses request failed (response gen-…)」——供应商明明在 <c>error</c> 里写了原因，
+    /// 是我们自己丢掉的。代价不止是看不见：ProviderErrorClassifier 按消息文本匹配关键字
+    /// （rate limit / context length / timeout…），消息里没有原文就只能落到兜底的
+    /// ProviderRawError，一次限流和一次上游 5xx 长得一模一样，也就没有任何一条提示能对症。
+    /// </summary>
+    private static string DescribeFailedResponse(ResponseResult response)
+    {
+        var parts = new List<string>();
+        if (response.Status is { } status)
+        {
+            parts.Add($"status={status}");
+        }
+
+        if (response.Error is { } error)
+        {
+            // code= 的写法是给 ProviderErrorClassifier 的 ExtractCode 正则认的。
+            var code = error.Code.ToString();
+            if (!string.IsNullOrWhiteSpace(code)) parts.Add($"code={code}");
+            if (!string.IsNullOrWhiteSpace(error.Param)) parts.Add($"param={error.Param}");
+            if (!string.IsNullOrWhiteSpace(error.Message)) parts.Add(error.Message);
+        }
+        else if (TryReadRawError(response) is { } raw)
+        {
+            parts.Add($"raw_error={raw}");
+        }
+        else
+        {
+            parts.Add("the provider reported response.failed without an error payload");
+        }
+
+        if (response.IncompleteStatusDetails?.Reason is { } reason)
+        {
+            parts.Add($"incomplete_reason={reason}");
+        }
+
+        return $"Responses request failed (response {response.Id}): {string.Join(", ", parts)}";
+    }
+
+    /// <summary>
+    /// SDK 的 <c>Error</c> 为空时的兜底：把响应原样序列化回 JSON，只取 <c>error</c> 这一段。
+    /// 第三方端点（OpenRouter 等）常把上游错误塞成 SDK 模型不认识的形状，
+    /// 回一段原始 JSON 也远好过回一个只有 id 的空壳。
+    /// </summary>
+    private static string? TryReadRawError(ResponseResult response)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(ModelReaderWriter.Write(response).ToMemory());
+            if (!document.RootElement.TryGetProperty("error", out var error)
+                || error.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            var raw = error.GetRawText();
+            return raw.Length <= RawErrorCharBudget ? raw : raw[..RawErrorCharBudget] + "…";
+        }
+        catch (Exception ex)
+        {
+            // 兜底路径失败没有后果：调用方会退回「没有 error 载荷」的说法。
+            Log.Debug(ex, "Could not re-serialize a failed response to recover its raw error payload");
+            return null;
+        }
+    }
+
     /// <summary>
     /// 端点不支持 /responses 的判定：404/405 直判；400 或协议层错误仅在错误文案
     /// 明确暗示 /responses 不存在时判定（避免吞掉真实业务错误，如模型不存在）。
     /// </summary>
     private static bool IsEndpointUnsupported(Exception ex)
     {
+        // 流已经建立过了，端点支持与否没有讨论余地——见 ResponsesStreamFailureException。
+        if (ex is ResponsesStreamFailureException)
+        {
+            return false;
+        }
+
         if (ex is ClientResultException { Status: 404 or 405 })
         {
             return true;

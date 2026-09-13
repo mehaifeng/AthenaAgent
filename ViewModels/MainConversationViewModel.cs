@@ -2335,6 +2335,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         var requestContentIdentityAtStart = _requestContentIdentity;
         var outcome = TaskExecutionResult.Succeeded();
 
+        // API/供应商故障不会抛出来——错误文本是当作正文流进气泡的，流本身正常收尾。
+        // 只看异常的话这一轮就是「成功」：cron 因此把一次上游故障记成 succeeded 并弹了
+        // 「已完成」通知，而流水线其实停在半路。这个字段是那条被吞掉的失败信号。
+        ChatTurnFailure? providerFailure = null;
+
         IsSending = true;
         ConversationExecutionCoordinator.Lease? executionLease = null;
         _forceNewAssistantTextSegment = false;
@@ -2592,6 +2597,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 onAnchorObserved: anchor =>
                 {
                     if (IsCurrentConversationEpoch(epoch)) OnContextAnchorObserved(anchor);
+                },
+                onProviderError: failure =>
+                {
+                    if (IsCurrentConversationEpoch(epoch)) providerFailure = failure;
                 }))
             {
                 if (!IsCurrentConversationEpoch(epoch))
@@ -2621,6 +2630,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             if (!IsCurrentConversationEpoch(epoch))
             {
                 return TaskExecutionResult.Interrupted("Conversation context changed.");
+            }
+
+            // 流是正常收尾的，但这一轮什么也没做成。不在这里翻面，cron 就会把一次
+            // 供应商故障记成 succeeded——错误原文同时进运行记录，省得回头翻日志。
+            if (providerFailure != null)
+            {
+                outcome = TaskExecutionResult.Failed(providerFailure.Message);
             }
 
             UpdateConversationContext();

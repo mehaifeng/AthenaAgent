@@ -161,6 +161,7 @@ TestSelfConfigurationSurface();
 TestNotificationPayloadEncoding();
 TestApprovalNotificationWiring();
 TestReplyFinishedNotification();
+TestProviderErrorFailsScheduledRun();
 TestLifecycle();
 
 var shellConfigService = new HeadlessConfigService(new AppConfig());
@@ -3876,6 +3877,55 @@ static void TestReplyFinishedNotification()
     }
 
     Console.WriteLine("[PASS] a finished reply notifies only an absent user, and never doubles up with a scheduled run's own notification");
+}
+
+// 供应商故障不是异常：错误文本当作正文流进气泡，流本身正常收尾。只看异常的话这一轮就是「成功」，
+// 而这正是 2026-09-13 那次定时运行的现场——OpenRouter 在第 28 轮发来 response.failed，
+// 流水线停在批次核验，运行记录却写着 succeeded，系统还弹了一条「定时任务已完成」。
+// 三条断言各自顶住一种回退：失败要判失败、原因要落进运行记录、正常回合不能被连坐。
+//
+// 与 TestReplyFinishedNotification 同理，本例真的 yield 非空正文，只能在主线程驱动。
+static void TestProviderErrorFailsScheduledRun()
+{
+    static MainConversationViewModel Build(IChatService chatService) =>
+        new(chatService,
+            new HeadlessConfigService(new AppConfig()),
+            null,
+            new HeadlessPromptService(),
+            null,
+            null,
+            null);
+
+    static TaskExecutionResult Run(MainConversationViewModel chat)
+    {
+        var task = chat.RunScheduledInstructionAsync("跑一次流水线");
+        PumpUntil(() => task.IsCompleted, 10_000, "计划指令没有在限期内跑完。");
+        var result = task.GetAwaiter().GetResult();
+        Dispatcher.UIThread.RunJobs();
+        return result;
+    }
+
+    using (var failing = Build(new ProviderFailureChatService()))
+    {
+        var result = Run(failing);
+        if (result.Outcome != TaskExecutionOutcome.Failed)
+            throw new InvalidOperationException(
+                $"供应商故障必须把这次定时运行判成失败，实际是 {result.Outcome}——判成功就会弹一条骗人的「已完成」通知，"
+                + "而任务其实停在半路。");
+        if (result.Note?.Contains(ProviderFailureChatService.FailureMessage, StringComparison.Ordinal) != true)
+            throw new InvalidOperationException(
+                $"运行记录必须带上供应商给出的原因，否则只能回头翻日志，实际是 '{result.Note}'。");
+    }
+
+    using (var succeeding = Build(new PlainReplyChatService()))
+    {
+        var result = Run(succeeding);
+        if (result.Outcome != TaskExecutionOutcome.Succeeded)
+            throw new InvalidOperationException(
+                $"正常回合仍然必须判成功，实际是 {result.Outcome}。");
+    }
+
+    Console.WriteLine("[PASS] a provider error fails the scheduled run and carries its reason into the run record");
 }
 
 static void TestLifecycle()
@@ -8981,7 +9031,8 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
@@ -9036,7 +9087,8 @@ sealed class InterleavedReasoningChatService : HeadlessChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         await Task.CompletedTask;
         onReasoningDelta?.Invoke(FirstThought);
@@ -9419,7 +9471,8 @@ class HeadlessChatService : IChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         await Task.CompletedTask;
         yield break;
@@ -9725,6 +9778,38 @@ sealed class StubForegroundProbe : IAppForegroundProbe
 }
 
 /// <summary>只吐一段普通正文的假聊天服务：用于验证回合收尾时的通知判据。</summary>
+/// <summary>
+/// 一次以「错误文本」收场的回合：流正常结束，一个异常都没有，只有 onProviderError 说了实话。
+/// 这就是真实供应商故障在 OpenAIChatService 里的形状。
+/// </summary>
+sealed class ProviderFailureChatService : HeadlessChatService
+{
+    public const string FailureMessage =
+        "Responses request failed (response gen-fixture): code=server_error, upstream provider returned an error";
+
+    public override async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
+    {
+        await Task.CompletedTask;
+        onProviderError?.Invoke(new ChatTurnFailure(FailureMessage, ProviderErrorCategory.ProviderRawError));
+        yield return $"[API 错误: {FailureMessage}]";
+    }
+}
+
 sealed class PlainReplyChatService : HeadlessChatService
 {
     public const string Reply = "the overnight build is green";
@@ -9743,7 +9828,8 @@ sealed class PlainReplyChatService : HeadlessChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         await Task.CompletedTask;
         yield return Reply;

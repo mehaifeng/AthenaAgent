@@ -208,7 +208,8 @@ public class OpenAIChatService : IChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         EffectiveRequestRuntimeSnapshot? runtime = null;
         Exception? runtimeFailure = null;
@@ -223,7 +224,10 @@ public class OpenAIChatService : IChatService
         if (runtimeFailure != null || runtime == null)
         {
             Log.Error(runtimeFailure, "Failed to create main-conversation request runtime snapshot");
-            yield return $"[错误] {runtimeFailure?.Message ?? "主对话运行时不可用"}";
+            var snapshotMessage = runtimeFailure?.Message ?? "主对话运行时不可用";
+            // 请求根本没发出去，谈不上供应商归类；但这一轮确实什么都没做成。
+            onProviderError?.Invoke(new ChatTurnFailure(snapshotMessage, Category: null));
+            yield return $"[错误] {snapshotMessage}";
             yield break;
         }
 
@@ -260,7 +264,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -305,7 +309,9 @@ public class OpenAIChatService : IChatService
 
             if (!imageInputRejected)
             {
-                yield return $"[API 错误: {FormatApiError(classification, runtime)}]";
+                var failureMessage = FormatApiError(classification, runtime);
+                onProviderError?.Invoke(new ChatTurnFailure(failureMessage, classification.Category));
+                yield return $"[API 错误: {failureMessage}]";
                 yield break;
             }
 
@@ -332,7 +338,10 @@ public class OpenAIChatService : IChatService
                                                    onContextWarning: onContextWarning,
                                                    onAnchorObserved: onAnchorObserved,
                                                    onCompressionProgress: onCompressionProgress,
-                                                   skipCompressionToken: skipCompressionToken)
+                                                   skipCompressionToken: skipCompressionToken,
+                                                   // 与下面的 fallbackFailure 分支互斥：ProcessStreamAsync 要么
+                                                   // 自己把错误报掉再正常收尾（这个回调），要么抛出去（那个分支）。
+                                                   onProviderError: onProviderError)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -361,7 +370,11 @@ public class OpenAIChatService : IChatService
             {
                 Log.Warning(fallbackFailure, "Image-safe fallback re-request failed as well");
                 var fallbackClassification = _providerErrorClassifier.Classify(fallbackFailure);
-                yield return $"[API 错误: {FormatApiError(fallbackClassification, runtime)}]（图像输入已安全降级后仍失败）";
+                var fallbackMessage = FormatApiError(fallbackClassification, runtime);
+                onProviderError?.Invoke(new ChatTurnFailure(
+                    $"{fallbackMessage}（图像输入已安全降级后仍失败）",
+                    fallbackClassification.Category));
+                yield return $"[API 错误: {fallbackMessage}]（图像输入已安全降级后仍失败）";
             }
         }
 
@@ -633,7 +646,8 @@ public class OpenAIChatService : IChatService
         Action<string>? onContextWarning = null,
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
-        CancellationToken skipCompressionToken = default)
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -936,6 +950,7 @@ public class OpenAIChatService : IChatService
 
             IAsyncEnumerable<NormalizedUpdate>? stream = null;
             string? error = null;
+            ProviderErrorCategory? errorCategory = null;
 
             try
             {
@@ -943,19 +958,24 @@ public class OpenAIChatService : IChatService
             }
             catch (Exception ex)
             {
-                error = FormatApiError(_providerErrorClassifier.Classify(ex), runtime);
+                var classification = _providerErrorClassifier.Classify(ex);
+                error = FormatApiError(classification, runtime);
+                errorCategory = classification.Category;
             }
 
             if (error != null)
             {
                 Log.Error("API call failed: {Error}", error);
+                onProviderError?.Invoke(new ChatTurnFailure(error, errorCategory));
                 yield return $"[API 错误: {error}]";
                 yield break;
             }
 
             if (stream == null)
             {
-                yield return "[API 错误: 无法获取响应流]";
+                const string noStreamMessage = "无法获取响应流";
+                onProviderError?.Invoke(new ChatTurnFailure(noStreamMessage, Category: null));
+                yield return $"[API 错误: {noStreamMessage}]";
                 yield break;
             }
 
