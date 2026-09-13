@@ -727,8 +727,10 @@
                                         <TextBlock Text="{loc:Loc Terminal.Header}" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </TabItem.Header>
-                                <views:TerminalPanelView Classes="utility-tab-page"
-                                                         DataContext="{Binding TerminalPanelViewModel}"/>
+                                <!-- 终端刻意不挂 utility-tab-page：它是一张活的等宽字符网格，
+                                     任何动画都会让字形重新栅格化，读起来就是"抽一下"。
+                                     而且终端的价值在于立刻看到内容，淡入对它是纯负收益。 -->
+                                <views:TerminalPanelView DataContext="{Binding TerminalPanelViewModel}"/>
                             </TabItem>
                         </TabControl>
                     </Border>

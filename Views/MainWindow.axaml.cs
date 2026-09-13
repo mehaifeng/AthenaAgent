@@ -181,9 +181,6 @@ public partial class MainWindow : Window
     /// <summary>日志 / 终端切页的淡入时长。比 shell 的悬停反馈长一点——这是换了一整块内容，不是状态反馈。</summary>
     private const int UtilityTabFadeMs = 220;
 
-    /// <summary>切页时新内容从下方抬起的距离。纯透明度变化在 220ms 里几乎看不出来，位移才读得出"动"。</summary>
-    private const double UtilityTabRiseY = 6d;
-
     /// <summary>
     /// 日志 / 终端切页淡入。Avalonia 的 TabControl 没有 transition 属性，内容由模板里
     /// 单个 ContentPresenter 承载；切页时旧内容确实会被摘下、新内容挂上（实测
@@ -210,44 +207,18 @@ public partial class MainWindow : Window
 
     private static async Task FadeInUtilityTabAsync(Control page)
     {
-        // 刻意不预设局部值：FillMode.None 下动画结束后属性回落到局部值，
-        // 若预设成 0，页面就永远留在透明上（这是"局部值必须等于动画终值"那条规则的反面）。
-        // 这里局部值保持未设（默认完全可见），动画只负责那 220ms 的斜坡。
-        var animation = new Animation
-        {
-            Duration = TimeSpan.FromMilliseconds(UtilityTabFadeMs),
-            Easing = new CubicEaseOut(),
-            FillMode = FillMode.None,
-            Children =
-            {
-                new KeyFrame
-                {
-                    Cue = new Cue(0d),
-                    Setters =
-                    {
-                        new Setter(Visual.OpacityProperty, 0d),
-                        new Setter(TranslateTransform.YProperty, UtilityTabRiseY)
-                    }
-                },
-                new KeyFrame
-                {
-                    Cue = new Cue(1d),
-                    Setters =
-                    {
-                        new Setter(Visual.OpacityProperty, 1d),
-                        new Setter(TranslateTransform.YProperty, 0d)
-                    }
-                }
-            }
-        };
-
         try
         {
-            await animation.RunAsync(page);
+            // 只动透明度，**不要加位移**。曾经这里附带一段 6px 上抬，结果在终端页上是可见的
+            // "抽两下"：给一个本来没有 RenderTransform 的控件挂上 transform，会让它在动画
+            // 开始时按分数偏移重新栅格化字形、结束时又吸回整数位置——等宽字符网格上这两次
+            // 重栅格就是两次抖动。终端现在已经整体退出淡入（见 MainWindow.axaml 里的注释），
+            // 但这条约束对任何文本密集的页面都成立。
+            await AnimateOpacityAsync(page, 0, 1, UtilityTabFadeMs);
         }
         catch (Exception ex)
         {
-            // 淡入失败不影响内容本身：FillMode.None 下属性回落到局部值（完全可见），
+            // 淡入失败不影响内容本身：AnimateAsync 收尾会把 Opacity 固化成 1，
             // 这里丢掉的只是那 220ms。
             Serilog.Log.Debug(ex, "Utility tab fade-in failed");
         }

@@ -507,14 +507,19 @@ var terminalPanel = window.GetVisualDescendants().OfType<TerminalPanelView>().Si
 if (terminalPanel == null
     || terminalPanel.FindControl<Button>("AddTerminalButton") == null)
     throw new InvalidOperationException("The Terminal tab did not render its terminal host and add button.");
-// 切页淡入：Avalonia 的 TabControl 没有 transition 属性，而 Style.Animations 也不会因为
-// 内容被重新挂载而重播（实测：切回去那一刻 Opacity 就是 1）——所以淡入由
-// MainWindow.OnUtilityTabSelectionChanged 驱动。这里两头都钉住：切换后必须从透明起步，
-// 并且必须自己走到完全不透明。后半条不只是断言，也是让动画落定——不settle的话，
-// 这一页会在整个套件剩余时间里停在半透明上，后面截的 main-window.png 就是灰的。
-SettleUtilityTabFade(window, "terminal");
+// 终端页刻意不参与淡入：它是一张活的等宽字符网格，动画会让字形重新栅格化，
+// 实机上读起来就是"抽一下"。这条断言钉的是那个"故意不做"——
+// 一旦有人为了"一致性"把 utility-tab-page 加回终端，这里就会失败。
+if (window.GetVisualDescendants().OfType<Control>().Any(c => c.Classes.Contains("utility-tab-page")))
+    throw new InvalidOperationException("The terminal tab must not carry utility-tab-page: animating a live monospace grid re-rasterizes its glyphs and reads as a twitch.");
+if (Math.Abs(terminalPanel.Opacity - 1.0) > 0.001)
+    throw new InvalidOperationException("The terminal tab must be fully opaque the moment it is shown; it opts out of the fade entirely.");
+
 mainViewModel.SelectedUtilityTabIndex = 0;
 Dispatcher.UIThread.RunJobs();
+// 日志页仍然淡入。两头都钉住：切换后必须从透明起步（证明 OnUtilityTabSelectionChanged
+// 真的跑了），并且必须自己走到完全不透明。后半条不只是断言，也是让动画落定——
+// 不 settle 的话这一页会在整个套件剩余时间里停在半透明上，后面截的 main-window.png 就是灰的。
 SettleUtilityTabFade(window, "log");
 var launcherButtons = window.GetVisualDescendants().OfType<Button>()
     .Where(button => button.Classes.Contains("launcher"))
