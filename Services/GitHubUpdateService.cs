@@ -266,6 +266,8 @@ public sealed class GitHubUpdateService : IUpdateService, IDisposable
                 InstallDirectory = installDir,
                 StagingDirectory = payloadRoot,
                 EntryExecutable = entryExecutable,
+                // 清单里的版本优先：它是发布时写进 Info.plist 的那个值。
+                Version = !string.IsNullOrWhiteSpace(manifest.Version) ? manifest.Version : checkResult.LatestVersion,
                 PreservePaths = manifest.PreservePaths?.Count > 0 ? manifest.PreservePaths : new List<string> { "AthenaData", "updater" }
             };
 

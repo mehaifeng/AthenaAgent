@@ -146,6 +146,29 @@ internal static class Program
             // cost the user their restart to fix a layout problem, so report and continue.
             Console.Error.WriteLine($"Could not relocate the Playwright driver: {ex.Message}");
         }
+
+        // ApplyUpdate only writes inside Contents/MacOS, so the bundle otherwise keeps
+        // advertising the version its DMG shipped — measured on a real install: running
+        // 1.8.2 with CFBundleShortVersionString still reading 1.6.6. Must stay after the
+        // relocation and before any future re-signing step: Info.plist is sealed into the
+        // signature, so editing it afterwards would invalidate the signature again.
+        try
+        {
+            var version = !string.IsNullOrWhiteSpace(session.Version)
+                ? session.Version
+                : StagedPayload.ResolveVersion(session.StagingDirectory, session.EntryExecutable);
+
+            if (MacAppBundle.TryUpdateBundleVersion(session.InstallDirectory, version))
+            {
+                Console.WriteLine($"Updated the bundle version to {version}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Same reasoning: a stale version string in Info.plist is cosmetic next to
+            // losing the restart.
+            Console.Error.WriteLine($"Could not update the bundle version: {ex.Message}");
+        }
     }
 
     private static void CopyDirectory(string sourceDir, string destinationDir)
@@ -233,6 +256,12 @@ internal static class Program
         public string InstallDirectory { get; init; } = string.Empty;
         public string StagingDirectory { get; init; } = string.Empty;
         public string EntryExecutable { get; init; } = string.Empty;
+
+        // Absent from sessions written by an app older than this field — the session comes
+        // from the installed app, the updater from the downloaded package. StagedPayload
+        // covers that case; never treat a missing version as a reason to stop.
+        public string Version { get; init; } = string.Empty;
+
         public List<string>? PreservePaths { get; init; }
     }
 }

@@ -174,7 +174,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
     ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
-    ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync)
+    ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync),
+    ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync)
 };
 
 var failures = new List<string>();
@@ -6187,6 +6188,127 @@ static Task TestUpdaterRestoresBundleDriverLayoutAsync()
         AssertTrue(
             Directory.Exists(Path.Combine(flat, ".playwright")),
             "平铺安装的驱动被搬走就再也找不到了");
+
+        return Task.CompletedTask;
+    }
+    finally
+    {
+        try
+        {
+            Directory.Delete(root, true);
+        }
+        catch (IOException)
+        {
+            // 临时目录清理失败不影响断言结论，留给操作系统回收。
+        }
+    }
+}
+
+static Task TestUpdaterRewritesBundleVersionAsync()
+{
+    // create_app_bundle 写出的就是这个形状：XML plist、带 DOCTYPE、制表符缩进。
+    const string PlistTemplate = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Athena.UI</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.athena.ai</string>
+	<key>CFBundleVersion</key>
+	<string>1.6.6</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.6.6</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+""";
+
+    var root = Path.Combine(Path.GetTempPath(), "athena-plist-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var bundle = Path.Combine(root, "Athena.app");
+        var macOs = Path.Combine(bundle, "Contents", "MacOS");
+        Directory.CreateDirectory(macOs);
+        var plistPath = Path.Combine(bundle, "Contents", "Info.plist");
+        File.WriteAllText(plistPath, PlistTemplate);
+
+        AssertTrue(
+            Athena.Updater.MacAppBundle.TryUpdateBundleVersion(macOs, "1.8.2"),
+            "应报告改写了 Info.plist");
+
+        var rewritten = File.ReadAllText(plistPath);
+        AssertTrue(
+            rewritten.Contains("<key>CFBundleVersion</key>\n\t<string>1.8.2</string>", StringComparison.Ordinal),
+            "CFBundleVersion 必须更新");
+        AssertTrue(
+            rewritten.Contains("<key>CFBundleShortVersionString</key>\n\t<string>1.8.2</string>", StringComparison.Ordinal),
+            "CFBundleShortVersionString 必须更新——Finder 显示的是它");
+        AssertFalse(rewritten.Contains("1.6.6", StringComparison.Ordinal), "不该残留旧版本号");
+
+        // 除版本号外必须逐字节不变：XDocument 往返会把 DOCTYPE 写成 ...dtd"[]>，
+        // 而 Apple 自己的解析器直接拒收（"unexpected character [ while parsing DTD"），
+        // 那等于把 bundle 改成系统读不了的样子，比版本号过期严重得多。
+        AssertEqual(
+            PlistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
+            rewritten,
+            "改写必须只动版本号，DOCTYPE/声明/缩进/<true/> 一律不能被重排");
+
+        // 幂等：版本没变就不该重写文件。
+        AssertFalse(
+            Athena.Updater.MacAppBundle.TryUpdateBundleVersion(macOs, "1.8.2"),
+            "版本已是目标值时不该报告改写");
+
+        // 版本号缺失或不是发布版本形状时跳过，而不是往 plist 里写垃圾。
+        foreach (var bad in new[] { "", "   ", "<script>", "1.8.2\"/>", "v1.8.2" })
+        {
+            AssertFalse(
+                Athena.Updater.MacAppBundle.TryUpdateBundleVersion(macOs, bad),
+                $"不可用的版本号 \"{bad}\" 必须被拒绝，而不是写进 Info.plist");
+        }
+        AssertEqual(
+            PlistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
+            File.ReadAllText(plistPath),
+            "被拒绝的版本号不得留下任何痕迹");
+
+        // 平铺安装没有 Info.plist，什么都不该发生。
+        var flat = Path.Combine(root, "flat");
+        Directory.CreateDirectory(flat);
+        AssertFalse(
+            Athena.Updater.MacAppBundle.TryUpdateBundleVersion(flat, "1.8.2"),
+            "平铺安装没有 bundle，不该尝试改写");
+
+        // —— 旧会话不带 Version：回退到包内程序集 ——
+        // 会话由旧版应用写出、更新器却来自新下载的包，所以新更新器一定会遇到这种会话。
+        var staging = Path.Combine(root, "staging");
+        Directory.CreateDirectory(staging);
+        AssertEqual(
+            string.Empty,
+            Athena.Updater.StagedPayload.ResolveVersion(staging, "Athena.UI"),
+            "包里没有托管程序集时必须返回空，让调用方跳过而不是崩");
+
+        // 用本进程的托管程序集冒充包内的 Athena.UI.dll：真实发布产物就是这种 PE。
+        // 包里只放 Athena.UI.dll，不放 Athena.dll——macOS 入口名是无扩展名的 "Athena.UI"，
+        // 若实现用 Path.ChangeExtension，会把 ".UI" 当成扩展名而去找 Athena.dll，
+        // 于是下面这条必然读空。
+        var selfAssembly = System.Reflection.Assembly.GetExecutingAssembly().Location;
+        File.Copy(selfAssembly, Path.Combine(staging, "Athena.UI.dll"));
+        var resolved = Athena.Updater.StagedPayload.ResolveVersion(staging, "Athena.UI");
+        AssertTrue(resolved.Length > 0, "macOS 入口应找 Athena.UI.dll，而不是把 Athena.UI 截成 Athena");
+        AssertFalse(
+            resolved.Contains('+', StringComparison.Ordinal),
+            "SourceLink 的 +<commit> 后缀必须剥掉，否则会被当成不可用版本号而整条跳过");
+        AssertTrue(
+            Athena.Updater.MacAppBundle.TryUpdateBundleVersion(macOs, resolved),
+            "回退拿到的版本号必须是能写进 plist 的形状");
+
+        // Windows 入口带 .exe，应去掉扩展名后找同名 .dll。
+        AssertEqual(
+            resolved,
+            Athena.Updater.StagedPayload.ResolveVersion(staging, "Athena.UI.exe"),
+            "Windows 入口应换成同名 .dll");
 
         return Task.CompletedTask;
     }
