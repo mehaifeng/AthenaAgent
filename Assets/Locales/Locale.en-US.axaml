@@ -1021,6 +1021,7 @@
     <system:String x:Key="MainWindow.Launcher.Tasks">Scheduled messages</system:String>
     <system:String x:Key="MainWindow.Launcher.Skills">Skills and extensions</system:String>
     <system:String x:Key="MainWindow.Launcher.Detailed">Detailed</system:String>
+    <system:String x:Key="MainWindow.Conversation.Switching">Loading conversation…</system:String>
     <system:String x:Key="MainWindow.Launcher.GlobalChat">Global chat</system:String>
     <system:String x:Key="MainWindow.Search.Placeholder">Search workspace, title, or summary</system:String>
     <system:String x:Key="MainWindow.Tip.AddWorkspace">Add workspace</system:String>

@@ -83,6 +83,12 @@ public partial class MainConversationView : UserControl
             {
                 _subAgentsCollection.CollectionChanged += OnActiveSubAgentsChanged;
             }
+
+            // 换会话就回到底部。换 DataContext 时 ItemsSource 是整体替换，不产生 Add 事件，
+            // OnAttachedToVisualTree 也早就跑过了——两条既有的滚动触发路径一条都不会命中，
+            // ScrollViewer 只会把旧 offset 夹到新内容的范围内。结果是切到更长的会话时
+            // 停在中间某处，而这恰好被切换幕布盖着，看不出是怎么来的。
+            ScrollToBottomIfHasMessages();
         }
         else
         {

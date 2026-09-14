@@ -151,6 +151,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         }
         newValue.IsSelected = true;
         MainConversationViewModel = newValue.Chat;
+        // 重的那一半（气泡树重排）不在这一拍做，见 BeginConversationSurfaceSwap。
+        BeginConversationSurfaceSwap(newValue);
         if (!ReferenceEquals(previousConversation, newValue.Chat)
             && ConversationGroups.SelectMany(group => group.Conversations)
                 .All(session => !ReferenceEquals(session.Chat, previousConversation)))
@@ -173,6 +175,78 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         {
             _ = GenerateSilentTitleAsync(oldValue);
         }
+    }
+
+    /// <summary>
+    /// 会话切换遮罩：中间对话面板在切换期间盖一层与面板同色的幕布。
+    ///
+    /// 它买的不是速度——切换根本没有 I/O，所有会话在启动时就已经 restore 进各自的 VM 了，
+    /// 那 2~3 秒全是 MessagesItemsControl 一次性实体化整段气泡树的布局开销（消息列表不虚拟化，
+    /// 见 CLAUDE.md「Bubble Rendering Budget」）。遮罩买的是「把假死换成可解释的等待」：
+    /// 左侧列表这一拍就跟手切过去了，中间那块明确显示它正在排布。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isConversationSwitching;
+
+    /// <summary>
+    /// 中间对话面板当前正在显示的会话 VM，比 <see cref="MainConversationViewModel"/> 晚一帧落地。
+    ///
+    /// 刻意分成两个属性而不是把 MainConversationViewModel 本身延后：标题栏主题按钮、
+    /// 桌宠这些轻绑定没有理由陪着等一帧，而「选中的会话」这个语义也不该因为一个渲染技巧变得不同步。
+    /// 只有真正贵的那个绑定（MainWindow.axaml 中间列）消费这个属性。
+    /// </summary>
+    [ObservableProperty]
+    private MainConversationViewModel _displayedConversation;
+
+    /// <summary>
+    /// 切换代次。连切时只有最后一次真正重排气泡树——按住方向键连过 5 个会话，
+    /// 改动前要付 5 次全量布局，现在只付落点那一次。
+    /// </summary>
+    private int _conversationSurfaceGeneration;
+
+    /// <summary>
+    /// 会话切换的第一拍：只升起遮罩，不换绑。
+    ///
+    /// **绝不能把换绑写在这一拍里。** 同一个 dispatcher turn 内赋值再换绑，UI 线程会直接进入
+    /// measure/arrange，遮罩那一帧一个像素都画不出来，屏幕上照样冻着旧会话，等 2~3 秒后遮罩
+    /// 和新内容同帧出现再立刻消失——白做。这和 OnUtilityTabSelectionChanged 上那条注释是同一个坑，
+    /// 方向相反：那里是多排了一个 turn 而闪帧，这里是少排了一个 turn 而根本不显示。
+    ///
+    /// Background(4) 低于 Render(7)，排到第二拍时遮罩那一帧已经提交给渲染线程了；
+    /// 之后 UI 线程再怎么冻，合成器手上握着的都是那张遮罩帧。
+    /// </summary>
+    private void BeginConversationSurfaceSwap(ConversationSessionItemViewModel target)
+    {
+        if (ReferenceEquals(DisplayedConversation, target.Chat)) return;
+        var generation = ++_conversationSurfaceGeneration;
+        IsConversationSwitching = true;
+        Dispatcher.UIThread.Post(
+            () => SwapConversationSurface(generation, target),
+            DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// 第二拍：真正换绑。UI 线程在这里冻住整段气泡树的首次布局，屏幕上停的是上一拍提交的遮罩帧。
+    /// </summary>
+    private void SwapConversationSurface(int generation, ConversationSessionItemViewModel target)
+    {
+        // 被更晚的一次切换接管：那一次自己会落幕，这里直接退场，连布局都不付。
+        if (generation != _conversationSurfaceGeneration) return;
+        if (ReferenceEquals(SelectedConversation, target)) DisplayedConversation = target.Chat;
+        // ContextIdle(3) 比 ScrollToBottom 用的 Loaded/Background 还低，
+        // 保证落幕排在「布局 → 滚到底」之后，遮罩不会比内容先掀开。
+        Dispatcher.UIThread.Post(
+            () => EndConversationSurfaceSwap(generation),
+            DispatcherPriority.ContextIdle);
+    }
+
+    /// <summary>
+    /// 第三拍：落幕。遮罩卡住不消失是典型的静默失败，所以第二拍的每一条路径都通向这里。
+    /// </summary>
+    private void EndConversationSurfaceSwap(int generation)
+    {
+        if (generation != _conversationSurfaceGeneration) return;
+        IsConversationSwitching = false;
     }
 
     /// <summary>
@@ -269,6 +343,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     public MainWindowViewModel()
     {
         _mainConversationViewModel = new MainConversationViewModel();
+        _displayedConversation = _mainConversationViewModel;
         _tasksViewModel = new TasksViewModel();
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel();
         _logsViewModel = new LogsViewModel();
@@ -352,6 +427,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
             ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
+        // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
+        _displayedConversation = _mainConversationViewModel;
         _tasksViewModel = new TasksViewModel(
             cronTaskService,
             cronScheduleService ?? new Services.Cron.CronScheduleService(localizationService),

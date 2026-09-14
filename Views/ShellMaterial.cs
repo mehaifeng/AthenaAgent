@@ -64,6 +64,24 @@ internal static class ShellMaterial
     public const double GlassBorderAlphaLight = 0.62;
 
     /// <summary>
+    /// 会话切换遮罩的不透明度下限。
+    /// 遮罩必须真的挡住旧会话——这是它存在的全部理由——所以它不能直接复用
+    /// 面板的 tint：滑块拉到 0.8 时面板 tint 只剩 0.2，遮罩叠在面板自身那层之上
+    /// 合成后也只有 0.36，旧气泡照样透过来，"切换中"读起来就成了"花屏"。
+    /// 取下限而不是直接取 1.0，是为了让用户把面板调得更实时遮罩跟着一起实，
+    /// 不会出现遮罩比它盖住的面板还透的倒挂。
+    /// </summary>
+    public const double VeilTintOpacityFloor = 0.94;
+
+    /// <summary>
+    /// 会话切换遮罩的不透明度：面板 tint 与下限取大者，色相仍来自同一份面板底色。
+    /// </summary>
+    public static double ResolveVeilOpacity(double shellPanelOpacity, bool glassEnabled, bool isLightTheme) =>
+        System.Math.Max(
+            ResolveTintOpacity(shellPanelOpacity, glassEnabled, isLightTheme),
+            VeilTintOpacityFloor);
+
+    /// <summary>
     /// 面板背景画笔的实际不透明度：玻璃模式在用户滑块之上再夹一道上限，上限随主题。
     /// </summary>
     public static double ResolveTintOpacity(double shellPanelOpacity, bool glassEnabled, bool isLightTheme) =>

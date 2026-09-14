@@ -1021,6 +1021,7 @@
     <system:String x:Key="MainWindow.Launcher.Tasks">定时消息</system:String>
     <system:String x:Key="MainWindow.Launcher.Skills">技能与扩展</system:String>
     <system:String x:Key="MainWindow.Launcher.Detailed">详细</system:String>
+    <system:String x:Key="MainWindow.Conversation.Switching">正在载入会话…</system:String>
     <system:String x:Key="MainWindow.Launcher.GlobalChat">全局对话</system:String>
     <system:String x:Key="MainWindow.Search.Placeholder">搜索工作区、标题或摘要</system:String>
     <system:String x:Key="MainWindow.Tip.AddWorkspace">添加工作区</system:String>
