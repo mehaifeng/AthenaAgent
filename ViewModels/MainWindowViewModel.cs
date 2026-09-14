@@ -611,7 +611,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         }
 
         _ = GenerateSilentTitleAsync(session);
-        _ = session.PersistNowAsync();
+        // 未观察的保存任务一旦抛出，异常会在终结器线程上以 UnobservedTaskException 重新抛出；
+        // 与 WireSession 里的 async void 同一族问题，这里一并观察掉。
+        _ = ObserveSessionCommandAsync(session.PersistNowAsync(), nameof(session.PersistNowAsync), session);
     }
 
     /// <summary>
@@ -809,9 +811,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // 每次 await 处让出，分发器才能泵送 InvokeAsync 回调，避免“UI 线程同步等待 +
         // 线程池任务等待 UI 线程取快照”的互等死锁（旧实现 GetAwaiter().GetResult()
         // 会把 UI 线程阻塞死，导致应用退出只能强杀）。
+        // 退出保存是尽力而为：一个会话写失败不该连累其余会话，更不该把异常抛进退出流程。
         var saves = ConversationGroups
             .SelectMany(group => group.Conversations)
-            .Select(session => session.PersistNowAsync());
+            .Select(session => ObserveSessionCommandAsync(
+                session.PersistNowAsync(), nameof(session.PersistNowAsync), session));
         await Task.WhenAll(saves);
     }
 
@@ -1215,12 +1219,40 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private void WireSession(ConversationSessionItemViewModel session)
     {
-        session.DeleteRequested += async (_, _) => await DeleteConversationAsync(session);
-        session.ForkRequested += async (_, _) => await ForkConversationAsync(session);
-        session.MessageForkRequested += async (_, e) => await ForkFromMessageAsync(session, e.Message);
-        session.ExportRequested += async (_, _) => await ExportConversationAsync(session);
+        // 这四个都是 async void 事件处理器：里面抛出的异常没有任何 await 承接，会直接变成
+        // 进程级未处理异常。2026-09-14 的闪退就是这么来的——会话流式输出期间点「分支」，
+        // 父会话的强制保存撞上 revision 冲突，异常从这里逃逸把应用整个带走。
+        // 根因已在持久化层修掉，但「一次会话操作失败不该杀掉应用」本身就是要守的边界。
+        session.DeleteRequested += (_, _) => RunSessionCommand(DeleteConversationAsync(session), nameof(DeleteConversationAsync), session);
+        session.ForkRequested += (_, _) => RunSessionCommand(ForkConversationAsync(session), nameof(ForkConversationAsync), session);
+        session.MessageForkRequested += (_, e) => RunSessionCommand(ForkFromMessageAsync(session, e.Message), nameof(ForkFromMessageAsync), session);
+        session.ExportRequested += (_, _) => RunSessionCommand(ExportConversationAsync(session), nameof(ExportConversationAsync), session);
         session.PinChanged += (_, _) => RefreshPinnedConversations();
         RefreshApprovalStates();
+    }
+
+    /// <summary>
+    /// 观察一个会话操作的结果：失败只记日志，不让异常从 async void 事件处理器逃逸成
+    /// 进程级未处理异常。取消不是失败。
+    /// </summary>
+    private void RunSessionCommand(Task operation, string operationName, ConversationSessionItemViewModel session)
+    {
+        _ = ObserveSessionCommandAsync(operation, operationName, session);
+    }
+
+    private async Task ObserveSessionCommandAsync(Task operation, string operationName, ConversationSessionItemViewModel session)
+    {
+        try
+        {
+            await operation;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Conversation command {Operation} failed: {HistoryId}", operationName, session.HistoryId);
+        }
     }
 
     private void WireGroup(WorkspaceConversationGroupViewModel group)

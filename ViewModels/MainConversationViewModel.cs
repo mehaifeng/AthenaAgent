@@ -2776,6 +2776,22 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public void MarkPersistenceMetadataChanged() => MarkPersistenceStateChanged();
 
+    /// <summary>
+    /// 把内存 revision 对齐到存储层实际写入的那个值。
+    ///
+    /// 一轮流式回复期间正文是就地追加的（<c>assistantMsg.Content += contentDelta</c>），
+    /// 没有集合变化，<c>_revision</c> 因此原地不动，而 payload 一直在变。普通保存
+    /// 通道遇到「同 revision、不同 payload」时会顺延一个 revision 写入，内存必须跟上，
+    /// 否则下一次强制保存仍会带着同一个陈旧 revision 撞上去。
+    ///
+    /// 只前进不后退：落后的通知（乱序回来的旧保存）不得把 revision 拉回去，那会让压缩
+    /// 协议的 BaseRevision 校验失去意义。
+    /// </summary>
+    public void SyncPersistedRevision(long committedRevision)
+    {
+        if (committedRevision > _revision) _revision = committedRevision;
+    }
+
     public void AttachCompressionCommitter(IConversationCompressionCommitter committer)
     {
         _compressionCommitter = committer;

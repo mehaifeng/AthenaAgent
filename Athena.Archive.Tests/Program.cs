@@ -74,6 +74,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("upsert persists fork metadata and legacy items deserialize without it", TestForkMetadataUpsertAsync),
     ("conversation snapshot atomically round-trips compression and fork metadata", TestAtomicConversationSnapshotAsync),
     ("conversation store rejects stale and conflicting revisions", TestConversationRevisionGuardAsync),
+    ("ordinary saves advance a drifted revision instead of crashing the fork", TestConversationDriftedRevisionAdvanceAsync),
     ("recovery reactivates compressed messages when summary is missing", TestMissingSummaryRecoveryAsync),
     ("compression material preserves every role and cancellation has zero mutation", TestCompressionSafetyAsync),
     ("compression planner selects only complete rounds without mutating messages", TestCompressionPlannerAsync),
@@ -2449,6 +2450,73 @@ static async Task TestConversationRevisionGuardAsync()
 
     var loaded = await store.LoadByIdAsync(id);
     AssertEqual("current", loaded?.Summary, "rejected writes must not change stored content");
+}
+
+// 2026-09-14 闪退的根因用例：会话流式输出期间创建分支。
+// 流式正文是就地追加的（assistantMsg.Content += delta），一整轮回复没有集合变化，
+// revision 因此原地不动而 payload 一直在变；分支第一步的强制保存于是带着「同 revision、
+// 不同 payload」撞上存储守卫，异常从 async void 事件处理器逃逸，进程直接退出。
+// 普通保存通道必须把这种漂移当正常状态顺延，而压缩提交通道的严格语义不能被一起放宽。
+static async Task TestConversationDriftedRevisionAdvanceAsync()
+{
+    using var harness = new TestHarness();
+    using var store = new ConversationArchiveStore(harness.PathService, Log.ForContext<ConversationArchiveStore>());
+    var id = Guid.NewGuid().ToString("N");
+    var streaming = new ChatMessage { Role = "assistant", Content = "streamed" };
+    var item = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 40,
+        Summary = "live",
+        Messages = [streaming]
+    };
+    AssertEqual(40L, await store.SaveLatestAsync(item), "first write must keep the requested revision");
+    AssertEqual(40L, await store.SaveLatestAsync(item), "an identical payload must not burn a revision");
+
+    // 防抖保存落库之后，这一轮又流出了更多正文，revision 仍然是 40。
+    streaming.Content = "streamed a lot more";
+    AssertEqual(41L, await store.SaveLatestAsync(item), "a drifted payload must advance the revision, not throw");
+    AssertEqual(41L, item.Revision, "the committed revision must be written back to the item");
+
+    var loaded = await store.LoadByIdAsync(id);
+    AssertEqual("streamed a lot more", loaded?.Messages.Single().Content, "the drifted payload must be the stored one");
+    AssertEqual(41L, loaded?.Revision ?? -1, "the stored revision must match the committed one");
+
+    // 分支的第一步——父会话强制保存——在继续漂移之后依然必须成功。
+    streaming.Content = "and more";
+    AssertEqual(42L, await store.SaveLatestAsync(item), "a forced save after further drift must keep advancing");
+
+    // 压缩提交走 SaveAsync：它的 revision 是协议的一部分（BaseRevision + 1），
+    // 被拒绝就必须作废重来，绝不能就地顺延。
+    var conflicting = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 42,
+        Summary = "different",
+        Messages = [new ChatMessage { Role = "user", Content = "different" }]
+    };
+    await AssertThrowsAsync<ConversationRevisionConflictException>(
+        () => store.SaveAsync(conflicting),
+        "SaveAsync must still reject a different payload at the same revision");
+
+    // 真正过期的写入（别的写入者已经推进过）在两条通道上都必须拒绝。
+    var stale = new ConversationHistoryItem
+    {
+        Id = id,
+        ConversationId = "conversation",
+        Revision = 3,
+        Summary = "stale",
+        Messages = [new ChatMessage { Role = "user", Content = "stale" }]
+    };
+    await AssertThrowsAsync<ConversationRevisionConflictException>(
+        () => store.SaveLatestAsync(stale),
+        "a genuinely stale revision must be rejected on the ordinary channel too");
+
+    var final = await store.LoadByIdAsync(id);
+    AssertEqual("and more", final?.Messages.Single().Content, "rejected writes must not change stored content");
+    AssertEqual(42L, final?.Revision ?? -1, "rejected writes must not change the stored revision");
 }
 
 static async Task TestMissingSummaryRecoveryAsync()
@@ -6613,6 +6681,14 @@ sealed class QueueArchiveStore(bool throwOnSave = false) : IConversationArchiveS
         SavedItems.RemoveAll(existing => existing.Id == item.Id);
         SavedItems.Add(item);
         return Task.CompletedTask;
+    }
+
+    // 假存储不复刻 revision 守卫，SaveLatestAsync 与 SaveAsync 同义；
+    // 漂移顺延的真实语义由 ConversationArchiveStore 的用例覆盖。
+    public async Task<long> SaveLatestAsync(ConversationHistoryItem item)
+    {
+        await SaveAsync(item);
+        return item.Revision;
     }
 
     public Task DeleteAsync(string id)

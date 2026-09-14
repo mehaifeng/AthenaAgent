@@ -109,44 +109,58 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
     // 草稿存储的同步 Save()/Delete()（_writeGate.Wait()）持有：续体一旦贴回 UI 线程，
     // 而 UI 线程正阻塞在 Wait() 上，异步持有者就永远拿不到线程去 Release——闸门再不打开，
     // 界面永久冻结。与 MainWindowViewModel.PersistSessionStateAsync 注释记载的退出死锁同形。
-    public async Task SaveAsync(ConversationHistoryItem item)
+    public Task SaveAsync(ConversationHistoryItem item) =>
+        SaveCoreAsync(item, advanceOnDrift: false);
+
+    /// <summary>
+    /// 普通保存通道：落库并返回真正写入的 revision（同时回写到 <paramref name="item"/>）。
+    ///
+    /// 与 <see cref="SaveAsync"/> 的唯一差别是「同 revision、不同 payload」的处置。流式正文是
+    /// 就地追加的（<c>assistantMsg.Content += contentDelta</c>），一整轮回复期间没有任何集合
+    /// 变化，revision 因此原地不动，而 payload 一直在变——所以「内存比磁盘新、revision 却相同」
+    /// 在这条通道上不是冲突，而是必然出现的正常状态。此时推进一个 revision 再写，让存储层
+    /// 「同 revision ⇒ 同 payload」这条不变量继续成立，而不是把它当成写入者打架。
+    ///
+    /// 真正的冲突仍然抛出：incoming &lt; stored 说明另一个写入者已经推进过 revision，覆盖它会
+    /// 丢数据。压缩提交走 <see cref="SaveAsync"/>，因为它的 revision 是协议的一部分
+    /// （BaseRevision + 1），被拒绝就必须作废重来，不能就地顺延。
+    /// </summary>
+    public Task<long> SaveLatestAsync(ConversationHistoryItem item) =>
+        SaveCoreAsync(item, advanceOnDrift: true);
+
+    private async Task<long> SaveCoreAsync(ConversationHistoryItem item, bool advanceOnDrift)
     {
         await _writeGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            var payload = JsonSerializer.Serialize(item, JsonOptions);
-            var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
             await using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync().ConfigureAwait(false);
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, revision, payload_hash, payload)
-                VALUES ($id, $conversationId, $workspaceId, $parentId, $title, $createdAt, $updatedAt, $revision, $payloadHash, $payload)
-                ON CONFLICT(id) DO UPDATE SET
-                    conversation_id = excluded.conversation_id,
-                    workspace_id = excluded.workspace_id,
-                    parent_conversation_id = excluded.parent_conversation_id,
-                    title = excluded.title,
-                    updated_at = excluded.updated_at,
-                    revision = excluded.revision,
-                    payload_hash = excluded.payload_hash,
-                    payload = excluded.payload
-                WHERE excluded.revision > conversations.revision
-                """;
-            command.Parameters.AddWithValue("$id", ValidateId(item.Id));
-            command.Parameters.AddWithValue("$conversationId", item.ConversationId);
-            command.Parameters.AddWithValue("$workspaceId", (object?)item.WorkspaceId ?? DBNull.Value);
-            command.Parameters.AddWithValue("$parentId", (object?)item.ForkedFromConversationId ?? DBNull.Value);
-            command.Parameters.AddWithValue("$title", item.Summary);
-            command.Parameters.AddWithValue("$createdAt", item.CreatedAt.ToUniversalTime().ToString("O"));
-            command.Parameters.AddWithValue("$updatedAt", item.UpdatedAt.ToUniversalTime().ToString("O"));
-            command.Parameters.AddWithValue("$revision", item.Revision);
-            command.Parameters.AddWithValue("$payloadHash", payloadHash);
-            command.Parameters.AddWithValue("$payload", payload);
-            var affected = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
-            if (affected == 0)
+
+            // 至多重试一次：_writeGate 已经把进程内写入者串行化，一次顺延仍被拒绝
+            // 说明有本进程之外的写入者，那就是真冲突，不该继续抬高 revision 硬写。
+            for (var attempt = 0; ; attempt++)
             {
-                await ValidateRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash).ConfigureAwait(false);
+                var payload = JsonSerializer.Serialize(item, JsonOptions);
+                var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+                var affected = await ExecuteUpsertAsync(connection, item, payload, payloadHash).ConfigureAwait(false);
+                if (affected > 0) return item.Revision;
+
+                var rejection = await InspectRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash)
+                    .ConfigureAwait(false);
+                switch (rejection.Kind)
+                {
+                    case RejectedWriteKind.Idempotent:
+                        return item.Revision;
+                    case RejectedWriteKind.Stale:
+                        throw new ConversationRevisionConflictException(
+                            $"Stale conversation revision {item.Revision} cannot overwrite {rejection.StoredRevision}.");
+                    default:
+                        if (!advanceOnDrift || attempt > 0)
+                            throw new ConversationRevisionConflictException(
+                                $"Different conversation payloads cannot share revision {item.Revision}.");
+                        item.Revision = rejection.StoredRevision + 1;
+                        continue;
+                }
             }
         }
         finally
@@ -155,7 +169,53 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         }
     }
 
-    private static async Task ValidateRejectedWriteAsync(
+    private static async Task<int> ExecuteUpsertAsync(
+        SqliteConnection connection,
+        ConversationHistoryItem item,
+        string payload,
+        string payloadHash)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, revision, payload_hash, payload)
+            VALUES ($id, $conversationId, $workspaceId, $parentId, $title, $createdAt, $updatedAt, $revision, $payloadHash, $payload)
+            ON CONFLICT(id) DO UPDATE SET
+                conversation_id = excluded.conversation_id,
+                workspace_id = excluded.workspace_id,
+                parent_conversation_id = excluded.parent_conversation_id,
+                title = excluded.title,
+                updated_at = excluded.updated_at,
+                revision = excluded.revision,
+                payload_hash = excluded.payload_hash,
+                payload = excluded.payload
+            WHERE excluded.revision > conversations.revision
+            """;
+        command.Parameters.AddWithValue("$id", ValidateId(item.Id));
+        command.Parameters.AddWithValue("$conversationId", item.ConversationId);
+        command.Parameters.AddWithValue("$workspaceId", (object?)item.WorkspaceId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$parentId", (object?)item.ForkedFromConversationId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$title", item.Summary);
+        command.Parameters.AddWithValue("$createdAt", item.CreatedAt.ToUniversalTime().ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", item.UpdatedAt.ToUniversalTime().ToString("O"));
+        command.Parameters.AddWithValue("$revision", item.Revision);
+        command.Parameters.AddWithValue("$payloadHash", payloadHash);
+        command.Parameters.AddWithValue("$payload", payload);
+        return await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    private enum RejectedWriteKind
+    {
+        /// <summary>同 revision 同 payload：这次写入是重复的，什么都不用做。</summary>
+        Idempotent,
+        /// <summary>incoming &lt; stored：别的写入者已经更新，覆盖会丢数据。</summary>
+        Stale,
+        /// <summary>同 revision 不同 payload：内存相对磁盘发生了未计入 revision 的漂移。</summary>
+        Drift
+    }
+
+    private readonly record struct RejectedWrite(RejectedWriteKind Kind, long StoredRevision);
+
+    private static async Task<RejectedWrite> InspectRejectedWriteAsync(
         SqliteConnection connection,
         string id,
         long incomingRevision,
@@ -175,17 +235,12 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         if (storedRevision == incomingRevision
             && string.Equals(storedHash, incomingPayloadHash, StringComparison.Ordinal))
         {
-            return;
+            return new RejectedWrite(RejectedWriteKind.Idempotent, storedRevision);
         }
 
-        if (incomingRevision < storedRevision)
-        {
-            throw new ConversationRevisionConflictException(
-                $"Stale conversation revision {incomingRevision} cannot overwrite {storedRevision}.");
-        }
-
-        throw new ConversationRevisionConflictException(
-            $"Different conversation payloads cannot share revision {incomingRevision}.");
+        return incomingRevision < storedRevision
+            ? new RejectedWrite(RejectedWriteKind.Stale, storedRevision)
+            : new RejectedWrite(RejectedWriteKind.Drift, storedRevision);
     }
 
     public async Task DeleteAsync(string id)

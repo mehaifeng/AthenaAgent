@@ -478,16 +478,29 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         }
 
         var item = ToHistoryItem(snapshot);
+        var requestedRevision = item.Revision;
+        long committedRevision;
         // 快照已在 UI 线程捕获完成，后续 SQLite 写入无需再回 UI 线程；
         // 加上 ConfigureAwait(false) 避免保存批次串行钉在 UI 线程上。
         await _persistGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await _store.SaveAsync(item).ConfigureAwait(false);
+            committedRevision = await _store.SaveLatestAsync(item).ConfigureAwait(false);
         }
         finally
         {
             _persistGate.Release();
+        }
+
+        // 存储层是 revision 的权威。一轮流式回复期间正文是就地追加的，revision 不会推进，
+        // 所以这条通道上「磁盘已有同 revision 的旧 payload」是常态，存储层会顺延写入——
+        // 内存必须跟上，否则下一次强制保存（创建分支、退出前保存）会带着同一个陈旧
+        // revision 再撞一次，而那条路径上的异常就是 2026-09-14 的闪退。
+        // 回写放在闸门之外：不必占着本会话的写入闸门去等 UI 线程。
+        if (committedRevision != requestedRevision)
+        {
+            if (Dispatcher.UIThread.CheckAccess()) Chat.SyncPersistedRevision(committedRevision);
+            else await Dispatcher.UIThread.InvokeAsync(() => Chat.SyncPersistedRevision(committedRevision));
         }
     }
 

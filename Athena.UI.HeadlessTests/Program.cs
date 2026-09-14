@@ -9810,6 +9810,14 @@ sealed class HeadlessConversationStore : IConversationArchiveStore
         return Task.CompletedTask;
     }
 
+    // 假存储不复刻 revision 守卫，SaveLatestAsync 与 SaveAsync 同义；
+    // 漂移顺延的真实语义由 Athena.Archive.Tests 中 ConversationArchiveStore 的用例覆盖。
+    public async Task<long> SaveLatestAsync(ConversationHistoryItem item)
+    {
+        await SaveAsync(item);
+        return item.Revision;
+    }
+
     public Task DeleteAsync(string id)
     {
         Items.Remove(id);
