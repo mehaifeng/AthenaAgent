@@ -17,6 +17,7 @@ public static class ProviderCatalog
         ["Alibaba"] = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         ["Deepseek"] = "https://api.deepseek.com/v1",
         ["OpenRouter"] = "https://openrouter.ai/api/v1",
+        ["OrcaRouter"] = "https://api.orcarouter.ai/v1",
         ["Custom"] = ""
     };
 

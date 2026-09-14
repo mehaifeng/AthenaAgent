@@ -1,0 +1,12 @@
+{
+  "_comment": "OrcaRouter 接入端点与归因码。端点写在这里而不是 C# 常量里，改推广码不用改代码；OrcaRouterEndpoints.Parse 会校验 host 白名单与 https，所以改成别的域名不会生效。",
+  "providerPreset": "OrcaRouter",
+  "displayName": "OrcaRouter",
+  "baseUrl": "https://api.orcarouter.ai/v1",
+  "authUrl": "https://www.orcarouter.ai/auth",
+  "tokenUrl": "https://api.orcarouter.ai/api/v1/auth/keys",
+  "callbackPath": "/cb",
+  "appName": "Athena",
+  "referralCode": "ref_3a0dbebd11797d7e4ddf",
+  "defaultModel": "orcarouter/auto"
+}

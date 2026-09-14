@@ -20,16 +20,57 @@
                 <Border Padding="10"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,0,0,1">
-                    <Button Command="{Binding AddProviderCommand}"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Theme="{StaticResource AccentButtonTheme}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource AthenaIconAdd}" Width="13" Height="13"
-                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
-                            <TextBlock Text="{loc:Loc ProviderModels.AddProvider}" VerticalAlignment="Center"/>
+                    <StackPanel Spacing="10">
+                        <Button Command="{Binding AddProviderCommand}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Theme="{StaticResource AccentButtonTheme}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource AthenaIconAdd}" Width="13" Height="13"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                <TextBlock Text="{loc:Loc ProviderModels.AddProvider}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- OrcaRouter 一键接入：省掉「去哪弄 key」这一步。
+                             端点配置不可用时 ConnectCommand 自己禁用，并在状态行说明原因。 -->
+                        <StackPanel Spacing="6">
+                            <u:IconButton x:Name="OrcaRouterConnectButton"
+                                          Command="{Binding OrcaRouter.ConnectCommand}"
+                                          IsLoading="{Binding OrcaRouter.IsConnecting}"
+                                          HorizontalAlignment="Stretch"
+                                          HorizontalContentAlignment="Center"
+                                          Content="{loc:Loc OrcaRouter.Connect}"/>
+                            <TextBlock Text="{loc:Loc OrcaRouter.Connect.Hint}"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                       Opacity="0.6"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding OrcaRouter.Status}"
+                                       IsVisible="{Binding OrcaRouter.Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       ToolTip.Tip="{Binding OrcaRouter.StatusDetails}"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                       Opacity="0.8"
+                                       TextWrapping="Wrap"/>
+                            <!-- 浏览器没能自动打开时，这个链接是完成授权的唯一途径。 -->
+                            <Grid ColumnDefinitions="*,Auto"
+                                  ColumnSpacing="6"
+                                  IsVisible="{Binding OrcaRouter.HasManualUrl}">
+                                <SelectableTextBlock Text="{Binding OrcaRouter.ManualUrl}"
+                                                     FontSize="{DynamicResource App.FontSize.Body}"
+                                                     TextWrapping="Wrap"
+                                                     VerticalAlignment="Center"/>
+                                <Button Grid.Column="1"
+                                        Command="{Binding OrcaRouter.CopyManualUrlCommand}"
+                                        VerticalAlignment="Center"
+                                        Content="{loc:Loc OrcaRouter.CopyLink}"/>
+                            </Grid>
+                            <Button Command="{Binding OrcaRouter.CancelCommand}"
+                                    IsVisible="{Binding OrcaRouter.IsConnecting}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Content="{loc:Loc OrcaRouter.Cancel}"/>
                         </StackPanel>
-                    </Button>
+                    </StackPanel>
                 </Border>
 
                 <ListBox Grid.Row="1"

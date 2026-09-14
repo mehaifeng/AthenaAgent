@@ -25,6 +25,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Notifications;
+using Athena.UI.Services.OrcaRouter;
 using Athena.UI.Services.Browser;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
@@ -162,6 +163,7 @@ TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestSelfConfigurationSurface();
+TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
 TestNotificationPayloadEncoding();
 TestApprovalNotificationWiring();
 TestReplyFinishedNotification();
@@ -4794,6 +4796,167 @@ static void TestProviderMetadataUi(string outputPath)
     SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "provider-model-metadata.png"));
     window.Close();
     Console.WriteLine("[PASS] Provider Models virtualizes 336 rows and separates derived facts from explicit binding/overrides");
+}
+
+static void TestOrcaRouterConnectEntryPoints(string outputDirectory)
+{
+    const string EndpointJson = """
+        {
+          "providerPreset": "OrcaRouter",
+          "displayName": "OrcaRouter",
+          "baseUrl": "https://api.orcarouter.ai/v1",
+          "authUrl": "https://www.orcarouter.ai/auth",
+          "tokenUrl": "https://api.orcarouter.ai/api/v1/auth/keys",
+          "callbackPath": "/cb",
+          "appName": "Athena",
+          "referralCode": "ref_headless",
+          "defaultModel": "orcarouter/auto"
+        }
+        """;
+    var endpoints = OrcaRouterEndpoints.Parse(EndpointJson);
+    var localization = new LocalizationService();
+    localization.SwitchLanguage("zh-CN");
+
+    // 端点配置不可用时，入口必须**说明原因**。静默禁用的按钮会以"点了没反应"的形式
+    // 在几个月后被报成 UI bug，而那正是这条规则要挡掉的形态。
+    {
+        var config = new AppConfig();
+        var configService = new HeadlessConfigService(config);
+        using var session = new AppConfigurationSession(configService);
+        using var viewModel = new ProviderModelsViewModel(
+            session,
+            new HeadlessModelCatalogService(),
+            null,
+            null,
+            localization,
+            null,
+            new HeadlessOrcaRouterConnectService(null));
+
+        if (viewModel.OrcaRouter.IsAvailable)
+            throw new InvalidOperationException("没有端点配置时接入入口必须报告不可用。");
+        if (viewModel.OrcaRouter.ConnectCommand.CanExecute(null))
+            throw new InvalidOperationException("接入不可用时命令必须不可执行。");
+        if (string.IsNullOrWhiteSpace(viewModel.OrcaRouter.Status))
+            throw new InvalidOperationException("接入不可用时必须给出原因，而不是留一个静默禁用的按钮。");
+    }
+
+    // 供应商与模型窗口：一次接入建一条连接，第二次接入只更新它，且绝不重指已选好的模型。
+    {
+        var config = new AppConfig();
+        var configService = new HeadlessConfigService(config);
+        using var session = new AppConfigurationSession(configService);
+        var service = new HeadlessOrcaRouterConnectService(endpoints, "sk-orca-headless");
+        using var viewModel = new ProviderModelsViewModel(
+            session,
+            new HeadlessModelCatalogService(),
+            null,
+            null,
+            localization,
+            null,
+            service);
+
+        var window = new ProviderModelsWindow { DataContext = viewModel, Width = 1280, Height = 820 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // 按钮被实际渲染且可用——绑定路径写错时命令为 null，这里就会失败。
+        var button = window.FindControl<Control>("OrcaRouterConnectButton")
+                     ?? throw new InvalidOperationException("供应商窗口没有渲染 OrcaRouter 接入按钮。");
+        if (!button.IsVisible || !button.IsEffectivelyEnabled)
+            throw new InvalidOperationException("端点配置可用时 OrcaRouter 接入按钮必须可用。");
+
+        viewModel.OrcaRouter.ConnectCommand.Execute(null);
+        PumpUntil(() => !viewModel.OrcaRouter.IsConnecting, 10000, "OrcaRouter 接入流程没有收尾。");
+
+        var providers = config.AiModels.Providers
+            .Where(provider => OrcaRouterProviderBinder.IsOrcaRouter(provider.BaseUrl, endpoints))
+            .ToList();
+        if (providers.Count != 1)
+            throw new InvalidOperationException($"接入后同一 host 只能有一条连接，实际 {providers.Count} 条。");
+        if (providers[0].ApiKey != "sk-orca-headless")
+            throw new InvalidOperationException("接入必须把换回来的 key 写进连接。");
+        if (!ReferenceEquals(viewModel.SelectedProvider, providers[0]))
+            throw new InvalidOperationException("接入后必须选中那条连接，否则用户看不到它生效。");
+        if (config.AiModels.MainConversation.Model != endpoints.DefaultModel
+            || config.AiModels.MainConversation.ProviderId != providers[0].Id)
+            throw new InvalidOperationException("主对话此前没有模型时，接入应当把它指向默认模型。");
+
+        // 用户自己选过模型之后再接入一次：只换 key，绝不动他的选择。
+        config.AiModels.MainConversation.Model = "my-own-model";
+        service.ApiKey = "sk-orca-second";
+        viewModel.OrcaRouter.ConnectCommand.Execute(null);
+        PumpUntil(() => !viewModel.OrcaRouter.IsConnecting, 10000, "OrcaRouter 第二次接入没有收尾。");
+
+        providers = config.AiModels.Providers
+            .Where(provider => OrcaRouterProviderBinder.IsOrcaRouter(provider.BaseUrl, endpoints))
+            .ToList();
+        if (providers.Count != 1)
+            throw new InvalidOperationException("再次接入不能新建第二条连接——业务角色还指着第一条。");
+        if (providers[0].ApiKey != "sk-orca-second")
+            throw new InvalidOperationException("再次接入必须刷新 key。");
+        if (config.AiModels.MainConversation.Model != "my-own-model")
+            throw new InvalidOperationException("接入绝不能悄悄换掉用户已经选好的主对话模型。");
+
+        // 浏览器打不开时：链接必须亮出来，而且流程**继续等**——那是那种情况下唯一的退路。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Gate = gate;
+        service.BrowserOpened = false;
+        service.ApiKey = "sk-orca-manual";
+        viewModel.OrcaRouter.ConnectCommand.Execute(null);
+        PumpUntil(() => viewModel.OrcaRouter.HasManualUrl, 10000, "浏览器打不开时必须把授权链接显示出来。");
+        if (!viewModel.OrcaRouter.IsConnecting)
+            throw new InvalidOperationException("浏览器打不开不是失败，流程必须继续等回调。");
+        if (viewModel.OrcaRouter.ManualUrl != HeadlessOrcaRouterConnectService.AuthorizationUrl)
+            throw new InvalidOperationException("显示出来的必须就是本次的授权链接。");
+
+        gate.SetResult();
+        PumpUntil(() => !viewModel.OrcaRouter.IsConnecting, 10000, "手动完成的授权没有收尾。");
+        if (viewModel.OrcaRouter.HasManualUrl)
+            throw new InvalidOperationException("接入完成后不该再留着那条链接。");
+        if (providers[0].ApiKey != "sk-orca-manual")
+            throw new InvalidOperationException("手动完成的授权同样要写进连接。");
+
+        SaveWindowFrame(window, Path.Combine(outputDirectory, "orcarouter-connect.png"));
+        window.Close();
+    }
+
+    // 首次引导：写进那唯一的主连接，而不是在旁边再加一条。
+    {
+        var config = new AppConfig();
+        var configService = new HeadlessConfigService(config);
+        using var onboarding = new OnboardingViewModel(
+            configService,
+            localization,
+            null,
+            null,
+            new HeadlessOrcaRouterConnectService(endpoints, "sk-orca-onboarding"));
+
+        var window = new OnboardingWindow(onboarding) { Width = 1000, Height = 700 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var button = window.FindControl<Control>("OnboardingOrcaRouterButton")
+                     ?? throw new InvalidOperationException("引导向导第一步没有渲染 OrcaRouter 接入按钮。");
+        if (!button.IsVisible || !button.IsEffectivelyEnabled)
+            throw new InvalidOperationException("端点配置可用时引导页的 OrcaRouter 按钮必须可用。");
+
+        onboarding.OrcaRouter.ConnectCommand.Execute(null);
+        PumpUntil(() => !onboarding.OrcaRouter.IsConnecting, 10000, "引导页 OrcaRouter 接入没有收尾。");
+
+        if (onboarding.Config.AiModels.Providers.Count != 1)
+            throw new InvalidOperationException("引导页只有一条主连接，接入不能在旁边再加一条。");
+        if (onboarding.PrimaryProvider.ApiKey != "sk-orca-onboarding"
+            || onboarding.PrimaryProvider.BaseUrl != endpoints.BaseUrl
+            || onboarding.PrimaryProvider.ProviderPreset != endpoints.ProviderPreset)
+            throw new InvalidOperationException("引导页接入必须把凭据与端点写进主连接。");
+        if (onboarding.Config.AiModels.MainConversation.Model != endpoints.DefaultModel)
+            throw new InvalidOperationException("引导页接入后主对话必须有一个可用模型，否则用户仍然过不了第一步。");
+        if (!onboarding.ModelOptions.Contains(endpoints.DefaultModel))
+            throw new InvalidOperationException("默认模型必须出现在下拉候选里，否则用户看不到自己选的是什么。");
+
+        window.Close();
+    }
+
+    Console.WriteLine("[PASS] OrcaRouter connect entry points bind, stay single-connection, and never repoint a model the user chose");
 }
 
 static void TestSelfConfigurationSurface()
@@ -10072,5 +10235,54 @@ sealed class PlainReplyChatService : HeadlessChatService
     {
         await Task.CompletedTask;
         yield return Reply;
+    }
+}
+
+/// <summary>
+/// 替身接入服务。<c>endpoints</c> 为 null 表示端点配置不可用；<see cref="Gate"/> 置上后
+/// 流程会停在「等待授权」这一步，用来断言浏览器打不开时链接确实亮着、且流程还在等。
+/// </summary>
+sealed class HeadlessOrcaRouterConnectService(OrcaRouterEndpoints? endpoints, string apiKey = "sk-orca-headless")
+    : IOrcaRouterConnectService
+{
+    public const string AuthorizationUrl = "https://www.orcarouter.ai/auth?state=headless";
+
+    public string ApiKey { get; set; } = apiKey;
+
+    public bool BrowserOpened { get; set; } = true;
+
+    public TaskCompletionSource? Gate { get; set; }
+
+    public bool IsAvailable => endpoints != null;
+
+    public OrcaRouterEndpoints? Endpoints => endpoints;
+
+    public async Task<OrcaRouterConnectResult> ConnectAsync(
+        IProgress<OrcaRouterConnectProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (endpoints == null)
+        {
+            return new OrcaRouterConnectResult
+            {
+                Failure = OrcaRouterConnectFailure.Unavailable,
+                Error = "no endpoint configuration"
+            };
+        }
+
+        progress?.Report(new OrcaRouterConnectProgress(
+            OrcaRouterConnectStage.AwaitingAuthorization,
+            AuthorizationUrl,
+            BrowserOpened));
+
+        if (Gate is { } gate) await gate.Task.ConfigureAwait(true);
+
+        return new OrcaRouterConnectResult
+        {
+            Succeeded = true,
+            ApiKey = ApiKey,
+            Endpoints = endpoints,
+            Failure = OrcaRouterConnectFailure.None
+        };
     }
 }

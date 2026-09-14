@@ -485,6 +485,25 @@
     <system:String x:Key="ProviderModels.Metadata.ExportCsv">Export CSV</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportPickerTitle">Export model metadata</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportSucceeded">Exported {0} models to {1}</system:String>
+
+    <!-- OrcaRouter one-click sign-in -->
+    <system:String x:Key="OrcaRouter.Connect">Connect with OrcaRouter</system:String>
+    <system:String x:Key="OrcaRouter.Connect.Hint">Sign in through your browser — the API key is filled in for you</system:String>
+    <system:String x:Key="OrcaRouter.Cancel">Cancel</system:String>
+    <system:String x:Key="OrcaRouter.CopyLink">Copy link</system:String>
+    <system:String x:Key="OrcaRouter.Status.Awaiting">Opened in your browser — waiting for authorization…</system:String>
+    <system:String x:Key="OrcaRouter.Status.ManualOpen">Could not open a browser. Open this link manually to continue:</system:String>
+    <system:String x:Key="OrcaRouter.Status.Exchanging">Authorized — fetching the API key…</system:String>
+    <system:String x:Key="OrcaRouter.Status.Succeeded">Connected to OrcaRouter.</system:String>
+    <system:String x:Key="OrcaRouter.Status.Canceled">Authorization canceled.</system:String>
+    <system:String x:Key="OrcaRouter.Status.Failed">Could not connect: {0}</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Unavailable">OrcaRouter sign-in is unavailable in this build.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.AlreadyRunning">An authorization is already in progress.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.TimedOut">Timed out waiting for authorization.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Denied">Authorization was not granted.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Exchange">Could not fetch the API key.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Malformed">The response carried no API key.</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Unknown">Unknown error.</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportFailed">CSV export failed: {0}</system:String>
     <system:String x:Key="ProviderModels.Metadata.Search">Search external or OpenRouter model ID</system:String>
     <system:String x:Key="ProviderModels.Metadata.Empty">Select a provider model to inspect its metadata.</system:String>

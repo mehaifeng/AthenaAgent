@@ -8,6 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text;
@@ -20,6 +21,7 @@ using Athena.UI.Services.Cron;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.OrcaRouter;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.Preview;
 using OpenAI.Responses;
@@ -177,7 +179,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
     ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
     ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync),
-    ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync)
+    ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync),
+    ("OrcaRouter PKCE material is S256-derived, url-safe and never reused", TestOrcaRouterPkceAsync),
+    ("the shipped OrcaRouter endpoints parse, and a foreign host or plaintext url does not", TestOrcaRouterEndpointsAsync),
+    ("an OrcaRouter connection is bound once per host and never repoints a chosen model", TestOrcaRouterProviderBindingAsync),
+    ("a loopback callback is only honored on its own path with a matching state", TestOrcaRouterCallbackClassificationAsync),
+    ("the loopback listener keeps waiting through stray and mismatched requests", TestOrcaRouterLoopbackListenerAsync),
+    ("OrcaRouter connect carries the referral only in the authorization url and never keeps an empty key", TestOrcaRouterConnectFlowAsync)
 };
 
 var failures = new List<string>();
@@ -6443,6 +6451,425 @@ static Task TestUpdaterRewritesBundleVersionAsync()
     }
 }
 
+
+static Task TestOrcaRouterPkceAsync()
+{
+    var first = PkceCodes.Create();
+    var second = PkceCodes.Create();
+
+    AssertEqual("S256", PkceCodes.ChallengeMethod, "只允许 S256——plain 方法等于没有 PKCE");
+    AssertTrue(first.Verifier != second.Verifier, "每次授权的 verifier 必须是新的");
+    AssertTrue(first.State != second.State, "每次授权的 state 必须是新的");
+
+    // 43 字符 = 32 字节 base64url 去填充，落在 RFC 7636 的 43–128 区间内。
+    AssertEqual(43, first.Verifier.Length, "verifier 长度必须落在 RFC 7636 允许的区间");
+    foreach (var value in new[] { first.Verifier, first.Challenge, first.State })
+    {
+        AssertFalse(
+            value.Contains('+', StringComparison.Ordinal)
+            || value.Contains('/', StringComparison.Ordinal)
+            || value.Contains('=', StringComparison.Ordinal),
+            $"要进 URL query 的值必须是 base64url 且不带填充：{value}");
+    }
+
+    // challenge 必须是 verifier 的 SHA-256，而不是别的什么推导。
+    var expected = Convert
+        .ToBase64String(System.Security.Cryptography.SHA256.HashData(Encoding.ASCII.GetBytes(first.Verifier)))
+        .TrimEnd('=')
+        .Replace('+', '-')
+        .Replace('/', '_');
+    AssertEqual(expected, first.Challenge, "challenge 必须是 base64url(SHA256(verifier))");
+    AssertEqual(expected, PkceCodes.ComputeChallenge(first.Verifier), "ComputeChallenge 必须与构造时一致");
+
+    return Task.CompletedTask;
+}
+
+static Task TestOrcaRouterEndpointsAsync()
+{
+    // 随包的那份配置本身就是被断言对象：它坏了，接入就整体不可用。
+    var shippedPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Providers", "orcarouter.json");
+    AssertTrue(File.Exists(shippedPath), $"随包的 OrcaRouter 端点配置必须存在：{shippedPath}");
+    var shipped = OrcaRouterEndpoints.Parse(File.ReadAllText(shippedPath));
+    AssertEqual("https://api.orcarouter.ai/v1", shipped.BaseUrl, "BaseUrl 必须是 OpenAI 兼容根");
+    AssertEqual("/cb", shipped.CallbackPath, "回调路径必须与向对方注册的值一致");
+    AssertTrue(shipped.ReferralCode.StartsWith("ref_", StringComparison.Ordinal), "归因码必须随包带着，否则接入不计入推广");
+    AssertTrue(shipped.DefaultModel.Length > 0, "必须给出接入后主对话可用的默认模型");
+
+    const string Template = """
+        {
+          "providerPreset": "OrcaRouter",
+          "displayName": "OrcaRouter",
+          "baseUrl": "https://api.orcarouter.ai/v1",
+          "authUrl": "AUTH",
+          "tokenUrl": "TOKEN",
+          "callbackPath": "CALLBACK",
+          "appName": "Athena",
+          "referralCode": "ref_test",
+          "defaultModel": "orcarouter/auto"
+        }
+        """;
+
+    static string Build(string auth, string token, string callback) => Template
+        .Replace("AUTH", auth, StringComparison.Ordinal)
+        .Replace("TOKEN", token, StringComparison.Ordinal)
+        .Replace("CALLBACK", callback, StringComparison.Ordinal);
+
+    const string Auth = "https://www.orcarouter.ai/auth";
+    const string Token = "https://api.orcarouter.ai/api/v1/auth/keys";
+
+    var ok = OrcaRouterEndpoints.Parse(Build(Auth, Token, "/cb"));
+    AssertEqual("ref_test", ok.ReferralCode, "合法配置必须能解析出归因码");
+
+    static void AssertRejected(string json, string message)
+    {
+        try
+        {
+            OrcaRouterEndpoints.Parse(json);
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+        throw new InvalidOperationException(message);
+    }
+
+    // 端点写在配置文件里是为了改归因码不用改代码，不是为了让这个文件能把用户引去任意站点。
+    AssertRejected(Build("https://orca-router.example.com/auth", Token, "/cb"), "授权页 host 不在白名单内必须被拒");
+    AssertRejected(Build(Auth, "https://evil.example.com/keys", "/cb"), "换 key 的 host 不在白名单内必须被拒");
+    AssertRejected(Build("http://www.orcarouter.ai/auth", Token, "/cb"), "非 https 的授权页必须被拒");
+    AssertRejected(Build(Auth, Token, "cb"), "回调路径必须是以 / 开头的绝对路径");
+    AssertRejected(Build(Auth, Token, "/cb?x=1"), "回调路径不能自带 query");
+    AssertRejected(
+        Build(Auth, Token, "/cb").Replace("\"appName\": \"Athena\",", string.Empty, StringComparison.Ordinal),
+        "缺字段必须整体失败，而不是留半份配置");
+
+    return Task.CompletedTask;
+}
+
+static Task TestOrcaRouterProviderBindingAsync()
+{
+    var endpoints = OrcaRouterEndpoints.Parse("""
+        {
+          "providerPreset": "OrcaRouter",
+          "displayName": "OrcaRouter",
+          "baseUrl": "https://api.orcarouter.ai/v1",
+          "authUrl": "https://www.orcarouter.ai/auth",
+          "tokenUrl": "https://api.orcarouter.ai/api/v1/auth/keys",
+          "callbackPath": "/cb",
+          "appName": "Athena",
+          "referralCode": "ref_bind_test",
+          "defaultModel": "orcarouter/auto"
+        }
+        """);
+
+    var models = new AiModelConfiguration();
+    models.Providers.Add(new OpenAiProviderConfiguration
+    {
+        DisplayName = "My OpenAI",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1",
+        ApiKey = "sk-openai"
+    });
+
+    var first = OrcaRouterProviderBinder.Bind(models, endpoints, "sk-orca-one");
+    AssertEqual(2, models.Providers.Count, "首次接入应当新建一条连接，且不动已有的那条");
+    AssertEqual("sk-orca-one", first.ApiKey, "首次接入必须写入 key");
+    AssertEqual(endpoints.BaseUrl, first.BaseUrl, "新建的连接必须指向 OrcaRouter 的 API 根");
+    AssertEqual("sk-openai", models.Providers[0].ApiKey, "接入 OrcaRouter 不能碰其他供应商的凭据");
+
+    // 同一个 host 只能有一条。新建第二条的话业务角色还指着第一条，
+    // 用户看到「已接入」却发现模型一个没变。
+    first.DisplayName = "我的 OrcaRouter";
+    var again = OrcaRouterProviderBinder.Bind(models, endpoints, "sk-orca-two");
+    AssertEqual(2, models.Providers.Count, "再次接入不能新建第二条同 host 的连接");
+    AssertTrue(ReferenceEquals(first, again), "再次接入必须复用同一条连接");
+    AssertEqual("sk-orca-two", again.ApiKey, "再次接入必须刷新 key");
+    AssertEqual("我的 OrcaRouter", again.DisplayName, "显示名是用户的，接入不该覆盖它");
+
+    // 主对话还没选过模型 → 指过去；已经选过 → 一个字都不改。
+    AssertTrue(
+        OrcaRouterProviderBinder.AssignMainConversationIfUnset(models, again, endpoints.DefaultModel),
+        "主对话为空时应当指向默认模型");
+    AssertEqual(endpoints.DefaultModel, models.MainConversation.Model, "默认模型必须落到主对话角色上");
+    AssertEqual(again.Id, models.MainConversation.ProviderId, "主对话必须同时指向这条连接");
+    AssertTrue(
+        again.Models.Any(model => string.Equals(model.Id, endpoints.DefaultModel, StringComparison.Ordinal)),
+        "默认模型必须出现在库存里，否则下拉框里选不到");
+
+    models.MainConversation.Model = "user-picked-model";
+    AssertFalse(
+        OrcaRouterProviderBinder.AssignMainConversationIfUnset(models, again, endpoints.DefaultModel),
+        "用户已经选过模型时不得重指");
+    AssertEqual("user-picked-model", models.MainConversation.Model, "接入绝不能悄悄换掉用户选好的主对话模型");
+
+    // host 判定：同 host 不同路径算同一条，别的 host 不是。
+    AssertTrue(OrcaRouterProviderBinder.IsOrcaRouter("https://api.orcarouter.ai/api/v1", endpoints), "同 host 不同路径仍是同一个供应商");
+    AssertFalse(OrcaRouterProviderBinder.IsOrcaRouter("https://openrouter.ai/api/v1", endpoints), "OpenRouter 不是 OrcaRouter");
+    AssertFalse(OrcaRouterProviderBinder.IsOrcaRouter(null, endpoints), "空端点不匹配任何供应商");
+
+    return Task.CompletedTask;
+}
+
+static Task TestOrcaRouterCallbackClassificationAsync()
+{
+    const string Path = "/cb";
+    const string State = "the-expected-state";
+
+    static LoopbackCallbackKind Kind(string? target)
+        => LoopbackCallbackListener.Classify(target, Path, State).Kind;
+
+    // 浏览器会顺手要 favicon；把它当回调就等于流程一开就废。
+    AssertEqual(LoopbackCallbackKind.Ignored, Kind("/favicon.ico"), "/favicon.ico 不是回调");
+    AssertEqual(LoopbackCallbackKind.Ignored, Kind("/"), "根路径不是回调");
+    AssertEqual(LoopbackCallbackKind.Ignored, Kind("/cb2?code=a&state=" + State), "别的路径不是回调");
+    AssertEqual(LoopbackCallbackKind.Ignored, Kind(null), "空请求行不是回调");
+
+    // state 是唯一能把回调认成「我们发起的那一次」的东西。
+    AssertEqual(LoopbackCallbackKind.StateMismatch, Kind("/cb?code=a&state=other"), "state 不符必须拒绝");
+    AssertEqual(LoopbackCallbackKind.StateMismatch, Kind("/cb?code=a"), "没有 state 必须拒绝");
+    AssertEqual(
+        LoopbackCallbackKind.StateMismatch,
+        Kind("/cb?error=access_denied&state=other"),
+        "state 不符时连失败都不该被接受——否则任何本机进程都能打断授权");
+
+    var denied = LoopbackCallbackListener.Classify(
+        $"/cb?error=access_denied&error_description=User%20said%20no&state={State}",
+        Path,
+        State);
+    AssertEqual(LoopbackCallbackKind.ProviderError, denied.Kind, "state 相符的显式拒绝必须终止流程");
+    AssertTrue(denied.Error!.Contains("User said no", StringComparison.Ordinal), "失败文案必须带上对方给的原因");
+
+    var empty = LoopbackCallbackListener.Classify($"/cb?state={State}", Path, State);
+    AssertEqual(LoopbackCallbackKind.ProviderError, empty.Kind, "state 对上却没带 code，是我们的回调坏了，不能继续等");
+
+    var success = LoopbackCallbackListener.Classify($"/cb?code=abc%2Fdef&state={State}", Path, State);
+    AssertEqual(LoopbackCallbackKind.Success, success.Kind, "路径与 state 双双对上才算成功");
+    AssertEqual("abc/def", success.Code, "code 必须做 URL 解码");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestOrcaRouterLoopbackListenerAsync()
+{
+    using var listener = new LoopbackCallbackListener("/cb", Log.Logger);
+    const string State = "listener-state";
+
+    AssertEqual(
+        $"http://127.0.0.1:{listener.Port}/cb",
+        listener.CallbackUrl,
+        "回调地址必须是内核分配端口上的环回地址（RFC 8252 §7.3 只允许端口可变）");
+
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    var waiting = listener.WaitAsync(State, cancellation.Token);
+
+    // 杂项请求与 state 不符的回调都不能结束流程——真正的回调还在后面。
+    var faviconStatus = await OrcaRouterLoopbackProbe.SendAsync(listener.Port, "/favicon.ico");
+    AssertTrue(faviconStatus.Contains("404", StringComparison.Ordinal), $"杂项请求应回 404，实际：{faviconStatus}");
+    AssertFalse(waiting.IsCompleted, "杂项请求不能结束等待");
+
+    var mismatchStatus = await OrcaRouterLoopbackProbe.SendAsync(listener.Port, "/cb?code=stolen&state=wrong");
+    AssertTrue(mismatchStatus.Contains("400", StringComparison.Ordinal), $"state 不符应回 400，实际：{mismatchStatus}");
+    AssertFalse(waiting.IsCompleted, "state 不符不能结束等待，否则本机任何进程都能打断授权");
+
+    var okStatus = await OrcaRouterLoopbackProbe.SendAsync(listener.Port, $"/cb?code=real-code&state={State}");
+    AssertTrue(okStatus.Contains("200", StringComparison.Ordinal), $"真正的回调应回 200，实际：{okStatus}");
+
+    var outcome = await waiting;
+    AssertEqual(LoopbackCallbackKind.Success, outcome.Kind, "真正的回调必须结束等待");
+    AssertEqual("real-code", outcome.Code, "必须把授权码原样交出来");
+}
+
+static async Task TestOrcaRouterConnectFlowAsync()
+{
+    var endpoints = OrcaRouterEndpoints.Parse("""
+        {
+          "providerPreset": "OrcaRouter",
+          "displayName": "OrcaRouter",
+          "baseUrl": "https://api.orcarouter.ai/v1",
+          "authUrl": "https://www.orcarouter.ai/auth",
+          "tokenUrl": "https://api.orcarouter.ai/api/v1/auth/keys",
+          "callbackPath": "/cb",
+          "appName": "Athena",
+          "referralCode": "ref_flow_test",
+          "defaultModel": "orcarouter/auto"
+        }
+        """);
+
+    // 端点配置缺失时必须报告不可用，而不是留一个点了没反应的入口。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    using (var unavailable = new OrcaRouterConnectService(http, new StubExternalUrlOpener(), Log.Logger, endpoints: null))
+    {
+        AssertFalse(unavailable.IsAvailable, "没有端点配置时接入能力必须报告不可用");
+        var result = await unavailable.ConnectAsync(null, CancellationToken.None);
+        AssertEqual(OrcaRouterConnectFailure.Unavailable, result.Failure, "不可用时必须直接失败");
+    }
+
+    // 成功路径：授权 URL 带归因码，换 key 的请求不带。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        handler.Enqueue(HttpStatusCode.OK, """{"key":"sk-orca-live-key"}""");
+        var opener = new StubExternalUrlOpener(canOpen: true, respond: true);
+        using var service = new OrcaRouterConnectService(http, opener, Log.Logger, endpoints, TimeSpan.FromSeconds(30));
+
+        var progress = new RecordingConnectProgress();
+        var result = await service.ConnectAsync(progress, CancellationToken.None);
+
+        AssertTrue(result.Succeeded, $"完整流程必须成功，实际失败：{result.Failure} {result.Error}");
+        AssertEqual("sk-orca-live-key", result.ApiKey, "必须把换回来的 key 原样交出");
+        AssertTrue(result.Endpoints != null, "成功结果必须带上端点配置，调用方据此填 BaseUrl 与默认模型");
+
+        var authorizationUrl = opener.LastUrl!;
+        AssertTrue(
+            authorizationUrl.Contains("ref=ref_flow_test", StringComparison.Ordinal),
+            "授权 URL 必须带归因码，否则这次接入不计入推广");
+        AssertTrue(
+            authorizationUrl.Contains("code_challenge_method=S256", StringComparison.Ordinal),
+            "授权 URL 必须声明 S256");
+        AssertTrue(
+            authorizationUrl.Contains(Uri.EscapeDataString("http://127.0.0.1:"), StringComparison.Ordinal),
+            "授权 URL 必须带上本次绑定的环回回调地址");
+
+        using var exchanged = JsonDocument.Parse(handler.LastBody!);
+        var verifier = exchanged.RootElement.GetProperty("code_verifier").GetString()!;
+        AssertFalse(
+            authorizationUrl.Contains(verifier, StringComparison.Ordinal),
+            "verifier 绝不能出现在授权 URL 里——离开本机的只有它的哈希");
+        AssertTrue(
+            authorizationUrl.Contains(PkceCodes.ComputeChallenge(verifier), StringComparison.Ordinal),
+            "授权 URL 带的 challenge 必须就是本次 verifier 的哈希");
+
+        AssertEqual("api.orcarouter.ai", handler.LastRequestUri!.Host, "换 key 只能打到 api 域");
+        AssertFalse(
+            handler.LastBody!.Contains("ref_flow_test", StringComparison.Ordinal),
+            "归因码只属于授权 URL，绝不能进 API 请求体");
+        AssertTrue(
+            progress.Stages.Contains(OrcaRouterConnectStage.AwaitingAuthorization),
+            "必须通报「等待授权」阶段，UI 靠它显示可复制的链接");
+    }
+
+    // 浏览器打不开不是失败：监听器还活着，手动粘贴链接照样能走完。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        handler.Enqueue(HttpStatusCode.OK, """{"data":{"api_key":"sk-orca-manual"}}""");
+        using var service = new OrcaRouterConnectService(
+            http,
+            new StubExternalUrlOpener(canOpen: false, respond: true),
+            Log.Logger,
+            endpoints,
+            TimeSpan.FromSeconds(30));
+
+        var result = await service.ConnectAsync(null, CancellationToken.None);
+        AssertTrue(result.Succeeded, $"浏览器没能自动打开时，手动完成的授权仍必须成功（{result.Failure} {result.Error}）");
+        AssertEqual("sk-orca-manual", result.ApiKey, "key 可以裹在一层信封里");
+    }
+
+    // 非 2xx：失败，且错误文案不得原样带出凭据形状的串。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        handler.Enqueue(HttpStatusCode.Unauthorized, """{"error":"bad code","hint":"sk-orca-leaked-secret"}""");
+        using var service = new OrcaRouterConnectService(
+            http,
+            new StubExternalUrlOpener(canOpen: true, respond: true),
+            Log.Logger,
+            endpoints,
+            TimeSpan.FromSeconds(30));
+
+        var result = await service.ConnectAsync(null, CancellationToken.None);
+        AssertFalse(result.Succeeded, "换 key 返回 401 必须算失败");
+        AssertEqual(OrcaRouterConnectFailure.ExchangeFailed, result.Failure, "非 2xx 必须归类为换取失败");
+        AssertFalse(
+            result.Error!.Contains("sk-orca-leaked-secret", StringComparison.Ordinal),
+            "错误文案必须对凭据形状的串脱敏");
+    }
+
+    // 2xx 但没有 key：绝不能当成接入成功——那会变成一个「已接入」却每次都 401 的连接。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        handler.Enqueue(HttpStatusCode.OK, """{"ok":true}""");
+        using var service = new OrcaRouterConnectService(
+            http,
+            new StubExternalUrlOpener(canOpen: true, respond: true),
+            Log.Logger,
+            endpoints,
+            TimeSpan.FromSeconds(30));
+
+        var result = await service.ConnectAsync(null, CancellationToken.None);
+        AssertFalse(result.Succeeded, "响应里没有 key 就不是成功");
+        AssertEqual(OrcaRouterConnectFailure.MalformedResponse, result.Failure, "2xx 无 key 必须单独归类");
+        AssertTrue(result.ApiKey == null, "失败结果绝不能带着 key");
+    }
+
+    // 用户明确拒绝：state 相符的 error 回调终止流程，且绝不去换 key。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        using var service = new OrcaRouterConnectService(
+            http,
+            new StubExternalUrlOpener(canOpen: true, respond: true, denyWith: "access_denied"),
+            Log.Logger,
+            endpoints,
+            TimeSpan.FromSeconds(30));
+
+        var result = await service.ConnectAsync(null, CancellationToken.None);
+        AssertEqual(OrcaRouterConnectFailure.ProviderDenied, result.Failure, "授权被拒必须终止流程");
+        AssertEqual(0, handler.RequestCount, "没拿到 code 就绝不能去换 key");
+    }
+
+    // 单飞：第二次点击不能再开一个授权页，否则两个 state 互相污染。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    using (var cancellation = new CancellationTokenSource())
+    {
+        var idleOpener = new StubExternalUrlOpener(canOpen: true, respond: false);
+        using var service = new OrcaRouterConnectService(http, idleOpener, Log.Logger, endpoints, TimeSpan.FromSeconds(30));
+
+        var pending = service.ConnectAsync(null, cancellation.Token);
+        await WaitForAsync(() => idleOpener.OpenCount == 1, "第一次授权应当已打开浏览器");
+
+        var second = await service.ConnectAsync(null, CancellationToken.None);
+        AssertEqual(OrcaRouterConnectFailure.AlreadyRunning, second.Failure, "同时只允许一次授权");
+        AssertEqual(1, idleOpener.OpenCount, "第二次点击不能再开一个授权页");
+
+        await cancellation.CancelAsync();
+        var first = await pending;
+        AssertEqual(OrcaRouterConnectFailure.Canceled, first.Failure, "取消必须如实归类，而不是伪装成超时");
+    }
+
+    // 超时：没人完成授权时必须自己收摊，不能把监听端口挂到进程结束。
+    using (var handler = new OrcaRouterExchangeHandler())
+    using (var http = new HttpClient(handler, disposeHandler: false))
+    {
+        using var service = new OrcaRouterConnectService(
+            http,
+            new StubExternalUrlOpener(canOpen: true, respond: false),
+            Log.Logger,
+            endpoints,
+            TimeSpan.FromMilliseconds(300));
+
+        var result = await service.ConnectAsync(null, CancellationToken.None);
+        AssertEqual(OrcaRouterConnectFailure.TimedOut, result.Failure, "无人完成授权时必须超时收场");
+    }
+}
+
+static async Task WaitForAsync(Func<bool> condition, string message)
+{
+    var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    while (DateTime.UtcNow < deadline)
+    {
+        if (condition()) return;
+        await Task.Delay(20);
+    }
+    throw new InvalidOperationException(message);
+}
 sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost
 {
     private readonly Athena.UI.Services.Mcp.McpToolRegistry _reg = new();
@@ -7204,5 +7631,122 @@ sealed class TestCronSessionLauncher : ICronSessionLauncher
                 CompletedCount++;
             }
         }
+    }
+}
+
+/// <summary>像真正的浏览器那样把一次回调打到环回端口上，并读回状态行。</summary>
+static class OrcaRouterLoopbackProbe
+{
+    public static async Task<string> SendAsync(int port, string target)
+    {
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port);
+        var stream = client.GetStream();
+        var request = Encoding.ASCII.GetBytes($"GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(request);
+        await stream.FlushAsync();
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return await reader.ReadLineAsync() ?? string.Empty;
+    }
+}
+
+/// <summary>
+/// 替身浏览器。<paramref name="respond"/> 为 true 时会像用户完成授权那样把回调打回环回端口，
+/// 所以整条流程可以在没有任何真实浏览器的情况下跑完。
+/// </summary>
+sealed class StubExternalUrlOpener(bool canOpen = true, bool respond = false, string? denyWith = null)
+    : IExternalUrlOpener
+{
+    public string? LastUrl { get; private set; }
+
+    public int OpenCount { get; private set; }
+
+    public bool TryOpen(string url)
+    {
+        LastUrl = url;
+        OpenCount++;
+        if (respond) _ = Task.Run(() => RespondAsync(url));
+        return canOpen;
+    }
+
+    private async Task RespondAsync(string authorizationUrl)
+    {
+        try
+        {
+            var query = ParseQuery(new Uri(authorizationUrl).Query);
+            var callback = new Uri(query["callback_url"]);
+            var state = Uri.EscapeDataString(query["state"]);
+            var target = denyWith == null
+                ? $"{callback.AbsolutePath}?code=granted-code&state={state}"
+                : $"{callback.AbsolutePath}?error={denyWith}&state={state}";
+            await OrcaRouterLoopbackProbe.SendAsync(callback.Port, target);
+        }
+        catch (Exception ex)
+        {
+            // 桩件里的异常若被吞掉，表现就只是"流程超时"——打出来省掉一次盲查。
+            Console.WriteLine($"[stub-opener] {ex}");
+        }
+    }
+
+    private static Dictionary<string, string> ParseQuery(string query)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var equals = pair.IndexOf('=', StringComparison.Ordinal);
+            if (equals < 0) continue;
+            result[Uri.UnescapeDataString(pair[..equals])] = Uri.UnescapeDataString(pair[(equals + 1)..]);
+        }
+        return result;
+    }
+}
+
+/// <summary>换取 API Key 的假端点：记下请求体与目标地址，按队列给出响应。</summary>
+sealed class OrcaRouterExchangeHandler : HttpMessageHandler
+{
+    private readonly Queue<(HttpStatusCode Status, string Body)> _responses = new();
+
+    public Uri? LastRequestUri { get; private set; }
+
+    public string? LastBody { get; private set; }
+
+    public int RequestCount { get; private set; }
+
+    public void Enqueue(HttpStatusCode status, string body) => _responses.Enqueue((status, body));
+
+#pragma warning disable CA2000 // HttpClient 接管响应与内容的生命周期。
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        LastRequestUri = request.RequestUri;
+        LastBody = request.Content == null
+            ? null
+            : await request.Content.ReadAsStringAsync(cancellationToken);
+
+        if (_responses.Count == 0) throw new InvalidOperationException("No queued OrcaRouter exchange response.");
+        var (status, body) = _responses.Dequeue();
+        return new HttpResponseMessage(status)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>同步记录进度阶段。<see cref="Progress{T}"/> 会把回调抛到线程池，断言读不稳。</summary>
+sealed class RecordingConnectProgress : IProgress<OrcaRouterConnectProgress>
+{
+    private readonly List<OrcaRouterConnectStage> _stages = [];
+
+    public IReadOnlyList<OrcaRouterConnectStage> Stages
+    {
+        get { lock (_stages) return _stages.ToArray(); }
+    }
+
+    public void Report(OrcaRouterConnectProgress value)
+    {
+        lock (_stages) _stages.Add(value.Stage);
     }
 }

@@ -1,5 +1,6 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.OrcaRouter;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -47,10 +48,15 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         { "Zhipu", "https://open.bigmodel.cn/api/paas/v4" },
         { "Deepseek", "https://api.deepseek.com/v1" },
         { "OpenRouter", "https://openrouter.ai/api/v1" },
+        { "OrcaRouter", "https://api.orcarouter.ai/v1" },
         { "Custom", "" }
     };
 
     public List<string> Providers { get; } = new(ProviderUrls.Keys);
+
+    /// <summary>「使用 OrcaRouter 账号接入」入口。首次启动时"去哪弄 key"是最大的门槛。</summary>
+    public OrcaRouterConnectViewModel OrcaRouter { get; }
+
     [ObservableProperty]
     private ObservableCollection<string> _modelOptions = new();
     public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Providers[0];
@@ -119,13 +125,19 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
 
     public OnboardingViewModel() : this(null!, null, null, null) { }
 
-    public OnboardingViewModel(IConfigService configService, ILocalizationService? localizationService, IChatService? chatService, IModelCatalogService? modelCatalogService = null)
+    public OnboardingViewModel(
+        IConfigService configService,
+        ILocalizationService? localizationService,
+        IChatService? chatService,
+        IModelCatalogService? modelCatalogService = null,
+        IOrcaRouterConnectService? orcaRouterConnectService = null)
     {
         _configService = configService;
         _localizationService = localizationService;
         _chatService = chatService;
         _modelCatalogService = modelCatalogService;
         Config = configService?.Load() ?? new AppConfig();
+        OrcaRouter = new OrcaRouterConnectViewModel(orcaRouterConnectService, localizationService, ApplyOrcaRouterAsync);
         if (Config.AiModels.Providers.Count == 0)
         {
             Config.AiModels.Providers.Add(new OpenAiProviderConfiguration());
@@ -270,6 +282,37 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
             }
             cts.Dispose();
         }
+    }
+
+    /// <summary>
+    /// 一次成功的 OrcaRouter 接入写进引导页那唯一的主连接。
+    ///
+    /// 顺序是有讲究的：<see cref="LoadModelOptionsAsync"/> 发现供应商变了会把所有角色的模型清空，
+    /// 所以默认模型只能在它之后再填，否则刚写上就被抹掉。
+    /// </summary>
+    private async Task ApplyOrcaRouterAsync(OrcaRouterConnectResult result)
+    {
+        if (_disposed || result.Endpoints is not { } endpoints || string.IsNullOrWhiteSpace(result.ApiKey)) return;
+
+        PrimaryProvider.ProviderPreset = endpoints.ProviderPreset;
+        PrimaryProvider.BaseUrl = endpoints.BaseUrl;
+        PrimaryProvider.ApiKey = result.ApiKey;
+        OnPropertyChanged(nameof(PrimaryProvider));
+
+        await LoadModelOptionsAsync();
+        if (_disposed) return;
+
+        if (string.IsNullOrWhiteSpace(Config.AiModels.MainConversation.Model)
+            && !string.IsNullOrWhiteSpace(endpoints.DefaultModel))
+        {
+            // 库存没拉到（或不含它）时下拉框仍要选得到——它是可编辑的，但候选里得有。
+            if (!ModelOptions.Contains(endpoints.DefaultModel)) ModelOptions.Insert(0, endpoints.DefaultModel);
+            OrcaRouterProviderBinder.EnsureModelListed(PrimaryProvider, endpoints.DefaultModel);
+            Config.AiModels.MainConversation.Model = endpoints.DefaultModel;
+        }
+
+        NormalizeRoleAssignments(reuseMainModel: true);
+        await SaveAsync();
     }
 
     /// <summary>Web Search 供应商变化时带出默认 BaseUrl（Custom 保留用户填的端点）。</summary>
@@ -443,6 +486,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        OrcaRouter.Dispose();
         App.ThemeChanged -= OnThemeChanged;
         if (_localizationService != null)
         {

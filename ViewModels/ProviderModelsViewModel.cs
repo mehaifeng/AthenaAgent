@@ -2,6 +2,7 @@ using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.OrcaRouter;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
@@ -37,7 +38,8 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         IOpenRouterModelMetadataCatalog? metadataCatalog = null,
         IModelMetadataResolver? metadataResolver = null,
         ILocalizationService? localizationService = null,
-        IUserInteractionService? userInteractionService = null)
+        IUserInteractionService? userInteractionService = null,
+        IOrcaRouterConnectService? orcaRouterConnectService = null)
     {
         _configurationSession = configurationSession;
         _catalogService = catalogService;
@@ -46,6 +48,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         _localizationService = localizationService;
         _userInteractionService = userInteractionService;
         _config = configurationSession.Current;
+        OrcaRouter = new OrcaRouterConnectViewModel(orcaRouterConnectService, localizationService, ApplyOrcaRouterAsync);
         RebuildFilterOptions();
         RebuildRoles();
         SelectedProvider = Providers.FirstOrDefault();
@@ -56,6 +59,9 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private AppConfig _config;
+
+    /// <summary>「使用 OrcaRouter 账号接入」入口。服务不可用时它自己保持禁用并说明原因。</summary>
+    public OrcaRouterConnectViewModel OrcaRouter { get; }
 
     public ObservableCollection<OpenAiProviderConfiguration> Providers => Config.AiModels.Providers;
     public ObservableCollection<ProviderRoleSelectionViewModel> Roles { get; } = new();
@@ -145,6 +151,22 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         Providers.Remove(provider);
         SelectedProvider = Providers.FirstOrDefault();
         RebuildRoles();
+    }
+
+    /// <summary>
+    /// 把一次成功的 OrcaRouter 接入落到配置上：同 host 只保留一条连接，选中它，
+    /// 只有在主对话还没选过模型时才顺带指派，然后照常刷一次库存。
+    /// </summary>
+    private async Task ApplyOrcaRouterAsync(OrcaRouterConnectResult result)
+    {
+        if (_disposed || result.Endpoints is not { } endpoints || string.IsNullOrWhiteSpace(result.ApiKey)) return;
+
+        var provider = OrcaRouterProviderBinder.Bind(Config.AiModels, endpoints, result.ApiKey);
+        SelectedProvider = provider;
+        OrcaRouterProviderBinder.AssignMainConversationIfUnset(Config.AiModels, provider, endpoints.DefaultModel);
+        RebuildRoles();
+        RebuildMetadataModels();
+        await RefreshModelsAsync(provider);
     }
 
     [RelayCommand]
@@ -534,6 +556,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         if (_metadataCatalog != null) _metadataCatalog.CatalogChanged -= OnMetadataCatalogChanged;
         if (_localizationService != null) _localizationService.LanguageChanged -= OnLanguageChanged;
+        OrcaRouter.Dispose();
         _refreshCancellation?.Cancel();
         _refreshCancellation = null;
         _metadataRefreshCancellation?.Cancel();

@@ -172,6 +172,18 @@
     <Compile Include="../Services/Mcp/McpLifecycleService.cs" Link="Source/Services/Mcp/McpLifecycleService.cs" />
     <!-- async void 事件处理器的异常护栏；McpLifecycleService 的配置变更处理器经它转发。 -->
     <Compile Include="../Services/AsyncEventGuard.cs" Link="Source/Services/AsyncEventGuard.cs" />
+    <!-- OrcaRouter PKCE 接入。ShellExternalUrlOpener 不链进来：测试用桩件，不该真的弹浏览器。 -->
+    <Compile Include="../Services/Interfaces/IExternalUrlOpener.cs" Link="Source/Services/Interfaces/IExternalUrlOpener.cs" />
+    <Compile Include="../Services/Interfaces/IOrcaRouterConnectService.cs" Link="Source/Services/Interfaces/IOrcaRouterConnectService.cs" />
+    <Compile Include="../Services/OrcaRouter/OrcaRouterEndpoints.cs" Link="Source/Services/OrcaRouter/OrcaRouterEndpoints.cs" />
+    <Compile Include="../Services/OrcaRouter/PkceCodes.cs" Link="Source/Services/OrcaRouter/PkceCodes.cs" />
+    <Compile Include="../Services/OrcaRouter/LoopbackCallbackListener.cs" Link="Source/Services/OrcaRouter/LoopbackCallbackListener.cs" />
+    <Compile Include="../Services/OrcaRouter/OrcaRouterConnectService.cs" Link="Source/Services/OrcaRouter/OrcaRouterConnectService.cs" />
+    <Compile Include="../Services/OrcaRouter/OrcaRouterProviderBinder.cs" Link="Source/Services/OrcaRouter/OrcaRouterProviderBinder.cs" />
+    <!-- 随包的端点配置本体也要被断言：它坏了，接入就整体不可用。 -->
+    <Content Include="../Assets/Providers/orcarouter.json"
+             Link="Assets/Providers/orcarouter.json"
+             CopyToOutputDirectory="PreserveNewest" />
     <!-- 更新器的 .app 布局归位与包内版本读取；不链 Program.cs，它与本项目的入口点冲突。 -->
     <Compile Include="../Athena.Updater/MacAppBundle.cs" Link="Source/Updater/MacAppBundle.cs" />
     <Compile Include="../Athena.Updater/StagedPayload.cs" Link="Source/Updater/StagedPayload.cs" />

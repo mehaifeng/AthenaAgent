@@ -183,6 +183,48 @@
         
         <!-- Step 1：主凭据 -->
         <StackPanel Grid.Row="1" Spacing="12" IsVisible="{Binding IsStep1}" Margin="0,20,0,0">
+            <!-- 首次启动最大的门槛是「去哪弄 key」，所以这张卡片排在手填字段之前。
+                 手填路径一条都没删：环回监听在某些企业环境里会被拦，那时它是唯一的退路。 -->
+            <Border Classes="card">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <u:IconButton x:Name="OnboardingOrcaRouterButton"
+                                      Command="{Binding OrcaRouter.ConnectCommand}"
+                                      IsLoading="{Binding OrcaRouter.IsConnecting}"
+                                      Content="{loc:Loc OrcaRouter.Connect}"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{loc:Loc OrcaRouter.Connect.Hint}"
+                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                   Opacity="0.6"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"/>
+                        <Button Grid.Column="2"
+                                Command="{Binding OrcaRouter.CancelCommand}"
+                                IsVisible="{Binding OrcaRouter.IsConnecting}"
+                                Content="{loc:Loc OrcaRouter.Cancel}"/>
+                    </Grid>
+                    <TextBlock Classes="mono"
+                               Text="{Binding OrcaRouter.Status}"
+                               IsVisible="{Binding OrcaRouter.Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               ToolTip.Tip="{Binding OrcaRouter.StatusDetails}"
+                               Opacity="0.85"
+                               TextWrapping="Wrap"/>
+                    <!-- 浏览器没能自动打开时，这个链接是完成授权的唯一途径。 -->
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="8"
+                          IsVisible="{Binding OrcaRouter.HasManualUrl}">
+                        <SelectableTextBlock Text="{Binding OrcaRouter.ManualUrl}"
+                                             FontSize="{DynamicResource App.FontSize.Body}"
+                                             TextWrapping="Wrap"
+                                             VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                Command="{Binding OrcaRouter.CopyManualUrlCommand}"
+                                VerticalAlignment="Center"
+                                Content="{loc:Loc OrcaRouter.CopyLink}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Onboarding.Provider}" VerticalAlignment="Center" Opacity="0.8"/>
                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}"

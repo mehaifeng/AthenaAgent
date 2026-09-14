@@ -485,6 +485,25 @@
     <system:String x:Key="ProviderModels.Metadata.ExportCsv">导出 CSV</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportPickerTitle">导出模型元数据</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportSucceeded">已将 {0} 个模型导出到 {1}</system:String>
+
+    <!-- OrcaRouter 一键接入 -->
+    <system:String x:Key="OrcaRouter.Connect">使用 OrcaRouter 账号接入</system:String>
+    <system:String x:Key="OrcaRouter.Connect.Hint">浏览器登录后自动写入 API Key，无需手动复制</system:String>
+    <system:String x:Key="OrcaRouter.Cancel">取消授权</system:String>
+    <system:String x:Key="OrcaRouter.CopyLink">复制链接</system:String>
+    <system:String x:Key="OrcaRouter.Status.Awaiting">已在浏览器中打开，等待授权…</system:String>
+    <system:String x:Key="OrcaRouter.Status.ManualOpen">未能自动打开浏览器。请手动打开下面的链接以继续：</system:String>
+    <system:String x:Key="OrcaRouter.Status.Exchanging">已授权，正在获取 API Key…</system:String>
+    <system:String x:Key="OrcaRouter.Status.Succeeded">已接入 OrcaRouter。</system:String>
+    <system:String x:Key="OrcaRouter.Status.Canceled">已取消授权。</system:String>
+    <system:String x:Key="OrcaRouter.Status.Failed">接入失败：{0}</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Unavailable">此版本未提供 OrcaRouter 接入。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.AlreadyRunning">已有一次授权正在进行。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.TimedOut">等待授权超时。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Denied">授权未通过。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Exchange">获取 API Key 失败。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Malformed">响应中没有 API Key。</system:String>
+    <system:String x:Key="OrcaRouter.Failure.Unknown">未知错误。</system:String>
     <system:String x:Key="ProviderModels.Metadata.ExportFailed">CSV 导出失败：{0}</system:String>
     <system:String x:Key="ProviderModels.Metadata.Search">搜索外部或 OpenRouter 模型 ID</system:String>
     <system:String x:Key="ProviderModels.Metadata.Empty">请选择一个供应商模型查看元数据。</system:String>

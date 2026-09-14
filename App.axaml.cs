@@ -21,6 +21,7 @@ using Athena.UI.Services.Notifications;
 using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
 using Athena.UI.Services.ModelMetadata;
+using Athena.UI.Services.OrcaRouter;
 using Athena.UI.Services.Context;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.VirtualPet;
@@ -307,7 +308,8 @@ public partial class App : Application, IAsyncDisposable
                     configService,
                     Services.GetService<ILocalizationService>(),
                     Services.GetService<IChatService>(),
-                    Services.GetService<IModelCatalogService>()));
+                    Services.GetService<IModelCatalogService>(),
+                    Services.GetService<IOrcaRouterConnectService>()));
                 desktop.MainWindow = onboarding;
 
                 // 返回引导页当前主题。OnboardingViewModel 只有在最小配置校验通过后才会发起交接。
@@ -843,6 +845,16 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
+        // 单例：单飞闸门归它所有，两个窗口不能各起一次授权（两个 state 会互相污染）。
+        // 端点配置在组合根加载；缺失或被改坏时服务自报不可用，入口保持禁用。
+        services.AddSingleton<IExternalUrlOpener>(_ =>
+            new ShellExternalUrlOpener(Log.ForContext<ShellExternalUrlOpener>()));
+        services.AddSingleton<IOrcaRouterConnectService>(sp =>
+            new OrcaRouterConnectService(
+                new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                sp.GetRequiredService<IExternalUrlOpener>(),
+                Log.ForContext<OrcaRouterConnectService>(),
+                OrcaRouterEndpoints.Load(Log.ForContext<OrcaRouterEndpoints>())));
         services.AddTransient<SkillsViewModel>(sp =>
         {
             var viewModel = new SkillsViewModel(
