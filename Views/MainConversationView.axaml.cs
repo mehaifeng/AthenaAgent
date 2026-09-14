@@ -32,6 +32,24 @@ public partial class MainConversationView : UserControl
         set => SetValue(WorkbenchProperty, value);
     }
 
+    /// <summary>
+    /// 会话切换幕布的开关，由外壳（MainWindow）驱动。
+    ///
+    /// 幕布之所以住在这个视图里而不是外壳里，是为了让骨架屏能**精确套用消息列表自己的几何**：
+    /// 它就挂在 ScrollViewer 同一个 Grid.Row 上，宽高、12px 外边距、ContentMaxWidth 上限
+    /// 全部与真实气泡同源，不需要在外壳里复刻一份「标题栏 40px、输入区多高」的魔法数字。
+    /// 走 StyledProperty 而不是向上绑 MainWindowViewModel：与 <see cref="Workbench"/> 同一形状，
+    /// 视图层不因此认识外壳的 VM。
+    /// </summary>
+    public static readonly StyledProperty<bool> IsSwitchingProperty =
+        AvaloniaProperty.Register<MainConversationView, bool>(nameof(IsSwitching));
+
+    public bool IsSwitching
+    {
+        get => GetValue(IsSwitchingProperty);
+        set => SetValue(IsSwitchingProperty, value);
+    }
+
     private ScrollViewer? _chatScrollViewer;
     private TextBox? _messageInputTextBox;
     private MainConversationViewModel? _viewModel;

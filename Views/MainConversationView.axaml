@@ -266,6 +266,21 @@
             <Setter Property="Opacity" Value="1"/>
         </Style>
 
+        <!-- 会话切换骨架屏。画笔定义在 Styles/Overlays.axaml（应用级合并字典）里，
+             与悬停覆盖层同一支色系但略重一档：悬停层的本分是几乎看不见，骨架条的本分
+             是一眼看出这里将来会有内容。放合并字典是因为 App.SetColorScheme 会整本替换
+             主题字典，只写在 App.axaml 里的键一换配色方案就消失。 -->
+        <Style Selector="Border.veil-line">
+            <Setter Property="Height" Value="10"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Background" Value="{DynamicResource App.VeilSkeletonBrush}"/>
+        </Style>
+        <!-- 圆角与 Border.message-bubble 一致（8），骨架才读得出是气泡而不是色块。 -->
+        <Style Selector="Border.veil-bubble">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="{DynamicResource App.VeilSkeletonBrush}"/>
+        </Style>
+
         <Style Selector="Button.attachment-remove-button">
             <Setter Property="Width" Value="20"/>
             <Setter Property="Height" Value="20"/>
@@ -714,6 +729,123 @@
                            Foreground="{DynamicResource SemiColorText2}"
                            HorizontalAlignment="Center"/>
             </StackPanel>
+        </Border>
+
+        <!-- 会话切换幕布。它住在消息列表所在的这一格（Grid.Row=1），不是盖在整块面板上——
+             这样骨架屏可以直接套用真实气泡的几何：同样的 12px 外边距、同样的 ContentMaxWidth
+             上限、同样的 `*,20*,*` 三列与 40px 行距、同样的圆角，宽度按星比例走所以跟着面板缩放。
+             盖在外壳那一层就得在另一个文件里复刻「标题栏 40px、输入区多高」这类魔法数字。
+
+             三件事是刻意的：
+             1) 骨架是**静态**的。换绑那 2~3 秒 UI 线程是死的，任何 spinner / 动画都会卡在
+                第一帧不动，比什么都不放更像崩了。
+             2) 没有进场动画。它必须在被设为可见的那一帧就完整画出来，Style.Animations 的
+                第一帧只会让它以透明起步，正好抹掉它的全部作用。
+             3) 骨架**自顶向下**排、放不下的从底边裁掉（ClipToBounds），与真实消息列表一致：
+                ItemsControl 在 ScrollViewer 里就是顶对齐的，短会话下方留白、长会话继续往下延伸。
+                行数按最高的窗口配够，矮窗口自然只露出前几条——底边那一刀读起来正是「下面还有」。 -->
+        <Border x:Name="ConversationSwitchVeil"
+                Grid.Row="1"
+                ZIndex="60"
+                ClipToBounds="True"
+                IsVisible="{Binding #ConversationRoot.IsSwitching}"
+                Background="{DynamicResource App.PanelVeilBrush}">
+            <Panel>
+                <Grid Margin="12"
+                      MaxWidth="{DynamicResource App.ContentMaxWidth}"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Top">
+                    <StackPanel VerticalAlignment="Top">
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="64" Margin="4,0" HorizontalAlignment="Left"/>
+                            <Grid ColumnDefinitions="17*,3*">
+                                <Border Grid.Column="0" Classes="veil-bubble" Height="118"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="48" Margin="4,0" HorizontalAlignment="Right"/>
+                            <Grid ColumnDefinitions="13*,7*">
+                                <Border Grid.Column="1" Classes="veil-bubble" Height="30"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="64" Margin="4,0" HorizontalAlignment="Left"/>
+                            <Grid ColumnDefinitions="19*,1*">
+                                <Border Grid.Column="0" Classes="veil-bubble" Height="86"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="48" Margin="4,0" HorizontalAlignment="Right"/>
+                            <Grid ColumnDefinitions="11*,9*">
+                                <Border Grid.Column="1" Classes="veil-bubble" Height="52"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="64" Margin="4,0" HorizontalAlignment="Left"/>
+                            <Grid ColumnDefinitions="18*,2*">
+                                <Border Grid.Column="0" Classes="veil-bubble" Height="140"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="48" Margin="4,0" HorizontalAlignment="Right"/>
+                            <Grid ColumnDefinitions="15*,5*">
+                                <Border Grid.Column="1" Classes="veil-bubble" Height="30"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="64" Margin="4,0" HorizontalAlignment="Left"/>
+                            <Grid ColumnDefinitions="16*,4*">
+                                <Border Grid.Column="0" Classes="veil-bubble" Height="72"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="48" Margin="4,0" HorizontalAlignment="Right"/>
+                            <Grid ColumnDefinitions="12*,8*">
+                                <Border Grid.Column="1" Classes="veil-bubble" Height="44"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="64" Margin="4,0" HorizontalAlignment="Left"/>
+                            <Grid ColumnDefinitions="19*,1*">
+                                <Border Grid.Column="0" Classes="veil-bubble" Height="104"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,20*,*" Margin="0,0,0,40">
+                        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                            <Border Classes="veil-line" Width="48" Margin="4,0" HorizontalAlignment="Right"/>
+                            <Grid ColumnDefinitions="14*,6*">
+                                <Border Grid.Column="1" Classes="veil-bubble" Height="30"/>
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Name="ConversationSwitchVeilCaption"
+                           Text="{loc:Loc MainWindow.Conversation.Switching}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Top"
+                           Margin="0,18,0,0"
+                           Foreground="{DynamicResource Chat.TimestampFg}"
+                           FontSize="{DynamicResource App.FontSize.Body}"/>
+            </Panel>
         </Border>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->

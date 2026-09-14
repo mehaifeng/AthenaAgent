@@ -254,11 +254,9 @@ public partial class MainWindow : Window
         // 气泡背景色定义在各主题字典里，需在 Application 作用域解析原始颜色后重建带透明度的画笔
         // （窗口级覆盖会遮蔽主题字典，因此不能从 this 作用域解析）。
         Resources["App.PanelBackgroundBrush"] = brush;
-        // 会话切换遮罩：同一份底色，但不透明度另有下限——它的职责是挡住旧会话，
-        // 跟着面板 tint 一起变透就等于不挡（理由见 ShellMaterial.VeilTintOpacityFloor）。
-        Resources["App.PanelVeilBrush"] = new SolidColorBrush(
-            color,
-            ShellMaterial.ResolveVeilOpacity(_viewModel?.ShellPanelOpacity ?? 1.0, glass, isLight));
+        // 会话切换幕布：同一份底色，但不跟随透明度滑块——它的职责是挡住旧会话，
+        // 跟着 tint 一起变透就等于不挡（理由与实测见 ShellMaterial.VeilTintOpacity）。
+        Resources["App.PanelVeilBrush"] = new SolidColorBrush(color, ShellMaterial.VeilTintOpacity);
         Resources["Chat.UserBubbleBg"] = RebuildBrushWithOpacity("Chat.UserBubbleBg", opacity);
         Resources["Chat.AssistantBubbleBg"] = RebuildBrushWithOpacity("Chat.AssistantBubbleBg", opacity);
         // 会话行选中态淡入的起点色：与 App.SelectedBackground 同色、透明度 0。

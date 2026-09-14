@@ -15,17 +15,31 @@
 
       这些值只依赖明暗变体，不依赖配色方案，也不依赖面板材质——
       所以它们是静态资源，不该由 ApplyShellPanelMaterial 在运行时构造。
+
+      App.PanelVeilBrush 是个例外，它在这里出现的身份是**兜底**：真正生效的那支由
+      ApplyShellPanelMaterial 用当前面板底色重建、写在窗口作用域，会盖住这一支。
+      之所以还要兜一层，是因为窗口级资源只在 MainWindow 里存在——任何别的宿主
+      （设计器、无头用例里自建的 Window）解析不到它时，DynamicResource 不会报错，
+      只会让 Background 保持 null，于是幕布变成一块完全透明的空板：挡不住任何东西，
+      而且不抛不报。这正是规则 1 说的静默失败，所以它必须有一支永远解析得到的底。
+
+      App.VeilSkeletonBrush 比 HoverOverlay 略重：悬停覆盖层的本分是"几乎看不见"，
+      而骨架条的本分是"一眼看出这里将来会有内容"，两者不该共用一个数。
     -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="App.HoverOverlayFaded" Color="White" Opacity="0" />
             <SolidColorBrush x:Key="App.HoverOverlay" Color="White" Opacity="0.08" />
             <SolidColorBrush x:Key="App.PressOverlay" Color="White" Opacity="0.15" />
+            <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#16161A" />
+            <SolidColorBrush x:Key="App.VeilSkeletonBrush" Color="White" Opacity="0.07" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="App.HoverOverlayFaded" Color="Black" Opacity="0" />
             <SolidColorBrush x:Key="App.HoverOverlay" Color="Black" Opacity="0.06" />
             <SolidColorBrush x:Key="App.PressOverlay" Color="Black" Opacity="0.11" />
+            <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#F5F6F8" />
+            <SolidColorBrush x:Key="App.VeilSkeletonBrush" Color="Black" Opacity="0.07" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

@@ -64,22 +64,33 @@ internal static class ShellMaterial
     public const double GlassBorderAlphaLight = 0.62;
 
     /// <summary>
-    /// 会话切换遮罩的不透明度下限。
-    /// 遮罩必须真的挡住旧会话——这是它存在的全部理由——所以它不能直接复用
-    /// 面板的 tint：滑块拉到 0.8 时面板 tint 只剩 0.2，遮罩叠在面板自身那层之上
-    /// 合成后也只有 0.36，旧气泡照样透过来，"切换中"读起来就成了"花屏"。
-    /// 取下限而不是直接取 1.0，是为了让用户把面板调得更实时遮罩跟着一起实，
-    /// 不会出现遮罩比它盖住的面板还透的倒挂。
+    /// 会话行选中动效跑完所需的时间，也就是「幕布升起」与「换绑」之间要空出的那一段。
+    ///
+    /// 这一条不是手感调优，是一个必然：Avalonia 的 Transition 由 **UI 线程**的动画时钟驱动，
+    /// 而换绑那一拍 UI 线程要冻住 2~3 秒重排整棵气泡树。两件事挨在一起，选中行的
+    /// 0.38s 生长动效（Border.row-accent 的 scaleY）和 0.18s 背景淡入就会停在第一帧上，
+    /// 直到会话加载完才「啪」地补完——看起来正是「要等对话加载完才算选中」。
+    /// 让出这一段，选中态先自己跑完，再去付布局的账。
+    ///
+    /// 数值必须与 MainWindow.axaml 里 `Border.row-accent` 的 TransformOperationsTransition
+    /// 时长保持一致（两者取较长的那条动效）；headless 用例直接读实体行上的 Transition 比对，
+    /// 改了一边而没改另一边会当场失败。
+    ///
+    /// 附带的好处不是附带：连切时这个计时器会被重置，所以按住方向键在列表里走，
+    /// 一次气泡树重排都不会发生，直到手停下来。
     /// </summary>
-    public const double VeilTintOpacityFloor = 0.94;
+    public static readonly System.TimeSpan RowSelectionSettle = System.TimeSpan.FromMilliseconds(380);
 
     /// <summary>
-    /// 会话切换遮罩的不透明度：面板 tint 与下限取大者，色相仍来自同一份面板底色。
+    /// 会话切换幕布是**不透明**的，用的是面板自己的底色但不跟随透明度滑块。
+    ///
+    /// 这一条量过：按滑块走（面板 0.5、幕布叠加合成 0.75）以及退一步取 0.97，
+    /// 旧会话的正文都还认得出字——一块让被切走的会话透出来的幕布，正好取消了它唯一的用途。
+    /// 滑块管的是**稳态**的面板观感；幕布是一块只活 2~3 秒的过渡面，两者不是一回事。
+    /// 色相仍取自 ResolveShellPanelBackgroundColor，所以它读起来是"这块面板暂时实心了"，
+    /// 而不是凭空压上来一块外来色板。
     /// </summary>
-    public static double ResolveVeilOpacity(double shellPanelOpacity, bool glassEnabled, bool isLightTheme) =>
-        System.Math.Max(
-            ResolveTintOpacity(shellPanelOpacity, glassEnabled, isLightTheme),
-            VeilTintOpacityFloor);
+    public const double VeilTintOpacity = 1.0;
 
     /// <summary>
     /// 面板背景画笔的实际不透明度：玻璃模式在用户滑块之上再夹一道上限，上限随主题。

@@ -204,44 +204,53 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     /// </summary>
     private int _conversationSurfaceGeneration;
 
+    /// <summary>会话行选中动效跑完之前不换绑，见 <see cref="ShellMaterial.RowSelectionSettle"/>。</summary>
+    private DispatcherTimer? _surfaceSwapTimer;
+
     /// <summary>
-    /// 会话切换的第一拍：只升起遮罩，不换绑。
+    /// 会话切换的第一拍：升起幕布、让出时间给选中动效，**不换绑**。
     ///
     /// **绝不能把换绑写在这一拍里。** 同一个 dispatcher turn 内赋值再换绑，UI 线程会直接进入
-    /// measure/arrange，遮罩那一帧一个像素都画不出来，屏幕上照样冻着旧会话，等 2~3 秒后遮罩
+    /// measure/arrange，幕布那一帧一个像素都画不出来，屏幕上照样冻着旧会话，等 2~3 秒后幕布
     /// 和新内容同帧出现再立刻消失——白做。这和 OnUtilityTabSelectionChanged 上那条注释是同一个坑，
     /// 方向相反：那里是多排了一个 turn 而闪帧，这里是少排了一个 turn 而根本不显示。
     ///
-    /// Background(4) 低于 Render(7)，排到第二拍时遮罩那一帧已经提交给渲染线程了；
-    /// 之后 UI 线程再怎么冻，合成器手上握着的都是那张遮罩帧。
+    /// 让出的这一段是 RowSelectionSettle 而不是「一个 dispatcher turn」：Transition 由 UI 线程的
+    /// 动画时钟驱动，紧接着冻住 2~3 秒会把选中行的生长动效钉死在第一帧，读起来就是
+    /// 「选中要等对话加载完」。先把选中态跑完，再去付布局的账。
+    ///
+    /// 计时器在连切时被重置，所以在列表里连着走不会触发任何一次气泡树重排——手停下来才付一次。
     /// </summary>
     private void BeginConversationSurfaceSwap(ConversationSessionItemViewModel target)
     {
         if (ReferenceEquals(DisplayedConversation, target.Chat)) return;
-        var generation = ++_conversationSurfaceGeneration;
+        _conversationSurfaceGeneration++;
         IsConversationSwitching = true;
-        Dispatcher.UIThread.Post(
-            () => SwapConversationSurface(generation, target),
-            DispatcherPriority.Background);
+        _surfaceSwapTimer ??= new DispatcherTimer(
+            ShellMaterial.RowSelectionSettle,
+            DispatcherPriority.Background,
+            OnConversationSurfaceSwapDue);
+        _surfaceSwapTimer.Stop();
+        _surfaceSwapTimer.Start();
     }
 
     /// <summary>
-    /// 第二拍：真正换绑。UI 线程在这里冻住整段气泡树的首次布局，屏幕上停的是上一拍提交的遮罩帧。
+    /// 第二拍：真正换绑。UI 线程在这里冻住整段气泡树的首次布局，屏幕上停的是已经提交出去的幕布帧。
     /// </summary>
-    private void SwapConversationSurface(int generation, ConversationSessionItemViewModel target)
+    private void OnConversationSurfaceSwapDue(object? sender, EventArgs e)
     {
-        // 被更晚的一次切换接管：那一次自己会落幕，这里直接退场，连布局都不付。
-        if (generation != _conversationSurfaceGeneration) return;
-        if (ReferenceEquals(SelectedConversation, target)) DisplayedConversation = target.Chat;
+        _surfaceSwapTimer?.Stop();
+        var generation = _conversationSurfaceGeneration;
+        if (SelectedConversation is { } target) DisplayedConversation = target.Chat;
         // ContextIdle(3) 比 ScrollToBottom 用的 Loaded/Background 还低，
-        // 保证落幕排在「布局 → 滚到底」之后，遮罩不会比内容先掀开。
+        // 保证落幕排在「布局 → 滚到底」之后，幕布不会比内容先掀开。
         Dispatcher.UIThread.Post(
             () => EndConversationSurfaceSwap(generation),
             DispatcherPriority.ContextIdle);
     }
 
     /// <summary>
-    /// 第三拍：落幕。遮罩卡住不消失是典型的静默失败，所以第二拍的每一条路径都通向这里。
+    /// 第三拍：落幕。幕布卡住不消失是典型的静默失败，所以第二拍的每一条路径都通向这里。
     /// </summary>
     private void EndConversationSurfaceSwap(int generation)
     {
@@ -1332,6 +1341,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             _conversationArchiveService.ArchiveCompleted -= OnArchiveCompleted;
             _conversationArchiveService.ArchiveFailed -= OnArchiveFailed;
         }
+        _surfaceSwapTimer?.Stop();
+        _surfaceSwapTimer = null;
         _cronSessionLauncher?.DetachHost(this);
         _conversationNavigator?.DetachTarget(this);
         if (_configurationSession != null)

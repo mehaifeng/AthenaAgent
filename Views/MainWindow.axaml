@@ -624,47 +624,15 @@
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
             <Border Grid.Column="2" MinWidth="540" Classes="shell-panel">
-                <Panel>
-                    <!-- 绑 DisplayedConversation 而不是 MainConversationViewModel：这是整棵气泡树的
-                         DataContext，也是会话切换里唯一贵的那个绑定，它要比选中态晚一帧落地，
-                         好让下面那层幕布先画出来一帧。理由见 MainWindowViewModel.BeginConversationSurfaceSwap。 -->
-                    <views:MainConversationView x:Name="MainConversationView"
-                                                Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
-                                                DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DisplayedConversation}"/>
-
-                    <!-- 会话切换幕布。三件事是刻意的：
-                         1) 骨架是**静态**的。换绑那 2~3 秒 UI 线程是死的，任何 spinner / 动画都会卡在
-                            第一帧不动，比什么都不放更像崩了。
-                         2) 没有进场动画。它必须在它被设为可见的那一帧就完整画出来，
-                            Style.Animations 的第一帧只会让它以透明起步，正好抹掉它的全部作用。
-                         3) 用 IsVisible 而不是 Opacity。它在自己的 Panel 层里，不占兄弟节点的布局，
-                            也就没有消息列表里那条「IsVisible 会引发重排」的顾虑。 -->
-                    <Border x:Name="ConversationSwitchVeil"
-                            IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
-                            Background="{DynamicResource App.PanelVeilBrush}"
-                            CornerRadius="8">
-                        <StackPanel MaxWidth="520"
-                                    Margin="28"
-                                    VerticalAlignment="Center"
-                                    HorizontalAlignment="Stretch"
-                                    Spacing="18">
-                            <Border Height="14" Width="120" CornerRadius="7" HorizontalAlignment="Left"
-                                    Background="{DynamicResource App.HoverOverlay}"/>
-                            <Border Height="62" CornerRadius="10" HorizontalAlignment="Right" Width="240"
-                                    Background="{DynamicResource App.HoverOverlay}"/>
-                            <Border Height="14" Width="96" CornerRadius="7" HorizontalAlignment="Left"
-                                    Background="{DynamicResource App.HoverOverlay}"/>
-                            <Border Height="104" CornerRadius="10" HorizontalAlignment="Stretch"
-                                    Background="{DynamicResource App.HoverOverlay}"/>
-                            <TextBlock x:Name="ConversationSwitchVeilCaption"
-                                       Text="{loc:Loc MainWindow.Conversation.Switching}"
-                                       HorizontalAlignment="Center"
-                                       Margin="0,10,0,0"
-                                       Foreground="{DynamicResource Chat.TimestampFg}"
-                                       FontSize="{DynamicResource App.FontSize.Body}"/>
-                        </StackPanel>
-                    </Border>
-                </Panel>
+                <!-- 绑 DisplayedConversation 而不是 MainConversationViewModel：这是整棵气泡树的
+                     DataContext，也是会话切换里唯一贵的那个绑定，它要比选中态晚一拍落地，
+                     好让幕布先画出来一帧。理由见 MainWindowViewModel.BeginConversationSurfaceSwap。
+                     幕布本身在 MainConversationView 里（消息列表那一格），这样骨架屏能直接
+                     套用真实气泡的几何，不必在这里复刻一份行高与边距。 -->
+                <views:MainConversationView x:Name="MainConversationView"
+                                            Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
+                                            IsSwitching="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
+                                            DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DisplayedConversation}"/>
             </Border>
 
             <GridSplitter x:Name="RightSideSplitter"
