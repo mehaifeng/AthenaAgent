@@ -77,8 +77,8 @@
     <UserControl.Styles>
         <!-- 加载动画：三点依次缩放。动画仅在思考指示器显示时挂载，避免隐藏气泡持续重绘。 -->
         <Style Selector="Ellipse.loading-dot">
-            <Setter Property="Width" Value="7"/>
-            <Setter Property="Height" Value="7"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Height" Value="8"/>
             <Setter Property="Fill" Value="{DynamicResource Chat.LoadingDotBrush}"/>
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
             <Setter Property="RenderTransform">
@@ -264,6 +264,18 @@
         </Style>
         <Style Selector="StackPanel.bubble-actions.hovered">
             <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <!-- 幕布的加载点。只定尺寸与色，**不要在这里加 Transitions / Style.Animations**：
+             它们由 UI 线程的动画时钟推进，而幕布存在的那几秒 UI 线程正冻着，动效会定格在第一帧。
+             脉动由 MainConversationView.StartVeilAnimations 用合成器动画驱动（渲染线程）。
+             颜色定义在 Styles/Overlays.axaml（应用级合并字典）里，比悬停覆盖层重一档：
+             悬停层的本分是几乎看不见，加载点的本分是一眼看见。 -->
+        <Style Selector="Border.veil-dot">
+            <Setter Property="Width" Value="7"/>
+            <Setter Property="Height" Value="7"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Background" Value="{DynamicResource App.VeilAccentBrush}"/>
         </Style>
 
         <Style Selector="Button.attachment-remove-button">
@@ -713,6 +725,45 @@
                            LetterSpacing="8"
                            Foreground="{DynamicResource SemiColorText2}"
                            HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 会话切换幕布。它住在消息列表所在的这一格（Grid.Row=1），不是盖在整块面板上——
+             这样它的宽高天然等于消息区，外壳那一层不必复刻「标题栏 40px、输入区多高」这类魔法数字。
+
+             内容是猫头鹰 + 一组加载点，沿用空会话占位的同一套处理（AthenaLogo + LogoMaskBrush）。
+             **动效由合成器驱动，不是 Style.Animations。** 这一条是整个幕布唯一真正难的地方：
+             换绑那一拍 UI 线程要冻住 2~3 秒，而 Avalonia 的 Animation / Transition 全部由 UI 线程
+             的动画时钟推进——写在这里的任何关键帧动画都会在那一刻定格在第一帧，"加载中"反而
+             变成"卡死了"的证据。ElementComposition 的动画跑在渲染线程上，UI 线程冻住期间照常推进，
+             所以它们在 code-behind 里通过 CompositionVisual.StartAnimation 启动（见 StartVeilAnimations）。
+             XAML 这边只负责结构，不要在这棵子树上加任何 Transitions / Style.Animations。 -->
+        <Border x:Name="ConversationSwitchVeil"
+                Grid.Row="1"
+                ZIndex="60"
+                ClipToBounds="True"
+                IsVisible="{Binding #ConversationRoot.IsSwitching}"
+                Background="{DynamicResource App.PanelVeilBrush}">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="16">
+                <Panel x:Name="ConversationSwitchVeilOwl" Width="88" Height="88">
+                    <Image Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
+                    <Rectangle Fill="{DynamicResource SemiColorBackground0}" Opacity="0.6"
+                               OpacityMask="{StaticResource LogoMaskBrush}"/>
+                </Panel>
+
+                <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center">
+                    <Border x:Name="ConversationSwitchVeilDot0" Classes="veil-dot"/>
+                    <Border x:Name="ConversationSwitchVeilDot1" Classes="veil-dot"/>
+                    <Border x:Name="ConversationSwitchVeilDot2" Classes="veil-dot"/>
+                </StackPanel>
+
+                <TextBlock x:Name="ConversationSwitchVeilCaption"
+                           Text="{loc:Loc MainWindow.Conversation.Switching}"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource Chat.TimestampFg}"
+                           FontSize="{DynamicResource App.FontSize.Body}"/>
             </StackPanel>
         </Border>
 

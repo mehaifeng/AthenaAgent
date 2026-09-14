@@ -132,47 +132,170 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     public WorkspaceConversationGroupViewModel? GlobalConversationGroup => ConversationGroups.FirstOrDefault(group => group.Workspace == null);
 
+    /// <summary>
+    /// 会话切换的第一拍，**刻意只做选中本身**。
+    ///
+    /// 选中态有两条 UI 线程驱动的动效要跑（row-accent 的 0.38s 生长、会话行背景的 0.18s 淡入），
+    /// 这一段时间里 UI 线程必须是空的。改动前这里还顺手做了：空会话摘除（改 ObservableCollection
+    /// → 整棵会话树重排）、MainConversationViewModel 换绑（桌宠视图重建）、旧 VM Dispose、
+    /// SetWorkspaceAsync（销毁编辑器标签页、丢弃文件监视器、清空文件与 Git 两个集合）、
+    /// 终端作用域切换、静默标题的 UI 线程取样。每一件都落在动效的头几帧上，
+    /// 于是动效不是"没播"，而是播得一顿一顿。它们全部挪进了 <see cref="OnConversationSurfaceSwapDue"/>。
+    ///
+    /// 判断一件事该不该留在这一拍，标准只有一个：它是不是"这一行被选中了"本身。
+    /// </summary>
     partial void OnSelectedConversationChanged(ConversationSessionItemViewModel? oldValue, ConversationSessionItemViewModel? newValue)
     {
-        var previousConversation = MainConversationViewModel;
         if (oldValue != null) oldValue.IsSelected = false;
         if (newValue == null) return;
-        if (oldValue != null
-            && !ReferenceEquals(oldValue, newValue)
-            && oldValue.Chat.Messages.Count == 0
-            && string.IsNullOrWhiteSpace(oldValue.Chat.InputText))
-        {
-            var oldGroup = ConversationGroups.FirstOrDefault(group => group.Conversations.Contains(oldValue));
-            oldGroup?.Conversations.Remove(oldValue);
-            PinnedConversations.Remove(oldValue);
-            OnPropertyChanged(nameof(HasPinnedConversations));
-            oldValue.Dispose();
-            if (_conversationStore != null) _ = _conversationStore.DeleteAsync(oldValue.HistoryId);
-        }
         newValue.IsSelected = true;
-        MainConversationViewModel = newValue.Chat;
-        if (!ReferenceEquals(previousConversation, newValue.Chat)
-            && ConversationGroups.SelectMany(group => group.Conversations)
-                .All(session => !ReferenceEquals(session.Chat, previousConversation)))
+        // 连切时会攒下多个待退场会话（A→B→C 要各自结算 A 和 B），所以是队列而不是单个字段。
+        if (oldValue != null && !ReferenceEquals(oldValue, newValue)) _pendingRetirement.Add(oldValue);
+        BeginConversationSurfaceSwap(newValue);
+    }
+
+    /// <summary>切走但还没结算的会话：空会话摘除与静默标题生成都推迟到换绑那一拍统一处理。</summary>
+    private readonly List<ConversationSessionItemViewModel> _pendingRetirement = new();
+
+    /// <summary>
+    /// 结算所有切走的会话：空会话（无消息、无草稿）从树上摘掉并删档，其余的排一次静默标题生成。
+    /// 放在换绑那一拍而不是选中那一拍，是因为它改的是会话树的 ObservableCollection——
+    /// 在选中动效跑的那 0.38s 里动列表，动效就是一顿。
+    /// </summary>
+    private void RetirePendingConversations(ConversationSessionItemViewModel? current)
+    {
+        if (_pendingRetirement.Count == 0) return;
+        var retiring = _pendingRetirement.ToList();
+        _pendingRetirement.Clear();
+        foreach (var session in retiring)
         {
-            previousConversation.Dispose();
+            if (ReferenceEquals(session, current)) continue;
+            if (session.Chat.Messages.Count == 0 && string.IsNullOrWhiteSpace(session.Chat.InputText))
+            {
+                var group = ConversationGroups.FirstOrDefault(candidate => candidate.Conversations.Contains(session));
+                group?.Conversations.Remove(session);
+                PinnedConversations.Remove(session);
+                OnPropertyChanged(nameof(HasPinnedConversations));
+                session.Dispose();
+                if (_conversationStore != null) _ = _conversationStore.DeleteAsync(session.HistoryId);
+                continue;
+            }
+            // 静默生成/更新标题（无 UI 提示，仅日志）。已摘除的空会话不在树中，不会触发。
+            if (ConversationGroups.Any(group => group.Conversations.Contains(session)))
+                _ = GenerateSilentTitleAsync(session);
         }
-        _workspaceService?.SetActiveWorkspace(newValue.Workspace);
-        if (Workbench != null) _ = Workbench.SetWorkspaceAsync(newValue.Workspace);
-        TerminalPanelViewModel.ActivateScope(
-            newValue.Workspace?.Id,
-            newValue.Workspace?.DirectoryPath);
+    }
+
+    /// <summary>
+    /// 把工作区 / 工作台 / 终端切到当前会话的作用域。这是切换里除气泡树之外最贵的一档
+    /// （SetWorkspaceAsync 要销毁编辑器标签页、丢弃文件监视器、清空文件与 Git 集合），
+    /// 所以和换绑同一拍执行——那一拍屏幕上已经是幕布，卡在哪里都看不见。
+    /// </summary>
+    private void ActivateConversationScope(ConversationSessionItemViewModel session)
+    {
+        _workspaceService?.SetActiveWorkspace(session.Workspace);
+        if (Workbench != null) _ = Workbench.SetWorkspaceAsync(session.Workspace);
+        TerminalPanelViewModel.ActivateScope(session.Workspace?.Id, session.Workspace?.DirectoryPath);
         if (SelectedUtilityTabIndex == 1)
             _ = TerminalPanelViewModel.EnsureTerminalAsync();
+    }
 
-        // 切走旧会话时，静默在后台生成/更新其标题（无 UI 提示，仅日志），
-        // 完成后立即回写到会话树。空会话已在上方被移除，删除中的会话不在树中，均不会触发。
-        if (oldValue != null
-            && !ReferenceEquals(oldValue, newValue)
-            && ConversationGroups.Any(group => group.Conversations.Contains(oldValue)))
+
+    /// <summary>
+    /// 会话切换遮罩：中间对话面板在切换期间盖一层与面板同色的幕布。
+    ///
+    /// 它买的不是速度——切换根本没有 I/O，所有会话在启动时就已经 restore 进各自的 VM 了，
+    /// 那 2~3 秒全是 MessagesItemsControl 一次性实体化整段气泡树的布局开销（消息列表不虚拟化，
+    /// 见 CLAUDE.md「Bubble Rendering Budget」）。遮罩买的是「把假死换成可解释的等待」：
+    /// 左侧列表这一拍就跟手切过去了，中间那块明确显示它正在排布。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isConversationSwitching;
+
+    /// <summary>
+    /// 中间对话面板当前正在显示的会话 VM。
+    ///
+    /// 它与 <see cref="MainConversationViewModel"/> 现在一起在换绑那一拍落地，仍然分成两个属性：
+    /// 一个是「当前会话」的语义，一个是「那棵气泡树绑的是谁」。只有后者被 MainWindow.axaml
+    /// 中间列消费，也只有它的赋值会引发整棵树重排——两件事混在一个属性上，
+    /// 以后想再把轻绑定提前就没有着手处，而选中语义也会被一个渲染技巧绑住。
+    /// </summary>
+    [ObservableProperty]
+    private MainConversationViewModel _displayedConversation;
+
+    /// <summary>
+    /// 切换代次。连切时只有最后一次真正重排气泡树——按住方向键连过 5 个会话，
+    /// 改动前要付 5 次全量布局，现在只付落点那一次。
+    /// </summary>
+    private int _conversationSurfaceGeneration;
+
+    /// <summary>会话行选中动效跑完之前不换绑，见 <see cref="ShellMaterial.RowSelectionSettle"/>。</summary>
+    private DispatcherTimer? _surfaceSwapTimer;
+
+    /// <summary>
+    /// 会话切换的第一拍：升起幕布、让出时间给选中动效，**不换绑**。
+    ///
+    /// **绝不能把换绑写在这一拍里。** 同一个 dispatcher turn 内赋值再换绑，UI 线程会直接进入
+    /// measure/arrange，幕布那一帧一个像素都画不出来，屏幕上照样冻着旧会话，等 2~3 秒后幕布
+    /// 和新内容同帧出现再立刻消失——白做。这和 OnUtilityTabSelectionChanged 上那条注释是同一个坑，
+    /// 方向相反：那里是多排了一个 turn 而闪帧，这里是少排了一个 turn 而根本不显示。
+    ///
+    /// 让出的这一段是 RowSelectionSettle 而不是「一个 dispatcher turn」：Transition 由 UI 线程的
+    /// 动画时钟驱动，紧接着冻住 2~3 秒会把选中行的生长动效钉死在第一帧，读起来就是
+    /// 「选中要等对话加载完」。先把选中态跑完，再去付布局的账。
+    ///
+    /// 计时器在连切时被重置，所以在列表里连着走不会触发任何一次气泡树重排——手停下来才付一次。
+    /// </summary>
+    private void BeginConversationSurfaceSwap(ConversationSessionItemViewModel target)
+    {
+        if (ReferenceEquals(DisplayedConversation, target.Chat)) return;
+        _conversationSurfaceGeneration++;
+        IsConversationSwitching = true;
+        _surfaceSwapTimer ??= new DispatcherTimer(
+            ShellMaterial.RowSelectionSettle,
+            DispatcherPriority.Background,
+            OnConversationSurfaceSwapDue);
+        _surfaceSwapTimer.Stop();
+        _surfaceSwapTimer.Start();
+    }
+
+    /// <summary>
+    /// 第二拍：换绑，以及所有第一拍让出去的重活。UI 线程在这里冻住整段气泡树的首次布局，
+    /// 屏幕上停的是已经提交出去的幕布帧，幕布上的加载动效由合成器（渲染线程）继续跑。
+    /// </summary>
+    private void OnConversationSurfaceSwapDue(object? sender, EventArgs e)
+    {
+        _surfaceSwapTimer?.Stop();
+        var generation = _conversationSurfaceGeneration;
+        var target = SelectedConversation;
+        RetirePendingConversations(target);
+        if (target != null)
         {
-            _ = GenerateSilentTitleAsync(oldValue);
+            var previousConversation = MainConversationViewModel;
+            MainConversationViewModel = target.Chat;
+            DisplayedConversation = target.Chat;
+            if (!ReferenceEquals(previousConversation, target.Chat)
+                && ConversationGroups.SelectMany(group => group.Conversations)
+                    .All(session => !ReferenceEquals(session.Chat, previousConversation)))
+            {
+                previousConversation.Dispose();
+            }
+            ActivateConversationScope(target);
         }
+        // ContextIdle(3) 比 ScrollToBottom 用的 Loaded/Background 还低，
+        // 保证落幕排在「布局 → 滚到底」之后，幕布不会比内容先掀开。
+        Dispatcher.UIThread.Post(
+            () => EndConversationSurfaceSwap(generation),
+            DispatcherPriority.ContextIdle);
+    }
+
+    /// <summary>
+    /// 第三拍：落幕。幕布卡住不消失是典型的静默失败，所以第二拍的每一条路径都通向这里。
+    /// </summary>
+    private void EndConversationSurfaceSwap(int generation)
+    {
+        if (generation != _conversationSurfaceGeneration) return;
+        IsConversationSwitching = false;
     }
 
     /// <summary>
@@ -269,6 +392,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     public MainWindowViewModel()
     {
         _mainConversationViewModel = new MainConversationViewModel();
+        _displayedConversation = _mainConversationViewModel;
         _tasksViewModel = new TasksViewModel();
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel();
         _logsViewModel = new LogsViewModel();
@@ -352,6 +476,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
             ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
+        // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
+        _displayedConversation = _mainConversationViewModel;
         _tasksViewModel = new TasksViewModel(
             cronTaskService,
             cronScheduleService ?? new Services.Cron.CronScheduleService(localizationService),
@@ -1255,6 +1381,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             _conversationArchiveService.ArchiveCompleted -= OnArchiveCompleted;
             _conversationArchiveService.ArchiveFailed -= OnArchiveFailed;
         }
+        _surfaceSwapTimer?.Stop();
+        _surfaceSwapTimer = null;
         _cronSessionLauncher?.DetachHost(this);
         _conversationNavigator?.DetachTarget(this);
         if (_configurationSession != null)

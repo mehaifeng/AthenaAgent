@@ -2,6 +2,7 @@
 #pragma warning disable OPENAI001 // Responses API 为 OpenAI SDK Experimental 面；测试夹具与其直接交互。
 
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Chrome;
@@ -11,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Rendering.Composition;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -152,6 +154,8 @@ Task.Run(TestTerminalPtyAsync).GetAwaiter().GetResult();
 TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestShellPanelBackgroundThemeResolution();
+TestConversationSwitchVeil();
+TestConversationSwitchScrollsToBottom();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -252,6 +256,71 @@ await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
 Dispatcher.UIThread.RunJobs();
 var mainConversationView = window.FindControl<MainConversationView>("MainConversationView")
                            ?? throw new InvalidOperationException("Chat view is not permanently mounted in the center column.");
+// 切换幕布住在消息列表那一格里（不是盖住整块面板），骨架屏才能直接套用真实气泡的几何。
+// 切换落定后必须不可见——下面那张 main-window.png 就是在它身上取的帧。
+var conversationSwitchVeil = mainConversationView.FindControl<Border>("ConversationSwitchVeil")
+                             ?? throw new InvalidOperationException("The conversation switch veil was not mounted inside the conversation view.");
+if (conversationSwitchVeil.IsVisible)
+    throw new InvalidOperationException("The switch veil must be down once the shell has settled.");
+var conversationScrollViewer = mainConversationView.FindControl<ScrollViewer>("ChatScrollViewer")
+                               ?? throw new InvalidOperationException("The chat scroll viewer was not created.");
+if (Grid.GetRow(conversationSwitchVeil) != Grid.GetRow(conversationScrollViewer)
+    || !ReferenceEquals(conversationSwitchVeil.Parent, conversationScrollViewer.Parent))
+    throw new InvalidOperationException("The veil must share the message list's own grid cell — that is what gives the skeleton the real bubble geometry for free.");
+if (conversationSwitchVeil.Background is not ISolidColorBrush)
+    throw new InvalidOperationException("The switch veil needs an opaque ground; a hit-transparent veil would leak clicks to the stale conversation underneath.");
+// 幕布让出的那一段必须真的等于选中动效的时长。两者脱钩，选中行的生长动效就会被
+// 紧随其后的 2~3 秒布局钉死在第一帧——正是「要等对话加载完才算选中」的观感。
+var accentBar = window.GetVisualDescendants().OfType<Border>()
+    .FirstOrDefault(border => border.Classes.Contains("row-accent"))
+    ?? throw new InvalidOperationException("The conversation row accent bar was not created.");
+var accentDuration = accentBar.Transitions?
+    .OfType<TransformOperationsTransition>()
+    .FirstOrDefault()?.Duration
+    ?? throw new InvalidOperationException("The accent bar lost its growth transition.");
+if (accentDuration != ShellMaterial.RowSelectionSettle)
+    throw new InvalidOperationException($"ShellMaterial.RowSelectionSettle ({ShellMaterial.RowSelectionSettle}) must match the accent bar's {accentDuration} transition.");
+if (!conversationSwitchVeil.ClipToBounds)
+    throw new InvalidOperationException("The veil must be clipped so nothing escapes the message area.");
+// 幕布内容：猫头鹰 + 三个加载点，沿用空会话占位的同一套处理。
+var veilOwl = mainConversationView.FindControl<Panel>("ConversationSwitchVeilOwl")
+              ?? throw new InvalidOperationException("The veil owl was not created.");
+if (!veilOwl.GetVisualDescendants().OfType<Image>().Any())
+    throw new InvalidOperationException("The veil owl must render the Athena logo image, like the empty-conversation placeholder does.");
+for (var veilDotIndex = 0; veilDotIndex < MainConversationView.VeilDotCount; veilDotIndex++)
+{
+    var veilDot = mainConversationView.FindControl<Border>("ConversationSwitchVeilDot" + veilDotIndex)
+                  ?? throw new InvalidOperationException($"Veil loading dot {veilDotIndex} was not created.");
+    // 实测过一次：加载点沿用悬停覆盖层那支 0.06/0.08 的画笔，8px 的点压在幕布上整个消失。
+    // 它是那几秒里唯一在动的东西，不能按"覆盖层"的强度给。
+    if (veilDot.Background is not ISolidColorBrush veilDotBrush || veilDotBrush.Opacity < 0.2)
+        throw new InvalidOperationException($"Veil loading dot {veilDotIndex} is too faint to read against the veil.");
+    // 合成动画的首帧是最亮的一端，控件自身的 Opacity 也必须是 1：动画没跑起来时
+    // 停在"完全可见"，坏掉只该丢掉动效，不该丢掉元素。
+    if (Math.Abs(veilDot.Opacity - 1) > 0.001)
+        throw new InvalidOperationException($"Veil loading dot {veilDotIndex} must be fully visible when no animation is running.");
+}
+// **幕布子树里不能有任何由 UI 线程动画时钟推进的动效。** 换绑那一拍 UI 线程冻住 2~3 秒，
+// Transitions / Style.Animations 会定格在第一帧——一个不动的「加载中」比没有更像崩溃。
+// 脉动必须走 ElementComposition（渲染线程），见 MainConversationView.TryStartVeilAnimations。
+var veilAnimated = conversationSwitchVeil.GetVisualDescendants()
+    .FirstOrDefault(visual => visual.Transitions is { Count: > 0 });
+if (veilAnimated != null)
+    throw new InvalidOperationException($"{veilAnimated.GetType().Name} inside the veil carries a UI-thread Transition; it would freeze on its first frame exactly when the veil matters.");
+// 合成视觉必须真的拿得到，否则动效一次都不会启动，而且不抛不报。
+mainConversationView.IsSwitching = true;
+Dispatcher.UIThread.RunJobs();
+if (!mainConversationView.TryStartVeilAnimations())
+    throw new InvalidOperationException("The veil's composition visuals were unreachable, so its render-thread loading animation never started.");
+var veilOwlVisual = ElementComposition.GetElementVisual(veilOwl)
+                    ?? throw new InvalidOperationException("The veil owl has no composition visual.");
+if (Math.Abs(veilOwlVisual.CenterPoint.X - veilOwl.Width / 2) > 0.01
+    || Math.Abs(veilOwlVisual.CenterPoint.Y - veilOwl.Height / 2) > 0.01)
+    throw new InvalidOperationException("The owl's breath must scale about its centre; scaling about the top-left reads as a twitch.");
+mainConversationView.IsSwitching = false;
+Dispatcher.UIThread.RunJobs();
+if (conversationSwitchVeil.IsVisible)
+    throw new InvalidOperationException("The veil must come back down when switching ends.");
 var contextInspectorButton = mainConversationView.FindControl<Button>("ContextInspectorButton")
                              ?? throw new InvalidOperationException("The always-available Context inspector button was not created.");
 var contextUsageStatus = mainConversationView.FindControl<Border>("ContextUsageStatus")
@@ -2982,6 +3051,157 @@ static void TestPetSettingsVisual(string outputPath)
     Console.WriteLine($"[PASS] PetDex General Settings gallery captured at {settingsPath}");
 }
 
+static void TestConversationSwitchScrollsToBottom()
+{
+    // 换会话时 ItemsSource 是整体替换，不产生 Add 事件，OnAttachedToVisualTree 也早跑过了——
+    // 既有的两条滚动触发路径一条都不命中，ScrollViewer 只会把旧 offset 夹进新内容的范围。
+    // 结果是切到更长的会话时停在中间某处。这一段钉住"换 DataContext 也要回到底部"。
+    using var shortChat = new MainConversationViewModel();
+    shortChat.Messages.Add(new ChatMessage { Role = "user", Content = "只有一条" });
+    using var longChat = new MainConversationViewModel();
+    for (var i = 0; i < 40; i++)
+        longChat.Messages.Add(new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = $"第 {i} 条消息，内容够长才能把视口撑出滚动条。" });
+
+    var view = new MainConversationView { DataContext = shortChat };
+    var window = new Window { Content = view, Width = 900, Height = 600 };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+
+    view.DataContext = longChat;
+    Dispatcher.UIThread.RunJobs();
+
+    var scrollViewer = view.FindControl<ScrollViewer>("ChatScrollViewer")
+                       ?? throw new InvalidOperationException("The chat scroll viewer was not created.");
+    var scrollable = scrollViewer.Extent.Height - scrollViewer.Viewport.Height;
+    if (scrollable <= 0)
+        throw new InvalidOperationException("The long conversation did not overflow its viewport, so the assertion proves nothing.");
+    if (scrollViewer.Offset.Y < scrollable - 1)
+        throw new InvalidOperationException($"Switching to a longer conversation must land at its bottom, stopped at {scrollViewer.Offset.Y} of {scrollable}.");
+
+    window.Close();
+    Console.WriteLine("[PASS] switching conversations lands at the bottom of the newly bound session");
+}
+
+static void TestConversationSwitchVeil()
+{
+    // 会话切换的那 2~3 秒全是气泡树的首次布局（消息列表不虚拟化），UI 线程整段冻住。
+    // 幕布唯一能成立的前提是：**它必须先于换绑落地**，否则这一帧根本没机会被提交，
+    // 屏幕上照样冻着旧会话。让出的这一段还要够选中动效跑完，否则选中态会被钉在第一帧。
+    var vm = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        contextCompressionService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null);
+    var group = new WorkspaceConversationGroupViewModel(null);
+    // 空会话在切走时会被会话树主动清理，所以每个都塞一条消息，保证三个会话全程都在树里。
+    ConversationSessionItemViewModel Seed(string title)
+    {
+        var chat = new MainConversationViewModel();
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = title });
+        var item = new ConversationSessionItemViewModel(chat, null, null) { Title = title };
+        group.Conversations.Add(item);
+        return item;
+    }
+    var first = Seed("第一段");
+    var second = Seed("第二段");
+    var third = Seed("第三段");
+    vm.ConversationGroups.Add(group);
+
+    vm.SelectedConversation = first;
+    PumpUntil(() => ReferenceEquals(vm.DisplayedConversation, first.Chat) && !vm.IsConversationSwitching,
+        5000, "The conversation surface never settled on the initially selected session.");
+    if (!ReferenceEquals(vm.MainConversationViewModel, first.Chat))
+        throw new InvalidOperationException("The settled switch must publish the current conversation VM too.");
+
+    // 同一拍内：选中态、轻绑定（MainConversationViewModel）已经跟手切过去，
+    // 贵的那个绑定（DisplayedConversation）还停在旧会话上，幕布已经升起。
+    vm.SelectedConversation = second;
+    if (!ReferenceEquals(vm.SelectedConversation, second))
+        throw new InvalidOperationException("Selection must land synchronously so the session list stays responsive.");
+    if (!second.IsSelected || first.IsSelected)
+        throw new InvalidOperationException("The session row's own selected state must flip in the same turn as the click, not after the conversation loads.");
+    if (!vm.IsConversationSwitching)
+        throw new InvalidOperationException("Selecting another session must raise the switch veil.");
+    // 这一拍除了"这一行被选中了"之外什么都不做：选中动效要在完全空闲的 UI 线程上跑完 0.38s。
+    // 换绑、旧会话结算、工作区/工作台/终端切换全部推迟——每一件都会在动效的头几帧上卡一下。
+    if (!ReferenceEquals(vm.DisplayedConversation, first.Chat)
+        || !ReferenceEquals(vm.MainConversationViewModel, first.Chat))
+        throw new InvalidOperationException("Nothing but the selection itself may happen in the turn that raises the veil — the row-selection animation has to run on an idle UI thread.");
+    // 让出的这一段要够选中动效跑完，所以一次 RunJobs 不该让换绑发生。
+    Dispatcher.UIThread.RunJobs();
+    if (!ReferenceEquals(vm.DisplayedConversation, first.Chat))
+        throw new InvalidOperationException("The rebind must wait out the row-selection animation, not fire on the next dispatcher turn.");
+
+    PumpUntil(() => ReferenceEquals(vm.DisplayedConversation, second.Chat),
+        5000, "The conversation surface never rebound to the newly selected session.");
+    PumpUntil(() => !vm.IsConversationSwitching,
+        5000, "The switch veil must come down after the new surface has been laid out.");
+
+    // 连切合并：在列表里连着走三个会话，只有停下来那一次真正重排气泡树。
+    var surfaceSwaps = 0;
+    void CountSwaps(object? _, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.DisplayedConversation)) surfaceSwaps++;
+    }
+    vm.PropertyChanged += CountSwaps;
+    vm.SelectedConversation = third;
+    vm.SelectedConversation = first;
+    vm.SelectedConversation = third;
+    PumpUntil(() => !vm.IsConversationSwitching,
+        5000, "A coalesced switch must still take the veil down — a stuck veil is a silent failure.");
+    vm.PropertyChanged -= CountSwaps;
+    if (surfaceSwaps != 1)
+        throw new InvalidOperationException($"Three rapid selections must cost exactly one bubble-tree rebuild, got {surfaceSwaps}.");
+    if (!ReferenceEquals(vm.DisplayedConversation, third.Chat))
+        throw new InvalidOperationException("Coalesced switching must land on the last selected session.");
+
+    // 切走又切回、期间幕布已经升起的那条路径：没有任何换绑要做，幕布照样必须落下。
+    vm.SelectedConversation = first;
+    vm.SelectedConversation = third;
+    PumpUntil(() => !vm.IsConversationSwitching,
+        5000, "Selecting away and back within one turn must still take the veil down.");
+    if (!ReferenceEquals(vm.DisplayedConversation, third.Chat))
+        throw new InvalidOperationException("Selecting away and back within one turn must leave the surface settled.");
+
+    // 空会话结算也推迟到了换绑那一拍，所以它必须是队列：A→B→C 连切要各自结算 A 和 B，
+    // 只记最后一个就会把中间那个空会话永远留在树上。
+    var emptyGroup = new WorkspaceConversationGroupViewModel(null);
+    ConversationSessionItemViewModel SeedEmpty(string title)
+    {
+        var item = new ConversationSessionItemViewModel(new MainConversationViewModel(), null, null) { Title = title };
+        emptyGroup.Conversations.Add(item);
+        return item;
+    }
+    var keeper = Seed("留下的");
+    emptyGroup.Conversations.Add(keeper);
+    group.Conversations.Remove(keeper);
+    var emptyFirst = SeedEmpty("空会话一");
+    var emptySecond = SeedEmpty("空会话二");
+    vm.ConversationGroups.Add(emptyGroup);
+    vm.SelectedConversation = emptyFirst;
+    vm.SelectedConversation = emptySecond;
+    vm.SelectedConversation = keeper;
+    PumpUntil(() => !vm.IsConversationSwitching,
+        5000, "The switch through two empty sessions never settled.");
+    if (emptyGroup.Conversations.Contains(emptyFirst) || emptyGroup.Conversations.Contains(emptySecond))
+        throw new InvalidOperationException("Every empty session walked through must be retired, not just the last one.");
+    if (!emptyGroup.Conversations.Contains(keeper))
+        throw new InvalidOperationException("Retirement must never remove the session that is now selected.");
+
+    Console.WriteLine("[PASS] conversation switch veil precedes the surface rebind, lets the row selection settle first, coalesces rapid switches, retires every session walked through, and always comes down");
+}
+
 static void TestShellPanelBackgroundThemeResolution()
 {
     // 回归：Shell 面板背景色必须跟随当前主题变体（两参 TryFindResource 会落到 ThemeVariant.Default
@@ -3035,6 +3255,17 @@ static void TestShellPanelBackgroundThemeResolution()
         if (solid.Color != Color.Parse("#16161A"))
             throw new InvalidOperationException($"Dark panel background color changed after transparency edit, got {solid.Color}.");
     }
+    // 会话切换幕布用同一份底色，但不跟随透明度滑块——它的职责是挡住旧会话，
+    // 跟着 tint 一起变透就等于不挡（面板 0.5 时叠加也只有 0.75，旧会话的正文照样认得出字）。
+    if (window.Resources["App.PanelVeilBrush"] is not ISolidColorBrush veilBrush)
+        throw new InvalidOperationException("The conversation switch veil brush was not published as a window resource.");
+    if (veilBrush.Color != Color.Parse("#16161A"))
+        throw new InvalidOperationException($"The veil must share the panel background color, got {veilBrush.Color}.");
+    if (veilBrush.Opacity < ((ISolidColorBrush)panels[0].Background!).Opacity)
+        throw new InvalidOperationException("The veil must never be more transparent than the panel it covers.");
+    if (Math.Abs(veilBrush.Opacity - ShellMaterial.VeilTintOpacity) > 0.001)
+        throw new InvalidOperationException($"The veil must stay opaque regardless of the transparency slider, got {veilBrush.Opacity}.");
+
     shellConfigService.Load().MainLayout.PanelTransparency = 0.0;
     Dispatcher.UIThread.RunJobs();
 

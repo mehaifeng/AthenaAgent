@@ -624,9 +624,15 @@
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
             <Border Grid.Column="2" MinWidth="540" Classes="shell-panel">
+                <!-- 绑 DisplayedConversation 而不是 MainConversationViewModel：这是整棵气泡树的
+                     DataContext，也是会话切换里唯一贵的那个绑定，它要比选中态晚一拍落地，
+                     好让幕布先画出来一帧。理由见 MainWindowViewModel.BeginConversationSurfaceSwap。
+                     幕布本身在 MainConversationView 里（消息列表那一格），这样骨架屏能直接
+                     套用真实气泡的几何，不必在这里复刻一份行高与边距。 -->
                 <views:MainConversationView x:Name="MainConversationView"
                                             Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
-                                            DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MainConversationViewModel}"/>
+                                            IsSwitching="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
+                                            DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DisplayedConversation}"/>
             </Border>
 
             <GridSplitter x:Name="RightSideSplitter"
