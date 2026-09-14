@@ -9,13 +9,17 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.Rendering.Composition;
+using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -49,6 +53,101 @@ public partial class MainConversationView : UserControl
         get => GetValue(IsSwitchingProperty);
         set => SetValue(IsSwitchingProperty, value);
     }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property != IsSwitchingProperty) return;
+        if (change.GetNewValue<bool>()) StartVeilAnimations();
+        else StopVeilAnimations();
+    }
+
+    /// <summary>
+    /// 幕布加载动效：猫头鹰呼吸 + 三点依次亮灭，全部走 **合成器动画**（渲染线程）。
+    ///
+    /// 这一条是整个会话切换里唯一没有替代方案的地方。幕布存在的那 2~3 秒，UI 线程正冻在
+    /// 气泡树的首次布局上；Avalonia 的 Animation / Transition 由 UI 线程的动画时钟推进，
+    /// 写成 XAML 关键帧就会在那一刻定格在第一帧——一个不动的"加载中"比没有加载动画更像崩溃。
+    /// ElementComposition 拿到的 CompositionVisual 上启动的动画由渲染线程求值，UI 线程冻着也照跑。
+    ///
+    /// 只在幕布升起时启动、落下时停掉：一个常驻的渲染线程动画会让合成器每帧都有活干，
+    /// 而这块面板 99% 的时间是静止的。
+    /// </summary>
+    private void StartVeilAnimations()
+    {
+        // 幕布刚被设为可见，这一帧还没布局，合成视觉可能尚未建立；退一拍再试一次。
+        // Render(7) 高于我们自己的一切后续调度，且换绑要等 RowSelectionSettle（380ms），时间绰绰有余。
+        if (!TryStartVeilAnimations())
+            Dispatcher.UIThread.Post(() => { if (IsSwitching) TryStartVeilAnimations(); }, DispatcherPriority.Loaded);
+    }
+
+    internal bool TryStartVeilAnimations()
+    {
+        var owl = this.FindControl<Panel>("ConversationSwitchVeilOwl");
+        if (owl == null) return false;
+        var owlVisual = ElementComposition.GetElementVisual(owl);
+        if (owlVisual == null) return false;
+        var compositor = owlVisual.Compositor;
+
+        // 呼吸：缩放中心必须显式给到控件中点，否则围绕左上角缩放，读起来是"在抖"而不是"在呼吸"。
+        owlVisual.CenterPoint = new Vector3((float)owl.Width / 2f, (float)owl.Height / 2f, 0f);
+        var breath = compositor.CreateVector3KeyFrameAnimation();
+        breath.InsertKeyFrame(0f, new Vector3(1f, 1f, 1f));
+        breath.InsertKeyFrame(0.5f, new Vector3(VeilOwlBreathScale, VeilOwlBreathScale, 1f));
+        breath.InsertKeyFrame(1f, new Vector3(1f, 1f, 1f));
+        breath.Duration = VeilOwlBreathDuration;
+        breath.IterationBehavior = AnimationIterationBehavior.Forever;
+        owlVisual.StartAnimation("Scale", breath);
+
+        for (var index = 0; index < VeilDotCount; index++)
+        {
+            var dot = this.FindControl<Border>("ConversationSwitchVeilDot" + index.ToString(CultureInfo.InvariantCulture));
+            if (dot == null) continue;
+            var dotVisual = ElementComposition.GetElementVisual(dot);
+            if (dotVisual == null) continue;
+            // 首帧是**最亮**的一端，不是最暗的。动画万一没跑起来（拿不到合成视觉、某个平台
+            // 把合成器放在 UI 线程上），停在首帧的点就是"完全可见"而不是"几乎看不见"——
+            // 与工作区窗格进场那条同一个道理：静态回退必须是可见态，坏掉只该丢动效、不该丢元素。
+            var pulse = compositor.CreateScalarKeyFrameAnimation();
+            pulse.InsertKeyFrame(0f, 1f);
+            pulse.InsertKeyFrame(0.5f, VeilDotMinOpacity);
+            pulse.InsertKeyFrame(1f, 1f);
+            pulse.Duration = VeilDotPulseDuration;
+            // 三点错开三分之一个周期，读起来是"一道光在走"，同相位就成了整排一起闪。
+            pulse.DelayTime = VeilDotPulseDuration / VeilDotCount * index;
+            // 延迟期间必须先把首帧（最亮）写进去。默认行为是延迟结束才写初值，在那之前
+            // 合成属性停在 0——实测截帧里后两个点整个不见，只剩第一个亮着。
+            pulse.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
+            pulse.IterationBehavior = AnimationIterationBehavior.Forever;
+            dotVisual.StartAnimation("Opacity", pulse);
+        }
+        return true;
+    }
+
+    private void StopVeilAnimations()
+    {
+        var owl = this.FindControl<Panel>("ConversationSwitchVeilOwl");
+        if (owl != null && ElementComposition.GetElementVisual(owl) is { } owlVisual)
+        {
+            owlVisual.StopAnimation("Scale");
+            owlVisual.Scale = new Vector3(1f, 1f, 1f);
+        }
+        for (var index = 0; index < VeilDotCount; index++)
+        {
+            var dot = this.FindControl<Border>("ConversationSwitchVeilDot" + index.ToString(CultureInfo.InvariantCulture));
+            if (dot != null && ElementComposition.GetElementVisual(dot) is { } dotVisual)
+            {
+                dotVisual.StopAnimation("Opacity");
+                dotVisual.Opacity = 1f;
+            }
+        }
+    }
+
+    internal const int VeilDotCount = 3;
+    internal const float VeilOwlBreathScale = 1.07f;
+    internal const float VeilDotMinOpacity = 0.2f;
+    internal static readonly TimeSpan VeilOwlBreathDuration = TimeSpan.FromMilliseconds(2200);
+    internal static readonly TimeSpan VeilDotPulseDuration = TimeSpan.FromMilliseconds(1050);
 
     private ScrollViewer? _chatScrollViewer;
     private TextBox? _messageInputTextBox;

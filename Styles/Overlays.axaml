@@ -23,8 +23,9 @@
       只会让 Background 保持 null，于是幕布变成一块完全透明的空板：挡不住任何东西，
       而且不抛不报。这正是规则 1 说的静默失败，所以它必须有一支永远解析得到的底。
 
-      App.VeilSkeletonBrush 比 HoverOverlay 略重：悬停覆盖层的本分是"几乎看不见"，
-      而骨架条的本分是"一眼看出这里将来会有内容"，两者不该共用一个数。
+      App.VeilAccentBrush 比 HoverOverlay 重得多，不是"重一档"：悬停覆盖层的本分是几乎看不见
+      （0.06/0.08），而幕布加载点是那几秒里唯一在动的东西，必须一眼看见。
+      用同一个数试过——7px 的点压在幕布底色上基本消失。
     -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
@@ -32,14 +33,14 @@
             <SolidColorBrush x:Key="App.HoverOverlay" Color="White" Opacity="0.08" />
             <SolidColorBrush x:Key="App.PressOverlay" Color="White" Opacity="0.15" />
             <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#16161A" />
-            <SolidColorBrush x:Key="App.VeilSkeletonBrush" Color="White" Opacity="0.07" />
+            <SolidColorBrush x:Key="App.VeilAccentBrush" Color="White" Opacity="0.38" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="App.HoverOverlayFaded" Color="Black" Opacity="0" />
             <SolidColorBrush x:Key="App.HoverOverlay" Color="Black" Opacity="0.06" />
             <SolidColorBrush x:Key="App.PressOverlay" Color="Black" Opacity="0.11" />
             <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#F5F6F8" />
-            <SolidColorBrush x:Key="App.VeilSkeletonBrush" Color="Black" Opacity="0.07" />
+            <SolidColorBrush x:Key="App.VeilAccentBrush" Color="Black" Opacity="0.32" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>
