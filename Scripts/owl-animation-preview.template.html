@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Athena · 猫头鹰动画素材</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.6 system-ui,sans-serif;margin:0;background:#eef0ed;color:#28312c}main{max-width:1120px;margin:auto;padding:30px 24px}h1{font-size:26px;font-weight:600;margin:0}p{margin:5px 0 20px;color:#57625c}.controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:20px 0}button,select{font:inherit;border:1px solid #bdc5be;border-radius:7px;background:#fff;color:#28312c;padding:7px 13px;cursor:pointer}input{vertical-align:middle}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}article{border:1px solid #d1d7d1;border-radius:12px;overflow:hidden;background:white}header{padding:12px 16px 0;display:flex;justify-content:space-between}small{color:#67746c}.stage{height:190px;display:flex;align-items:center;justify-content:center;background:#fff}.stage img{width:176px;height:176px;object-fit:contain}footer{padding:8px 16px 14px;display:flex;justify-content:space-between;color:#67746c;font-size:13px}body.dark .stage{background:#252c29}body.checker .stage{background:repeating-conic-gradient(#edf0eb 0% 25%,#c9d0c9 0% 50%) 50%/20px 20px}body.actual .stage img{width:80px;height:80px}a{color:#316a4f}#detail{margin-top:24px}#strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}#strip figure{margin:0;text-align:center}#strip img{width:100%;max-width:128px}#strip figcaption{font-size:12px}button:focus-visible,select:focus-visible{outline:3px solid #6a967b;outline-offset:3px}
+</style>
+<main>
+<h1>猫头鹰动画 · 完整素材预览</h1>
+<p>14 组动作 / 124 张独立透明帧 · 与项目共用素材和每帧时长。单次动作在这里循环展示，应用中只播放一次。</p>
+<div class="controls">
+<button id="pause" type="button">暂停</button><button id="restart" type="button">从头播放</button>
+<label>速度 <select id="speed"><option value="1">正常</option><option value="0.5">半速</option><option value="0.25">四分之一速度</option></select></label>
+<label>背景 <select id="background"><option value="">浅色</option><option value="dark">深色</option><option value="checker">透明棋盘格</option></select></label>
+<label><input id="actual" type="checkbox"> 80px 显示盒</label>
+</div>
+<div class="grid" id="clips"></div>
+<section id="detail"><h2 style="font-size:18px;font-weight:500">逐帧检查</h2><label>动作 <select id="inspect"></select></label><div id="strip"></div></section>
+</main>
+<script>
+const clips=__CATALOG__;
+const labels={idle:'安静待机',blink:'眨眼',think:'思考',read:'阅读与翻页',work:'操作工具',walk:'完整步态',takeoff:'起飞',fly:'振翅循环',glide:'滑翔',land:'落地缓冲',success:'完成点头',error:'疑惑与异常',cancel:'取消与休息',farewell:'挥翼谢幕'};
+const imagePath=(name,index)=>`../Assets/SubAgents/V2/${name}/${String(index+1).padStart(2,'0')}.png`;
+const grid=document.getElementById('clips'),inspect=document.getElementById('inspect');
+for(const clip of clips){
+ const card=document.createElement('article');
+ card.innerHTML=`<header><span>${labels[clip.name]}</span><small>${clip.durations.length} 帧</small></header><div class="stage"><img alt="${labels[clip.name]}连续动画" src="${imagePath(clip.name,0)}"></div><footer><span>${clip.loop?'循环':'单次'} · ${clip.durations.reduce((a,b)=>a+b)} ms</span><span class="position">1 / ${clip.durations.length}</span></footer>`;
+ grid.append(card);clip.image=card.querySelector('img');clip.position=card.querySelector('.position');clip.total=clip.durations.reduce((a,b)=>a+b);clip.frame=0;
+ inspect.add(new Option(labels[clip.name],clip.name));
+ for(let i=0;i<clip.durations.length;i++){const cached=new Image();cached.src=imagePath(clip.name,i);}
+}
+let running=!matchMedia('(prefers-reduced-motion:reduce)').matches,t=0,last=performance.now(),speed=1;
+const pause=document.getElementById('pause');pause.textContent=running?'暂停':'播放';
+function render(now){const delta=Math.min(now-last,100);last=now;if(running&&!document.hidden)t+=delta*speed;
+for(const clip of clips){let cursor=t%(clip.total+(clip.loop?0:600)),index=clip.durations.length-1;for(let i=0;i<clip.durations.length;i++){if(cursor<clip.durations[i]){index=i;break;}cursor-=clip.durations[i];}if(index!==clip.frame){clip.frame=index;clip.image.src=imagePath(clip.name,index);clip.position.textContent=`${index+1} / ${clip.durations.length}`;}}
+requestAnimationFrame(render);}
+pause.onclick=()=>{running=!running;pause.textContent=running?'暂停':'播放';};document.getElementById('restart').onclick=()=>t=0;document.getElementById('speed').onchange=e=>speed=Number(e.target.value);
+function appearance(){document.body.className=document.getElementById('background').value+(document.getElementById('actual').checked?' actual':'');}
+document.getElementById('background').onchange=appearance;document.getElementById('actual').onchange=appearance;
+function inspectClip(){const clip=clips.find(c=>c.name===inspect.value),strip=document.getElementById('strip');strip.replaceChildren();clip.durations.forEach((ms,i)=>{const figure=document.createElement('figure');figure.innerHTML=`<img src="${imagePath(clip.name,i)}" alt="${labels[clip.name]}第 ${i+1} 帧"><figcaption>${i+1} · ${ms}ms</figcaption>`;strip.append(figure);});}
+inspect.onchange=inspectClip;inspectClip();requestAnimationFrame(render);
+</script>
+</html>

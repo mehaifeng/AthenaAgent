@@ -1,0 +1,278 @@
+[
+  {
+    "name": "idle",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "walk",
+    "count": 12,
+    "scale": 0,
+    "anchorX": [
+      170,
+      532,
+      894,
+      1256,
+      170,
+      532,
+      894,
+      1256,
+      170,
+      532,
+      894,
+      1256
+    ],
+    "anchorY": [
+      348,
+      348,
+      348,
+      348,
+      695,
+      695,
+      695,
+      695,
+      1031,
+      1031,
+      1031,
+      1031
+    ],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "fly",
+    "count": 12,
+    "scale": 0.48,
+    "anchorX": [
+      262,
+      616,
+      970,
+      1320,
+      271,
+      627,
+      981,
+      1320,
+      288,
+      649,
+      1008,
+      1350
+    ],
+    "anchorY": [
+      257,
+      258,
+      260,
+      255,
+      535,
+      539,
+      547,
+      535,
+      926,
+      930,
+      934,
+      930
+    ],
+    "targetX": 164,
+    "targetY": 124
+  },
+  {
+    "name": "blink",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "think",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "read",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "takeoff",
+    "count": 8,
+    "scale": 0.49,
+    "anchorX": [
+      245,
+      674,
+      1108,
+      1575,
+      251,
+      656,
+      1090,
+      1560
+    ],
+    "anchorY": [
+      408,
+      408,
+      408,
+      408,
+      831,
+      831,
+      831,
+      831
+    ],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "land",
+    "count": 12,
+    "scale": 0.59,
+    "anchorX": [
+      212,
+      558,
+      890,
+      1240,
+      202,
+      556,
+      913,
+      1253,
+      207,
+      567,
+      901,
+      1257
+    ],
+    "anchorY": [
+      382,
+      382,
+      382,
+      382,
+      712,
+      712,
+      712,
+      712,
+      1028,
+      1028,
+      1028,
+      1028
+    ],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "work",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [
+      252,
+      678,
+      1114,
+      1554,
+      237,
+      662,
+      1119,
+      1554
+    ],
+    "anchorY": [
+      405,
+      405,
+      405,
+      405,
+      846,
+      846,
+      846,
+      846
+    ],
+    "targetX": 144,
+    "targetY": 224
+  },
+  {
+    "name": "glide",
+    "count": 8,
+    "scale": 0.47,
+    "anchorX": [
+      279,
+      723,
+      1165,
+      1608,
+      279,
+      723,
+      1165,
+      1608
+    ],
+    "anchorY": [
+      242,
+      242,
+      242,
+      242,
+      681,
+      681,
+      681,
+      681
+    ],
+    "targetX": 164,
+    "targetY": 124
+  },
+  {
+    "name": "success",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "error",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "cancel",
+    "count": 8,
+    "scale": 0,
+    "anchorX": [],
+    "anchorY": [],
+    "targetX": 128,
+    "targetY": 224
+  },
+  {
+    "name": "farewell",
+    "count": 8,
+    "scale": 0.48,
+    "anchorX": [
+      236,
+      682,
+      1130,
+      1591,
+      270,
+      706,
+      1149,
+      1590
+    ],
+    "anchorY": [
+      413,
+      413,
+      413,
+      413,
+      860,
+      860,
+      860,
+      860
+    ],
+    "targetX": 144,
+    "targetY": 224
+  }
+]

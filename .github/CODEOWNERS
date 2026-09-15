@@ -1,0 +1,15 @@
+# 需要仓库所有者亲自过目的文件。
+#
+# GitHub 用最后一条匹配的规则决定 owner，所以顺序有意义：先不设默认 owner，
+# 只把确实需要盯的路径列在下面。
+
+# OrcaRouter 接入的收款方。
+#
+# 归因码不是秘密——它就印在用户浏览器的地址栏里——但它决定新注册用户算在谁头上。
+# 在一份大 diff 里它只是 json 的一行，改掉之后功能一切照常，所以它需要人看，而不是只靠眼力。
+# Athena.Archive.Tests 里有一条等值断言把具体的码钉死，CI 会先红；这里是第二道。
+/Assets/Providers/orcarouter.json @mehaifeng
+
+# 同一个理由覆盖代码侧：授权 URL 是在 OrcaRouterConnectService.BuildAuthorizationUrl 里拼的，
+# 把那里的 endpoints.ReferralCode 换成一个字面量，同样能改走归因，而 json 纹丝不动。
+/Services/OrcaRouter/ @mehaifeng

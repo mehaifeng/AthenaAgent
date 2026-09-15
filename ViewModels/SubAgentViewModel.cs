@@ -1,14 +1,14 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Avalonia.Media.Imaging;
-using Avalonia.Platform;
+using Athena.UI.Controls;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 
@@ -19,20 +19,6 @@ namespace Athena.UI.ViewModels;
 /// </summary>
 public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 {
-    private enum OwlMotion
-    {
-        Idle,
-        Walking,
-        Flying,
-        Landing
-    }
-
-    private const int TravelDurationMilliseconds = 700;
-    private static readonly Bitmap[] IdleFrames = LoadFrames("owl-idle", 4);
-    private static readonly Bitmap[] WalkingFrames = LoadFrames("owl-walk", 4);
-    private static readonly Bitmap[] FlyingFrames = LoadFrames("owl-fly", 4);
-    private static readonly Bitmap[] LandingFrames = LoadFrames("owl-land", 4);
-
     public string Id { get; } = Guid.NewGuid().ToString("N");
 
     [ObservableProperty]
@@ -114,11 +100,16 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     private double _wanderX;
     private double _wanderY;
 
-    private OwlMotion _owlMotion = OwlMotion.Idle;
-    private DateTime _motionStartedAt = DateTime.UtcNow;
-    private DateTime _motionEndsAt = DateTime.MinValue;
-    private int _owlFrameIndex;
-    private bool _owlFacingLeft;
+    private readonly OwlAnimationPlayer _animation;
+    internal static double AnimationNow => Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
+    public double OwlX => _animation.X;
+    public double OwlY => _animation.Y - _animation.Lift;
+    public double OwlShadowOpacity => Math.Max(0.04, 0.15 - _animation.Lift / 220);
+    public double OwlShadowScale => 1 - _animation.Lift / 60;
+    public double OwlGroundOffset => _animation.Lift;
+    public bool IsOwlTravelling => _animation.IsTravelling;
+    internal bool HasPendingOwlPresentation
+        => _deferredZone.HasValue || _hasPendingZone || _animation.HasRequiredPresentation;
 
     private readonly ILocalizationService? _localizationService;
     private bool _disposed;
@@ -126,9 +117,11 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     public SubAgentViewModel(ILocalizationService? localizationService = null)
     {
         _localizationService = localizationService;
-        var h = Math.Abs(Id.GetHashCode());
+        var h = (int)((uint)Id.GetHashCode() % int.MaxValue);
         _wanderX = (h % 31) - 15;
         _wanderY = ((h / 31) % 27) - 13;
+        _animation = new OwlAnimationPlayer(CanvasX, CanvasY, AnimationNow, h);
+        ScheduleNextWander(DateTime.UtcNow);
         if (_localizationService != null)
         {
             _localizationService.LanguageChanged += OnLanguageChanged;
@@ -141,6 +134,9 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     {
         if (_disposed) return;
         _disposed = true;
+        _dwellTimer?.Stop();
+        _hasPendingZone = false;
+        _deferredZone = null;
         if (_localizationService != null)
         {
             _localizationService.LanguageChanged -= OnLanguageChanged;
@@ -153,27 +149,28 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     /// <summary>猫头鹰在小镇画布上的左上角 Y。</summary>
     public double CanvasY => ZoneCenters[Zone].Y - OwlSize / 2 + _wanderY;
 
-    /// <summary>设置区域内漂移偏移并刷新位置绑定（配合 TransformOperationsTransition 产生平滑游走）。</summary>
+    /// <summary>设置区域内目标；同一时间轴负责位移与步态，飞行 / 终态不受游走干扰。</summary>
     public void SetWander(double x, double y)
     {
         var nextCanvasX = ZoneCenters[Zone].X - OwlSize / 2 + x;
-        BeginMotion(OwlMotion.Walking, nextCanvasX < CanvasX);
+        if (_disposed || _animation.IsTravelling || IsVanishing || State is SubAgentState.Done or SubAgentState.Error or SubAgentState.Cancelled) return;
+        _animation.MoveTo(nextCanvasX, ZoneCenters[Zone].Y - OwlSize / 2 + y, false, AnimationNow);
         _wanderX = x;
         _wanderY = y;
         OnPropertyChanged(nameof(CanvasX));
         OnPropertyChanged(nameof(CanvasY));
-        OnPropertyChanged(nameof(OwlTransform));
+        RefreshOwlPresentation();
     }
 
     // ===== 随机游走节拍 =====
-    // 每只猫头鹰有自己的下次挪窝时间（1.2~3.5s 随机），互不同步；终态（完成/出错/取消）后静止。
+    // 每只猫头鹰有自己的下次挪窝时间（5~9s 随机），互不同步；终态（完成/出错/取消）后静止。
     private DateTime _nextWanderAt = DateTime.MinValue;
 
     private bool ShouldWanderNow(DateTime now)
-        => State is SubAgentState.Pending or SubAgentState.Running && now >= _nextWanderAt;
+        => !_disposed && !IsVanishing && !_animation.IsTravelling && (State is SubAgentState.Pending or SubAgentState.Running) && now >= _nextWanderAt;
 
     private void ScheduleNextWander(DateTime now)
-        => _nextWanderAt = now + TimeSpan.FromMilliseconds(1200 + _rng.NextDouble() * 2300);
+        => _nextWanderAt = now + TimeSpan.FromMilliseconds(5000 + _rng.NextDouble() * 4000);
 
     /// <summary>
     /// 为一组猫头鹰在各自所处场所内随机选取新的漂移目标，并保证同场所内两两间距 ≥ 半个身位
@@ -182,7 +179,7 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     /// </summary>
     public static void RepositionWander(IReadOnlyList<SubAgentViewModel> owls)
     {
-        const double threshold = OwlSize * 0.5; // 23px：重叠上限 50%
+        const double threshold = OwlSize * 0.5; // 40px：重叠上限 50%
         var now = DateTime.UtcNow;
         foreach (var group in owls.GroupBy(o => o.Zone))
         {
@@ -196,6 +193,7 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
             {
                 if (!owl.ShouldWanderNow(now)) continue;
                 double wx = 0, wy = 0, px = 0, py = 0;
+                var found = false;
                 for (var attempt = 0; attempt < 12; attempt++)
                 {
                     wx = (_rng.NextDouble() * 2 - 1) * ext.X;
@@ -210,65 +208,60 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
                         var dy = py - p.Y;
                         if (dx * dx + dy * dy < threshold * threshold) { ok = false; break; }
                     }
-                    if (ok) break;
+                    if (ok) { found = true; break; }
                 }
-                owl.SetWander(wx, wy);
+                if (found) owl.SetWander(wx, wy);
                 owl.ScheduleNextWander(now);
-                placed.Add((px, py));
+                placed.Add((owl.CanvasX, owl.CanvasY));
             }
         }
     }
 
-    /// <summary>
-    /// 供 RenderTransform 绑定的 translate 变换字符串（配合 TransformOperationsTransition 产生滑翔）。
-    /// 用不变区域性格式化，避免部分语言把小数点写成逗号导致解析失败。
-    /// </summary>
-    public string OwlTransform =>
-        $"translate({CanvasX.ToString(CultureInfo.InvariantCulture)}px, {CanvasY.ToString(CultureInfo.InvariantCulture)}px)";
+    public Bitmap OwlFrame => OwlFrameLibrary.Get(_animation.Action, _animation.Frame);
+    public double OwlSpriteScaleX => _animation.FacingLeft ? -1 : 1;
+    public double OwlSpriteSize => 80;
+    internal OwlAction CurrentOwlAction => _animation.Action;
 
-    /// <summary>当前展示帧；图片在 ViewModel 中缓存一次，避免每次动画节拍重新解码资源。</summary>
-    public Bitmap OwlFrame => FramesFor(_owlMotion)[_owlFrameIndex];
-
-    /// <summary>向左移动时复用右向精灵图，避免维护一套镜像资源。</summary>
-    public double OwlSpriteScaleX => _owlFacingLeft ? -1 : 1;
-
-    /// <summary>新精灵图没有旧 owl.webp 的大透明边距；按动作微调显示盒，防止飞翼被头像环裁掉。</summary>
-    public double OwlSpriteSize => _owlMotion switch
+    public void AdvanceAnimation(double now)
     {
-        OwlMotion.Flying => 64,
-        OwlMotion.Walking => 58,
-        OwlMotion.Landing => 56,
-        _ => 58
-    };
-
-    /// <summary>由小镇视图的短周期计时器调用，推进显示帧并在移动完成后切回待机。</summary>
-    public void AdvanceSprite(DateTime now)
-    {
-        if (_owlMotion != OwlMotion.Idle && now >= _motionEndsAt)
-        {
-            BeginMotion(_owlMotion == OwlMotion.Flying && Zone == SubAgentZone.Perch
-                ? OwlMotion.Landing
-                : OwlMotion.Idle, now: now);
-            return;
-        }
-
-        var frameDuration = _owlMotion switch
-        {
-            OwlMotion.Idle => 300,
-            OwlMotion.Walking => 140,
-            OwlMotion.Flying => 120,
-            OwlMotion.Landing => 90,
-            _ => 300
-        };
-        var nextFrame = (int)((now - _motionStartedAt).TotalMilliseconds / frameDuration)
-            % FramesFor(_owlMotion).Length;
-        if (nextFrame != _owlFrameIndex)
-        {
-            _owlFrameIndex = nextFrame;
-            OnPropertyChanged(nameof(OwlFrame));
-        }
+        if (_disposed) return;
+        var action = _animation.Action;
+        var frame = _animation.Frame;
+        var x = OwlX;
+        var y = OwlY;
+        _animation.Sample(now);
+        TryBeginDeferredZone(now);
+        if (action != _animation.Action || frame != _animation.Frame) OnPropertyChanged(nameof(OwlFrame));
+        if (x != OwlX || y != OwlY) RefreshOwlPosition();
     }
 
+    private void RefreshOwlPosition()
+    {
+        OnPropertyChanged(nameof(OwlX));
+        OnPropertyChanged(nameof(OwlY));
+        OnPropertyChanged(nameof(OwlShadowOpacity));
+        OnPropertyChanged(nameof(OwlShadowScale));
+        OnPropertyChanged(nameof(OwlGroundOffset));
+    }
+
+    private void RefreshOwlPresentation()
+    {
+        RefreshOwlPosition();
+        OnPropertyChanged(nameof(OwlFrame));
+        OnPropertyChanged(nameof(OwlSpriteScaleX));
+    }
+
+    partial void OnIsVanishingChanged(bool value)
+    {
+        if (value)
+        {
+            _dwellTimer?.Stop();
+            _hasPendingZone = false;
+            _deferredZone = null;
+            _animation.Vanish(AnimationNow);
+        }
+        RefreshOwlPresentation();
+    }
     public bool IsRunning => State == SubAgentState.Running;
     public bool IsDone => State == SubAgentState.Done;
     public bool IsError => State == SubAgentState.Error;
@@ -296,9 +289,10 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 
     partial void OnZoneChanged(SubAgentZone value)
     {
+        _animation.SetActivity(State, value, AnimationNow);
         OnPropertyChanged(nameof(CanvasX));
         OnPropertyChanged(nameof(CanvasY));
-        OnPropertyChanged(nameof(OwlTransform));
+        RefreshOwlPresentation();
         RefreshStatusLabel();
     }
 
@@ -308,28 +302,55 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 
     partial void OnErrorMessageChanged(string value) => RefreshStatusLabel();
 
-    // ===== 最小停留（min-dwell）=====
-    // 快工具会让 Zone 频繁跳变导致闪烁；这里节流：每个场所至少停留 MinDwellSeconds，
-    // 不足则延后切换、只保留最新目标。Runner 一律用 RequestZone 而非直接写 Zone。
+    // ===== 快速区域请求合并 =====
+    // 相邻工具调用只保留最新区域，避免飞行目标频繁抖动。业务执行不等待这里的计时器；
+    // 完成后的归巢另由完整的“落地 → 区域动作”演出门闩控制。
     private const double MinDwellSeconds = 1.2;
     private DateTime _lastZoneAppliedAt = DateTime.MinValue;
     private SubAgentZone _pendingZone;
+    private bool _hasPendingZone;
+    private SubAgentZone? _deferredZone;
     private DispatcherTimer? _dwellTimer;
 
     /// <summary>请求切换到某场所（须在 UI 线程调用）；受最小停留节流。</summary>
     public void RequestZone(SubAgentZone zone)
     {
+        if (_disposed || IsVanishing || State is SubAgentState.Error or SubAgentState.Cancelled) return;
+        if (zone == SubAgentZone.Perch && State == SubAgentState.Done)
+        {
+            if (Zone == SubAgentZone.Perch)
+            {
+                _deferredZone = null;
+                return;
+            }
+            _deferredZone = SubAgentZone.Perch;
+            TryBeginDeferredZone(AnimationNow);
+            return;
+        }
+        // The runner requests Meditation before every model round. Do not let that passive
+        // request retarget an owl that still owes the preceding tool's landing/action.
+        if (zone == SubAgentZone.Meditation && Zone != SubAgentZone.Meditation
+            && (_hasPendingZone || _animation.HasRequiredPresentation))
+        {
+            _deferredZone = SubAgentZone.Meditation;
+            return;
+        }
+
+        // A concrete new tool destination supersedes a queued return-to-thinking trip.
+        _deferredZone = null;
         var now = DateTime.UtcNow;
         var elapsed = (now - _lastZoneAppliedAt).TotalSeconds;
         if (elapsed >= MinDwellSeconds)
         {
             _dwellTimer?.Stop();
+            _hasPendingZone = false;
             ApplyZone(zone, now);
             return;
         }
 
         // 尚在停留期内：记下最新目标，等停留满后再应用。
         _pendingZone = zone;
+        _hasPendingZone = true;
         _dwellTimer ??= CreateDwellTimer();
         _dwellTimer.Stop();
         _dwellTimer.Interval = TimeSpan.FromSeconds(MinDwellSeconds - elapsed);
@@ -342,6 +363,7 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
         timer.Tick += (_, _) =>
         {
             _dwellTimer!.Stop();
+            _hasPendingZone = false;
             ApplyZone(_pendingZone, DateTime.UtcNow);
         };
         return timer;
@@ -350,53 +372,39 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
     private void ApplyZone(SubAgentZone zone, DateTime now)
     {
         _lastZoneAppliedAt = now;
+        var animationNow = AnimationNow;
         if (Zone != zone)
         {
             var nextCanvasX = ZoneCenters[zone].X - OwlSize / 2 + _wanderX;
-            BeginMotion(OwlMotion.Flying, nextCanvasX < CanvasX, now);
+            _animation.MoveTo(nextCanvasX, ZoneCenters[zone].Y - OwlSize / 2 + _wanderY, true, animationNow);
         }
         Zone = zone; // 相等时 SetProperty 自动不触发；不同则 OnZoneChanged 刷新位置
+        if (zone != SubAgentZone.Perch)
+            _animation.PresentActivity(ActivityForZone(zone), animationNow);
+        RefreshOwlPresentation();
     }
 
-    private void BeginMotion(OwlMotion motion, bool? facingLeft = null, DateTime? now = null)
+    private void TryBeginDeferredZone(double now)
     {
-        var startedAt = now ?? DateTime.UtcNow;
-        _owlMotion = motion;
-        _motionStartedAt = startedAt;
-        _motionEndsAt = motion switch
-        {
-            OwlMotion.Walking or OwlMotion.Flying => startedAt.AddMilliseconds(TravelDurationMilliseconds),
-            OwlMotion.Landing => startedAt.AddMilliseconds(360),
-            _ => DateTime.MaxValue
-        };
-        _owlFrameIndex = 0;
-        if (facingLeft.HasValue && _owlFacingLeft != facingLeft.Value)
-        {
-            _owlFacingLeft = facingLeft.Value;
-            OnPropertyChanged(nameof(OwlSpriteScaleX));
-        }
-        OnPropertyChanged(nameof(OwlFrame));
-        OnPropertyChanged(nameof(OwlSpriteSize));
+        if (!_deferredZone.HasValue || _hasPendingZone || _animation.HasRequiredPresentation) return;
+        var destination = _deferredZone.Value;
+        _deferredZone = null;
+        if (Zone == destination) return;
+        _lastZoneAppliedAt = DateTime.UtcNow;
+        var nextCanvasX = ZoneCenters[destination].X - OwlSize / 2 + _wanderX;
+        _animation.MoveTo(nextCanvasX, ZoneCenters[destination].Y - OwlSize / 2 + _wanderY, true, now);
+        Zone = destination;
+        if (destination != SubAgentZone.Perch)
+            _animation.PresentActivity(ActivityForZone(destination), now);
+        RefreshOwlPresentation();
     }
 
-    private static Bitmap[] FramesFor(OwlMotion motion) => motion switch
+    private static OwlAction ActivityForZone(SubAgentZone zone) => zone switch
     {
-        OwlMotion.Walking => WalkingFrames,
-        OwlMotion.Flying => FlyingFrames,
-        OwlMotion.Landing => LandingFrames,
-        _ => IdleFrames
+        SubAgentZone.Files or SubAgentZone.Library => OwlAction.Read,
+        SubAgentZone.Web or SubAgentZone.Workshop => OwlAction.Work,
+        _ => OwlAction.Think
     };
-
-    private static Bitmap[] LoadFrames(string prefix, int count)
-    {
-        var frames = new Bitmap[count];
-        for (var i = 0; i < count; i++)
-        {
-            using var stream = AssetLoader.Open(new Uri($"avares://Athena.UI/Assets/SubAgents/{prefix}-{i + 1:D2}.png"));
-            frames[i] = new Bitmap(stream);
-        }
-        return frames;
-    }
 
     private string RunningStatusLabel()
     {
@@ -443,6 +451,14 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 
     partial void OnStateChanged(SubAgentState value)
     {
+        _animation.SetActivity(value, Zone, AnimationNow);
+        if (value is SubAgentState.Error or SubAgentState.Cancelled)
+        {
+            _dwellTimer?.Stop();
+            _hasPendingZone = false;
+            _deferredZone = null;
+        }
+        RefreshOwlPresentation();
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsError));
