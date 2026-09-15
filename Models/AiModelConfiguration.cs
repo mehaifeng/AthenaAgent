@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
 namespace Athena.UI.Models;
@@ -55,6 +56,44 @@ public sealed class ProviderModelDescriptor
 
     /// <summary>最近一次供应商库存中是否存在；被引用但暂时消失的模型保留为 false。</summary>
     public bool IsAvailable { get; set; } = true;
+
+    /// <summary>
+    /// 供应商 <c>/v1/models</c> 自报的元数据；端点没报过就是 null。
+    /// 随库存一起持久化，这样启动后不必先联网就有窗口大小可用。
+    /// </summary>
+    public ProviderReportedModelMetadata? Reported { get; set; }
+}
+
+/// <summary>
+/// 供应商自己在 <c>/v1/models</c> 里给出的能力元数据。
+///
+/// OpenAI 协议只要求 id/object/created/owned_by，但聚合型端点普遍在这之外多报几个字段：
+/// OrcaRouter 实测 196 个模型里 153 个带 <c>context_length</c>、162 个带 <c>architecture</c>，
+/// 并用 <c>supported_endpoint_types</c> 区分 <c>openai</c> 与 <c>openai-response</c>。
+/// 这些值来自实际承接请求的那一家，比拿模型 ID 去模糊匹配 OpenRouter 目录可靠，
+/// 所以在 <see cref="MetadataValueSource"/> 里排在 OpenRouter 两层之上。
+///
+/// 每个字段都可空，"没报"与"报了 0"必须能区分——把缺失折成 0 会让解析层
+/// 误以为拿到了一个真实的上下文窗口。
+/// </summary>
+public sealed class ProviderReportedModelMetadata
+{
+    public long? ContextLength { get; set; }
+
+    public long? MaxCompletionTokens { get; set; }
+
+    public List<string>? InputModalities { get; set; }
+
+    public List<string>? OutputModalities { get; set; }
+
+    /// <summary>该模型可用的协议门面，例如 <c>openai</c> / <c>openai-response</c> / <c>anthropic</c> / <c>gemini</c>。</summary>
+    public List<string>? SupportedEndpointTypes { get; set; }
+
+    public bool HasAnyValue => ContextLength.HasValue
+        || MaxCompletionTokens.HasValue
+        || InputModalities is { Count: > 0 }
+        || OutputModalities is { Count: > 0 }
+        || SupportedEndpointTypes is { Count: > 0 };
 }
 
 public enum ModelMetadataBindingMode

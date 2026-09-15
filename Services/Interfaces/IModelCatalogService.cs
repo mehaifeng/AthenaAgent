@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -8,9 +9,23 @@ namespace Athena.UI.Services.Interfaces;
 /// <summary>
 /// 拉取某个 OpenAI 协议端点 (/v1/models) 上的可用模型列表的结果。
 /// </summary>
-public sealed record ModelCatalogResult(bool Success, IReadOnlyList<string> Models, string? ErrorMessage)
+/// <param name="Reported">
+/// 供应商在同一份响应里自报的能力元数据，按模型 ID 索引。
+/// <c>null</c> 与空字典含义不同，上层依赖这个区分：<c>null</c> 表示这次压根没解析到
+/// 原始 JSON（走了 SDK 回退路径），已有的自报数据应当原样保留；空字典表示解析成功
+/// 但端点什么都没报，此时应当清掉过期的旧值。
+/// </param>
+public sealed record ModelCatalogResult(
+    bool Success,
+    IReadOnlyList<string> Models,
+    string? ErrorMessage,
+    IReadOnlyDictionary<string, ProviderReportedModelMetadata>? Reported = null)
 {
     public static ModelCatalogResult Ok(IReadOnlyList<string> models) => new(true, models, null);
+
+    public static ModelCatalogResult Ok(
+        IReadOnlyList<string> models,
+        IReadOnlyDictionary<string, ProviderReportedModelMetadata>? reported) => new(true, models, null, reported);
 
     public static ModelCatalogResult Fail(string error) => new(false, Array.Empty<string>(), error);
 }

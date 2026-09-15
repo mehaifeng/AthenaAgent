@@ -193,6 +193,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
             }
 
             var modelIds = new HashSet<string>(result.Models, StringComparer.Ordinal);
+            var reported = result.Reported;
 
             // OpenRouter: 额外拉取精确的 Embedding 模型列表并合并。
             if (IsOpenRouter(provider.BaseUrl))
@@ -201,12 +202,21 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
                 if (CanApplyRefresh(provider, cancellation, generation, fingerprint) && embedResult.Success)
                 {
                     foreach (var id in embedResult.Models) modelIds.Add(id);
+
+                    // Embedding 列表是另一次过滤查询，带回来的是同一批记录的自报字段；
+                    // 合进主快照，否则只出现在这一次响应里的模型会被当成"供应商没报"。
+                    if (embedResult.Reported is { Count: > 0 } embedReported && reported != null)
+                    {
+                        var combined = new Dictionary<string, ProviderReportedModelMetadata>(reported, StringComparer.Ordinal);
+                        foreach (var pair in embedReported) combined[pair.Key] = pair.Value;
+                        reported = combined;
+                    }
                 }
             }
 
             if (!CanApplyRefresh(provider, cancellation, generation, fingerprint)) return;
             var referencedIds = GetReferencedModelIds(provider.Id);
-            var merged = ProviderModelInventoryMerger.Merge(provider.Models, modelIds, referencedIds, Classify);
+            var merged = ProviderModelInventoryMerger.Merge(provider.Models, modelIds, referencedIds, Classify, reported);
             provider.Models.Clear();
             foreach (var model in merged) provider.Models.Add(model);
             provider.ModelsRefreshedAt = DateTimeOffset.Now;
