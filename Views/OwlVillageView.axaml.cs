@@ -20,12 +20,12 @@ public partial class OwlVillageView : UserControl
         // 这里只负责节拍触发，到点的才动，形成互不同步的随机游走。
         _wanderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         _wanderTimer.Tick += (_, _) => Wander();
-        _spriteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+        _spriteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _spriteTimer.Tick += (_, _) => AdvanceSprites();
 
         AttachedToVisualTree += (_, _) =>
         {
-            Wander();
+            AdvanceSprites();
             _wanderTimer.Start();
             _spriteTimer.Start();
         };
@@ -48,10 +48,10 @@ public partial class OwlVillageView : UserControl
     {
         if (DataContext is MainConversationViewModel vm && vm.Orchestrator is { } orchestrator)
         {
-            var now = DateTime.UtcNow;
+            var now = SubAgentViewModel.AnimationNow;
             foreach (var owl in orchestrator.ActiveAgents.OfType<SubAgentViewModel>())
             {
-                owl.AdvanceSprite(now);
+                owl.AdvanceAnimation(now);
             }
         }
     }

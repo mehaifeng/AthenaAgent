@@ -1,0 +1,108 @@
+// Artwork compiler, not linked into the application. Never slices by nominal grid cells:
+// an owl's complete connected alpha silhouette is isolated before resampling.
+public static class OwlSpriteImport
+{
+    public sealed class Part
+    {
+        public int Id, Count, Left, Top, Right, Bottom;
+        public int Width { get { return Right - Left + 1; } }
+        public int Height { get { return Bottom - Top + 1; } }
+    }
+
+    public static string Import(string sourcePath, string destination, int count, double scale,
+        double[] anchorX, double[] anchorY, double targetX, double targetY, OwlPaletteTransfer palette)
+    {
+        using (var source = new Bitmap(sourcePath))
+        {
+            int w = source.Width, h = source.Height;
+            var raw = source.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            byte[] pixels = new byte[raw.Stride * h];
+            Marshal.Copy(raw.Scan0, pixels, 0, pixels.Length);
+            int stride = raw.Stride;
+            source.UnlockBits(raw);
+            if (pixels[3] != 0) throw new Exception("Source has no transparent background: " + sourcePath);
+            int[] labels = new int[w * h];
+            int[] queue = new int[w * h];
+            var all = new List<Part>();
+            int id = 0;
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            {
+                int p = y * w + x;
+                if (labels[p] != 0 || pixels[y * stride + x * 4 + 3] < 24) continue;
+                var part = new Part { Id = ++id, Left = x, Right = x, Top = y, Bottom = y };
+                int head = 0, tail = 1;
+                queue[0] = p;
+                labels[p] = id;
+                while (head < tail)
+                {
+                    int q = queue[head++], qx = q % w, qy = q / w;
+                    part.Count++;
+                    part.Left = Math.Min(part.Left, qx); part.Right = Math.Max(part.Right, qx);
+                    part.Top = Math.Min(part.Top, qy); part.Bottom = Math.Max(part.Bottom, qy);
+                    for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = qx + dx, ny = qy + dy;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                        int n = ny * w + nx;
+                        if (labels[n] != 0 || pixels[ny * stride + nx * 4 + 3] < 24) continue;
+                        labels[n] = id; queue[tail++] = n;
+                    }
+                }
+                all.Add(part);
+            }
+            var parts = all.Where(p => p.Count >= 1000).OrderBy(p => (p.Top + p.Bottom) / 2).ToArray();
+            if (parts.Length != count)
+                throw new Exception(Path.GetFileName(sourcePath) + ": expected " + count + " isolated owls, got " + parts.Length + "; inspect alpha components, do not silently cut a grid.");
+            // Sort four owls within each row; wing poses can have different centroid heights.
+            for (int row = 0; row < count / 4; row++)
+                Array.Sort(parts, row * 4, 4, Comparer<Part>.Create((a, b) => a.Left.CompareTo(b.Left)));
+            if (scale <= 0) scale = Math.Min(160.0 / parts.Max(p => p.Height), 224.0 / parts.Max(p => p.Width));
+            Directory.CreateDirectory(destination);
+            var lines = new List<string> { "frame,left,top,width,height,anchorX,anchorY,scale,removedSmallComponents" };
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                int left = Math.Max(0, part.Left - 2), top = Math.Max(0, part.Top - 2);
+                int cw = Math.Min(w, part.Right + 3) - left, ch = Math.Min(h, part.Bottom + 3) - top;
+                byte[] isolated = new byte[cw * ch * 4];
+                for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++)
+                {
+                    int sx = left + x, sy = top + y;
+                    bool owned = labels[sy * w + sx] == part.Id;
+                    // Retain the original low-alpha antialias fringe immediately touching this owl.
+                    if (!owned && pixels[sy * stride + sx * 4 + 3] < 24)
+                        for (int dy = -1; dy <= 1 && !owned; dy++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int nx = sx + dx, ny = sy + dy;
+                            if (nx >= 0 && nx < w && ny >= 0 && ny < h && labels[ny * w + nx] == part.Id) { owned = true; break; }
+                        }
+                    if (owned) Array.Copy(pixels, sy * stride + sx * 4, isolated, (y * cw + x) * 4, 4);
+                }
+                using (var sprite = new Bitmap(cw, ch, PixelFormat.Format32bppArgb))
+                using (var output = new Bitmap(256, 256, PixelFormat.Format32bppArgb))
+                {
+                    var bits = sprite.LockBits(new Rectangle(0, 0, cw, ch), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                    Marshal.Copy(isolated, 0, bits.Scan0, isolated.Length);
+                    sprite.UnlockBits(bits);
+                    double ax = anchorX.Length == count ? anchorX[i] : (part.Left + part.Right) / 2.0;
+                    double ay = anchorY.Length == count ? anchorY[i] : part.Bottom;
+                    float dx = (float)(targetX + (left - ax) * scale), dy = (float)(targetY + (top - ay) * scale);
+                    if (dx < 9 || dy < 9 || dx + cw * scale > 247 || dy + ch * scale > 247)
+                        throw new Exception(Path.GetFileName(sourcePath) + " frame " + (i + 1) + ": registration crosses safe canvas; adjust whole-clip scale/anchors.");
+                    using (var graphics = Graphics.FromImage(output))
+                    {
+                        graphics.Clear(Color.Transparent);
+                        graphics.CompositingMode = CompositingMode.SourceCopy;
+                        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                        graphics.DrawImage(sprite, new RectangleF(dx, dy, (float)(cw * scale), (float)(ch * scale)), new RectangleF(0, 0, cw, ch), GraphicsUnit.Pixel);
+                    }
+                    palette.Apply(output);
+                    output.Save(Path.Combine(destination, (i + 1).ToString("00") + ".png"), ImageFormat.Png);
+                    lines.Add(string.Join(",", i + 1, left, top, cw, ch, ax, ay, scale.ToString(System.Globalization.CultureInfo.InvariantCulture), all.Count(p => p.Count < 1000)));
+                }
+            }
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+}

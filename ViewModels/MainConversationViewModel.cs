@@ -588,6 +588,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             var agents = Orchestrator?.ActiveAgents;
             if (agents == null || agents.Count == 0 || HasRunningSubAgents) return;
 
+            // Finish the non-blocking visual tail (arrival action, return flight and success)
+            // before the batch curtain call. Sample even while the popup is closed, where
+            // the presentation timer is deliberately stopped.
+            foreach (var agent in agents.OfType<SubAgentViewModel>())
+                agent.AdvanceAnimation(SubAgentViewModel.AnimationNow);
+            if (agents.OfType<SubAgentViewModel>().Any(agent => agent.HasPendingOwlPresentation))
+            {
+                timer.Start();
+                return;
+            }
+
             // IsVanishing 是纯展示态（淡出动画），不在 ISubAgentProgress 上——
             // 本类属于展示层，认识具体呈现类型是允许的；服务层不认识才是重点。
             foreach (var agent in agents.OfType<SubAgentViewModel>())

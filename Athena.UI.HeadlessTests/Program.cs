@@ -76,6 +76,11 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+OwlAnimationTests.Run(outputPath);
+if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
+{
+    Environment.Exit(0);
+}
 TestMermaidMarkdownRendering();
 TestBrowserAgentHardening();
 TestVirtualPetStateMachine();

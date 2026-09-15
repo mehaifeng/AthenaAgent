@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+
+// Builds a smooth RGB lookup table from an aligned source/palette-master pair.
+// Alpha and geometry are never changed; only the RGB channels of occupied pixels are graded.
+public sealed class OwlPaletteTransfer
+{
+    private const int Steps = 17;
+    private readonly double[] red = new double[Steps * Steps * Steps];
+    private readonly double[] green = new double[Steps * Steps * Steps];
+    private readonly double[] blue = new double[Steps * Steps * Steps];
+
+    private OwlPaletteTransfer() { }
+
+    public static OwlPaletteTransfer Build(string sourcePath, string masterPath)
+    {
+        using (var source = new Bitmap(sourcePath))
+        using (var master = new Bitmap(masterPath))
+        {
+            if (source.Width != master.Width || source.Height != master.Height)
+                throw new Exception("Palette source/master dimensions differ.");
+
+            int width = source.Width, height = source.Height;
+            var src = Read(source, out int srcStride);
+            var dst = Read(master, out int dstStride);
+            var weights = new double[Steps * Steps * Steps];
+            var result = new OwlPaletteTransfer();
+
+            for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+            {
+                int si = y * srcStride + x * 4;
+                int di = y * dstStride + x * 4;
+                int sa = src[si + 3], da = dst[di + 3];
+                if (sa < 96 || da < 96) continue;
+
+                // Down-weight edge pixels where the edit model made a tiny silhouette adjustment.
+                double weight = Math.Min(sa, da) / 255.0;
+                int index = Index(Quantize(src[si + 2]), Quantize(src[si + 1]), Quantize(src[si]));
+                result.red[index] += dst[di + 2] * weight;
+                result.green[index] += dst[di + 1] * weight;
+                result.blue[index] += dst[di] * weight;
+                weights[index] += weight;
+            }
+
+            var occupied = new List<int>();
+            for (int i = 0; i < weights.Length; i++)
+            {
+                if (weights[i] <= 0) continue;
+                result.red[i] /= weights[i];
+                result.green[i] /= weights[i];
+                result.blue[i] /= weights[i];
+                occupied.Add(i);
+            }
+            if (occupied.Count < 32)
+                throw new Exception("Palette master did not provide enough aligned color samples.");
+
+            // Fill unsampled parts of the cube from the closest observed source color.
+            for (int i = 0; i < weights.Length; i++)
+            {
+                if (weights[i] > 0) continue;
+                Decode(i, out int ir, out int ig, out int ib);
+                int nearest = occupied[0], nearestDistance = int.MaxValue;
+                foreach (int candidate in occupied)
+                {
+                    Decode(candidate, out int cr, out int cg, out int cb);
+                    int dr = ir - cr, dg = ig - cg, db = ib - cb;
+                    int distance = dr * dr + dg * dg + db * db;
+                    if (distance >= nearestDistance) continue;
+                    nearest = candidate;
+                    nearestDistance = distance;
+                }
+                result.red[i] = result.red[nearest];
+                result.green[i] = result.green[nearest];
+                result.blue[i] = result.blue[nearest];
+            }
+            return result;
+        }
+    }
+
+    public void Apply(Bitmap bitmap)
+    {
+        var rectangle = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var bits = bitmap.LockBits(rectangle, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        var pixels = new byte[bits.Stride * bitmap.Height];
+        Marshal.Copy(bits.Scan0, pixels, 0, pixels.Length);
+        for (int y = 0; y < bitmap.Height; y++)
+        for (int x = 0; x < bitmap.Width; x++)
+        {
+            int p = y * bits.Stride + x * 4;
+            if (pixels[p + 3] == 0) continue;
+            Sample(pixels[p + 2], pixels[p + 1], pixels[p], out byte r, out byte g, out byte b);
+            pixels[p + 2] = r;
+            pixels[p + 1] = g;
+            pixels[p] = b;
+        }
+        Marshal.Copy(pixels, 0, bits.Scan0, pixels.Length);
+        bitmap.UnlockBits(bits);
+    }
+
+    private void Sample(byte r, byte g, byte b, out byte rr, out byte gg, out byte bb)
+    {
+        double rf = r * (Steps - 1) / 255.0, gf = g * (Steps - 1) / 255.0, bf = b * (Steps - 1) / 255.0;
+        int r0 = (int)rf, g0 = (int)gf, b0 = (int)bf;
+        int r1 = Math.Min(r0 + 1, Steps - 1), g1 = Math.Min(g0 + 1, Steps - 1), b1 = Math.Min(b0 + 1, Steps - 1);
+        double rt = rf - r0, gt = gf - g0, bt = bf - b0;
+        rr = Clamp(Trilinear(red, r0, r1, rt, g0, g1, gt, b0, b1, bt));
+        gg = Clamp(Trilinear(green, r0, r1, rt, g0, g1, gt, b0, b1, bt));
+        bb = Clamp(Trilinear(blue, r0, r1, rt, g0, g1, gt, b0, b1, bt));
+    }
+
+    private static double Trilinear(double[] values, int r0, int r1, double rt,
+        int g0, int g1, double gt, int b0, int b1, double bt)
+    {
+        double c000 = values[Index(r0, g0, b0)], c100 = values[Index(r1, g0, b0)];
+        double c010 = values[Index(r0, g1, b0)], c110 = values[Index(r1, g1, b0)];
+        double c001 = values[Index(r0, g0, b1)], c101 = values[Index(r1, g0, b1)];
+        double c011 = values[Index(r0, g1, b1)], c111 = values[Index(r1, g1, b1)];
+        double c00 = c000 + (c100 - c000) * rt, c10 = c010 + (c110 - c010) * rt;
+        double c01 = c001 + (c101 - c001) * rt, c11 = c011 + (c111 - c011) * rt;
+        double c0 = c00 + (c10 - c00) * gt, c1 = c01 + (c11 - c01) * gt;
+        return c0 + (c1 - c0) * bt;
+    }
+
+    private static byte[] Read(Bitmap bitmap, out int stride)
+    {
+        var bits = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        stride = bits.Stride;
+        var pixels = new byte[stride * bitmap.Height];
+        Marshal.Copy(bits.Scan0, pixels, 0, pixels.Length);
+        bitmap.UnlockBits(bits);
+        return pixels;
+    }
+
+    private static int Quantize(byte value) { return (value * (Steps - 1) + 127) / 255; }
+    private static int Index(int r, int g, int b) { return (r * Steps + g) * Steps + b; }
+    private static void Decode(int index, out int r, out int g, out int b)
+    {
+        b = index % Steps;
+        index /= Steps;
+        g = index % Steps;
+        r = index / Steps;
+    }
+    private static byte Clamp(double value) { return (byte)Math.Max(0, Math.Min(255, Math.Round(value))); }
+}

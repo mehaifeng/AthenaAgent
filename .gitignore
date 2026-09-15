@@ -290,3 +290,7 @@ $RECYCLE.BIN/
 *.log
 .idea/
 /.claude/settings.local.json
+
+# Reproducible owl animation render checks (sources and shipped frames are tracked separately)
+/artifacts/owl-qa/
+/artifacts/headless-build/

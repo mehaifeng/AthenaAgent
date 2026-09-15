@@ -7,31 +7,12 @@
              Width="560">
 
     <UserControl.Styles>
-        <!-- 运行中的猫头鹰轻微"呼吸"；归巢/出错后静止。 -->
+        <!-- 呼吸属于精灵本身，外层缩放只用于谢幕。 -->
         <Style Selector="Panel.owl">
             <Setter Property="RenderTransform">
                 <ScaleTransform/>
             </Setter>
         </Style>
-        <Style Selector="Panel.owl.running">
-            <Style.Animations>
-                <Animation Duration="0:0:2.6" IterationCount="Infinite" Easing="SineEaseInOut">
-                    <KeyFrame Cue="0%">
-                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
-                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="50%">
-                        <Setter Property="ScaleTransform.ScaleX" Value="1.08"/>
-                        <Setter Property="ScaleTransform.ScaleY" Value="1.08"/>
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                        <Setter Property="ScaleTransform.ScaleX" Value="1.0"/>
-                        <Setter Property="ScaleTransform.ScaleY" Value="1.0"/>
-                    </KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
-
         <!-- 整批结束的谢幕：淡出并缩小，播完由编排器移除。 -->
         <Style Selector="Panel.owl.vanishing">
             <Style.Animations>
@@ -126,15 +107,12 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SubAgentViewModel">
-                        <!-- 外层：定位（Zone / 漂移变化 → 变换变化 → 过渡产生滑翔与游荡）。 -->
-                        <Panel Width="80" Height="80"
-                               RenderTransform="{Binding OwlTransform, Converter={StaticResource StringToTransformConverter}}">
-                            <Panel.Transitions>
-                                <Transitions>
-                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.7" Easing="CubicEaseInOut"/>
-                                </Transitions>
-                            </Panel.Transitions>
-                            <!-- 内层：呼吸缩放（运行中）/ 谢幕淡出。状态以头部短文案表达，
+                        <!-- 外层：同一单调时间轴采样位置，帧与路径不再各跑一个时钟。 -->
+                        <Panel Width="80" Height="80">
+                            <Panel.RenderTransform>
+                                <TranslateTransform X="{Binding OwlX}" Y="{Binding OwlY}"/>
+                            </Panel.RenderTransform>
+                            <!-- 内层：逐帧身体动作 / 谢幕淡出。状态以头部短文案表达，
                                  成功后隐藏，保持角色翅膀和足部完整可见。 -->
                             <Panel Width="80" Height="80"
                                    HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -145,9 +123,18 @@
                                     </StackPanel>
                                 </ToolTip.Tip>
                                 <Panel Classes="owl" Width="80" Height="80"
-                                       Classes.running="{Binding IsRunning}"
                                        Classes.vanishing="{Binding IsVanishing}"
                                        RenderTransformOrigin="50%,50%">
+                                    <Ellipse Width="30" Height="4" Fill="Black"
+                                             HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                                             Opacity="{Binding OwlShadowOpacity}" RenderTransformOrigin="50%,50%">
+                                        <Ellipse.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding OwlShadowScale}"/>
+                                                <TranslateTransform Y="{Binding OwlGroundOffset}"/>
+                                            </TransformGroup>
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
                                     <Image Source="{Binding OwlFrame}" Width="{Binding OwlSpriteSize}" Height="{Binding OwlSpriteSize}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                            Stretch="Uniform" RenderTransformOrigin="50%,50%">

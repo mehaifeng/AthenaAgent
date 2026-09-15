@@ -1,0 +1,7 @@
+Use case: precise-object-edit.
+Asset type: production sprite-sheet palette master for an Avalonia desktop UI.
+Input images: Image 1 is the eight-frame V2 idle sprite sheet edit target; Images 2-5 are the four previous-version idle sprites used as palette and visual-style references.
+Primary request: Change only the owl coloration and tonal styling in Image 1 to match Images 2-5.
+Color palette: cool low-saturation charcoal gray and graphite feathers, silver-gray facial disc and feather-edge highlights, darker near-black flight-feather tips and ear tufts, restrained cool midtones, and amber-gold irises as the only warm accent. Remove the warm brown/beige cast.
+Constraints: preserve Image 1's exact eight poses, owl identity, anatomy, silhouettes, pixel positions, 4 x 2 grid spacing, dimensions, transparent alpha background, and empty gutters.
+Avoid: do not add or remove any mark, feather, shadow, ground, text, cell border, object, or frame; no stray pixels.
