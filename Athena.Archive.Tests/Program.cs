@@ -6492,7 +6492,15 @@ static Task TestOrcaRouterEndpointsAsync()
     var shipped = OrcaRouterEndpoints.Parse(File.ReadAllText(shippedPath));
     AssertEqual("https://api.orcarouter.ai/v1", shipped.BaseUrl, "BaseUrl 必须是 OpenAI 兼容根");
     AssertEqual("/cb", shipped.CallbackPath, "回调路径必须与向对方注册的值一致");
-    AssertTrue(shipped.ReferralCode.StartsWith("ref_", StringComparison.Ordinal), "归因码必须随包带着，否则接入不计入推广");
+    // 钉死具体值，不是前缀。归因码不是秘密（它就印在用户浏览器的地址栏里），
+    // 但它决定收款方，而在一份大 diff 里它只是 json 的一行，改了之后一切照常工作。
+    // 前缀断言对任何别人的 ref_xxxxx 都放行，等于没有。
+    // 注意这条只管"配置里写的是谁"；"代码是否真的用配置里那个值"由
+    // TestOrcaRouterConnectFlowAsync 断言授权 URL 携带 endpoints.ReferralCode 来保证，两条缺一不可。
+    AssertEqual(
+        "ref_3a0dbebd11797d7e4ddf",
+        shipped.ReferralCode,
+        "归因码被改动了：不是笔误，就是有人在换收款方");
     AssertTrue(shipped.DefaultModel.Length > 0, "必须给出接入后主对话可用的默认模型");
 
     const string Template = """
