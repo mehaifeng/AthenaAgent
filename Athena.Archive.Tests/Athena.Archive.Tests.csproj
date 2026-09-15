@@ -38,6 +38,7 @@
     <Compile Include="../Services/AppConfigurationSession.cs" Link="Source/Services/AppConfigurationSession.cs" />
     <Compile Include="../Services/ProviderCatalog.cs" Link="Source/Services/ProviderCatalog.cs" />
     <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
+    <Compile Include="../Services/ModelMetadata/ProviderReportedMetadataParser.cs" Link="Source/Services/ModelMetadata/ProviderReportedMetadataParser.cs" />
     <Compile Include="../Services/ModelMetadata/ModelIdentityMatcher.cs" Link="Source/Services/ModelMetadata/ModelIdentityMatcher.cs" />
     <Compile Include="../Services/ModelMetadata/ModelMetadataResolver.cs" Link="Source/Services/ModelMetadata/ModelMetadataResolver.cs" />
     <Compile Include="../Services/ModelMetadata/ModelMetadataCsvExporter.cs" Link="Source/Services/ModelMetadata/ModelMetadataCsvExporter.cs" />

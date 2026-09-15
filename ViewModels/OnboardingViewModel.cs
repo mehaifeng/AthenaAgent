@@ -235,7 +235,10 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
                 {
                     Id = id,
                     DisplayName = id,
-                    Capability = ModelCapability.Text
+                    Capability = ModelCapability.Text,
+                    // 引导流程也要带上自报元数据：否则刚连好的供应商要等用户翻到模型页
+                    // 手动刷新一次，上下文窗口才不是应用默认的那个假设值。
+                    Reported = result.Reported != null && result.Reported.TryGetValue(id, out var metadata) ? metadata : null
                 });
             }
             foreach (var model in manual.Where(model => PrimaryProvider.Models.All(candidate => candidate.Id != model.Id)))

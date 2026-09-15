@@ -47,6 +47,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("the streaming reader owns StreamingEnabled and surfaces provider stream failures", TestResponsesStreamingReaderAsync),
     ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
+    ("provider-reported metadata parser tolerates real /v1/models shapes", TestProviderReportedMetadataParsingAsync),
+    ("provider-reported metadata outranks OpenRouter matching", TestProviderReportedMetadataLayerAsync),
+    ("provider-reported metadata flows from the listing into the inventory", TestProviderReportedInventoryFlowAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
     ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
@@ -1621,6 +1624,181 @@ static Task TestBulkCollectionReplaceAllAsync()
     AssertEqual(NotifyCollectionChangedAction.Reset, events[0].Action, "replacement event should be Reset");
     AssertEqual("1,2,3", string.Join(',', collection), "replacement contents should be complete");
     return Task.CompletedTask;
+}
+
+static Task TestProviderReportedMetadataParsingAsync()
+{
+    // 形状取自 OrcaRouter /v1/models 的真实响应（2026-09-15）：
+    // 第一条是完整记录；第二条的 output_modalities 是 null 而不是缺键或空数组
+    // （实测 196 个模型里 43 个如此），并且 context_length 只出现在 top_provider 里（OpenRouter 形状）；
+    // 第三条只有协议要求的字段，什么都没多报。
+    const string payload = """
+    {"object":"list","data":[
+      {"id":"anthropic/claude-sonnet-4.6","object":"model","created":1626777600,"owned_by":"Anthropic",
+       "supported_endpoint_types":["openai","anthropic"],
+       "context_length":1000000,"max_completion_tokens":64000,
+       "architecture":{"input_modalities":["text","image","file"],"output_modalities":["text"]},
+       "top_provider":{"context_length":1000000,"max_completion_tokens":64000}},
+      {"id":"openai/gpt-5","object":"model","created":1626777600,"owned_by":"OpenAI",
+       "supported_endpoint_types":["openai","openai-response"],
+       "architecture":{"input_modalities":["text","image"],"output_modalities":null},
+       "top_provider":{"context_length":400000,"max_completion_tokens":128000}},
+      {"id":"orcarouter/auto","object":"model","created":0,"owned_by":"orcarouter"},
+      {"id":"broken/zero-window","object":"model","context_length":0,"max_completion_tokens":-1}
+    ]}
+    """;
+
+    using var doc = JsonDocument.Parse(payload);
+    var catalog = ProviderReportedMetadataParser.ParseCatalog(doc.RootElement);
+
+    AssertEqual(2, catalog.Count, "only models that actually reported something should be registered");
+
+    var claude = catalog["anthropic/claude-sonnet-4.6"];
+    AssertEqual(1_000_000L, claude.ContextLength ?? 0, "top-level context_length should be read");
+    AssertEqual(64_000L, claude.MaxCompletionTokens ?? 0, "top-level max_completion_tokens should be read");
+    AssertEqual("text,image,file", string.Join(",", claude.InputModalities ?? []), "input modalities should survive in order");
+    AssertEqual("text", string.Join(",", claude.OutputModalities ?? []), "output modalities should be read");
+    AssertEqual("openai,anthropic", string.Join(",", claude.SupportedEndpointTypes ?? []), "endpoint types should be read");
+
+    var gpt5 = catalog["openai/gpt-5"];
+    AssertEqual(400_000L, gpt5.ContextLength ?? 0, "context_length should fall back to top_provider when the top level omits it");
+    AssertEqual(128_000L, gpt5.MaxCompletionTokens ?? 0, "max_completion_tokens should fall back to top_provider too");
+    AssertTrue(gpt5.OutputModalities is null, "a null output_modalities must parse as absent rather than crash or become an empty list");
+    AssertTrue(gpt5.SupportedEndpointTypes?.Contains("openai-response") == true, "openai-response must survive as its own endpoint type");
+
+    AssertFalse(catalog.ContainsKey("orcarouter/auto"), "a protocol-only record reports nothing and must not become an empty shell");
+    AssertFalse(catalog.ContainsKey("broken/zero-window"),
+        "zero or negative is a placeholder, never a real window — accepting 0 would make every turn look instantly over budget");
+
+    return Task.CompletedTask;
+}
+
+static Task TestProviderReportedMetadataLayerAsync()
+{
+    var resolver = new ModelMetadataResolver(new ModelIdentityMatcher());
+    var snapshot = CreateModelMetadataFixture();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "orcarouter",
+        ProviderPreset = "OrcaRouter",
+        BaseUrl = "https://api.orcarouter.ai/v1"
+    };
+
+    // 这个 ID 在 OpenRouter 目录里匹配得到记录（1_048_576），供应商自报的是另一个值。
+    var reportedDescriptor = new ProviderModelDescriptor
+    {
+        Id = "MiniMax-M3",
+        DisplayName = "MiniMax-M3",
+        Reported = new ProviderReportedModelMetadata
+        {
+            ContextLength = 204_800,
+            MaxCompletionTokens = 32_000,
+            InputModalities = ["text", "image"],
+            SupportedEndpointTypes = ["openai", "openai-response"]
+        }
+    };
+
+    var resolved = resolver.Resolve(provider, reportedDescriptor, null, snapshot);
+
+    AssertEqual(204_800L, resolved.ContextWindowTokens.Value,
+        "provider self-report should outrank the OpenRouter catalog record for the same model");
+    AssertEqual(MetadataValueSource.ProviderReported, resolved.ContextWindowTokens.Source,
+        "the winning layer must be visible as ProviderReported");
+    AssertEqual(32_000L, resolved.MaxCompletionTokens.Value ?? 0, "reported max completion should win too");
+    AssertEqual(MetadataValueSource.ProviderReported, resolved.MaxCompletionTokens.Source,
+        "max completion provenance should follow the same layer");
+    AssertEqual(CapabilitySupport.Supported, resolved.SupportsResponses!.Value,
+        "openai-response in supported_endpoint_types is the one capability this layer can answer");
+    AssertEqual(MetadataValueSource.ProviderReported, resolved.SupportsResponses!.Source,
+        "Responses support should be attributed to the provider, not to OpenRouter");
+    AssertEqual(2, resolved.InputModalities.Count, "reported modalities should replace the matched record's");
+    AssertTrue(resolved.InputModalities.Contains("image"), "reported image input should survive into the resolved set");
+    AssertFalse(resolved.Warnings.Contains("UnknownModelAssumption"),
+        "a self-reported window is a real answer and must not raise the unknown-model warning");
+    // 自报元数据里没有任何能力数组，所以工具/推理/结构化输出三项仍旧只能由 OpenRouter 层回答。
+    // 这条断言盯的是来源而不是取值：这一层若开始给这三项署名，就说明它在编造它读不到的东西。
+    AssertTrue(resolved.SupportsTools.Source != MetadataValueSource.ProviderReported,
+        "the provider layer carries no capability array and must never claim authorship of tool support");
+    AssertTrue(resolved.SupportsReasoning.Source != MetadataValueSource.ProviderReported,
+        "reasoning support has no provider-reported source either");
+    AssertTrue(resolved.SupportsStructuredOutput.Source != MetadataValueSource.ProviderReported,
+        "structured-output support has no provider-reported source either");
+
+    var overridden = resolver.Resolve(
+        provider,
+        reportedDescriptor,
+        new ProviderModelMetadataProfile
+        {
+            ProviderId = provider.Id,
+            ExternalModelId = "MiniMax-M3",
+            Overrides = new ModelMetadataOverrides { ContextWindowTokens = 65_536 }
+        },
+        snapshot);
+    AssertEqual(65_536L, overridden.ContextWindowTokens.Value, "user override must still beat the provider report");
+    AssertEqual(MetadataValueSource.UserOverride, overridden.ContextWindowTokens.Source, "override provenance should be preserved");
+
+    var untouched = resolver.Resolve(
+        new OpenAiProviderConfiguration { Id = "minimax", ProviderPreset = "Minimax", BaseUrl = "https://api.minimaxi.com/v1" },
+        new ProviderModelDescriptor { Id = "MiniMax-M3", DisplayName = "MiniMax-M3" },
+        null,
+        snapshot);
+    AssertEqual(MetadataValueSource.AutomaticOpenRouter, untouched.ContextWindowTokens.Source,
+        "with nothing reported the OpenRouter layer must still answer exactly as it did before this layer existed");
+
+    var oversized = resolver.Resolve(
+        provider,
+        new ProviderModelDescriptor
+        {
+            Id = "weird",
+            Reported = new ProviderReportedModelMetadata { ContextLength = 8_192, MaxCompletionTokens = 99_999 }
+        },
+        null,
+        snapshot);
+    AssertEqual(8_192L, oversized.ContextWindowTokens.Value, "reported window should apply");
+    AssertTrue(oversized.MaxCompletionTokens.Value is null,
+        "a reported output cap larger than the window is incoherent and must be dropped rather than silently clamped");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestProviderReportedInventoryFlowAsync()
+{
+    var handler = new QueueHttpHandler();
+    handler.EnqueueJson("""
+    {"data":[
+      {"id":"openai/gpt-5","context_length":400000,"supported_endpoint_types":["openai","openai-response"]},
+      {"id":"plain/model"}
+    ]}
+    """);
+    using var http = new HttpClient(handler);
+    var service = new ModelCatalogService(http);
+
+    var result = await service.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
+    AssertTrue(result.Success, "raw listing should succeed");
+    AssertEqual("openai/gpt-5,plain/model", string.Join(",", result.Models), "ids should still be listed and sorted");
+    AssertTrue(result.Reported != null, "a parsed listing must carry a reported snapshot, even a mostly empty one");
+    AssertEqual(1, result.Reported!.Count, "only the model that reported anything belongs in the snapshot");
+    AssertEqual(400_000L, result.Reported["openai/gpt-5"].ContextLength ?? 0, "reported context should reach the caller");
+    AssertEqual(1, handler.Requests.Count, "the raw path must answer in a single request, with no SDK round trip behind it");
+
+    var existing = new List<ProviderModelDescriptor>
+    {
+        new() { Id = "openai/gpt-5", DisplayName = "openai/gpt-5" },
+        new() { Id = "plain/model", DisplayName = "plain/model", Reported = new ProviderReportedModelMetadata { ContextLength = 111_111 } }
+    };
+    var merged = ProviderModelInventoryMerger.Merge(
+        existing, result.Models, new HashSet<string>(StringComparer.Ordinal), _ => ModelCapability.Text, result.Reported);
+    AssertEqual(400_000L, merged.Single(m => m.Id == "openai/gpt-5").Reported?.ContextLength ?? 0,
+        "a fresh report should land on the descriptor");
+    AssertTrue(merged.Single(m => m.Id == "plain/model").Reported is null,
+        "a model absent from a successful report snapshot must lose its stale value");
+
+    // SDK 回退（Reported 为 null）绝不能抹掉已有的自报数据——否则一次网络抖动
+    // 就把整个库存的窗口打回应用默认值，而那是用户最不会主动去看的地方。
+    var kept = ProviderModelInventoryMerger.Merge(
+        merged, result.Models, new HashSet<string>(StringComparer.Ordinal), _ => ModelCapability.Text, reported: null);
+    AssertEqual(400_000L, kept.Single(m => m.Id == "openai/gpt-5").Reported?.ContextLength ?? 0,
+        "a refresh that produced no report snapshot must leave existing values untouched");
 }
 
 static async Task TestOpenRouterModelCatalogFiltersAsync()
