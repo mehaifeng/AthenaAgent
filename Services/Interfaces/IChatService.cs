@@ -19,6 +19,18 @@ namespace Athena.UI.Services.Interfaces;
 public sealed record ChatTurnFailure(string Message, ProviderErrorCategory? Category);
 
 /// <summary>
+/// 本轮请求被上游在流中途掐断、即将自动重发时的通知。
+///
+/// 它不宣告失败——失败仍然只由 <see cref="ChatTurnFailure"/> 说出口（在重试全部耗尽之后）。
+/// 这个回调只负责让界面把这段沉默解释清楚：不说，用户看到的就是一个卡住不动的气泡。
+/// </summary>
+/// <param name="Attempt">这是第几次重试（从 1 起）。</param>
+/// <param name="MaxAttempts">本轮最多重试几次。</param>
+/// <param name="Delay">发出重试之前还要等多久。</param>
+/// <param name="Category">被判定为可重试的那个错误的归类。</param>
+public sealed record ProviderRetryNotice(int Attempt, int MaxAttempts, TimeSpan Delay, ProviderErrorCategory? Category);
+
+/// <summary>
 /// AI 对话服务接口
 /// </summary>
 public interface IChatService
@@ -55,7 +67,8 @@ public interface IChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null);
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null);
 
     /// <summary>
     /// 测试 API 连接

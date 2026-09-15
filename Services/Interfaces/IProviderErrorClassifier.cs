@@ -10,6 +10,9 @@ public enum ProviderErrorCategory
     ContextOverflow,
     UnsupportedModality,
     InvalidRequest,
+    // HTTP 200 之后流到一半被上游宣告失败（OpenRouter 的 finish_reason=error 等）。
+    // 与 TimeoutOrNetwork 分开：请求本身是成立的，重发同一份消息通常就能过。
+    StreamInterrupted,
     ProviderRawError
 }
 

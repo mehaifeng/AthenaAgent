@@ -16,6 +16,17 @@ public sealed partial class ProviderErrorClassifier : IProviderErrorClassifier
         var normalized = safeMessage.ToLowerInvariant();
         var code = ExtractCode(normalized);
 
+        // 类型判定必须排在关键词启发式前面：这条异常的正文是供应商的原话，里面出现
+        // "timeout" / "rate limit" 之类的词完全正常，一旦被词面命中就会被归错类。
+        if (exception is Context.ProviderStreamInterruptedException interrupted)
+        {
+            return new ProviderErrorClassification(
+                ProviderErrorCategory.StreamInterrupted,
+                safeMessage,
+                status,
+                interrupted.ProviderErrorCode ?? code);
+        }
+
         var category = status is 401 or 403
                        || ContainsAny(normalized, "unauthorized", "authentication", "invalid api key", "permission denied")
             ? ProviderErrorCategory.Authentication

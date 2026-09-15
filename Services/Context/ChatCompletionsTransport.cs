@@ -29,8 +29,27 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
         var stream = runtime.ChatClient.CompleteChatStreamingAsync(
             messages, WithMaxOutputTokens(runtime.ChatOptions, maxOutputTokens), cancellationToken);
         var sawAnyResponseData = false;
-        await foreach (var update in stream)
+        await using var enumerator = stream.GetAsyncEnumerator(cancellationToken);
+        while (true)
         {
+            StreamingChatCompletionUpdate update;
+            try
+            {
+                if (!await enumerator.MoveNextAsync().ConfigureAwait(false)) break;
+                update = enumerator.Current;
+            }
+            catch (ArgumentOutOfRangeException ex) when (ex.ParamName == "value" && ex.ActualValue is string unknownValue)
+            {
+                // 兜底层：SDK 的闭集枚举遇到未知取值会在反序列化时直接抛，异常从 MoveNextAsync 里飞出来。
+                // 正常路径上 ProviderStreamSanitizer 已经把 finish_reason 的未知取值改写掉了，走到这里
+                // 说明命中的是别的字段（或响应体不是 SSE 形状）——仍然是「上游给了本 SDK 认不出的东西」，
+                // 而不该以一句 SDK 断言的形式糊到用户脸上。
+                throw new ProviderStreamInterruptedException(
+                    $"The provider returned a value this SDK does not recognize (\"{unknownValue}\"), and the response stream ended there.",
+                    unknownValue,
+                    innerException: ex);
+            }
+
             // 供应商回报的真实 token 用量随最后一个 chunk 到达（SDK 已自动开启 include_usage）。
             if (update.Usage != null)
             {
@@ -92,6 +111,16 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
             {
                 sawAnyResponseData = true;
                 yield return new NormalizedUpdate(FinishReason: MapFinishReason(update.FinishReason.Value));
+            }
+
+            // 被 ProviderStreamSanitizer 摘下来的原始 finish_reason（OpenRouter 的上游中途失败是 "error"）。
+            // 本轮回复就停在这里：把它当成正常收尾，界面上只会剩半句话而没有任何解释。
+            if (TryReadRawFinishReason(update) is { } rawFinishReason)
+            {
+                throw new ProviderStreamInterruptedException(
+                    DescribeProviderInterruption(update, rawFinishReason),
+                    rawFinishReason,
+                    TryReadPatchString(update, "$.error.code"));
             }
         }
 
@@ -181,6 +210,41 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
 
 #pragma warning disable SCME0001
         message.Patch.Set("$.reasoning_content"u8, reasoningContent);
+#pragma warning restore SCME0001
+    }
+
+    /// <summary>
+    /// 读回 <see cref="ProviderStreamSanitizer"/> 从 finish_reason 上摘下来的原始取值。
+    /// SDK 把它不认识的字段原样留在 Patch 里，路径与 reasoning_content 同理。
+    /// </summary>
+    private static string? TryReadRawFinishReason(StreamingChatCompletionUpdate update)
+    {
+        var raw = TryReadPatchString(update, $"$.choices[0].{ProviderStreamSanitizer.RawFinishReasonProperty}");
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    /// <summary>失败 chunk 里供应商自己的说法（OpenRouter 放在顶层 error 对象里），没有就给一句通用描述。</summary>
+    private static string DescribeProviderInterruption(StreamingChatCompletionUpdate update, string rawFinishReason)
+    {
+        var providerMessage = TryReadPatchString(update, "$.error.message");
+        return string.IsNullOrWhiteSpace(providerMessage)
+            ? $"The provider ended the response stream with finish_reason=\"{rawFinishReason}\" and gave no further detail."
+            : providerMessage!;
+    }
+
+    private static string? TryReadPatchString(StreamingChatCompletionUpdate update, string jsonPath)
+    {
+#pragma warning disable SCME0001
+        try
+        {
+            return update.Patch.TryGetValue(System.Text.Encoding.UTF8.GetBytes(jsonPath), out string? value) ? value : null;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException or JsonException)
+        {
+            // 该路径上是个非字符串（数字 error.code、对象形态的 error 等）。诊断信息缺一条无所谓，
+            // 但不能因为读它而把一次本来说得清楚的中断变成另一个异常。
+            return null;
+        }
 #pragma warning restore SCME0001
     }
 

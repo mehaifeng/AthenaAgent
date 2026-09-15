@@ -2601,6 +2601,25 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 onProviderError: failure =>
                 {
                     if (IsCurrentConversationEpoch(epoch)) providerFailure = failure;
+                },
+                onProviderRetry: notice =>
+                {
+                    if (!IsCurrentConversationEpoch(epoch)) return;
+
+                    // 上一次尝试的思考就地封口：重试写出来的是另一段推理，混进同一个框里
+                    // 会读成一段自相矛盾的独白，而中断这件事就此消失不见。
+                    activeReasoning = EndReasoningRound(activeReasoning);
+                    if (!string.IsNullOrEmpty(assistantMsg.ReasoningContent))
+                    {
+                        assistantMsg.ReasoningContent += ReasoningRoundSeparator;
+                    }
+
+                    // 借工具状态行说话：它就在气泡里，正文一到就会被既有逻辑清掉。
+                    assistantMsg.IsLoading = true;
+                    assistantMsg.ToolExecutionSummary = string.Format(
+                        GetString("Chat.Retry.Pending", "The provider interrupted this reply; retrying ({0}/{1})…"),
+                        notice.Attempt,
+                        notice.MaxAttempts);
                 }))
             {
                 if (!IsCurrentConversationEpoch(epoch))
