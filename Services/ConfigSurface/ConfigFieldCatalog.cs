@@ -126,6 +126,17 @@ public static class ConfigFieldCatalog
                 c => c.MainConversationMaxIterations, (c, v) => c.MainConversationMaxIterations = (int)v!,
                 "Maximum tool-loop rounds in a single main-conversation reply. When the budget runs out the reply stops mid-task and the user must say \"continue\"; raise it for long multi-step skills.",
                 range: (1, 200)),
+            Field("ProviderRetry.Enabled", "AI", ConfigFieldType.Boolean,
+                c => c.ProviderRetry.Enabled, (c, v) => c.ProviderRetry.Enabled = (bool)v!,
+                "Automatically resend a request the provider cut off mid-stream. A round that already streamed answer text is never retried."),
+            Field("ProviderRetry.MaxAttempts", "AI", ConfigFieldType.Integer,
+                c => c.ProviderRetry.MaxAttempts, (c, v) => c.ProviderRetry.MaxAttempts = (int)v!,
+                "How many times to resend an interrupted request (0 disables retrying).",
+                range: (0, ProviderRetryOptions.MaxAllowedAttempts)),
+            Field("ProviderRetry.InitialDelaySeconds", "AI", ConfigFieldType.Integer,
+                c => c.ProviderRetry.InitialDelaySeconds, (c, v) => c.ProviderRetry.InitialDelaySeconds = (int)v!,
+                "Seconds to wait before the first retry; each further wait doubles, capped at 30 seconds each and 60 seconds per round.",
+                range: (ProviderRetryOptions.MinDelaySeconds, ProviderRetryOptions.MaxDelaySeconds)),
 
             // —— Context（v6 起 ContextPolicy 是权威来源；顶层同名键为遗留镜像）——
             Field("ContextPolicy.Mode", "Context", ConfigFieldType.Enum,

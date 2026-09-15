@@ -115,6 +115,10 @@ Task.Run(TestImageFallbackExplicitUnsupportedContinuesTextAsync).GetAwaiter().Ge
 Task.Run(TestImageRecognitionCancellationPropagatesAsync).GetAwaiter().GetResult();
 Task.Run(TestStreamedEmptyStreamErrorSurfacedAsync).GetAwaiter().GetResult();
 Task.Run(TestStreamedImageDecodeErrorFallsBackAsync).GetAwaiter().GetResult();
+TestProviderStreamSanitizer();
+Task.Run(TestStreamedUnknownFinishReasonSurfacedAsync).GetAwaiter().GetResult();
+TestProviderRetryPolicy();
+Task.Run(TestProviderRetryResumesInterruptedStreamAsync).GetAwaiter().GetResult();
 TestResponsesProtocolAutoResolution();
 TestWorkspaceInlineRenameVisual();
 Task.Run(TestWorkspaceRenameBehaviorAsync).GetAwaiter().GetResult();
@@ -7513,6 +7517,241 @@ static async Task TestStreamedEmptyStreamErrorSurfacedAsync()
     Console.WriteLine("[PASS] streamed SSE error chunk surfaces as an API error instead of silent empty output");
 }
 
+// 供应商在流中途宣告失败时回的 finish_reason 是 SDK 闭集枚举之外的取值（OpenRouter 用 "error"）。
+// SDK 对未知取值直接抛 ArgumentOutOfRangeException，异常从 MoveNextAsync 里飞出来，
+// 那个 chunk 连同它携带的真实错误原因一起被吞掉。这里钉住改写本身与它的边界。
+static void TestProviderStreamSanitizer()
+{
+    const string errorChunk = """
+        data: {"id":"gen-1","choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"code":502,"message":"upstream died"}}
+        """;
+    if (!ProviderStreamSanitizer.TrySanitizeLine(errorChunk, out var sanitized, out var raw))
+        throw new InvalidOperationException("finish_reason=error must be rewritten before the SDK sees it.");
+    if (raw != "error")
+        throw new InvalidOperationException($"The original finish_reason must be reported, got '{raw}'.");
+    if (!sanitized.Contains("\"athena_raw_finish_reason\":\"error\"", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The rewritten chunk must carry the original value: {sanitized}");
+    if (!sanitized.Contains("\"finish_reason\":null", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The rewritten chunk must neutralize finish_reason: {sanitized}");
+    if (!sanitized.Contains("\"message\":\"upstream died\"", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The provider's own error payload must survive the rewrite: {sanitized}");
+
+    // 合法取值、null、非 data 行一概不能碰——改写路径每多跑一次都是一次多余的 JSON 往返。
+    foreach (var untouched in new[]
+             {
+                 """data: {"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}""",
+                 """data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}""",
+                 """data: {"choices":[{"index":0,"delta":{"content":"finish_reason"}}]}""",
+                 "data: [DONE]",
+                 ": keep-alive",
+             })
+    {
+        if (ProviderStreamSanitizer.TrySanitizeLine(untouched, out _, out _))
+            throw new InvalidOperationException($"A well-formed chunk must pass through untouched: {untouched}");
+    }
+
+    // 包装流按行工作，但网络不按行送包：一个 chunk 可能横跨多次 Read，UTF-8 汉字可能被劈成两半。
+    var body = errorChunk + "\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"中文\"},\"finish_reason\":null}]}\n\n";
+    using var dribble = new DribblingStream(Encoding.UTF8.GetBytes(body));
+    using var wrapped = ProviderStreamSanitizer.Wrap(dribble);
+    using var reader = new StreamReader(wrapped, Encoding.UTF8);
+    var rewritten = reader.ReadToEnd();
+    if (!rewritten.Contains("athena_raw_finish_reason", StringComparison.Ordinal))
+        throw new InvalidOperationException("A chunk split across reads must still be rewritten.");
+    if (!rewritten.Contains("\"content\":\"中文\"", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Multi-byte content split across reads must survive verbatim: {rewritten}");
+
+    Console.WriteLine("[PASS] unknown finish_reason values are rewritten before the OpenAI SDK deserializes them");
+}
+
+// 退避是纯函数，边界全在这里钉住：翻倍、单次封顶、整轮封顶、关掉即不重试。
+static void TestProviderRetryPolicy()
+{
+    var options = new ProviderRetryOptions { Enabled = true, MaxAttempts = 2, InitialDelaySeconds = 2 };
+
+    var first = options.ResolveDelay(0, TimeSpan.Zero) ?? throw new InvalidOperationException("The first retry must be allowed.");
+    if (first < TimeSpan.FromSeconds(1.6) || first > TimeSpan.FromSeconds(2.4))
+        throw new InvalidOperationException($"The first wait must be 2s ±20% jitter, got {first}.");
+    var second = options.ResolveDelay(1, first) ?? throw new InvalidOperationException("The second retry must be allowed.");
+    if (second < TimeSpan.FromSeconds(3.2) || second > TimeSpan.FromSeconds(4.8))
+        throw new InvalidOperationException($"The second wait must double to 4s ±20% jitter, got {second}.");
+    if (options.ResolveDelay(2, first + second) != null)
+        throw new InvalidOperationException("Retries beyond MaxAttempts must stop.");
+
+    // 单次上限 30 秒：否则第 5 次重试要等 32 秒，用户对着一个不动的气泡干等。
+    var slow = new ProviderRetryOptions { Enabled = true, MaxAttempts = 5, InitialDelaySeconds = 30 };
+    var capped = slow.ResolveDelay(3, TimeSpan.Zero) ?? throw new InvalidOperationException("A capped retry must still be allowed.");
+    if (capped > TimeSpan.FromSeconds(30))
+        throw new InvalidOperationException($"A single wait must never exceed 30s, got {capped}.");
+    // 整轮总等待 60 秒封顶：剩余额度用完就把结论交给用户，而不是继续悄悄等下去。
+    if (slow.ResolveDelay(1, TimeSpan.FromSeconds(60)) != null)
+        throw new InvalidOperationException("Once the per-round wait budget is spent, retrying must stop.");
+    var trimmed = slow.ResolveDelay(1, TimeSpan.FromSeconds(55));
+    if (trimmed == null || trimmed > TimeSpan.FromSeconds(5))
+        throw new InvalidOperationException($"The last wait must be trimmed to the remaining budget, got {trimmed}.");
+
+    if (new ProviderRetryOptions { Enabled = false, MaxAttempts = 3 }.ResolveDelay(0, TimeSpan.Zero) != null)
+        throw new InvalidOperationException("A disabled policy must never retry.");
+    if (new ProviderRetryOptions { Enabled = true, MaxAttempts = 0 }.ResolveDelay(0, TimeSpan.Zero) != null)
+        throw new InvalidOperationException("MaxAttempts=0 must be equivalent to disabled.");
+
+    Console.WriteLine("[PASS] provider retry backoff doubles, stays capped per wait and per round, and honors the switch");
+}
+
+// 一次「思考到一半被上游掐断」的回合：重发的是字节相同的请求，用户最终拿到的是一份完整回复，
+// 而不是半截加一句错误。关掉开关之后必须一次都不重发。
+static async Task TestProviderRetryResumesInterruptedStreamAsync()
+{
+    static (OpenAIChatService Service, RetryThenSucceedSseHandler Handler, HttpClient Client) Build(AppConfig config, string id)
+    {
+        var provider = new OpenAiProviderConfiguration
+        {
+            Id = $"{id}-provider",
+            DisplayName = "Retry provider",
+            ProviderPreset = "Custom",
+            BaseUrl = $"https://{id}.invalid/v1",
+            ApiKey = "test-key"
+        };
+        provider.Models.Add(new ProviderModelDescriptor { Id = $"{id}-model", DisplayName = "Retry model", Capability = ModelCapability.Text });
+        config.AiModels.Providers.Add(provider);
+        config.AiModels.MainConversation.ProviderId = provider.Id;
+        config.AiModels.MainConversation.Model = $"{id}-model";
+
+        var service = new OpenAIChatService(
+            config,
+            new HeadlessPromptService(),
+            metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+            contextPolicyResolver: new ModelContextPolicyResolver(),
+            requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+        var handler = new RetryThenSucceedSseHandler();
+        var httpClient = new HttpClient(handler);
+        var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+        chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+        var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient($"{id}-model");
+        var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+        chatField.SetValue(service, chatClient);
+        return (service, handler, httpClient);
+    }
+
+    var retryConfig = new AppConfig();
+    retryConfig.ProviderRetry.InitialDelaySeconds = ProviderRetryOptions.MinDelaySeconds; // 套件不该为退避多等几秒
+    var (service, handler, client) = Build(retryConfig, "retry-on");
+    using (client)
+    using (handler)
+    {
+        var notices = new List<ProviderRetryNotice>();
+        ChatTurnFailure? failure = null;
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync(
+                           "hi",
+                           new ConversationContext { ConversationId = "retry-on" },
+                           onProviderError: f => failure = f,
+                           onProviderRetry: notices.Add))
+        {
+            output.Append(chunk);
+        }
+
+        var text = output.ToString();
+        if (handler.RequestCount != 2)
+            throw new InvalidOperationException($"An interrupted round must be resent exactly once (requests={handler.RequestCount})");
+        if (text.Contains("[API 错误:", StringComparison.Ordinal))
+            throw new InvalidOperationException($"A retry that succeeded must not leave an error in the bubble: '{text}'");
+        if (text != "第二次成功了")
+            throw new InvalidOperationException($"The reply must be exactly the successful attempt's text, got '{text}'");
+        if (failure != null)
+            throw new InvalidOperationException($"A recovered round is not a failed run: '{failure.Message}'");
+        if (notices.Count != 1 || notices[0].Attempt != 1 || notices[0].Category != ProviderErrorCategory.StreamInterrupted)
+            throw new InvalidOperationException("The retry must be announced once, as attempt 1 of a stream interruption.");
+    }
+
+    var offConfig = new AppConfig();
+    offConfig.ProviderRetry.Enabled = false;
+    var (offService, offHandler, offClient) = Build(offConfig, "retry-off");
+    using (offClient)
+    using (offHandler)
+    {
+        var output = new StringBuilder();
+        await foreach (var chunk in offService.StreamMessageAsync("hi", new ConversationContext { ConversationId = "retry-off" }))
+        {
+            output.Append(chunk);
+        }
+
+        if (offHandler.RequestCount != 1)
+            throw new InvalidOperationException($"With retrying switched off the request must go out once (requests={offHandler.RequestCount})");
+        if (!output.ToString().Contains("[API 错误:", StringComparison.Ordinal))
+            throw new InvalidOperationException($"With retrying switched off the interruption must surface immediately: '{output}'");
+    }
+
+    Console.WriteLine("[PASS] an interrupted stream is resent once and recovers; switching retries off sends exactly one request");
+}
+
+// 端到端：一次「先流出半句正文，再由上游宣告失败」的回合。回复必须保留已到达的正文，
+// 并以一句说得清的错误收场——而不是 SDK 的 "Unknown ChatFinishReason value"。
+static async Task TestStreamedUnknownFinishReasonSurfacedAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "stream-interrupted-provider",
+        DisplayName = "Stream interrupted provider",
+        ProviderPreset = "Custom",
+        BaseUrl = "https://stream-interrupted.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "stream-interrupted-model", DisplayName = "Stream interrupted model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "stream-interrupted-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new StreamInterruptedSseHandler();
+    using var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient("stream-interrupted-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+
+    ChatTurnFailure? failure = null;
+    var output = new StringBuilder();
+    var context = new ConversationContext { ConversationId = "stream-interrupted" };
+    await foreach (var chunk in service.StreamMessageAsync("hi", context, onProviderError: f => failure = f))
+    {
+        output.Append(chunk);
+    }
+
+    var text = output.ToString();
+    if (text.Contains("ChatFinishReason", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The SDK's enum assertion must never reach the bubble: '{text}'");
+    if (!text.Contains("先说半句", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Text that already streamed must be kept: '{text}'");
+    if (!text.Contains("[API 错误:", StringComparison.Ordinal))
+        throw new InvalidOperationException($"A mid-stream provider failure must surface as an API error: '{text}'");
+    // 这个夹具没有注入本地化服务，文案落在英文缺省值上；真实运行时由 Locale.*.axaml 提供中文。
+    if (!text.Contains("did not finish", StringComparison.Ordinal)
+        && !text.Contains("上游在回复流中途中断", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The interruption must be explained, not just quoted: '{text}'");
+    if (!text.Contains("upstream exploded", StringComparison.Ordinal))
+        throw new InvalidOperationException($"The provider's own message is the only diagnostic there is: '{text}'");
+    // 正文已经进过气泡，重发只会让模型从头再写一遍——这一轮必须只发出去一次。
+    if (handler.RequestCount != 1)
+        throw new InvalidOperationException($"A round that already streamed text must not be retried (requests={handler.RequestCount})");
+    // 失败必须走 onProviderError：定时任务只认这条信号，否则半截回复会被记成一次成功运行。
+    if (failure?.Category != ProviderErrorCategory.StreamInterrupted)
+        throw new InvalidOperationException($"A mid-stream interruption must be reported as StreamInterrupted, got {failure?.Category.ToString() ?? "<none>"}");
+
+    Console.WriteLine("[PASS] a mid-stream finish_reason=error keeps the partial reply and explains itself");
+}
+
 static async Task TestStreamedImageDecodeErrorFallsBackAsync()
 {
     var config = new AppConfig();
@@ -9426,7 +9665,8 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
@@ -9482,7 +9722,8 @@ sealed class InterleavedReasoningChatService : HeadlessChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         await Task.CompletedTask;
         onReasoningDelta?.Invoke(FirstThought);
@@ -9773,6 +10014,85 @@ sealed class ImageRejectThenFinalSseHandler : HttpMessageHandler
 #pragma warning restore CA2000
 }
 
+// 第一次请求：只流出思考，然后被上游掐断（finish_reason=error）。之后的请求正常作答。
+// 重试是否安全，取决于这一轮有没有吐过正文——所以第一次故意只吐思考。
+sealed class RetryThenSucceedSseHandler : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        var body = RequestCount == 1
+            ? """
+                data: {"id":"gen-retry","object":"chat.completion.chunk","created":1785580005,"model":"retry-model","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"想了一半"},"finish_reason":null}]}
+
+                data: {"id":"gen-retry","object":"chat.completion.chunk","created":1785580005,"model":"retry-model","choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"code":502,"message":"upstream hiccup"}}
+
+                """ + "\n"
+            : """
+                data: {"id":"gen-retry","object":"chat.completion.chunk","created":1785580006,"model":"retry-model","choices":[{"index":0,"delta":{"role":"assistant","content":"第二次成功了"},"finish_reason":null}]}
+
+                data: {"id":"gen-retry","object":"chat.completion.chunk","created":1785580006,"model":"retry-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+                data: [DONE]
+
+                """ + "\n";
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+}
+
+// 复刻 OpenRouter 的上游中途失败：先正常流出正文，再来一个 finish_reason="error" 的 chunk
+// （SDK 的闭集枚举在这里抛），其中带着上游真正的错误。
+sealed class StreamInterruptedSseHandler : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        var body = """
+            data: {"id":"gen-interrupted","object":"chat.completion.chunk","created":1785580004,"model":"stream-interrupted-model","choices":[{"index":0,"delta":{"role":"assistant","content":"先说半句"},"finish_reason":null}]}
+
+            data: {"id":"gen-interrupted","object":"chat.completion.chunk","created":1785580004,"model":"stream-interrupted-model","choices":[{"index":0,"delta":{},"finish_reason":"error","native_finish_reason":"error"}],"error":{"code":502,"message":"upstream exploded"}}
+
+            """ + "\n";
+        // SSE 的事件靠空行分派：最后一个事件后面少一个换行，解析器就把它当半截事件丢掉。
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+}
+
+/// <summary>每次只交出一个字节的只读流：把「一行横跨多次 Read」这件事变成确定性的。</summary>
+sealed class DribblingStream(byte[] payload) : Stream
+{
+    private readonly byte[] _payload = payload;
+    private int _position;
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => _payload.Length;
+    public override long Position { get => _position; set => throw new NotSupportedException(); }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        if (_position >= _payload.Length || count == 0) return 0;
+        buffer[offset] = _payload[_position++];
+        return 1;
+    }
+
+    public override void Flush() { }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+}
+
 sealed class StreamedErrorThenFinalSseHandler : HttpMessageHandler
 {
     public int RequestCount { get; private set; }
@@ -9866,7 +10186,8 @@ class HeadlessChatService : IChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         await Task.CompletedTask;
         yield break;
@@ -10204,7 +10525,8 @@ sealed class ProviderFailureChatService : HeadlessChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         await Task.CompletedTask;
         onProviderError?.Invoke(new ChatTurnFailure(FailureMessage, ProviderErrorCategory.ProviderRawError));
@@ -10231,7 +10553,8 @@ sealed class PlainReplyChatService : HeadlessChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         await Task.CompletedTask;
         yield return Reply;

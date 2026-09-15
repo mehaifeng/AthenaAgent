@@ -1,3 +1,4 @@
+using Athena.UI.Services.Context;
 using System;
 using System.ClientModel.Primitives;
 using OpenAI;
@@ -6,7 +7,11 @@ namespace Athena.UI.Services;
 
 /// <summary>
 /// Creates OpenAI SDK client options with one application-wide retry and timeout policy.
-/// Retry stays inside the SDK HTTP pipeline; callers must not add another business-level retry loop.
+/// Retry stays inside the SDK HTTP pipeline; callers must not add another business-level retry loop
+/// around connecting or status codes. The one exception is disjoint from this policy rather than a
+/// second layer on top of it: once HTTP 200 is back and the response body is streaming, nothing here
+/// can act any more, so interruptions from that point on are retried by <c>OpenAIChatService</c>
+/// (see <c>ProviderRetryOptions</c>).
 /// </summary>
 public static class OpenAiClientOptionsFactory
 {
@@ -22,6 +27,10 @@ public static class OpenAiClientOptionsFactory
             RetryPolicy = new ClientRetryPolicy(DefaultMaxRetries),
             NetworkTimeout = TimeSpan.FromSeconds(NormalizeTimeoutSeconds(timeoutSeconds))
         };
+
+        // SSE 里 finish_reason 的未知取值会让 SDK 在反序列化时直接抛（见 ProviderStreamSanitizer）。
+        // 这不是重试策略能覆盖的范围——那时 HTTP 200 早已回来、响应体正在流——所以改写只能挂在管线上。
+        options.AddPolicy(ProviderStreamSanitizer.Policy.Instance, PipelinePosition.PerCall);
 
         if (!string.IsNullOrWhiteSpace(baseUrl))
         {

@@ -18,6 +18,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.ExceptionServices;
 using System.Diagnostics;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
@@ -209,7 +210,8 @@ public class OpenAIChatService : IChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         EffectiveRequestRuntimeSnapshot? runtime = null;
         Exception? runtimeFailure = null;
@@ -264,7 +266,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -294,11 +296,21 @@ public class OpenAIChatService : IChatService
 
         if (streamFailure != null)
         {
+            // 自动重试用尽时包的那一层只带次数，判定一律看被包住的真实异常
+            // （图片降级就是靠它认路的，隔一层就认不出来了）。
+            var exhaustedRetries = 0;
+            if (streamFailure is ProviderRetriesExhaustedException exhausted && exhausted.InnerException != null)
+            {
+                exhaustedRetries = exhausted.Attempts;
+                streamFailure = exhausted.InnerException;
+            }
+
             var classification = _providerErrorClassifier.Classify(streamFailure);
             Log.Warning(streamFailure,
-                "ProviderErrorClassified RequestId={RequestId} Category={Category}",
+                "ProviderErrorClassified RequestId={RequestId} Category={Category} RetriesExhausted={RetriesExhausted}",
                 runtime.RequestId,
-                classification.Category);
+                classification.Category,
+                exhaustedRetries);
 
             // 只有实际携带了图片二进制的请求才进行图片降级。已经降级过的文本请求失败时，
             // 必须保留原始供应商错误，避免把普通 400 再误判成图片拒绝并重复请求。
@@ -310,6 +322,13 @@ public class OpenAIChatService : IChatService
             if (!imageInputRejected)
             {
                 var failureMessage = FormatApiError(classification, runtime);
+                if (exhaustedRetries > 0)
+                {
+                    failureMessage = string.Format(
+                        GetLocalized("Chat.Error.RetriesExhausted", "{0} (automatically retried {1} time(s) first)"),
+                        failureMessage,
+                        exhaustedRetries);
+                }
                 onProviderError?.Invoke(new ChatTurnFailure(failureMessage, classification.Category));
                 yield return $"[API 错误: {failureMessage}]";
                 yield break;
@@ -341,7 +360,8 @@ public class OpenAIChatService : IChatService
                                                    skipCompressionToken: skipCompressionToken,
                                                    // 与下面的 fallbackFailure 分支互斥：ProcessStreamAsync 要么
                                                    // 自己把错误报掉再正常收尾（这个回调），要么抛出去（那个分支）。
-                                                   onProviderError: onProviderError)
+                                                   onProviderError: onProviderError,
+                                                   onProviderRetry: onProviderRetry)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -647,7 +667,8 @@ public class OpenAIChatService : IChatService
         Action<ContextAnchorRecord>? onAnchorObserved = null,
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
-        Action<ChatTurnFailure>? onProviderError = null)
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -948,37 +969,9 @@ public class OpenAIChatService : IChatService
                 apiRequestId, requestOutputTokens, runtime.ContextPolicy.OutputReserveTokens,
                 runtime.ContextPolicy.MaxOutputCeilingTokens, currentTokens);
 
-            IAsyncEnumerable<NormalizedUpdate>? stream = null;
-            string? error = null;
-            ProviderErrorCategory? errorCategory = null;
-
-            try
-            {
-                stream = runtime.Transport!.StreamUpdatesAsync(runtime, messages, requestOutputTokens, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                var classification = _providerErrorClassifier.Classify(ex);
-                error = FormatApiError(classification, runtime);
-                errorCategory = classification.Category;
-            }
-
-            if (error != null)
-            {
-                Log.Error("API call failed: {Error}", error);
-                onProviderError?.Invoke(new ChatTurnFailure(error, errorCategory));
-                yield return $"[API 错误: {error}]";
-                yield break;
-            }
-
-            if (stream == null)
-            {
-                const string noStreamMessage = "无法获取响应流";
-                onProviderError?.Invoke(new ChatTurnFailure(noStreamMessage, Category: null));
-                yield return $"[API 错误: {noStreamMessage}]";
-                yield break;
-            }
-
+            // 每一轮请求自带一个重试环。SDK 的 ClientRetryPolicy 只管建连与状态码——HTTP 200 一回来、
+            // 响应体开始流，它就再也插不上手了，而上游抖动恰恰最常落在那里（见 ProviderStreamSanitizer）。
+            // 重试发出的是字节相同的请求：工具结果要等本轮成功之后才追加，重试也不消耗工具轮数。
             var toolCallBuilders = new Dictionary<int, ToolCallBuilder>();
             TransportFinishReason? finishReason = null;
             var assistantContent = new StringBuilder();
@@ -988,85 +981,184 @@ public class OpenAIChatService : IChatService
             ProviderInputModalityUsage? inputModalityUsage = null;
             var anyIncompleteToolCall = false;
             (long Input, long Cached, long Output, long Total)? lastReportedUsage = null;
+            var retryCount = 0;
+            var retryWaited = TimeSpan.Zero;
 
-            await foreach (var update in stream.WithCancellation(cancellationToken))
+            while (true)
             {
-                // 供应商回报的真实 token 用量随最后一个 chunk 到达（chat：SDK 自动开启 include_usage；
-                // responses：随 response.completed 事件到达）。
-                if (update.Usage is { } snapshotUsage)
+                toolCallBuilders.Clear();
+                finishReason = null;
+                assistantContent.Clear();
+                assistantReasoning.Clear();
+                usage = null;
+                reasoningTokens = 0;
+                inputModalityUsage = null;
+                anyIncompleteToolCall = false;
+                lastReportedUsage = null;
+                // 已经进过气泡的正文和工具调用收不回来，重发只会让模型从头再写一遍，
+                // 气泡里于是出现两段重复正文。撤回已吐出的增量是另一件事，没做之前这里必须止步。
+                var visibleOutputEmitted = false;
+                // 流已经开始产出（哪怕只是一段思考）才算"中途断开"；连接都没建起来的失败归 SDK 的重试管。
+                var streamStarted = false;
+                Exception? attemptFailure = null;
+                IAsyncEnumerable<NormalizedUpdate>? stream = null;
+
+                try
                 {
-                    usage = snapshotUsage;
-                    reasoningTokens = update.ReasoningTokenCount ?? 0;
-                    inputModalityUsage = update.InputModalityUsage;
-                    var observed = (snapshotUsage.InputTokens, snapshotUsage.CachedInputTokens, snapshotUsage.OutputTokens, snapshotUsage.TotalTokens);
-                    if (lastReportedUsage != observed)
+                    stream = runtime.Transport!.StreamUpdatesAsync(runtime, messages, requestOutputTokens, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    attemptFailure = ex;
+                }
+
+                if (attemptFailure == null && stream == null)
+                {
+                    const string noStreamMessage = "无法获取响应流";
+                    onProviderError?.Invoke(new ChatTurnFailure(noStreamMessage, Category: null));
+                    yield return $"[API 错误: {noStreamMessage}]";
+                    yield break;
+                }
+
+                if (stream != null)
+                {
+                    await using var updates = stream.GetAsyncEnumerator(cancellationToken);
+                    while (true)
                     {
-                        lastReportedUsage = observed;
-                        onUsageReported?.Invoke(new TokenUsageSnapshot(
-                            observed.Item1,
-                            observed.Item2,
-                            observed.Item3,
-                            observed.Item4,
-                            apiRequestId,
-                            runtime.ExecutionPolicyIdentity.ProviderId,
-                            runtime.ExecutionPolicyIdentity.ExternalModelId,
-                            DateTimeOffset.UtcNow));
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(update.ReasoningText))
-                {
-                    assistantReasoning.Append(update.ReasoningText);
-                    onReasoningDelta?.Invoke(update.ReasoningText);
-                }
-
-                if (!string.IsNullOrEmpty(update.Text))
-                {
-                    var text = update.Text;
-                    contentBuilder.Append(text);
-                    assistantContent.Append(text);
-                    yield return text;
-                }
-
-                if (update.ToolCallIndex is { } index)
-                {
-                    if (!toolCallBuilders.ContainsKey(index))
-                    {
-                        toolCallBuilders[index] = new ToolCallBuilder
+                        NormalizedUpdate update;
+                        try
                         {
-                            Id = update.ToolCallId ?? string.Empty,
-                            FunctionName = update.ToolCallName ?? string.Empty
-                        };
-                    }
-                    else
-                    {
-                        var builder = toolCallBuilders[index];
-                        if (!string.IsNullOrEmpty(update.ToolCallId))
-                        {
-                            builder.Id = update.ToolCallId;
+                            if (!await updates.MoveNextAsync()) break;
+                            update = updates.Current;
                         }
-                        if (!string.IsNullOrEmpty(update.ToolCallName))
+                        catch (OperationCanceledException)
                         {
-                            builder.FunctionName = update.ToolCallName;
+                            // 用户点了"停止"：这不是供应商故障，更不该重试。
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            attemptFailure = ex;
+                            break;
+                        }
+
+                        streamStarted = true;
+                        // 供应商回报的真实 token 用量随最后一个 chunk 到达（chat：SDK 自动开启 include_usage；
+                        // responses：随 response.completed 事件到达）。
+                        if (update.Usage is { } snapshotUsage)
+                        {
+                            usage = snapshotUsage;
+                            reasoningTokens = update.ReasoningTokenCount ?? 0;
+                            inputModalityUsage = update.InputModalityUsage;
+                            var observed = (snapshotUsage.InputTokens, snapshotUsage.CachedInputTokens, snapshotUsage.OutputTokens, snapshotUsage.TotalTokens);
+                            if (lastReportedUsage != observed)
+                            {
+                                lastReportedUsage = observed;
+                                onUsageReported?.Invoke(new TokenUsageSnapshot(
+                                    observed.Item1,
+                                    observed.Item2,
+                                    observed.Item3,
+                                    observed.Item4,
+                                    apiRequestId,
+                                    runtime.ExecutionPolicyIdentity.ProviderId,
+                                    runtime.ExecutionPolicyIdentity.ExternalModelId,
+                                    DateTimeOffset.UtcNow));
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(update.ReasoningText))
+                        {
+                            assistantReasoning.Append(update.ReasoningText);
+                            onReasoningDelta?.Invoke(update.ReasoningText);
+                        }
+
+                        if (!string.IsNullOrEmpty(update.Text))
+                        {
+                            var text = update.Text;
+                            visibleOutputEmitted = true;
+                            contentBuilder.Append(text);
+                            assistantContent.Append(text);
+                            yield return text;
+                        }
+
+                        if (update.ToolCallIndex is { } index)
+                        {
+                            visibleOutputEmitted = true;
+                            if (!toolCallBuilders.ContainsKey(index))
+                            {
+                                toolCallBuilders[index] = new ToolCallBuilder
+                                {
+                                    Id = update.ToolCallId ?? string.Empty,
+                                    FunctionName = update.ToolCallName ?? string.Empty
+                                };
+                            }
+                            else
+                            {
+                                var builder = toolCallBuilders[index];
+                                if (!string.IsNullOrEmpty(update.ToolCallId))
+                                {
+                                    builder.Id = update.ToolCallId;
+                                }
+                                if (!string.IsNullOrEmpty(update.ToolCallName))
+                                {
+                                    builder.FunctionName = update.ToolCallName;
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(update.ToolCallArgumentsDelta))
+                            {
+                                toolCallBuilders[index].Arguments.Append(update.ToolCallArgumentsDelta);
+                                onToolCallArgumentsStreaming?.Invoke(toolCallBuilders[index].FunctionName);
+                            }
+                        }
+
+                        if (update.ToolCallIncomplete == true)
+                        {
+                            anyIncompleteToolCall = true;
+                        }
+
+                        if (update.FinishReason != null)
+                        {
+                            finishReason = update.FinishReason;
                         }
                     }
+                }
 
-                    if (!string.IsNullOrEmpty(update.ToolCallArgumentsDelta))
+                if (attemptFailure == null) break;
+
+                var classification = _providerErrorClassifier.Classify(attemptFailure);
+                var retryDelay = visibleOutputEmitted || !IsRetryableStreamFailure(classification.Category, streamStarted)
+                    ? null
+                    : _config.ProviderRetry.ResolveDelay(retryCount, retryWaited);
+
+                if (retryDelay is not { } delay)
+                {
+                    // 流已经建起来之后的失败必须原样抛给 StreamMessageAsync——图片降级那条路
+                    // 认的就是这个异常本身（一个 400 被就地变成错误文本，降级重试就再也不会发生）。
+                    // 重试过才包一层，没重试过的异常一个字节都不动。
+                    if (stream != null)
                     {
-                        toolCallBuilders[index].Arguments.Append(update.ToolCallArgumentsDelta);
-                        onToolCallArgumentsStreaming?.Invoke(toolCallBuilders[index].FunctionName);
+                        if (retryCount > 0) throw new ProviderRetriesExhaustedException(retryCount, attemptFailure);
+                        ExceptionDispatchInfo.Capture(attemptFailure).Throw();
                     }
+
+                    var failureText = FormatApiError(classification, runtime);
+                    Log.Error(attemptFailure, "API call failed: {Error}", failureText);
+                    onProviderError?.Invoke(new ChatTurnFailure(failureText, classification.Category));
+                    yield return $"[API 错误: {failureText}]";
+                    yield break;
                 }
 
-                if (update.ToolCallIncomplete == true)
-                {
-                    anyIncompleteToolCall = true;
-                }
-
-                if (update.FinishReason != null)
-                {
-                    finishReason = update.FinishReason;
-                }
+                retryCount++;
+                retryWaited += delay;
+                Log.Warning(
+                    attemptFailure,
+                    "ProviderStreamRetry RequestId={RequestId} Attempt={Attempt}/{MaxAttempts} Category={Category} DelayMs={DelayMs}",
+                    apiRequestId, retryCount, _config.ProviderRetry.EffectiveMaxAttempts, classification.Category, (int)delay.TotalMilliseconds);
+                onProviderRetry?.Invoke(new ProviderRetryNotice(
+                    retryCount, _config.ProviderRetry.EffectiveMaxAttempts, delay, classification.Category));
+                // 退避期间照样听取消：点"停止"不该先等退避走完。
+                await Task.Delay(delay, cancellationToken);
             }
 
             Log.Debug("Streaming response iteration {Iteration}, {Tools} tool calls", iteration, toolCallBuilders.Count);
@@ -2094,6 +2186,15 @@ public class OpenAIChatService : IChatService
         return new UserChatMessage(parts);
     }
 
+    /// <summary>
+    /// 哪些失败值得原样重发一次。上游在流中途宣告失败（OpenRouter 的 finish_reason=error）永远算；
+    /// 网络类只在流已经开始之后才算——连接阶段的失败 SDK 自己已经重试过 3 次，再叠一层只是把
+    /// 一次明确的不可达拖成十几秒的沉默。其余（认证、参数、上下文超限、不支持图片、限流）重发多少次都一样。
+    /// </summary>
+    private static bool IsRetryableStreamFailure(ProviderErrorCategory category, bool streamStarted)
+        => category == ProviderErrorCategory.StreamInterrupted
+           || (streamStarted && category == ProviderErrorCategory.TimeoutOrNetwork);
+
     private string FormatApiError(
         ProviderErrorClassification classification,
         EffectiveRequestRuntimeSnapshot runtime)
@@ -2104,6 +2205,19 @@ public class OpenAIChatService : IChatService
                 "Chat.Error.ImageUnsupported",
                 "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.")
                 ?? "The current model or endpoint does not support image input. Please switch the main model to a vision-capable model and try again.";
+        }
+        if (classification.Category == ProviderErrorCategory.StreamInterrupted)
+        {
+            // 供应商的原话是这里唯一有信息量的部分，但它单独出现时读起来像是本机崩了，
+            // 所以先说清「请求是成立的，断在半路」，再把原话附上。
+            var interrupted = GetLocalized(
+                "Chat.Error.StreamInterrupted",
+                "The provider ended this reply mid-stream, so the round did not finish. This is usually a transient upstream failure — say “continue” to pick it up again.");
+            return string.IsNullOrWhiteSpace(classification.SafeProviderMessage)
+                ? interrupted
+                : interrupted + " " + string.Format(
+                    GetLocalized("Chat.Error.StreamInterruptedDetail", "Provider said: {0}"),
+                    classification.SafeProviderMessage);
         }
         if (classification.Category == ProviderErrorCategory.ContextOverflow
             && runtime.ModelMetadata.ContextWindowTokens.Source == MetadataValueSource.ApplicationDefault)

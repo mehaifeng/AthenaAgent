@@ -24,6 +24,7 @@
     <Compile Include="../Models/OfficeToolsMode.cs" Link="Source/Models/OfficeToolsMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/ProviderRetryOptions.cs" Link="Source/Models/ProviderRetryOptions.cs" />
     <Compile Include="../Models/ContextPolicyModels.cs" Link="Source/Models/ContextPolicyModels.cs" />
     <Compile Include="../Models/ModelMetadataModels.cs" Link="Source/Models/ModelMetadataModels.cs" />
     <Compile Include="../Models/ModelWarnings.cs" Link="Source/Models/ModelWarnings.cs" />
@@ -48,6 +49,8 @@
     <Compile Include="../Services/Context/ResponsesCallHelpers.cs" Link="Source/Services/Context/ResponsesCallHelpers.cs" />
     <Compile Include="../Services/Context/ResponsesTransport.cs" Link="Source/Services/Context/ResponsesTransport.cs" />
     <Compile Include="../Services/Context/ChatCompletionsTransport.cs" Link="Source/Services/Context/ChatCompletionsTransport.cs" />
+    <Compile Include="../Services/Context/ProviderStreamSanitizer.cs" Link="Source/Services/Context/ProviderStreamSanitizer.cs" />
+    <Compile Include="../Services/Context/ProviderStreamInterruptedException.cs" Link="Source/Services/Context/ProviderStreamInterruptedException.cs" />
     <Compile Include="../Services/Protocol/ResponsesProtocolResolver.cs" Link="Source/Services/Protocol/ResponsesProtocolResolver.cs" />
     <Compile Include="../Services/Context/ResponsesCompatibilityHandler.cs" Link="Source/Services/Context/ResponsesCompatibilityHandler.cs" />
     <Compile Include="../Services/Context/TokenFingerprintService.cs" Link="Source/Services/Context/TokenFingerprintService.cs" />

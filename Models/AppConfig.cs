@@ -36,6 +36,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private int _mainConversationMaxIterations = 50;
 
+    // 流中途被上游掐断时的自动重试。字段缺省即默认值，老配置无需迁移。
+    [ObservableProperty]
+    private ProviderRetryOptions _providerRetry = new();
+
     [ObservableProperty]
     private MainLayoutSettings _mainLayout = new();
 

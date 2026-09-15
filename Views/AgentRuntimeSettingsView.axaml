@@ -50,6 +50,42 @@
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="16">
+                    <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Title}"
+                               FontSize="{DynamicResource App.FontSize.Title}"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Description}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                    <CheckBox Content="{loc:Loc Settings.Agent.ProviderRetry.Enabled}"
+                              IsChecked="{Binding State.Config.ProviderRetry.Enabled}"/>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.MaxAttempts}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="0"
+                                       Maximum="5"
+                                       IsEnabled="{Binding State.Config.ProviderRetry.Enabled}"
+                                       Value="{Binding State.Config.ProviderRetry.MaxAttempts}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="300,180,*">
+                        <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.InitialDelay}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1"
+                                       Minimum="1"
+                                       Maximum="30"
+                                       IsEnabled="{Binding State.Config.ProviderRetry.Enabled}"
+                                       Value="{Binding State.Config.ProviderRetry.InitialDelaySeconds}"/>
+                    </Grid>
+                    <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Backoff}"
+                               TextWrapping="Wrap"
+                               Opacity="0.58"/>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
+                <StackPanel Spacing="16">
                     <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.Title}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
