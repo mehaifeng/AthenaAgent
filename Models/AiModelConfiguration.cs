@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 
 namespace Athena.UI.Models;
 
@@ -89,6 +90,8 @@ public sealed class ProviderReportedModelMetadata
     /// <summary>该模型可用的协议门面，例如 <c>openai</c> / <c>openai-response</c> / <c>anthropic</c> / <c>gemini</c>。</summary>
     public List<string>? SupportedEndpointTypes { get; set; }
 
+    /// <summary>纯派生，不落盘：配置是白名单，计算属性写进去就是只写垃圾（见 CLAUDE.md 规则 2）。</summary>
+    [JsonIgnore]
     public bool HasAnyValue => ContextLength.HasValue
         || MaxCompletionTokens.HasValue
         || InputModalities is { Count: > 0 }
@@ -128,6 +131,8 @@ public partial class ModelMetadataOverrides : ObservableObject
     [ObservableProperty] private ObservableCollection<string>? _inputModalities;
     [ObservableProperty] private ObservableCollection<string>? _outputModalities;
 
+    /// <summary>同上，纯派生不落盘。</summary>
+    [JsonIgnore]
     public bool HasAnyValue => ContextWindowTokens.HasValue
         || MaxCompletionTokens.HasValue
         || SupportsTools.HasValue
