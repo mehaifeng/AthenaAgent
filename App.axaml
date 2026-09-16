@@ -311,6 +311,7 @@
             <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
+            <conv:DurationToTextConverter x:Key="DurationToTextConverter"/>
             <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>

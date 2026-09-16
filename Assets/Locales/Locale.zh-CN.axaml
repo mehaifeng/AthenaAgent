@@ -1005,6 +1005,12 @@
 
     <system:String x:Key="Chat.Archived">已归档</system:String>
 
+    <!-- 助手气泡的总用时：悬停该消息时随操作按钮一起出现。精度跟着量级走。 -->
+    <system:String x:Key="Chat.Duration.Seconds">用时 {0} 秒</system:String>
+    <system:String x:Key="Chat.Duration.MinutesSeconds">用时 {0} 分 {1:00} 秒</system:String>
+    <system:String x:Key="Chat.Duration.HoursMinutes">用时 {0} 时 {1:00} 分</system:String>
+    <system:String x:Key="Chat.Duration.Tip">本轮总用时：从气泡出现到回答结束，含全部工具调用与排队等待</system:String>
+
     <!-- 自动压缩的可见状态：让这段等待有名字、有进度、有终点 -->
     <system:String x:Key="Chat.Context.Compressing">正在整理上下文 · 第 {0}/{1} 段</system:String>
     <system:String x:Key="Chat.Context.Reducing">正在合并摘要 · 第 {0} 层</system:String>

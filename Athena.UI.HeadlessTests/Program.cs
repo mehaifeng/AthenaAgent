@@ -18,6 +18,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Athena.UI;
 using Athena.UI.Controls;
+using Athena.UI.Converters;
 using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Cron;
@@ -6868,10 +6869,35 @@ static void ProbeScrollOverBubble()
 // 除了截图，还断言视觉树里的行序与段序一致——顺序错乱正是这次改造要根治的问题。
 static void TestAssistantBubbleLayoutVisual(string outputPath)
 {
+    // 总用时的精度跟着量级走：不足 10 秒时半秒的差别是感觉得到的，而「4 分 07.3 秒」
+    // 里的小数位只是噪声。四个量级各钉一个，省得下次有人顺手把它统一成一种格式。
+    var durationConverter = new DurationToTextConverter();
+    string FormatDuration(long ms) =>
+        (string)durationConverter.Convert(ms, typeof(string), null, CultureInfo.InvariantCulture)!;
+    var durationCases = new (long Ms, string Text)[]
+    {
+        (800, "用时 0.8 秒"),
+        (12_400, "用时 12 秒"),
+        (247_000, "用时 4 分 07 秒"),
+        (4_140_000, "用时 1 时 09 分"),
+        (0, ""),
+    };
+    foreach (var (ms, expected) in durationCases)
+    {
+        var rendered = FormatDuration(ms);
+        if (rendered != expected)
+            throw new InvalidOperationException($"{ms} ms must read as \"{expected}\"; it rendered \"{rendered}\".");
+    }
+
     using var chat = new MainConversationViewModel();
     chat.Messages.Add(new ChatMessage { Role = "user", Content = "把工具调用和思考打散到正文里" });
 
-    var assistant = new ChatMessage { Role = "assistant", ReasoningContent = "round one\n\nround two" };
+    var assistant = new ChatMessage
+    {
+        Role = "assistant",
+        ReasoningContent = "round one\n\nround two",
+        DurationMs = 83_000
+    };
     assistant.Segments.Add(new ChatMessageSegment
     {
         Kind = ChatMessageSegmentKind.Reasoning,
@@ -7037,6 +7063,24 @@ static void TestAssistantBubbleLayoutVisual(string outputPath)
         Dispatcher.UIThread.RunJobs();
         if (Math.Abs(actions.Opacity - 1.0) > 0.001)
             throw new InvalidOperationException($"Hovering a message row must reveal its actions at once (opacity {actions.Opacity}).");
+
+        // 本轮总用时：必须长在这块已经统一翻转过透明度的子树里。自己再绑一次 IsPointerOver
+        // 或者自带过渡，就是把上面那笔实测的跨行开销再付一遍——而它只是一行小字。
+        var durationText = actions.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(text => text.Name == "TurnDurationText")
+            ?? throw new InvalidOperationException(
+                "The turn duration must live inside the bubble's hover action row, not carry its own hover binding.");
+        if (durationText.Transitions is { Count: > 0 })
+            throw new InvalidOperationException("The turn duration must not animate; it rides the action row's single opacity flip.");
+        if (!durationText.IsVisible || durationText.Text != "用时 1 分 23 秒")
+            throw new InvalidOperationException(
+                $"83 000 ms must read as 「用时 1 分 23 秒」on a finished assistant bubble; it rendered \"{durationText.Text}\" (visible={durationText.IsVisible}).");
+
+        // 没计时的消息（用户消息、以及本功能之前的历史归档）不留空位，也不显示「用时 0 秒」。
+        var userRow = window.GetVisualDescendants().OfType<Grid>()
+            .First(grid => grid.Classes.Contains("message-row") && grid.DataContext is ChatMessage { Role: "user" });
+        if (userRow.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Name == "TurnDurationText" && text.IsVisible))
+            throw new InvalidOperationException("A message with no recorded duration must not show one.");
 
         window.MouseMove(new Point(5, 5));
         Dispatcher.UIThread.RunJobs();
@@ -8187,7 +8231,7 @@ static async Task TestWorkspaceDiffRestoreAsync()
     {
         var modifiedPath = Path.Combine(root, "modified.txt");
         File.WriteAllText(modifiedPath, "before\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8299,7 +8343,7 @@ static async Task TestWorkspaceGitDiffAsync()
         File.WriteAllText(Path.Combine(root, "modified.txt"), "中文保持不变\nbefore\n");
         Directory.CreateDirectory(Path.Combine(root, "folder"));
         File.WriteAllText(Path.Combine(root, "folder", "child.txt"), "child\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8499,7 +8543,7 @@ static async Task TestWorkspaceCommitAsync()
     try
     {
         File.WriteAllText(Path.Combine(root, "modified.txt"), "before\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8565,7 +8609,7 @@ static async Task TestWorkspaceCommitUnstagedAsync()
     try
     {
         File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8629,7 +8673,7 @@ static async Task TestWorkspaceUnstageAsync()
     try
     {
         File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8686,7 +8730,7 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
     try
     {
         File.WriteAllText(Path.Combine(root, "file.txt"), "before\n");
-        RunGitForWorkspaceTest(root, "init", "--quiet");
+        InitGitFixtureRepository(root);
         RunGitForWorkspaceTest(root, "add", ".");
         RunGitForWorkspaceTest(
             root,
@@ -8792,6 +8836,19 @@ static string RunGitForWorkspaceTestOutput(string workingDirectory, params strin
     if (process.ExitCode != 0)
         throw new InvalidOperationException($"Git workspace fixture failed: {standardOutput}");
     return standardOutput;
+}
+
+// 工作区 Git 夹具的唯一入口：建仓之后立刻把换行策略钉死在仓库自己的 .git/config 里。
+// 夹具用 LF 写文件，并逐字节断言 restore 之后的内容，所以它不能继承机器上的那一份配置：
+// Git for Windows 的安装器把 core.autocrlf=true 写在 **system** 级，于是 restore 从对象库
+// 签出时照规矩把 LF 换成 CRLF，硬编码 "\n" 的断言当场对不上——而 git status 是干净的，
+// 症状看上去像「restore 没生效」，指向产品代码，问题其实在夹具。CI 的 Linux 上默认不开，
+// 所以这一条只在 Windows 开发机上现形。写进仓库级配置，工作台内部 shell 出去的每一次
+// git 调用也都吃这条。六个夹具都走这里，省得下一个新夹具再漏一遍。
+static void InitGitFixtureRepository(string root)
+{
+    RunGitForWorkspaceTest(root, "init", "--quiet");
+    RunGitForWorkspaceTest(root, "config", "core.autocrlf", "false");
 }
 
 static void RunGitForWorkspaceTest(string workingDirectory, params string[] arguments)

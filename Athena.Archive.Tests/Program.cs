@@ -5845,11 +5845,29 @@ static async Task TestCreateDirectoryIdempotentAsync()
 
     // 真正的失败（受保护路径、权限）走异常，不会被压进这个返回值里，
     // 因此工具层再也没有一个「false」可以被误译成 FailureResult——旧的失败模式在类型上已不可表达。
+    // 「受保护」刻意定义在夹具自己的临时目录上，而不是借用默认黑名单里的真实系统路径。
+    // 原来写的是 "/etc/athena-should-be-blocked"：那是条 POSIX 路径，而 .NET 在 Windows 上
+    // 会把它规范化成「当前驱动器:\etc\...」，那个位置根本不在 Windows 的写黑名单里
+    // （那张表是 %SystemRoot% / %ProgramFiles% 那一套）。于是这一条在 Windows 上不只是
+    // 断言失败——它真的把目录建了出来，开发机上留下过一个 D:\etc\athena-should-be-blocked。
+    // 换成 %SystemRoot% 之类同样不对：那种路径由 OS 的 ACL 兜底，策略即使失效断言也照样通过，
+    // 测的就不再是这条策略了。用一个用户可写、只由策略保护的临时路径，才两头都成立。
+    var protectedRoot = Path.Combine(harness.Root, "protected-by-policy");
+    var guardedConfig = CreateReadUnrestrictedConfig();
+    void BlockWrites(PlatformFileSystemConfig p) =>
+        p.WriteAccess = new PlatformAccessRule { BlockedDirectories = new() { protectedRoot } };
+    BlockWrites(guardedConfig.FileSystemPolicy.Platforms.Windows);
+    BlockWrites(guardedConfig.FileSystemPolicy.Platforms.MacOS);
+    BlockWrites(guardedConfig.FileSystemPolicy.Platforms.Linux);
+
     var guarded = new FileSystemService(
-        new FakeConfigService(CreateReadUnrestrictedConfig()), harness.PathService, Log.Logger);
+        new FakeConfigService(guardedConfig), harness.PathService, Log.Logger);
     await AssertThrowsAsync<UnauthorizedAccessException>(
-        () => guarded.CreateDirectoryAsync("/etc/athena-should-be-blocked"),
+        () => guarded.CreateDirectoryAsync(Path.Combine(protectedRoot, "athena-should-be-blocked")),
         "受保护路径必须以异常表达，而不是混进「已存在」这个返回值");
+    AssertFalse(
+        Directory.Exists(protectedRoot),
+        "被策略拒绝的创建不得留下任何痕迹——旧写法在 Windows 上把目录真的建了出来");
 }
 
 static Task TestRepeatedToolFailureGuardAsync()
@@ -6441,6 +6459,7 @@ static Task TestPersistedMessageFieldWhitelistAsync()
         Role = "assistant",
         Content = "body",
         Timestamp = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Local),
+        DurationMs = 83_000,
         ProviderId = "p1",
         ModelId = "model-x",
         IsHeartbeat = true,
@@ -6496,7 +6515,7 @@ static Task TestPersistedMessageFieldWhitelistAsync()
         root,
         new[]
         {
-            "id", "role", "content", "timestamp", "providerId", "modelId", "isHeartbeat",
+            "id", "role", "content", "timestamp", "durationMs", "providerId", "modelId", "isHeartbeat",
             "toolCallId", "toolCallsJson", "reasoningContent", "outputAudioReferenceId",
             "audioErrorMessage", "attachments", "segments", "isCompressed", "isHidden", "toolName",
         },
@@ -6772,7 +6791,14 @@ static Task TestUpdaterRewritesBundleVersionAsync()
         var macOs = Path.Combine(bundle, "Contents", "MacOS");
         Directory.CreateDirectory(macOs);
         var plistPath = Path.Combine(bundle, "Contents", "Info.plist");
-        File.WriteAllText(plistPath, PlistTemplate);
+        // 原始字符串字面量原样保留源文件里的换行，而这个仓库的 .gitattributes 只声明了
+        // whitespace=cr-at-eol、没有对 *.cs 做 eol 归一，于是在 core.autocrlf=true 的
+        // Windows 上（Git for Windows 安装器写在 system 级）签出的同一份源码是 CRLF——
+        // 下面那些写死 "\n" 的断言会集体失败，看着像随机抖动，其实只取决于 git 上一次
+        // 怎么动过这个文件。夹具要模仿的是 create_app_bundle（macOS 上的 bash）写出的
+        // plist，那永远是 LF，所以在这里把模板钉成 LF，而不是去改整仓的换行策略。
+        var plistTemplate = PlistTemplate.Replace("\r\n", "\n", StringComparison.Ordinal);
+        File.WriteAllText(plistPath, plistTemplate);
 
         AssertTrue(
             Athena.Updater.MacAppBundle.TryUpdateBundleVersion(macOs, "1.8.2"),
@@ -6791,7 +6817,7 @@ static Task TestUpdaterRewritesBundleVersionAsync()
         // 而 Apple 自己的解析器直接拒收（"unexpected character [ while parsing DTD"），
         // 那等于把 bundle 改成系统读不了的样子，比版本号过期严重得多。
         AssertEqual(
-            PlistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
+            plistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
             rewritten,
             "改写必须只动版本号，DOCTYPE/声明/缩进/<true/> 一律不能被重排");
 
@@ -6808,7 +6834,7 @@ static Task TestUpdaterRewritesBundleVersionAsync()
                 $"不可用的版本号 \"{bad}\" 必须被拒绝，而不是写进 Info.plist");
         }
         AssertEqual(
-            PlistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
+            plistTemplate.Replace("1.6.6", "1.8.2", StringComparison.Ordinal),
             File.ReadAllText(plistPath),
             "被拒绝的版本号不得留下任何痕迹");
 

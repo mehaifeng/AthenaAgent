@@ -1005,6 +1005,12 @@
 
     <system:String x:Key="Chat.Archived">Archived</system:String>
 
+    <!-- Total turn time on an assistant bubble: revealed with the action buttons on hover. -->
+    <system:String x:Key="Chat.Duration.Seconds">Took {0}s</system:String>
+    <system:String x:Key="Chat.Duration.MinutesSeconds">Took {0}m {1:00}s</system:String>
+    <system:String x:Key="Chat.Duration.HoursMinutes">Took {0}h {1:00}m</system:String>
+    <system:String x:Key="Chat.Duration.Tip">Total time for this turn — from the bubble appearing to the answer finishing, including every tool call and any queue wait</system:String>
+
     <!-- Automatic compression, made visible: the wait gets a name, a progress count and an end -->
     <system:String x:Key="Chat.Context.Compressing">Condensing context · part {0}/{1}</system:String>
     <system:String x:Key="Chat.Context.Reducing">Merging summaries · layer {0}</system:String>

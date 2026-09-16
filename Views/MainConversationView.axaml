@@ -646,6 +646,22 @@
                                             AutomationProperties.Name="{loc:Loc Chat.BtnFork}">
                                         <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14"/>
                                     </Button>
+
+                                    <!-- 本轮总用时。刻意住在这块已经由父面板统一翻转透明度的子树里：
+                                         再给它自己绑一次 IsPointerOver，就等于每次光标跨过消息行都多付一次
+                                         样式重算，而滚动时光标每秒要跨好几条（实测见上面 bubble-actions 的注释）。
+                                         同理只用一个 TextBlock，不配时钟图标——不虚拟化的消息列表按每行控件数计预算。 -->
+                                    <Border Width="1" Height="11" VerticalAlignment="Center"
+                                            IsVisible="{Binding HasDuration}"
+                                            Background="{DynamicResource Chat.TimestampFg}"
+                                            Opacity="0.35"/>
+                                    <TextBlock Name="TurnDurationText"
+                                               Text="{Binding DurationMs, Converter={StaticResource DurationToTextConverter}}"
+                                               IsVisible="{Binding HasDuration}"
+                                               Foreground="{DynamicResource Chat.TimestampFg}"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"
+                                               VerticalAlignment="Center"
+                                               ToolTip.Tip="{loc:Loc Chat.Duration.Tip}"/>
                                 </StackPanel>
 
                                 <!-- 压缩边界：从这条线往上，模型看到的是摘要而不是原文。

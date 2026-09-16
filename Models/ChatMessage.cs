@@ -52,6 +52,17 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(TimestampText))]
     private DateTime _timestamp = DateTime.Now;
 
+    /// <summary>
+    /// 本轮总用时（毫秒）：从气泡出现到本轮终结，成功/停止/报错都盖章。
+    /// 由单调时钟测得，而不是两个 DateTime 相减——改系统时钟或跨 DST 会算出负数。
+    /// null = 这条消息没有计时（用户消息、隐藏的工具轮，以及本功能之前的历史归档）。
+    /// 空值不落盘：一份 794 条消息的归档不该为此多出 794 行 null。
+    /// </summary>
+    [ObservableProperty]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [NotifyPropertyChangedFor(nameof(HasDuration))]
+    private long? _durationMs;
+
     /// <summary>该助手消息实际使用的供应商/模型快照；后续配置变化不回写历史。</summary>
     public string? ProviderId { get; set; }
 
@@ -320,6 +331,12 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [JsonIgnore]
     public string TimestampText => Timestamp.ToString("[HH:mm:ss]");
+
+    /// <summary>
+    /// 是否有可展示的总用时。0 毫秒不展示：那不是「很快」，那是根本没量到。
+    /// </summary>
+    [JsonIgnore]
+    public bool HasDuration => DurationMs is > 0;
 
     /// <summary>
     /// 角色显示图标

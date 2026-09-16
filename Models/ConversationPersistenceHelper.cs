@@ -33,6 +33,7 @@ public static class ConversationPersistenceHelper
             Role = msg.Role,
             Content = msg.Content,
             Timestamp = msg.Timestamp,
+            DurationMs = msg.DurationMs,
             ProviderId = msg.ProviderId,
             ModelId = msg.ModelId,
             IsHeartbeat = msg.IsHeartbeat,

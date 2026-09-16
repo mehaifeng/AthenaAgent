@@ -2356,6 +2356,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _forceNewAssistantTextSegment = false;
         _activeTextMaterialized = false;
         var modelSettings = _configService?.Load().AiModels.MainConversation;
+        // 总用时的起点就是气泡出现的那一刻——含并发排队的等待在内，那也是用户实打实在等。
+        // 用单调时间戳而不是 Timestamp 相减：改系统时钟或跨 DST 能把一次回答算成负数。
+        var turnStartedAt = Stopwatch.GetTimestamp();
         var assistantMsg = new ChatMessage
         {
             Role = "assistant",
@@ -2721,6 +2724,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
             if (IsCurrentConversationEpoch(epoch))
             {
+                // 总用时在这里盖章而不是在成功分支里：成功、用户按停止、供应商报错都从这个 finally 过，
+                // 而「刚才等了多久」恰恰是被停止和报错的那两轮最想知道的事。
+                assistantMsg.DurationMs = (long)Stopwatch.GetElapsedTime(turnStartedAt).TotalMilliseconds;
+
                 // 回复生命周期结束：先落内容态，最后统一撤下 loading/streaming 生命线，气泡去留由下方清理判定。
                 assistantMsg.IsLoading = false;
                 assistantMsg.IsComposingFileText = false;

@@ -190,6 +190,57 @@ public class ToolIconKeyToGeometryConverter : IValueConverter
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
+/// <summary>
+/// 助手气泡的总用时（毫秒 → 人读文本）。
+///
+/// 精度跟着量级走：不足一分钟给一位小数（半秒的差别是感觉得到的），
+/// 一分钟以上只到秒、一小时以上只到分——「4 分 07.3 秒」里的小数位纯属噪声。
+/// 单位词过本地化服务，与紧邻的角色标题（RoleToTitleConverter）走同一条路，
+/// 因此也共享同一个已知限制：切换语言不会重算已渲染的这几处文本。
+/// </summary>
+public class DurationToTextConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not long milliseconds || milliseconds <= 0)
+        {
+            return string.Empty;
+        }
+
+        var localizationService = App.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
+        string Text(string key, string fallback) => localizationService?.GetString(key, fallback) ?? fallback;
+
+        if (milliseconds < 60_000)
+        {
+            var seconds = milliseconds / 1000.0;
+            var precision = seconds < 10 ? "0.0" : "0";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                Text("Chat.Duration.Seconds", "Took {0}s"),
+                seconds.ToString(precision, CultureInfo.InvariantCulture));
+        }
+
+        var totalSeconds = milliseconds / 1000;
+        if (milliseconds < 3_600_000)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                Text("Chat.Duration.MinutesSeconds", "Took {0}m {1:00}s"),
+                totalSeconds / 60,
+                totalSeconds % 60);
+        }
+
+        var totalMinutes = totalSeconds / 60;
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            Text("Chat.Duration.HoursMinutes", "Took {0}h {1:00}m"),
+            totalMinutes / 60,
+            totalMinutes % 60);
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
 public class LocConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
