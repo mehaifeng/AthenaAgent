@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -26,6 +27,8 @@ using Athena.UI.Services.Context;
 using Athena.UI.Services.Preview;
 using OpenAI.Responses;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Fonts.Standard14Fonts;
@@ -47,6 +50,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("the streaming reader owns StreamingEnabled and surfaces provider stream failures", TestResponsesStreamingReaderAsync),
     ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
+    ("model catalog timeout follows AppConfig and degraded refreshes name their cause", TestModelCatalogTimeoutAndDegradationDiagnosticsAsync),
     ("provider-reported metadata parser tolerates real /v1/models shapes", TestProviderReportedMetadataParsingAsync),
     ("provider-reported metadata outranks OpenRouter matching", TestProviderReportedMetadataLayerAsync),
     ("provider-reported metadata flows from the listing into the inventory", TestProviderReportedInventoryFlowAsync),
@@ -1771,7 +1775,7 @@ static async Task TestProviderReportedInventoryFlowAsync()
     ]}
     """);
     using var http = new HttpClient(handler);
-    var service = new ModelCatalogService(http);
+    var service = new ModelCatalogService(new TestConfigService(new AppConfig()), http, Log.Logger);
 
     var result = await service.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
     AssertTrue(result.Success, "raw listing should succeed");
@@ -1804,7 +1808,7 @@ static async Task TestProviderReportedInventoryFlowAsync()
 static async Task TestOpenRouterModelCatalogFiltersAsync()
 {
     var handler = new RecordingHttpHandler();
-    var service = new ModelCatalogService(new HttpClient(handler));
+    var service = new ModelCatalogService(new TestConfigService(new AppConfig()), new HttpClient(handler), Log.Logger);
 
     var text = await service.GetTextModelsAsync("https://openrouter.ai/api/v1", "test-key");
     var embeddings = await service.GetEmbeddingModelsAsync("https://openrouter.ai/api/v1", "test-key");
@@ -1815,6 +1819,126 @@ static async Task TestOpenRouterModelCatalogFiltersAsync()
     AssertEqual("alpha/embedding-model", embeddings.Models.Single(), "embedding response should be parsed without name heuristics");
     AssertEqual("text,embeddings", string.Join(',', handler.Modalities), "OpenRouter requests should use distinct output modality filters");
     AssertTrue(handler.AllAuthorized, "OpenRouter requests should carry bearer authorization");
+}
+
+static async Task TestModelCatalogTimeoutAndDegradationDiagnosticsAsync()
+{
+    var config = new AppConfig();
+    var configService = new TestConfigService(config);
+    var sink = new CapturingLogSink();
+    using var logger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+
+    // ——「超时跟随 AppConfig.Timeout」——
+    // 模型列表和对话走的是同一条链路、同一个端点。一个只属于目录服务的硬编码值（曾经是 20 秒）
+    // 会让列表在链路变慢时先于对话放弃，用户看到的症状是「对话能用，但刷新模型列表坏了」——
+    // 指向 UI，而真正的问题在链路上。
+    // 这里用 TaskCanceledException 精确落到「仅内部超时触发」那一支，所以断言不必真的等满一个窗口；
+    // 失败文案里带的秒数正是本次解析出的值。
+    var cancelling = new ThrowingHttpHandler(new TaskCanceledException());
+    using var cancellingHttp = new HttpClient(cancelling);
+    var timing = new ModelCatalogService(configService, cancellingHttp, logger);
+
+    var atDefault = await timing.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
+    AssertEqual($"Request timed out after {OpenAiClientOptionsFactory.DefaultTimeoutSeconds}s", atDefault.ErrorMessage,
+        "an unconfigured timeout must fall back to the shared SDK default, not to a catalog-only constant");
+
+    config.Timeout = 120;
+    var atConfigured = await timing.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
+    AssertEqual("Request timed out after 120s", atConfigured.ErrorMessage,
+        "the catalog request must use the configured timeout, and re-read it per call: the service is a DI singleton, so a value captured at construction would need an app restart to take effect");
+
+    config.Timeout = 1000;
+    var clampedHigh = await timing.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
+    AssertEqual($"Request timed out after {OpenAiClientOptionsFactory.MaxTimeoutSeconds}s", clampedHigh.ErrorMessage,
+        "an out-of-range timeout must be clamped by the same rule the SDK clients use");
+
+    config.Timeout = 1;
+    var clampedLow = await timing.GetModelsAsync("https://api.orcarouter.ai/v1", "test-key");
+    AssertEqual($"Request timed out after {OpenAiClientOptionsFactory.MinTimeoutSeconds}s", clampedLow.ErrorMessage,
+        "the lower clamp comes from that same rule too");
+
+    AssertEqual(4, cancelling.Calls, "each attempt should have reached the transport exactly once");
+
+    // ——「截断」与「形状不认识」必须能在日志里分开 ——
+    // 两者都以 JsonException 落到同一个 catch，之后一律降级到 SDK 回退路径，
+    // UI 上只剩回退那一轮的笼统失败。已读字节数与声明长度的差额是唯一的分界线。
+    // 下面三段都走 OpenRouter 入口：它明确不回退到 SDK 路径，所以断言不会牵出一次真实网络请求。
+    config.Timeout = 60;
+
+    var truncatedBody = Encoding.UTF8.GetBytes("""{"data":[{"id":"openai/gpt-5","context_length":400""");
+    var truncatedHandler = new QueueHttpHandler();
+#pragma warning disable CA2000 // ownership is transferred to the queue and then to HttpClient callers
+    var truncatedResponse = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(truncatedBody) };
+#pragma warning restore CA2000
+    truncatedResponse.Content.Headers.ContentLength = 149_000; // 端点声明的完整长度
+    truncatedHandler.Enqueue(truncatedResponse);
+    using var truncatedHttp = new HttpClient(truncatedHandler);
+
+    sink.Clear();
+    var truncatedResult = await new ModelCatalogService(configService, truncatedHttp, logger)
+        .GetTextModelsAsync("https://openrouter.ai/api/v1", "test-key");
+    AssertFalse(truncatedResult.Success, "a truncated body cannot produce a catalog");
+
+    var truncatedLog = SingleWarning(sink, "truncated body");
+    AssertTrue(truncatedLog.Exception is JsonException,
+        "a truncated body must surface as the JSON-parse branch, which is the one that used to log at Debug");
+    var truncatedRead = (long)LogScalar(truncatedLog, "BytesRead")!;
+    var truncatedDeclared = (string)LogScalar(truncatedLog, "DeclaredBytes")!;
+    AssertEqual((long)truncatedBody.Length, truncatedRead, "the log must carry the bytes actually read off the wire");
+    AssertEqual("149000", truncatedDeclared, "it must also carry the length the endpoint declared");
+    AssertTrue(truncatedRead < long.Parse(truncatedDeclared, CultureInfo.InvariantCulture),
+        "a short read against a larger Content-Length is what 'the body was truncated mid-transfer' looks like");
+
+    var shapeHandler = new QueueHttpHandler();
+    shapeHandler.EnqueueJson("""{"models":[{"id":"openai/gpt-5"}]}""");
+    using var shapeHttp = new HttpClient(shapeHandler);
+
+    sink.Clear();
+    var shapeResult = await new ModelCatalogService(configService, shapeHttp, logger)
+        .GetTextModelsAsync("https://openrouter.ai/api/v1", "test-key");
+    AssertFalse(shapeResult.Success, "a listing with no data array cannot produce a catalog either");
+
+    var shapeLog = SingleWarning(sink, "unrecognized shape");
+    AssertTrue(shapeLog.Exception is null,
+        "an unrecognized shape parsed cleanly; carrying an exception here would blur it into the truncation branch");
+    AssertEqual(JsonValueKind.Object, LogScalar(shapeLog, "RootKind"),
+        "the shape branch names what it did parse, so 'no data array' is not confused with 'not JSON at all'");
+    var shapeRead = (long)LogScalar(shapeLog, "BytesRead")!;
+    AssertEqual(shapeRead.ToString(CultureInfo.InvariantCulture), (string)LogScalar(shapeLog, "DeclaredBytes")!,
+        "a body that arrived whole must report equal read and declared lengths — that equality is the only thing separating 'shape not recognized' from 'truncated'");
+
+    var refusing = new ThrowingHttpHandler(new HttpRequestException("connection refused"));
+    using var refusingHttp = new HttpClient(refusing);
+
+    sink.Clear();
+    var transportResult = await new ModelCatalogService(configService, refusingHttp, logger)
+        .GetTextModelsAsync("https://openrouter.ai/api/v1", "test-key");
+    AssertFalse(transportResult.Success, "a refused connection cannot produce a catalog");
+
+    var transportLog = SingleWarning(sink, "transport failure");
+    AssertTrue(transportLog.Exception is HttpRequestException,
+        "the transport branch must keep the transport exception, not a parse one");
+    AssertEqual(0L, (long)LogScalar(transportLog, "BytesRead")!,
+        "a failure before the body starts reports zero bytes, which is itself the boundary against a mid-transfer truncation");
+
+    // 这三支以前都是 Debug + return null：真实原因被压在 Debug 级别，而每一支之后都要降级，
+    // 所以它们是「这次刷新为什么退化了」的唯一记录。SingleWarning 已经断言了级别，
+    // 这里再钉一次「除了它没有别的 Warning」，防止把原因拆散到多条更低级别的行里。
+    AssertEqual(1, sink.Events.Count(e => e.Level >= LogEventLevel.Warning),
+        "each degraded refresh must leave exactly one warning naming why it degraded");
+}
+
+/// <summary>读日志事件上的结构化标量属性；断言用的是属性值，不是渲染后的句子。</summary>
+static object? LogScalar(LogEvent logEvent, string name)
+    => logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue scalar ? scalar.Value : null;
+
+/// <summary>取唯一一条 Warning 及以上的记录；数量不对时把实际看到的级别一并报出来。</summary>
+static LogEvent SingleWarning(CapturingLogSink sink, string what)
+{
+    var warnings = sink.Events.Where(e => e.Level >= LogEventLevel.Warning).ToList();
+    AssertEqual(1, warnings.Count,
+        $"{what} should leave exactly one warning (saw: {string.Join(", ", sink.Events.Select(e => e.Level))})");
+    return warnings[0];
 }
 
 static Task TestSnapshotFilterAsync()
@@ -7657,6 +7781,27 @@ sealed class RecordingHttpHandler : HttpMessageHandler
     }
 }
 
+/// <summary>收集日志事件，供断言检查「某个降级分支留下了哪一级别的记录」。</summary>
+sealed class CapturingLogSink : ILogEventSink
+{
+    private readonly List<LogEvent> _events = [];
+
+    public IReadOnlyList<LogEvent> Events
+    {
+        get { lock (_events) { return _events.ToList(); } }
+    }
+
+    public void Emit(LogEvent logEvent)
+    {
+        lock (_events) { _events.Add(logEvent); }
+    }
+
+    public void Clear()
+    {
+        lock (_events) { _events.Clear(); }
+    }
+}
+
 sealed class QueueHttpHandler : HttpMessageHandler
 {
     private readonly Queue<HttpResponseMessage> _responses = new();
@@ -7704,12 +7849,18 @@ sealed class SseHttpHandler(string sse) : HttpMessageHandler
 #pragma warning restore CA2000
 }
 
+/// <summary>每次调用都以同一个异常失败，用来精确落到某一个 catch 分支上而不必真的等待网络。</summary>
 sealed class ThrowingHttpHandler(Exception exception) : HttpMessageHandler
 {
+    public int Calls { get; private set; }
+
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
-        CancellationToken cancellationToken) =>
-        Task.FromException<HttpResponseMessage>(exception);
+        CancellationToken cancellationToken)
+    {
+        Calls++;
+        return Task.FromException<HttpResponseMessage>(exception);
+    }
 }
 
 sealed class BlockingMetadataHttpHandler : HttpMessageHandler

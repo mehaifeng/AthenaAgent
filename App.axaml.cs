@@ -1314,8 +1314,11 @@ public partial class App : Application, IAsyncDisposable
         // Prompt 服务（单例）
         services.AddSingleton<IPromptService, PromptService>();
 
-        // 模型列表查询服务（无状态，按需用各字段的 BaseUrl/Key 临时构造客户端）
-        services.AddSingleton<IModelCatalogService, ModelCatalogService>();
+        // 模型列表查询服务（无状态，按需用各字段的 BaseUrl/Key 临时构造客户端）。
+        // 它要读 AppConfig.Timeout，所以显式取 IConfigService：这个类有两个构造函数，
+        // 交给 DI 按参数个数自行挑选，等于把接线结果藏进容器的选择规则里。
+        services.AddSingleton<IModelCatalogService>(sp =>
+            new ModelCatalogService(sp.GetRequiredService<IConfigService>()));
         services.AddSingleton<ModelIdentityMatcher>();
         services.AddSingleton<ModelMetadataResolver>();
         services.AddSingleton<IModelMetadataResolver>(sp => sp.GetRequiredService<ModelMetadataResolver>());

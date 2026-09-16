@@ -271,8 +271,13 @@ var mainConversationView = window.FindControl<MainConversationView>("MainConvers
 // 切换落定后必须不可见——下面那张 main-window.png 就是在它身上取的帧。
 var conversationSwitchVeil = mainConversationView.FindControl<Border>("ConversationSwitchVeil")
                              ?? throw new InvalidOperationException("The conversation switch veil was not mounted inside the conversation view.");
-if (conversationSwitchVeil.IsVisible)
-    throw new InvalidOperationException("The switch veil must be down once the shell has settled.");
+// 落幕要等的是 RowSelectionSettle 那一拍加其后的一次 ContextIdle 回合（见 MainWindowViewModel
+// 的三拍），所以这里只能泵到它落下为止。同步断言在这里是不成立的：上面给 SelectedConversation
+// 赋值就升起了幕布，而 RunJobs() 只排空队列、不推进时钟，于是这条断言实际上是在赌「本机跑到
+// 这一行恰好花掉了 380ms」——慢的机器碰巧过，快的机器必挂。卡住不落的幕布仍然是要抓的那个
+// 静默失败，它现在由这里的超时来抓。
+PumpUntil(() => !conversationSwitchVeil.IsVisible, 5000,
+    "The switch veil must come down once the shell has settled — a veil that never lowers is exactly the silent failure the swap's third beat exists to prevent.");
 var conversationScrollViewer = mainConversationView.FindControl<ScrollViewer>("ChatScrollViewer")
                                ?? throw new InvalidOperationException("The chat scroll viewer was not created.");
 if (Grid.GetRow(conversationSwitchVeil) != Grid.GetRow(conversationScrollViewer)
