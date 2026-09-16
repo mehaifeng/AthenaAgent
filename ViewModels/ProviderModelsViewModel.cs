@@ -115,11 +115,38 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _manualModelId = string.Empty;
 
-    [ObservableProperty]
-    private string _statusText = string.Empty;
+    /// <summary>
+    /// 刷新状态按供应商归属，而不是整页共用一条。右侧配置区渲染的永远是 <see cref="SelectedProvider"/>，
+    /// 而切换选中并不会停下已经发出的刷新——共用一个 StatusText/IsRefreshing 时，A 的 loading 和
+    /// 「发现 N 个模型」会画在 B 的配置区里，看上去像是 B 刷新出来的结果。
+    /// </summary>
+    private readonly Dictionary<string, string> _providerStatus = new(StringComparer.Ordinal);
 
-    [ObservableProperty]
-    private bool _isRefreshing;
+    /// <summary>正在刷新的那一个供应商；同一时刻只有一个（新刷新会取消上一个）。</summary>
+    private string? _refreshingProviderId;
+
+    public string SelectedProviderStatusText =>
+        SelectedProvider is { } provider && _providerStatus.TryGetValue(provider.Id, out var text)
+            ? text
+            : string.Empty;
+
+    public bool IsSelectedProviderRefreshing =>
+        _refreshingProviderId != null
+        && SelectedProvider is { } provider
+        && string.Equals(_refreshingProviderId, provider.Id, StringComparison.Ordinal);
+
+    private void SetProviderStatus(OpenAiProviderConfiguration provider, string text)
+    {
+        if (string.IsNullOrEmpty(text)) _providerStatus.Remove(provider.Id);
+        else _providerStatus[provider.Id] = text;
+        OnPropertyChanged(nameof(SelectedProviderStatusText));
+    }
+
+    private void SetRefreshingProvider(string? providerId)
+    {
+        _refreshingProviderId = providerId;
+        OnPropertyChanged(nameof(IsSelectedProviderRefreshing));
+    }
 
     [RelayCommand]
     private void AddProvider()
@@ -143,12 +170,13 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         var references = Roles.Where(role => role.Settings.ProviderId == provider.Id).Select(role => role.Name).ToList();
         if (references.Count > 0)
         {
-            StatusText = string.Format(
+            SetProviderStatus(provider, string.Format(
                 GetString("ProviderModels.Status.ProviderReferenced", "Cannot delete: still referenced by {0}"),
-                string.Join(", ", references));
+                string.Join(", ", references)));
             return;
         }
         Providers.Remove(provider);
+        _providerStatus.Remove(provider.Id);
         SelectedProvider = Providers.FirstOrDefault();
         RebuildRoles();
     }
@@ -179,16 +207,18 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         _refreshCancellation = cancellation;
         var generation = Interlocked.Increment(ref _refreshGeneration);
         var fingerprint = new ProviderRefreshFingerprint(provider.Id, provider.BaseUrl, provider.ApiKey);
-        IsRefreshing = true;
+        // 上一轮的「发现 N 个模型」不该和新的 loading 并排显示。
+        SetProviderStatus(provider, string.Empty);
+        SetRefreshingProvider(provider.Id);
         try
         {
             var result = await _catalogService.GetModelsAsync(provider.BaseUrl, provider.ApiKey, cancellation.Token);
             if (!CanApplyRefresh(provider, cancellation, generation, fingerprint)) return;
             if (!result.Success)
             {
-                StatusText = string.Format(
+                SetProviderStatus(provider, string.Format(
                     GetString("ProviderModels.Status.InventoryFailed", "Refresh failed; previous inventory retained: {0}"),
-                    result.ErrorMessage);
+                    result.ErrorMessage));
                 return;
             }
 
@@ -220,9 +250,9 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
             provider.Models.Clear();
             foreach (var model in merged) provider.Models.Add(model);
             provider.ModelsRefreshedAt = DateTimeOffset.Now;
-            StatusText = string.Format(
+            SetProviderStatus(provider, string.Format(
                 GetString("ProviderModels.Status.InventoryCount", "Discovered {0} models"),
-                provider.Models.Count);
+                provider.Models.Count));
             RebuildRoles();
             RebuildMetadataModels();
         }
@@ -234,7 +264,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
             if (ReferenceEquals(_refreshCancellation, cancellation))
             {
                 _refreshCancellation = null;
-                if (!_disposed) IsRefreshing = false;
+                if (!_disposed) SetRefreshingProvider(null);
             }
             cancellation.Dispose();
         }
@@ -320,6 +350,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     {
         Config = config;
         OnPropertyChanged(nameof(Providers));
+        _providerStatus.Clear();
         SelectedProvider = null;
         RebuildRoles();
         RebuildMetadataModels();
@@ -328,6 +359,9 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? value)
     {
         RebuildMetadataModels();
+        // 这两条是按供应商归属的投影，换了选中就得重新问一遍。
+        OnPropertyChanged(nameof(SelectedProviderStatusText));
+        OnPropertyChanged(nameof(IsSelectedProviderRefreshing));
         SelectedProtocolOption = value == null
             ? null
             : ProtocolOptions.FirstOrDefault(option => option.Value == value.Protocol);

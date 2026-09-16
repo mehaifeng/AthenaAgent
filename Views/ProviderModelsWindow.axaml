@@ -10,6 +10,18 @@
         Width="1280" Height="820"
         MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <!-- OrcaRouter 入口在左栏是主动作之一，默认底色和面板几乎同色，等于没有入口。
+             叠一层 overlay 而不是写死颜色：这两把刷子是主题变体数据，十套配色都跟得上。
+             写成 Style 而不是内联 Background —— 内联是局部值，会盖掉主题自己的
+             :pointerover，按钮就彻底没有悬停反馈了（见 CLAUDE.md 的 icon-plain 教训）。 -->
+        <Style Selector="u|IconButton.orcarouter-connect">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
+        </Style>
+        <Style Selector="u|IconButton.orcarouter-connect:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.PressOverlay}"/>
+        </Style>
+    </Window.Styles>
     <Grid Margin="5" ColumnDefinitions="280,5,*">
         <!-- 固定宽度的供应商导航，操作按钮始终留在顶部。 -->
         <Border Background="{DynamicResource App.WorkspaceLeftBackground}"
@@ -40,11 +52,8 @@
                                           IsLoading="{Binding OrcaRouter.IsConnecting}"
                                           HorizontalAlignment="Stretch"
                                           HorizontalContentAlignment="Center"
+                                          Classes="orcarouter-connect"
                                           Content="{loc:Loc OrcaRouter.Connect}"/>
-                            <TextBlock Text="{loc:Loc OrcaRouter.Connect.Hint}"
-                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.6"
-                                       TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding OrcaRouter.Status}"
                                        IsVisible="{Binding OrcaRouter.Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        ToolTip.Tip="{Binding OrcaRouter.StatusDetails}"
@@ -215,8 +224,9 @@
                                         <u:IconButton Content="{loc:Loc ProviderModels.RefreshInventory}"
                                                       Command="{Binding RefreshModelsCommand}"
                                                       CommandParameter="{Binding SelectedProvider}"
-                                                      IsLoading="{Binding IsRefreshing}"/>
-                                        <TextBlock Text="{Binding StatusText}"
+                                                      IsLoading="{Binding IsSelectedProviderRefreshing}"/>
+                                        <!-- loading 与结果文本都按供应商归属：切走之后，这一格不会替别人的刷新说话。 -->
+                                        <TextBlock Text="{Binding SelectedProviderStatusText}"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource SemiOrange5}"/>
                                     </StackPanel>

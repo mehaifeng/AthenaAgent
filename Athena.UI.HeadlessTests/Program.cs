@@ -137,6 +137,7 @@ Task.Run(TestWorkspaceUnstageAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGenerateCommitMessageAsync).GetAwaiter().GetResult();
 TestCommitMessageGeneratorDiResolution();
 Task.Run(TestProviderRefreshOrderingAsync).GetAwaiter().GetResult();
+Task.Run(TestProviderRefreshStatusIsProviderScopedAsync).GetAwaiter().GetResult();
 TestProviderMetadataUi(outputPath);
 Task.Run(TestWorkspaceContextDraftAsync).GetAwaiter().GetResult();
 Task.Run(TestDeletedWorkspacePolicyFallbackAsync).GetAwaiter().GetResult();
@@ -4691,6 +4692,53 @@ static async Task TestProviderRefreshOrderingAsync()
     Console.WriteLine("[PASS] Provider Models ignores stale refreshes and preserves referenced unavailable models");
 }
 
+/// <summary>
+/// 右侧配置区渲染的永远是 SelectedProvider，而切换选中不会停下已经发出的刷新。
+/// loading 和结果文本必须跟着发起刷新的那一个供应商走，否则 A 的进度会画进 B 的配置区。
+/// </summary>
+static async Task TestProviderRefreshStatusIsProviderScopedAsync()
+{
+    var configService = new HeadlessConfigService(new AppConfig());
+    using var session = new AppConfigurationSession(configService);
+    var first = new OpenAiProviderConfiguration
+    {
+        Id = "scoped-first",
+        DisplayName = "First",
+        BaseUrl = "https://first.invalid/v1",
+        ApiKey = "first-key"
+    };
+    var second = new OpenAiProviderConfiguration
+    {
+        Id = "scoped-second",
+        DisplayName = "Second",
+        BaseUrl = "https://second.invalid/v1",
+        ApiKey = "second-key"
+    };
+    session.Current.AiModels.Providers.Add(first);
+    session.Current.AiModels.Providers.Add(second);
+
+    var catalog = new OrderedModelCatalogService();
+    using var viewModel = new ProviderModelsViewModel(session, catalog) { SelectedProvider = first };
+    var refresh = viewModel.RefreshModelsCommand.ExecuteAsync(first);
+    await catalog.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    if (!viewModel.IsSelectedProviderRefreshing)
+        throw new InvalidOperationException("The refreshing provider did not report its own loading state.");
+
+    viewModel.SelectedProvider = second;
+    if (viewModel.IsSelectedProviderRefreshing || viewModel.SelectedProviderStatusText.Length != 0)
+        throw new InvalidOperationException("Another provider's in-flight refresh leaked into the newly selected provider.");
+
+    catalog.FirstResult.TrySetResult(ModelCatalogResult.Ok(["scoped-model"]));
+    await refresh;
+    if (viewModel.IsSelectedProviderRefreshing || viewModel.SelectedProviderStatusText.Length != 0)
+        throw new InvalidOperationException("Another provider's refresh result leaked into the newly selected provider.");
+
+    viewModel.SelectedProvider = first;
+    if (viewModel.SelectedProviderStatusText.Length == 0)
+        throw new InvalidOperationException("The provider that was refreshed lost its own result text after switching back.");
+    Console.WriteLine("[PASS] Provider Models keeps refresh loading and result text with the provider that started it");
+}
+
 static void TestProviderMetadataUi(string outputPath)
 {
     var config = new AppConfig();
@@ -4878,6 +4926,12 @@ static void TestOrcaRouterConnectEntryPoints(string outputDirectory)
                      ?? throw new InvalidOperationException("供应商窗口没有渲染 OrcaRouter 接入按钮。");
         if (!button.IsVisible || !button.IsEffectivelyEnabled)
             throw new InvalidOperationException("端点配置可用时 OrcaRouter 接入按钮必须可用。");
+
+        // 底色来自 Window.Styles 里的 orcarouter-connect 规则。选择器写歪时它会静默回落到主题默认值
+        // ——与左栏面板几乎同色，也就是当初那个「看不见的入口」。
+        if (!button.TryFindResource("App.HoverOverlay", window.ActualThemeVariant, out var entryBackground)
+            || !ReferenceEquals(((Avalonia.Controls.Primitives.TemplatedControl)button).Background, entryBackground))
+            throw new InvalidOperationException("OrcaRouter 接入按钮没有拿到加深过的底色。");
 
         viewModel.OrcaRouter.ConnectCommand.Execute(null);
         PumpUntil(() => !viewModel.OrcaRouter.IsConnecting, 10000, "OrcaRouter 接入流程没有收尾。");
