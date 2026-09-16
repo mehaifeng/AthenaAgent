@@ -185,6 +185,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("create_directory is idempotent so an existing directory never looks like a failure", TestCreateDirectoryIdempotentAsync),
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
     ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
+    ("only whitelisted fields reach config; derived provider metadata never does", TestPersistedProviderInventoryFieldWhitelistAsync),
     ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync),
     ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync),
     ("OrcaRouter PKCE material is S256-derived, url-safe and never reused", TestOrcaRouterPkceAsync),
@@ -6515,6 +6516,116 @@ static Task TestPersistedMessageFieldWhitelistAsync()
     AssertFalse(
         serialized.Contains("Command\":", StringComparison.Ordinal),
         "归档里不应出现任何 ICommand 属性——命令是行为不是状态，用 [property: JsonIgnore] 挡住");
+
+    return Task.CompletedTask;
+}
+
+static Task TestPersistedProviderInventoryFieldWhitelistAsync()
+{
+    // 必须与 ConfigService.JsonOptions 一致，否则测的不是真实落盘形态。
+    var options = new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    // 全字段填满：默认值可能因缺省而缺席，掩盖真正的泄漏。
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "p1",
+        DisplayName = "OrcaRouter",
+        ProviderPreset = "OrcaRouter",
+        BaseUrl = "https://api.orcarouter.ai/v1",
+        ApiKey = "sk-test",
+        Protocol = ProviderProtocol.Responses,
+        ModelsRefreshedAt = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.FromHours(8))
+    };
+    provider.Models.Add(new ProviderModelDescriptor
+    {
+        Id = "openai/gpt-5",
+        DisplayName = "openai/gpt-5",
+        Capability = ModelCapability.Text,
+        IsManual = true,
+        IsAvailable = true,
+        Reported = new ProviderReportedModelMetadata
+        {
+            ContextLength = 400_000,
+            MaxCompletionTokens = 128_000,
+            InputModalities = ["text", "image"],
+            OutputModalities = ["text"],
+            SupportedEndpointTypes = ["openai", "openai-response"]
+        }
+    });
+
+    var profile = new ProviderModelMetadataProfile
+    {
+        ProviderId = "p1",
+        ExternalModelId = "openai/gpt-5",
+        BindingMode = ModelMetadataBindingMode.PinnedOpenRouter,
+        PinnedOpenRouterModelId = "openai/gpt-5",
+        Overrides = new ModelMetadataOverrides
+        {
+            ContextWindowTokens = 200_000,
+            MaxCompletionTokens = 32_000,
+            SupportsTools = true,
+            SupportsReasoning = true,
+            SupportsStructuredOutput = true,
+            SupportsResponses = true,
+            ReasoningEffort = ReasoningEffort.High,
+            InputModalities = ["text"],
+            OutputModalities = ["text"]
+        }
+    };
+
+    using var providerDocument = JsonDocument.Parse(JsonSerializer.Serialize(provider, options));
+    var providerRoot = providerDocument.RootElement;
+
+    AssertPersistedFields(
+        providerRoot,
+        new[] { "id", "displayName", "providerPreset", "baseUrl", "apiKey", "protocol", "models", "modelsRefreshedAt" },
+        "OpenAiProviderConfiguration");
+
+    var descriptor = providerRoot.GetProperty("models")[0];
+    AssertPersistedFields(
+        descriptor,
+        new[] { "id", "displayName", "capability", "isManual", "isAvailable", "reported" },
+        "ProviderModelDescriptor");
+
+    // hasAnyValue 是派生属性。它曾经真的落过盘：一次 OrcaRouter 刷新写下 196 个模型，
+    // 其中 187 个各带一行 "hasAnyValue": true，纯属只写垃圾（配置用 WriteIndented，
+    // 每个字段占一整行）。get-only 属性反序列化时被忽略，所以它从来不会被读回来。
+    AssertPersistedFields(
+        descriptor.GetProperty("reported"),
+        new[] { "contextLength", "maxCompletionTokens", "inputModalities", "outputModalities", "supportedEndpointTypes" },
+        "ProviderReportedModelMetadata");
+
+    using var profileDocument = JsonDocument.Parse(JsonSerializer.Serialize(profile, options));
+    var profileRoot = profileDocument.RootElement;
+
+    AssertPersistedFields(
+        profileRoot,
+        new[] { "providerId", "externalModelId", "bindingMode", "pinnedOpenRouterModelId", "overrides" },
+        "ProviderModelMetadataProfile");
+
+    AssertPersistedFields(
+        profileRoot.GetProperty("overrides"),
+        new[]
+        {
+            "contextWindowTokens", "maxCompletionTokens", "supportsTools", "supportsReasoning",
+            "supportsStructuredOutput", "supportsResponses", "reasoningEffort",
+            "inputModalities", "outputModalities",
+        },
+        "ModelMetadataOverrides");
+
+    // 反向保护：这几个类型都是 ObservableObject，[RelayCommand] 一旦加进来就会生成 ICommand 属性。
+    AssertFalse(
+        JsonSerializer.Serialize(provider, options).Contains("Command\":", StringComparison.Ordinal)
+        || JsonSerializer.Serialize(profile, options).Contains("Command\":", StringComparison.Ordinal),
+        "配置里不应出现任何 ICommand 属性——命令是行为不是状态，用 [property: JsonIgnore] 挡住");
+
+    // 派生值本身仍要工作，只是不落盘——别用「删掉这个属性」来让断言变绿。
+    AssertTrue(provider.Models[0].Reported!.HasAnyValue, "HasAnyValue 仍应是可用的运行时判断");
+    AssertTrue(profile.Overrides.HasAnyValue, "覆盖项的 HasAnyValue 同样仍应可用");
 
     return Task.CompletedTask;
 }
