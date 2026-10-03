@@ -236,6 +236,12 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _subAgentsInheritApproval = false;
 
+    // 审批弹窗的 Jev 影子评估（实验，默认关闭，见 Services/Decisions/ApprovalShadow）：弹窗时在后台把这次调用
+    // 连同用户最近的请求发给 TypeSafe Jev 打分，和用户的最终选择写进同一条日志。只收集数据，不参与裁决。
+    // 故意不进 ConfigFieldCatalog：模型不能替用户打开「向第三方发送数据」的开关。
+    [ObservableProperty]
+    private bool _approvalShadowEnabled = false;
+
     // MCP 扩展（Model Context Protocol）—— 外部工具服务器接入
     // EnableMcp 关闭时，FunctionRegistry 隐藏三个 meta-tool，配置项亦不参与生命周期。
     [ObservableProperty]

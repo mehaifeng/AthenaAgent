@@ -1212,6 +1212,15 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
                 Log.ForContext<AiToolApprovalEvaluator>()));
 
+        // 审批弹窗的 Jev 影子评估（默认关闭）：只收集分数，不参与裁决。
+        services.AddSingleton<Athena.UI.Services.Decisions.ISystemOneClient>(_ => new Athena.UI.Services.Decisions.SystemOneClient());
+        services.AddSingleton<IApprovalShadow>(sp =>
+            new Athena.UI.Services.Decisions.ApprovalShadow(
+                sp.GetRequiredService<IConfigService>(),
+                sp.GetRequiredService<Athena.UI.Services.Decisions.ISystemOneClient>(),
+                sp.GetRequiredService<IWorkspaceService>(),
+                Log.ForContext<Athena.UI.Services.Decisions.ApprovalShadow>()));
+
         services.AddSingleton<IToolApprovalService>(sp =>
         {
             var configService = sp.GetRequiredService<IConfigService>();
@@ -1219,7 +1228,8 @@ public partial class App : Application, IAsyncDisposable
             var sessionAccessor = sp.GetService<IConversationSessionAccessor>();
             var aiEvaluator = sp.GetService<IAiToolApprovalEvaluator>();
             var localizationService = sp.GetService<ILocalizationService>();
-            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator, localizationService, sp.GetRequiredService<ConversationExecutionCoordinator>());
+            return new ToolApprovalService(configService, prompter, Log.ForContext<ToolApprovalService>(), sessionAccessor, aiEvaluator, localizationService, sp.GetRequiredService<ConversationExecutionCoordinator>(),
+                sp.GetRequiredService<IApprovalShadow>());
         });
 
         // --- MCP 扩展（Model Context Protocol）---

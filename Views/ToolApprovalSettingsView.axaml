@@ -68,6 +68,11 @@
                 </ListBox>
                 <CheckBox Content="{loc:Loc Config.ToolApproval.SubAgentsInherit}"
                           IsChecked="{Binding State.Config.SubAgentsInheritApproval}"/>
+                <CheckBox Content="{loc:Loc Config.ToolApproval.JevShadow}"
+                          IsChecked="{Binding State.Config.ApprovalShadowEnabled}"/>
+                <TextBlock Text="{loc:Loc Settings.Approval.JevShadowHint}"
+                           TextWrapping="Wrap"
+                           Opacity="0.62"/>
             </StackPanel>
 
             <Border Padding="18"
