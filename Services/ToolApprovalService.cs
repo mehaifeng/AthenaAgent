@@ -22,6 +22,7 @@ public class ToolApprovalService : IToolApprovalService
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
     private readonly ConversationExecutionCoordinator? _executionCoordinator;
+    private readonly IApprovalShadow? _approvalShadow;
 
     // 会话内「始终允许」的去重键（AllowForSession）。键含当前对话 ID，做到每个对话独立——
     // 新开对话不会继承上一对话的会话放行。终端命令按命令名聚合。
@@ -35,7 +36,8 @@ public class ToolApprovalService : IToolApprovalService
         IConversationSessionAccessor? sessionAccessor = null,
         IAiToolApprovalEvaluator? aiEvaluator = null,
         ILocalizationService? localizationService = null,
-        ConversationExecutionCoordinator? executionCoordinator = null)
+        ConversationExecutionCoordinator? executionCoordinator = null,
+        IApprovalShadow? approvalShadow = null)
     {
         _configService = configService;
         _prompter = prompter;
@@ -44,6 +46,7 @@ public class ToolApprovalService : IToolApprovalService
         _localizationService = localizationService;
         _logger = logger.ForContext<ToolApprovalService>();
         _executionCoordinator = executionCoordinator;
+        _approvalShadow = approvalShadow;
     }
 
     public async Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken)
@@ -114,6 +117,10 @@ public class ToolApprovalService : IToolApprovalService
             return nonInteractive;
         }
 
+        // 影子评估（默认关闭）：用户被询问的这一刻，让决策模型在后台给同一次调用打分，
+        // 分数和用户的选择写进同一条日志。它不参与裁决——这里既不等它，也不看它的结果。
+        var shadow = BeginShadow(config, functionName, argumentsJson, risk);
+
         ToolApprovalScope scope;
         try
         {
@@ -126,11 +133,13 @@ public class ToolApprovalService : IToolApprovalService
         }
         catch (OperationCanceledException)
         {
+            shadow?.Complete("Cancelled");
             var cancelled = ToolApprovalDecision.Deny("用户取消了本轮回复");
             _logger.Information("ToolApproval prompt cancelled by user: Function={Function}", functionName);
             Audit(functionName, risk, execMode, cancelled);
             return cancelled;
         }
+        shadow?.Complete(scope.ToString());
 
         // 记忆用户的放行选择。
         if (scope == ToolApprovalScope.AllowForSession)
@@ -158,6 +167,34 @@ public class ToolApprovalService : IToolApprovalService
         };
         Audit(functionName, risk, execMode, userDecision);
         return userDecision;
+    }
+
+    /// <summary>
+    /// 开关打开时开始影子评分。影子服务按约定不抛异常，这里仍兜一层：审批闸门不能因为一个实验失败。
+    /// </summary>
+    private IApprovalShadowRun? BeginShadow(AppConfig config, string functionName, string argumentsJson, ToolRisk risk)
+    {
+        if (!config.ApprovalShadowEnabled) return null;
+        if (_approvalShadow == null)
+        {
+            _logger.Warning("Approval shadow scoring is enabled but no shadow service is wired; nothing is recorded");
+            return null;
+        }
+
+        try
+        {
+            return _approvalShadow.Begin(new ApprovalShadowCall(
+                functionName,
+                argumentsJson,
+                risk,
+                ToolApprovalContext.CurrentDelegatedTask,
+                _sessionAccessor?.CurrentWorkspaceId));
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Approval shadow scoring failed to start for {Function}", functionName);
+            return null;
+        }
     }
 
     /// <summary>

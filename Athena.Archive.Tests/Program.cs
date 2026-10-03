@@ -14,11 +14,13 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Cron;
+using Athena.UI.Services.Decisions;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
@@ -152,6 +154,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
     ("approval: the automatic-approval model never decides human-only or unattended-destructive calls", TestApprovalModelNeverDecidesHumanOnlyCallsAsync),
     ("approval: delegated task carries the latest two user messages, bounded", TestApprovalDelegatedTaskTextAsync),
+    ("approval shadow: the decision model sees commands, paths and lengths, never bodies or secrets", TestApprovalShadowStateAsync),
+    ("approval shadow: scores are logged beside the user's decision and never decide it", TestApprovalShadowRecordsBesideDecisionAsync),
+    ("approval shadow: system one client request shape, answers and failures", TestSystemOneClientAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
     ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
     ("filesystem: chunked reads keep UTF-8 intact and flag partial lines", TestChunkedReadBoundaryAsync),
@@ -5000,6 +5005,372 @@ static Task TestApprovalDelegatedTaskTextAsync()
     return Task.CompletedTask;
 }
 
+// 设置页开关对用户承诺的发送范围：命令、路径、长度，绝不带文件正文或密钥。一张表跑完再统一断言。
+static Task TestApprovalShadowStateAsync()
+{
+    var failures = new List<string>();
+    static string? Text(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : node?.ToJsonString();
+    void Expect(string name, JsonNode? actual, string? expected)
+    {
+        var text = Text(actual);
+        if (!string.Equals(text, expected, StringComparison.Ordinal))
+            failures.Add($"{name}: want <{expected ?? "null"}>, got <{text ?? "null"}>");
+    }
+
+    var terminal = ApprovalShadowState.Build("execute_terminal_command",
+        "{\"command\":\"git\",\"arguments\":[\"status\",\"--short\"],\"workingDirectory\":\"/w/proj\",\"timeoutSeconds\":30}", null, null);
+    Expect("terminal command line", terminal["call"]?["command_line"], "git status --short");
+    Expect("terminal working directory", terminal["call"]?["workingDirectory"], "/w/proj");
+    Expect("numbers survive", terminal["call"]?["timeoutSeconds"], "30");
+    Expect("known tools carry an effect line", terminal["tool_effect"], "Executes the given command on the user's computer.");
+    Expect("no task unless given", terminal["task"], null);
+    Expect("no project unless given", terminal["project"], null);
+
+    var leaky = Text(ApprovalShadowState.Build("execute_terminal_command",
+        "{\"command\":\"curl\",\"arguments\":[\"-H\",\"Authorization: Bearer abcdefghijklmnop12345\",\"https://api.example.com/v1/items?api_key=SECRET123\"]}",
+        null, null)["call"]?["command_line"]) ?? string.Empty;
+    if (leaky.Contains("abcdefghijklmnop12345", StringComparison.Ordinal) || leaky.Contains("SECRET123", StringComparison.Ordinal))
+        failures.Add($"secrets inside a command line must be masked: <{leaky}>");
+
+    var write = ApprovalShadowState.Build("write_system_file", "{\"path\":\"/w/proj/notes.md\",\"content\":\"private plans\"}", null, null);
+    Expect("file path kept", write["call"]?["path"], "/w/proj/notes.md");
+    Expect("file body is only a length", write["call"]?["content"], "<omitted: 13 chars>");
+
+    var secretConfig = ApprovalShadowState.Build("modify_self_configuration",
+        "{\"key\":\"AiModels.Providers.0.ApiKey\",\"value\":\"live-key-value\"}", null, null);
+    Expect("config key kept", secretConfig["call"]?["key"], "AiModels.Providers.0.ApiKey");
+    Expect("a secret config value is masked by its key", secretConfig["call"]?["value"], "[REDACTED]");
+    Expect("a plain config value is kept", ApprovalShadowState.Build("modify_self_configuration",
+        "{\"key\":\"Security.ToolApprovalMode\",\"value\":\"Off\"}", null, null)["call"]?["value"], "Off");
+
+    Expect("urls lose query and fragment", ApprovalShadowState.Build("fetch_url_to_file",
+        "{\"url\":\"https://example.com/a.png?sig=xyz#frag\",\"outputPath\":\"/w/proj/a.png\"}", null, null)["call"]?["url"],
+        "https://example.com/a.png");
+
+    var schedule = ApprovalShadowState.Build("create_task", "{\"intent\":\"email my boss\",\"scheduledTime\":\"tomorrow 9am\"}", null, null);
+    Expect("scheduled instructions are only a length", schedule["call"]?["intent"], "<omitted: 13 chars>");
+    Expect("free-text schedule is only a length", schedule["call"]?["scheduledTime"], "<omitted: 12 chars>");
+
+    var browser = ApprovalShadowState.Build("run_browser_task",
+        "{\"instruction\":\"buy two tickets\",\"startUrl\":\"https://example.org/?ref=me\",\"maxSteps\":10}", null, null);
+    Expect("browser instructions are only a length", browser["call"]?["instruction"], "<omitted: 15 chars>");
+    Expect("browser start url loses its query", browser["call"]?["startUrl"], "https://example.org/");
+    Expect("browser step budget kept", browser["call"]?["maxSteps"], "10");
+
+    var dispatch = ApprovalShadowState.Build("dispatch_subagents",
+        "{\"tasks\":[{\"title\":\"scan\",\"instruction\":\"read every log\",\"agent_type\":\"researcher\"}]}", null, null);
+    Expect("sub-agent instructions are only a length", dispatch["call"]?["tasks"]?[0]?["instruction"], "<omitted: 14 chars>");
+    Expect("sub-agent type kept", dispatch["call"]?["tasks"]?[0]?["agent_type"], "researcher");
+
+    // 终端以外的命令：拉起 MCP 服务器的命令行正是风险所在，必须原样带上。
+    var server = ApprovalShadowState.Build("mcp_add_server",
+        "{\"name\":\"files\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\",\"/w\"]}", null, null);
+    Expect("server command kept", server["call"]?["command"], "npx");
+    Expect("server args kept", server["call"]?["args"], "[\"-y\",\"@modelcontextprotocol/server-filesystem\",\"/w\"]");
+    Expect("server name is only a length", server["call"]?["name"], "<omitted: 5 chars>");
+
+    var nested = ApprovalShadowState.Build("mcp_call_tool",
+        "{\"apiKey\":\"abc\",\"arguments\":{\"token\":\"t\",\"path\":\"/p\",\"note\":\"hello\"}}", null, null);
+    Expect("secret-named field masked", nested["call"]?["apiKey"], "[REDACTED]");
+    Expect("nested secret masked", nested["call"]?["arguments"]?["token"], "[REDACTED]");
+    Expect("nested path kept", nested["call"]?["arguments"]?["path"], "/p");
+    Expect("nested free text is only a length", nested["call"]?["arguments"]?["note"], "<omitted: 5 chars>");
+
+    var context = ApprovalShadowState.Build("write_system_file", "{\"path\":\"a\"}", "Latest user message: tidy up", "/w/proj");
+    Expect("the task travels with the call", context["task"], "Latest user message: tidy up");
+    Expect("the project travels with the call", context["project"], "/w/proj");
+
+    Expect("unparsable arguments send only the tool name",
+        ApprovalShadowState.Build("write_system_file", "{not json", null, null)["call"], "{\"tool\":\"write_system_file\"}");
+    Expect("unknown tools carry no effect line",
+        ApprovalShadowState.Build("some_future_tool", "{}", null, null)["tool_effect"], null);
+
+    AssertTrue(failures.Count == 0, "approval shadow state:\n  " + string.Join("\n  ", failures));
+    return Task.CompletedTask;
+}
+
+// 影子评估只收数据：弹窗时打分，分数和用户的选择写进同一条日志；任何情况下都不改变、也不拖慢裁决。
+static async Task TestApprovalShadowRecordsBesideDecisionAsync()
+{
+    const string writeArgs = "{\"path\":\"/w/proj/a.md\",\"content\":\"x\"}";
+    const string task = "Latest user message: tidy the logs";
+    const ToolApprovalContext.ExecutionMode main = ToolApprovalContext.ExecutionMode.Interactive;
+    var failures = new List<string>();
+
+    static AppConfig Config(ToolApprovalMode mode, bool shadow = true, bool connection = true)
+    {
+        var config = new AppConfig { ToolApprovalMode = mode, ApprovalShadowEnabled = shadow };
+        if (connection)
+        {
+            config.AiModels.Providers.Add(new OpenAiProviderConfiguration
+            {
+                Id = "openrouter",
+                DisplayName = "OpenRouter",
+                BaseUrl = "https://openrouter.ai/api/v1",
+                ApiKey = "test-key"
+            });
+        }
+        return config;
+    }
+
+    static Logger NewLogger(CapturingLogSink sink) =>
+        new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+
+    static bool IsShadowEvent(LogEvent logEvent) =>
+        logEvent.MessageTemplate.Text.StartsWith("ApprovalShadow", StringComparison.Ordinal);
+
+    static async Task<LogEvent?> WaitForShadowEventAsync(CapturingLogSink sink)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (watch.ElapsedMilliseconds < 5000)
+        {
+            var hit = sink.Events.FirstOrDefault(IsShadowEvent);
+            if (hit is not null) return hit;
+            await Task.Delay(10);
+        }
+        return null;
+    }
+
+    static async Task<(ToolApprovalDecision Decision, long ElapsedMs)> EvaluateAsync(
+        AppConfig config, ISystemOneClient client, IToolApprovalPrompter? prompter, ILogger logger,
+        string function, string args, ToolApprovalContext.ExecutionMode exec = main, string? delegatedTask = task,
+        TimeSpan? timeout = null)
+    {
+        var configService = new TestConfigService(config);
+        var shadow = new ApprovalShadow(configService, client, new StubWorkspaceService("ws-1", "/w/proj"), logger, timeout);
+        var service = new ToolApprovalService(configService, prompter, logger,
+            sessionAccessor: new FakeConversationSessionAccessor { CurrentConversationId = "conv-1", CurrentWorkspaceId = "ws-1" },
+            aiEvaluator: new CapturingApprovalEvaluator(),
+            approvalShadow: shadow);
+        using var scope = exec == main
+            ? ToolApprovalContext.EnterInteractive(delegatedTask)
+            : ToolApprovalContext.EnterNonInteractive();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var decision = await service.EvaluateAsync(function, args, CancellationToken.None);
+        return (decision, watch.ElapsedMilliseconds);
+    }
+
+    // —— 用户拒绝，分数全是放行：拒绝照样成立，两者写进同一条日志 ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = FakeSystemOneClient.Answering(0.99);
+        var (decision, _) = await EvaluateAsync(Config(ToolApprovalMode.Balanced), client,
+            new FakeApprovalPrompter(ToolApprovalScope.Deny), logger, "write_system_file", writeArgs);
+        if (decision.Approved) failures.Add("the user's Deny must stand even when every score says allow");
+
+        var line = await WaitForShadowEventAsync(sink);
+        if (line is null || line.Level != LogEventLevel.Information)
+        {
+            failures.Add($"a scored prompt must leave one Information line (got {line?.Level.ToString() ?? "none"})");
+        }
+        else
+        {
+            foreach (var (name, want) in new (string, object?)[]
+                     {
+                         ("Function", "write_system_file"), ("Risk", ToolRisk.Sensitive), ("Decision", "Deny"),
+                         ("Reversible", 0.99), ("Routine", 0.99), ("ServesTask", 0.99), ("HasTask", true), ("HasProject", true),
+                         ("QuestionSet", "2026-10-03"), ("Model", "typesafe/jev-1.13-test")
+                     })
+            {
+                var got = LogScalar(line, name);
+                if (!Equals(got, want)) failures.Add($"logged {name}: want <{want}>, got <{got ?? "null"}>");
+            }
+        }
+
+        var request = client.Requests.Count == 1 ? client.Requests[0] : null;
+        if (request is null)
+        {
+            failures.Add($"one prompt must cost exactly one decision request (saw {client.Requests.Count})");
+        }
+        else
+        {
+            if (request.BaseUrl != "https://openrouter.ai/api/v1" || request.ApiKey != "test-key")
+                failures.Add($"the request must use the OpenRouter connection (got {request.BaseUrl})");
+            if (request.Model != "typesafe/jev-1.13") failures.Add($"the model must stay pinned (got {request.Model})");
+            var asked = string.Join(",", request.Questions.Select(q => q.Name));
+            if (asked != "reversible,routine,serves_task") failures.Add($"with a task, all three questions are asked (got {asked})");
+            if (Text(request.State["task"]) != task) failures.Add("the delegated task must reach the decision model");
+            if (Text(request.State["project"]) != "/w/proj") failures.Add("the workspace directory must reach the decision model");
+        }
+    }
+
+    // —— 不知道任务时不问 serves_task ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = FakeSystemOneClient.Answering(0.5);
+        await EvaluateAsync(Config(ToolApprovalMode.Balanced), client, new FakeApprovalPrompter(ToolApprovalScope.AllowOnce),
+            logger, "write_system_file", writeArgs, delegatedTask: null);
+        var line = await WaitForShadowEventAsync(sink);
+        var asked = client.Requests.Count == 1 ? string.Join(",", client.Requests[0].Questions.Select(q => q.Name)) : "(none)";
+        if (asked != "reversible,routine" || line is null
+            || LogScalar(line, "ServesTask") is not null || !Equals(LogScalar(line, "HasTask"), false))
+            failures.Add($"without a task serves_task must not be asked (asked {asked})");
+    }
+
+    // —— 关着就什么都不做 ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = FakeSystemOneClient.Answering(0.5);
+        await EvaluateAsync(Config(ToolApprovalMode.Balanced, shadow: false), client,
+            new FakeApprovalPrompter(ToolApprovalScope.AllowOnce), logger, "write_system_file", writeArgs);
+        await Task.Delay(150);
+        if (client.Requests.Count != 0 || sink.Events.Any(IsShadowEvent))
+            failures.Add("a disabled shadow must neither score nor log");
+    }
+
+    // —— 只有弹窗才打分：没人被询问，就没有可以对照的选择 ——
+    foreach (var (name, config, exec, function, args) in new (string, AppConfig, ToolApprovalContext.ExecutionMode, string, string)[]
+             {
+                 ("read-only auto-allow", Config(ToolApprovalMode.Balanced), main, "read_system_file", "{\"path\":\"a\"}"),
+                 ("Off mode", Config(ToolApprovalMode.Off), main, "write_system_file", writeArgs),
+                 ("Automatic mode", Config(ToolApprovalMode.Automatic), main, "write_system_file", writeArgs),
+                 ("sub-agent path", Config(ToolApprovalMode.Balanced), ToolApprovalContext.ExecutionMode.NonInteractive, "write_system_file", writeArgs),
+             })
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = FakeSystemOneClient.Answering(0.5);
+        await EvaluateAsync(config, client, new FakeApprovalPrompter(ToolApprovalScope.AllowOnce), logger, function, args, exec);
+        await Task.Delay(150);
+        if (client.Requests.Count != 0) failures.Add($"{name}: nobody was asked, so nothing may be scored");
+    }
+
+    // —— 请求失败：裁决不变，留一条点名 HTTP 错误的 Warning ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = new FakeSystemOneClient((_, _) =>
+            Task.FromException<SystemOneResult>(new SystemOneException("HTTP 402: Insufficient credits")));
+        var (decision, _) = await EvaluateAsync(Config(ToolApprovalMode.Balanced), client,
+            new FakeApprovalPrompter(ToolApprovalScope.AllowOnce), logger, "write_system_file", writeArgs);
+        var line = await WaitForShadowEventAsync(sink);
+        if (!decision.Approved) failures.Add("a failing shadow must not change the user's AllowOnce");
+        if (line is null || line.Level != LogEventLevel.Warning
+            || !(LogScalar(line, "Error") as string ?? string.Empty).Contains("HTTP 402", StringComparison.Ordinal))
+            failures.Add("a failing request must leave a Warning that names the HTTP error");
+    }
+
+    // —— 请求卡住：裁决不等它；超时后留一条 Warning ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var client = new FakeSystemOneClient(async (_, token) =>
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return null!;
+        });
+        var (decision, elapsedMs) = await EvaluateAsync(Config(ToolApprovalMode.Balanced), client,
+            new FakeApprovalPrompter(ToolApprovalScope.AllowOnce), logger, "write_system_file", writeArgs,
+            timeout: TimeSpan.FromSeconds(1.5));
+        if (elapsedMs >= 1000) failures.Add($"the decision waited {elapsedMs} ms on a hanging shadow");
+        if (!decision.Approved) failures.Add("a hanging shadow must not change the user's AllowOnce");
+        var line = await WaitForShadowEventAsync(sink);
+        if (line is null || line.Level != LogEventLevel.Warning
+            || !(LogScalar(line, "Error") as string ?? string.Empty).Contains("no answer within 1.5s", StringComparison.Ordinal))
+            failures.Add($"a hanging request must end as a timeout Warning (got {(line is null ? "nothing" : LogScalar(line, "Error"))})");
+    }
+
+    // —— 弹窗被取消：照样记一条，选择记为 Cancelled ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var (decision, _) = await EvaluateAsync(Config(ToolApprovalMode.Balanced), FakeSystemOneClient.Answering(0.3),
+            new CancellingApprovalPrompter(), logger, "write_system_file", writeArgs);
+        var line = await WaitForShadowEventAsync(sink);
+        if (decision.Approved || line is null || !Equals(LogScalar(line, "Decision"), "Cancelled"))
+            failures.Add("a cancelled prompt must still be recorded, as Cancelled");
+    }
+
+    // —— 没有 OpenRouter 连接：不打分，而且只提醒一次 ——
+    {
+        var sink = new CapturingLogSink();
+        using var logger = NewLogger(sink);
+        var config = Config(ToolApprovalMode.Balanced, connection: false);
+        var configService = new TestConfigService(config);
+        var client = FakeSystemOneClient.Answering(0.5);
+        var shadow = new ApprovalShadow(configService, client, new StubWorkspaceService("ws-1", "/w/proj"), logger);
+        var service = new ToolApprovalService(configService, new FakeApprovalPrompter(ToolApprovalScope.AllowOnce), logger,
+            approvalShadow: shadow);
+        using (ToolApprovalContext.EnterInteractive(task))
+        {
+            await service.EvaluateAsync("write_system_file", writeArgs, CancellationToken.None);
+            await service.EvaluateAsync("write_system_file", "{\"path\":\"/w/proj/b.md\",\"content\":\"y\"}", CancellationToken.None);
+        }
+        var warnings = sink.Events.Count(e =>
+            e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.Contains("no OpenRouter connection", StringComparison.Ordinal));
+        if (client.Requests.Count != 0 || warnings != 1)
+            failures.Add($"without a connection: {client.Requests.Count} requests (want 0), {warnings} warnings (want 1)");
+    }
+
+    AssertTrue(failures.Count == 0, $"approval shadow, {failures.Count} failure(s):\n  " + string.Join("\n  ", failures));
+
+    static string? Text(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : node?.ToJsonString();
+}
+
+static async Task TestSystemOneClientAsync()
+{
+    var failures = new List<string>();
+    using var handler = new SystemOneHttpHandler();
+    using var http = new HttpClient(handler);
+    var client = new SystemOneClient(http);
+    var state = new JsonObject { ["call"] = new JsonObject { ["tool"] = "probe" } };
+    SystemOneNoulQuestion[] questions = [new("reversible", "R?"), new("serves_task", "S?")];
+    var request = new SystemOneRequest("https://openrouter.ai/api/v1/", "  test-key \n", "typesafe/jev-1.13", state, questions);
+
+    handler.Body = """
+        {"answers":{"reversible":{"type":"noul","noul":0.91},"serves_task":{"type":"noul","noul":0.12}},
+         "id":"gen-1","model":"typesafe/jev-1.13-20260917","usage":{"input_tokens":400,"output_tokens":40,"cost":0.0000168}}
+        """;
+    var result = await client.DecideAsync(request, CancellationToken.None);
+
+    if (handler.LastMethod != HttpMethod.Post || handler.LastUri != "https://openrouter.ai/api/v1/systemone")
+        failures.Add($"request line: {handler.LastMethod} {handler.LastUri}");
+    if (handler.LastAuthorization != "Bearer test-key")
+        failures.Add($"authorization: <{handler.LastAuthorization}>");
+    var body = JsonNode.Parse(handler.LastBody ?? "{}");
+    if (body?["model"]?.GetValue<string>() != "typesafe/jev-1.13") failures.Add("the body must name the model");
+    if (body?["state"]?["call"]?["tool"]?.GetValue<string>() != "probe") failures.Add("the body must carry the state");
+    if (body?["questions"]?["reversible"]?["type"]?.GetValue<string>() != "noul"
+        || body?["questions"]?["serves_task"]?["instructions"]?.GetValue<string>() != "S?")
+        failures.Add("each question goes out as a typed noul with its instructions");
+    if (result.Nouls.GetValueOrDefault("reversible") != 0.91 || result.Nouls.GetValueOrDefault("serves_task") != 0.12)
+        failures.Add("both noul answers must be read back by name");
+    if (result.Model != "typesafe/jev-1.13-20260917" || result.Id != "gen-1" || result.Cost != 0.0000168)
+        failures.Add($"model/id/cost: {result.Model} {result.Id} {result.Cost}");
+
+    async Task ExpectFailureAsync(string name, HttpStatusCode status, string responseBody, string messagePrefix)
+    {
+        handler.Status = status;
+        handler.Body = responseBody;
+        try
+        {
+            await client.DecideAsync(request, CancellationToken.None);
+            failures.Add($"{name}: expected a SystemOneException");
+        }
+        catch (SystemOneException ex) when (ex.Message.StartsWith(messagePrefix, StringComparison.Ordinal))
+        {
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{name}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    await ExpectFailureAsync("payment required", HttpStatusCode.PaymentRequired,
+        """{"error":{"code":402,"message":"Insufficient credits"}}""", "HTTP 402: Insufficient credits");
+    // 少一道题必须是失败，而不是悄悄少记一个分数。
+    await ExpectFailureAsync("a missing answer", HttpStatusCode.OK,
+        """{"answers":{"reversible":{"type":"noul","noul":0.5}}}""", "answered 1 of 2 questions");
+    await ExpectFailureAsync("a non-JSON body", HttpStatusCode.OK, "<html>bad gateway</html>", "response is not JSON");
+
+    AssertTrue(failures.Count == 0, "system one client:\n  " + string.Join("\n  ", failures));
+}
+
 static async Task TestFileSystemSymlinkEscapeAsync()
 {
     using var harness = new TestHarness();
@@ -7859,6 +8230,84 @@ sealed class FakeApprovalPrompter : IToolApprovalPrompter
         }
         return Task.FromResult(_scope);
     }
+}
+
+/// <summary>按脚本回答的决策客户端，并记下每一次请求。</summary>
+sealed class FakeSystemOneClient(Func<SystemOneRequest, CancellationToken, Task<SystemOneResult>> answer) : ISystemOneClient
+{
+    private readonly List<SystemOneRequest> _requests = [];
+
+    public IReadOnlyList<SystemOneRequest> Requests
+    {
+        get { lock (_requests) { return _requests.ToList(); } }
+    }
+
+    public static FakeSystemOneClient Answering(double score) => new((request, _) => Task.FromResult(new SystemOneResult(
+        request.Questions.ToDictionary(question => question.Name, _ => score),
+        "typesafe/jev-1.13-test",
+        "gen-test",
+        0.00002)));
+
+    public Task<SystemOneResult> DecideAsync(SystemOneRequest request, CancellationToken cancellationToken)
+    {
+        lock (_requests) { _requests.Add(request); }
+        return answer(request, cancellationToken);
+    }
+}
+
+/// <summary>只认一个工作区的 IWorkspaceService：影子评估只用得到按 ID 取目录。</summary>
+sealed class StubWorkspaceService(string workspaceId, string directory) : IWorkspaceService
+{
+    public WorkspaceProfile? ActiveWorkspace => null;
+
+    public event EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged { add { } remove { } }
+
+    public event EventHandler<string>? WorkspacePolicyChanged { add { } remove { } }
+
+    public Task<WorkspaceProfile?> LoadByIdAsync(string id) =>
+        Task.FromResult<WorkspaceProfile?>(id == workspaceId ? new WorkspaceProfile { Id = id, DirectoryPath = directory } : null);
+
+    public Task<List<WorkspaceProfile>> LoadAllAsync() => throw new NotSupportedException();
+    public Task SaveAsync(WorkspaceProfile workspace) => throw new NotSupportedException();
+    public Task UpdateContextPolicyAsync(WorkspaceProfile workspace, WorkspaceContextPolicyOverride? contextPolicyOverride,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<bool> DeleteAsync(string id) => throw new NotSupportedException();
+    public Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath) => throw new NotSupportedException();
+    public void SetActiveWorkspace(WorkspaceProfile? workspace) => throw new NotSupportedException();
+    public string GetKnowledgeFilePath(WorkspaceProfile workspace) => throw new NotSupportedException();
+    public Task<string?> GetKnowledgeFilePathAsync(string workspaceId) => throw new NotSupportedException();
+    public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget) =>
+        throw new NotSupportedException();
+    public Task EnforceKnowledgeFileBudgetAsync(string fullPath, CancellationToken ct = default) => throw new NotSupportedException();
+}
+
+/// <summary>用户在弹窗期间停止了本轮回复。</summary>
+sealed class CancellingApprovalPrompter : IToolApprovalPrompter
+{
+    public Task<ToolApprovalScope> PromptAsync(ToolApprovalRequest request, CancellationToken cancellationToken) =>
+        Task.FromException<ToolApprovalScope>(new OperationCanceledException());
+}
+
+/// <summary>记下 /systemone 请求的关键部分并回一个可配置的响应。请求体要在发送期间读，客户端随后会释放它。</summary>
+sealed class SystemOneHttpHandler : HttpMessageHandler
+{
+    public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+    public string Body { get; set; } = "{}";
+    public HttpMethod? LastMethod { get; private set; }
+    public string? LastUri { get; private set; }
+    public string? LastAuthorization { get; private set; }
+    public string? LastBody { get; private set; }
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        LastMethod = request.Method;
+        LastUri = request.RequestUri?.ToString();
+        LastAuthorization = request.Headers.Authorization?.ToString();
+        LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        return new HttpResponseMessage(Status) { Content = new StringContent(Body, Encoding.UTF8, "application/json") };
+    }
+#pragma warning restore CA2000
 }
 
 sealed class CapturingApprovalEvaluator : IAiToolApprovalEvaluator

@@ -639,6 +639,7 @@
     <system:String x:Key="Settings.Approval.Off.Description">Run every tool automatically in fully trusted environments.</system:String>
     <system:String x:Key="Settings.Approval.AutoAllowedHint">These tools are permanently allowed. You can revoke them at any time.</system:String>
     <system:String x:Key="Settings.Approval.TerminalHint">Allowlisted terminal commands do not ask for repeated confirmation.</system:String>
+    <system:String x:Key="Settings.Approval.JevShadowHint">When an approval prompt appears, the call (tool name, command line, file paths, URLs without query strings) and your last two messages are sent through OpenRouter to TypeSafe Jev in the background; the scores are logged next to your decision to judge whether Jev could pre-screen prompts. File contents and task instructions are sent as lengths only, and likely secrets are masked. It never changes an approval result and needs an OpenRouter connection with an API key.</system:String>
     <system:String x:Key="Settings.Agent.Title">Execution &amp; concurrency</system:String>
     <system:String x:Key="Settings.Agent.Description">Configure execution limits for the main conversation and for parallel sub-agents: concurrency, tool rounds, and timeouts.</system:String>
     <system:String x:Key="Settings.Agent.Conversation.Title">Main conversation execution</system:String>
@@ -915,6 +916,7 @@
     <system:String x:Key="Config.ToolApproval.ModeHint">In Balanced mode, read-only tools run automatically; write, delete, and terminal commands ask for confirmation before running.</system:String>
     <system:String x:Key="Config.ToolApproval.AutomaticHint">Automatic mode is active: calls not decided by static rules are evaluated by the Automatic approval model above. Evaluation failures deny by default.</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">Sub-agents inherit primary chat approval</system:String>
+    <system:String x:Key="Config.ToolApproval.JevShadow">Jev shadow scoring (experimental)</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">Always-allowed tools</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">Terminal command allowlist</system:String>
     <system:String x:Key="Config.ToolApproval.MaxTerminalOutputChars">Terminal output cap (chars)</system:String>

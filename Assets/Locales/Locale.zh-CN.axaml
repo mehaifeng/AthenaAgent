@@ -639,6 +639,7 @@
     <system:String x:Key="Settings.Approval.Off.Description">所有工具自动执行，适合完全受信任的环境。</system:String>
     <system:String x:Key="Settings.Approval.AutoAllowedHint">这些工具已被永久放行，可随时撤销。</system:String>
     <system:String x:Key="Settings.Approval.TerminalHint">白名单中的终端命令无需重复确认。</system:String>
+    <system:String x:Key="Settings.Approval.JevShadowHint">弹出审批窗时，在后台把这次调用（工具名、命令行、文件路径、去掉查询串的网址）和你最近的两条消息经 OpenRouter 发给 TypeSafe Jev 打分，分数和你的最终选择一起写进日志，用来评估能否让 Jev 预筛弹窗。文件正文和任务指令只发长度，疑似密钥会打码。不影响任何审批结果；需要一个带 API key 的 OpenRouter 连接。</system:String>
     <system:String x:Key="Settings.Agent.Title">执行与并发</system:String>
     <system:String x:Key="Settings.Agent.Description">配置主对话与并行子代理的执行边界：并发上限、工具轮数与超时。</system:String>
     <system:String x:Key="Settings.Agent.Conversation.Title">主对话执行</system:String>
@@ -915,6 +916,7 @@
     <system:String x:Key="Config.ToolApproval.ModeHint">在平衡模式下，只读类工具自动放行；写入、删除、终端命令在执行前请求确认。</system:String>
     <system:String x:Key="Config.ToolApproval.AutomaticHint">自动模式已启用：未被静态规则直接放行或拒绝的调用，将交给上方“自动审批”模型裁决；模型异常时默认拒绝。</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">子代理沿用主对话授权</system:String>
+    <system:String x:Key="Config.ToolApproval.JevShadow">Jev 影子评估（实验）</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">始终允许的工具</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">终端命令白名单</system:String>
     <system:String x:Key="Config.ToolApproval.MaxTerminalOutputChars">终端输出上限（字符）</system:String>
