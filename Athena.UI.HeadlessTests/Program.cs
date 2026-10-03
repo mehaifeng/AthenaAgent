@@ -154,6 +154,7 @@ Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetRes
 Task.Run(TestSameRevisionNotCompressibleCacheAsync).GetAwaiter().GetResult();
 Task.Run(TestImmediateToolCallUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestMainChatToolCallCarriesDelegatedTaskAsync).GetAwaiter().GetResult();
+TestApprovalShadowIsNotModelWritable();
 Task.Run(TestToolLoopTransactionalCompressionAsync).GetAwaiter().GetResult();
 Task.Run(TestCompressionProgressAlwaysEndsAsync).GetAwaiter().GetResult();
 Task.Run(TestSkipCompressionKeepsRequestAliveAsync).GetAwaiter().GetResult();
@@ -5522,6 +5523,22 @@ static async Task TestMainChatToolCallCarriesDelegatedTaskAsync()
         throw new InvalidOperationException(
             $"主对话没有把用户请求带进审批上下文：期望 <{expected}>，实际 <{registry.DelegatedTask ?? "null"}>。");
     Console.WriteLine("[PASS] main-chat tool calls carry the user's latest request into the approval context");
+}
+
+// 影子评估会把调用内容发给第三方，开关只能由用户在设置页打开。ConfigFieldCatalog 是
+// view_self_configuration / modify_self_configuration 的唯一入口：目录里不能有任何字段读得到它。
+// 按行为判断而不是按名字搜——换个名字登记进去，一样会被抓到。
+static void TestApprovalShadowIsNotModelWritable()
+{
+    var off = new AppConfig { ApprovalShadowEnabled = false };
+    var on = new AppConfig { ApprovalShadowEnabled = true };
+    var exposing = ConfigFieldCatalog.Fields
+        .Where(field => JsonSerializer.Serialize(field.Get(off)) != JsonSerializer.Serialize(field.Get(on)))
+        .Select(field => field.Key)
+        .ToList();
+    if (exposing.Count > 0)
+        throw new InvalidOperationException("模型可读写的配置目录暴露了 Jev 影子评估开关：" + string.Join(", ", exposing));
+    Console.WriteLine("[PASS] the approval shadow switch is out of reach of the model-writable config catalog");
 }
 
 static void TestCompressionSummaryPermissionBoundary()
