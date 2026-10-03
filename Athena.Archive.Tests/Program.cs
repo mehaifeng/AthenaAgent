@@ -150,6 +150,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
+    ("approval: the automatic-approval model never decides human-only or unattended-destructive calls", TestApprovalModelNeverDecidesHumanOnlyCallsAsync),
+    ("approval: delegated task carries the latest two user messages, bounded", TestApprovalDelegatedTaskTextAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
     ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
     ("filesystem: chunked reads keep UTF-8 intact and flag partial lines", TestChunkedReadBoundaryAsync),
@@ -4906,6 +4908,96 @@ static async Task TestApprovalAutomaticModelAsync()
     AssertTrue(decision.Approved, "automatic evaluator decision should be returned");
     AssertEqual("write_system_file", evaluator.Request?.FunctionName, "automatic evaluator should receive the tool request");
     AssertEqual("Update the scoped project file", evaluator.DelegatedTask, "delegated Tool Agent task should flow to approval evaluation");
+}
+
+// 自动审批模型只顶替「人」：只能由人批准的工具（IsNeverUnattended）与子代理的破坏性调用都不交给它。
+// 一张表跑完再统一断言，没有修复时列出每一条越界，而不是停在第一条。
+static async Task TestApprovalModelNeverDecidesHumanOnlyCallsAsync()
+{
+    const string selfConfig = "{\"key\":\"Security.ToolApprovalMode\",\"value\":\"Off\"}";
+    const string task = "{\"intent\":\"summarize the inbox\",\"scheduledTime\":\"0 9 * * *\"}";
+    const ToolApprovalMode automatic = ToolApprovalMode.Automatic;
+    const ToolApprovalContext.ExecutionMode main = ToolApprovalContext.ExecutionMode.Interactive;
+    const ToolApprovalContext.ExecutionMode subAgent = ToolApprovalContext.ExecutionMode.NonInteractive;
+
+    var cases = new (string Name, ToolApprovalMode Mode, ToolApprovalContext.ExecutionMode Exec, string Function, string Args,
+        string? AlwaysAllowed, bool Evaluated, bool Prompted, bool Approved)[]
+    {
+        // —— 修复：主对话里，只能由人批准的工具改为弹窗，模型不碰 ——
+        ("model must not switch approval off for the user", automatic, main, "modify_self_configuration", selfConfig, null, false, true, true),
+        ("model must not schedule work for the user", automatic, main, "create_task", task, null, false, true, true),
+        ("model must not rewrite a scheduled task", automatic, main, "update_task", "{\"taskId\":\"t1\"}", null, false, true, true),
+        ("model must not cancel a scheduled task", automatic, main, "cancel_task", "{\"taskId\":\"t1\"}", null, false, true, true),
+        ("model must not start a scheduled run", automatic, main, "run_task_now", "{\"taskId\":\"t1\"}", null, false, true, true),
+        ("model must not add an MCP server", automatic, main, "mcp_add_server", "{\"name\":\"x\",\"command\":\"npx\"}", null, false, true, true),
+        ("model must not remove an MCP server", automatic, main, "mcp_remove_server", "{\"name\":\"x\"}", null, false, true, true),
+        ("model must not import MCP servers", automatic, main, "mcp_import_json", "{\"json\":\"{}\"}", null, false, true, true),
+        // —— 修复：子代理路径上的绝对拒绝，不因开了自动审批就改由模型判 ——
+        ("sub-agent delete stays denied", automatic, subAgent, "delete_system_file", "{\"path\":\"a\"}", null, false, false, false),
+        ("sub-agent destructive command stays denied", automatic, subAgent, "execute_terminal_command", "{\"command\":\"rm\",\"arguments\":[\"-rf\",\"build\"]}", null, false, false, false),
+        ("sub-agent self-configuration stays denied", automatic, subAgent, "modify_self_configuration", selfConfig, null, false, false, false),
+        ("sub-agent scheduling stays denied", automatic, subAgent, "create_task", task, null, false, false, false),
+        // —— 防误伤：其余行为不变 ——
+        ("ordinary sensitive call still goes to the model", automatic, main, "write_system_file", "{\"path\":\"notes.md\",\"content\":\"x\"}", null, true, false, true),
+        ("main-chat destructive call still goes to the model", automatic, main, "delete_system_file", "{\"path\":\"a\"}", null, true, false, true),
+        ("sub-agent sensitive call still goes to the model", automatic, subAgent, "write_system_file", "{\"path\":\"a\",\"content\":\"x\"}", null, true, false, true),
+        ("Off still allows everything", ToolApprovalMode.Off, main, "create_task", task, null, false, false, true),
+        ("the user's own always-allow still applies", ToolApprovalMode.Balanced, main, "create_task", task, "create_task", false, false, true),
+        ("Balanced still prompts", ToolApprovalMode.Balanced, main, "modify_self_configuration", selfConfig, null, false, true, true),
+    };
+
+    var failures = new List<string>();
+    foreach (var c in cases)
+    {
+        var config = new AppConfig { ToolApprovalMode = c.Mode };
+        if (c.AlwaysAllowed is not null) config.AutoAllowedTools.Add(c.AlwaysAllowed);
+        var evaluator = new CapturingApprovalEvaluator();
+        var prompter = new FakeApprovalPrompter(ToolApprovalScope.AllowOnce);
+        var service = new ToolApprovalService(new TestConfigService(config), prompter, Log.Logger, aiEvaluator: evaluator);
+
+        using var scope = c.Exec == main
+            ? ToolApprovalContext.EnterInteractive("tidy up the project")
+            : ToolApprovalContext.EnterNonInteractive();
+        var decision = await service.EvaluateAsync(c.Function, c.Args, CancellationToken.None);
+        var evaluated = evaluator.Request is not null;
+        var prompted = prompter.CallCount > 0;
+        if (evaluated != c.Evaluated || prompted != c.Prompted || decision.Approved != c.Approved)
+        {
+            failures.Add($"{c.Name} ({c.Function}): evaluated {evaluated} (want {c.Evaluated}), " +
+                         $"prompted {prompted} (want {c.Prompted}), approved {decision.Approved} (want {c.Approved})");
+        }
+    }
+
+    AssertTrue(failures.Count == 0, $"{failures.Count} of {cases.Length} cases crossed the model boundary:\n  " + string.Join("\n  ", failures));
+}
+
+static Task TestApprovalDelegatedTaskTextAsync()
+{
+    var failures = new List<string>();
+    void Check(string name, IEnumerable<string?> userMessages, string? expected)
+    {
+        var actual = ToolApprovalContext.DescribeTask(userMessages);
+        if (!string.Equals(actual, expected, StringComparison.Ordinal))
+            failures.Add($"{name}: want <{expected ?? "null"}>, got <{actual ?? "null"}>");
+    }
+
+    Check("no user message", Array.Empty<string?>(), null);
+    Check("blank messages only", new string?[] { null, "", "  \n" }, null);
+    Check("a single request is trimmed", new string?[] { "  rename the logs folder \n" },
+        "Latest user message: rename the logs folder");
+    // 「继续」只靠最新一条会把任务本身丢掉，所以带上它跟着的那一条；再往前的不要。
+    Check("a follow-up keeps the request it follows", new string?[] { "older request", "archive last month's logs", "继续" },
+        "Latest user message: 继续\nPrevious user message: archive last month's logs");
+    Check("blank messages do not displace the request", new string?[] { "archive last month's logs", " ", "继续", null },
+        "Latest user message: 继续\nPrevious user message: archive last month's logs");
+    Check("both parts are bounded", new string?[] { new string('b', 500), new string('a', 1500) },
+        "Latest user message: " + new string('a', 1000) + "…\nPrevious user message: " + new string('b', 300) + "…");
+    // 截断点正好落在代理对中间时退一个字符，不留下半个 emoji。
+    Check("truncation never splits a surrogate pair", new string?[] { new string('a', 999) + "😀tail" },
+        "Latest user message: " + new string('a', 999) + "…");
+
+    AssertTrue(failures.Count == 0, "delegated task text:\n  " + string.Join("\n  ", failures));
+    return Task.CompletedTask;
 }
 
 static async Task TestFileSystemSymlinkEscapeAsync()

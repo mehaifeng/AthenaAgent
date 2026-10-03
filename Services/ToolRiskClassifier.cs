@@ -47,16 +47,22 @@ public static class ToolRiskClassifier
         "create_directory"
     };
 
-    // 无人值守路径（子代理）永不继承的工具：它们改的是应用自身的能力边界。
-    // 尤其 modify_self_configuration 能写 Security.ToolApprovalMode——
-    // 一旦被子代理调用，等于让后台例程自己关掉审批闸门，是一条实打实的提权路径。
+    // 只能由人批准的工具：无人值守路径（子代理）永不继承，自动审批模型也不替用户裁决。
+    // 它们改的是应用自身的能力边界——尤其 modify_self_configuration 能写 Security.ToolApprovalMode，
+    // 让一个模型批准它，等于让模型自己关掉审批闸门，是一条实打实的提权路径。
+    // cron 四个工具同理：它们写的是「以后会自己跑什么」，一次放行换来的是此后每个触发点上的一整个自主会话。
+    // 开发版日志里的 72 次审批弹窗（2026-08）中，用户拒绝的 8 次里有 3 次 create_task、2 次 modify_self_configuration。
     private static readonly HashSet<string> NeverUnattendedTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "modify_self_configuration",
-        "mcp_add_server", "mcp_remove_server", "mcp_import_json"
+        "mcp_add_server", "mcp_remove_server", "mcp_import_json",
+        "create_task", "update_task", "cancel_task", "run_task_now"
     };
 
-    /// <summary>无人值守路径是否绝不允许该工具，无论 SubAgentsInheritApproval 如何设置。</summary>
+    /// <summary>
+    /// 该工具是否只能由人批准：无人值守路径一律拒绝（无论 SubAgentsInheritApproval 如何设置），
+    /// Automatic 模式下也不交给自动审批模型，而是照常弹窗。
+    /// </summary>
     public static bool IsNeverUnattended(string functionName) =>
         !string.IsNullOrEmpty(functionName) && NeverUnattendedTools.Contains(functionName);
 
