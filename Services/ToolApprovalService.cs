@@ -79,14 +79,28 @@ public class ToolApprovalService : IToolApprovalService
 
         if (mode == ToolApprovalMode.Automatic)
         {
-            var automatic = _aiEvaluator == null
-                ? ToolApprovalDecision.Deny("自动审批模型不可用")
-                : await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+            // 自动审批模型只顶替「人」，越不过两条对无人值守路径本来就成立的绝对拒绝：
+            // ① 只能由人批准的工具（IsNeverUnattended）——交互路径照常弹窗，无人值守路径静态拒绝；
+            // ② 子代理的破坏性调用——ResolveNonInteractive 一律拒绝，不因开了自动审批就改由模型判。
+            // 此前这个分支对所有执行模式一视同仁：审批模型可以批准 Security.ToolApprovalMode=Off，
+            // 也可以放行子代理的 delete_system_file，「一律拒绝」「不受任何开关影响」两条在这里都不成立。
+            var withheldFromModel = ToolRiskClassifier.IsNeverUnattended(functionName)
+                || (risk == ToolRisk.Destructive && execMode != ToolApprovalContext.ExecutionMode.Interactive);
+            if (!withheldFromModel)
+            {
+                var automatic = _aiEvaluator == null
+                    ? ToolApprovalDecision.Deny("自动审批模型不可用")
+                    : await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+                _logger.Information(
+                    "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Reason={Reason}",
+                    functionName, automatic.Approved, automatic.Reason);
+                Audit(functionName, risk, execMode, automatic);
+                return automatic;
+            }
+
             _logger.Information(
-                "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Reason={Reason}",
-                functionName, automatic.Approved, automatic.Reason);
-            Audit(functionName, risk, execMode, automatic);
-            return automatic;
+                "ToolApproval automatic mode withheld the call from the approval model: Function={Function}, Risk={Risk}, ExecMode={ExecMode}",
+                functionName, risk, execMode);
         }
 
         // —— 需要人工确认，但非交互式路径不能弹窗 ——

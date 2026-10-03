@@ -1397,6 +1397,10 @@ public class OpenAIChatService : IChatService
             runtime.Transport!.AppendAssistantWithTools(messages, assistantContent.ToString(), toolCalls, reasoningContent);
 
             var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
+            // 审批时让裁决者知道用户要的是什么。一轮算一次即可：工具回填只追加 tool 消息，用户消息在回合内不变。
+            var delegatedTask = ToolApprovalContext.DescribeTask(context.Messages
+                .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
+                .Select(message => message.Content));
             try
             {
                 // 一次执行一个工具，携带工具执行所需的全部 AsyncLocal 作用域。
@@ -1425,8 +1429,8 @@ public class OpenAIChatService : IChatService
                     using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
                     // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
                     // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
-                    // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。
-                    using var toolApprovalScope = ToolApprovalContext.EnterInteractive();
+                    // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。委托任务随同一个作用域进入，理由相同。
+                    using var toolApprovalScope = ToolApprovalContext.EnterInteractive(delegatedTask);
                     var toolResult = _functionRegistry == null
                         ? FunctionResult.FailureResult("Function registry is not available.")
                         : await _functionRegistry.ExecuteAsync(call.FunctionName, call.Arguments);

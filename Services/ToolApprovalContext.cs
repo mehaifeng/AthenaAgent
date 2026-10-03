@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace Athena.UI.Services;
@@ -36,7 +37,48 @@ public static class ToolApprovalContext
 
     /// <summary>当前执行流的审批模式；未设置时为 <see cref="ExecutionMode.Unset"/>。</summary>
     public static ExecutionMode CurrentMode => _mode.Value;
+
+    /// <summary>
+    /// 这次工具调用服务的任务。主对话里是用户最近的请求（见 <see cref="DescribeTask"/>），
+    /// 自动审批模型据此判断调用是否与任务相称；其它路径为 null。
+    /// </summary>
     public static string? CurrentDelegatedTask => _delegatedTask.Value;
+
+    // 用户常整段粘贴日志或代码，审批只需要知道「要做什么」，所以两条各自截断。
+    private const int LatestTaskMaxChars = 1000;
+    private const int PreviousTaskMaxChars = 300;
+
+    /// <summary>
+    /// 主对话的委托任务：最近两条非空用户消息，各自截断；没有用户消息时为 null。
+    /// 只取最新一条不够——「继续」「好的」这类跟进会把任务本身丢掉。
+    /// 自 2026-07-19 自动审批上线起，主对话从没把任务传进来过，审批模型的提示词要求它
+    /// 「对照委托任务判断」，拿到的却始终是 null。
+    /// </summary>
+    public static string? DescribeTask(IEnumerable<string?> userMessagesOldestFirst)
+    {
+        string? latest = null;
+        string? previous = null;
+        foreach (var message in userMessagesOldestFirst)
+        {
+            if (string.IsNullOrWhiteSpace(message)) continue;
+            previous = latest;
+            latest = message.Trim();
+        }
+
+        if (latest is null) return null;
+        var task = "Latest user message: " + Truncate(latest, LatestTaskMaxChars);
+        return previous is null
+            ? task
+            : task + "\nPrevious user message: " + Truncate(previous, PreviousTaskMaxChars);
+    }
+
+    private static string Truncate(string text, int maxChars)
+    {
+        if (text.Length <= maxChars) return text;
+        // 不把代理对切成两半：半个 emoji 进了 JSON 载荷就是一个非法字符。
+        var cut = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
+        return text[..cut] + "…";
+    }
 
     /// <summary>进入交互式作用域（主对话循环）。Dispose 时恢复先前值。</summary>
     public static IDisposable EnterInteractive(string? delegatedTask = null) => Enter(ExecutionMode.Interactive, delegatedTask);

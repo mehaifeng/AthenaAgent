@@ -153,6 +153,7 @@ TestModelWarningLocalization();
 Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetResult();
 Task.Run(TestSameRevisionNotCompressibleCacheAsync).GetAwaiter().GetResult();
 Task.Run(TestImmediateToolCallUsageAsync).GetAwaiter().GetResult();
+Task.Run(TestMainChatToolCallCarriesDelegatedTaskAsync).GetAwaiter().GetResult();
 Task.Run(TestToolLoopTransactionalCompressionAsync).GetAwaiter().GetResult();
 Task.Run(TestCompressionProgressAlwaysEndsAsync).GetAwaiter().GetResult();
 Task.Run(TestSkipCompressionKeepsRequestAliveAsync).GetAwaiter().GetResult();
@@ -5462,6 +5463,67 @@ static async Task TestImmediateToolCallUsageAsync()
     Console.WriteLine("[PASS] provider image modality Usage is preferred when the compatible response exposes it");
 }
 
+// 自动审批模型的提示词要求它「对照委托任务判断」，可主对话从 2026-07-19 起从没把任务传进来过——
+// 唯一的相关用例自己调用 EnterInteractive("…") 塞了任务，所以一直是绿的。这里走真实的工具循环，
+// 在工具执行的那一刻读审批上下文。
+static async Task TestMainChatToolCallCarriesDelegatedTaskAsync()
+{
+    var config = new AppConfig();
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "delegated-task-provider",
+        DisplayName = "Delegated task",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://stream.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor
+    {
+        Id = "stream-model",
+        DisplayName = "Stream model",
+        Capability = ModelCapability.Text
+    });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "stream-model";
+
+    var registry = new ApprovalContextProbeRegistry();
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: registry,
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    using var handler = new ToolLoopSseHandler();
+    using var httpClient = new HttpClient(handler);
+    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    options.Transport = new HttpClientPipelineTransport(httpClient);
+    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+    var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    field.SetValue(service, client.GetChatClient("stream-model"));
+
+    // 先有一条真正的请求，再来一句「继续」：委托任务得把它跟着的那条请求一起带上。
+    var context = new ConversationContext { ConversationId = "delegated-task", Revision = 1 };
+    context.AddUserMessage("把 logs 目录里上个月的日志归档到 archive/");
+    context.AddAssistantMessage("好的，先看一下目录结构。");
+    await foreach (var _ in service.StreamMessageAsync("继续", context))
+    {
+    }
+
+    if (registry.Calls != 1)
+        throw new InvalidOperationException($"工具应恰好执行一次，实际 {registry.Calls} 次。");
+    if (registry.Mode != ToolApprovalContext.ExecutionMode.Interactive)
+        throw new InvalidOperationException($"主对话的工具调用应处于交互式审批作用域，实际为 {registry.Mode}。");
+    const string expected = "Latest user message: 继续\nPrevious user message: 把 logs 目录里上个月的日志归档到 archive/";
+    if (!string.Equals(registry.DelegatedTask, expected, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"主对话没有把用户请求带进审批上下文：期望 <{expected}>，实际 <{registry.DelegatedTask ?? "null"}>。");
+    Console.WriteLine("[PASS] main-chat tool calls carry the user's latest request into the approval context");
+}
+
 static void TestCompressionSummaryPermissionBoundary()
 {
     var config = new AppConfig();
@@ -9421,6 +9483,32 @@ sealed class ImmediateUsageFunctionRegistry(List<string> events, int resultSize 
         return Task.FromResult(FunctionResult.SuccessResult(
             "probe complete",
             resultSize > 0 ? new { value = new string('x', resultSize) } : new { value = "1" }));
+    }
+}
+
+/// <summary>在工具真正执行的那一刻记下审批上下文：主对话的委托任务有没有随 AsyncLocal 流进闸门。</summary>
+sealed class ApprovalContextProbeRegistry : IFunctionRegistry
+{
+    private readonly OpenAI.Chat.ChatTool _tool = OpenAI.Chat.ChatTool.CreateFunctionTool(
+        "probe",
+        "Return a deterministic probe result.",
+        BinaryData.FromString("{\"type\":\"object\",\"properties\":{}}"));
+
+    public int Calls { get; private set; }
+    public ToolApprovalContext.ExecutionMode Mode { get; private set; }
+    public string? DelegatedTask { get; private set; }
+
+    public bool HasFunctions => true;
+    public IEnumerable<object> GetToolDefinitions(bool includeOfficeTools = false) => [_tool];
+    public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames)
+        => toolNames.Contains("probe", StringComparer.Ordinal) ? [_tool] : [];
+    public int GetToolDeclarationTokenCount(bool includeOfficeTools = false) => 24;
+    public Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
+    {
+        Calls++;
+        Mode = ToolApprovalContext.CurrentMode;
+        DelegatedTask = ToolApprovalContext.CurrentDelegatedTask;
+        return Task.FromResult(FunctionResult.SuccessResult("probe complete", new { value = "1" }));
     }
 }
 
