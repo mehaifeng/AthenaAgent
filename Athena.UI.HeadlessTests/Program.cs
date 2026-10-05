@@ -2126,12 +2126,13 @@ static void TestBrowserAgentHardening()
     if (SubAgentToolGates.Category("write_system_file") != ToolGateCategory.Write)
         throw new InvalidOperationException("写工具闸不应被一并撤掉。");
 
+    var sensitiveLocations = SensitiveLocations.From(new FileSystemPolicyConfig(), configFilePath: null);
     // Off 档全程不弹窗，浏览器任务可成批；Balanced 会弹窗，必须退回串行。
-    if (!ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Off))
+    if (!ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Off, sensitiveLocations))
         throw new InvalidOperationException("Off 档下浏览器任务应可并发。");
-    if (ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Balanced))
+    if (ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Balanced, sensitiveLocations))
         throw new InvalidOperationException("Balanced 档下浏览器任务会弹窗，不得并发。");
-    if (ToolCallParallelism.IsParallelSafe("write_system_file", "{}", ToolApprovalMode.Off))
+    if (ToolCallParallelism.IsParallelSafe("write_system_file", "{}", ToolApprovalMode.Off, sensitiveLocations))
         throw new InvalidOperationException("写工具不得因浏览器例外被一并放行。");
 
     // —— 默认值 ——
