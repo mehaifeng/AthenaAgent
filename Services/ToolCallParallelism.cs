@@ -23,11 +23,13 @@ public static class ToolCallParallelism
     /// - 审批模式必须是 Off 或 Balanced——这两档下只读工具走自动放行分支，不会弹窗。
     ///   Strict 会对只读工具也弹窗，Automatic 要另外调模型裁决，并发都意味着同时弹出
     ///   多个窗口或多路并发裁决，因此退回串行。
+    /// - <paramref name="sensitiveLocations"/> 必须与审批闸门用的是同一份：只读终端命令碰到受保护位置时
+    ///   闸门会弹窗，编排这边看不到同一份名单，就会把它当只读放进批次。
     /// </summary>
-    public static bool IsParallelSafe(string functionName, string? argumentsJson, ToolApprovalMode mode)
+    public static bool IsParallelSafe(string functionName, string? argumentsJson, ToolApprovalMode mode, SensitiveLocations sensitiveLocations)
     {
         if (mode != ToolApprovalMode.Off && mode != ToolApprovalMode.Balanced) return false;
-        if (ToolRiskClassifier.Classify(functionName, argumentsJson).Risk == ToolRisk.ReadOnly) return true;
+        if (ToolRiskClassifier.Classify(functionName, argumentsJson, sensitiveLocations).Risk == ToolRisk.ReadOnly) return true;
 
         // 浏览器任务是唯一的例外：每个任务独占一个隔离的 BrowserContext，彼此不共享状态，
         // 而且几乎全是网络与模型等待——「比较这三个网站」串行跑就是三倍墙钟时间。

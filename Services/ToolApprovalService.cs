@@ -51,8 +51,10 @@ public class ToolApprovalService : IToolApprovalService
 
     public async Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken)
     {
-        var (risk, riskReason) = ToolRiskClassifier.Classify(functionName, argumentsJson);
         var config = _configService.Load();
+        // 只读终端命令碰到文件工具的读黑名单或 config.json 时不再免审批。名单取自当前配置，不另写一份。
+        var (risk, riskReason) = ToolRiskClassifier.Classify(
+            functionName, argumentsJson, SensitiveLocations.From(config.FileSystemPolicy, _configService.ConfigFilePath));
         var mode = config.ToolApprovalMode;
         var execMode = ToolApprovalContext.CurrentMode;
 

@@ -1446,10 +1446,13 @@ public class OpenAIChatService : IChatService
                 // - 只合并「连续」的一段，不跨越写操作重排，[写 A, 读 A] 的先后语义保持不变；
                 // - 结果一律按原始顺序回填，满足 tool_calls 的配对与顺序约束。
                 var approvalMode = _config.ToolApprovalMode;
+                // 与审批闸门同一份受保护位置：碰到它们的只读终端命令会弹窗，不能进并发批次。
+                // 没有 IConfigService 的测试构造缺 config.json 一项——最坏是那样一次调用与邻居同批，闸门照样会问。
+                var sensitiveLocations = SensitiveLocations.From(_config.FileSystemPolicy, _configService?.ConfigFilePath);
                 var batches = ToolCallParallelism.PlanBatches(
                     toolCalls.Count,
                     _config.MaxParallelToolCalls,
-                    i => ToolCallParallelism.IsParallelSafe(toolCalls[i].FunctionName, toolCalls[i].Arguments, approvalMode));
+                    i => ToolCallParallelism.IsParallelSafe(toolCalls[i].FunctionName, toolCalls[i].Arguments, approvalMode, sensitiveLocations));
 
                 foreach (var (start, count) in batches)
                 {
