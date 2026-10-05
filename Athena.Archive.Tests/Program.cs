@@ -15,6 +15,7 @@ using System.ClientModel.Primitives;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
@@ -201,7 +202,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("an OrcaRouter connection is bound once per host and never repoints a chosen model", TestOrcaRouterProviderBindingAsync),
     ("a loopback callback is only honored on its own path with a matching state", TestOrcaRouterCallbackClassificationAsync),
     ("the loopback listener keeps waiting through stray and mismatched requests", TestOrcaRouterLoopbackListenerAsync),
-    ("OrcaRouter connect carries the referral only in the authorization url and never keeps an empty key", TestOrcaRouterConnectFlowAsync)
+    ("OrcaRouter connect carries the referral only in the authorization url and never keeps an empty key", TestOrcaRouterConnectFlowAsync),
+    ("doc citations: only Docs/ paths and the doc map count, and existence is case-exact", TestDocCitationRuleAsync),
+    ("doc citations: every path CLAUDE.md, AGENTS.md and the READMEs point at exists", TestDocCitationsResolveAsync)
 };
 
 var failures = new List<string>();
@@ -7929,6 +7932,221 @@ static async Task TestOrcaRouterConnectFlowAsync()
         var result = await service.ConnectAsync(null, CancellationToken.None);
         AssertEqual(OrcaRouterConnectFailure.TimedOut, result.Failure, "无人完成授权时必须超时收场");
     }
+}
+
+// CLAUDE.md / AGENTS.md 是 agent 拿到的唯一入口（规则 8）。它们点名的文件没了而引用还在，
+// agent 就会照着一份不存在的规格去找。这件事发生过两次：0b0bfea（2026-07-28）删了 CONTEXT.md，
+// 引用留到 75a64fe（2026-08-30）；e6e70e0（2026-07-22）删了 Docs/ 下四份文档，引用留到 #15。
+// 其间 6764f95（2026-10-03）同步审批条目时，还把指向已删文档的引用原样抄进了 AGENTS.md——
+// 死引用不只是没人清理，还会随着两份文档的同步扩散。
+// 把编出来的测试放进历史提交的源码树里回放：e6e70e0 的父提交是绿的，e6e70e0 和 0b0bfea 当天就会报出
+// 各自删掉的文件，此后一直是红的，直到 #15 合入才转绿。
+static Task TestDocCitationsResolveAsync()
+{
+    var root = FindRepositoryRoot();
+    var failures = new List<string>();
+    foreach (var doc in new[] { "CLAUDE.md", "AGENTS.md", "README.md", "README_CN.md" })
+    {
+        var path = Path.Combine(root, doc);
+        if (!File.Exists(path))
+        {
+            failures.Add($"{doc} 本身不存在");
+            continue;
+        }
+
+        var (citations, docMapLines) = ExtractDocCitations(File.ReadAllLines(path));
+        // 裸名只有写在文档地图那一行里才算引用（MinerU_API.md、CONTEXT.md 当年都是裸名）。
+        // 那一行如果改写到认不出来，必须明确报错；否则这一半检查会悄无声息地失效。
+        if (doc is "CLAUDE.md" or "AGENTS.md" && docMapLines != 1)
+        {
+            failures.Add($"{doc}: 应当恰好有一行文档地图（`Docs/` 后紧跟括号列出其中的文档），实际 {docMapLines} 行——改写了那一行就同步改 ExtractDocCitations");
+        }
+
+        foreach (var (line, cited, target) in citations)
+        {
+            if (!RepositoryPathExists(root, target))
+            {
+                var shown = cited == target ? target : $"{cited} → {target}";
+                failures.Add($"{doc}:{line} {shown} 不存在");
+            }
+        }
+    }
+
+    AssertTrue(
+        failures.Count == 0,
+        $"文档引用检查发现 {failures.Count} 处问题。删文件时把引用一并删掉；有意提到已删除的文件，" +
+        $"就像规则 8 提到 CONTEXT.md 那样写裸名，不要写成路径：\n  {string.Join("\n  ", failures)}");
+    return Task.CompletedTask;
+}
+
+// 什么算引用是刻意收窄的。这几份文档里的反引号绝大多数不是路径：类型名、配置键、
+// Pet.Line.<Topic> 这类模式、相对 Services/ 的子目录名（Cron/）、运行期路径（AthenaData/…）、
+// 项目限定名（Athena.UI/Program.cs）、命令行，以及规则 8 有意提到的已删文件 CONTEXT.md。
+// 把规则放宽成"首段是仓库里存在的目录"会让结果取决于本机状态：主签出里有一个被 gitignore 的
+// Athena.UI/ 目录，于是 Athena.UI/Program.cs 在本机算引用、在 CI 上不算。所以只认两种形状，
+// 也不需要排除名单：
+//   1. 一个反引号片段或链接目标（Markdown 链接，以及 README 截图表格里的 <img src>）整体就是 Docs/ 下的路径；
+//   2. 文档地图那一行里的名字：`Docs/` 后面括号里的名字相对 Docs/ 解析，这一行其余的名字相对仓库根解析。
+// 两种都只认明确指向文件（带扩展名）或目录（以 / 结尾）的写法。
+// 合成文本从两个方向把规则钉住：规则放宽了，会在真实文档上误报；规则坏到一条也提取不出来，
+// TestDocCitationsResolveAsync 就会永远空转、永远通过。
+static Task TestDocCitationRuleAsync()
+{
+    var (citations, docMapLines) = ExtractDocCitations(new[]
+    {
+        "Companion docs at the root: `AGENTS.md` (kept in sync) and `README.md`. Longer-form docs live in `Docs/` (guides, `A.md`, and `B.md` — `Debt` is a concept). Release tooling lives in `release.sh` and `Scripts/`.",
+        "See `Docs/C.md`, [guide](./Docs/D.md#setup), <img src=\"Docs/images/e.png\" width=\"280\">, `Docs/images/` and `docs/F.md`.",
+        "Mentions, not pointers: `CONTEXT.md` was deleted, `Docs/<Feature>_CN.md` is a pattern, `Services/Cron/` is not under Docs, [site](https://example.com/Docs/G.md).",
+        "```bash",
+        "cat `Docs/InFence.md` [x](Docs/InFence.md)",
+        "```"
+    });
+    AssertEqual(1, docMapLines, "合成文本里恰好有一行文档地图");
+    AssertEqual(
+        "1:AGENTS.md|1:README.md|1:Docs/|1:Docs/A.md|1:Docs/B.md|1:release.sh|1:Scripts/|" +
+        "2:Docs/C.md|2:Docs/D.md|2:Docs/images/e.png|2:Docs/images/|2:docs/F.md",
+        string.Join("|", citations.Select(c => $"{c.Line}:{c.Target}")),
+        "提取规则变了：多提会在真实文档上误报，少提会让检查空转");
+
+    // 存在性逐段按大小写精确比较：在 macOS / Windows 上 File.Exists("Docs/techdebt.md") 为真，
+    // Linux 上为假。不这样做的话，同一份文档在本机是绿的、到 CI 才变红，而 agent 在 Linux 上照着打开也会失败。
+    var temp = Directory.CreateTempSubdirectory("athena-doc-citations-");
+    try
+    {
+        Directory.CreateDirectory(Path.Combine(temp.FullName, "Docs", "images"));
+        File.WriteAllText(Path.Combine(temp.FullName, "Docs", "TechDebt.md"), string.Empty);
+        AssertTrue(RepositoryPathExists(temp.FullName, "Docs/TechDebt.md"), "大小写一致的文件应当存在");
+        AssertTrue(RepositoryPathExists(temp.FullName, "Docs/images/"), "以 / 结尾的目录应当存在");
+        AssertFalse(RepositoryPathExists(temp.FullName, "Docs/techdebt.md"), "文件名大小写不一致必须算不存在");
+        AssertFalse(RepositoryPathExists(temp.FullName, "docs/TechDebt.md"), "目录名大小写不一致必须算不存在");
+        AssertFalse(RepositoryPathExists(temp.FullName, "Docs/Missing.md"), "不存在的文件必须算不存在");
+    }
+    finally
+    {
+        temp.Delete(recursive: true);
+    }
+
+    return Task.CompletedTask;
+}
+
+// 测试 DLL 在 Athena.Archive.Tests/bin/<配置>/net10.0/ 下运行（dotnet run 和直接运行 DLL 都是），
+// 往上找第一个含有 Athena.UI.sln 的目录。找不到就让测试失败而不是跳过——一跳过，这条断言就等于不存在了。
+static string FindRepositoryRoot()
+{
+    for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "Athena.UI.sln")))
+        {
+            return directory.FullName;
+        }
+    }
+
+    throw new InvalidOperationException($"从 {AppContext.BaseDirectory} 往上找不到 Athena.UI.sln：这条断言必须在仓库签出里运行");
+}
+
+// 规则与理由见 TestDocCitationRuleAsync。Target 是相对仓库根的路径，分隔符一律为 /。
+static (List<(int Line, string Cited, string Target)> Citations, int DocMapLines) ExtractDocCitations(IReadOnlyList<string> lines)
+{
+    // 只由字母、数字和 _ . - / 组成，并以扩展名或 / 结尾：Docs/<Feature>.md、Services/Platform/* 这类模式，
+    // 以及任何带空格的命令行，天然都不算路径。
+    var pointer = new Regex(@"^[\w.\-]+(?:/[\w.\-]+)*(?:/|\.\w+)$");
+    var inlineCode = new Regex("`([^`]+)`");
+    var linkTarget = new Regex("""\]\(([^)\s]+)[^)]*\)|\b(?:src|href)\s*=\s*["']([^"'\s]+)["']""");
+    var docMap = new Regex(@"`Docs/`\s*\(");
+
+    var citations = new List<(int Line, string Cited, string Target)>();
+    var docMapLines = 0;
+    var inFence = false;
+    for (var i = 0; i < lines.Count; i++)
+    {
+        var line = lines[i];
+        if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
+        {
+            inFence = !inFence;
+            continue;
+        }
+
+        if (inFence)
+        {
+            continue;
+        }
+
+        // 文档地图：先找出 `Docs/` 后面那对括号的范围。
+        var map = docMap.Match(line);
+        var (open, close) = (-1, -1);
+        if (map.Success)
+        {
+            docMapLines++;
+            open = map.Index + map.Length - 1;
+            close = line.Length;
+            for (int j = open, depth = 0; j < line.Length; j++)
+            {
+                if (line[j] == '(')
+                {
+                    depth++;
+                }
+                else if (line[j] == ')' && --depth == 0)
+                {
+                    close = j;
+                    break;
+                }
+            }
+        }
+
+        var found = new List<(int Index, string Cited, string Target)>();
+        foreach (Match match in inlineCode.Matches(line))
+        {
+            var cited = match.Groups[1].Value;
+            if (!pointer.IsMatch(cited))
+            {
+                continue;
+            }
+
+            if (map.Success)
+            {
+                found.Add((match.Index, cited, match.Index > open && match.Index < close ? "Docs/" + cited : cited));
+            }
+            else if (cited.StartsWith("Docs/", StringComparison.OrdinalIgnoreCase))
+            {
+                found.Add((match.Index, cited, cited));
+            }
+        }
+
+        foreach (Match match in linkTarget.Matches(line))
+        {
+            var cited = (match.Groups[1].Success ? match.Groups[1] : match.Groups[2]).Value;
+            var target = cited.Split('#', '?')[0];
+            target = target.StartsWith("./", StringComparison.Ordinal) ? target[2..] : target;
+            if (target.StartsWith("Docs/", StringComparison.OrdinalIgnoreCase) && pointer.IsMatch(target))
+            {
+                found.Add((match.Index, cited, target));
+            }
+        }
+
+        citations.AddRange(found.OrderBy(f => f.Index).Select(f => (i + 1, f.Cited, f.Target)));
+    }
+
+    return (citations, docMapLines);
+}
+
+// 逐段在目录列表里按序号（区分大小写）比对名字，而不是调用 File.Exists，理由见 TestDocCitationRuleAsync。
+static bool RepositoryPathExists(string root, string relativePath)
+{
+    var current = root;
+    foreach (var segment in relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries))
+    {
+        var entry = Directory.Exists(current)
+            ? Directory.EnumerateFileSystemEntries(current).FirstOrDefault(e => Path.GetFileName(e) == segment)
+            : null;
+        if (entry is null)
+        {
+            return false;
+        }
+
+        current = entry;
+    }
+
+    return true;
 }
 
 static async Task WaitForAsync(Func<bool> condition, string message)
