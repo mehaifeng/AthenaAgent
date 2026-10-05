@@ -7,7 +7,7 @@
 
 ## 优先级建议
 
-1. ~~**工具审批闸门 + 终端安全边界**（安全债，必须先还）~~ ✅ **已完成**（2026-07-05，见第一节与 `Docs/ToolApproval_Implementation_CN.md`）
+1. ~~**工具审批闸门 + 终端安全边界**（安全债，必须先还）~~ ✅ **已完成**（2026-07-05，见第一节）
 2. ~~**首次启动引导 + 配置收敛**（决定新用户留存）~~ ✅ **已完成**（2026-07-07，见二.3、三.4）
 3. ~~**Token 统计准确性**（上下文压力判断的锚点）~~ ✅ **已完成**（2026-07-10，见二.2）
 4. **MCP / 插件扩展**（决定长期竞争力天花板）
@@ -18,7 +18,7 @@
 
 ## 一、最严重：安全模型自相矛盾（已验证）✅ 已修复
 
-> **状态更新（2026-07-05）**：已落地代码级工具审批闸门。`FunctionRegistry.ExecuteAsync` 成为唯一收口点，三条执行路径（主聊天 / 子代理 / KB 维护）均无法绕过；`ToolRiskClassifier` + `TerminalCommandRisk` 对 `execute_terminal_command` 做命令级风险评估（拦 `bash -c "rm -rf"`、`curl|sh`、`sudo`、`chmod 777` 等）；`ToolApprovalContext`(AsyncLocal) 区分 Interactive/NonInteractive/Trusted/Unset 模式，主聊天走 `ToolApprovalDialog` 弹窗确认。配置项 `ToolApprovalMode`(Off/Balanced/Strict)、`AutoAllowedTools`、`TerminalAllowlist` 落在「工具与安全」设置区。详见 `Docs/ToolApproval_Implementation_CN.md`。以下为原始问题记录，保留备查。
+> **状态更新（2026-07-05）**：已落地代码级工具审批闸门。`FunctionRegistry.ExecuteAsync` 成为唯一收口点，三条执行路径（主聊天 / 子代理 / KB 维护）均无法绕过；`ToolRiskClassifier` + `TerminalCommandRisk` 对 `execute_terminal_command` 做命令级风险评估（拦 `bash -c "rm -rf"`、`curl|sh`、`sudo`、`chmod 777` 等）；`ToolApprovalContext`(AsyncLocal) 区分 Interactive/NonInteractive/Trusted/Unset 模式，主聊天走 `ToolApprovalDialog` 弹窗确认。配置项 `ToolApprovalMode`(Off/Balanced/Strict)、`AutoAllowedTools`、`TerminalAllowlist` 落在「工具与安全」设置区。以下为原始问题记录，保留备查。
 
 对外宣称「严格沙箱 / 系统文件保护 / 自我保护（禁改 config.json）/ 路径黑名单」，但实际：
 
