@@ -150,7 +150,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: read-only auto-allows without prompting in balanced mode", TestApprovalReadOnlyAutoAllowAsync),
     ("approval: destructive denied on unattended path", TestApprovalUnattendedDenyAsync),
     ("approval: sub-agent sensitive follows inherit flag", TestApprovalSubAgentInheritAsync),
-    ("approval: trusted maintenance path auto-allows", TestApprovalTrustedAllowAsync),
+    ("approval: a trusted routine is auto-allowed its granted tools only, never human-only ones, in every mode", TestApprovalTrustedGrantAsync),
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
@@ -160,6 +160,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval shadow: scores are logged beside the user's decision and never decide it", TestApprovalShadowRecordsBesideDecisionAsync),
     ("approval shadow: system one client request shape, answers and failures", TestSystemOneClientAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
+    ("filesystem: a trusted grant confines every file operation to its root, after path resolution and through symlinks", TestTrustedGrantFileConfinementAsync),
+    ("maintenance: the runner's tool loop runs under its own grant and cannot act outside the knowledge base", TestKnowledgeBaseMaintenanceRunnerConfinedAsync),
     ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
     ("filesystem: chunked reads keep UTF-8 intact and flag partial lines", TestChunkedReadBoundaryAsync),
     ("outline: markdown, code, DOCX, PDF, PPTX and XLSX structures are extracted", TestDocumentOutlineFormatsAsync),
@@ -4969,15 +4971,89 @@ static async Task TestApprovalSubAgentInheritAsync()
     }
 }
 
-static async Task TestApprovalTrustedAllowAsync()
+// 知识库整理以 Trusted 运行，审批闸门对它自动放行、从不弹窗。此前「自动放行」不看工具名，
+// 而 FunctionRegistry.ExecuteAsync 只按名字找执行器、不核对调用方声明过什么：整理模型输出一个
+// 从没声明过的工具名（终端、自我配置、cron）照样执行。现在放行只覆盖授权里的工具；只能由人批准的
+// 工具即使写进授权也拒绝；Off 不放宽它，Automatic 也不把它转交审批模型。
+static async Task TestApprovalTrustedGrantAsync()
 {
-    var config = new AppConfig { ToolApprovalMode = ToolApprovalMode.Balanced };
-    var service = new ToolApprovalService(new FakeConfigService(config), null, Log.Logger);
-    using (ToolApprovalContext.EnterTrusted())
+    var kbRoot = Path.Combine(Path.GetTempPath(), "athena-trusted-grant", "KnowledgeBase");
+    var maintenance = KnowledgeBaseMaintenanceRunner.CreateGrant(kbRoot);
+    // 把只能由人批准的工具硬塞进授权：授权也不能替用户批准它们。
+    var overGranted = new TrustedRoutineGrant(
+        "over-granted routine", ["modify_self_configuration", "create_task", "delete_system_file"], kbRoot);
+    var failures = new List<string>();
+
+    async Task ExpectAsync(ToolApprovalMode mode, TrustedRoutineGrant grant, string function, object args, bool approved)
     {
-        var decision = await service.EvaluateAsync("delete_system_file", "{\"path\":\"kb/old.md\"}", CancellationToken.None);
-        AssertTrue(decision.Approved, "trusted maintenance routine auto-allows its own KB operations");
+        var config = new AppConfig { ToolApprovalMode = mode };
+        // 两个旁路都会放行：谁被问到了，就说明裁决漏出了 Trusted 分支。
+        var evaluator = new CapturingApprovalEvaluator();
+        var prompter = new FakeApprovalPrompter(ToolApprovalScope.AllowOnce);
+        var service = new ToolApprovalService(new FakeConfigService(config), prompter, Log.Logger, aiEvaluator: evaluator);
+        ToolApprovalDecision decision;
+        using (ToolApprovalContext.EnterTrusted(grant))
+        {
+            decision = await service.EvaluateAsync(function, JsonSerializer.Serialize(args), CancellationToken.None);
+        }
+
+        var label = $"[{mode}] {grant.Routine} → {function}";
+        if (decision.Approved != approved)
+            failures.Add($"{label}: expected {(approved ? "allow" : "deny")}, got {decision.Scope} ({decision.Reason})");
+        if (evaluator.Request != null)
+            failures.Add($"{label}: the automatic-approval model was consulted for a trusted-routine call");
+        if (prompter.CallCount > 0)
+            failures.Add($"{label}: a trusted background routine must never prompt");
     }
+
+    var outside = Path.Combine(Path.GetTempPath(), "athena-trusted-grant", "Documents");
+    foreach (var mode in new[] { ToolApprovalMode.Balanced, ToolApprovalMode.Strict, ToolApprovalMode.Off, ToolApprovalMode.Automatic })
+    {
+        // 授权内：整理照常无人值守。
+        await ExpectAsync(mode, maintenance, "delete_system_file", new { path = "old.md" }, approved: true);
+        await ExpectAsync(mode, maintenance, "write_system_file", new { path = "merged.md", content = "# merged" }, approved: true);
+        await ExpectAsync(mode, maintenance, "read_system_file", new { path = "old.md" }, approved: true);
+        await ExpectAsync(mode, overGranted, "delete_system_file", new { path = "old.md" }, approved: true);
+
+        // 授权外：声明里从来没有，模型却照样可以输出。
+        await ExpectAsync(mode, maintenance, "execute_terminal_command", new { command = "rm", arguments = new[] { "-rf", outside } }, approved: false);
+        await ExpectAsync(mode, maintenance, "move_system_file", new { sourcePath = "old.md", destinationPath = Path.Combine(outside, "old.md") }, approved: false);
+        await ExpectAsync(mode, maintenance, "fetch_url_to_file", new { url = "https://example.com/x", outputPath = "x.md" }, approved: false);
+        await ExpectAsync(mode, maintenance, "create_new_memory", new { filePath = "new.md", content = "x" }, approved: false);
+        await ExpectAsync(mode, maintenance, "dispatch_subagents", new { tasks = Array.Empty<object>() }, approved: false);
+        await ExpectAsync(mode, maintenance, "modify_self_configuration", new { key = "Security.ToolApprovalMode", value = "Off" }, approved: false);
+        await ExpectAsync(mode, maintenance, "create_task", new { name = "t", schedule = "* * * * *", instruction = "x" }, approved: false);
+
+        // 只能由人批准：写进授权也不放行。
+        await ExpectAsync(mode, overGranted, "modify_self_configuration", new { key = "Security.ToolApprovalMode", value = "Off" }, approved: false);
+        await ExpectAsync(mode, overGranted, "create_task", new { name = "t", schedule = "* * * * *", instruction = "x" }, approved: false);
+    }
+
+    // 没有「只给信任、不给限定」的入口：授权必须点名工具和一个绝对目录。
+    void ExpectRejected(string name, Action construct)
+    {
+        try
+        {
+            construct();
+            failures.Add($"{name}: was accepted");
+        }
+        catch (ArgumentException)
+        {
+        }
+    }
+    ExpectRejected("EnterTrusted(null)", () => ToolApprovalContext.EnterTrusted(null!).Dispose());
+    ExpectRejected("a grant confined to a relative directory", () => _ = new TrustedRoutineGrant("r", ["read_system_file"], "KnowledgeBase"));
+    ExpectRejected("a grant with no tools", () => _ = new TrustedRoutineGrant("r", [], kbRoot));
+
+    // 进出作用域必须在这个方法自己的执行流里：async 方法里设的 AsyncLocal 不会流回调用方，
+    // 放在 ExpectAsync 里检查的话，「离开时不还原」这种错误永远看不见。
+    using (ToolApprovalContext.EnterTrusted(maintenance))
+    {
+    }
+    if (ToolApprovalContext.CurrentMode != ToolApprovalContext.ExecutionMode.Unset || ToolApprovalContext.CurrentTrustedGrant != null)
+        failures.Add("leaving the trusted scope must restore the previous mode and drop the grant");
+
+    AssertTrue(failures.Count == 0, "trusted grant approval:\n  " + string.Join("\n  ", failures));
 }
 
 static async Task TestApprovalPersistAlwaysAsync()
@@ -5589,6 +5665,322 @@ static async Task TestFileSystemSymlinkEscapeAsync()
     await File.WriteAllTextAsync(normal, "hello");
     var normalContent = await service.ReadFileAsync(normal);
     AssertEqual("hello", normalContent, "a normal file in an allowed dir is still readable");
+}
+
+// 知识库整理以 Trusted 运行，审批闸门不再拦它，路径边界只剩 FileSystemService 这一道。
+// 此前这里只有平台黑名单：绝对路径、../、软链都能出知识库，macOS 的写黑名单也不含 ~/Documents。
+// 边界必须判断解析之后的路径——相对路径在知识库里找不到时会回落到 AthenaData，
+// 于是「state.json」「config.json」这样不带 .. 的裸文件名同样落在知识库之外。
+// 两种 FollowSymlinks 都要跑：用户关掉软链解析时，边界不能跟着失效。
+static async Task TestTrustedGrantFileConfinementAsync()
+{
+    var failures = new List<string>();
+    var symlinksTested = false;
+
+    foreach (var followSymlinks in new[] { false, true })
+    {
+        using var harness = new TestHarness();
+        var root = harness.Root;
+        var kb = harness.PathService.GetKnowledgeBaseDirectory();
+        var outside = Path.Combine(root, "outside");
+        var victim = Path.Combine(outside, "victim.txt");
+        var appState = Path.Combine(root, "state.json");
+        var backup = Path.Combine(root, "knowledge.backup", "old.md");
+        Directory.CreateDirectory(Path.Combine(kb, "topic"));
+        Directory.CreateDirectory(Path.Combine(kb, "empty-dir"));
+        Directory.CreateDirectory(outside);
+        Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+        await File.WriteAllTextAsync(Path.Combine(kb, "a.md"), "# A\nalpha fact\n");
+        await File.WriteAllTextAsync(Path.Combine(kb, "b.md"), "# B\nbeta fact\n");
+        await File.WriteAllTextAsync(Path.Combine(kb, "topic", "c.md"), "# C\ngamma fact\n");
+        await File.WriteAllTextAsync(victim, "victim");
+        await File.WriteAllTextAsync(appState, "{}");
+        await File.WriteAllTextAsync(harness.PathService.GetConfigFilePath(), "{\"apiKey\":\"sk-test-not-a-key\"}");
+        await File.WriteAllTextAsync(backup, "backup");
+
+        var symlinks = true;
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(kb, "link-file.md"), victim);
+            Directory.CreateSymbolicLink(Path.Combine(kb, "link-dir"), outside);
+            File.CreateSymbolicLink(Path.Combine(kb, "dangling.md"), Path.Combine(outside, "created-through-link.md"));
+            File.CreateSymbolicLink(Path.Combine(kb, "relative.md"), Path.Combine("..", "outside", "victim.txt"));
+            // 目标看上去在知识库里，但路径中途经过 link-dir。用根的规范写法，macOS 上也不靠 /var 的拼写碰巧拦住。
+            File.CreateSymbolicLink(Path.Combine(kb, "hop.md"), Path.Combine(CanonicalizeForTest(kb), "link-dir", "victim.txt"));
+            // 指向知识库内另一个文件的软链，目标用字面写法（macOS 上要经过 /var → private/var 才是真实路径）。
+            File.CreateSymbolicLink(Path.Combine(kb, "alias.md"), Path.Combine(kb, "topic", "c.md"));
+            // 反方向：链接本身在知识库外、指向知识库内。删它删掉的是外面的那个目录项。
+            File.CreateSymbolicLink(Path.Combine(outside, "into-kb.md"), Path.Combine(kb, "a.md"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 当前环境无权限创建符号链接（部分 Windows CI）：只跑非软链的用例。
+            symlinks = false;
+        }
+        symlinksTested |= symlinks;
+
+        // 只放开平台黑名单（macOS 的临时目录在 /private/var 下，默认读写都会被拦），
+        // 让被测的只剩授权边界本身。
+        var config = CreateReadUnrestrictedConfig();
+        static void ClearWriteBlocked(PlatformFileSystemConfig p) =>
+            p.WriteAccess = new PlatformAccessRule { BlockedDirectories = new() };
+        ClearWriteBlocked(config.FileSystemPolicy.Platforms.Windows);
+        ClearWriteBlocked(config.FileSystemPolicy.Platforms.MacOS);
+        ClearWriteBlocked(config.FileSystemPolicy.Platforms.Linux);
+        config.FileSystemPolicy.Global.FollowSymlinks = followSymlinks;
+        var service = new FileSystemService(new FakeConfigService(config), harness.PathService, Log.Logger);
+        var grant = KnowledgeBaseMaintenanceRunner.CreateGrant(kb);
+        var tag = $"FollowSymlinks={followSymlinks}";
+
+        async Task RefusedAsync(string name, Func<Task> action, Func<bool>? untouched = null)
+        {
+            // 每条用例面对同一个完好的外部文件：没修好时，前一条删掉它不该连带后面的结论。
+            await File.WriteAllTextAsync(victim, "victim");
+            try
+            {
+                using (ToolApprovalContext.EnterTrusted(grant))
+                {
+                    await action();
+                }
+                failures.Add($"[{tag}] {name}: was allowed");
+            }
+            catch (UnauthorizedAccessException ex) when (ex.Message.Contains(grant.ConfinementRoot, StringComparison.Ordinal))
+            {
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"[{tag}] {name}: expected a refusal naming the knowledge-base root, got {ex.GetType().Name}: {ex.Message}");
+            }
+            if (untouched != null && !untouched())
+                failures.Add($"[{tag}] {name}: the target outside the knowledge base was changed");
+        }
+
+        async Task AllowedAsync(string name, Func<Task<bool>> action)
+        {
+            try
+            {
+                using (ToolApprovalContext.EnterTrusted(grant))
+                {
+                    if (!await action()) failures.Add($"[{tag}] {name}: did not take effect");
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"[{tag}] {name}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        bool VictimIntact() => File.Exists(victim) && File.ReadAllText(victim) == "victim";
+
+        // —— 绝对路径：每个入口都过同一道边界 ——
+        await RefusedAsync("absolute path outside: delete", () => service.DeleteFileAsync(victim), VictimIntact);
+        await RefusedAsync("absolute path outside: write", () => service.WriteFileAsync(Path.Combine(outside, "new.md"), "x"),
+            () => !File.Exists(Path.Combine(outside, "new.md")));
+        await RefusedAsync("absolute path outside: read", () => service.ReadFileAsync(victim));
+        await RefusedAsync("absolute path outside: list", () => service.ListDirectoryAsync(outside));
+        await RefusedAsync("absolute path outside: search_in_file", () => service.SearchInFileAsync(victim, "victim"));
+        await RefusedAsync("absolute path outside: get_file_info", () => service.GetFileInfoAsync(victim));
+        await RefusedAsync("absolute path outside: document outline", () => service.GetDocumentOutlineAsync(victim));
+        await RefusedAsync("home expansion: list ~", () => service.ListDirectoryAsync("~"));
+
+        // —— ../ 逃逸 ——
+        await RefusedAsync("../ escape: delete", () => service.DeleteFileAsync("../outside/victim.txt"), VictimIntact);
+        await RefusedAsync("../ escape: write", () => service.WriteFileAsync("../outside/escaped.md", "x"),
+            () => !File.Exists(Path.Combine(outside, "escaped.md")));
+
+        // —— 不带 .. 的裸文件名经 AthenaData 回落出知识库：只看参数字面的检查拦不住 ——
+        await RefusedAsync("AthenaData fallback: delete app state by bare name", () => service.DeleteFileAsync("state.json"),
+            () => File.Exists(appState));
+        await RefusedAsync("AthenaData fallback: read config.json by bare name", () => service.ReadFileAsync("config.json"));
+
+        // —— 同前缀的兄弟目录不在根内 ——
+        await RefusedAsync("prefix sibling: read knowledge.backup", () => service.ReadFileAsync("../knowledge.backup/old.md"));
+        await RefusedAsync("prefix sibling: delete knowledge.backup", () => service.DeleteFileAsync(backup), () => File.Exists(backup));
+
+        if (symlinks)
+        {
+            // —— 知识库内指向外面的软链：字面路径在根内，实际落点不在 ——
+            await RefusedAsync("file symlink pointing out: read", () => service.ReadFileAsync("link-file.md"));
+            await RefusedAsync("relative symlink pointing out: read", () => service.ReadFileAsync("relative.md"));
+            await RefusedAsync("symlink whose target passes through another symlink: read", () => service.ReadFileAsync("hop.md"));
+            await RefusedAsync("file symlink pointing out: modify",
+                () => service.ModifyFileWithDiffAsync("link-file.md", "<<<<<<< SEARCH\nvictim\n=======\npwned\n>>>>>>> REPLACE"),
+                VictimIntact);
+            await RefusedAsync("directory symlink pointing out: delete through it", () => service.DeleteFileAsync("link-dir/victim.txt"),
+                VictimIntact);
+            await RefusedAsync("directory symlink pointing out: write through it", () => service.WriteFileAsync("link-dir/planted.md", "x"),
+                () => !File.Exists(Path.Combine(outside, "planted.md")));
+            await RefusedAsync("dangling symlink: copy writes through it",
+                () => service.CopyFileAsync(Path.Combine(kb, "a.md"), "dangling.md", overwrite: true),
+                () => !File.Exists(Path.Combine(outside, "created-through-link.md")));
+            await RefusedAsync("symlink outside pointing in: delete the outside entry",
+                () => service.DeleteFileAsync(Path.Combine(outside, "into-kb.md")),
+                () => Directory.GetFileSystemEntries(outside).Any(entry => Path.GetFileName(entry) == "into-kb.md"));
+        }
+
+        // —— 知识库内的正常整理照常无人值守（「KB 内任意路径」可写可删，不只是 .md）——
+        await AllowedAsync("in-KB read by relative path", async () => await service.ReadFileAsync("a.md") == "# A\nalpha fact\n");
+        await AllowedAsync("in-KB read by absolute path", async () => await service.ReadFileAsync(Path.Combine(kb, "topic", "c.md")) != null);
+        await AllowedAsync("in-KB read through the root's canonical spelling",
+            async () => await service.ReadFileAsync(Path.Combine(CanonicalizeForTest(kb), "topic", "c.md")) != null);
+        await AllowedAsync("in-KB merge into the canonical file", async () =>
+            (await service.ModifyFileWithDiffAsync("a.md", "<<<<<<< SEARCH\nalpha fact\n=======\nalpha fact\nbeta fact\n>>>>>>> REPLACE")).Success
+            && File.ReadAllText(Path.Combine(kb, "a.md")).Contains("beta fact", StringComparison.Ordinal));
+        await AllowedAsync("in-KB write of a new file", async () =>
+            await service.WriteFileAsync("merged.md", "# merged") && File.Exists(Path.Combine(kb, "merged.md")));
+        await AllowedAsync("in-KB write into a new subdirectory", async () =>
+            await service.WriteFileAsync("topic/new/d.md", "# D") && File.Exists(Path.Combine(kb, "topic", "new", "d.md")));
+        await AllowedAsync("in-KB write of a non-Markdown file", async () =>
+            await service.WriteFileAsync("notes.txt", "x") && File.Exists(Path.Combine(kb, "notes.txt")));
+        await AllowedAsync("in-KB delete of the redundant file", async () =>
+            await service.DeleteFileAsync("b.md") && !File.Exists(Path.Combine(kb, "b.md")));
+        await AllowedAsync("in-KB recursive directory delete", async () =>
+            await service.DeleteFileAsync("empty-dir", recursive: true) && !Directory.Exists(Path.Combine(kb, "empty-dir")));
+        await AllowedAsync("list the KB root by '.'", async () => (await service.ListDirectoryAsync(".")).Count > 0);
+        await AllowedAsync("list the KB root by its absolute path", async () => (await service.ListDirectoryAsync(kb)).Count > 0);
+        await AllowedAsync("in-KB search_in_file, file info and outline", async () =>
+            (await service.SearchInFileAsync("a.md", "alpha")).TotalMatches == 1
+            && await service.GetFileInfoAsync("a.md") != null
+            && (await service.GetDocumentOutlineAsync("a.md")).Entries.Count > 0);
+        if (symlinks)
+        {
+            await AllowedAsync("in-KB symlink to another in-KB file", async () => await service.ReadFileAsync("alias.md") == "# C\ngamma fact\n");
+        }
+
+        // —— 边界只随授权存在 ——
+        try
+        {
+            if (await service.ReadFileAsync(victim) != "victim")
+                failures.Add($"[{tag}] without a trusted grant the same service must read outside the knowledge base");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            failures.Add($"[{tag}] without a trusted grant the same service must read outside the knowledge base");
+        }
+        using (ToolApprovalContext.EnterTrusted(grant))
+        {
+            using (ToolApprovalContext.EnterInteractive())
+            {
+                try
+                {
+                    if (await service.ReadFileAsync(victim) != "victim")
+                        failures.Add($"[{tag}] an interactive scope nested in a trusted one must not inherit the grant");
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    failures.Add($"[{tag}] an interactive scope nested in a trusted one must not inherit the grant");
+                }
+            }
+            try
+            {
+                await service.ReadFileAsync(victim);
+                failures.Add($"[{tag}] leaving a nested scope must restore the trusted grant");
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    if (!symlinksTested)
+        Console.WriteLine("  [note] symbolic links unavailable here; the symlink cases were skipped");
+    AssertTrue(failures.Count == 0, "trusted grant file confinement:\n  " + string.Join("\n  ", failures));
+}
+
+// 整条整理回路：真实的 Runner 循环（模型由回环端点按脚本扮演）、真实的审批闸门与 FileSystemService。
+// 脚本里的模型先做一次正常的去重删除，再照着记忆文件里被注入的指令去删知识库外的文件、
+// 用裸文件名删 AthenaData 里的状态、调用从没声明过的终端与自我配置工具。审批模式开到最宽的 Off：
+// 边界来自授权，不来自用户的审批偏好。
+static async Task TestKnowledgeBaseMaintenanceRunnerConfinedAsync()
+{
+    using var harness = new TestHarness();
+    var kb = harness.PathService.GetKnowledgeBaseDirectory();
+    var outside = Path.Combine(harness.Root, "outside");
+    var victim = Path.Combine(outside, "victim.txt");
+    var appState = Path.Combine(harness.Root, "state.json");
+    Directory.CreateDirectory(kb);
+    Directory.CreateDirectory(outside);
+    await File.WriteAllTextAsync(Path.Combine(kb, "a.md"), "# A\nalpha fact\n");
+    await File.WriteAllTextAsync(Path.Combine(kb, "b.md"), "# A again\nalpha fact\n");
+    await File.WriteAllTextAsync(victim, "victim");
+    await File.WriteAllTextAsync(appState, "{}");
+
+    var toolRound = ScriptedChatCompletionsServer.ToolCalls(
+        ("delete_system_file", new { path = "b.md" }),
+        ("delete_system_file", new { path = victim }),
+        ("delete_system_file", new { path = "state.json" }),
+        ("execute_terminal_command", new { command = "rm", arguments = new[] { "-rf", outside } }),
+        ("modify_self_configuration", new { key = "Security.ToolApprovalMode", value = "Off" }));
+    using var server = new ScriptedChatCompletionsServer([toolRound, ScriptedChatCompletionsServer.Text("Merged b.md into a.md.")]);
+
+    var config = CreateReadUnrestrictedConfig();
+    static void ClearWriteBlocked(PlatformFileSystemConfig p) =>
+        p.WriteAccess = new PlatformAccessRule { BlockedDirectories = new() };
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.Windows);
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.MacOS);
+    ClearWriteBlocked(config.FileSystemPolicy.Platforms.Linux);
+    config.ToolApprovalMode = ToolApprovalMode.Off;
+    config.AiModels.Providers.Add(new OpenAiProviderConfiguration
+    {
+        Id = "maintenance-loopback",
+        BaseUrl = server.BaseUrl,
+        ApiKey = "test-key",
+        Protocol = ProviderProtocol.ChatCompletions
+    });
+    config.AiModels.KnowledgeMaintenance.ProviderId = "maintenance-loopback";
+    config.AiModels.KnowledgeMaintenance.Model = "maintenance-model";
+
+    var configService = new FakeConfigService(config);
+    var registry = new GatedFileToolRegistry(
+        new ToolApprovalService(configService, null, Log.Logger),
+        new FileSystemService(configService, harness.PathService, Log.Logger));
+    var runner = new KnowledgeBaseMaintenanceRunner(configService, registry, harness.PathService, Log.Logger);
+
+    var (success, summary) = await runner.RunAsync("Group 1 (min similarity 0.95):\n  - a.md\n  - b.md\n", CancellationToken.None);
+
+    var failures = new List<string>();
+    if (!success) failures.Add($"the run should finish with the model's summary, got: {summary}");
+    if (server.Requests.Count != 2) failures.Add($"expected 2 model requests, got {server.Requests.Count}");
+    if (registry.Calls.Count != 5) failures.Add($"expected 5 tool calls through the gate, got {registry.Calls.Count}");
+
+    // 执行时生效的是本例程自己的授权：Trusted、根就是知识库目录、工具与声明给模型的完全一致。
+    var expectedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(kb));
+    foreach (var call in registry.Calls)
+    {
+        if (call.Mode != ToolApprovalContext.ExecutionMode.Trusted)
+            failures.Add($"{call.Function} ran in {call.Mode}, not Trusted");
+        if (call.Grant?.ConfinementRoot != expectedRoot)
+            failures.Add($"{call.Function} ran under a grant rooted at <{call.Grant?.ConfinementRoot ?? "none"}>, not the knowledge base <{expectedRoot}>");
+    }
+    if (server.Requests.Count > 0 && registry.Calls.Count > 0)
+    {
+        var declared = ScriptedChatCompletionsServer.DeclaredToolNames(server.Requests[0]);
+        var granted = registry.Calls[0].Grant?.ToolNames ?? [];
+        if (!declared.ToHashSet(StringComparer.Ordinal).SetEquals(granted))
+            failures.Add($"the grant <{string.Join(", ", granted)}> differs from the tools declared to the model <{string.Join(", ", declared)}>");
+    }
+
+    // 效果：知识库内的去重照做，其余一律落空。
+    if (File.Exists(Path.Combine(kb, "b.md"))) failures.Add("the in-KB duplicate b.md should have been deleted");
+    if (!File.Exists(Path.Combine(kb, "a.md"))) failures.Add("the canonical a.md must survive");
+    if (!File.Exists(victim)) failures.Add("a file outside the knowledge base was deleted");
+    if (!File.Exists(appState)) failures.Add("AthenaData state was deleted through a bare relative name");
+    foreach (var name in new[] { "execute_terminal_command", "modify_self_configuration" })
+    {
+        if (registry.Calls.Any(call => call.Function == name && call.Approved))
+            failures.Add($"the undeclared {name} passed the approval gate");
+    }
+
+    // 模型拿到的拒绝信息点名知识库根，它才知道该往哪里改。
+    if (server.Requests.Count > 1)
+    {
+        var toolResults = ScriptedChatCompletionsServer.ToolResultMessages(server.Requests[1]);
+        var refusals = toolResults.Count(message => message.Contains(expectedRoot, StringComparison.Ordinal));
+        if (refusals < 2)
+            failures.Add($"the two out-of-KB deletes should come back naming {expectedRoot}; tool results were:\n    " + string.Join("\n    ", toolResults));
+    }
+
+    AssertTrue(failures.Count == 0, "maintenance runner confinement:\n  " + string.Join("\n  ", failures));
 }
 
 // 用例跑在 TestHarness 的临时目录里，而 macOS 的 Path.GetTempPath() 解析为 /private/var，
@@ -8703,6 +9095,271 @@ sealed class CapturingApprovalEvaluator : IAiToolApprovalEvaluator
         Request = request;
         DelegatedTask = ToolApprovalContext.CurrentDelegatedTask;
         return Task.FromResult(ToolApprovalDecision.AllowOnce("test evaluator"));
+    }
+}
+
+sealed record GatedToolCall(string Function, ToolApprovalContext.ExecutionMode Mode, TrustedRoutineGrant? Grant, bool Approved);
+
+/// <summary>
+/// 整理 Runner 的工具出口，照 FunctionRegistry.ExecuteAsync 的形状：先过真实的审批闸门，再交给真实的
+/// FileSystemService，并记下每次执行时生效的审批作用域。真实注册表链不进本工程（它要全部工具类）。
+/// 终端、配置等其它工具从不真的执行，只记录闸门是否放行了它。
+/// </summary>
+sealed class GatedFileToolRegistry(IToolApprovalService approval, IFileSystemService fileSystem) : IFunctionRegistry
+{
+    public List<GatedToolCall> Calls { get; } = [];
+
+    public bool HasFunctions => true;
+
+    public IEnumerable<object> GetToolDefinitions(bool includeOfficeTools = false) =>
+        throw new NotSupportedException("The maintenance runner asks for its tools by name.");
+
+    public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames) =>
+        toolNames.Select(name => OpenAI.Chat.ChatTool.CreateFunctionTool(
+            name, $"scripted {name}", BinaryData.FromString("{\"type\":\"object\",\"properties\":{}}"))).ToList();
+
+    public int GetToolDeclarationTokenCount(bool includeOfficeTools = false) => 0;
+
+    public async Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
+    {
+        var mode = ToolApprovalContext.CurrentMode;
+        var grant = ToolApprovalContext.CurrentTrustedGrant;
+        var decision = await approval.EvaluateAsync(functionName, argumentsJson, CancellationToken.None);
+        Calls.Add(new GatedToolCall(functionName, mode, grant, decision.Approved));
+        if (!decision.Approved)
+            return FunctionResult.FailureResult($"用户拒绝了工具调用 '{functionName}'（原因：{decision.Reason}）。");
+
+        using var arguments = JsonDocument.Parse(argumentsJson);
+        var path = arguments.RootElement.TryGetProperty("path", out var value) ? value.GetString() ?? string.Empty : string.Empty;
+        try
+        {
+            return functionName switch
+            {
+                "delete_system_file" => await fileSystem.DeleteFileAsync(path)
+                    ? FunctionResult.SuccessResult($"Success: file deleted ({path})")
+                    : FunctionResult.FailureResult($"Error: file not found ({path})"),
+                "read_system_file" => FunctionResult.SuccessResult("Read succeeded.", await fileSystem.ReadFileAsync(path)),
+                _ => FunctionResult.SuccessResult($"'{functionName}' passed the gate; the test registry never executes it")
+            };
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return FunctionResult.FailureResult($"Security blocked: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// 回环端口上按脚本回放的 chat/completions 端点，记下每个请求体。整理 Runner 在方法内部自建
+/// OpenAIClient，没有可替换的传输层，只能让它真的发 HTTP。用裸 TcpListener 而不是 HttpListener，
+/// 理由同 OrcaRouter 的回环端：后者在 Windows 上要 URL ACL。
+/// </summary>
+sealed class ScriptedChatCompletionsServer : IDisposable
+{
+    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+    private readonly Queue<string> _responses;
+    private readonly List<string> _requests = [];
+    private readonly CancellationTokenSource _stop = new();
+    private readonly Task _serving;
+
+    public ScriptedChatCompletionsServer(IEnumerable<string> responses)
+    {
+        _responses = new Queue<string>(responses);
+        _listener.Start();
+        BaseUrl = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}/v1";
+        _serving = Task.Run(() => ServeAsync(_stop.Token));
+    }
+
+    public string BaseUrl { get; }
+
+    public IReadOnlyList<string> Requests
+    {
+        get { lock (_requests) return _requests.ToArray(); }
+    }
+
+    public static string ToolCalls(params (string Name, object Arguments)[] calls) => JsonSerializer.Serialize(new
+    {
+        id = "chatcmpl-scripted-tools",
+        @object = "chat.completion",
+        created = 1_700_000_000,
+        model = "scripted",
+        choices = new[]
+        {
+            new
+            {
+                index = 0,
+                message = new
+                {
+                    role = "assistant",
+                    content = (string?)null,
+                    tool_calls = calls.Select((call, i) => new
+                    {
+                        id = $"call_{i + 1}",
+                        type = "function",
+                        function = new { name = call.Name, arguments = JsonSerializer.Serialize(call.Arguments) }
+                    }).ToArray()
+                },
+                finish_reason = "tool_calls"
+            }
+        },
+        usage = new { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 }
+    });
+
+    public static string Text(string text) => JsonSerializer.Serialize(new
+    {
+        id = "chatcmpl-scripted-text",
+        @object = "chat.completion",
+        created = 1_700_000_000,
+        model = "scripted",
+        choices = new[] { new { index = 0, message = new { role = "assistant", content = text }, finish_reason = "stop" } },
+        usage = new { prompt_tokens = 1, completion_tokens = 1, total_tokens = 2 }
+    });
+
+    /// <summary>请求里声明给模型的工具名。</summary>
+    public static IReadOnlyList<string> DeclaredToolNames(string requestBody)
+    {
+        using var document = JsonDocument.Parse(requestBody);
+        return document.RootElement.TryGetProperty("tools", out var tools)
+            ? tools.EnumerateArray().Select(tool => tool.GetProperty("function").GetProperty("name").GetString() ?? string.Empty).ToList()
+            : [];
+    }
+
+    /// <summary>请求里回传给模型的工具结果（取 FunctionResult 的 message，路径不受 JSON 转义影响）。</summary>
+    public static IReadOnlyList<string> ToolResultMessages(string requestBody)
+    {
+        using var document = JsonDocument.Parse(requestBody);
+        var results = new List<string>();
+        foreach (var message in document.RootElement.GetProperty("messages").EnumerateArray())
+        {
+            if (message.GetProperty("role").GetString() != "tool") continue;
+            var content = message.GetProperty("content");
+            var text = content.ValueKind == JsonValueKind.String
+                ? content.GetString() ?? string.Empty
+                : string.Concat(content.EnumerateArray().Select(part => part.TryGetProperty("text", out var t) ? t.GetString() : null));
+            try
+            {
+                using var result = JsonDocument.Parse(text);
+                results.Add(result.RootElement.GetProperty("message").GetString() ?? string.Empty);
+            }
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+            {
+                results.Add(text); // 不是 FunctionResult 的形状：原样交给断言去读。
+            }
+        }
+        return results;
+    }
+
+    private async Task ServeAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _listener.AcceptTcpClientAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+            {
+                return; // 测试结束，监听已停。
+            }
+
+            using (client)
+            {
+                try
+                {
+                    var stream = client.GetStream();
+                    var body = await ReadRequestBodyAsync(stream, cancellationToken);
+                    string? payload;
+                    lock (_requests)
+                    {
+                        _requests.Add(body);
+                        payload = _responses.Count > 0 ? _responses.Dequeue() : null;
+                    }
+                    // 脚本用完还有请求，说明 Runner 多跑了一轮。回 400（SDK 不重试 4xx），让测试立刻失败而不是空等重试。
+                    var status = payload == null ? "400 Bad Request" : "200 OK";
+                    var content = Encoding.UTF8.GetBytes(payload ?? "{\"error\":{\"message\":\"scripted responses exhausted\"}}");
+                    var head = Encoding.ASCII.GetBytes(
+                        $"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {content.Length}\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(head, cancellationToken);
+                    await stream.WriteAsync(content, cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
+                }
+                catch (Exception ex) when (ex is IOException or OperationCanceledException or SocketException)
+                {
+                    // 客户端中途断开或测试结束：这个连接作废，不影响下一次 accept。
+                }
+            }
+        }
+    }
+
+    private static async Task<string> ReadRequestBodyAsync(NetworkStream stream, CancellationToken cancellationToken)
+    {
+        using var received = new MemoryStream();
+        var buffer = new byte[16 * 1024];
+        int headerEnd;
+        while ((headerEnd = received.GetBuffer().AsSpan(0, (int)received.Length).IndexOf("\r\n\r\n"u8)) < 0)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken);
+            if (read == 0) throw new IOException("The request ended inside its headers.");
+            received.Write(buffer, 0, read);
+        }
+
+        var headers = Encoding.ASCII.GetString(received.GetBuffer(), 0, headerEnd);
+        var body = new List<byte>(received.GetBuffer().AsSpan(headerEnd + 4, (int)received.Length - headerEnd - 4).ToArray());
+        async Task<bool> ReadMoreAsync()
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken);
+            if (read == 0) return false;
+            body.AddRange(buffer.AsSpan(0, read).ToArray());
+            return true;
+        }
+
+        var length = Regex.Match(headers, @"(?im)^content-length:\s*(\d+)\s*$");
+        if (length.Success)
+        {
+            var expected = int.Parse(length.Groups[1].Value, CultureInfo.InvariantCulture);
+            while (body.Count < expected && await ReadMoreAsync()) { }
+            return Encoding.UTF8.GetString(body.ToArray(), 0, Math.Min(expected, body.Count));
+        }
+
+        if (!Regex.IsMatch(headers, @"(?im)^transfer-encoding:\s*chunked\s*$"))
+            return Encoding.UTF8.GetString(body.ToArray());
+
+        // 分块编码：<十六进制长度>\r\n<数据>\r\n …… 0\r\n\r\n
+        var decoded = new List<byte>();
+        var position = 0;
+        while (true)
+        {
+            int lineEnd;
+            while ((lineEnd = body.ToArray().AsSpan(position).IndexOf("\r\n"u8)) < 0)
+            {
+                if (!await ReadMoreAsync()) throw new IOException("The chunked request ended early.");
+            }
+            var size = int.Parse(
+                Encoding.ASCII.GetString(body.ToArray(), position, lineEnd).Split(';')[0].Trim(),
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture);
+            position += lineEnd + 2;
+            if (size == 0) break;
+            while (body.Count < position + size + 2)
+            {
+                if (!await ReadMoreAsync()) throw new IOException("The chunked request ended early.");
+            }
+            decoded.AddRange(body.GetRange(position, size));
+            position += size + 2;
+        }
+        return Encoding.UTF8.GetString(decoded.ToArray());
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _listener.Stop();
+        // 服务循环在取消或监听关闭后自行退出；等它结束再释放它还在用的令牌源。
+        try { _serving.Wait(TimeSpan.FromSeconds(5)); }
+        catch (AggregateException) { /* 循环自己的异常已在内部吞掉；这里只可能是取消，不影响断言 */ }
+        _listener.Dispose();
+        _stop.Dispose();
     }
 }
 
