@@ -207,11 +207,11 @@ public class ToolApprovalService : IToolApprovalService
         ToolApprovalMode mode, ToolApprovalContext.ExecutionMode execMode, AppConfig config,
         bool isTerminal, string? commandName, string approvalKey, string sessionKey)
     {
-        // 受信任的第一方例程（知识库定期整理）：自动放行，避免破坏例程功能。
+        // 受信任的第一方例程（知识库定期整理）：只对授权里的工具自动放行，结论在这里定死——
+        // Off 不放宽它，Automatic 也不把授权外的调用转交审批模型。
         if (execMode == ToolApprovalContext.ExecutionMode.Trusted)
         {
-            _logger.Debug("ToolApproval trusted background routine auto-allow: Function={Function}", functionName);
-            return ToolApprovalDecision.AllowOnce("受信任的后台例程，自动放行");
+            return DecideTrusted(functionName);
         }
 
         // 全局关闭：一切自动放行。
@@ -269,6 +269,38 @@ public class ToolApprovalService : IToolApprovalService
 
         // 需要人工确认 → 交给上层弹窗 / 无人值守策略。
         return null;
+    }
+
+    /// <summary>
+    /// 受信任例程的裁决。此前这里不看工具名就放行，而 ExecuteAsync 只按名字找执行器、
+    /// 不核对调用方声明过哪些工具：整理模型输出 execute_terminal_command 或
+    /// modify_self_configuration（能把审批模式写成 Off）都会被直接执行。
+    /// 路径边界不在这里判断：FileSystemService 在解析完路径之后按同一份授权的目录执行。
+    /// </summary>
+    private ToolApprovalDecision DecideTrusted(string functionName)
+    {
+        var grant = ToolApprovalContext.CurrentTrustedGrant;
+        if (grant == null)
+        {
+            // EnterTrusted 只接受带授权的入口；走到这里说明作用域被绕开了，拒绝并留痕。
+            _logger.Error("ToolApproval trusted scope carries no grant; denying {Function}", functionName);
+            return ToolApprovalDecision.Deny("受信任作用域缺少授权，默认拒绝");
+        }
+
+        // 只能由人批准的调用不会因为「受信任」就改由例程自己放行——与其它无人值守路径同一条规则。
+        if (ToolRiskClassifier.IsNeverUnattended(functionName))
+        {
+            return ToolApprovalDecision.Deny($"'{functionName}' 只能由用户本人批准，后台例程（{grant.Routine}）一律拒绝");
+        }
+
+        if (!grant.Allows(functionName))
+        {
+            return ToolApprovalDecision.Deny(
+                $"'{functionName}' 不在后台例程（{grant.Routine}）的工具授权内；可用工具：{string.Join(", ", grant.ToolNames)}");
+        }
+
+        _logger.Debug("ToolApproval trusted routine auto-allow: Routine={Routine}, Function={Function}", grant.Routine, functionName);
+        return ToolApprovalDecision.AllowOnce($"受信任的后台例程（{grant.Routine}），授权内工具自动放行");
     }
 
     /// <summary>

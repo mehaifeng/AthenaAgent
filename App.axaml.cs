@@ -1304,9 +1304,10 @@ public partial class App : Application, IAsyncDisposable
         {
             var configService = sp.GetRequiredService<IConfigService>();
             var functionRegistry = sp.GetRequiredService<IFunctionRegistry>();
+            var pathService = sp.GetRequiredService<IPlatformPathService>();
             var logger = Log.ForContext<KnowledgeBaseMaintenanceRunner>();
             var localizationService = sp.GetService<ILocalizationService>();
-            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, logger, localizationService);
+            return new KnowledgeBaseMaintenanceRunner(configService, functionRegistry, pathService, logger, localizationService);
         });
 
         // 知识库定期整理服务（单例，后台计时器）

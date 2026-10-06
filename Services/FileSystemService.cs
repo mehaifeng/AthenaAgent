@@ -68,6 +68,10 @@ public class FileSystemService : IFileSystemService
             "FileSystem validation started: Path={Path}, IsWrite={IsWrite}, IsDir={IsDir}, DataSize={DataSize}",
             fullPath, isWriteOperation, isDirectoryOperation, dataSize);
 
+        // 受信任例程（知识库整理）的路径边界。必须判断解析之后的路径：相对路径在知识库里找不到时
+        // 会回落到 AthenaData，「config.json」这种不带 .. 的参数照样落在知识库之外。
+        EnforceTrustedConfinement(fullPath, comparison);
+
         // 不跟随符号链接时，把路径解析到真实目标，阻止「沙箱内软链指向 /etc、~/.ssh」这类越界逃逸。
         // 字面路径与真实路径都要过黑名单：软链本身所在位置、以及它指向的目标，任一命中即拒绝。
         var pathsToCheck = new List<string> { fullPath };
@@ -112,6 +116,115 @@ public class FileSystemService : IFileSystemService
                 "FileSystem size quota exceeded: Path={Path}, DataSize={DataSize}, Limit={Limit}",
                 fullPath, dataSize, targetLimit);
             throw new InvalidOperationException($"Operation exceeds size limit ({targetLimit} bytes).");
+        }
+    }
+
+    /// <summary>
+    /// 受信任例程只能碰授权目录内的路径。审批闸门对它自动放行，这里就是它唯一的路径边界，
+    /// 所以与 FollowSymlinks 无关，总是完整解析软链：点名的位置（字面路径）与实际落到的位置
+    /// （真实路径）都必须在根内。按目录边界比较，同前缀的兄弟目录（KnowledgeBase.backup）不算在内。
+    /// 根本身也可能经过软链（macOS 的 /var 即 /private/var），点名时用它的哪种写法都认。
+    /// 软链解析失败时拒绝：说不清落到哪里的路径，不能当作落在根内。
+    /// </summary>
+    private void EnforceTrustedConfinement(string fullPath, StringComparison comparison)
+    {
+        var grant = ToolApprovalContext.CurrentTrustedGrant;
+        if (grant == null) return;
+
+        var root = grant.ConfinementRoot;
+        var rootResolved = TryResolveFully(root, out var realRoot);
+        var resolved = TryResolveFully(fullPath, out var realPath);
+
+        var named = IsSameOrUnder(fullPath, root, comparison)
+                    || (rootResolved && IsSameOrUnder(fullPath, realRoot, comparison));
+        var lands = rootResolved && resolved && IsSameOrUnder(realPath, realRoot, comparison);
+        if (named && lands) return;
+
+        _logger.Warning(
+            "FileSystem trusted-routine confinement denied: Routine={Routine}, Path={Path}, RealPath={RealPath}, Resolved={Resolved}, Root={Root}",
+            grant.Routine, fullPath, realPath, resolved, root);
+        var where = !named
+            ? $"'{fullPath}' is outside it"
+            : resolved
+                ? $"'{fullPath}' resolves through a symbolic link to '{realPath}', which is outside it"
+                : $"the symbolic links in '{fullPath}' could not be resolved";
+        throw new UnauthorizedAccessException($"The {grant.Routine} routine may only access paths inside {root}; {where}.");
+    }
+
+    private static bool IsSameOrUnder(string path, string root, StringComparison comparison)
+    {
+        var trimmedPath = Path.TrimEndingDirectorySeparator(path);
+        var trimmedRoot = Path.TrimEndingDirectorySeparator(root);
+        if (trimmedPath.Equals(trimmedRoot, comparison)) return true;
+        // 文件系统根（"/"、"C:\"）本身以分隔符结尾，不能再补一个。
+        var prefix = Path.EndsInDirectorySeparator(trimmedRoot) ? trimmedRoot : trimmedRoot + Path.DirectorySeparatorChar;
+        return trimmedPath.StartsWith(prefix, comparison);
+    }
+
+    // 与 Linux 内核的 MAXSYMLINKS 一致：再多就是环。
+    private const int MaxSymlinkHops = 40;
+
+    /// <summary>
+    /// 完整解析软链（realpath(3) 的语义）：逐个组件检查，遇到链接就把它的目标拆回组件重新走一遍，
+    /// 所以目标路径中途经过的软链同样会展开。<see cref="ResolveRealPath"/> 做不到这一点——它只追到
+    /// 「最终目标本身不再是链接」为止：知识库里 a.md → 知识库/link-dir/x、而 link-dir → 知识库外，
+    /// 它报告的是「知识库/link-dir/x」。不存在的尾部原样拼回（尚不存在的路径上不会再有链接）；
+    /// 超过 <see cref="MaxSymlinkHops"/> 跳视为环。无法解析时返回 false，由调用方拒绝。
+    /// </summary>
+    private static bool TryResolveFully(string fullPath, out string realPath)
+    {
+        realPath = fullPath;
+        try
+        {
+            var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+            IEnumerable<string> Components(string path) =>
+                path[(Path.GetPathRoot(path)?.Length ?? 0)..].Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+            var pending = new Stack<string>(Components(fullPath).Reverse());
+            var resolved = Path.GetPathRoot(fullPath) ?? string.Empty;
+            var existing = true;
+            var hops = 0;
+            while (pending.Count > 0)
+            {
+                var component = pending.Pop();
+                if (component == ".") continue;
+                if (component == "..")
+                {
+                    resolved = Path.GetDirectoryName(resolved) ?? resolved;
+                    continue;
+                }
+
+                var candidate = Path.Combine(resolved, component);
+                // File.Exists 对悬空软链也返回 true，所以悬空链接同样会被读出目标。
+                if (!existing || (!File.Exists(candidate) && !Directory.Exists(candidate)))
+                {
+                    existing = false;
+                    resolved = candidate;
+                    continue;
+                }
+
+                FileSystemInfo entry = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+                var target = entry.LinkTarget;
+                if (target == null)
+                {
+                    resolved = candidate;
+                    continue;
+                }
+
+                if (++hops > MaxSymlinkHops) return false;
+                // 相对目标相对于链接所在的目录。
+                var targetPath = Path.IsPathRooted(target) ? target : Path.Combine(resolved, target);
+                foreach (var part in Components(targetPath).Reverse()) pending.Push(part);
+                resolved = Path.GetPathRoot(targetPath) ?? string.Empty;
+            }
+
+            realPath = Path.GetFullPath(resolved);
+            return true;
+        }
+        catch (Exception)
+        {
+            // 无权读取链接、非法路径等：说不清落点，交给调用方按「未解析」拒绝。
+            return false;
         }
     }
 

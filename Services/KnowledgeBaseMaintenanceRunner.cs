@@ -24,6 +24,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
 {
     private readonly IConfigService _configService;
     private readonly IFunctionRegistry _functionRegistry;
+    private readonly IPlatformPathService _pathService;
     private readonly ILogger _logger;
     private readonly ILocalizationService? _localizationService;
 
@@ -53,13 +54,22 @@ public sealed class KnowledgeBaseMaintenanceRunner
         "- Work autonomously; do not ask questions.\n" +
         "- When finished, reply with a concise plain-text summary: which files were merged into which, and which were deleted.";
 
-    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, ILogger logger, ILocalizationService? localizationService = null)
+    public KnowledgeBaseMaintenanceRunner(IConfigService configService, IFunctionRegistry functionRegistry, IPlatformPathService pathService, ILogger logger, ILocalizationService? localizationService = null)
     {
         _configService = configService;
         _functionRegistry = functionRegistry;
+        _pathService = pathService;
         _logger = logger.ForContext<KnowledgeBaseMaintenanceRunner>();
         _localizationService = localizationService;
     }
+
+    /// <summary>
+    /// 本例程的全部能力：声明给模型的那几个工具，加上知识库目录。审批闸门只对这份授权自动放行，
+    /// 文件工具只能碰知识库之内（含软链解析后的真实位置）。根取自 FileSystemService 解析相对路径
+    /// 用的同一个目录，所以「相对知识库根」的路径一定落在被限定的那棵树里。
+    /// </summary>
+    internal static TrustedRoutineGrant CreateGrant(string knowledgeBaseRoot)
+        => new("knowledge-base maintenance", AllowedTools, knowledgeBaseRoot);
 
     /// <summary>
     /// 运行一轮整理。instruction 由调用方（服务）拼装：知识库根路径 + 疑似重复文件分组清单。
@@ -112,9 +122,11 @@ public sealed class KnowledgeBaseMaintenanceRunner
             options.Tools.Add(tool);
         }
 
-        // 知识库定期整理是第一方、沙箱化、用户已显式开启的后台例程：审批闸门自动放行，
-        // 否则会把例程自身的 KB 写入/清理全部拒掉。绝不弹窗。
-        using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterTrusted();
+        // 知识库定期整理是第一方、用户已显式开启的后台例程：审批闸门自动放行，绝不弹窗，
+        // 否则会把例程自身的 KB 写入/清理全部拒掉。但信任只到授权为止——它读的记忆文件可能来自网页，
+        // 被注入的指令不能借它调用授权外的工具，也不能删改知识库之外的文件。
+        using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterTrusted(
+            CreateGrant(_pathService.GetKnowledgeBaseDirectory()));
 
         try
         {
