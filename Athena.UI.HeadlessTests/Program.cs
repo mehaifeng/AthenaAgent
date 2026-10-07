@@ -2546,17 +2546,17 @@ static void TestVirtualPetInteractionSurface()
     Console.WriteLine("[PASS] virtual pet interaction: poke answers the active need, bubbles expire, drops are gated, the switch really switches off");
 }
 
-/// <summary>
-/// 右键 → "说句话" 必须真的能把模型那句显示出来。
-///
-/// 曾经不能，而且是两个原因叠在一起：
-/// 1. 气泡只活 4.5 秒（<see cref="VirtualPetViewModel.BubbleDuration"/>），而一次模型调用被允许
-///    慢到 8 秒（<see cref="PetChatterService.ModelTimeout"/>）。凡是超过 4.5 秒才回来的台词，
-///    都会撞上"气泡已经过期"而被丢掉——也就是说，只有快过 4.5 秒的模型才有机会显示。
-/// 2. 45 秒最短间隔对后台自动台词和用户手点一视同仁，而自动台词（每次回答完成、每次摸头喂食）
-///    会不断占掉这个间隔，于是用户点"说句话"经常静默退回本地台词。
-/// 两条都只表现为"宠物说了句话，但不是模型说的"，没有任何报错。
-/// </summary>
+// 右键 → "说句话" 必须真的能把模型那句显示出来。
+//
+// 曾经不能，而且是两个原因叠在一起：
+// 1. 气泡只活 4.5 秒（VirtualPetViewModel.BubbleDuration），而一次模型调用被允许慢到 8 秒
+//    （PetChatterService.ModelTimeout）。凡是超过 4.5 秒才回来的台词，都会撞上"气泡已经过期"
+//    而被丢掉——也就是说，只有快过 4.5 秒的模型才有机会显示。
+// 2. 45 秒最短间隔对后台自动台词和用户手点一视同仁，而自动台词（每次回答完成、每次摸头喂食）
+//    会不断占掉这个间隔，于是用户点"说句话"经常静默退回本地台词。
+// 两条都只表现为"宠物说了句话，但不是模型说的"，没有任何报错。
+//
+// 这些测试是局部函数，局部函数上不能挂 /// 文档注释（会报 CS1587），所以说明用行注释。
 static void TestVirtualPetSpeakUsesModelLine()
 {
     // 宽限期盖不住模型超时的话，慢回来的台词照样会被丢掉——这条先于一切。
@@ -2882,13 +2882,11 @@ static void TestVirtualPetInteractionVisual(string outputPath)
     Console.WriteLine($"[PASS] virtual pet interaction surface rendered to {capturePath}");
 }
 
-/// <summary>
-/// 右键 → "宠物档案" → 点面板外部，整条路都要走得通。
-/// 曾经走不通：一个窗口只有一层 LightDismissOverlayLayer，右键菜单和档案面板共用它，
-/// 而 MenuItem 是先 RaiseClick 再关菜单的——面板在 Click 里打开、点亮遮罩，紧接着菜单
-/// 关闭又把它熄灭，于是面板显示正常但"点外部关闭"彻底失效，只有别的窗口抢走焦点才关得掉。
-/// 直接 Execute ToggleProfileCommand 测不出这个（没有菜单来熄灭遮罩），必须真的走一遍菜单。
-/// </summary>
+// 右键 → "宠物档案" → 点面板外部，整条路都要走得通。
+// 曾经走不通：一个窗口只有一层 LightDismissOverlayLayer，右键菜单和档案面板共用它，
+// 而 MenuItem 是先 RaiseClick 再关菜单的——面板在 Click 里打开、点亮遮罩，紧接着菜单
+// 关闭又把它熄灭，于是面板显示正常但"点外部关闭"彻底失效，只有别的窗口抢走焦点才关得掉。
+// 直接 Execute ToggleProfileCommand 测不出这个（没有菜单来熄灭遮罩），必须真的走一遍菜单。
 static void TestVirtualPetProfileDismiss()
 {
     var clock = new HeadlessSystemClock(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
@@ -4696,10 +4694,8 @@ static async Task TestProviderRefreshOrderingAsync()
     Console.WriteLine("[PASS] Provider Models ignores stale refreshes and preserves referenced unavailable models");
 }
 
-/// <summary>
-/// 右侧配置区渲染的永远是 SelectedProvider，而切换选中不会停下已经发出的刷新。
-/// loading 和结果文本必须跟着发起刷新的那一个供应商走，否则 A 的进度会画进 B 的配置区。
-/// </summary>
+// 右侧配置区渲染的永远是 SelectedProvider，而切换选中不会停下已经发出的刷新。
+// loading 和结果文本必须跟着发起刷新的那一个供应商走，否则 A 的进度会画进 B 的配置区。
 static async Task TestProviderRefreshStatusIsProviderScopedAsync()
 {
     var configService = new HeadlessConfigService(new AppConfig());
