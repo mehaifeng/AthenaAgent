@@ -35,13 +35,17 @@ public static class ResponsesCallHelpers
     public static bool ShouldUseResponses(EffectiveOpenAiModel effective)
         => effective.Protocol == ProviderProtocol.Responses;
 
-    public static ResponsesClient CreateResponsesClient(EffectiveOpenAiModel effective, int timeoutSeconds)
+    /// <param name="transport">只给测试用：换掉进程级共享传输，其余选项与生产路径一致。</param>
+    public static ResponsesClient CreateResponsesClient(
+        EffectiveOpenAiModel effective,
+        int timeoutSeconds,
+        PipelineTransport? transport = null)
     {
         var options = new ResponsesClientOptions
         {
             RetryPolicy = new ClientRetryPolicy(OpenAiClientOptionsFactory.DefaultMaxRetries),
             NetworkTimeout = TimeSpan.FromSeconds(OpenAiClientOptionsFactory.NormalizeTimeoutSeconds(timeoutSeconds)),
-            Transport = CompatibilityTransport
+            Transport = transport ?? CompatibilityTransport
         };
         if (!string.IsNullOrWhiteSpace(effective.BaseUrl))
         {

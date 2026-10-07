@@ -80,6 +80,9 @@
     <Compile Include="../Services/ToolRiskClassifier.cs" Link="Source/Services/ToolRiskClassifier.cs" />
     <Compile Include="../Services/ToolApprovalContext.cs" Link="Source/Services/ToolApprovalContext.cs" />
     <Compile Include="../Services/ToolApprovalService.cs" Link="Source/Services/ToolApprovalService.cs" />
+    <Compile Include="../Services/AiToolApprovalEvaluator.cs" Link="Source/Services/AiToolApprovalEvaluator.cs" />
+    <Compile Include="../Services/ApprovalJudgeOutput.cs" Link="Source/Services/ApprovalJudgeOutput.cs" />
+    <Compile Include="../Services/ToolApprovalDenialMessage.cs" Link="Source/Services/ToolApprovalDenialMessage.cs" />
     <Compile Include="../Services/Interfaces/IApprovalShadow.cs" Link="Source/Services/Interfaces/IApprovalShadow.cs" />
     <Compile Include="../Services/Decisions/ApprovalShadow.cs" Link="Source/Services/Decisions/ApprovalShadow.cs" />
     <Compile Include="../Services/Decisions/SystemOneClient.cs" Link="Source/Services/Decisions/SystemOneClient.cs" />

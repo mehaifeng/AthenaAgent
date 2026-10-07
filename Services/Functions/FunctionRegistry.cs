@@ -1010,8 +1010,8 @@ public class FunctionRegistry : IFunctionRegistry
             if (!decision.Approved)
             {
                 _logger.Warning("Function {FunctionName} blocked by approval gate: {Reason}", functionName, decision.Reason);
-                return FunctionResult.FailureResult(
-                    $"用户拒绝了工具调用 '{functionName}'（原因：{decision.Reason}）。请勿重试该调用；改用其他方式，或向用户说明为何需要此操作并征得同意。");
+                // 说法按裁决来源分开：只有用户真的拒绝时才说「用户拒绝了」，见 ToolApprovalDenialMessage。
+                return FunctionResult.FailureResult(ToolApprovalDenialMessage.Build(functionName, decision));
             }
         }
 
