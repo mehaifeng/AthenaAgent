@@ -166,6 +166,10 @@ public readonly record struct PetInteractionResult(
 /// 一次模型台词请求。只带宠物自己看得见的状态，外加一小段当前话题，
 /// 不携带完整对话内容——这条线用的是便宜的小模型，也不该成为新的数据出口。
 /// </summary>
+/// <param name="UserRequested">
+/// 用户明确要求的（右键 →"说句话"），而不是后台自动触发的。
+/// 限流对两者一视同仁的话，一次自动台词就会让紧接着的手动请求静默失败。
+/// </param>
 public sealed record PetChatterRequest(
     PetChatterTopic Topic,
     string PetName,
@@ -176,10 +180,6 @@ public sealed record PetChatterRequest(
     string? RecentToolName,
     string? RecentUserText,
     string Language,
-    /// <summary>
-    /// 用户明确要求的（右键 →"说句话"），而不是后台自动触发的。
-    /// 限流对两者一视同仁的话，一次自动台词就会让紧接着的手动请求静默失败。
-    /// </summary>
     bool UserRequested = false);
 
 /// <summary>

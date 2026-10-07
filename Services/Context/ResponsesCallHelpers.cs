@@ -260,7 +260,15 @@ public static class ResponsesCallHelpers
                     var text = string.Concat(assistant.Content
                         .Where(part => part.Kind == ChatMessageContentPartKind.Text)
                         .Select(part => part.Text));
-                    items.Add(ResponseItem.CreateAssistantMessageItem(text));
+                    // A round that goes straight to its tool calls has no text, and an empty
+                    // output_text item in front of the function_call is rejected by OrcaRouter's
+                    // /responses (HTTP 400, "internal MaaS component"; measured 2026-10-07: the
+                    // empty string alone fails, whitespace passes, dropping the item passes).
+                    // OpenAI's own output carries a call as a standalone item, so nothing is lost.
+                    if (text.Length > 0)
+                    {
+                        items.Add(ResponseItem.CreateAssistantMessageItem(text));
+                    }
                     foreach (var call in assistant.ToolCalls)
                     {
                         items.Add(ResponseItem.CreateFunctionCallItem(
