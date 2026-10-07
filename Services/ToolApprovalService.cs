@@ -93,12 +93,19 @@ public class ToolApprovalService : IToolApprovalService
                 || (risk == ToolRisk.Destructive && execMode != ToolApprovalContext.ExecutionMode.Interactive);
             if (!withheldFromModel)
             {
-                var automatic = _aiEvaluator == null
-                    ? ToolApprovalDecision.Deny("自动审批模型不可用")
-                    : await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+                ToolApprovalDecision automatic;
+                if (_aiEvaluator == null)
+                {
+                    _logger.Warning("Automatic approval mode is on but no approval evaluator is wired; failing closed for {Function}", functionName);
+                    automatic = ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Configuration, "自动审批模型不可用");
+                }
+                else
+                {
+                    automatic = await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+                }
                 _logger.Information(
-                    "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Reason={Reason}",
-                    functionName, automatic.Approved, automatic.Reason);
+                    "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Source={Source}, Reason={Reason}",
+                    functionName, automatic.Approved, automatic.Source, automatic.Reason);
                 Audit(functionName, risk, execMode, automatic);
                 return automatic;
             }
@@ -136,7 +143,7 @@ public class ToolApprovalService : IToolApprovalService
         catch (OperationCanceledException)
         {
             shadow?.Complete("Cancelled");
-            var cancelled = ToolApprovalDecision.Deny("用户取消了本轮回复");
+            var cancelled = ToolApprovalDecision.Cancelled("用户取消了本轮回复");
             _logger.Information("ToolApproval prompt cancelled by user: Function={Function}", functionName);
             Audit(functionName, risk, execMode, cancelled);
             return cancelled;
@@ -165,6 +172,7 @@ public class ToolApprovalService : IToolApprovalService
         var userDecision = new ToolApprovalDecision
         {
             Scope = scope,
+            Source = ToolApprovalSource.User,
             Reason = $"用户弹窗决策：{scope}"
         };
         Audit(functionName, risk, execMode, userDecision);

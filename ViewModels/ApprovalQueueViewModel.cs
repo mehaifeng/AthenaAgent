@@ -132,7 +132,7 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
 
     /// <summary>
     /// 发出/刷新审批通知。审批是三个通知场景里唯一**阻塞流程**的那个：
-    /// 没人回应，这一轮就一直挂到超时，所以用 Critical——
+    /// 没人回应，这一轮就一直挂着——审批没有超时，只等有人作答或停止本轮——所以用 Critical——
     /// 在支持的桌面上它不会自己消失。
     /// </summary>
     private void PostApprovalNotification()

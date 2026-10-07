@@ -1,3 +1,5 @@
+using System;
+
 namespace Athena.UI.Models;
 
 /// <summary>
@@ -89,10 +91,55 @@ public sealed class ToolApprovalRequest
 }
 
 /// <summary>
+/// 裁决出自谁。被拦下的调用给主模型的那句话按它分开写（见 ToolApprovalDenialMessage）：
+/// 「用户拒绝了」只能用在用户真的拒绝时。审批模型自己的拒绝、它没能给出裁决、静态策略的拦截，
+/// 各有各的正确应对——此前一律说成用户拒绝、请勿重试，主模型就会向用户转述一个没发生过的拒绝。
+/// </summary>
+public enum ToolApprovalSource
+{
+    /// <summary>配置、风险分级与无人值守的静态规则。未显式标注的裁决都属于这一类。</summary>
+    Policy,
+    /// <summary>用户在审批窗口里做的决定。</summary>
+    User,
+    /// <summary>本轮执行被取消（用户点了停止、子代理超时），调用没有机会被裁决。</summary>
+    Cancelled,
+    /// <summary>自动审批模型给出了放行或拒绝。</summary>
+    JudgeVerdict,
+    /// <summary>自动审批模型没能给出裁决，按安全策略拒绝。类别见 <see cref="ToolApprovalJudgeFailureKind"/>。</summary>
+    JudgeFailure
+}
+
+/// <summary>自动审批没能给出裁决的原因类别。它决定主模型该不该重试。</summary>
+public enum ToolApprovalJudgeFailureKind
+{
+    /// <summary>不是评判失败。</summary>
+    None,
+    /// <summary>
+    /// 模型回了话，但不是可用的裁决：撞上输出上限被截断、正文为空、不是单个 JSON 对象、裁决值无法识别。
+    /// 推理长度每次都不一样（实测同一请求时而 120 token、时而 1 024 token 仍未想完），同一请求再发一次多半就成了，
+    /// 所以允许主模型重试一次。
+    /// </summary>
+    Output,
+    /// <summary>
+    /// 请求没能完成：超时、网络错误、限流、服务端错误。SDK 管线已经按自己的策略重试过，每次最多等满一个
+    /// 超时（实测一次超时失败前后等了约 4 分钟），主模型立刻再发只会再等一轮。
+    /// </summary>
+    Transport,
+    /// <summary>审批模型本身不可用：未配置、鉴权或额度问题、端点拒绝请求参数。重试不会改变结果，要用户改设置。</summary>
+    Configuration
+}
+
+/// <summary>
 /// 审批裁决结果。
 /// </summary>
 public sealed class ToolApprovalDecision
 {
+    /// <summary>
+    /// 自动审批没能给出裁决时，<see cref="Reason"/> 的固定开头。日志取证按这个前缀把它和模型的裁决分开，
+    /// 改掉它等于让新旧记录对不上；具体原因跟在后面的括号里。
+    /// </summary>
+    public const string JudgeFailurePrefix = "自动审批失败，已按安全策略拒绝";
+
     public required ToolApprovalScope Scope { get; init; }
 
     /// <summary>是否放行执行。</summary>
@@ -100,6 +147,12 @@ public sealed class ToolApprovalDecision
 
     /// <summary>裁决来源说明，用于审计日志（如「配置 Off」「只读自动放行」「用户弹窗」「无人值守拒绝」）。</summary>
     public string Reason { get; init; } = string.Empty;
+
+    /// <summary>裁决出自谁。默认 <see cref="ToolApprovalSource.Policy"/>：没有显式标注的都是静态规则。</summary>
+    public ToolApprovalSource Source { get; init; } = ToolApprovalSource.Policy;
+
+    /// <summary>仅当 <see cref="Source"/> 为 <see cref="ToolApprovalSource.JudgeFailure"/> 时不为 None。</summary>
+    public ToolApprovalJudgeFailureKind FailureKind { get; init; }
 
     public static ToolApprovalDecision Allow(ToolApprovalScope scope, string reason) =>
         new() { Scope = scope, Reason = reason };
@@ -109,4 +162,29 @@ public sealed class ToolApprovalDecision
 
     public static ToolApprovalDecision Deny(string reason) =>
         new() { Scope = ToolApprovalScope.Deny, Reason = reason };
+
+    public static ToolApprovalDecision Cancelled(string reason) =>
+        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.Cancelled, Reason = reason };
+
+    /// <summary>自动审批模型的放行。理由前缀是日志取证的分类键，不要改。</summary>
+    public static ToolApprovalDecision JudgeAllowed(string reason) =>
+        new() { Scope = ToolApprovalScope.AllowOnce, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型放行：" + reason };
+
+    /// <summary>自动审批模型的拒绝。理由前缀是日志取证的分类键，不要改。</summary>
+    public static ToolApprovalDecision JudgeDenied(string reason) =>
+        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型拒绝：" + reason };
+
+    /// <summary>自动审批没能给出裁决：按安全策略拒绝，并记下是哪一类故障。</summary>
+    public static ToolApprovalDecision JudgeFailed(ToolApprovalJudgeFailureKind kind, string detail)
+    {
+        if (kind == ToolApprovalJudgeFailureKind.None)
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "A judge failure must name its kind.");
+        return new()
+        {
+            Scope = ToolApprovalScope.Deny,
+            Source = ToolApprovalSource.JudgeFailure,
+            FailureKind = kind,
+            Reason = $"{JudgeFailurePrefix}（{detail}）"
+        };
+    }
 }
