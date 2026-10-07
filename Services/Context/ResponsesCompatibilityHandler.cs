@@ -13,8 +13,9 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Context;
 
 /// <summary>
-/// Normalizes narrow, schema-defined Responses API array fields before the strict OpenAI SDK
-/// deserializer sees them. Some compatible endpoints serialize an empty list as JSON null.
+/// Normalizes narrow, schema-defined Responses API fields before the strict OpenAI SDK
+/// deserializer sees them. Some compatible endpoints serialize an empty list as JSON null, and
+/// some echo an unset request parameter as null where the SDK reads a non-nullable scalar.
 /// The policy is endpoint- and model-agnostic and leaves unknown payloads byte-for-byte intact.
 /// </summary>
 internal sealed class ResponsesCompatibilityHandler(HttpMessageHandler innerHandler) : DelegatingHandler(innerHandler)
@@ -60,7 +61,7 @@ internal sealed class ResponsesCompatibilityHandler(HttpMessageHandler innerHand
                 CopyContentHeaders(original, replacement);
                 response.Content = replacement;
                 original.Dispose();
-                Log.Debug("Normalized {Count} null Responses API array fields in a JSON response", changes);
+                Log.Debug("Normalized {Count} null Responses API fields in a JSON response", changes);
             }
         }
 
@@ -217,8 +218,15 @@ internal static class GatewayErrorExplainer
 
 internal static class ResponsesPayloadNormalizer
 {
-    private static readonly string[] NullableArrayPropertyHints =
-        ["\"annotations\"", "\"logprobs\"", "\"content\"", "\"output\"", "\"summary\""];
+    // An echoed request parameter that OpenAI 2.12.0's ResponseResult reads with GetBoolean() and
+    // no null guard, as a non-nullable bool. OrcaRouter echoes it as null when the request did not
+    // set it, in every event that carries a response object, so each turn died at response.created.
+    // Nothing here reads the value, and an absent property is the shape the SDK already tolerates,
+    // so it is removed instead of being given an invented value.
+    private const string ParallelToolCallsProperty = "parallel_tool_calls";
+
+    private static readonly string[] NullableFieldHints =
+        ["\"annotations\"", "\"logprobs\"", "\"content\"", "\"output\"", "\"summary\"", "\"" + ParallelToolCallsProperty + "\""];
 
     public static byte[] NormalizeJson(ReadOnlySpan<byte> utf8Json, out int changes)
     {
@@ -250,7 +258,7 @@ internal static class ResponsesPayloadNormalizer
         var payloadStart = "data:".Length;
         while (payloadStart < line.Length && char.IsWhiteSpace(line[payloadStart])) payloadStart++;
         var payload = line[payloadStart..];
-        if (payload.Length == 0 || payload == "[DONE]" || !MayContainNullableArray(payload))
+        if (payload.Length == 0 || payload == "[DONE]" || !MayContainNullableField(payload))
         {
             return line;
         }
@@ -259,10 +267,10 @@ internal static class ResponsesPayloadNormalizer
         return changes == 0 ? line : "data: " + Encoding.UTF8.GetString(normalized);
     }
 
-    private static bool MayContainNullableArray(string payload)
+    private static bool MayContainNullableField(string payload)
     {
         if (!payload.Contains("null", StringComparison.Ordinal)) return false;
-        foreach (var property in NullableArrayPropertyHints)
+        foreach (var property in NullableFieldHints)
         {
             if (payload.Contains(property, StringComparison.Ordinal)) return true;
         }
@@ -279,6 +287,7 @@ internal static class ResponsesPayloadNormalizer
                 if (objectType == "response")
                 {
                     NullToArray(value, "output", ref changes);
+                    RemoveNull(value, ParallelToolCallsProperty, ref changes);
                 }
                 if (type == "message")
                 {
@@ -323,6 +332,15 @@ internal static class ResponsesPayloadNormalizer
         if (value.TryGetPropertyValue(propertyName, out var node) && node == null)
         {
             value[propertyName] = new JsonArray();
+            changes++;
+        }
+    }
+
+    private static void RemoveNull(JsonObject value, string propertyName, ref int changes)
+    {
+        if (value.TryGetPropertyValue(propertyName, out var node) && node == null)
+        {
+            value.Remove(propertyName);
             changes++;
         }
     }
@@ -402,7 +420,7 @@ internal sealed class ResponsesSseNormalizingStream : Stream
             var normalized = ResponsesPayloadNormalizer.NormalizeSseLine(line, out var changes);
             if (changes > 0)
             {
-                Log.Debug("Normalized {Count} null Responses API array fields in an SSE event", changes);
+                Log.Debug("Normalized {Count} null Responses API fields in an SSE event", changes);
             }
             _pending = Utf8.GetBytes(normalized + "\n");
             _pendingOffset = 0;

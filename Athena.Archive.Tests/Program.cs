@@ -50,6 +50,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
     ("OpenAI SDK client options use the shared retry and timeout policy", TestOpenAiClientOptionsFactoryAsync),
     ("Responses compatibility normalizes provider null arrays before SDK deserialization", TestResponsesNullArrayCompatibilityAsync),
+    ("Responses compatibility removes the null parallel_tool_calls echo the SDK reads as a non-nullable bool", TestResponsesNullParallelToolCallsCompatibilityAsync),
+    ("a tool round is replayed without the empty assistant text item OrcaRouter's /responses rejects", TestResponsesToolRoundSkipsEmptyAssistantTextAsync),
     ("the streaming reader owns StreamingEnabled and surfaces provider stream failures", TestResponsesStreamingReaderAsync),
     ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
@@ -1946,11 +1948,11 @@ static async Task TestModelCatalogTimeoutAndDegradationDiagnosticsAsync()
         "each degraded refresh must leave exactly one warning naming why it degraded");
 }
 
-/// <summary>读日志事件上的结构化标量属性；断言用的是属性值，不是渲染后的句子。</summary>
+// 读日志事件上的结构化标量属性；断言用的是属性值，不是渲染后的句子。
 static object? LogScalar(LogEvent logEvent, string name)
     => logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue scalar ? scalar.Value : null;
 
-/// <summary>取唯一一条 Warning 及以上的记录；数量不对时把实际看到的级别一并报出来。</summary>
+// 取唯一一条 Warning 及以上的记录；数量不对时把实际看到的级别一并报出来。
 static LogEvent SingleWarning(CapturingLogSink sink, string what)
 {
     var warnings = sink.Events.Where(e => e.Level >= LogEventLevel.Warning).ToList();
@@ -2376,6 +2378,377 @@ static async Task TestResponsesNullArrayCompatibilityAsync()
 
     AssertEqual("done", textOutput.ToString(), "text delta should remain streamable");
     AssertTrue(sawCompleted, "terminal response.completed should deserialize after normalization");
+}
+
+static async Task TestResponsesNullParallelToolCallsCompatibilityAsync()
+{
+    // 2026-10-07，OrcaRouter + deepseek/deepseek-v4.1-flash：供应商自报 openai-response，协议 Auto 因此落到
+    // Responses，随后每一轮都死在第一个事件 response.created 上，气泡里只剩
+    //   [API 错误: The requested operation requires an element of type 'Boolean', but the target element has type 'Null'.]
+    // 栈：OpenAI.Responses.ResponseResult.DeserializeResponseResult → JsonElement.GetBoolean()。
+    // 起因是该门面把没设置的请求参数 parallel_tool_calls 回显成 null（真 OpenAI 回显默认值 true），
+    // 而 SDK 2.12.0 把它读成非空 bool、不做 null 守卫。反编译整个 Responses 面逐个分支核对过：
+    // 它是 ResponseResult 上唯一没有守卫的布尔，其余无守卫的读取都是必填整数或数组。
+    // 异常出自 MoveNextAsync，调用方连这个事件都看不到，所以只能像 ProviderStreamSanitizer 那样在 HTTP 管线里改写。
+    // 用例分四段：规则表；SDK 自己在这条真实流上的表现（对照）；经兼容处理器消费真实流（流式、带工具、非流式）；
+    // 以及生产接线 CreateResponsesClient。逐行记账，最后只断言一次，免得第一处失败遮住其余。
+    var failures = new List<string>();
+
+    // ── 1. 规则表 ──
+    void Row(string name, bool sse, string json, int expectedChanges, Func<JsonNode, bool> check)
+    {
+        int changes;
+        JsonNode? root;
+        if (sse)
+        {
+            var line = "data: " + json;
+            var normalized = ResponsesPayloadNormalizer.NormalizeSseLine(line, out changes);
+            if (changes == 0 && normalized != line)
+            {
+                failures.Add($"{name}：没有改动时必须原样返回该行");
+            }
+            root = JsonNode.Parse(normalized["data: ".Length..]);
+        }
+        else
+        {
+            root = JsonNode.Parse(ResponsesPayloadNormalizer.NormalizeJson(Encoding.UTF8.GetBytes(json), out changes));
+        }
+
+        if (changes != expectedChanges)
+        {
+            failures.Add($"{name}：应改动 {expectedChanges} 处，实际 {changes}");
+        }
+        if (root == null || !check(root))
+        {
+            failures.Add($"{name}：改写后的内容不符合预期：{root?.ToJsonString()}");
+        }
+    }
+
+    static bool IsNullProperty(JsonObject owner, string name) => owner.TryGetPropertyValue(name, out var value) && value is null;
+
+    // 修复项：没有修复时这几行都会失败。
+    Row("json：信封里的 null 被摘掉", false,
+        """{"object":"response","status":"completed","output":[],"parallel_tool_calls":null}""", 1,
+        r => !r.AsObject().ContainsKey("parallel_tool_calls"));
+    Row("sse：response.created 摘掉回显，error / metadata 的 null 原样保留", true,
+        """{"type":"response.created","sequence_number":0,"response":{"id":"r","object":"response","created_at":1,"status":"in_progress","output":[],"error":null,"metadata":null,"max_output_tokens":64,"parallel_tool_calls":null,"service_tier":"default"}}""", 1,
+        r => r["response"] is JsonObject o
+             && !o.ContainsKey("parallel_tool_calls")
+             && IsNullProperty(o, "error")
+             && IsNullProperty(o, "metadata"));
+    Row("sse：信封不带 output 时也要处理（预筛选里 parallel_tool_calls 自己要生效）", true,
+        """{"type":"response.in_progress","sequence_number":1,"response":{"id":"r","object":"response","status":"in_progress","parallel_tool_calls":null}}""", 1,
+        r => r["response"] is JsonObject o && !o.ContainsKey("parallel_tool_calls"));
+    Row("sse：response.completed 只摘回显，usage 原样", true,
+        """{"type":"response.completed","sequence_number":5,"response":{"id":"r","object":"response","status":"completed","output":[],"usage":{"input_tokens":4,"input_tokens_details":{"cached_tokens":0},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":6},"parallel_tool_calls":null}}""", 1,
+        r => r["response"] is JsonObject o
+             && !o.ContainsKey("parallel_tool_calls")
+             && (int?)o["usage"]?["total_tokens"] == 6);
+    Row("json：数组规则与布尔规则在同一遍里都生效", false,
+        """{"object":"response","output":null,"parallel_tool_calls":null}""", 2,
+        r => r["output"] is JsonArray { Count: 0 } && !r.AsObject().ContainsKey("parallel_tool_calls"));
+
+    // 护栏：修复前后都通过，靠定向变异证明它们会咬人。
+    Row("护栏：true 原样", false,
+        """{"object":"response","output":[],"parallel_tool_calls":true}""", 0,
+        r => r["parallel_tool_calls"]?.GetValue<bool>() == true);
+    Row("护栏：false 原样", false,
+        """{"object":"response","output":[],"parallel_tool_calls":false}""", 0,
+        r => r["parallel_tool_calls"]?.GetValue<bool>() == false);
+    Row("护栏：缺失的属性不会被凭空造出来", false,
+        """{"object":"response","output":[]}""", 0,
+        r => !r.AsObject().ContainsKey("parallel_tool_calls"));
+    Row("护栏：只动 response 信封，工具定义里的同名字段不碰", false,
+        """{"type":"function","name":"f","parallel_tool_calls":null}""", 0,
+        r => IsNullProperty(r.AsObject(), "parallel_tool_calls"));
+    Row("护栏：只动 response 信封，别的 object 种类不碰", false,
+        """{"object":"list","data":[],"parallel_tool_calls":null}""", 0,
+        r => IsNullProperty(r.AsObject(), "parallel_tool_calls"));
+    foreach (var passthrough in new[] { "event: response.created", "", "data: [DONE]", ": keep-alive" })
+    {
+        var unchanged = ResponsesPayloadNormalizer.NormalizeSseLine(passthrough, out var passthroughChanges);
+        if (passthroughChanges != 0 || unchanged != passthrough)
+        {
+            failures.Add($"护栏：非 data 行 / [DONE] 必须原样放行：'{passthrough}'");
+        }
+    }
+
+    // ── 2. 对照：没有兼容处理器时，SDK 在这条真实流上抛的正是用户看到的那句话 ──
+    // 这一条既证明夹具确实是会炸的那个形状，也钉住修复存在的理由。SDK 哪天给 parallel_tool_calls 加了
+    // null 守卫，它会变红：那不是回归，是规则表里这一项可以退役了。
+    Exception? bare = null;
+    try
+    {
+        await ConsumeCapturedResponsesStreamAsync(OrcaRouterResponsesCapture.PlainReplySse, withCompatibilityHandler: false);
+    }
+    catch (Exception ex)
+    {
+        bare = ex;
+    }
+    if (bare is not InvalidOperationException
+        || !bare.Message.Contains("'Boolean'", StringComparison.Ordinal)
+        || !bare.Message.Contains("'Null'", StringComparison.Ordinal))
+    {
+        failures.Add("对照：没有兼容处理器时，SDK 应在真实流上抛出 InvalidOperationException（Boolean / Null）；"
+                     + $"若它已经容忍 parallel_tool_calls:null，兼容层这一项可以退役。实际：{bare?.GetType().Name ?? "没有异常"}: {bare?.Message}");
+    }
+
+    // ── 3. 经兼容处理器消费真实抓回的流 ──
+    async Task<StreamSummary?> ConsumeAsync(string what, string sse)
+    {
+        try
+        {
+            return await ConsumeCapturedResponsesStreamAsync(sse, withCompatibilityHandler: true);
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{what}：{ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
+    }
+
+    var plain = await ConsumeAsync("一句话回复流", OrcaRouterResponsesCapture.PlainReplySse);
+    if (plain != null)
+    {
+        // 事件数等于夹具里的 event: 行数，说明没有任何事件在行级改写里丢掉。
+        if (plain.Events != 21) failures.Add($"一句话回复流：21 个事件都应送达调用方，实际 {plain.Events}");
+        if (plain.Text != "ok") failures.Add($"一句话回复流：正文应为 ok，实际 '{plain.Text}'");
+        if (plain.Reasoning != "The user wants a single word response: \"ok\".")
+            failures.Add($"一句话回复流：推理摘要增量应拼回原句，实际 '{plain.Reasoning}'");
+        if (!plain.Completed) failures.Add("一句话回复流：response.completed 应能反序列化且状态为 completed");
+        if (plain.TotalTokens != 50) failures.Add($"一句话回复流：completed 里的用量应读到 total_tokens=50，实际 {plain.TotalTokens}");
+    }
+
+    var tool = await ConsumeAsync("工具调用流", OrcaRouterResponsesCapture.ToolCallSse);
+    if (tool != null)
+    {
+        if (tool.Events != 26) failures.Add($"工具调用流：26 个事件都应送达调用方，实际 {tool.Events}");
+        if (tool.Call != "get_time|call_00_oam6cpjyiqoh3udr966qc9gb|{\"zone\": \"UTC\"}")
+            failures.Add($"工具调用流：function_call 的名字 / call_id / 参数应原样送达，实际 '{tool.Call}'");
+        if (!tool.Completed) failures.Add("工具调用流：response.completed 应能反序列化且状态为 completed");
+        if (tool.TotalTokens != 384) failures.Add($"工具调用流：用量应读到 total_tokens=384，实际 {tool.TotalTokens}");
+    }
+
+    // 非流式是另一条代码路径（整包 JSON，而不是逐行 SSE）：标题、提交信息、宠物闲聊等辅助角色走的是它。
+    // 取同一次抓取里 completed 事件的 response 对象当响应体——它带着同样的 "parallel_tool_calls":null。
+    try
+    {
+        var completedResponseJson = ExtractCompletedResponseJson(OrcaRouterResponsesCapture.PlainReplySse);
+        using var jsonHandler = new JudgeHttpHandler(HttpStatusCode.OK, completedResponseJson);
+        using var jsonHttp = new HttpClient(new ResponsesCompatibilityHandler(jsonHandler));
+        var jsonClient = new ResponsesClient(
+            new ApiKeyCredential("sk-fixture"),
+            new ResponsesClientOptions
+            {
+                Endpoint = new Uri("https://orcarouter-capture.test/v1"),
+                Transport = new HttpClientPipelineTransport(jsonHttp)
+            });
+        var jsonRequest = new CreateResponseOptions { Model = "deepseek/deepseek-v4.1-flash" };
+        jsonRequest.InputItems.Add(ResponseItem.CreateUserMessageItem("hi"));
+        var jsonResult = await jsonClient.CreateResponseAsync(jsonRequest);
+        if (jsonResult.Value.Status != ResponseStatus.Completed)
+            failures.Add($"非流式：状态应为 completed，实际 {jsonResult.Value.Status}");
+        if (ResponsesCallHelpers.GetConcatenatedOutputText(jsonResult.Value) != "ok")
+            failures.Add("非流式：output_text 应读到 ok");
+        if (jsonResult.Value.Usage?.TotalTokenCount != 50)
+            failures.Add($"非流式：用量应读到 total_tokens=50，实际 {jsonResult.Value.Usage?.TotalTokenCount}");
+    }
+    catch (Exception ex)
+    {
+        failures.Add($"非流式：{ex.GetType().Name}: {ex.Message}");
+    }
+
+    // ── 4. 生产接线：真正的 CreateResponsesClient（进程级共享传输 + 兼容处理器）连回环服务器 ──
+    // 用户挂掉的就是这一条链路，自己拼一个 ResponsesClient 证明不了它接对了处理器。
+    try
+    {
+        using var server = new ScriptedChatCompletionsServer([OrcaRouterResponsesCapture.PlainReplySse], "text/event-stream");
+        var effective = new EffectiveOpenAiModel(
+            "OrcaRouter", "OrcaRouter", server.BaseUrl, "sk-fixture", "deepseek/deepseek-v4.1-flash", 0.2, 512, ProviderProtocol.Responses);
+        var client = ResponsesCallHelpers.CreateResponsesClient(effective, 30);
+        var options = ResponsesCallHelpers.CreateOptions(effective, "system prompt", 0.2f, 512);
+        options.InputItems.Add(ResponseItem.CreateUserMessageItem("Reply with the single word: ok"));
+        var text = await ResponsesCallHelpers.StreamOutputTextAsync(client, options);
+        if (text != "ok") failures.Add($"生产接线：应读到 ok，实际 '{text}'");
+    }
+    catch (Exception ex)
+    {
+        failures.Add($"生产接线：{ex.GetType().Name}: {ex.Message}");
+    }
+
+    AssertTrue(failures.Count == 0,
+        $"Responses 兼容层对 parallel_tool_calls:null 的处理有 {failures.Count} 处不符：\n  " + string.Join("\n  ", failures));
+}
+
+static async Task<StreamSummary> ConsumeCapturedResponsesStreamAsync(string sse, bool withCompatibilityHandler)
+{
+    HttpMessageHandler inner = new SseHttpHandler(sse);
+    using var httpClient = new HttpClient(withCompatibilityHandler ? new ResponsesCompatibilityHandler(inner) : inner);
+    var client = new ResponsesClient(
+        new ApiKeyCredential("sk-fixture"),
+        new ResponsesClientOptions
+        {
+            Endpoint = new Uri("https://orcarouter-capture.test/v1"),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        });
+    var request = new CreateResponseOptions { Model = "deepseek/deepseek-v4.1-flash", StreamingEnabled = true };
+    request.InputItems.Add(ResponseItem.CreateUserMessageItem("hi"));
+
+    var text = new StringBuilder();
+    var reasoning = new StringBuilder();
+    var events = 0;
+    var completed = false;
+    int? totalTokens = null;
+    string? call = null;
+    await foreach (var update in client.CreateResponseStreamingAsync(request))
+    {
+        events++;
+        switch (update)
+        {
+            case StreamingResponseOutputTextDeltaUpdate delta:
+                text.Append(delta.Delta);
+                break;
+            case StreamingResponseReasoningSummaryTextDeltaUpdate summary:
+                reasoning.Append(summary.Delta);
+                break;
+            case StreamingResponseOutputItemDoneUpdate { Item: FunctionCallResponseItem functionCall }:
+                call = $"{functionCall.FunctionName}|{functionCall.CallId}|{functionCall.FunctionArguments}";
+                break;
+            case StreamingResponseCompletedUpdate done:
+                completed = done.Response.Status == ResponseStatus.Completed;
+                totalTokens = done.Response.Usage?.TotalTokenCount;
+                break;
+        }
+    }
+    return new StreamSummary(events, text.ToString(), reasoning.ToString(), completed, totalTokens, call);
+}
+
+static string ExtractCompletedResponseJson(string sse)
+{
+    foreach (var line in sse.Split('\n'))
+    {
+        if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+        var node = JsonNode.Parse(line["data: ".Length..]);
+        if ((string?)node?["type"] == "response.completed")
+        {
+            return node!["response"]!.ToJsonString();
+        }
+    }
+    throw new InvalidOperationException("The captured stream carries no response.completed event.");
+}
+
+static async Task TestResponsesToolRoundSkipsEmptyAssistantTextAsync()
+{
+    // 2026-10-07，上一个用例修好之后紧接着撞上的第二个故障：解析通过了，第 1 轮正常，模型调用工具；
+    // 回传工具结果的第 2 轮被 OrcaRouter 的 /responses 以 HTTP 400 拒掉（"rejected by an internal MaaS component"）。
+    // 用 SDK 实际发出的请求体做单变量二分（真机，同一个端点）：
+    //   去掉 assistant 的空文本条目        → 200，模型正常作答
+    //   同一条目但文本非空                 → 200
+    //   空文本、去掉 annotations           → 400（与 annotations 无关）
+    //   文本是空格 / 换行 / U+200B         → 200（只有字面的空串被拒）
+    //   空 assistant 条目后面跟的是用户消息 → 200（被拒的是「空文本紧跟 function_call」这个组合）
+    // 而应用对每个 assistant 消息都无条件发一个 assistant 条目——模型先思考再直接调工具、没有前言文本是常态，
+    // 所以几乎每个工具回合的第 2 轮都会这样死。Responses 里 function_call 本来就是独立条目（OpenAI 自己的输出
+    // 也不带空消息），省掉空条目对任何供应商都合法。边界按实测画在 ""：空白字符串照旧发送。
+    var failures = new List<string>();
+
+    const string completedSse = """
+        event: response.completed
+        data: {"type":"response.completed","sequence_number":0,"response":{"id":"r","object":"response","created_at":1,"status":"completed","model":"m","output":[],"usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}}}
+
+
+        """;
+
+    static string Shape(JsonArray input) => string.Join("|", input.Select(item =>
+    {
+        var type = (string?)item?["type"];
+        return type == "message" ? $"message:{(string?)item?["role"]}" : type;
+    }));
+
+    async Task<JsonArray> InputOfAsync(Action<List<OpenAI.Chat.ChatMessage>> build)
+    {
+        var messages = CreateTransportMessages();
+        build(messages);
+        var (_, body) = await CollectResponsesUpdatesAsync(completedSse, messages: messages);
+        return JsonNode.Parse(body)!["input"]!.AsArray();
+    }
+
+    static void ToolRound(List<OpenAI.Chat.ChatMessage> messages, string assistantText, params string[] callIds)
+    {
+        ResponsesTransport.Instance.AppendAssistantWithTools(
+            messages,
+            assistantText,
+            callIds.Select(id => new ToolCallInfo(id, "get_time", "{\"zone\":\"UTC\"}")).ToList(),
+            reasoningContent: null);
+        foreach (var id in callIds)
+        {
+            ResponsesTransport.Instance.AppendToolResult(messages, id, "{\"time\":\"15:10\"}");
+        }
+    }
+
+    async Task Case(string name, string expectedShape, Action<List<OpenAI.Chat.ChatMessage>> build)
+    {
+        try
+        {
+            var shape = Shape(await InputOfAsync(build));
+            if (shape != expectedShape) failures.Add($"{name}：input 应为 [{expectedShape}]，实际 [{shape}]");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{name}：{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // 修复项：没有修复时这几行会多出一个空的 assistant 条目。
+    await Case("一轮直接调工具、没有前言文本", "message:user|function_call|function_call_output",
+        m => ToolRound(m, "", "call_1"));
+    await Case("一轮并行调两个工具、没有前言文本",
+        "message:user|function_call|function_call|function_call_output|function_call_output",
+        m => ToolRound(m, "", "call_1", "call_2"));
+    await Case("既没有文本也没有工具调用的 assistant 回合不产生条目", "message:user|message:user",
+        m =>
+        {
+            m.Add(new OpenAI.Chat.AssistantChatMessage(""));
+            m.Add(new OpenAI.Chat.UserChatMessage("再来一次"));
+        });
+
+    // 护栏：修复前后都通过。
+    await Case("护栏：工具调用前有文本时，assistant 条目照旧保留",
+        "message:user|message:assistant|function_call|function_call_output",
+        m => ToolRound(m, "我先查一下。", "call_1"));
+    await Case("护栏：只有空白字符的文本照旧发送（实测上游接受，只拒字面空串）",
+        "message:user|message:assistant|function_call|function_call_output",
+        m => ToolRound(m, "\n", "call_1"));
+    await Case("护栏：不带工具的普通 assistant 回复照旧保留", "message:user|message:assistant|message:user",
+        m =>
+        {
+            m.Add(new OpenAI.Chat.AssistantChatMessage("好的。"));
+            m.Add(new OpenAI.Chat.UserChatMessage("再来一次"));
+        });
+
+    // 护栏：工具回放本身不能被这次改动碰坏（此前没有任何用例看过第 2 轮请求体里的这两个条目）。
+    try
+    {
+        var input = await InputOfAsync(m => ToolRound(m, "", "call_1"));
+        var call = input.FirstOrDefault(item => (string?)item?["type"] == "function_call");
+        var output = input.FirstOrDefault(item => (string?)item?["type"] == "function_call_output");
+        if ((string?)call?["call_id"] != "call_1" || (string?)call?["name"] != "get_time"
+            || (string?)call?["arguments"] != "{\"zone\":\"UTC\"}")
+        {
+            failures.Add($"护栏：function_call 条目应带原样的 call_id / name / arguments，实际 {call?.ToJsonString()}");
+        }
+        if ((string?)output?["call_id"] != "call_1" || (string?)output?["output"] != "{\"time\":\"15:10\"}")
+        {
+            failures.Add($"护栏：function_call_output 条目应带同一个 call_id 和原样结果，实际 {output?.ToJsonString()}");
+        }
+    }
+    catch (Exception ex)
+    {
+        failures.Add($"护栏：工具回放：{ex.GetType().Name}: {ex.Message}");
+    }
+
+    AssertTrue(failures.Count == 0,
+        $"工具回合的 input 构造有 {failures.Count} 处不符：\n  " + string.Join("\n  ", failures));
 }
 
 static async Task TestResponsesStreamingReaderAsync()
@@ -7724,7 +8097,8 @@ static List<OpenAI.Chat.ChatMessage> CreateTransportMessages() =>
 
 static async Task<(List<NormalizedUpdate> Updates, string RequestBody)> CollectResponsesUpdatesAsync(
     string sse,
-    int maxOutputTokens = 16_000)
+    int maxOutputTokens = 16_000,
+    IReadOnlyList<OpenAI.Chat.ChatMessage>? messages = null)
 {
     using var handler = new SseHttpHandler(sse);
     using var httpClient = new HttpClient(handler);
@@ -7741,7 +8115,7 @@ static async Task<(List<NormalizedUpdate> Updates, string RequestBody)> CollectR
 
     var collected = new List<NormalizedUpdate>();
     await foreach (var update in ResponsesTransport.Instance.StreamUpdatesAsync(
-        runtime, CreateTransportMessages(), maxOutputTokens, CancellationToken.None))
+        runtime, messages ?? CreateTransportMessages(), maxOutputTokens, CancellationToken.None))
     {
         collected.Add(update);
     }
@@ -9794,13 +10168,15 @@ sealed class ScriptedChatCompletionsServer : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly Queue<string> _responses;
+    private readonly string _contentType;
     private readonly List<string> _requests = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _serving;
 
-    public ScriptedChatCompletionsServer(IEnumerable<string> responses)
+    public ScriptedChatCompletionsServer(IEnumerable<string> responses, string contentType = "application/json")
     {
         _responses = new Queue<string>(responses);
+        _contentType = contentType;
         _listener.Start();
         BaseUrl = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}/v1";
         _serving = Task.Run(() => ServeAsync(_stop.Token));
@@ -9914,8 +10290,10 @@ sealed class ScriptedChatCompletionsServer : IDisposable
                     // 脚本用完还有请求，说明 Runner 多跑了一轮。回 400（SDK 不重试 4xx），让测试立刻失败而不是空等重试。
                     var status = payload == null ? "400 Bad Request" : "200 OK";
                     var content = Encoding.UTF8.GetBytes(payload ?? "{\"error\":{\"message\":\"scripted responses exhausted\"}}");
+                    // 耗尽后的 400 一律是 JSON 错误体，不跟随脚本的 content type。
+                    var contentType = payload == null ? "application/json" : _contentType;
                     var head = Encoding.ASCII.GetBytes(
-                        $"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {content.Length}\r\nConnection: close\r\n\r\n");
+                        $"HTTP/1.1 {status}\r\nContent-Type: {contentType}\r\nContent-Length: {content.Length}\r\nConnection: close\r\n\r\n");
                     await stream.WriteAsync(head, cancellationToken);
                     await stream.WriteAsync(content, cancellationToken);
                     await stream.FlushAsync(cancellationToken);
@@ -10050,6 +10428,169 @@ sealed class NullArrayResponsesSseHandler : HttpMessageHandler
     }
 #pragma warning restore CA2000
 }
+
+/// <summary>
+/// 2026-10-07 从 OrcaRouter 的 /v1/responses 原样抓回的两条流（模型 deepseek/deepseek-v4.1-flash）。
+/// 它们是事故现场，不是手写的等价物：三个携带 response 对象的事件（created / in_progress / completed）
+/// 都带着 "parallel_tool_calls":null，而 OpenAI SDK 2.12.0 对它直接 GetBoolean()。
+/// 事件一字未改；两条流都以空行收尾、没有 [DONE]，与线上一致（SSE 事件缺结尾空行会被解析器丢掉）。
+/// </summary>
+static class OrcaRouterResponsesCapture
+{
+    /// <summary>一句话回复：推理摘要，正文 ok，completed（total_tokens 50）。</summary>
+    public const string PlainReplySse = """
+        event: response.created
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"d52dfeba-0b0e-4315-9c08-a11f8270f7bc","object":"response","created_at":1791385471,"model":"deepseek-v4.1-flash","status":"in_progress","output":[],"error":null,"metadata":null,"max_output_tokens":64,"parallel_tool_calls":null,"service_tier":"default"}}
+
+        event: response.in_progress
+        data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"d52dfeba-0b0e-4315-9c08-a11f8270f7bc","object":"response","created_at":1791385471,"model":"deepseek-v4.1-flash","status":"in_progress","output":[],"error":null,"metadata":null,"max_output_tokens":64,"parallel_tool_calls":null,"service_tier":"default"}}
+
+        event: response.output_item.added
+        data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","status":"in_progress","summary":[]}}
+
+        event: response.reasoning_summary_part.added
+        data: {"type":"response.reasoning_summary_part.added","sequence_number":3,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","part":{"type":"summary_text"},"summary_index":0}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":4,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":"The"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":5,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":" user wants a"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":6,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":" single word response"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":7,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":":"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":8,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":" \""}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":9,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":"ok"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":10,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"delta":"\"."}
+
+        event: response.reasoning_summary_text.done
+        data: {"type":"response.reasoning_summary_text.done","sequence_number":11,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","summary_index":0,"text":"The user wants a single word response: \"ok\"."}
+
+        event: response.reasoning_summary_part.done
+        data: {"type":"response.reasoning_summary_part.done","sequence_number":12,"output_index":0,"item_id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","part":{"type":"summary_text","text":"The user wants a single word response: \"ok\"."},"summary_index":0}
+
+        event: response.output_item.done
+        data: {"type":"response.output_item.done","sequence_number":13,"output_index":0,"item":{"type":"reasoning","id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","status":"completed","summary":[{"type":"summary_text","text":"The user wants a single word response: \"ok\"."}]}}
+
+        event: response.output_item.added
+        data: {"type":"response.output_item.added","sequence_number":14,"output_index":1,"item":{"type":"message","id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","status":"in_progress","role":"assistant","phase":"final_answer","content":[]}}
+
+        event: response.content_part.added
+        data: {"type":"response.content_part.added","sequence_number":15,"output_index":1,"item_id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","content_index":0,"part":{"type":"output_text"}}
+
+        event: response.output_text.delta
+        data: {"type":"response.output_text.delta","sequence_number":16,"output_index":1,"item_id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","content_index":0,"delta":"ok"}
+
+        event: response.output_text.done
+        data: {"type":"response.output_text.done","sequence_number":17,"output_index":1,"item_id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","content_index":0,"text":"ok"}
+
+        event: response.content_part.done
+        data: {"type":"response.content_part.done","sequence_number":18,"output_index":1,"item_id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","content_index":0,"part":{"type":"output_text","text":"ok"}}
+
+        event: response.output_item.done
+        data: {"type":"response.output_item.done","sequence_number":19,"output_index":1,"item":{"type":"message","id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok"}],"phase":"final_answer"}}
+
+        event: response.completed
+        data: {"type":"response.completed","sequence_number":20,"response":{"id":"d52dfeba-0b0e-4315-9c08-a11f8270f7bc","object":"response","created_at":1791385471,"model":"deepseek-v4.1-flash","status":"completed","output":[{"type":"reasoning","id":"rs_02179138547109400000000000000000000ffffac15b50c4d7b2d","status":"completed","summary":[{"type":"summary_text","text":"The user wants a single word response: \"ok\"."}]},{"type":"message","id":"msg_02179138547113400000000000000000000ffffac15b50c99997c","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok"}],"phase":"final_answer"}],"output_text":"ok","usage":{"input_tokens":37,"output_tokens":13,"total_tokens":50,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":11}},"error":null,"metadata":null,"max_output_tokens":64,"parallel_tool_calls":null,"service_tier":"default"}}
+
+
+        """;
+
+    /// <summary>一次工具调用：推理摘要，function_call get_time，completed（total_tokens 384）。</summary>
+    public const string ToolCallSse = """
+        event: response.created
+        data: {"type":"response.created","sequence_number":0,"response":{"id":"6d745580-3fbf-4dc8-a339-12e177229284","object":"response","created_at":1791385643,"model":"deepseek-v4.1-flash","status":"in_progress","output":[],"error":null,"metadata":null,"instructions":"You are a test harness. When asked for the time you MUST call the get_time tool and nothing else.","max_output_tokens":256,"tools":[{"name":"get_time","strict":false,"type":"function","description":"Return the current time for an IANA time zone.","parameters":{"additionalProperties":false,"properties":{"zone":{"type":"string"}},"required":["zone"],"type":"object"}}],"parallel_tool_calls":null,"service_tier":"default"}}
+
+        event: response.in_progress
+        data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"6d745580-3fbf-4dc8-a339-12e177229284","object":"response","created_at":1791385643,"model":"deepseek-v4.1-flash","status":"in_progress","output":[],"error":null,"metadata":null,"instructions":"You are a test harness. When asked for the time you MUST call the get_time tool and nothing else.","max_output_tokens":256,"tools":[{"name":"get_time","strict":false,"type":"function","description":"Return the current time for an IANA time zone.","parameters":{"additionalProperties":false,"properties":{"zone":{"type":"string"}},"required":["zone"],"type":"object"}}],"parallel_tool_calls":null,"service_tier":"default"}}
+
+        event: response.output_item.added
+        data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","status":"in_progress","summary":[]}}
+
+        event: response.reasoning_summary_part.added
+        data: {"type":"response.reasoning_summary_part.added","sequence_number":3,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","part":{"type":"summary_text"},"summary_index":0}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":4,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"delta":"The"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":5,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"delta":" user asks the time. I"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":6,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"delta":" must call get_time with"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":7,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"delta":" zone UTC"}
+
+        event: response.reasoning_summary_text.delta
+        data: {"type":"response.reasoning_summary_text.delta","sequence_number":8,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"delta":"."}
+
+        event: response.reasoning_summary_text.done
+        data: {"type":"response.reasoning_summary_text.done","sequence_number":9,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","summary_index":0,"text":"The user asks the time. I must call get_time with zone UTC."}
+
+        event: response.reasoning_summary_part.done
+        data: {"type":"response.reasoning_summary_part.done","sequence_number":10,"output_index":0,"item_id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","part":{"type":"summary_text","text":"The user asks the time. I must call get_time with zone UTC."},"summary_index":0}
+
+        event: response.output_item.done
+        data: {"type":"response.output_item.done","sequence_number":11,"output_index":0,"item":{"type":"reasoning","id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","status":"completed","summary":[{"type":"summary_text","text":"The user asks the time. I must call get_time with zone UTC."}]}}
+
+        event: response.output_item.added
+        data: {"type":"response.output_item.added","sequence_number":12,"output_index":1,"item":{"type":"function_call","id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","status":"in_progress","name":"get_time","call_id":"call_00_oam6cpjyiqoh3udr966qc9gb"}}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":13,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":""}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":14,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"{"}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":15,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"\""}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":16,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"zone"}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":17,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"\""}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":18,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":": "}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":19,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"\""}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":20,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"UTC"}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":21,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"\""}
+
+        event: response.function_call_arguments.delta
+        data: {"type":"response.function_call_arguments.delta","sequence_number":22,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","delta":"}"}
+
+        event: response.function_call_arguments.done
+        data: {"type":"response.function_call_arguments.done","sequence_number":23,"output_index":1,"item_id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","arguments":"{\"zone\": \"UTC\"}"}
+
+        event: response.output_item.done
+        data: {"type":"response.output_item.done","sequence_number":24,"output_index":1,"item":{"type":"function_call","id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","status":"completed","name":"get_time","call_id":"call_00_oam6cpjyiqoh3udr966qc9gb","arguments":"{\"zone\": \"UTC\"}"}}
+
+        event: response.completed
+        data: {"type":"response.completed","sequence_number":25,"response":{"id":"6d745580-3fbf-4dc8-a339-12e177229284","object":"response","created_at":1791385643,"model":"deepseek-v4.1-flash","status":"completed","output":[{"type":"reasoning","id":"rs_02179138564322400000000000000000000ffffac15a5537a1538","status":"completed","summary":[{"type":"summary_text","text":"The user asks the time. I must call get_time with zone UTC."}]},{"type":"function_call","id":"fc_02179138564331400000000000000000000ffffac15a5532bd810","status":"completed","name":"get_time","call_id":"call_00_oam6cpjyiqoh3udr966qc9gb","arguments":"{\"zone\": \"UTC\"}"}],"usage":{"input_tokens":331,"output_tokens":53,"total_tokens":384,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":15}},"error":null,"metadata":null,"instructions":"You are a test harness. When asked for the time you MUST call the get_time tool and nothing else.","max_output_tokens":256,"tools":[{"name":"get_time","strict":false,"type":"function","description":"Return the current time for an IANA time zone.","parameters":{"additionalProperties":false,"properties":{"zone":{"type":"string"}},"required":["zone"],"type":"object"}}],"parallel_tool_calls":null,"service_tier":"default"}}
+
+
+        """;
+}
+
+/// <summary>SDK 消费一条 Responses 流之后调用方能看到的东西，供断言逐项核对。</summary>
+sealed record StreamSummary(int Events, string Text, string Reasoning, bool Completed, int? TotalTokens, string? Call);
 
 /// <summary>A reasoning model that spends the whole output budget before emitting any text.</summary>
 sealed class TruncatedResponsesSseHandler : HttpMessageHandler

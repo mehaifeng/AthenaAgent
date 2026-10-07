@@ -329,16 +329,27 @@ resolved = provider.Protocol switch
 
 ### 6.6 第三方响应结构兼容层
 
-OpenAI SDK 2.12.0 会按官方 Responses schema 严格反序列化。部分兼容端点却把空数组序列化为 `null`；流式正文已经显示后，SDK 在解析 `response.output_item.done` 或 `response.completed` 时会因此抛出 `JsonElement.EnumerateArray` 类型错误。
+OpenAI SDK 2.12.0 会按官方 Responses schema 严格反序列化。部分兼容端点却把空数组序列化为 `null`；流式正文已经显示后，SDK 在解析 `response.output_item.done` 或 `response.completed` 时会因此抛出 `JsonElement.EnumerateArray` 类型错误。另一类是**回显的请求参数**：端点把没设置的参数回显成 `null`，而 SDK 把它读成非空标量（见下方 `parallel_tool_calls`）。两类异常都出自 SDK 枚举器的 `MoveNextAsync`，调用方连那个事件都看不到，所以只能在 HTTP 管线里改写，`try/catch` 只能把异常换成一句更好读的话，救不回事件。
 
 所有由 `ResponsesCallHelpers.CreateResponsesClient` 创建的客户端统一使用 `ResponsesCompatibilityHandler`，规则只依赖 Responses schema，不读取 provider 名或模型 ID：
 
 - 成功的 `application/json` 响应整包处理；成功的 `text/event-stream` 按 SSE 行增量处理，不缓冲完整回答。
-- 只将“字段已存在且值为 `null`”的已知数组字段改成 `[]`：`response.output`、`message.content`、`output_text.annotations`、`output_text.logprobs`、`reasoning.summary`、`reasoning.content`。
+- 将“字段已存在且值为 `null`”的已知数组字段改成 `[]`：`response.output`、`message.content`、`output_text.annotations`、`output_text.logprobs`、`reasoning.summary`、`reasoning.content`。
+- 把 `response` 信封（`object == "response"`，出现在 `response.created` / `response.in_progress` / `response.completed` 等事件和非流式响应体里）上值为 `null` 的 `parallel_tool_calls` **整个摘掉**，不填默认值：SDK 在 `ResponseResult` 里对它直接 `GetBoolean()`，是该类型上唯一没有 null 守卫的布尔（反编译 2.12.0 逐分支核对）；应用不读这个值；缺失是 SDK 对所有非空标量都容忍的形状，摘掉比编造一个 `true`/`false` 诚实。`true` / `false` 原样，非信封对象上的同名字段不碰。
 - 缺失字段、未知字段、与 item 类型不匹配的同名字段、HTTP 非成功响应和无法解析的 JSON 全部原样保留；SDK 仍负责正常校验和报错。
 - 日志只记录本事件修正了多少个字段，不记录响应正文。
 
 这样既覆盖主对话，也覆盖标题、压缩、审批、浏览器等显式使用 Responses 的辅助角色，同时不会把供应商特判扩散到业务层。
+
+**已实测的网关偏差**（每条都是真机抓取，夹具见 `Athena.Archive.Tests` 的 `OrcaRouterResponsesCapture`）：
+
+| 日期 | 端点 / 模型 | 偏差 | 症状 | 处理 |
+|---|---|---|---|---|
+| 2026-10-07 | OrcaRouter `/v1/responses` · `deepseek/deepseek-v4.1-flash` | 三个携带 `response` 的事件都回显 `"parallel_tool_calls": null`（真 OpenAI 回显默认值 `true`）；非流式响应体同样 | 每一轮死在第一个事件：`The requested operation requires an element of type 'Boolean', but the target element has type 'Null'.`（栈在 `ResponseResult.DeserializeResponseResult` → `JsonElement.GetBoolean()`） | 兼容层摘掉该字段（上方第三条） |
+| 2026-10-07 | 同上 | assistant `output_text` 为**空串**且紧随 `function_call` 时整个请求被拒：HTTP 400 `rejected by an internal MaaS component`。单变量二分：去掉该条目 200；文本为空格 / 换行 / U+200B 200；空条目后面跟的是用户消息 200 | 解析修好后，模型每次调用工具，回传结果的第 2 轮被 400 | `BuildInputItems` 不再为空文本发 assistant 条目（§7.1） |
+
+SDK 扫描结论：Responses 面共 168 个反序列化分支对 `null` 没有守卫，绝大多数是必填整数（`sequence_number`、`output_index` 等）和必填数组；应用消费路径上的布尔只有 `parallel_tool_calls` 这一个。其余（`usage` 的三个计数、`created_at` 等）至今没有任何真实端点给出过 `null`，按“有实测再收”的原则不预先加规则。Chat Completions 面响应侧没有无守卫的布尔。
+
 
 ## 7. 主对话流式环改造详规
 
@@ -349,7 +360,7 @@ OpenAI SDK 2.12.0 会按官方 Responses schema 严格反序列化。部分兼�
 | 合并 system 提示（persona+摘要信封+MCP+Skill+工作区+历史 system） | `options.Instructions`（同一字符串） |
 | `UserChatMessage(文本)` | `ResponseItem.CreateUserMessageItem(文本)` |
 | `UserChatMessage(文本+图片 parts)` | `CreateUserMessageItem(文本 part + CreateInputImagePart(bytes, detail))` |
-| `AssistantChatMessage(正文 + tool_calls + reasoning patch)` | 正文 → `CreateAssistantMessageItem(正文)`；每个 tool_call → `CreateFunctionCallItem(id, name, args)`（平铺追加） |
+| `AssistantChatMessage(正文 + tool_calls + reasoning patch)` | 正文**非空**才发 `CreateAssistantMessageItem(正文)`（直接调工具的回合没有前言文本，空串条目会被 OrcaRouter 拒成 400，见 §6.6）；每个 tool_call → `CreateFunctionCallItem(id, name, args)`（平铺追加）。只含空白字符的正文照旧发送——实测上游接受，边界画在字面空串 |
 | `ToolChatMessage(callId, json)` | `CreateFunctionCallOutputItem(callId, json)` |
 | 历史 `SystemChatMessage`（合并后不再单独出现） | 无需映射（已并入 Instructions） |
 
@@ -524,7 +535,7 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | **P2** Responses transport（主环） | `ResponsesTransport`：BuildRequest/StreamUpdates/回填/usage/截断/推理文本 + 端点降级 | 新夹具下：流式/工具循环/截断重试/usage/推理文本用例全绿；`include:["reasoning"]` 生效 | `Services/Context/ResponsesTransport.cs`、`OpenAIChatService.cs`（装配点）、HeadlessTests 新夹具与注入点 | ✅ 完成（5 个新用例） |
 | **P3** 非流式调用点铺开 | 按 §8.2 顺序迁移；`GetFirstOutputText`/`GetConcatenatedOutputText` 辅助 | 同 provider 各角色协议一致；审批/压缩/浏览器协商行为不变 | 15 个调用点 + 辅助静态类 | ✅ 完成（两处连接测试按 §1 决策保持 chat） |
 | **P4** 元数据 + 测试收尾 | `SupportsResponses` 8 处；Auto 判定接元数据；端到端用例补全；文档更新 | 全部新用例绿；Archive.Tests 不受影响 | 见 §9.2 清单 | ✅ 完成（图片降级 chat+responses 端到端、端点降级、Auto 判定、reasoning 提取共 8 个新用例全绿；CSV 导出列为可选项未做） |
-| **P5** 第三方响应结构容错 | Responses 专用 HTTP/SSE 层按 schema 将显式 `null` 空数组归一化为 `[]` | OpenAI SDK 可完整消费正文增量与 `response.completed`；无 provider/model 分支 | `ResponsesCompatibilityHandler.cs`、`ResponsesCallHelpers.cs`、Archive.Tests SDK 级夹具 | ✅ 完成 |
+| **P5** 第三方响应结构容错 | Responses 专用 HTTP/SSE 层按 schema 将显式 `null` 空数组归一化为 `[]`；`response` 信封上回显的 `parallel_tool_calls: null` 摘除（2026-10-07 追加） | OpenAI SDK 可完整消费正文增量与 `response.completed`；无 provider/model 分支 | `ResponsesCompatibilityHandler.cs`、`ResponsesCallHelpers.cs`、Archive.Tests SDK 级夹具 | ✅ 完成 |
 
 里程碑说明：
 - P0 独立可交付（纯配置，无传输风险）。
@@ -560,3 +571,5 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | 2026-08-07 | 推理文本气泡展示 + 推理强度配置落地：`ChatMessage` 增加 `HasReasoningContent`/`IsReasoningExpanded`/`ToggleReasoning`，气泡内新增可折叠「思考过程」面板（默认收起，跨工具轮累计）；推理强度以 `ReasoningEffort` 枚举挂在 `ModelMetadataOverrides`（供应商模型配置页元数据区），经 `EffectiveOpenAiModel.Effort` 透传到 responses（`reasoning.effort`）与 chat（`reasoning_effort`）双传输，Auto 不发送 | 推理文本此前只存不显示；设计文档声称 reasoning effort 已透传但代码零使用 | 仅显式配置才发送（第三方端点不支持时不会误发）；新用例 `TestResponsesReasoningEffortAsync`/`TestChatReasoningEffortAsync`/`TestReasoningBubbleState` 覆盖 |
 | 2026-08-07 | 推理文本流式化 + 档位扩展：`StreamMessageAsync` 新增 `onReasoningDelta` 回调，推理增量在正文前实时流入气泡（容器自动展开，回合结束自动收起，新一轮推理自动展开并在隔断符下续写）；`ReasoningEffort` 档位扩至 `max/xhigh/high/medium/low/minimal/none`（追加枚举值不破坏既有数字持久化），OpenRouter 实测全部 7 档 + `none` 均接受（200） | 推理文本此前只在回合结束时随 onMessageAdded 一次性到达，无法流式展示 | `ICompletionTransport` 归一化层早已逐片产出 `ReasoningText`，仅需服务层透传；新用例 `TestReasoningStreamingInBubbleAsync` 覆盖跨轮隔断符与自动展开/收起 |
 | 2026-08-11 | 增加 provider/model 无关的 Responses JSON/SSE 空数组兼容层 | 部分第三方端点把 schema 数组返回为 `null`，OpenAI SDK 2.12.0 在终止事件中严格调用 `EnumerateArray` 并抛错 | 仅修正已知 item 类型下显式为 `null` 的数组字段；流式不整包缓冲；SDK 级回归夹具覆盖 `annotations:null` 与 `logprobs:null` |
+| 2026-10-07 | 兼容层追加：摘除 `response` 信封上的 `parallel_tool_calls: null` | OrcaRouter + `deepseek/deepseek-v4.1-flash`（供应商自报 `openai-response`，Auto 因此走 Responses）每一轮死在 `response.created`：SDK 2.12.0 的 `ResponseResult` 对该字段直接 `GetBoolean()`、无 null 守卫。真机抓流确认三个带 `response` 的事件与非流式响应体都回显 `null` | 只在 `object == "response"` 的信封上摘除，不填默认值；`true`/`false`、缺失、非信封对象原样；夹具是真实抓取的两条流（一句话回复、一次工具调用），逐字节校验过；另有非流式与 `CreateResponsesClient` 生产接线两段断言 |
+| 2026-10-07 | `BuildInputItems` 不再为空文本的 assistant 回合发 assistant 条目 | 解析修好后第 2 轮（回传工具结果）被 OrcaRouter 以 HTTP 400 拒绝。真机单变量二分：空串 `output_text` 紧随 `function_call` 才触发；去掉条目、空白字符文本、空条目后跟用户消息均 200 | 条件画在字面空串（`text.Length > 0`），空白文本照旧发送；Responses 里 `function_call` 本就是独立条目，省掉空条目对其它供应商同样合法；用例经真实 `ResponsesTransport.AppendAssistantWithTools` 取线上请求体 |
