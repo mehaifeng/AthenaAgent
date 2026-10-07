@@ -160,6 +160,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval shadow: scores are logged beside the user's decision and never decide it", TestApprovalShadowRecordsBesideDecisionAsync),
     ("approval shadow: system one client request shape, answers and failures", TestSystemOneClientAsync),
     ("filesystem: symlink escape into a blocked dir is denied when FollowSymlinks is false", TestFileSystemSymlinkEscapeAsync),
+    ("filesystem: the blocklist and config self-protection see where a link chain really lands", TestFileSystemBlocklistResolvesLinkChainsAsync),
     ("filesystem: a trusted grant confines every file operation to its root, after path resolution and through symlinks", TestTrustedGrantFileConfinementAsync),
     ("maintenance: the runner's tool loop runs under its own grant and cannot act outside the knowledge base", TestKnowledgeBaseMaintenanceRunnerConfinedAsync),
     ("filesystem: metadata avoids text scan unless explicitly requested", TestFileMetadataStatisticsAsync),
@@ -5665,6 +5666,191 @@ static async Task TestFileSystemSymlinkEscapeAsync()
     await File.WriteAllTextAsync(normal, "hello");
     var normalContent = await service.ReadFileAsync(normal);
     AssertEqual("hello", normalContent, "a normal file in an allowed dir is still readable");
+}
+
+// 黑名单曾只看字面路径与 ResolveRealPath 的拼写，而后者只追到「最终目标本身不再是链接」为止：
+// 目标路径中途经过的软链保持字面，软链之后的 ".." 也按字面消掉。于是 a → allowed/b/id_rsa 且
+// b → secret 时，读出来的是 secret 里的私钥，检查的却是 allowed/b/id_rsa。现在三种拼写都要过黑名单：
+// 字面、完整解析（TryResolveFully）与半解析。半解析单独用会漏，留着它是因为黑名单条目按字面比较——
+// 条目本身是软链时，经链接到达的路径只有它还落在条目之下。完整解析失败（成环）一律拒绝。
+// config.json 的自我保护用的是同一份拼写，也要和配置文件自己的真实写法比。
+static async Task TestFileSystemBlocklistResolvesLinkChainsAsync()
+{
+    using var harness = new TestHarness();
+    var root = harness.Root;
+    var allowed = Path.Combine(root, "allowed");
+    var secret = Path.Combine(root, "secret");
+    var realSecret = Path.Combine(root, "real-secret");
+    var linkedSecret = Path.Combine(root, "linked-secret");
+    var appData = Path.Combine(root, "app-data");
+    var linkedAppData = Path.Combine(root, "linked-app-data");
+    Directory.CreateDirectory(Path.Combine(allowed, "ver-1.2", "bin"));
+    Directory.CreateDirectory(Path.Combine(secret, "sub"));
+    Directory.CreateDirectory(realSecret);
+    Directory.CreateDirectory(appData);
+    await File.WriteAllTextAsync(Path.Combine(secret, "id_rsa"), "SECRET-KEY");
+    await File.WriteAllTextAsync(Path.Combine(secret, "x"), "SECRET-X");
+    await File.WriteAllTextAsync(Path.Combine(secret, "sub", "leak.txt"), "SECRET-TOKEN-zq81");
+    await File.WriteAllTextAsync(Path.Combine(realSecret, "key"), "SECRET-OF-A-LINKED-ENTRY");
+    await File.WriteAllTextAsync(Path.Combine(allowed, "x"), "HARMLESS-X");
+    await File.WriteAllTextAsync(Path.Combine(allowed, "note.txt"), "NOTE");
+    await File.WriteAllTextAsync(Path.Combine(allowed, "src.txt"), "PLANTED");
+    await File.WriteAllTextAsync(Path.Combine(allowed, "ver-1.2", "bin", "tool"), "TOOL");
+    var configFile = Path.Combine(appData, "config.json");
+    const string configBody = "{\"apiKey\":\"sk-test-not-a-key\"}";
+
+    void Link(string name, string target) => File.CreateSymbolicLink(Path.Combine(allowed, name), target);
+    try
+    {
+        Directory.CreateSymbolicLink(linkedSecret, realSecret);
+        Directory.CreateSymbolicLink(linkedAppData, appData);
+        Directory.CreateSymbolicLink(Path.Combine(allowed, "b"), secret);
+        Directory.CreateSymbolicLink(Path.Combine(allowed, "deep-link"), Path.Combine(secret, "sub"));
+        Directory.CreateSymbolicLink(Path.Combine(allowed, "hop"), Path.Combine(allowed, "b", "sub"));
+        Directory.CreateSymbolicLink(Path.Combine(allowed, "ver"), Path.Combine(allowed, "ver-1.2"));
+        Directory.CreateSymbolicLink(Path.Combine(allowed, "app"), appData);
+        // 目标中途经过 b → secret：半解析停在 allowed/b/id_rsa。
+        Link("a", Path.Combine(allowed, "b", "id_rsa"));
+        // 软链之后的 ".."：按字面消掉是 allowed/x，真实落点是 secret/x。
+        Link("dd", Path.Combine("deep-link", "..", "x"));
+        // 悬空链接，目标经过 b → secret：File.Copy 会顺着它在 secret 里建出文件。
+        Link("dangling", Path.Combine(allowed, "b", "planted.txt"));
+        Link("loop1", Path.Combine(allowed, "loop2"));
+        Link("loop2", Path.Combine(allowed, "loop1"));
+        // 被拉黑的条目 linked-secret 本身是软链，它的真实位置 real-secret 不在名单上。
+        Link("k", Path.Combine(linkedSecret, "key"));
+        Link("alias", Path.Combine(allowed, "note.txt"));
+        // uv 的 venv 就是这个形状：目标中途经过版本目录的软链，两种解析结果不同，但都在允许区。
+        Link("tool", Path.Combine(allowed, "ver", "bin", "tool"));
+        Link("cfg", Path.Combine(allowed, "app", "config.json"));
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        // 当前环境无权限创建符号链接（部分 Windows CI）：跳过。
+        Console.WriteLine("  [note] symbolic links unavailable here; the link-chain blocklist cases were skipped");
+        return;
+    }
+
+    // 只拉黑本测试的两个目录，隔离默认平台规则（macOS 默认拦整个 /private/var，也就是 harness 自己）。
+    // 每个条目收录字面写法与「父目录规范化」写法：macOS 的 harness 在 /var 下；而 linked-secret
+    // 本身不能被规范化掉，否则条目就成了 real-secret，测的不再是「条目本身是软链」。
+    var blocked = new List<string>();
+    foreach (var dir in new[] { secret, linkedSecret })
+    {
+        foreach (var form in new[] { dir, Path.Combine(CanonicalizeForTest(Path.GetDirectoryName(dir)!), Path.GetFileName(dir)) })
+        {
+            if (!blocked.Contains(form)) blocked.Add(form);
+        }
+    }
+    var config = new AppConfig();
+    config.FileSystemPolicy.Global.FollowSymlinks = false;
+    foreach (var platform in new[] { config.FileSystemPolicy.Platforms.Windows, config.FileSystemPolicy.Platforms.MacOS, config.FileSystemPolicy.Platforms.Linux })
+    {
+        platform.ReadAccess = new PlatformAccessRule { BlockedDirectories = new(blocked) };
+        platform.WriteAccess = new PlatformAccessRule { BlockedDirectories = new(blocked) };
+    }
+    // 应用数据目录经软链配置（linked-app-data → app-data），配置文件的字面写法与真实写法因此不同。
+    var service = new FileSystemService(new FakeConfigService(config), new TestPlatformPathService(linkedAppData), Log.Logger);
+
+    var failures = new List<string>();
+
+    async Task DeniedAsync(string name, Func<Task> action, string? messageContains = null, Func<bool>? untouched = null)
+    {
+        try
+        {
+            await action();
+            failures.Add($"{name}: was allowed");
+        }
+        catch (UnauthorizedAccessException ex) when (messageContains == null || ex.Message.Contains(messageContains, StringComparison.Ordinal))
+        {
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{name}: expected an UnauthorizedAccessException{(messageContains == null ? "" : $" mentioning '{messageContains}'")}, got {ex.GetType().Name}: {ex.Message}");
+        }
+        if (untouched != null && !untouched())
+            failures.Add($"{name}: the protected target was changed");
+    }
+
+    async Task AllowedAsync(string name, Func<Task<bool>> action)
+    {
+        try
+        {
+            if (!await action()) failures.Add($"{name}: did not return the expected content");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{name}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // —— 修复前放行：链接目标的拼写不是数据实际所在的位置 ——
+    await DeniedAsync("target passes through a directory link into the blocked dir: read",
+        () => service.ReadFileAsync(Path.Combine(allowed, "a")));
+    await DeniedAsync("'..' after a directory link inside the target: read",
+        () => service.ReadFileAsync(Path.Combine(allowed, "dd")));
+    await DeniedAsync("copy onto a dangling link whose target passes through a directory link",
+        () => service.CopyFileAsync(Path.Combine(allowed, "src.txt"), Path.Combine(allowed, "dangling"), overwrite: true),
+        untouched: () => !File.Exists(Path.Combine(secret, "planted.txt")));
+    try
+    {
+        var search = await service.SearchInDirectoryAsync(allowed, "SECRET-TOKEN-zq81", new DirectorySearchOptions());
+        if (search.TotalMatches != 0)
+            failures.Add("search_in_directory read a blocked file through hop -> b/sub, b -> secret: "
+                + string.Join(", ", search.Files.Select(file => Path.GetRelativePath(allowed, file.Path))));
+    }
+    catch (Exception ex)
+    {
+        failures.Add($"search_in_directory: {ex.GetType().Name}: {ex.Message}");
+    }
+    await DeniedAsync("a link loop cannot be resolved, so where it leads is unknown",
+        () => service.ReadFileAsync(Path.Combine(allowed, "loop1")), messageContains: "could not be resolved");
+
+    // —— 自我保护只认配置文件的字面写法时，两条路都能写到它 ——
+    bool ConfigIntact() => File.ReadAllText(configFile) == configBody;
+    await File.WriteAllTextAsync(configFile, configBody);
+    await DeniedAsync("copy onto a link chain that ends at config.json",
+        () => service.CopyFileAsync(Path.Combine(allowed, "src.txt"), Path.Combine(allowed, "cfg"), overwrite: true),
+        "Self-protection", ConfigIntact);
+    await File.WriteAllTextAsync(configFile, configBody);
+    await DeniedAsync("write config.json by the real spelling of a configured path that goes through a link",
+        () => service.WriteFileAsync(configFile, "{}"), "Self-protection", ConfigIntact);
+
+    // —— 修复前就拒绝，修复后也必须拒绝：只用完整解析会把它放出去 ——
+    await DeniedAsync("a link into a blocked entry that is itself a symlink: read",
+        () => service.ReadFileAsync(Path.Combine(allowed, "k")));
+
+    // —— 允许区里的软链照常可读：解析结果与字面不同、或两种解析彼此不同，本身都不是拒绝的理由 ——
+    await AllowedAsync("a link to another allowed file", async () => await service.ReadFileAsync(Path.Combine(allowed, "alias")) == "NOTE");
+    await AllowedAsync("a link whose target passes through an allowed directory link (uv venv shape)",
+        async () => await service.ReadFileAsync(Path.Combine(allowed, "tool")) == "TOOL");
+
+    // —— macOS 的真实默认策略：/var → private/var ——
+    // 默认读黑名单列的是 /private/var。链接目标写成 /var/…（$TMPDIR 就是这种写法）时，半解析拼写停在 /var/…，
+    // 只有完整解析才落进 /private/var。链接放在默认可读的 /tmp 下，被测的就只剩目标的拼写。
+    if (OperatingSystem.IsMacOS())
+    {
+        var tmpRoot = Path.Combine("/tmp", "athena-archive-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmpRoot);
+        try
+        {
+            var tempTarget = Path.Combine(root, "temp-target.txt");
+            await File.WriteAllTextAsync(tempTarget, "TEMP");
+            var intoTemp = Path.Combine(tmpRoot, "into-temp");
+            File.CreateSymbolicLink(intoTemp, tempTarget);
+            var defaults = new AppConfig();
+            defaults.FileSystemPolicy.Global.FollowSymlinks = false;
+            var defaultService = new FileSystemService(new FakeConfigService(defaults), harness.PathService, Log.Logger);
+            await DeniedAsync("macOS default policy: a link in /tmp whose target is spelled /var/... (as TMPDIR is)",
+                () => defaultService.ReadFileAsync(intoTemp));
+        }
+        finally
+        {
+            Directory.Delete(tmpRoot, recursive: true);
+        }
+    }
+
+    AssertTrue(failures.Count == 0, "blocklist link-chain resolution:\n  " + string.Join("\n  ", failures));
 }
 
 // 知识库整理以 Trusted 运行，审批闸门不再拦它，路径边界只剩 FileSystemService 这一道。
