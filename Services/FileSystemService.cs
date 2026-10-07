@@ -72,20 +72,36 @@ public class FileSystemService : IFileSystemService
         // 会回落到 AthenaData，「config.json」这种不带 .. 的参数照样落在知识库之外。
         EnforceTrustedConfinement(fullPath, comparison);
 
-        // 不跟随符号链接时，把路径解析到真实目标，阻止「沙箱内软链指向 /etc、~/.ssh」这类越界逃逸。
-        // 字面路径与真实路径都要过黑名单：软链本身所在位置、以及它指向的目标，任一命中即拒绝。
+        // 不跟随符号链接时，黑名单要看到路径的每一种拼写，任一命中即拒绝：
+        // - 字面路径：软链本身所在的位置；
+        // - 完整解析的真实路径（TryResolveFully）：数据实际所在的位置。目标路径中途经过的软链、软链之后的
+        //   ".." 都按真实目录展开，所以 a → allowed/b/id_rsa 且 b → ~/.ssh 落在 ~/.ssh；
+        // - ResolveRealPath 的半解析拼写：单独用会漏（它只追到最终目标本身不再是链接为止），留着它是因为
+        //   黑名单条目按字面比较——条目本身是软链时（dotfiles 管理的 ~/.ssh、merged-usr 的 /sbin），
+        //   经链接到达的路径只有这个拼写还落在条目之下。它就是此前的检查，原样保留，此前拒绝的路径不会因此放行。
+        // 完整解析失败（软链成环）时拒绝：说不清落到哪里的路径，不能当作不在黑名单里。
         var pathsToCheck = new List<string> { fullPath };
         if (!policy.Global.FollowSymlinks)
         {
-            var realPath = ResolveRealPath(fullPath);
-            if (!realPath.Equals(fullPath, comparison))
-                pathsToCheck.Add(realPath);
+            if (!TryResolveFully(fullPath, out var realPath))
+            {
+                _logger.Warning("FileSystem symlink resolution failed: Path={Path}", fullPath);
+                throw new UnauthorizedAccessException(
+                    $"The symbolic links in '{fullPath}' could not be resolved (a link loop or an unreadable link), so the security policy cannot tell where it leads; access denied.");
+            }
+            AddSpelling(pathsToCheck, realPath, comparison);
+            AddSpelling(pathsToCheck, ResolveRealPath(fullPath), comparison);
         }
 
         if (isWriteOperation)
         {
+            // 配置文件自己的路径也可能经过软链（macOS 的 /var 即 /private/var、被软链出去的应用目录），
+            // 所以两种写法都要比：用它的真实写法写，或经软链链条落到它身上，写的都是配置文件。
             var configPath = Path.GetFullPath(_pathService.GetConfigFilePath());
-            if (pathsToCheck.Any(p => p.Equals(configPath, comparison)))
+            var configSpellings = new List<string> { configPath };
+            if (TryResolveFully(configPath, out var realConfigPath))
+                AddSpelling(configSpellings, realConfigPath, comparison);
+            if (pathsToCheck.Any(p => configSpellings.Any(c => p.Equals(c, comparison))))
             {
                 _logger.Warning("FileSystem config-file write protection rejected: Path={Path}", fullPath);
                 throw new UnauthorizedAccessException("Self-protection: the application configuration file cannot be modified via filesystem tools.");
@@ -161,6 +177,12 @@ public class FileSystemService : IFileSystemService
         return trimmedPath.StartsWith(prefix, comparison);
     }
 
+    private static void AddSpelling(List<string> spellings, string candidate, StringComparison comparison)
+    {
+        if (!spellings.Any(existing => existing.Equals(candidate, comparison)))
+            spellings.Add(candidate);
+    }
+
     // 与 Linux 内核的 MAXSYMLINKS 一致：再多就是环。
     private const int MaxSymlinkHops = 40;
 
@@ -229,9 +251,11 @@ public class FileSystemService : IFileSystemService
     }
 
     /// <summary>
-    /// 把路径解析到真实目标：沿最近的已存在祖先解析全部符号链接组件，再拼回尚不存在的尾部
-    /// （写/建新文件时叶子可能还不存在）。覆盖两类逃逸：叶子本身是软链，或路径中某级目录是软链。
-    /// 解析失败时回退原路径（校验方仍会用字面路径兜底）。
+    /// 半解析拼写：沿最近的已存在祖先逐级解析原路径里的软链组件，再拼回尚不存在的尾部
+    /// （写/建新文件时叶子可能还不存在）。它不是真实路径：每个软链只追到最终目标本身不再是链接为止，
+    /// 目标路径中途经过的软链保持字面，软链之后的 ".." 也按字面消掉——真实路径见 <see cref="TryResolveFully"/>。
+    /// 黑名单把它当作额外的一种拼写：条目本身是软链时，经链接到达的路径只有这个拼写还落在条目之下。
+    /// 解析失败时回退原路径。
     /// </summary>
     private static string ResolveRealPath(string fullPath)
     {
@@ -264,7 +288,8 @@ public class FileSystemService : IFileSystemService
     }
 
     /// <summary>
-    /// 逐级解析一个已存在路径的所有符号链接组件（含中间目录软链），返回规范化后的真实路径。
+    /// 逐级解析一个已存在路径里的软链组件。每个组件只追到 ResolveLinkTarget 报告的最终目标为止，
+    /// 目标路径中途的软链与 ".." 按字面处理（见 <see cref="ResolveRealPath"/>）。
     /// </summary>
     private static string CanonicalizeExisting(string existingPath)
     {
