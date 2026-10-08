@@ -28,11 +28,9 @@
                     <TextBlock Text="{loc:Loc Settings.Diagnostics.ContextDataHint}"
                                TextWrapping="Wrap"
                                Opacity="0.58"/>
-                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="150,*" RowSpacing="8" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto" ColumnDefinitions="150,*" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="{loc:Loc Settings.Diagnostics.MetadataCatalog}" FontWeight="SemiBold"/>
                         <SelectableTextBlock Grid.Column="1" Text="{Binding MetadataDiagnosticsStatus}" TextWrapping="Wrap"/>
-                        <TextBlock Grid.Row="1" Text="{loc:Loc Settings.Diagnostics.TokenCalibration}" FontWeight="SemiBold"/>
-                        <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CalibrationDiagnosticsStatus}" TextWrapping="Wrap"/>
                     </Grid>
                     <WrapPanel>
                         <u:IconButton x:Name="RefreshContextDiagnosticsButton"
@@ -40,12 +38,6 @@
                                       Command="{Binding RefreshContextDiagnosticsCommand}"
                                       Margin="0,0,8,8"
                                       AutomationProperties.Name="{loc:Loc Settings.Diagnostics.RefreshContextData}"/>
-                        <u:IconButton x:Name="ClearCalibrationButton"
-                                      Content="{loc:Loc Settings.Diagnostics.ClearCalibration}"
-                                      Command="{Binding ClearCalibrationCommand}"
-                                      IsLoading="{Binding IsMaintainingContextData}"
-                                      Margin="0,0,8,8"
-                                      AutomationProperties.Name="{loc:Loc Settings.Diagnostics.ClearCalibration}"/>
                         <u:IconButton x:Name="ClearMetadataCacheButton"
                                       Content="{loc:Loc Settings.Diagnostics.ClearMetadataCache}"
                                       Command="{Binding ClearMetadataCacheCommand}"

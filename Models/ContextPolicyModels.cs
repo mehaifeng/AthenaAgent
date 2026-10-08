@@ -17,38 +17,6 @@ public enum CompressionThresholdMode
     Custom
 }
 
-/// <summary>
-/// 压缩强度：一次压缩把多少历史浓缩成一份摘要。这是用户真正在意的取舍——
-/// 摘要保留多少细节，与压缩多久打断一次对话，是同一枚硬币的两面。
-/// <para>
-/// 它取代了旧的「摘要目标 Token」。那是个绝对值，既看不出含义，又和模型的单次输出
-/// 能力隐式耦合；材料只有 2,000 token 时仍按 12,000 去要摘要，结果是压完反而更大。
-/// 现在摘要长度由「材料 ÷ 强度」自动得出，只受模型输出能力与可选上限约束。
-/// </para>
-/// </summary>
-public enum CompressionStrength
-{
-    /// <summary>保守 4:1——摘要更详细，但每次吃下的历史更少，压缩触发得更频繁。</summary>
-    Conservative,
-
-    /// <summary>平衡 8:1——默认。</summary>
-    Balanced,
-
-    /// <summary>激进 16:1——一次吃掉更多历史、打断更少，代价是摘要更粗、细节丢得更多。</summary>
-    Aggressive
-}
-
-public static class CompressionStrengthExtensions
-{
-    /// <summary>摘要压缩比：材料 token ÷ 摘要 token。</summary>
-    public static int SummaryRatio(this CompressionStrength strength) => strength switch
-    {
-        CompressionStrength.Conservative => 4,
-        CompressionStrength.Aggressive => 16,
-        _ => 8
-    };
-}
-
 /// <summary>应用级上下文默认策略；不携带任何会话运行状态。</summary>
 public partial class AppContextPolicy : ObservableObject
 {
@@ -67,18 +35,27 @@ public partial class AppContextPolicy : ObservableObject
     [ObservableProperty]
     private bool _autoCompress = true;
 
-    [ObservableProperty]
-    private int _keepRecentRounds = 3;
-
-    [ObservableProperty]
-    private CompressionStrength _compressionStrength = CompressionStrength.Balanced;
-
     /// <summary>
-    /// 摘要长度的<b>上限</b>，不是目标值。实际长度由「材料 ÷ 压缩强度」得出；
-    /// 这里只在你想额外压低单次成本与等待时长时才起作用。
+    /// 摘要长度上限，直接作为压缩请求的 max_output_tokens。全量压缩不再按「材料 ÷ 强度」推算长度，
+    /// 所以这里是唯一的长度旋钮；实际生效值还要被压缩模型的输出能力与阈值的 1/4 再夹一次。
     /// </summary>
     [ObservableProperty]
-    private long _targetSummaryTokens = 8192;
+    private long _summaryMaxTokens = DefaultSummaryMaxTokens;
+
+    /// <summary>超过阈值时，先把旧工具结果换成占位说明（零模型成本），不够再做全量摘要。</summary>
+    [ObservableProperty]
+    private bool _toolResultClearingEnabled = true;
+
+    /// <summary>清理时原样保留的最近工具结果总量（字符）。保留区之外的全部清掉。</summary>
+    [ObservableProperty]
+    private long _keepRecentToolResultChars = DefaultKeepRecentToolResultChars;
+
+    public const long DefaultSummaryMaxTokens = 8192;
+    public const long MinSummaryMaxTokens = 1024;
+    public const long MaxSummaryMaxTokens = 32_768;
+    public const long DefaultKeepRecentToolResultChars = 120_000;
+    public const long MinKeepRecentToolResultChars = 20_000;
+    public const long MaxKeepRecentToolResultChars = 800_000;
 }
 
 public sealed class WorkspaceContextPolicyOverride
@@ -86,10 +63,33 @@ public sealed class WorkspaceContextPolicyOverride
     public long? ContextCapTokens { get; set; }
     public bool? AutoCompress { get; set; }
     public long? CompressionThresholdTokens { get; set; }
-    public int? KeepRecentRounds { get; set; }
-    public CompressionStrength? CompressionStrength { get; set; }
-    public long? TargetSummaryTokens { get; set; }
-    public int? WorkspaceKnowledgeTokenBudget { get; set; }
+    public long? SummaryMaxTokens { get; set; }
+
+    /// <summary>
+    /// 旧键 <c>targetSummaryTokens</c>（上限语义）的只读入口：读到就当作 <see cref="SummaryMaxTokens"/>，
+    /// 永不写出（getter 恒为 null，且 WhenWritingNull）。旧的 <c>keepRecentRounds</c> /
+    /// <c>compressionStrength</c> 没有对应属性，反序列化时被忽略即丢弃。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("targetSummaryTokens")]
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public long? LegacyTargetSummaryTokens
+    {
+        get => null;
+        set => SummaryMaxTokens ??= value;
+    }
+
+    public bool? ToolResultClearingEnabled { get; set; }
+    public long? KeepRecentToolResultChars { get; set; }
+    public int? WorkspaceKnowledgeCharBudget { get; set; }
+
+    /// <summary>旧键 <c>workspaceKnowledgeTokenBudget</c>（token）的只读入口：读到就按 ×3 换成字符预算，永不写出。</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("workspaceKnowledgeTokenBudget")]
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? LegacyWorkspaceKnowledgeTokenBudget
+    {
+        get => null;
+        set => WorkspaceKnowledgeCharBudget ??= value is { } tokens ? checked(tokens * 3) : null;
+    }
 }
 
 public enum ContextPolicyValueSource
@@ -109,20 +109,14 @@ public sealed record ResolvedContextPolicy(
     long AvailableInputBudgetTokens,
     long CompressionThresholdTokens,
     bool AutoCompress,
-    int KeepRecentRounds,
-    long TargetSummaryTokens,
-    int SummaryRatio,
+    long SummaryMaxTokens,
+    bool ToolResultClearingEnabled,
+    long KeepRecentToolResultChars,
     ContextPolicyValueSource ContextWindowSource,
     ContextPolicyValueSource CompressionThresholdSource,
     IReadOnlyList<string> Warnings,
     long MaxOutputCeilingTokens = 0)
 {
-    /// <summary>
-    /// 单次压缩能吃下的历史上限：摘要长度封顶时，材料最多是它的 <see cref="SummaryRatio"/> 倍。
-    /// 这个值不随压缩阈值变化——它由模型一次能输出多长决定，所以提高阈值只会增加压缩趟数。
-    /// </summary>
-    public long MaxMaterialPerPassTokens => TargetSummaryTokens * SummaryRatio;
-
     /// <summary>
     /// 本次请求发给供应商的 max_output_tokens。
     ///
@@ -163,7 +157,7 @@ public sealed record ResolvedContextPolicy(
         AvailableInputBudgetTokens,
         CompressionThresholdTokens,
         AutoCompress,
-        KeepRecentRounds,
-        TargetSummaryTokens,
-        SummaryRatio);
+        SummaryMaxTokens,
+        ToolResultClearingEnabled,
+        KeepRecentToolResultChars);
 }

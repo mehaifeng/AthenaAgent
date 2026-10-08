@@ -69,7 +69,7 @@ public class BrowserVisionService : IBrowserVisionService
             var messages = BuildAgentMessages(task, browserState, stepInfo, actionHistory, availableActions);
             var options = new ChatCompletionOptions
             {
-                Temperature = (float)effectiveConfig.Temperature,
+                Temperature = (float?)effectiveConfig.Temperature,
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
@@ -77,7 +77,7 @@ public class BrowserVisionService : IBrowserVisionService
                 ? await BrowserStructuredOutput.CompleteResponsesTextAsync(
                     effectiveConfig,
                     messages,
-                    (float)effectiveConfig.Temperature,
+                    (float?)effectiveConfig.Temperature,
                     effectiveConfig.MaxTokens,
                     config.BrowserStructuredOutputMode,
                     config.Timeout,
@@ -151,7 +151,7 @@ public class BrowserVisionService : IBrowserVisionService
             var messages = BuildMessages(task, observation, actionHistory);
             var options = new ChatCompletionOptions
             {
-                Temperature = (float)effectiveConfig.Temperature,
+                Temperature = (float?)effectiveConfig.Temperature,
                 MaxOutputTokenCount = effectiveConfig.MaxTokens
             };
 
@@ -159,7 +159,7 @@ public class BrowserVisionService : IBrowserVisionService
                 ? await BrowserStructuredOutput.CompleteResponsesTextAsync(
                     effectiveConfig,
                     messages,
-                    (float)effectiveConfig.Temperature,
+                    (float?)effectiveConfig.Temperature,
                     effectiveConfig.MaxTokens,
                     config.BrowserStructuredOutputMode,
                     config.Timeout,

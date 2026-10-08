@@ -10,16 +10,7 @@ public interface IConversationTitleGenerator
     Task<string> GenerateAsync(IReadOnlyList<ChatMessage> messages, bool useAi, CancellationToken cancellationToken = default);
 }
 
-public interface IContextCompressionService
-{
-    Task<CompressionResult> CompressAsync(
-        IReadOnlyList<ChatMessage> messages,
-        string? existingSummary,
-        int keepRecentRounds = 3,
-        CancellationToken cancellationToken = default);
-}
-
 public interface IWorkspaceKnowledgeCompressor
 {
-    Task<string?> CompressAsync(string content, int tokenBudget, CancellationToken cancellationToken = default);
+    Task<string?> CompressAsync(string content, int charBudget, CancellationToken cancellationToken = default);
 }

@@ -1137,6 +1137,9 @@
                                         <TextBlock Text="{Binding ContextInspectorUsageText}" TextWrapping="Wrap"/>
                                         <TextBlock Text="{Binding ContextInspectorUsageDetails}" Opacity="0.62" TextWrapping="Wrap"/>
                                         <TextBlock Text="{loc:Loc ContextInspector.Overview.CachedHint}" Opacity="0.55" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding ClearedToolResultsText}"
+                                                   IsVisible="{Binding HasClearedToolResults}"
+                                                   Opacity="0.78" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
@@ -1196,37 +1199,35 @@
                     <TabItem Header="{loc:Loc ContextInspector.Tab.Preview}">
                         <ScrollViewer>
                             <StackPanel Margin="16" Spacing="12">
+                                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="{loc:Loc ContextInspector.CompactNow.Title}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{loc:Loc ContextInspector.CompactNow.Hint}" TextWrapping="Wrap" Opacity="0.68"/>
+                                        <TextBox Text="{Binding CompactFocusText}"
+                                                 PlaceholderText="{loc:Loc ContextInspector.CompactNow.FocusWatermark}"
+                                                 AcceptsReturn="True" MaxLines="4" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="{loc:Loc ContextInspector.CompactNow.Button}"
+                                                    Theme="{StaticResource AccentButtonTheme}"
+                                                    Command="{Binding CompactNowCommand}"/>
+                                            <Button Content="{loc:Loc Common.Cancel}"
+                                                    Command="{Binding CancelCompactionCommand}"
+                                                    IsVisible="{Binding IsCompactionRunning}"/>
+                                        </StackPanel>
+                                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCompactionRunning}"/>
+                                        <TextBlock Text="{Binding CompressionStatusMessage}"
+                                                   IsVisible="{Binding HasCompressionStatusMessage}"
+                                                   TextWrapping="Wrap" Opacity="0.72"/>
+                                    </StackPanel>
+                                </Border>
                                 <TextBlock Text="{loc:Loc ContextInspector.Preview.Explanation}" TextWrapping="Wrap" Opacity="0.68"/>
-                                <Button Content="{loc:Loc ContextInspector.Preview.RefreshPlan}"
-                                        Command="{Binding RefreshCompressionPlanCommand}"
-                                        HorizontalAlignment="Left"/>
                                 <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
                                         IsVisible="{Binding HasCompressionImpactPreview}">
                                     <SelectableTextBlock Text="{Binding CompressionImpactPreview}" TextWrapping="Wrap"/>
                                 </Border>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="{loc:Loc ContextInspector.Preview.Generate}"
-                                            Command="{Binding GenerateCompressionCandidateCommand}"
-                                            IsEnabled="{Binding CanGenerateCompressionCandidate}"/>
-                                    <Button Content="{loc:Loc Common.Cancel}"
-                                            Command="{Binding CancelCompressionPreviewCommand}"
-                                            IsVisible="{Binding IsCompressionPreviewBusy}"/>
-                                    <Button Content="{loc:Loc ContextInspector.Preview.Apply}"
-                                            Theme="{StaticResource AccentButtonTheme}"
-                                            Command="{Binding ApplyCompressionCandidateCommand}"
-                                            IsEnabled="{Binding CanApplyCompressionCandidate}"/>
-                                </StackPanel>
-                                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCompressionPreviewBusy}"/>
                                 <TextBlock Text="{Binding CompressionPreviewStatus}"
                                            IsVisible="{Binding HasCompressionPreviewStatus}"
                                            TextWrapping="Wrap" Opacity="0.72"/>
-                                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
-                                        IsVisible="{Binding HasCompressionCandidatePreview}">
-                                    <StackPanel Spacing="7">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Preview.Candidate}" FontWeight="SemiBold"/>
-                                        <SelectableTextBlock Text="{Binding CompressionCandidatePreview}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
                             </StackPanel>
                         </ScrollViewer>
                     </TabItem>

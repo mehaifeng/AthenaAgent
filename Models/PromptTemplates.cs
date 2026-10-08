@@ -250,18 +250,41 @@ public static class PromptTemplates
     /// <summary>
     /// 上下文压缩
     /// </summary>
-    public const string ContextCompression = "Compress this history into a dense, fact-heavy summary. Preserve all specific entities, dates, preferences, and decisions while stripping away conversational filler. You may be given a `[Previous running summary]` — treat it as established fact and MERGE it with the newer messages into a single updated summary; never drop facts that appear only in the previous summary. IMPORTANT: Do NOT compress, omit, or alter any information about Athena's identity, persona, or operational rules — these must remain intact and unmodified.";
+    public const string ContextCompression = """
+        You compress a conversation between a user and Athena (an AI assistant that can call tools) into a continuation summary.
+        A later model will read ONLY this summary plus the user's most recent requests, and must be able to carry on the work
+        without asking the user to repeat anything. Be dense and specific; strip conversational filler, never strip facts.
+        You may be given a `[previous_summary]` - treat it as established fact and MERGE it with the newer material into one
+        updated summary; never drop facts that appear only in the previous summary.
+        Tool results may have been replaced by a one-line placeholder naming the tool; that means the original output was
+        dropped to save space - do not guess what it contained.
+        IMPORTANT: Do NOT compress, omit, or alter any information about Athena's identity, persona, or operational rules -
+        these are structural constraints, not conversational content, and must survive verbatim.
+        """;
 
     /// <summary>
     /// 上下文压缩策略 (用户引导)
     /// </summary>
-    public const string ContextCompressionStrategy = @"Please compress the following dialogue between User and Assistant into a high-density, concise summary. 
-            Ignore tool execution details as they have already been filtered out. Focus strictly on:
-            1. Core facts and information shared.
-            2. User preferences, requirements, and decisions made.
-            3. Pending tasks or open questions.
-            The goal is to maintain full continuity for future turns with minimum tokens.
-            CRITICAL: Do NOT compress, summarize away, or omit any content related to Athena's identity, persona, or operational rules. These are not conversational content — they are structural constraints that must survive compression verbatim.";
+    public const string ContextCompressionStrategy = """
+        Write the summary as plain text with exactly these nine numbered sections, in this order. Write "None." for an empty section;
+        never skip or renumber one.
+
+        1. Primary Request and Intent - what the user is trying to achieve overall, and every explicit constraint they set.
+        2. Key Technical Concepts - the technologies, frameworks, APIs and design decisions that matter for continuing.
+        3. Files and Code Sections - every file that was read, created or changed, with its full path, why it matters, what changed,
+           and the code snippets a continuation would need to see again.
+        4. Errors and Fixes - each error met, how it was fixed, and any user feedback that redirected the approach.
+        5. Problem Solving - what was solved, what is still being investigated, and dead ends not to retry.
+        6. All User Messages - one bullet per user message, in order, capturing what it asked or decided (tool outputs are not user messages).
+        7. Pending Tasks - everything the user asked for that is not finished yet.
+        8. Current Work - precisely what was being done immediately before this compression: files, commands and state, quoting recent turns where it helps.
+        9. Next Step - the single next action. It MUST follow directly from the user's most recent explicit requests; quote them.
+           If the last task was fully completed, say so and write "None - wait for the user."
+
+        Keep paths, URLs, commands, error messages and explicit numbers inside the sentence that says what happened to them;
+        never emit a bare list of identifiers. Invent nothing. Do not write the [hard_facts], [recent_files] or
+        [latest_user_requests] blocks - the application appends them. Do not add a preamble or closing remarks.
+        """;
 
     /// <summary>
     /// 主动消息生成模板

@@ -11,7 +11,6 @@ namespace Athena.UI.Services.Context;
 
 public sealed partial class ContextRequestPreparer(TokenFingerprintService fingerprints) : IContextRequestPreparer
 {
-    public const int EstimatorVersion = 2;
     public const int ImageEncodingVersion = 1;
 
     public PreparedChatRequest Prepare(
@@ -23,8 +22,6 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
         bool imageBinaryIncluded = true,
         bool isImageFallback = false)
     {
-        long cjk = 0, other = 0, json = 0, attachmentManifest = 0;
-        int system = 0, user = 0, assistant = 0, tool = 0;
         var exact = new StringBuilder();
         var fixedOverhead = new StringBuilder();
 
@@ -38,13 +35,6 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
                 ToolChatMessage => "tool",
                 _ => "other"
             };
-            switch (role)
-            {
-                case "system": system++; break;
-                case "user": user++; break;
-                case "assistant": assistant++; break;
-                case "tool": tool++; break;
-            }
             exact.Append(role).Append('\u001e');
             foreach (var part in message.Content)
             {
@@ -52,41 +42,32 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
                 var text = part.Text ?? string.Empty;
                 exact.Append(text).Append('\u001d');
                 if (role == "system") fixedOverhead.Append(NormalizeVolatile(text));
-                CountText(text, role == "tool", ref cjk, ref other, ref json, ref attachmentManifest);
             }
             if (message is AssistantChatMessage assistantMessage)
             {
                 var reasoning = GetReasoningContent(assistantMessage);
                 if (!string.IsNullOrEmpty(reasoning))
-                {
-                    CountText(reasoning, structured: false, ref cjk, ref other, ref json, ref attachmentManifest);
                     exact.Append("reasoning:").Append(reasoning).Append('\u001d');
-                }
                 foreach (var call in assistantMessage.ToolCalls)
                 {
                     var arguments = call.FunctionArguments?.ToString() ?? string.Empty;
-                    json += arguments.Length + (call.FunctionName?.Length ?? 0);
                     exact.Append(call.FunctionName).Append(arguments);
                 }
             }
         }
 
-        long toolChars = 0;
-        foreach (var definition in runtime.ToolDefinitions)
-        {
-            toolChars += (definition.FunctionName?.Length ?? 0)
-                         + (definition.FunctionDescription?.Length ?? 0)
-                         + (definition.FunctionParameters?.ToString().Length ?? 0);
-        }
         fixedOverhead.Append(runtime.ToolFingerprint);
+        // 清理改变了请求内容却不改变消息 ID。把已清理集合并进固定开销指纹，清理之后
+        // ContextAnchorLedger 就不会再把清理前的测量当作精确值；从未清理过的会话指纹不变。
+        var clearedDigest = ToolResultClearing.ComputeDigest(context.ClearedToolResultIds);
+        if (clearedDigest.Length > 0) fixedOverhead.Append("cleared-tool-results:").Append(clearedDigest);
         exact.Append("tool-definitions:").Append(runtime.ToolFingerprint).Append('\u001e');
-        var images = context.Messages.SelectMany(message => message.Attachments).Where(item => item.IsImage).ToArray();
         exact.Append("image-mode:")
             .Append(imageBinaryIncluded)
             .Append(':')
             .Append(isImageFallback)
             .Append('\u001e');
-        foreach (var image in images)
+        foreach (var image in context.Messages.SelectMany(message => message.Attachments).Where(item => item.IsImage))
         {
             exact.Append("image:")
                 .Append(image.Id)
@@ -100,28 +81,9 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
                 .Append(image.Height)
                 .Append('\u001e');
         }
-        var known = images.Count(image => image.Width > 0 && image.Height > 0);
-        var unknown = images.Length - known;
-        var tileUnits = images.Sum(image => Math.Max(1, (ConversationContext.EstimateImageTokens(image.Width, image.Height) - 85) / 170));
-        var messageCount = system + user + assistant + tool;
-        var imagePriorTokens = imageBinaryIncluded
-            ? images.Sum(image => (long)ConversationContext.EstimateImageTokens(image.Width, image.Height))
-            : 0;
-        var heuristic = checked(
-            cjk
-            + (other + 3) / 4
-            + (json + 3) / 4
-            + (attachmentManifest + 3) / 4
-            + messageCount * 4L
-            + (toolChars + 3) / 4
-            + imagePriorTokens);
-        var profileKey = BuildProfileKey(runtime);
-        var features = new ContextFeatureSnapshot(
-            requestId, profileKey, EstimatorVersion, cjk, other, json,
-            system, user, assistant, tool, toolChars, attachmentManifest,
-            images.Length, known, unknown, tileUnits, imageBinaryIncluded ? images.Length : 0,
-            imagePriorTokens,
-            heuristic,
+
+        var identity = new RequestIdentity(
+            BuildProfileKey(runtime),
             fingerprints.Compute(fixedOverhead.ToString()),
             fingerprints.Compute(exact.ToString()),
             imageBinaryIncluded,
@@ -132,41 +94,8 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
             runtime,
             Array.AsReadOnly(messages.ToArray()),
             runtime.ChatOptions,
-            features,
-            features.ContextFingerprint);
-    }
-
-    /// <summary>
-    /// 「自锚点以来新增消息」的字符权重分，口径与整段启发式一致（CJK 1:1、其余 4:1、
-    /// 工具结果按结构化 JSON 计）。绝对准确性并不重要——只要预测与训练用同一把尺，
-    /// 系统性偏差会被增量标度整体吸收。
-    /// </summary>
-    public static long ComputeDeltaCharScore(IEnumerable<ContextMessage> messages)
-    {
-        long cjk = 0, other = 0, json = 0, attachmentManifest = 0, attachmentPrior = 0;
-        var count = 0;
-        foreach (var message in messages)
-        {
-            count++;
-            var structured = string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase);
-            CountText(message.Content, structured, ref cjk, ref other, ref json, ref attachmentManifest);
-            if (!string.IsNullOrEmpty(message.ReasoningContent))
-                CountText(message.ReasoningContent, structured: false, ref cjk, ref other, ref json, ref attachmentManifest);
-            if (!string.IsNullOrEmpty(message.ToolCallsJson))
-                json += message.ToolCallsJson.Length;
-            foreach (var attachment in message.Attachments)
-            {
-                attachmentPrior += attachment.Kind == AttachmentKind.Image
-                    ? ConversationContext.EstimateImageTokens(attachment.Width, attachment.Height)
-                    : ConversationContext.AttachmentManifestTokenCost;
-            }
-        }
-        return cjk
-               + (other + 3) / 4
-               + (json + 3) / 4
-               + (attachmentManifest + 3) / 4
-               + count * 4L
-               + attachmentPrior;
+            identity,
+            identity.ContextFingerprint);
     }
 
     private static string BuildProfileKey(EffectiveRequestRuntimeSnapshot runtime)
@@ -184,39 +113,6 @@ public sealed partial class ContextRequestPreparer(TokenFingerprintService finge
             ImageEncodingVersion,
             runtime.ToolFingerprint);
     }
-
-    private static void CountText(
-        string text,
-        bool structured,
-        ref long cjk,
-        ref long other,
-        ref long json,
-        ref long attachmentManifest)
-    {
-        var manifestStart = text.IndexOf("<attachments>", StringComparison.Ordinal);
-        if (manifestStart >= 0)
-        {
-            attachmentManifest += text.Length - manifestStart;
-            text = text[..manifestStart];
-        }
-        if (structured)
-        {
-            json += text.Length;
-            return;
-        }
-        foreach (var ch in text)
-        {
-            if (IsCjk(ch)) cjk++;
-            else other++;
-        }
-    }
-
-    private static bool IsCjk(char ch) =>
-        ch is >= '\u4E00' and <= '\u9FFF'
-        or >= '\u3400' and <= '\u4DBF'
-        or >= '\u3000' and <= '\u30FF'
-        or >= '\uFF00' and <= '\uFFEF'
-        or >= '\uAC00' and <= '\uD7A3';
 
     private static string? GetReasoningContent(AssistantChatMessage message)
     {

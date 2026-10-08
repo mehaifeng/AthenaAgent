@@ -168,9 +168,10 @@ public class WorkspaceService : IWorkspaceService
             ContextCapTokens = source.ContextCapTokens,
             AutoCompress = source.AutoCompress,
             CompressionThresholdTokens = source.CompressionThresholdTokens,
-            KeepRecentRounds = source.KeepRecentRounds,
-            TargetSummaryTokens = source.TargetSummaryTokens,
-            WorkspaceKnowledgeTokenBudget = source.WorkspaceKnowledgeTokenBudget
+            SummaryMaxTokens = source.SummaryMaxTokens,
+            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
+            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
+            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
         };
 
     private static async Task WriteAtomicAsync(
@@ -284,11 +285,11 @@ public class WorkspaceService : IWorkspaceService
         return workspace == null ? null : GetKnowledgeFilePath(workspace);
     }
 
-    public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget)
+    public string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int charBudget)
     {
         try
         {
-            if (tokenBudget <= 0) return null;
+            if (charBudget <= 0) return null;
 
             var path = knowledgeFilePath;
             if (string.IsNullOrWhiteSpace(path))
@@ -300,20 +301,13 @@ public class WorkspaceService : IWorkspaceService
             var content = File.ReadAllText(path);
             var fileName = Path.GetFileNameWithoutExtension(path);
             var header = $"### {fileName}\n";
-            if (ConversationContext.EstimateTokens(header + content) <= tokenBudget)
+            if (header.Length + content.Length <= charBudget)
             {
                 return header + content;
             }
 
-            var low = 0;
-            var high = content.Length;
-            while (low < high)
-            {
-                var mid = (low + high + 1) / 2;
-                if (ConversationContext.EstimateTokens(header + content[..mid]) <= tokenBudget) low = mid;
-                else high = mid - 1;
-            }
-            return low == 0 ? null : header + content[..low].TrimEnd();
+            var kept = TruncateToCharBudget(content, charBudget - header.Length);
+            return kept.Length == 0 ? null : header + kept;
         }
         catch (Exception ex)
         {
@@ -326,7 +320,7 @@ public class WorkspaceService : IWorkspaceService
     {
         if (_configService == null || _knowledgeCompressor == null || !IsWorkspaceKnowledgeFile(fullPath) || !File.Exists(fullPath)) return;
 
-        var budget = _configService.Load().WorkspaceKnowledgeTokenBudget;
+        var budget = _configService.Load().WorkspaceKnowledgeCharBudget;
         if (budget <= 0) return; // 0 表示禁用工作区知识注入，不应为此删除本地知识。
 
         string content;
@@ -341,24 +335,24 @@ public class WorkspaceService : IWorkspaceService
         }
 
         var fileName = Path.GetFileNameWithoutExtension(fullPath);
-        var contentBudget = Math.Max(1, budget - ConversationContext.EstimateTokens($"### {fileName}\n"));
-        var originalTokens = ConversationContext.EstimateTokens(content);
-        if (originalTokens <= contentBudget) return;
+        var contentBudget = Math.Max(1, budget - $"### {fileName}\n".Length);
+        var originalChars = content.Length;
+        if (originalChars <= contentBudget) return;
 
         var compressed = await _knowledgeCompressor.CompressAsync(content, contentBudget, ct);
         if (string.IsNullOrWhiteSpace(compressed))
         {
-            _logger.Warning("Workspace knowledge exceeds budget but compression failed; keeping original file: {Path} ({Tokens}/{Budget})",
-                fullPath, originalTokens, budget);
+            _logger.Warning("Workspace knowledge exceeds budget but compression failed; keeping original file: {Path} ({Chars}/{Budget})",
+                fullPath, originalChars, budget);
             return;
         }
 
-        var bounded = TruncateToTokenBudget(compressed, contentBudget);
+        var bounded = TruncateToCharBudget(compressed, contentBudget);
         try
         {
             await File.WriteAllTextAsync(fullPath, bounded, ct);
-            _logger.Information("Workspace knowledge file compressed: {Path} ({Before} -> {After}, budget {Budget})",
-                fullPath, originalTokens, ConversationContext.EstimateTokens(bounded), contentBudget);
+            _logger.Information("Workspace knowledge file compressed: {Path} ({Before} -> {After} chars, budget {Budget})",
+                fullPath, originalChars, bounded.Length, contentBudget);
         }
         catch (Exception ex)
         {
@@ -366,26 +360,14 @@ public class WorkspaceService : IWorkspaceService
         }
     }
 
-    private static string TruncateToTokenBudget(string content, int tokenBudget)
+    /// <summary>按字符预算截断，不拆代理项对。</summary>
+    private static string TruncateToCharBudget(string content, int charBudget)
     {
-        if (ConversationContext.EstimateTokens(content) <= tokenBudget) return content;
-
-        int low = 0;
-        int high = content.Length;
-        while (low < high)
-        {
-            var mid = (low + high + 1) / 2;
-            if (ConversationContext.EstimateTokens(content[..mid]) <= tokenBudget)
-            {
-                low = mid;
-            }
-            else
-            {
-                high = mid - 1;
-            }
-        }
-
-        return low == 0 ? string.Empty : content[..low].TrimEnd();
+        if (charBudget <= 0) return string.Empty;
+        if (content.Length <= charBudget) return content;
+        var cut = charBudget;
+        if (char.IsHighSurrogate(content[cut - 1])) cut--;
+        return content[..cut].TrimEnd();
     }
 
     private bool IsWorkspaceKnowledgeFile(string fullPath)

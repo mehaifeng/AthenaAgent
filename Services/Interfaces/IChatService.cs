@@ -51,6 +51,10 @@ public interface IChatService
     /// 本轮因 API/供应商故障收场时的回调（见 <see cref="ChatTurnFailure"/>）。
     /// 错误文本仍会照常出现在返回的流里，这个回调只是把「失败」这件事说出来。
     /// </param>
+    /// <param name="onToolResultsCleared">
+    /// 超过压缩阈值时，旧工具结果被换成占位说明（见 <c>ToolResultClearing</c>）后的通知，参数是新增被清理的消息 ID。
+    /// 调用方据此更新会话级的已清理集合并落盘；存档原文不动，所以这里不需要事务也不需要撤销。
+    /// </param>
     /// <returns>AI 响应文本流</returns>
     IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -68,7 +72,8 @@ public interface IChatService
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
-        Action<ProviderRetryNotice>? onProviderRetry = null);
+        Action<ProviderRetryNotice>? onProviderRetry = null,
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null);
 
     /// <summary>
     /// 测试 API 连接

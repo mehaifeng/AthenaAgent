@@ -92,7 +92,6 @@ public sealed class ChatSessionFactory
         return new MainConversationViewModel(
             _chatService,
             _configService,
-            null,
             _promptService,
             _functionRegistry,
             tokenService,

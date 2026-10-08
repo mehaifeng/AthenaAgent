@@ -95,9 +95,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _autoCompress = true;
 
-    [ObservableProperty]
-    private int _keepRecentRounds = 3;
-
     // 文件系统控制策略
     [ObservableProperty]
     private FileSystemPolicyConfig _fileSystemPolicy = new();
@@ -321,9 +318,13 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string? _lastActiveWorkspaceId;
 
-    // 工作区知识文件全量注入 system prompt 时的 token 预算上限。
+    // 工作区知识文件全量注入 system prompt 时的字符预算上限。用字符而不是 token：这个预算控制的是材料大小，
+    // 不是用量统计，而本地已经没有任何按字符猜 token 的东西。旧配置的 token 预算迁移时按 ×3 换算。
+    public const int DefaultWorkspaceKnowledgeCharBudget = 6000;
+    public const int MaxWorkspaceKnowledgeCharBudget = 300_000;
+
     [ObservableProperty]
-    private int _workspaceKnowledgeTokenBudget = 2000;
+    private int _workspaceKnowledgeCharBudget = DefaultWorkspaceKnowledgeCharBudget;
 
 }
 

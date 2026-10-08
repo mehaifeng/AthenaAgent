@@ -146,21 +146,14 @@ public sealed class OpenAiModelRuntimeFactory
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(values))).ToLowerInvariant();
     }
 
-    private static double GetInternalTemperature(AiModelRole role) => role switch
-    {
-        AiModelRole.MainConversation => 0.7,
-        AiModelRole.TitleGeneration => 0.2,
-        AiModelRole.ContextCompression => 0.2,
-        AiModelRole.Approval => 0,
-        AiModelRole.Embedding => 0,
-        AiModelRole.BrowserAgent => 0.2,
-        AiModelRole.SubAgent => 0.3,
-        AiModelRole.KnowledgeMaintenance => 0.1,
-        AiModelRole.ImageRecognition => 0.1,
-        // 宠物台词要的是变化，不是稳定：同一场景连着出现同一句话就露馅了。
-        AiModelRole.Companion => 0.9,
-        _ => 0.3
-    };
+    /// <summary>
+    /// 只有主对话发 temperature；所有辅助角色（标题、压缩、审批、子代理、维护、浏览器、宠物……）一律不发，用供应商默认值。
+    /// 推理型模型拒收这个参数：<c>openai/gpt-6-luna</c> 经 OrcaRouter 带 <c>temperature: 0.2</c> 直接 400
+    /// <c>upstream_rejected_request</c>，不带则 200（2026-10-08 实测；OpenRouter 目录里它的 supported_parameters 也没有
+    /// temperature，467 个模型里有 111 个同样没有）。辅助角色可以是用户选的任意模型，一个调味参数不值得拿整次调用去赌。
+    /// </summary>
+    private static double? GetInternalTemperature(AiModelRole role)
+        => role == AiModelRole.MainConversation ? 0.7 : null;
 
     private static int GetInternalMaxOutputTokens(AiModelRole role) => role switch
     {
@@ -263,7 +256,7 @@ public readonly record struct EffectiveOpenAiModel(
     string BaseUrl,
     string ApiKey,
     string Model,
-    double Temperature,
+    double? Temperature,
     int MaxOutputTokens,
     ProviderProtocol Protocol = ProviderProtocol.Auto,
     ReasoningEffort Effort = ReasoningEffort.Auto)

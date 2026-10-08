@@ -34,6 +34,29 @@ public class ConversationPersistenceSnapshot
     /// <summary>供应商回报的真实用量锚点；回溯/分支/重开会话时据此复用精确测量。</summary>
     public List<ContextAnchorRecord> Anchors { get; set; } = new();
 
+    /// <summary>
+    /// 自动压缩的防抖状态。压缩/清理刚提交、还在等第一次实测的那段时间里，这几个值决定下一轮
+    /// 要不要再压一次；丢了它们，重启后第一次超阈值会在没有门槛的情况下立刻再压一轮，白烧一次调用。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public long AutoCompactionFloorTokens { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PostCompactionMeasurePending { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PostClearingMeasurePending { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CompactionDueAfterClearing { get; set; }
+
+    /// <summary>
+    /// 已被「工具结果清理」换成占位说明的工具消息 ID（只增不减）。它是会话状态而不是消息字段，
+    /// 所以不放在 <c>ChatMessage</c> 上、也就不碰消息持久化白名单；null 表示从未清理过。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? ClearedToolResultIds { get; set; }
+
     public string? ForkedFromConversationId { get; set; }
 
     public string? ForkedFromHistoryId { get; set; }
@@ -86,6 +109,9 @@ public sealed class CompressionCheckpointRecord
     public long PreCompressionTokens { get; set; }
 
     public long PostCompressionTokens { get; set; }
+
+    /// <summary>摘要的 token 大小（压缩模型最终输出的实测 output tokens）；0 表示供应商未报。压缩后新内容的精确下界。</summary>
+    public long SummaryTokens { get; set; }
 
     public bool UsedLocalFallback { get; set; }
 

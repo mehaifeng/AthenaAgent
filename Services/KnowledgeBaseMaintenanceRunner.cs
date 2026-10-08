@@ -114,7 +114,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
 
         var options = new ChatCompletionOptions
         {
-            Temperature = (float)effective.Temperature,
+            Temperature = (float?)effective.Temperature,
             MaxOutputTokenCount = effective.MaxOutputTokens
         };
         foreach (var tool in tools)
@@ -140,7 +140,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
                 {
                     if (isResponses)
                     {
-                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), SystemPrompt, (float)effective.Temperature, effective.MaxOutputTokens, tools);
+                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), SystemPrompt, (float?)effective.Temperature, effective.MaxOutputTokens, tools);
                         ResponsesCallHelpers.AddInputItems(responsesOptions, messages.Skip(1));
                         responsesValue = (await responsesClient.CreateResponseAsync(responsesOptions, cancellationToken)).Value;
                     }

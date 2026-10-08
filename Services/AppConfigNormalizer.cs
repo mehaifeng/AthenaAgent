@@ -43,12 +43,18 @@ public static class AppConfigNormalizer
             policy.CompressionThresholdMode = CompressionThresholdMode.Auto;
             policy.CustomCompressionThresholdTokens = null;
         }
-        policy.KeepRecentRounds = Math.Clamp(policy.KeepRecentRounds, 1, 50);
-        policy.TargetSummaryTokens = Math.Clamp(policy.TargetSummaryTokens, 128, 65_536);
+        policy.SummaryMaxTokens = Math.Clamp(
+            policy.SummaryMaxTokens, AppContextPolicy.MinSummaryMaxTokens, AppContextPolicy.MaxSummaryMaxTokens);
+        policy.KeepRecentToolResultChars = Math.Clamp(
+            policy.KeepRecentToolResultChars,
+            AppContextPolicy.MinKeepRecentToolResultChars,
+            AppContextPolicy.MaxKeepRecentToolResultChars);
+
+        config.WorkspaceKnowledgeCharBudget = Math.Clamp(
+            config.WorkspaceKnowledgeCharBudget, 0, AppConfig.MaxWorkspaceKnowledgeCharBudget);
 
         // v6 过渡期兼容旧调用点；Phase 2 的 Policy Resolver 接入后删除这些镜像语义。
         config.AutoCompress = policy.AutoCompress;
-        config.KeepRecentRounds = policy.KeepRecentRounds;
         // 镜像只能反映「当前生效」的上限：Auto 模式下失效的 CustomCapTokens 若照抄进来，
         // config.json 和 view_self_configuration 都会显示一个 Resolver 根本不读的数字。
         config.MaxContextTokens = checked((int)Math.Min(

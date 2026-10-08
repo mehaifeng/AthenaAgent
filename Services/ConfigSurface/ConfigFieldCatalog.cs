@@ -160,24 +160,21 @@ public static class ConfigFieldCatalog
             Field("ContextPolicy.AutoCompress", "Context", ConfigFieldType.Boolean,
                 c => c.ContextPolicy.AutoCompress, (c, v) => c.ContextPolicy.AutoCompress = (bool)v!,
                 "Automatically compress conversation history when the threshold is crossed."),
-            Field("ContextPolicy.KeepRecentRounds", "Context", ConfigFieldType.Integer,
-                c => c.ContextPolicy.KeepRecentRounds, (c, v) => c.ContextPolicy.KeepRecentRounds = (int)v!,
-                "Number of recent conversation rounds to keep untouched when compressing.",
-                range: (1, 50)),
-            Field("ContextPolicy.CompressionStrength", "Context", ConfigFieldType.Enum,
-                c => c.ContextPolicy.CompressionStrength,
-                (c, v) => c.ContextPolicy.CompressionStrength = Enum.Parse<CompressionStrength>((string)v!, ignoreCase: true),
-                "How much history each compression condenses into one summary. "
-                + "Conservative=4:1 keeps more detail but compresses more often, Balanced=8:1, "
-                + "Aggressive=16:1 absorbs more history per pass with a coarser summary. "
-                + "The summary length itself follows from this and does not need to be set.",
-                allowedValues: EnumNames<CompressionStrength>()),
-            Field("ContextPolicy.TargetSummaryTokens", "Context", ConfigFieldType.Long,
-                c => c.ContextPolicy.TargetSummaryTokens, (c, v) => c.ContextPolicy.TargetSummaryTokens = (long)v!,
-                "Upper bound on summary length, not a target. The actual length is material divided by "
-                + "CompressionStrength; this only caps it further, and is itself capped by what the "
-                + "compression model can emit in one response.",
-                range: (128, 65_536)),
+            Field("ContextPolicy.SummaryMaxTokens", "Context", ConfigFieldType.Long,
+                c => c.ContextPolicy.SummaryMaxTokens, (c, v) => c.ContextPolicy.SummaryMaxTokens = (long)v!,
+                "Upper bound on the length of the summary a full compression produces; it is sent as the "
+                + "request's max_output_tokens and is itself capped by what the compression model can emit "
+                + "in one response and by a quarter of the compression threshold.",
+                range: (AppContextPolicy.MinSummaryMaxTokens, AppContextPolicy.MaxSummaryMaxTokens)),
+            Field("ContextPolicy.ToolResultClearingEnabled", "Context", ConfigFieldType.Boolean,
+                c => c.ContextPolicy.ToolResultClearingEnabled, (c, v) => c.ContextPolicy.ToolResultClearingEnabled = (bool)v!,
+                "When the compression threshold is crossed, first replace old tool results with a short "
+                + "placeholder (no model call) and only summarize the history if that is not enough."),
+            Field("ContextPolicy.KeepRecentToolResultChars", "Context", ConfigFieldType.Long,
+                c => c.ContextPolicy.KeepRecentToolResultChars, (c, v) => c.ContextPolicy.KeepRecentToolResultChars = (long)v!,
+                "How many characters of the most recent tool results stay untouched when old tool results are "
+                + "cleared; everything older is cleared.",
+                range: (AppContextPolicy.MinKeepRecentToolResultChars, AppContextPolicy.MaxKeepRecentToolResultChars)),
 
             // 遗留别名：保持旧工具键可用，并映射到 v6 语义。
             Field("MaxContextTokens", "Context", ConfigFieldType.Long,
@@ -201,9 +198,6 @@ public static class ConfigFieldCatalog
             Field("AutoCompress", "Context", ConfigFieldType.Boolean,
                 c => c.AutoCompress, (c, v) => c.ContextPolicy.AutoCompress = (bool)v!,
                 "Legacy alias for ContextPolicy.AutoCompress."),
-            Field("KeepRecentRounds", "Context", ConfigFieldType.Integer,
-                c => c.KeepRecentRounds, (c, v) => c.ContextPolicy.KeepRecentRounds = (int)v!,
-                "Legacy alias for ContextPolicy.KeepRecentRounds.", range: (1, 50)),
 
             // —— Appearance ——
             Field("Theme", "Appearance", ConfigFieldType.String,

@@ -405,7 +405,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     public MainWindowViewModel(
         IChatService? chatService,
         IConfigService? configService,
-        IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
         ILogService? logService,
         IKnowledgeBaseService? knowledgeBaseService,
@@ -475,7 +474,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // pipeline as sessions loaded into the tree. The factory is the composition root for that
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
-            ?? new MainConversationViewModel(chatService, configService, contextCompressionService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
+            ?? new MainConversationViewModel(chatService, configService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
         // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
         _displayedConversation = _mainConversationViewModel;
         _tasksViewModel = new TasksViewModel(
@@ -793,7 +792,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private MainConversationViewModel CreateChatSession() =>
         _chatSessionFactory?.Create()
         ?? new MainConversationViewModel(
-            null,
             null,
             null,
             null,

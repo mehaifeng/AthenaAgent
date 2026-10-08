@@ -1,5 +1,6 @@
 # Athena 模型元数据、上下文预算与会话压缩详细设计
 
+> **2026-10-08 更新**：本文关于「按完整轮次选窗口 / `KeepRecentRounds` / 压缩强度 / `CompressionFeasibility` 比例与收益门槛」的部分已被「全量压缩 + 工具结果清理」取代；Token 估算器与 Token 校准（`TokenCalibrationService`、字符启发式、增量标度）已删除，用量只认供应商回报的 usage，超限走被动兜底，现行规格以 `CLAUDE.md` 的 Context Compaction 条目为准；模型元数据、预算公式与事务提交/撤销部分仍然有效。  
 > 文档状态：实施中（Phase 0–5 已完成，Phase 6 进行中）  
 > 版本：1.0  
 > 日期：2026-08-01  

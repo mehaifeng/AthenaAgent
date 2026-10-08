@@ -9,7 +9,7 @@ internal sealed class EffectiveSubAgentConfig
     public string ApiKey { get; init; } = string.Empty;
     public string Model { get; init; } = string.Empty;
     public int MaxTokens { get; init; }
-    public double Temperature { get; init; }
+    public double? Temperature { get; init; }
     public ProviderProtocol Protocol { get; init; } = ProviderProtocol.Auto;
 
     /// <summary>转成统一运行时模型（供 Responses 辅助类使用；协议跟随 provider 配置）。</summary>

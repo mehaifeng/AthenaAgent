@@ -14,7 +14,6 @@ public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDispos
     private readonly IHeadlessBrowserService? _browserService;
     private readonly IBrowserVisionService? _browserVisionService;
     private readonly ILocalizationService? _localizationService;
-    private readonly ITokenCalibrationService? _tokenCalibration;
     private readonly IOpenRouterModelMetadataCatalog? _metadataCatalog;
     private readonly IUserInteractionService? _userInteractionService;
     private readonly CancellationTokenSource _operations = new();
@@ -25,7 +24,6 @@ public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDispos
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
         ILocalizationService? localizationService = null,
-        ITokenCalibrationService? tokenCalibration = null,
         IOpenRouterModelMetadataCatalog? metadataCatalog = null,
         IUserInteractionService? userInteractionService = null)
     {
@@ -33,7 +31,6 @@ public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDispos
         _browserService = browserService;
         _browserVisionService = browserVisionService;
         _localizationService = localizationService;
-        _tokenCalibration = tokenCalibration;
         _metadataCatalog = metadataCatalog;
         _userInteractionService = userInteractionService;
         if (_localizationService != null) _localizationService.LanguageChanged += OnLanguageChanged;
@@ -67,14 +64,10 @@ public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDispos
     private string _metadataDiagnosticsStatus = string.Empty;
 
     [ObservableProperty]
-    private string _calibrationDiagnosticsStatus = string.Empty;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasContextMaintenanceStatus))]
     private string _contextMaintenanceStatus = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ClearCalibrationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ClearMetadataCacheCommand))]
     private bool _isMaintainingContextData;
 
@@ -109,56 +102,6 @@ public sealed partial class RuntimeDiagnosticsViewModel : ViewModelBase, IDispos
                 _metadataCatalog.IsStale
                     ? GetString("ProviderModels.Metadata.Stale", "stale")
                     : GetString("ProviderModels.Metadata.Fresh", "fresh"));
-        }
-
-        if (_tokenCalibration == null)
-        {
-            CalibrationDiagnosticsStatus = GetString("Status.ServiceNotInitialized", "Service not initialized");
-        }
-        else
-        {
-            var diagnostics = _tokenCalibration.GetDiagnostics();
-            CalibrationDiagnosticsStatus = string.Format(
-                GetString(
-                    "Settings.Diagnostics.CalibrationSummary",
-                    "{0:N0} profiles · {1:N0} text samples · {2:N0} image samples ({3:N0} clean, {4:N0} direct) · estimator v{5} · updated {6}"),
-                diagnostics.ProfileCount,
-                diagnostics.TextSampleCount,
-                diagnostics.ImageSampleCount,
-                diagnostics.CleanImageSampleCount,
-                diagnostics.DirectImageUsageSampleCount,
-                diagnostics.CurrentEstimatorVersion,
-                diagnostics.LastUpdatedAtUtc?.ToLocalTime().ToString("g") ?? "—");
-        }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanMaintainContextData))]
-    private async Task ClearCalibrationAsync()
-    {
-        if (_tokenCalibration == null) return;
-        if (!await ConfirmClearAsync(
-                GetString("Settings.Diagnostics.ClearCalibration", "Clear calibration"),
-                GetString("Settings.Diagnostics.ClearCalibrationConfirm", "Clear all local aggregate token calibration profiles? They will be learned again from future Usage.")))
-            return;
-        IsMaintainingContextData = true;
-        try
-        {
-            await _tokenCalibration.ClearAsync(_operations.Token);
-            ContextMaintenanceStatus = GetString("Settings.Diagnostics.CalibrationCleared", "Local calibration profiles were cleared.");
-            RefreshContextDiagnostics();
-        }
-        catch (OperationCanceledException) when (_operations.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            ContextMaintenanceStatus = string.Format(
-                GetString("Settings.Diagnostics.ClearFailed", "Clear failed: {0}"),
-                ex.Message);
-        }
-        finally
-        {
-            if (!_operations.IsCancellationRequested) IsMaintainingContextData = false;
         }
     }
 
