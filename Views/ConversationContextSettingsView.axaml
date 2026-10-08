@@ -2,12 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
              xmlns:loc="using:Athena.UI.Markup"
-             xmlns:appconv="using:Athena.UI.Converters"
              x:Class="Athena.UI.Views.ConversationContextSettingsView"
              x:DataType="vm:ConversationContextSettingsViewModel">
-    <UserControl.Resources>
-        <appconv:CompressionStrengthToDisplayConverter x:Key="CompressionStrengthToDisplay"/>
-    </UserControl.Resources>
     <ScrollViewer>
         <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
@@ -81,35 +77,27 @@
                                        Maximum="10000000"
                                        Value="{Binding State.Config.ContextPolicy.CustomCompressionThresholdTokens}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,220">
-                        <TextBlock Text="{loc:Loc Settings.Context.KeepRecentRounds}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1" Width="220"
-                                       Minimum="1"
-                                       Maximum="50"
-                                       Value="{Binding State.Config.ContextPolicy.KeepRecentRounds}"/>
-                    </Grid>
+                    <CheckBox Content="{loc:Loc Settings.Context.ToolResultClearing}"
+                              IsChecked="{Binding State.Config.ContextPolicy.ToolResultClearingEnabled}"/>
                     <Grid ColumnDefinitions="300,220" RowDefinitions="Auto,Auto" RowSpacing="4">
-                        <TextBlock Text="{loc:Loc Settings.Context.CompressionStrength}" VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1" Width="220"
-                                  ItemsSource="{Binding CompressionStrengths}"
-                                  SelectedItem="{Binding State.Config.ContextPolicy.CompressionStrength}">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Converter={StaticResource CompressionStrengthToDisplay}}"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
+                        <TextBlock Text="{loc:Loc Settings.Context.KeepRecentToolResults}" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Column="1" Width="220"
+                                       Minimum="20000"
+                                       Maximum="800000"
+                                       Increment="10000"
+                                       Value="{Binding State.Config.ContextPolicy.KeepRecentToolResultChars}"/>
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
-                                   Text="{loc:Loc Settings.Context.CompressionStrengthHint}"
+                                   Text="{loc:Loc Settings.Context.KeepRecentToolResultsHint}"
                                    TextWrapping="Wrap"
                                    Opacity="0.58"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,220" RowDefinitions="Auto,Auto" RowSpacing="4">
                         <TextBlock Text="{loc:Loc Settings.Context.MaxSummaryTokens}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1" Width="220"
-                                       Minimum="128"
-                                       Maximum="65536"
-                                       Value="{Binding State.Config.ContextPolicy.TargetSummaryTokens}"/>
+                                       Minimum="1024"
+                                       Maximum="32768"
+                                       Increment="1024"
+                                       Value="{Binding State.Config.ContextPolicy.SummaryMaxTokens}"/>
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
                                    Text="{loc:Loc Settings.Context.MaxSummaryTokensHint}"
                                    TextWrapping="Wrap"
@@ -140,8 +128,9 @@
                         <TextBlock Text="{loc:Loc Settings.Context.WorkspaceKnowledgeBudget}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"
                                        Minimum="0"
-                                       Maximum="100000"
-                                       Value="{Binding State.Config.WorkspaceKnowledgeTokenBudget}"/>
+                                       Maximum="300000"
+                                       Increment="1000"
+                                       Value="{Binding State.Config.WorkspaceKnowledgeCharBudget}"/>
                     </Grid>
                     <TextBlock Text="{loc:Loc Settings.Context.BudgetHint}"
                                TextWrapping="Wrap"

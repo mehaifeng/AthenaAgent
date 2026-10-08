@@ -84,7 +84,7 @@ public sealed class SubAgentRunner
 
         var options = new ChatCompletionOptions
         {
-            Temperature = (float)effective.Temperature,
+            Temperature = (float?)effective.Temperature,
             MaxOutputTokenCount = effective.MaxTokens
         };
         foreach (var tool in tools)
@@ -125,7 +125,7 @@ public sealed class SubAgentRunner
                 {
                     if (isResponses)
                     {
-                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), preset.SystemPrompt, (float)effective.Temperature, effective.MaxTokens, tools);
+                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), preset.SystemPrompt, (float?)effective.Temperature, effective.MaxTokens, tools);
                         ResponsesCallHelpers.AddInputItems(responsesOptions, messages.Skip(1));
                         responsesValue = (await responsesClient.CreateResponseAsync(responsesOptions, cancellationToken)).Value;
                     }

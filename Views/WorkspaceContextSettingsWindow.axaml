@@ -54,26 +54,35 @@
 
                 <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
                     <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
-                        <CheckBox Content="{loc:Loc WorkspaceContext.KeepRecent}" IsChecked="{Binding OverrideKeepRecentRounds}"/>
-                        <NumericUpDown Grid.Column="1" Minimum="1" Maximum="50" Value="{Binding KeepRecentRounds}" IsEnabled="{Binding OverrideKeepRecentRounds}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding EffectiveKeepRecentRoundsText}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="3" Text="{Binding KeepRecentRoundsSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <CheckBox Content="{loc:Loc WorkspaceContext.ToolClearing}" IsChecked="{Binding OverrideToolResultClearing}"/>
+                        <CheckBox Grid.Column="1" Content="{loc:Loc Common.Enabled}" IsChecked="{Binding ToolResultClearingEnabled}" IsEnabled="{Binding OverrideToolResultClearing}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveToolResultClearingText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding ToolResultClearingSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                     </Grid>
                 </Border>
 
                 <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
                     <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
-                        <CheckBox Content="{loc:Loc WorkspaceContext.TargetSummary}" IsChecked="{Binding OverrideTargetSummaryTokens}"/>
-                        <NumericUpDown Grid.Column="1" Minimum="128" Maximum="65536" Value="{Binding TargetSummaryTokens}" IsEnabled="{Binding OverrideTargetSummaryTokens}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding EffectiveTargetSummaryTokensText}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="3" Text="{Binding TargetSummaryTokensSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <CheckBox Content="{loc:Loc WorkspaceContext.KeepToolChars}" IsChecked="{Binding OverrideKeepRecentToolResultChars}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="20000" Maximum="800000" Increment="10000" Value="{Binding KeepRecentToolResultChars}" IsEnabled="{Binding OverrideKeepRecentToolResultChars}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveKeepRecentToolResultCharsText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding KeepRecentToolResultCharsSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
+                    <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
+                        <CheckBox Content="{loc:Loc WorkspaceContext.SummaryMax}" IsChecked="{Binding OverrideSummaryMaxTokens}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="1024" Maximum="32768" Increment="1024" Value="{Binding SummaryMaxTokens}" IsEnabled="{Binding OverrideSummaryMaxTokens}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding EffectiveSummaryMaxTokensText}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding SummaryMaxTokensSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                     </Grid>
                 </Border>
 
                 <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
                     <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10">
                         <CheckBox Content="{loc:Loc WorkspaceContext.KnowledgeBudget}" IsChecked="{Binding OverrideWorkspaceKnowledgeBudget}"/>
-                        <NumericUpDown Grid.Column="1" Minimum="0" Maximum="100000" Value="{Binding WorkspaceKnowledgeTokenBudget}" IsEnabled="{Binding OverrideWorkspaceKnowledgeBudget}"/>
+                        <NumericUpDown Grid.Column="1" Minimum="0" Maximum="300000" Increment="1000" Value="{Binding WorkspaceKnowledgeCharBudget}" IsEnabled="{Binding OverrideWorkspaceKnowledgeBudget}"/>
                         <TextBlock Grid.Column="2" Text="{Binding EffectiveWorkspaceKnowledgeText}" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="3" Text="{Binding WorkspaceKnowledgeSourceText}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                     </Grid>

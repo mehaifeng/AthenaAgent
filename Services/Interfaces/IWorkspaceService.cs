@@ -53,12 +53,12 @@ public interface IWorkspaceService
     Task<string?> GetKnowledgeFilePathAsync(string workspaceId);
 
     /// <summary>
-    /// 构建工作区知识上下文文本（全量注入 system prompt，受 token 预算限制）
+    /// 构建工作区知识上下文文本（全量注入 system prompt，受字符预算限制）
     /// </summary>
     /// <param name="workspaceId">工作区 ID</param>
-    /// <param name="tokenBudget">token 预算上限</param>
+    /// <param name="charBudget">字符预算上限</param>
     /// <returns>拼合后的知识文本；无内容时返回 null</returns>
-    string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int tokenBudget);
+    string? BuildWorkspaceKnowledgeContext(string workspaceId, string? knowledgeFilePath, int charBudget);
 
     /// <summary>
     /// 写入后检查单个工作区知识文件；超过当前预算时使用次级模型压缩并覆盖该文件。

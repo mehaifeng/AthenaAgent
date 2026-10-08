@@ -1,4 +1,5 @@
 using Athena.UI.Services.Interfaces;
+using Serilog;
 using System;
 using System.IO;
 using System.Security.Cryptography;
@@ -13,7 +14,7 @@ public sealed class TokenFingerprintService
 
     public TokenFingerprintService(IPlatformPathService paths)
     {
-        var path = paths.GetTokenCalibrationKeyPath();
+        var path = paths.GetRequestFingerprintKeyPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         if (File.Exists(path))
         {
@@ -26,6 +27,23 @@ public sealed class TokenFingerprintService
             _key = ReplaceKey(path);
         }
         KeyId = Convert.ToHexString(SHA256.HashData(_key))[..16].ToLowerInvariant();
+        DeleteLegacyCalibrationFile(paths.GetLegacyTokenCalibrationFilePath());
+    }
+
+    /// <summary>
+    /// token 估算器及其校准数据已经删除：只认供应商回报的 usage。旧版落下的校准文件不会再被读取，
+    /// 在这里顺手清掉；失败无所谓（文件只是占点磁盘），只记 Debug。
+    /// </summary>
+    private static void DeleteLegacyCalibrationFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Debug(ex, "Could not remove the legacy token calibration file {Path}", path);
+        }
     }
 
     public string Compute(string value)

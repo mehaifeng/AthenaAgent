@@ -21,6 +21,14 @@ public interface ICompressionTextGenerator
 {
     string ModelFingerprint { get; }
 
+    /// <summary>
+    /// 最近一次 <see cref="GenerateAsync"/> 调用供应商回报的 usage。压缩模型调用本身也消耗 token，
+    /// 它的 input tokens 是被压材料大小的上界、output tokens 是摘要大小的精确值——
+    /// 两者之差是压缩释放空间的审计下界，用于待测期间给出即时节省角标和自动压缩防抖门槛。
+    /// 供应商不报 usage 时为 null。
+    /// </summary>
+    TokenUsageSnapshot? LastUsage { get; }
+
     Task<string?> GenerateAsync(
         string systemPrompt,
         string userPrompt,

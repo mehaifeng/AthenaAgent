@@ -35,6 +35,16 @@ public sealed record CompressionMaterialMessage(
     DateTime Timestamp,
     IReadOnlyList<CompressionAttachmentReference> Attachments);
 
+/// <summary>
+/// 压缩提示词版本。提示词（结构化九章节）与附录格式一并升级时 +1：
+/// 校验按版本匹配候选与计划，旧检查点里记录的旧版本号仍可读。
+/// </summary>
+public static class CompressionPromptVersion
+{
+    /// <summary>1 = 按轮次窗口的自由格式摘要；2 = 全量压缩的结构化九章节摘要 + 代码追加的附录。</summary>
+    public const int Current = 2;
+}
+
 public sealed record CompressionPlan(
     string PlanId,
     string ConversationId,
@@ -45,11 +55,13 @@ public sealed record CompressionPlan(
     IReadOnlyList<string> CompressMessageIds,
     IReadOnlyList<string> RetainMessageIds,
     IReadOnlyList<CompressionMaterialMessage> Material,
-    long PreCompressionEstimate,
-    long TargetSummaryTokens,
+    long PreCompressionTokens,
+    long SummaryMaxTokens,
     ResolvedContextPolicy MainModelPolicy,
     ResolvedContextPolicy CompressionModelPolicy,
-    int PromptVersion);
+    int PromptVersion,
+    string? FocusInstruction = null,
+    IReadOnlyCollection<string>? ClearedToolResultIds = null);
 
 public sealed record CompressionPlanRequest(
     string ConversationId,
@@ -58,12 +70,13 @@ public sealed record CompressionPlanRequest(
     CompressionTriggerMode TriggerMode,
     string? ExistingSummary,
     IReadOnlyList<ChatMessage> Messages,
-    int KeepRecentRounds,
-    long PreCompressionEstimate,
-    long RequestedTargetSummaryTokens,
+    long PreCompressionTokens,
+    long RequestedSummaryMaxTokens,
     ResolvedContextPolicy MainModelPolicy,
     ResolvedContextPolicy CompressionModelPolicy,
-    int PromptVersion = 1);
+    int PromptVersion = CompressionPromptVersion.Current,
+    string? FocusInstruction = null,
+    IReadOnlyCollection<string>? ClearedToolResultIds = null);
 
 public sealed record CompressionPlanResult(
     CompressionPlanStatus Status,
@@ -92,7 +105,9 @@ public sealed record CompressionCandidate(
     string CompressionModelFingerprint,
     int PromptVersion,
     DateTimeOffset GeneratedAtUtc,
-    bool UsedLocalFallback);
+    bool UsedLocalFallback,
+    // 摘要的 token 大小（压缩模型最终输出的实测 output tokens）。供应商不报 usage 则为 0。
+    long SummaryTokens = 0);
 
 public sealed record CompressionGenerationResult(
     CompressionGenerationStatus Status,
@@ -114,7 +129,6 @@ public enum CompressionValidationStatus
     Valid,
     Stale,
     Empty,
-    OverBudget,
     InsufficientBenefit,
     MissingHardAnchors
 }
@@ -127,25 +141,12 @@ public enum CompressionValidationStatus
 /// </summary>
 public sealed record CompressionHardAnchor(string Kind, string Value);
 
-/// <summary>
-/// 压缩可行性判定的结果。全部由本地字符统计得出，不需要任何模型调用——
-/// 一次注定失败的尝试要花 20–175 秒和一次完整计费，必须在发请求之前就挡下来。
-/// </summary>
-public sealed record CompressionFeasibilityVerdict(
-    bool IsFeasible,
-    string Reason,
-    long MaterialTokens,
-    long TargetTokens,
-    double RequiredRatio,
-    int HandleAnchorCount,
-    long HandleAnchorTokens,
-    long ProjectedBenefitTokens);
-
+/// <param name="SummaryChars">候选摘要的字符数。</param>
+/// <param name="MaterialChars">它所取代的材料的字符数；收益规则就是 <c>SummaryChars &lt; MaterialChars</c>。</param>
 public sealed record CompressionValidationResult(
     CompressionValidationStatus Status,
-    long SummaryTokens,
-    long PostCompressionEstimate,
-    long EstimatedBenefitTokens,
+    long SummaryChars,
+    long MaterialChars,
     IReadOnlyList<CompressionHardAnchor> MissingHardAnchors,
     string Error)
 {
@@ -166,7 +167,9 @@ public sealed record CompressionTransition(
     int PromptVersion,
     long PreCompressionTokens,
     long PostCompressionTokens,
-    bool UsedLocalFallback);
+    bool UsedLocalFallback,
+    // 摘要的 token 大小（压缩模型最终输出的实测 output tokens）；供应商不报则为 0。这是压缩后新内容的精确下界。
+    long SummaryTokens = 0);
 
 public sealed record CompressionUndoTransition(
     string CompressionId,

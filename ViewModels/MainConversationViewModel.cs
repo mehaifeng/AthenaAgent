@@ -123,8 +123,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
     [NotifyPropertyChangedFor(nameof(ActivityStatusText))]
-    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
-    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
+    [NotifyCanExecuteChangedFor(nameof(CompactNowCommand))]
     private bool _isSending;
 
     [ObservableProperty]
@@ -137,6 +136,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         SyncPetFileAcceptance();
         // 新一轮开始时清零本轮工具计数；收尾时一次性汇总给养成服务。
         if (value) _turnToolCallCount = 0;
+        // 流式期间压缩页的影响说明被清空过（见 InvalidateCompressionPreview），一轮结束时补算。
+        else InvalidateCompressionPreview();
     }
 
     partial void OnIsQueuedChanged(bool value)
@@ -220,8 +221,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(UndoCompressionCommand))]
     [NotifyPropertyChangedFor(nameof(CanToggleRawContext))]
     [NotifyPropertyChangedFor(nameof(CanAcceptAttachments))]
-    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
-    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
+    [NotifyCanExecuteChangedFor(nameof(CompactNowCommand))]
+    [NotifyPropertyChangedFor(nameof(IsCompactionRunning))]
     private bool _isCompressing;
 
     /// <summary>
@@ -288,20 +289,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private string _compressionImpactPreview = string.Empty;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasCompressionCandidatePreview))]
-    private string _compressionCandidatePreview = string.Empty;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
-    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
-    private bool _isCompressionPreviewBusy;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanGenerateCompressionCandidate))]
-    [NotifyPropertyChangedFor(nameof(CanApplyCompressionCandidate))]
-    private bool _isCompressionPreviewStale;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCompressionPreviewStatus))]
     private string _compressionPreviewStatus = string.Empty;
 
@@ -319,14 +306,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public ObservableCollection<RawContextEntry> RawContextEntries { get; } = new();
 
     public bool HasCompressionImpactPreview => !string.IsNullOrWhiteSpace(CompressionImpactPreview);
-    public bool HasCompressionCandidatePreview => !string.IsNullOrWhiteSpace(CompressionCandidatePreview);
     public bool HasCompressionPreviewStatus => !string.IsNullOrWhiteSpace(CompressionPreviewStatus);
     public bool HasRawContextStatus => !string.IsNullOrWhiteSpace(RawContextStatus);
-    public bool CanGenerateCompressionCandidate =>
-        _compressionPreviewPlan != null && !IsCompressionPreviewStale && !IsCompressionPreviewBusy && !IsSending && !IsCompressing;
-    public bool CanApplyCompressionCandidate =>
-        _compressionPreviewPlan != null && _compressionPreviewCandidate != null && _compressionPreviewValidation?.IsValid == true
-        && !IsCompressionPreviewStale && !IsCompressionPreviewBusy && !IsSending && !IsCompressing;
 
     /// <summary>仅当对话流处于「完成」态（非发送/压缩/解析/重置）时，才允许切换 raw 视图。</summary>
     public bool CanToggleRawContext => !IsSending && !IsCompressing && !IsResetting;
@@ -348,9 +329,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     public bool HasBackgroundArchiveErrorStatus => HasBackgroundArchiveStatusMessage && IsBackgroundArchiveError;
 
-    public string ContextTokensInfo => _tokenService?.HasVisibleUsage == true
-        ? _tokenService.TokenInfoText
-        : GetString("Chat.Context.Unanchored", "Context usage will appear after the provider reports Usage.");
+    public string ContextTokensInfo => _tokenService?.HasVisibleUsage != true
+        ? GetString("Chat.Context.Unanchored", "Context usage will appear after the provider reports Usage.")
+        : _tokenService.IsRealUsage
+            ? _tokenService.TokenInfoText
+            : _tokenService.LowerBoundTokens > 0
+                ? _tokenService.TokenInfoText
+                : GetString("Chat.Context.UsagePending", "— (measured on the next request)");
 
     public ITokenService? TokenService => _tokenService;
 
@@ -366,18 +351,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         ? "—"
         : _effectiveContextPolicy.Policy.BudgetSummary;
 
-    public string ContextInspectorUsageText => _tokenService?.HasVisibleUsage == true
-        ? $"{_tokenService.MeasurementKind} · {_tokenService.CurrentTokens:N0} / {_tokenService.MaxTokens:N0}"
-        : GetString("Chat.Context.Unanchored", "Context usage will appear after the provider first reports Usage.");
+    public string ContextInspectorUsageText => _tokenService?.HasVisibleUsage != true
+        ? GetString("Chat.Context.Unanchored", "Context usage will appear after the provider first reports Usage.")
+        : _tokenService.IsRealUsage
+            ? $"{_tokenService.CurrentTokens:N0} / {_tokenService.MaxTokens:N0}"
+            : _tokenService.LowerBoundTokens > 0
+                ? $"≥{_tokenService.LowerBoundTokens:N0} / {_tokenService.MaxTokens:N0}"
+                : GetString("Chat.Context.UsagePending", "— (measured on the next request)");
 
     public string ContextInspectorUsageDetails => _tokenService?.HasVisibleUsage == true
         ? string.Format(
             GetString("ContextInspector.Usage.ReportedDetails", "Cached input {0:N0} · Last Usage {1}"),
             _tokenService.CachedInputTokens,
             _tokenService.State.LastUsageAt?.ToLocalTime().ToString("g") ?? "—")
-        : string.Format(
-            GetString("ContextInspector.Usage.EstimateDetails", "≈ {0:N0} internal protection estimate"),
-            _currentContext.EstimatedTokenCount);
+        : string.Empty;
 
     public string ContextInspectorWorkspaceText => CurrentWorkspace == null
         ? GetString("ContextInspector.Workspace.App", "App defaults (no Workspace override)")
@@ -447,15 +434,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
     private CancellationTokenSource? _previewLoadCts;
-    private CancellationTokenSource? _compressionPreviewCts;
     /// <summary>只取消自动压缩、不取消整轮请求的令牌源，每轮发送重建一次。</summary>
     private CancellationTokenSource? _compressionSkipCts;
     /// <summary>用量条徽标的代次，用来让后到的隐藏任务不误伤新一次压缩的徽标。</summary>
     private int _compressionBadgeGeneration;
     private CancellationTokenSource? _rawContextCts;
-    private CompressionPlan? _compressionPreviewPlan;
-    private CompressionCandidate? _compressionPreviewCandidate;
-    private CompressionValidationResult? _compressionPreviewValidation;
     private readonly SemaphoreSlim _conversationTransitionLock = new(1, 1);
     private int _conversationEpoch;
 
@@ -488,6 +471,23 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 重建消息列表，但测量结果必须跨重建、跨回溯、跨重启存活。
     private List<ContextAnchorRecord> _contextAnchors = new();
 
+    // 已被「工具结果清理」换成占位说明的工具消息 ID。会话级真源，只增不减（回退/压缩时只裁掉
+    // 已不在请求里的 ID），随快照落盘；提示缓存因此只在清理发生的那一刻变一次。
+    private List<string> _clearedToolResultIds = new();
+
+    // 自动全量压缩的防抖门槛（见 ConversationContext.AutoCompactionFloorTokens）。会话内状态：
+    // 每轮结束从请求上下文读回，下一轮随上下文克隆带进去；不落盘。
+    private long _autoCompactionFloorTokens;
+    private bool _postCompactionMeasurePending;
+    // 清理之后是否还在等第一次实测、以及那次实测是否要求下一次直接全量压缩（见 ConversationContext）。
+    private bool _postClearingMeasurePending;
+    private bool _compactionDueAfterClearing;
+
+    private CancellationTokenSource? _compactNowCts;
+
+    // 压缩前最后一次实测值；压缩后的第一次 usage 到达时用来算节省了多少，用完即清。
+    private long? _pendingSavingBadgeBaseline;
+
     private sealed record CompressionCheckpoint(
         string CompressionId,
         long AppliedRevision,
@@ -501,6 +501,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         int PromptVersion = 1,
         long PreCompressionTokens = 0,
         long PostCompressionTokens = 0,
+        long SummaryTokens = 0,
         bool UsedLocalFallback = false);
 
     private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
@@ -672,7 +673,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _configService.SaveAsync(config);
         }
 
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
     }
 
     /// <summary>由三栏会话宿主在创建/恢复会话时设置固定工作区归属。</summary>
@@ -864,7 +865,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public MainConversationViewModel(
         IChatService? chatService,
         IConfigService? configService,
-        IContextCompressionService? contextCompressionService,
         IPromptService? promptService,
         IFunctionRegistry? functionRegistry,
         ITokenService? tokenService,
@@ -957,7 +957,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         PendingAttachments.CollectionChanged += OnPendingAttachmentsCollectionChanged;
 
         // 计算初始 Token（系统提示词和工具声明的基底开销）
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
 
         if (_archiveService != null)
         {
@@ -994,7 +994,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (_disposed || _isBulkLoadingMessages) return;
         _revision++;
         InvalidateCompressionPreview();
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
         RefreshContextInspectorProperties();
     }
@@ -1008,14 +1008,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             if (!string.Equals(_requestContentIdentity, nextContentIdentity, StringComparison.Ordinal)
                 && _tokenService?.HasVisibleUsage == true)
             {
-                _tokenService.ApplyEstimatedBaseline(_tokenService.CurrentTokens, _revision);
+                _tokenService.MarkPending(_revision);
             }
             _requestContentIdentity = nextContentIdentity;
             Pet.ApplySettings(config);
             InvalidateCompressionPreview();
             CurrentModelName = config.AiModels.MainConversation.Model;
             UpdateBubbleButtonVisibility();
-            UpdateContextTokensDisplay();
+            OnPropertyChanged(nameof(ContextTokensInfo));
             RefreshContextInspectorProperties();
         });
     }
@@ -1049,7 +1049,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         || !string.Equals(previous.Metadata.TokenizerHint, _effectiveContextPolicy.Metadata.TokenizerHint, StringComparison.Ordinal))
                     && _tokenService.HasVisibleUsage)
                 {
-                    _tokenService.ApplyEstimatedBaseline(_tokenService.CurrentTokens, _revision);
+                    _tokenService.MarkPending(_revision);
                 }
                 _tokenService.MaxTokens = checked((int)Math.Min(
                     _effectiveContextPolicy.Policy.AvailableInputBudgetTokens,
@@ -1070,8 +1070,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         => string.Join('|',
             config.EnableMcp,
             config.EnableSkills,
-            _functionRegistry?.GetToolDeclarationTokenCount(
-                Athena.UI.Services.OfficeToolRelevance.IsRelevant(_currentContext)) ?? 0,
+            _functionRegistry?.GetToolDefinitions(
+                Athena.UI.Services.OfficeToolRelevance.IsRelevant(_currentContext)).Count() ?? 0,
             _promptService?.GetPrompt(PromptType.MainPersona).GetHashCode(StringComparison.Ordinal) ?? 0);
 
     private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1104,7 +1104,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         UpdateConversationContext();
         // 新用户消息/附件不属于上一 Usage 覆盖范围；若已解锁，立即转为显式近似态。
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        MarkContextUsagePending();
 
         // 先让出 UI 线程跑一次渲染，确保用户气泡立即出现，再去做后续较重的请求准备
         // （BuildMessages / token 估算 / 读取配置等），避免发送后约 1s 才看到气泡。
@@ -1156,18 +1156,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         if (value)
         {
             RefreshContextInspectorProperties();
-            if (SelectedContextInspectorTab == 2) RefreshCompressionPlan();
+            if (SelectedContextInspectorTab == 2) RefreshCompressionImpact();
             if (SelectedContextInspectorTab == 3) _ = RefreshRawContextAsync();
             return;
         }
-        _compressionPreviewCts?.Cancel();
         _rawContextCts?.Cancel();
     }
 
     partial void OnSelectedContextInspectorTabChanged(int value)
     {
         if (!IsContextInspectorOpen) return;
-        if (value == 2) RefreshCompressionPlan();
+        if (value == 2) RefreshCompressionImpact();
         if (value == 3) _ = RefreshRawContextAsync();
     }
 
@@ -1179,23 +1178,19 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private void CloseContextInspector()
         => IsContextInspectorOpen = false;
 
-    [RelayCommand]
-    private void RefreshCompressionPlan()
+    /// <summary>
+    /// 压缩页的本地影响说明：会压多少条、多少字符、其中多少条是已清理的工具结果。纯本地规划，零模型调用。
+    /// 页面上唯一的动作是「立即压缩」——旧的「刷新本地 Plan → 生成候选 → 应用」三步与它重复，已删除；
+    /// 压完不满意，用「撤销压缩」回到原样。
+    /// </summary>
+    private void RefreshCompressionImpact()
     {
-        _compressionPreviewCts?.Cancel();
-        _compressionPreviewPlan = null;
-        _compressionPreviewCandidate = null;
-        _compressionPreviewValidation = null;
-        CompressionCandidatePreview = string.Empty;
-        IsCompressionPreviewStale = false;
-
         if (_compressionPlanner == null || _contextPolicyProvider == null)
         {
             CompressionImpactPreview = string.Empty;
             CompressionPreviewStatus = GetString(
                 "ContextInspector.Preview.Unavailable",
                 "Transactional compression is unavailable.");
-            NotifyCompressionPreviewState();
             return;
         }
 
@@ -1207,12 +1202,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             CompressionPreviewStatus = GetString(
                 "ContextInspector.Preview.ModelUnavailable",
                 "Compression model policy is unavailable.");
-            NotifyCompressionPreviewState();
             return;
         }
 
         UpdateConversationContext();
-        var estimate = Math.Max(_currentContext.EstimatedTokenCount, _tokenService?.CurrentTokens ?? 0);
         var result = _compressionPlanner.CreatePlan(new CompressionPlanRequest(
             _conversationId,
             _revision,
@@ -1220,158 +1213,29 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             CompressionTriggerMode.Manual,
             _activeContextSummary,
             Messages.ToList(),
-            main.Policy.KeepRecentRounds,
-            estimate,
-            main.Policy.TargetSummaryTokens,
+            LastMeasuredTokens(),
+            main.Policy.SummaryMaxTokens,
             main.Policy,
-            compression.Policy));
+            compression.Policy,
+            FocusInstruction: CompactFocusText,
+            ClearedToolResultIds: _clearedToolResultIds));
         if (result.Plan == null)
         {
             CompressionImpactPreview = string.Empty;
-            CompressionPreviewStatus = FormatCompressionFailure(
-                "ContextInspector.Preview.PlanUnavailable", "No compression plan could be built: {0}", result.Reason);
-            NotifyCompressionPreviewState();
+            CompressionPreviewStatus = FormatPlanFailure(result.Reason);
             return;
         }
 
-        _compressionPreviewPlan = result.Plan;
         CompressionImpactPreview = string.Format(
             GetString(
                 "ContextInspector.Preview.ImpactFormat",
-                "Compress {0} messages; retain {1}. Estimate {2:N0} tokens; summary target {3:N0}. IDs {4} → {5}."),
+                "Will compress {0} messages ({1:N0} characters, {2} of them already-cleared tool results) into a summary; summary limit {3:N0} tokens."),
             result.Plan.CompressMessageIds.Count,
-            result.Plan.RetainMessageIds.Count,
-            result.Plan.PreCompressionEstimate,
-            result.Plan.TargetSummaryTokens,
-            result.Plan.CompressMessageIds.First(),
-            result.Plan.CompressMessageIds.Last());
-        CompressionPreviewStatus = GetString(
-            "ContextInspector.Preview.LocalOnly",
-            "Local impact preview only. No model request or charge has occurred.");
-        NotifyCompressionPreviewState();
+            CompressionValidator.MeasureMaterialChars(result.Plan.Material),
+            result.Plan.ClearedToolResultIds?.Count ?? 0,
+            result.Plan.SummaryMaxTokens);
+        CompressionPreviewStatus = string.Empty;
     }
-
-    [RelayCommand]
-    private async Task GenerateCompressionCandidateAsync()
-    {
-        if (!CanGenerateCompressionCandidate
-            || _compressionCandidateGenerator == null
-            || _compressionValidator == null
-            || _compressionPreviewPlan == null)
-            return;
-
-        var plan = _compressionPreviewPlan;
-        var cts = new CancellationTokenSource();
-        Interlocked.Exchange(ref _compressionPreviewCts, cts)?.Cancel();
-        IsCompressionPreviewBusy = true;
-        CompressionPreviewStatus = GetString(
-            "ContextInspector.Preview.Generating",
-            "Generating a candidate with the configured compression model; provider charges may apply.");
-        try
-        {
-            var generated = await _compressionCandidateGenerator.GenerateAsync(plan, cts.Token);
-            cts.Token.ThrowIfCancellationRequested();
-            if (plan.BaseRevision != _revision
-                || !string.Equals(plan.BaseContextFingerprint, ComputeCompressionContextFingerprint(), StringComparison.Ordinal))
-            {
-                IsCompressionPreviewStale = true;
-                CompressionPreviewStatus = GetString("ContextInspector.Preview.Stale", "Preview is stale. Refresh the local plan.");
-                return;
-            }
-            if (generated.Candidate == null)
-            {
-                CompressionPreviewStatus = FormatCompressionFailure(
-                    "ContextInspector.Preview.Failed", "Candidate generation failed: {0}", generated.Error);
-                return;
-            }
-            var validation = _compressionValidator.Validate(plan, generated.Candidate, cts.Token);
-            if (!validation.IsValid)
-            {
-                CompressionPreviewStatus = FormatCompressionFailure(
-                    "ContextInspector.Preview.Rejected", "The candidate failed validation: {0}", validation.Error);
-                return;
-            }
-            _compressionPreviewCandidate = generated.Candidate;
-            _compressionPreviewValidation = validation;
-            CompressionCandidatePreview = generated.Candidate.Summary;
-            CompressionPreviewStatus = string.Format(
-                GetString(
-                    "ContextInspector.Preview.CandidateReady",
-                    "Candidate ready. Estimated {0:N0} → {1:N0} tokens. Review it before Apply."),
-                plan.PreCompressionEstimate,
-                validation.PostCompressionEstimate);
-        }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested)
-        {
-            CompressionPreviewStatus = GetString("ContextInspector.Preview.Cancelled", "Candidate generation cancelled; conversation unchanged.");
-        }
-        finally
-        {
-            _ = Interlocked.CompareExchange(ref _compressionPreviewCts, null, cts);
-            cts.Dispose();
-            IsCompressionPreviewBusy = false;
-            NotifyCompressionPreviewState();
-        }
-    }
-
-    [RelayCommand]
-    private async Task ApplyCompressionCandidateAsync()
-    {
-        if (!CanApplyCompressionCandidate
-            || _compressionCommitter == null
-            || _compressionPreviewPlan == null
-            || _compressionPreviewCandidate == null
-            || _compressionPreviewValidation == null)
-            return;
-        var plan = _compressionPreviewPlan;
-        var candidate = _compressionPreviewCandidate;
-        var validation = _compressionPreviewValidation;
-        IsCompressionPreviewBusy = true;
-        try
-        {
-            var transition = new CompressionTransition(
-                plan.PlanId,
-                candidate.CandidateId,
-                _conversationId,
-                plan.BaseRevision,
-                plan.BaseContextFingerprint,
-                CompressionTriggerMode.Manual,
-                plan.CompressMessageIds,
-                plan.ExistingSummary,
-                candidate.Summary,
-                candidate.CompressionModelFingerprint,
-                candidate.PromptVersion,
-                plan.PreCompressionEstimate,
-                validation.PostCompressionEstimate,
-                candidate.UsedLocalFallback);
-            var committed = await _compressionCommitter.CommitCompressionAsync(transition);
-            if (!committed.IsCommitted)
-            {
-                IsCompressionPreviewStale = committed.Status == CompressionCommitStatus.Stale;
-                CompressionPreviewStatus = FormatCompressionFailure(
-                    "ContextInspector.Preview.ApplyFailed",
-                    "Apply failed and the conversation is unchanged: {0}",
-                    committed.Error);
-                return;
-            }
-            CompressionPreviewStatus = GetString("ContextInspector.Preview.Applied", "Candidate applied and persisted atomically.");
-            _compressionPreviewPlan = null;
-            _compressionPreviewCandidate = null;
-            _compressionPreviewValidation = null;
-            CompressionImpactPreview = string.Empty;
-            CompressionCandidatePreview = string.Empty;
-            RefreshContextInspectorProperties();
-        }
-        finally
-        {
-            IsCompressionPreviewBusy = false;
-            NotifyCompressionPreviewState();
-        }
-    }
-
-    [RelayCommand]
-    private void CancelCompressionPreview()
-        => _compressionPreviewCts?.Cancel();
 
     [RelayCommand]
     private async Task RefreshRawContextAsync()
@@ -1437,21 +1301,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _ = TopLevel.GetTopLevel(desktop.MainWindow)?.Clipboard?.SetTextAsync(text);
     }
 
+    /// <summary>
+    /// 会话内容或策略变了：压缩页正开着且没有在发送时就地重算影响说明（本地、零成本）；
+    /// 否则先清空，等页面再次打开或这一轮结束时重算——流式期间逐条重算会白白序列化整段会话。
+    /// </summary>
     private void InvalidateCompressionPreview()
     {
-        if (_compressionPreviewPlan == null) return;
-        IsCompressionPreviewStale = true;
-        CompressionPreviewStatus = GetString("ContextInspector.Preview.Stale", "Preview is stale. Refresh the local plan.");
-        _compressionPreviewCts?.Cancel();
-        NotifyCompressionPreviewState();
-    }
-
-    private void NotifyCompressionPreviewState()
-    {
-        OnPropertyChanged(nameof(CanGenerateCompressionCandidate));
-        OnPropertyChanged(nameof(CanApplyCompressionCandidate));
-        OnPropertyChanged(nameof(HasCompressionImpactPreview));
-        OnPropertyChanged(nameof(HasCompressionCandidatePreview));
+        if (IsContextInspectorOpen && SelectedContextInspectorTab == 2 && !IsSending && !IsCompressing)
+            RefreshCompressionImpact();
+        else
+            CompressionImpactPreview = string.Empty;
     }
 
     private void RefreshContextInspectorProperties()
@@ -1466,6 +1325,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ContextInspectorWarningsText));
         OnPropertyChanged(nameof(HasContextInspectorWarnings));
         OnPropertyChanged(nameof(CompressionSummaryDetails));
+        OnPropertyChanged(nameof(ClearedToolResultsText));
+        OnPropertyChanged(nameof(HasClearedToolResults));
     }
 
     /// <summary>
@@ -1525,7 +1386,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
         await ReconcileImageGenerationSessionAsync();
         // 回滚裁掉了后续消息：强制以估算刷新，下一轮真实 usage 会重锚。
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        MarkContextUsagePending();
         UpdateBubbleButtonVisibility();
         _logger.Information("Conversation rolled back to before message {MessageId}", message.Id);
     }
@@ -2199,7 +2060,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         Interlocked.Increment(ref _conversationEpoch);
         _responseCts?.Cancel();
-        _compressionPreviewCts?.Cancel();
         _rawContextCts?.Cancel();
         IsContextInspectorOpen = false;
         CancelPendingPreviewLoading();
@@ -2207,7 +2067,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         FinalizePendingAssistantMessages();
         IsSending = false;
         UpdateConversationContext();
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
     }
 
@@ -2246,6 +2106,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
+            ClearedToolResultIds = CaptureClearedToolResultIds(),
+            AutoCompactionFloorTokens = _autoCompactionFloorTokens,
+            PostCompactionMeasurePending = _postCompactionMeasurePending,
+            PostClearingMeasurePending = _postClearingMeasurePending,
+            CompactionDueAfterClearing = _compactionDueAfterClearing,
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -2289,6 +2154,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _compressionHistory.Clear();
         _contextAnchors = new List<ContextAnchorRecord>();
+        _clearedToolResultIds = new List<string>();
+        _autoCompactionFloorTokens = 0;
+        _postCompactionMeasurePending = false;
+        _postClearingMeasurePending = false;
+        _compactionDueAfterClearing = false;
+        _pendingSavingBadgeBaseline = null;
         SetActiveContextSummary(null);
         SetOrphanedLegacySummary(null);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -2297,7 +2168,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 新会话：清空真实用量锚点，避免沿用上一会话的过时数值。
         _tokenService?.ResetUsage();
         UpdateConversationContext();
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
     }
 
@@ -2522,7 +2393,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         assistantMsg.IsLoading = true;
                         // 工具结果发生在刚才的 API Usage 之后，必须降为近似态等待下一轮 Usage 重锚。
                         UpdateConversationContext();
-                        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+                        MarkContextUsagePending();
                     }
                     requestContext.Revision = _revision;
                 },
@@ -2539,6 +2410,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                                 currentRole?.Model,
                                 _revision))
                         {
+                            if (_pendingSavingBadgeBaseline is { } before)
+                            {
+                                _pendingSavingBadgeBaseline = null;
+                                var saved = before - _tokenService.CurrentTokens;
+                                // 把这次实测的压缩后用量写回检查点并落盘：4 秒的角标会消失，
+                                // 但「上次压缩省了多少」是一个持久事实，检查器应当一直显示得出来。
+                                RecordMeasuredPostCompressionTokens(_tokenService.CurrentTokens, before);
+                                ShowCompressionSavingBadge(saved);
+                            }
                             OnPropertyChanged(nameof(ContextTokensInfo));
                             RefreshContextInspectorProperties();
                         }
@@ -2615,6 +2495,18 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 onProviderError: failure =>
                 {
                     if (IsCurrentConversationEpoch(epoch)) providerFailure = failure;
+                },
+                onToolResultsCleared: ids =>
+                {
+                    if (!IsCurrentConversationEpoch(epoch)) return;
+
+                    // 旧工具结果在请求里被换成占位说明。集合只增不减，存档原文不动，所以不需要事务和撤销栈，
+                    // 记下 ID、标记需要持久化就够了；用量显示降为近似态，等下一轮 Usage 重锚。
+                    _clearedToolResultIds = ToolResultClearing.Merge(_clearedToolResultIds, ids);
+                    _currentContext.ClearedToolResultIds = _clearedToolResultIds;
+                    MarkContextUsagePending();
+                    RefreshContextInspectorProperties();
+                    MarkPersistenceStateChanged();
                 },
                 onProviderRetry: notice =>
                 {
@@ -2738,6 +2630,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 // 输出结束（成功/停止/报错均经此）：收起仍展开着的思考段，尊重用户手动操作
                 CollapseStreamingReasoning(assistantMsg);
 
+                // 自动压缩可能在这一轮里提交过：把防抖门槛从请求上下文读回，下一轮才带得上。
+                _autoCompactionFloorTokens = requestContext.AutoCompactionFloorTokens;
+                _postCompactionMeasurePending = requestContext.PostCompactionMeasurePending;
+                _postClearingMeasurePending = requestContext.PostClearingMeasurePending;
+                _compactionDueAfterClearing = requestContext.CompactionDueAfterClearing;
+
                 // Cleanup the empty main assistant message if it didn't generate any text and didn't call tools directly
                 if (string.IsNullOrWhiteSpace(assistantMsg.Content)
                     && string.IsNullOrEmpty(assistantMsg.ToolCallsJson)
@@ -2762,7 +2660,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     _policyRefreshPending = false;
                     RefreshEffectiveContextPolicy();
                 }
-                UpdateContextTokensDisplay();
+                OnPropertyChanged(nameof(ContextTokensInfo));
                 UpdateBubbleButtonVisibility();
                 MarkPersistenceStateChanged();
 
@@ -2857,6 +2755,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
+            ClearedToolResultIds = CaptureClearedToolResultIds(),
+            AutoCompactionFloorTokens = _autoCompactionFloorTokens,
+            PostCompactionMeasurePending = _postCompactionMeasurePending,
+            PostClearingMeasurePending = _postClearingMeasurePending,
+            CompactionDueAfterClearing = _compactionDueAfterClearing,
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -2947,6 +2850,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
+            ClearedToolResultIds = CaptureClearedToolResultIds(keptClones.Select(message => message.Id)),
             ForkedFromConversationId = _conversationId,
             ForkedFromHistoryId = forkedFromHistoryId,
             ForkedAtMessageId = forkPointMessage?.Id,
@@ -2962,6 +2866,15 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     /// <summary>快照锚点账本。裁剪已由 <see cref="UpdateConversationContext"/> 统一负责。</summary>
     private List<ContextAnchorRecord> CaptureAnchors() => new(_contextAnchors);
+
+    /// <summary>快照已清理集合；从未清理过则为 null（落盘时整个字段省掉）。可选的 ID 范围用于分叉只带走保留下来的消息。</summary>
+    private List<string>? CaptureClearedToolResultIds(IEnumerable<string>? liveMessageIds = null)
+    {
+        var ids = liveMessageIds == null
+            ? _clearedToolResultIds
+            : ToolResultClearing.Prune(_clearedToolResultIds, liveMessageIds);
+        return ids.Count == 0 ? null : new List<string>(ids);
+    }
 
     /// <summary>收下一次新测量。前缀内容是否仍匹配由 ContextAnchorLedger 在使用时用摘要校验。</summary>
     private void OnContextAnchorObserved(ContextAnchorRecord anchor)
@@ -2987,6 +2900,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 PromptVersion = checkpoint.PromptVersion,
                 PreCompressionTokens = checkpoint.PreCompressionTokens,
                 PostCompressionTokens = checkpoint.PostCompressionTokens,
+                SummaryTokens = checkpoint.SummaryTokens,
                 UsedLocalFallback = checkpoint.UsedLocalFallback,
                 CreatedAt = checkpoint.CreatedAt
             })
@@ -3041,6 +2955,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 的路径都汇聚到这里，因此不必在每个调用点各自裁一遍。
         _contextAnchors = ContextAnchorLedger.TrimTo(_contextAnchors, _currentContext.Messages.Count);
         _currentContext.Anchors = _contextAnchors;
+        // 同理裁剪已清理集合：回退/分叉截掉的、全量压缩吃掉的消息都不在 context.Messages 里了。
+        _clearedToolResultIds = ToolResultClearing.Prune(_clearedToolResultIds, _currentContext.Messages.Select(message => message.Id));
+        _currentContext.ClearedToolResultIds = _clearedToolResultIds;
+        _currentContext.AutoCompactionFloorTokens = _autoCompactionFloorTokens;
+        _currentContext.PostCompactionMeasurePending = _postCompactionMeasurePending;
+        _currentContext.PostClearingMeasurePending = _postClearingMeasurePending;
+        _currentContext.CompactionDueAfterClearing = _compactionDueAfterClearing;
     }
 
     private async Task ReconcileImageGenerationSessionAsync()
@@ -3061,71 +2982,18 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 刷新上下文 token 显示的「估算兜底」。
-    /// 真实 usage 锚点存在时（<see cref="ITokenService.IsRealUsage"/>），估算不覆盖真实值；
-    /// 仅在冷启动/供应商不回 usage 时提供显示。
+    /// 请求的内容变了（压缩、清理、撤销、回退、切换会话、新消息……）：上一次的数字不再描述它，
+    /// 显示置为「待测」，等下一次响应的 usage 重新锚定。本地不估算——一个猜出来的数字比没有数字更会误导。
+    /// 唯一的例外是 <paramref name="lowerBoundTokens"/>：它是压缩摘要的实测 output tokens，
+    /// 由供应商回报，不是猜的。传了就显示成「≥N」的可信下界，让待测期间不至于只剩一个空横杠。
     /// </summary>
-    /// <param name="forceEstimateBaseline">
-    /// true 时强制以估算作为基准（用于压缩/回滚/fork——上下文已改却未发 API，需立即反映新大小），
-    /// 下一次真实响应会自动重新锚定。
-    /// </param>
-    public void UpdateContextTokensDisplay(bool forceEstimateBaseline = false)
+    private void MarkContextUsagePending(long lowerBoundTokens = 0)
     {
-        if (_tokenService == null || _promptService == null || _functionRegistry == null) return;
-        var config = _configService?.Load();
-        var functionCallingEnabled = _functionRegistry.HasFunctions;
-
-        // persona + 工具声明是估算兜底的固定开销来源（真实请求的 system 消息在 ChatService 内另行构建）。
-        var systemPrompt = _promptService.GetPrompt(PromptType.MainPersona)
-                           + "\n\n---\n\n"
-                           + PromptTemplates.LocalFileLinkPolicy;
-        if (functionCallingEnabled)
+        _tokenService?.MarkPending(_revision);
+        if (_tokenService != null && lowerBoundTokens > 0)
         {
-            systemPrompt = _promptService.GetPrompt(PromptType.ToolCallingPolicy) + "\n\n---\n\n" + systemPrompt;
+            _tokenService.LowerBoundTokens = lowerBoundTokens;
         }
-
-        // 工作区知识是全量写入 system prompt 的内容，必须按实际拼合后的文本计入估算；
-        // 不能直接加配置预算，否则空/短知识库都会被高估。
-        if (_workspaceService != null
-            && !string.IsNullOrEmpty(_currentContext.WorkspaceId)
-            && !string.IsNullOrEmpty(_currentContext.WorkspaceDirectoryPath))
-        {
-            systemPrompt += $"\n\n---\n\n## Current Workspace\nProject Directory: {_currentContext.WorkspaceDirectoryPath}";
-            if (!string.IsNullOrEmpty(_currentContext.WorkspaceKnowledgeFilePath))
-            {
-                systemPrompt += $"\nWorkspace Knowledge File: {_currentContext.WorkspaceKnowledgeFilePath}\nUse modify_system_file to update this system-managed file. Do not create additional workspace knowledge files.";
-            }
-
-            var workspaceKnowledgeBudget = config?.WorkspaceKnowledgeTokenBudget ?? 2000;
-            var workspaceKnowledge = _workspaceService.BuildWorkspaceKnowledgeContext(
-                _currentContext.WorkspaceId,
-                _currentContext.WorkspaceKnowledgeFilePath,
-                workspaceKnowledgeBudget);
-            if (!string.IsNullOrEmpty(workspaceKnowledge))
-            {
-                systemPrompt += $"\n\n---\n\n## Workspace Knowledge\n{workspaceKnowledge}";
-            }
-        }
-
-        _currentContext.SetMainPersona(systemPrompt);
-        // 估算必须与实际下发的工具集一致：Office 工具是否携带由同一判据决定，
-        // 否则非 Office 会话会被虚报出一份并不存在的声明开销。
-        _currentContext.ToolsDeclarationTokenCount = functionCallingEnabled
-            ? _functionRegistry.GetToolDeclarationTokenCount(
-                Athena.UI.Services.OfficeToolRelevance.IsRelevant(_currentContext))
-            : 0;
-
-        int estimated = _currentContext.EstimatedTokenCount;
-
-        if (forceEstimateBaseline)
-        {
-            _tokenService.ApplyEstimatedBaseline(estimated, _revision);
-        }
-        else
-        {
-            _tokenService.RefreshEstimate(estimated, _revision);
-        }
-
         OnPropertyChanged(nameof(ContextTokensInfo));
     }
 
@@ -3163,14 +3031,18 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             _ = await _configService.LoadAsync();
             RefreshEffectiveContextPolicy();
-            UpdateContextTokensDisplay();
+            OnPropertyChanged(nameof(ContextTokensInfo));
         }
     }
 
-    public async Task InternalCompressContextAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 立即把全部未压缩的历史压成一份摘要（手动入口，不看阈值）。<paramref name="focus"/> 是用户填的「本次侧重」，
+    /// 作为附加指示交给压缩模型；成败都写进 <see cref="CompressionStatusMessage"/>。
+    /// </summary>
+    public async Task InternalCompressContextAsync(string? focus = null, CancellationToken cancellationToken = default)
     {
         if (_configService == null) return;
-        // 取消语义不能取决于「这份材料恰好可不可压」：可行性判定会在规划期直接返回，
+        // 取消语义不能取决于「这份材料恰好可不可压」：规划期可能直接返回「没有可压缩的历史」，
         // 若不在入口先检查，一个已取消的令牌会静默走完并正常返回。
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -3200,9 +3072,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
             UpdateConversationContext();
             var fingerprint = ComputeCompressionContextFingerprint();
-            var preEstimate = Math.Max(
-                _currentContext.EstimatedTokenCount,
-                _tokenService?.CurrentTokens ?? 0);
+            var preMeasured = LastMeasuredTokens();
             var planResult = _compressionPlanner.CreatePlan(new CompressionPlanRequest(
                 _conversationId,
                 _revision,
@@ -3210,19 +3080,23 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 CompressionTriggerMode.Manual,
                 _activeContextSummary,
                 Messages.ToList(),
-                main.Policy.KeepRecentRounds,
-                preEstimate,
-                main.Policy.TargetSummaryTokens,
+                preMeasured,
+                main.Policy.SummaryMaxTokens,
                 main.Policy,
-                compression.Policy));
+                compression.Policy,
+                FocusInstruction: focus,
+                ClearedToolResultIds: _clearedToolResultIds));
             if (planResult.Plan == null)
             {
-                CompressionStatusMessage = FormatCompressionFailure(
-                    "ContextInspector.Preview.PlanUnavailable", "No compression plan could be built: {0}", planResult.Reason);
+                CompressionStatusMessage = FormatPlanFailure(planResult.Reason);
                 return;
             }
 
-            var generated = await _compressionCandidateGenerator.GenerateAsync(planResult.Plan, cancellationToken);
+            // 生成器在线程池上回报进度；状态行属于 UI，要回到 UI 线程再写。
+            var generated = await _compressionCandidateGenerator.GenerateAsync(
+                planResult.Plan,
+                cancellationToken,
+                progress => Dispatcher.UIThread.Post(() => ApplyManualCompressionProgress(progress)));
             if (generated.Candidate == null)
             {
                 CompressionStatusMessage = FormatCompressionFailure(
@@ -3249,9 +3123,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 generated.Candidate.Summary,
                 generated.Candidate.CompressionModelFingerprint,
                 generated.Candidate.PromptVersion,
-                planResult.Plan.PreCompressionEstimate,
-                validation.PostCompressionEstimate,
-                generated.Candidate.UsedLocalFallback);
+                planResult.Plan.PreCompressionTokens,
+                0,
+                generated.Candidate.UsedLocalFallback,
+                generated.Candidate.SummaryTokens);
             var committed = await _compressionCommitter.CommitCompressionAsync(transition, cancellationToken);
             if (!committed.IsCommitted)
             {
@@ -3262,6 +3137,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 return;
             }
             CompressionStatusMessage = string.Empty;
+            ArmCompressionSavingBadge(transition.PreCompressionTokens);
             _logger.Information("Transactional context compression committed: Revision={Revision}, Messages={Count}",
                 committed.Revision, transition.MessageIds.Count);
         }
@@ -3274,6 +3150,96 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             IsCompressing = false;
         }
     }
+
+    /// <summary>检查器里「本次侧重」的输入框。只在手动压缩时作为附加指示交给压缩模型，不落盘。</summary>
+    [ObservableProperty]
+    private string _compactFocusText = string.Empty;
+
+    /// <summary>手动压缩正在进行（可取消）。</summary>
+    public bool IsCompactionRunning => IsCompressing && _compactNowCts != null;
+
+    /// <summary>
+    /// 检查器「立即压缩」：不看阈值，把全部未压缩的历史压成一份摘要。运行中可取消（<see cref="CancelCompactionCommand"/>），
+    /// 取消时对话原样不动；结果与失败原因写进 <see cref="CompressionStatusMessage"/>。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanCompactNow))]
+    private async Task CompactNowAsync()
+    {
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _compactNowCts, cts)?.Cancel();
+        OnPropertyChanged(nameof(IsCompactionRunning));
+        try
+        {
+            await InternalCompressContextAsync(CompactFocusText, cts.Token);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            CompressionStatusMessage = GetString(
+                "ContextInspector.Preview.Cancelled",
+                "Candidate generation cancelled; conversation unchanged.");
+        }
+        finally
+        {
+            _ = Interlocked.CompareExchange(ref _compactNowCts, null, cts);
+            cts.Dispose();
+            OnPropertyChanged(nameof(IsCompactionRunning));
+            RefreshContextInspectorProperties();
+            InvalidateCompressionPreview();
+        }
+    }
+
+    private bool CanCompactNow() => !IsSending && !IsCompressing && !IsResetting;
+
+    [RelayCommand]
+    private void CancelCompaction() => _compactNowCts?.Cancel();
+
+    private void ApplyManualCompressionProgress(CompressionProgress progress)
+    {
+        if (!IsCompressing) return;
+        switch (progress.Phase)
+        {
+            case CompressionProgressPhase.Mapping:
+                CompressionStatusMessage = string.Format(
+                    GetString("Chat.Context.Compressing", "Condensing context · part {0}/{1}"),
+                    progress.Index,
+                    progress.Total);
+                break;
+            case CompressionProgressPhase.Reducing:
+                CompressionStatusMessage = string.Format(
+                    GetString("Chat.Context.Reducing", "Merging summaries · layer {0}"),
+                    progress.Depth);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 规划失败的说法。「没有可压缩的历史」单独成句——它不是故障，而旧版本在这里吐出的
+    /// 「压缩比 / 收益不足」之类的借口，正是用户在 27 万 token 的会话里每轮都看到的那条。
+    /// </summary>
+    private string FormatPlanFailure(string reason)
+        => string.Equals(reason, CompressionPlanner.NoHistoryReason, StringComparison.Ordinal)
+            ? GetString("ContextInspector.Preview.NothingToCompress", "There is no history to compress.")
+            : FormatCompressionFailure(
+                "ContextInspector.Preview.PlanUnavailable", "No compression plan could be built: {0}", reason);
+
+    /// <summary>概览页：已被清理的旧工具结果有几条、请求里因此少了多少字符；没有清理过则为空。</summary>
+    public string ClearedToolResultsText
+    {
+        get
+        {
+            var summary = ToolResultClearing.Summarize(_currentContext.Messages, _clearedToolResultIds);
+            return summary.Count == 0
+                ? string.Empty
+                : string.Format(
+                    GetString(
+                        "ContextInspector.Overview.ClearedToolResults",
+                        "{0} old tool results cleared (≈{1:N0} characters saved)"),
+                    summary.Count,
+                    summary.SavedChars);
+        }
+    }
+
+    public bool HasClearedToolResults => !string.IsNullOrEmpty(ClearedToolResultsText);
 
     public (ConversationPersistenceSnapshot? Snapshot, string Error) PrepareCompressionCommitSnapshot(
         CompressionTransition transition,
@@ -3333,7 +3299,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             case CompressionProgressPhase.Committed:
                 IsContextMaintenanceRunning = false;
                 assistantMsg.ContextMaintenanceStatus = string.Empty;
-                ShowCompressionSavingBadge(progress.TokensBefore - progress.TokensAfter);
+                ArmCompressionSavingBadge(progress.TokensBefore);
+                // 自动压缩是在本轮中途提交的，下一次响应的 usage 很快会重新锚定；在那之前
+                // 用摘要的实测大小给出下界，免得用量条在重建请求的那一瞬闪回一个空横杠。
+                MarkContextUsagePending(progress.SummaryTokens);
                 break;
             case CompressionProgressPhase.Skipped:
                 IsContextMaintenanceRunning = false;
@@ -3358,6 +3327,34 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private void SkipCompression() => _compressionSkipCts?.Cancel();
 
     private bool CanSkipCompression() => IsContextMaintenanceRunning;
+
+    /// <summary>上一次供应商实测的上下文用量（没有测量则为 0）。压缩前的「基准」只认它，本地不估算。</summary>
+    private long LastMeasuredTokens()
+        => _tokenService is { HasVisibleUsage: true } ? _tokenService.CurrentTokens : 0;
+
+    /// <summary>
+    /// 压缩刚提交：压缩后的用量要等下一次响应的 usage 才知道，所以精确角标不在这一刻出，
+    /// 而是记下压缩前的实测值，等第一次 usage 到达时用它减去新的实测值（见 onUsageReported）。
+    /// 压缩前没有实测值就没有角标。
+    /// </summary>
+    private void ArmCompressionSavingBadge(long measuredBefore)
+        => _pendingSavingBadgeBaseline = measuredBefore > 0 ? measuredBefore : null;
+
+    /// <summary>
+    /// 压缩后第一次实测到达：把实测的「压缩后用量」写回栈顶检查点，让「省了多少」这个事实
+    /// 随会话落盘、检查器里持久可见，而不是只有一闪而过的 4 秒角标。请求变了就通知持久化。
+    /// </summary>
+    private void RecordMeasuredPostCompressionTokens(long postCompressionTokens, long preCompressionTokens)
+    {
+        if (_compressionHistory.Count == 0) return;
+        var checkpoint = _compressionHistory.Peek();
+        // 栈顶一定就是刚提交的那次压缩：基线一致才写，避免把一次新测量归到错误的检查点上。
+        if (checkpoint.PreCompressionTokens != preCompressionTokens) return;
+        _compressionHistory.Pop();
+        _compressionHistory.Push(checkpoint with { PostCompressionTokens = postCompressionTokens });
+        // 不推 revision：回合结束的正常保存路径会带走这次写回。在这里 _revision++ 只会
+        // 让工具循环里在途的压缩计划凭空判定为 stale，白白跳过一轮压缩。
+    }
 
     /// <summary>压缩省下了多少——把「刚才那段等待」和「换来了什么」绑在同一个视觉事件上。</summary>
     private void ShowCompressionSavingBadge(long savedTokens)
@@ -3479,8 +3476,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         TrimCompressionHistory();
         _currentHistoryId = historyId;
         _revision = committedRevision;
+        // 用户亲手压缩过：自动压缩的防抖门槛作废，下一次是否再压只看阈值。
+        if (transition.Mode == CompressionTriggerMode.Manual) _autoCompactionFloorTokens = 0;
+        // 压缩后的用量只有下一次响应的 usage 才知道；到那时若仍不低于阈值，由服务设防抖门槛。
+        _postCompactionMeasurePending = true;
+        // 全量压缩已经发生：清理那边欠下的「下次直接压」随之了结。
+        _postClearingMeasurePending = false;
+        _compactionDueAfterClearing = false;
         UpdateConversationContext();
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        // 摘要的实测 output tokens 是待测期间唯一可信的数字：显示成「≥N」，而不是一个空横杠。
+        MarkContextUsagePending(transition.SummaryTokens);
         UpdateBubbleButtonVisibility();
         RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -3501,6 +3506,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             Summary = _activeContextSummary,
             RequestContentIdentity = _requestContentIdentity,
             WorkspaceId = _currentContext.WorkspaceId,
+            // 已清理集合改变了请求内容（压缩材料里的工具结果也随之换成占位），算进指纹，计划才会随它过期。
+            ClearedToolResults = ToolResultClearing.ComputeDigest(_clearedToolResultIds),
             Messages = messages
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
@@ -3519,6 +3526,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         PromptVersion = transition.PromptVersion,
         PreCompressionTokens = transition.PreCompressionTokens,
         PostCompressionTokens = transition.PostCompressionTokens,
+        SummaryTokens = transition.SummaryTokens,
         UsedLocalFallback = transition.UsedLocalFallback,
         CreatedAt = DateTime.UtcNow
     };
@@ -3539,6 +3547,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         transition.PromptVersion,
         transition.PreCompressionTokens,
         transition.PostCompressionTokens,
+        transition.SummaryTokens,
         transition.UsedLocalFallback);
 
     private static string HashSummary(string summary)
@@ -3580,6 +3589,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     _activeContextSummary,
                     checkpoint.PreviousSummary);
                 var committed = await _compressionCommitter.CommitUndoCompressionAsync(transition, cancellationToken);
+                if (committed.IsCommitted)
+                {
+                    _autoCompactionFloorTokens = 0;
+                    _postCompactionMeasurePending = false;
+                    _postClearingMeasurePending = false;
+                    _compactionDueAfterClearing = false;
+                    // 撤销了压缩：角标的被减数（压缩前实测值）不再是任何待计算量的一部分，
+                    // 留着只会在下一次实测时算出一个虚假的「节省」。
+                    _pendingSavingBadgeBaseline = null;
+                    if (_tokenService != null) _tokenService.LowerBoundTokens = 0;
+                }
                 CompressionStatusMessage = committed.IsCommitted
                     ? string.Empty
                     : FormatCompressionFailure(
@@ -3620,7 +3640,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         UpdateConversationContext();
         // 撤销压缩使上下文重新变大：强制以估算刷新，下一轮真实 usage 会重锚。
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        MarkContextUsagePending();
         UpdateBubbleButtonVisibility();
         RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -3691,7 +3711,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _currentHistoryId = historyId;
         _revision = committedRevision;
         UpdateConversationContext();
-        UpdateContextTokensDisplay(forceEstimateBaseline: true);
+        MarkContextUsagePending();
         UpdateBubbleButtonVisibility();
         RefreshCompressionBoundary();
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -3729,6 +3749,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 恢复已落盘的真实测量：切换会话后不必再从零估算整段上下文。
         // 长度裁剪与前缀校验分别由 UpdateConversationContext 和 ContextAnchorLedger 负责。
         _contextAnchors = new List<ContextAnchorRecord>(history.Anchors ?? []);
+        _clearedToolResultIds = new List<string>(history.ClearedToolResultIds ?? []);
+        // 防抖门槛与待测标记随会话落盘：重启后压缩刚提交的事实不变，该等的实测照样要等，
+        // 否则第一次超阈值会在没有门槛的情况下立刻再压一轮。
+        _autoCompactionFloorTokens = history.AutoCompactionFloorTokens;
+        _postCompactionMeasurePending = history.PostCompactionMeasurePending;
+        _postClearingMeasurePending = history.PostClearingMeasurePending;
+        _compactionDueAfterClearing = history.CompactionDueAfterClearing;
+        // 节省角标的被减数由最近一次压缩检查点携带，重启后第一次实测到达时仍能算出差值。
+        _pendingSavingBadgeBaseline = history.PostCompactionMeasurePending
+            ? history.CompressionHistory?.LastOrDefault()?.PreCompressionTokens
+            : null;
         SetActiveContextSummary(history.ContextSummary);
         SetOrphanedLegacySummary(history.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -3754,7 +3785,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _initialConversationSignature = CreateConversationSignature();
         _tokenService?.ResetUsage();
         UpdateConversationContext();
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
     }
 
@@ -3796,6 +3827,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 record.PromptVersion,
                 record.PreCompressionTokens,
                 record.PostCompressionTokens,
+                record.SummaryTokens,
                 record.UsedLocalFallback));
         }
         RefreshCompressionBoundary();
@@ -3833,7 +3865,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             await _attachmentStoreService!.LoadPreviewsAsync(attachments, cts.Token);
             if (IsCurrentConversationEpoch(epoch) && !cts.IsCancellationRequested)
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => UpdateContextTokensDisplay());
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => OnPropertyChanged(nameof(ContextTokensInfo)));
             }
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
@@ -3912,6 +3944,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             OrphanedLegacySummary = _orphanedLegacySummary,
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
+            ClearedToolResultIds = CaptureClearedToolResultIds(),
+            AutoCompactionFloorTokens = _autoCompactionFloorTokens,
+            PostCompactionMeasurePending = _postCompactionMeasurePending,
+            PostClearingMeasurePending = _postClearingMeasurePending,
+            CompactionDueAfterClearing = _compactionDueAfterClearing,
             ForkedFromConversationId = _forkedFromConversationId,
             ForkedFromHistoryId = _forkedFromHistoryId,
             ForkedAtMessageId = _forkedAtMessageId,
@@ -3966,6 +4003,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _compressionHistory.Clear();
         _contextAnchors = new List<ContextAnchorRecord>(snapshot.Anchors ?? []);
+        _clearedToolResultIds = new List<string>(snapshot.ClearedToolResultIds ?? []);
+        // 防抖门槛与待测标记随草稿落盘：重启后压缩刚提交的事实不变，该等的实测照样要等。
+        _autoCompactionFloorTokens = snapshot.AutoCompactionFloorTokens;
+        _postCompactionMeasurePending = snapshot.PostCompactionMeasurePending;
+        _postClearingMeasurePending = snapshot.PostClearingMeasurePending;
+        _compactionDueAfterClearing = snapshot.CompactionDueAfterClearing;
+        // 节省角标的被减数由最近一次压缩检查点携带，重启后第一次实测到达时仍能算出差值。
+        _pendingSavingBadgeBaseline = snapshot.PostCompactionMeasurePending
+            ? snapshot.CompressionHistory?.LastOrDefault()?.PreCompressionTokens
+            : null;
         SetActiveContextSummary(snapshot.ContextSummary);
         SetOrphanedLegacySummary(snapshot.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -4000,7 +4047,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 恢复的是另一段会话快照：清空旧锚点，改由估算显示，其首次发送会重锚。
         _tokenService?.ResetUsage();
         UpdateConversationContext();
-        UpdateContextTokensDisplay();
+        OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
         _logger.Information("Main conversation draft restored, message count: {Count}", Messages.Count);
     }
@@ -4780,8 +4827,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _responseCts?.Dispose();
         _responseCts = null;
 
-        _compressionPreviewCts?.Cancel();
-        _compressionPreviewCts = null;
         _rawContextCts?.Cancel();
         _rawContextCts = null;
 

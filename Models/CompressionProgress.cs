@@ -33,7 +33,9 @@ public sealed record CompressionProgress(
     int Depth = 0,
     int MessageCount = 0,
     long TokensBefore = 0,
-    long TokensAfter = 0)
+    long TokensAfter = 0,
+    // 压缩模型回报的摘要 output tokens（供应商不报则为 0）。待测期间唯一可信的「压缩后有多小」数据。
+    long SummaryTokens = 0)
 {
     public static CompressionProgress Mapping(int index, int total)
         => new(CompressionProgressPhase.Mapping, index, total);
@@ -41,12 +43,13 @@ public sealed record CompressionProgress(
     public static CompressionProgress Reducing(int depth)
         => new(CompressionProgressPhase.Reducing, Depth: depth);
 
-    public static CompressionProgress Committed(int messageCount, long tokensBefore, long tokensAfter)
+    public static CompressionProgress Committed(int messageCount, long tokensBefore, long tokensAfter, long summaryTokens = 0)
         => new(
             CompressionProgressPhase.Committed,
             MessageCount: messageCount,
             TokensBefore: tokensBefore,
-            TokensAfter: tokensAfter);
+            TokensAfter: tokensAfter,
+            SummaryTokens: summaryTokens);
 
     public static CompressionProgress Failed() => new(CompressionProgressPhase.Failed);
 

@@ -31,6 +31,9 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
         }
     }
 
+    /// <summary>最近一次成功调用的供应商 usage（只覆盖有实测的那条传输路径；没有则为 null）。</summary>
+    public TokenUsageSnapshot? LastUsage { get; private set; }
+
     public async Task<string?> GenerateAsync(
         string systemPrompt,
         string userPrompt,
@@ -51,19 +54,21 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
         if (ResponsesCallHelpers.ShouldUseResponses(effective))
         {
             var responses = ResponsesCallHelpers.CreateResponsesClient(effective, timeoutSeconds);
-            var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float)effective.Temperature, outputTokens);
+            var options = ResponsesCallHelpers.CreateOptions(effective, systemPrompt, (float?)effective.Temperature, outputTokens);
             options.InputItems.Add(ResponseItem.CreateUserMessageItem(userPrompt));
-            var text = await ResponsesCallHelpers.StreamOutputTextAsync(responses, options, cancellationToken);
+            var (text, usage) = await ResponsesCallHelpers.StreamOutputTextAsync(responses, options, cancellationToken);
+            LastUsage = usage;
             return text.Trim();
         }
 
         var builder = new StringBuilder();
+        TokenUsageSnapshot? chatUsage = null;
         var client = _modelFactory.CreateChatClient(AiModelRole.ContextCompression, timeoutSeconds);
         var stream = client.CompleteChatStreamingAsync(
             [new SystemChatMessage(systemPrompt), new UserChatMessage(userPrompt)],
             new ChatCompletionOptions
             {
-                Temperature = (float)effective.Temperature,
+                Temperature = (float?)effective.Temperature,
                 MaxOutputTokenCount = outputTokens
             },
             cancellationToken);
@@ -71,9 +76,22 @@ public sealed class OpenAiCompressionTextGenerator : ICompressionTextGenerator
         // 是几千个事件的反序列化）。
         await foreach (var update in stream.ConfigureAwait(false))
         {
+            if (update.Usage is { } u)
+            {
+                chatUsage = new TokenUsageSnapshot(
+                    u.InputTokenCount,
+                    u.InputTokenDetails?.CachedTokenCount ?? 0,
+                    u.OutputTokenCount,
+                    u.TotalTokenCount,
+                    null,
+                    null,
+                    effective.Model,
+                    DateTimeOffset.UtcNow);
+            }
             foreach (var part in update.ContentUpdate)
                 builder.Append(part.Text);
         }
+        LastUsage = chatUsage;
         return builder.ToString().Trim();
     }
 }

@@ -67,7 +67,7 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
                     if (ResponsesCallHelpers.ShouldUseResponses(effective))
                     {
                         var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
-                        var options = ResponsesCallHelpers.CreateOptions(effective, _promptService.GetPrompt(PromptType.SummaryGeneration), (float)effective.Temperature, effective.MaxOutputTokens);
+                        var options = ResponsesCallHelpers.CreateOptions(effective, _promptService.GetPrompt(PromptType.SummaryGeneration), (float?)effective.Temperature, effective.MaxOutputTokens);
                         ResponsesCallHelpers.AddInputItems(options, openAiMessages.Skip(1));
                         var result = await responses.CreateResponseAsync(options, cancellationToken);
                         title = ResponsesCallHelpers.GetFirstOutputText(result.Value)?.Trim().Trim('"', '\'', ' ', '。', '.');
@@ -79,7 +79,7 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
                             openAiMessages,
                             new ChatCompletionOptions
                             {
-                                Temperature = (float)effective.Temperature,
+                                Temperature = (float?)effective.Temperature,
                                 MaxOutputTokenCount = effective.MaxOutputTokens
                             },
                             cancellationToken);

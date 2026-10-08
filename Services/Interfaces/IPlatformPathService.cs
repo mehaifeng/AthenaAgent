@@ -70,12 +70,17 @@ public interface IPlatformPathService
     /// <summary>获取虚拟宠物养成存档路径。</summary>
     string GetPetProfileFilePath() => Path.Combine(GetAppDataDirectory(), "pet_profile.json");
 
-    /// <summary>获取模型元数据、目录缓存与校准数据根目录。</summary>
+    /// <summary>获取模型元数据与目录缓存的根目录。</summary>
     string GetModelMetadataDirectory() => Path.Combine(GetAppDataDirectory(), "ModelMetadata");
 
-    string GetTokenCalibrationFilePath() => Path.Combine(GetModelMetadataDirectory(), "token-calibration.json");
+    /// <summary>已废弃的校准数据文件。估算器已删除，启动时清掉遗留文件；这里只给出路径。</summary>
+    string GetLegacyTokenCalibrationFilePath() => Path.Combine(GetModelMetadataDirectory(), "token-calibration.json");
 
-    string GetTokenCalibrationKeyPath() => Path.Combine(GetModelMetadataDirectory(), "token-calibration.key");
+    /// <summary>
+    /// 请求指纹的 HMAC 密钥。文件名沿用旧名 <c>token-calibration.key</c>：已落盘的用量锚点里的指纹
+    /// 是用它算的，改名等于让所有历史测量一次性失配。
+    /// </summary>
+    string GetRequestFingerprintKeyPath() => Path.Combine(GetModelMetadataDirectory(), "token-calibration.key");
 
     /// <summary>
     /// 获取指定工作区的知识文件目录

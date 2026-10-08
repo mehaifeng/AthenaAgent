@@ -35,8 +35,31 @@ public class ConversationHistoryItem
 
     public List<CompressionCheckpointRecord> CompressionHistory { get; set; } = new();
 
+    /// <summary>自动压缩的防抖门槛（token）；重启后据此继续生效，不会立刻再压一轮。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long AutoCompactionFloorTokens { get; set; }
+
+    /// <summary>压缩刚提交、还在等第一次实测；为真时收到 usage 后重新评估防抖门槛。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PostCompactionMeasurePending { get; set; }
+
+    /// <summary>工具结果清理后还在等第一次实测。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PostClearingMeasurePending { get; set; }
+
+    /// <summary>清理后实测仍高于阈值，下一次超阈值直接全量压缩。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CompactionDueAfterClearing { get; set; }
+
     /// <summary>供应商回报的真实用量锚点；回溯/分支/重开会话时据此复用精确测量。</summary>
     public List<ContextAnchorRecord> Anchors { get; set; } = new();
+
+    /// <summary>
+    /// 已被「工具结果清理」换成占位说明的工具消息 ID（只增不减）。它是会话状态而不是消息字段，
+    /// 所以不放在 <c>ChatMessage</c> 上、也就不碰消息持久化白名单；null 表示从未清理过。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? ClearedToolResultIds { get; set; }
 
     /// <summary>
     /// 创建时间

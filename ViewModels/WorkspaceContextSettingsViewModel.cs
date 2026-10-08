@@ -48,12 +48,14 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
     [ObservableProperty] private bool _autoCompress;
     [ObservableProperty] private bool _overrideCompressionThreshold;
     [ObservableProperty] private long _compressionThresholdTokens;
-    [ObservableProperty] private bool _overrideKeepRecentRounds;
-    [ObservableProperty] private int _keepRecentRounds;
-    [ObservableProperty] private bool _overrideTargetSummaryTokens;
-    [ObservableProperty] private long _targetSummaryTokens;
+    [ObservableProperty] private bool _overrideToolResultClearing;
+    [ObservableProperty] private bool _toolResultClearingEnabled;
+    [ObservableProperty] private bool _overrideKeepRecentToolResultChars;
+    [ObservableProperty] private long _keepRecentToolResultChars;
+    [ObservableProperty] private bool _overrideSummaryMaxTokens;
+    [ObservableProperty] private long _summaryMaxTokens;
     [ObservableProperty] private bool _overrideWorkspaceKnowledgeBudget;
-    [ObservableProperty] private int _workspaceKnowledgeTokenBudget;
+    [ObservableProperty] private int _workspaceKnowledgeCharBudget;
     [ObservableProperty] private string _effectivePolicyText = string.Empty;
     [ObservableProperty] private string _sourceText = string.Empty;
     [ObservableProperty] private string _errorText = string.Empty;
@@ -65,15 +67,17 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
     public string ContextCapSourceText => Source(OverrideContextCap, _effective?.ContextWindowSource);
     public string AutoCompressSourceText => Source(OverrideAutoCompress);
     public string CompressionThresholdSourceText => Source(OverrideCompressionThreshold, _effective?.CompressionThresholdSource);
-    public string KeepRecentRoundsSourceText => Source(OverrideKeepRecentRounds);
-    public string TargetSummaryTokensSourceText => Source(OverrideTargetSummaryTokens);
+    public string ToolResultClearingSourceText => Source(OverrideToolResultClearing);
+    public string KeepRecentToolResultCharsSourceText => Source(OverrideKeepRecentToolResultChars);
+    public string SummaryMaxTokensSourceText => Source(OverrideSummaryMaxTokens);
     public string WorkspaceKnowledgeSourceText => Source(OverrideWorkspaceKnowledgeBudget);
     public string EffectiveContextCapText => _effective == null ? "—" : _effective.ContextWindowTokens.ToString("N0");
     public string EffectiveAutoCompressText => _effective == null ? "—" : (_effective.AutoCompress ? L("Common.Enabled", "Enabled") : L("Common.Disabled", "Disabled"));
     public string EffectiveCompressionThresholdText => _effective == null ? "—" : _effective.CompressionThresholdTokens.ToString("N0");
-    public string EffectiveKeepRecentRoundsText => _effective == null ? "—" : _effective.KeepRecentRounds.ToString();
-    public string EffectiveTargetSummaryTokensText => _effective == null ? "—" : _effective.TargetSummaryTokens.ToString("N0");
-    public string EffectiveWorkspaceKnowledgeText => (OverrideWorkspaceKnowledgeBudget ? WorkspaceKnowledgeTokenBudget : _appConfig.WorkspaceKnowledgeTokenBudget).ToString("N0");
+    public string EffectiveToolResultClearingText => _effective == null ? "—" : (_effective.ToolResultClearingEnabled ? L("Common.Enabled", "Enabled") : L("Common.Disabled", "Disabled"));
+    public string EffectiveKeepRecentToolResultCharsText => _effective == null ? "—" : _effective.KeepRecentToolResultChars.ToString("N0");
+    public string EffectiveSummaryMaxTokensText => _effective == null ? "—" : _effective.SummaryMaxTokens.ToString("N0");
+    public string EffectiveWorkspaceKnowledgeText => (OverrideWorkspaceKnowledgeBudget ? WorkspaceKnowledgeCharBudget : _appConfig.WorkspaceKnowledgeCharBudget).ToString("N0");
 
     partial void OnOverrideContextCapChanged(bool value) { if (!_loadingDraft) Refresh(); }
     partial void OnContextCapTokensChanged(long value) { if (!_loadingDraft) Refresh(); }
@@ -81,12 +85,14 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
     partial void OnAutoCompressChanged(bool value) { if (!_loadingDraft) Refresh(); }
     partial void OnOverrideCompressionThresholdChanged(bool value) { if (!_loadingDraft) Refresh(); }
     partial void OnCompressionThresholdTokensChanged(long value) { if (!_loadingDraft) Refresh(); }
-    partial void OnOverrideKeepRecentRoundsChanged(bool value) { if (!_loadingDraft) Refresh(); }
-    partial void OnKeepRecentRoundsChanged(int value) { if (!_loadingDraft) Refresh(); }
-    partial void OnOverrideTargetSummaryTokensChanged(bool value) { if (!_loadingDraft) Refresh(); }
-    partial void OnTargetSummaryTokensChanged(long value) { if (!_loadingDraft) Refresh(); }
+    partial void OnOverrideToolResultClearingChanged(bool value) { if (!_loadingDraft) Refresh(); }
+    partial void OnToolResultClearingEnabledChanged(bool value) { if (!_loadingDraft) Refresh(); }
+    partial void OnOverrideKeepRecentToolResultCharsChanged(bool value) { if (!_loadingDraft) Refresh(); }
+    partial void OnKeepRecentToolResultCharsChanged(long value) { if (!_loadingDraft) Refresh(); }
+    partial void OnOverrideSummaryMaxTokensChanged(bool value) { if (!_loadingDraft) Refresh(); }
+    partial void OnSummaryMaxTokensChanged(long value) { if (!_loadingDraft) Refresh(); }
     partial void OnOverrideWorkspaceKnowledgeBudgetChanged(bool value) { if (!_loadingDraft) Refresh(); }
-    partial void OnWorkspaceKnowledgeTokenBudgetChanged(int value) { if (!_loadingDraft) Refresh(); }
+    partial void OnWorkspaceKnowledgeCharBudgetChanged(int value) { if (!_loadingDraft) Refresh(); }
 
     partial void OnErrorTextChanged(string value)
     {
@@ -140,12 +146,14 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         AutoCompress = source?.AutoCompress ?? effective?.AutoCompress ?? _appConfig.ContextPolicy.AutoCompress;
         OverrideCompressionThreshold = source?.CompressionThresholdTokens.HasValue == true;
         CompressionThresholdTokens = source?.CompressionThresholdTokens ?? effective?.CompressionThresholdTokens ?? 262_144;
-        OverrideKeepRecentRounds = source?.KeepRecentRounds.HasValue == true;
-        KeepRecentRounds = source?.KeepRecentRounds ?? effective?.KeepRecentRounds ?? _appConfig.ContextPolicy.KeepRecentRounds;
-        OverrideTargetSummaryTokens = source?.TargetSummaryTokens.HasValue == true;
-        TargetSummaryTokens = source?.TargetSummaryTokens ?? effective?.TargetSummaryTokens ?? _appConfig.ContextPolicy.TargetSummaryTokens;
-        OverrideWorkspaceKnowledgeBudget = source?.WorkspaceKnowledgeTokenBudget.HasValue == true;
-        WorkspaceKnowledgeTokenBudget = source?.WorkspaceKnowledgeTokenBudget ?? _appConfig.WorkspaceKnowledgeTokenBudget;
+        OverrideToolResultClearing = source?.ToolResultClearingEnabled.HasValue == true;
+        ToolResultClearingEnabled = source?.ToolResultClearingEnabled ?? effective?.ToolResultClearingEnabled ?? _appConfig.ContextPolicy.ToolResultClearingEnabled;
+        OverrideKeepRecentToolResultChars = source?.KeepRecentToolResultChars.HasValue == true;
+        KeepRecentToolResultChars = source?.KeepRecentToolResultChars ?? effective?.KeepRecentToolResultChars ?? _appConfig.ContextPolicy.KeepRecentToolResultChars;
+        OverrideSummaryMaxTokens = source?.SummaryMaxTokens.HasValue == true;
+        SummaryMaxTokens = source?.SummaryMaxTokens ?? effective?.SummaryMaxTokens ?? _appConfig.ContextPolicy.SummaryMaxTokens;
+        OverrideWorkspaceKnowledgeBudget = source?.WorkspaceKnowledgeCharBudget.HasValue == true;
+        WorkspaceKnowledgeCharBudget = source?.WorkspaceKnowledgeCharBudget ?? _appConfig.WorkspaceKnowledgeCharBudget;
         _loadingDraft = false;
         Refresh();
     }
@@ -174,14 +182,16 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         OnPropertyChanged(nameof(ContextCapSourceText));
         OnPropertyChanged(nameof(AutoCompressSourceText));
         OnPropertyChanged(nameof(CompressionThresholdSourceText));
-        OnPropertyChanged(nameof(KeepRecentRoundsSourceText));
-        OnPropertyChanged(nameof(TargetSummaryTokensSourceText));
+        OnPropertyChanged(nameof(ToolResultClearingSourceText));
+        OnPropertyChanged(nameof(KeepRecentToolResultCharsSourceText));
+        OnPropertyChanged(nameof(SummaryMaxTokensSourceText));
         OnPropertyChanged(nameof(WorkspaceKnowledgeSourceText));
         OnPropertyChanged(nameof(EffectiveContextCapText));
         OnPropertyChanged(nameof(EffectiveAutoCompressText));
         OnPropertyChanged(nameof(EffectiveCompressionThresholdText));
-        OnPropertyChanged(nameof(EffectiveKeepRecentRoundsText));
-        OnPropertyChanged(nameof(EffectiveTargetSummaryTokensText));
+        OnPropertyChanged(nameof(EffectiveToolResultClearingText));
+        OnPropertyChanged(nameof(EffectiveKeepRecentToolResultCharsText));
+        OnPropertyChanged(nameof(EffectiveSummaryMaxTokensText));
         OnPropertyChanged(nameof(EffectiveWorkspaceKnowledgeText));
     }
 
@@ -191,11 +201,15 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
             return L("WorkspaceContext.Error.ContextCap", "Context cap must be at least 1,024.");
         if (OverrideCompressionThreshold && CompressionThresholdTokens <= 0)
             return L("WorkspaceContext.Error.Threshold", "Compression threshold must be positive.");
-        if (OverrideKeepRecentRounds && KeepRecentRounds is < 1 or > 50)
-            return L("WorkspaceContext.Error.Keep", "Keep recent rounds must be between 1 and 50.");
-        if (OverrideTargetSummaryTokens && TargetSummaryTokens is < 128 or > 65_536)
-            return L("WorkspaceContext.Error.Target", "Target summary tokens must be between 128 and 65,536.");
-        if (OverrideWorkspaceKnowledgeBudget && WorkspaceKnowledgeTokenBudget is < 0 or > 100_000)
+        if (OverrideKeepRecentToolResultChars
+            && (KeepRecentToolResultChars < AppContextPolicy.MinKeepRecentToolResultChars
+                || KeepRecentToolResultChars > AppContextPolicy.MaxKeepRecentToolResultChars))
+            return L("WorkspaceContext.Error.KeepToolChars", "Kept tool-result characters must be between 20,000 and 800,000.");
+        if (OverrideSummaryMaxTokens
+            && (SummaryMaxTokens < AppContextPolicy.MinSummaryMaxTokens
+                || SummaryMaxTokens > AppContextPolicy.MaxSummaryMaxTokens))
+            return L("WorkspaceContext.Error.SummaryMax", "Summary length cap must be between 1,024 and 32,768 tokens.");
+        if (OverrideWorkspaceKnowledgeBudget && WorkspaceKnowledgeCharBudget is < 0 or > AppConfig.MaxWorkspaceKnowledgeCharBudget)
             return L("WorkspaceContext.Error.Knowledge", "Workspace knowledge budget must be between 0 and 100,000.");
         return string.Empty;
     }
@@ -207,9 +221,10 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
             ContextCapTokens = OverrideContextCap ? ContextCapTokens : null,
             AutoCompress = OverrideAutoCompress ? AutoCompress : null,
             CompressionThresholdTokens = OverrideCompressionThreshold ? CompressionThresholdTokens : null,
-            KeepRecentRounds = OverrideKeepRecentRounds ? KeepRecentRounds : null,
-            TargetSummaryTokens = OverrideTargetSummaryTokens ? TargetSummaryTokens : null,
-            WorkspaceKnowledgeTokenBudget = OverrideWorkspaceKnowledgeBudget ? WorkspaceKnowledgeTokenBudget : null
+            ToolResultClearingEnabled = OverrideToolResultClearing ? ToolResultClearingEnabled : null,
+            KeepRecentToolResultChars = OverrideKeepRecentToolResultChars ? KeepRecentToolResultChars : null,
+            SummaryMaxTokens = OverrideSummaryMaxTokens ? SummaryMaxTokens : null,
+            WorkspaceKnowledgeCharBudget = OverrideWorkspaceKnowledgeBudget ? WorkspaceKnowledgeCharBudget : null
         };
         return HasAny(draft) ? draft : null;
     }
@@ -218,9 +233,10 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         value.ContextCapTokens.HasValue
         || value.AutoCompress.HasValue
         || value.CompressionThresholdTokens.HasValue
-        || value.KeepRecentRounds.HasValue
-        || value.TargetSummaryTokens.HasValue
-        || value.WorkspaceKnowledgeTokenBudget.HasValue;
+        || value.ToolResultClearingEnabled.HasValue
+        || value.KeepRecentToolResultChars.HasValue
+        || value.SummaryMaxTokens.HasValue
+        || value.WorkspaceKnowledgeCharBudget.HasValue;
 
     private static WorkspaceContextPolicyOverride? Clone(WorkspaceContextPolicyOverride? source) => source == null
         ? null
@@ -229,18 +245,20 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
             ContextCapTokens = source.ContextCapTokens,
             AutoCompress = source.AutoCompress,
             CompressionThresholdTokens = source.CompressionThresholdTokens,
-            KeepRecentRounds = source.KeepRecentRounds,
-            TargetSummaryTokens = source.TargetSummaryTokens,
-            WorkspaceKnowledgeTokenBudget = source.WorkspaceKnowledgeTokenBudget
+            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
+            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
+            SummaryMaxTokens = source.SummaryMaxTokens,
+            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
         };
 
     private static bool Equivalent(WorkspaceContextPolicyOverride? left, WorkspaceContextPolicyOverride? right) =>
         left?.ContextCapTokens == right?.ContextCapTokens
         && left?.AutoCompress == right?.AutoCompress
         && left?.CompressionThresholdTokens == right?.CompressionThresholdTokens
-        && left?.KeepRecentRounds == right?.KeepRecentRounds
-        && left?.TargetSummaryTokens == right?.TargetSummaryTokens
-        && left?.WorkspaceKnowledgeTokenBudget == right?.WorkspaceKnowledgeTokenBudget;
+        && left?.ToolResultClearingEnabled == right?.ToolResultClearingEnabled
+        && left?.KeepRecentToolResultChars == right?.KeepRecentToolResultChars
+        && left?.SummaryMaxTokens == right?.SummaryMaxTokens
+        && left?.WorkspaceKnowledgeCharBudget == right?.WorkspaceKnowledgeCharBudget;
 
     private void OnLanguageChanged(object? sender, EventArgs e) => Refresh();
     private string L(string key, string fallback) => _localization?.GetString(key, fallback) ?? fallback;

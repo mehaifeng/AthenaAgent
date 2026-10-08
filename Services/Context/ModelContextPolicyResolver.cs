@@ -84,13 +84,19 @@ public sealed class ModelContextPolicyResolver : IModelContextPolicyResolver
             threshold = DefaultThreshold(model, inputBudget);
         }
 
-        var keep = Math.Clamp(workspace?.KeepRecentRounds ?? app.KeepRecentRounds, 1, 50);
-        var target = Math.Clamp(workspace?.TargetSummaryTokens ?? app.TargetSummaryTokens, 128, 65_536);
-        var ratio = (workspace?.CompressionStrength ?? app.CompressionStrength).SummaryRatio();
+        var summaryMax = Math.Clamp(
+            workspace?.SummaryMaxTokens ?? app.SummaryMaxTokens,
+            AppContextPolicy.MinSummaryMaxTokens,
+            AppContextPolicy.MaxSummaryMaxTokens);
+        var clearingEnabled = workspace?.ToolResultClearingEnabled ?? app.ToolResultClearingEnabled;
+        var keepToolChars = Math.Clamp(
+            workspace?.KeepRecentToolResultChars ?? app.KeepRecentToolResultChars,
+            AppContextPolicy.MinKeepRecentToolResultChars,
+            AppContextPolicy.MaxKeepRecentToolResultChars);
         var autoCompress = workspace?.AutoCompress ?? app.AutoCompress;
         if (selectedCap.HasValue && selectedCap > modelWindow) warnings.Add(ModelWarnings.ContextCapClampedToModel);
         return new ResolvedContextPolicy(
-            modelWindow, window, output, safety, inputBudget, threshold, autoCompress, keep, target, ratio,
+            modelWindow, window, output, safety, inputBudget, threshold, autoCompress, summaryMax, clearingEnabled, keepToolChars,
             capSource, thresholdSource, warnings, outputCeiling);
     }
 

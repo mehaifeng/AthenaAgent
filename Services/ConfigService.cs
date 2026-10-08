@@ -177,12 +177,12 @@ public class ConfigService : IConfigService
         }
 
         var config = root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
+        var droppedLegacyCompressionKeys = MigrateLegacyCompressionKeys(root, config);
         if (version == 5)
         {
             var legacyMax = root?["maxContextTokens"]?.GetValue<int>() ?? 128_000;
             var legacyThreshold = root?["compressionThreshold"]?.GetValue<int>() ?? 64_000;
             var legacyAutoCompress = root?["autoCompress"]?.GetValue<bool>() ?? true;
-            var legacyKeepRecentRounds = root?["keepRecentRounds"]?.GetValue<int>() ?? 3;
             config.ContextPolicy = new AppContextPolicy
             {
                 Mode = legacyMax == 128_000 && legacyThreshold == 64_000
@@ -196,8 +196,7 @@ public class ConfigService : IConfigService
                     ? null
                     : legacyThreshold,
                 AutoCompress = legacyAutoCompress,
-                KeepRecentRounds = legacyKeepRecentRounds,
-                TargetSummaryTokens = 8192
+                SummaryMaxTokens = AppContextPolicy.DefaultSummaryMaxTokens
             };
             config.ConfigSchemaVersion = 8;
             AppConfigNormalizer.MigrateBrowserDefaults(config);
@@ -225,8 +224,46 @@ public class ConfigService : IConfigService
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);
-        migrated = false;
+        migrated = droppedLegacyCompressionKeys;
         return config;
+    }
+
+    /// <summary>
+    /// 全量压缩取代了「保留轮数 / 压缩强度 / 摘要目标」：前两项读入后丢弃，旧的摘要目标（上限语义）
+    /// 原样成为 <see cref="AppContextPolicy.SummaryMaxTokens"/>（由归一化夹取）。
+    /// 新键已存在时以新键为准，所以迁移可重复执行。返回 true 表示读到了旧键，调用方应重写文件让它们消失。
+    /// </summary>
+    internal static bool MigrateLegacyCompressionKeys(JsonObject? root, AppConfig config)
+    {
+        if (root == null) return false;
+        var found = root.ContainsKey("keepRecentRounds");
+        // 工作区知识预算由 token 改为字符：旧值按 ×3 换算（中英文混合下的保守折中）。新键已存在时以新键为准。
+        if (root.ContainsKey("workspaceKnowledgeTokenBudget"))
+        {
+            found = true;
+            if (!root.ContainsKey("workspaceKnowledgeCharBudget")
+                && root["workspaceKnowledgeTokenBudget"] is JsonValue legacyBudget
+                && legacyBudget.TryGetValue<long>(out var legacyTokens)
+                && legacyTokens >= 0)
+            {
+                config.WorkspaceKnowledgeCharBudget = (int)Math.Min(legacyTokens * 3, int.MaxValue);
+            }
+        }
+        if (root["contextPolicy"] is JsonObject policy)
+        {
+            found |= policy.ContainsKey("keepRecentRounds")
+                     | policy.ContainsKey("compressionStrength")
+                     | policy.ContainsKey("targetSummaryTokens");
+            if (!policy.ContainsKey("summaryMaxTokens")
+                && policy["targetSummaryTokens"] is JsonValue legacy
+                && legacy.TryGetValue<long>(out var legacyTarget))
+            {
+                config.ContextPolicy.SummaryMaxTokens = legacyTarget;
+            }
+        }
+        if (found)
+            Serilog.Log.Information("ContextPolicyMigrated: dropped keepRecentRounds/compressionStrength, targetSummaryTokens -> summaryMaxTokens, workspaceKnowledgeTokenBudget -> workspaceKnowledgeCharBudget (x3)");
+        return found;
     }
 
     private async Task WriteAtomicallyAsync(AppConfig config, CancellationToken cancellationToken = default)

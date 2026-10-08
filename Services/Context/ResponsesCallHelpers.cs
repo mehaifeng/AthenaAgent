@@ -146,7 +146,7 @@ public static class ResponsesCallHelpers
     /// 压缩改流式时复用了非流式工厂，正是这样让 Responses 端点上的压缩全线静默失效。
     /// 服务端 failed/error 事件按异常抛出：静默返回空串会让上层把「供应商拒绝」误报成「模型没输出」。
     /// </summary>
-    public static async Task<string> StreamOutputTextAsync(
+    public static async Task<(string Text, TokenUsageSnapshot? Usage)> StreamOutputTextAsync(
         ResponsesClient client,
         CreateResponseOptions options,
         CancellationToken cancellationToken = default)
@@ -179,12 +179,14 @@ public static class ResponsesCallHelpers
             }
         }
 
-        if (builder.Length > 0) return builder.ToString();
-        if (completed == null) return string.Empty;
+        var usage = ExtractUsage(completed);
+
+        if (builder.Length > 0) return (builder.ToString(), usage);
+        if (completed == null) return (string.Empty, usage);
 
         // 有端点只在终局事件里给全文，不发增量：先按最终响应兜底取一次。
         var finalText = GetConcatenatedOutputText(completed);
-        if (!string.IsNullOrEmpty(finalText)) return finalText;
+        if (!string.IsNullOrEmpty(finalText)) return (finalText, usage);
 
         // 一个字都没有还要说清楚为什么。推理模型把输出预算全花在推理上就是这个形状，
         // 报成「模型返回了空摘要」会让人去换模型，而真正该调的是输出预算或推理强度。
@@ -197,7 +199,25 @@ public static class ResponsesCallHelpers
                 response: null,
                 innerException: null);
         }
-        return string.Empty;
+        return (string.Empty, usage);
+    }
+
+    /// <summary>从最终响应里提取供应商回报的 usage（压缩模型调用也有 usage，这是审计下界的数据源）。</summary>
+    private static TokenUsageSnapshot? ExtractUsage(ResponseResult? response)
+    {
+        if (response?.Usage is not { } u) return null;
+        var input = u.InputTokenCount;
+        var output = u.OutputTokenCount;
+        if (input <= 0 && output <= 0) return null;
+        return new TokenUsageSnapshot(
+            input,
+            u.InputTokenDetails?.CachedTokenCount ?? 0,
+            output,
+            u.TotalTokenCount,
+            response.Id,
+            ProviderId: null,
+            ModelId: response.Model,
+            DateTimeOffset.UtcNow);
     }
 
     /// <summary>把 chat 形状的消息列表转换为 input items（system 并入 Instructions 由调用方负责）。</summary>

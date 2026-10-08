@@ -1366,13 +1366,9 @@ public partial class App : Application, IAsyncDisposable
             new CompressionCandidateGenerator(
                 sp.GetRequiredService<ICompressionTextGenerator>(),
                 sp.GetRequiredService<IPromptService>(),
+                sp.GetRequiredService<IProviderErrorClassifier>(),
                 Log.ForContext<CompressionCandidateGenerator>()));
         services.AddSingleton<ICompressionValidator, CompressionValidator>();
-        services.AddSingleton<ITokenCalibrationService>(sp =>
-            new TokenCalibrationService(
-                sp.GetRequiredService<IPlatformPathService>(),
-                sp.GetRequiredService<TokenFingerprintService>(),
-                Log.ForContext<TokenCalibrationService>()));
 
         services.AddSingleton<OpenAiModelRuntimeFactory>();
         // AI 对话服务（单例，共享配置）
@@ -1392,7 +1388,6 @@ public partial class App : Application, IAsyncDisposable
             var contextPolicyResolver = sp.GetService<IModelContextPolicyResolver>();
             var providerErrorClassifier = sp.GetService<IProviderErrorClassifier>();
             var requestPreparer = sp.GetService<IContextRequestPreparer>();
-            var tokenCalibration = sp.GetService<ITokenCalibrationService>();
             var compressionPlanner = sp.GetService<ICompressionPlanner>();
             var compressionCandidateGenerator = sp.GetService<ICompressionCandidateGenerator>();
             var compressionValidator = sp.GetService<ICompressionValidator>();
@@ -1407,7 +1402,6 @@ public partial class App : Application, IAsyncDisposable
             var service = new OpenAIChatService(
                 config,
                 promptService,
-                null,
                 locationService,
                 attachmentStoreService,
                 conversationSessionAccessor,
@@ -1421,7 +1415,6 @@ public partial class App : Application, IAsyncDisposable
                 contextPolicyResolver,
                 providerErrorClassifier,
                 requestPreparer,
-                tokenCalibration,
                 compressionPlanner,
                 compressionCandidateGenerator,
                 compressionValidator,
@@ -1485,7 +1478,6 @@ public partial class App : Application, IAsyncDisposable
             return new MainWindowViewModel(
                 chatService,
                 configService,
-                null,
                 promptService,
                 logService,
                 knowledgeBaseService,

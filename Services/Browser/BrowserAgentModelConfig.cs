@@ -12,7 +12,7 @@ internal sealed class EffectiveBrowserAgentConfig
     public string ApiKey { get; init; } = string.Empty;
     public string Model { get; init; } = string.Empty;
     public int MaxTokens { get; init; }
-    public double Temperature { get; init; }
+    public double? Temperature { get; init; }
     public string BaseUrlSource { get; init; } = string.Empty;
     public string ApiKeySource { get; init; } = string.Empty;
     public ProviderProtocol Protocol { get; init; } = ProviderProtocol.Auto;

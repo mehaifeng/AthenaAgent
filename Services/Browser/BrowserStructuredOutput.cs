@@ -77,7 +77,7 @@ internal static class BrowserStructuredOutput
         EffectiveBrowserAgentConfig effective,
         IEnumerable<OpenAI.Chat.ChatMessage> messages,
         string systemPrompt,
-        float temperature,
+        float? temperature,
         int maxOutputTokens,
         BrowserStructuredOutputMode mode,
         int timeoutSeconds,
@@ -118,7 +118,7 @@ internal static class BrowserStructuredOutput
     public static async Task<string> CompleteResponsesTextAsync(
         EffectiveBrowserAgentConfig effective,
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
-        float temperature,
+        float? temperature,
         int maxOutputTokens,
         BrowserStructuredOutputMode mode,
         int timeoutSeconds,

@@ -66,7 +66,6 @@ public class OpenAIChatService : IChatService
     private readonly IModelContextPolicyResolver? _contextPolicyResolver;
     private readonly IProviderErrorClassifier _providerErrorClassifier;
     private readonly IContextRequestPreparer? _requestPreparer;
-    private readonly ITokenCalibrationService? _tokenCalibration;
     private readonly ICompressionPlanner? _compressionPlanner;
     private readonly ICompressionCandidateGenerator? _compressionCandidateGenerator;
     private readonly ICompressionValidator? _compressionValidator;
@@ -84,7 +83,6 @@ public class OpenAIChatService : IChatService
     public OpenAIChatService(
         AppConfig config,
         IPromptService promptService,
-        IContextCompressionService? contextCompressionService = null,
         ILocalizationService? localizationService = null,
         IAttachmentStoreService? attachmentStoreService = null,
         IConversationSessionAccessor? conversationSessionAccessor = null,
@@ -98,7 +96,6 @@ public class OpenAIChatService : IChatService
         IModelContextPolicyResolver? contextPolicyResolver = null,
         IProviderErrorClassifier? providerErrorClassifier = null,
         IContextRequestPreparer? requestPreparer = null,
-        ITokenCalibrationService? tokenCalibration = null,
         ICompressionPlanner? compressionPlanner = null,
         ICompressionCandidateGenerator? compressionCandidateGenerator = null,
         ICompressionValidator? compressionValidator = null,
@@ -122,7 +119,6 @@ public class OpenAIChatService : IChatService
         _contextPolicyResolver = contextPolicyResolver;
         _providerErrorClassifier = providerErrorClassifier ?? new ProviderErrorClassifier();
         _requestPreparer = requestPreparer;
-        _tokenCalibration = tokenCalibration;
         _compressionPlanner = compressionPlanner;
         _compressionCandidateGenerator = compressionCandidateGenerator;
         _compressionValidator = compressionValidator;
@@ -211,7 +207,8 @@ public class OpenAIChatService : IChatService
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
-        Action<ProviderRetryNotice>? onProviderRetry = null)
+        Action<ProviderRetryNotice>? onProviderRetry = null,
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null)
     {
         EffectiveRequestRuntimeSnapshot? runtime = null;
         Exception? runtimeFailure = null;
@@ -266,7 +263,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry, onToolResultsCleared: onToolResultsCleared)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -361,7 +358,8 @@ public class OpenAIChatService : IChatService
                                                    // 与下面的 fallbackFailure 分支互斥：ProcessStreamAsync 要么
                                                    // 自己把错误报掉再正常收尾（这个回调），要么抛出去（那个分支）。
                                                    onProviderError: onProviderError,
-                                                   onProviderRetry: onProviderRetry)
+                                                   onProviderRetry: onProviderRetry,
+                                                   onToolResultsCleared: onToolResultsCleared)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -466,7 +464,7 @@ public class OpenAIChatService : IChatService
             profileRevision = OpenAiModelRuntimeFactory.ComputeProfileRevision(profile);
             topP = config.TopP;
             timeoutSeconds = config.Timeout;
-            appWorkspaceKnowledgeBudget = config.WorkspaceKnowledgeTokenBudget;
+            appWorkspaceKnowledgeBudget = config.WorkspaceKnowledgeCharBudget;
             enableMcp = config.EnableMcp;
             enableSkills = config.EnableSkills;
             try
@@ -533,7 +531,7 @@ public class OpenAIChatService : IChatService
         var toolFingerprint = ComputeToolFingerprint(tools);
         var options = new ChatCompletionOptions
         {
-            Temperature = (float)mainModel.Temperature,
+            Temperature = (float?)mainModel.Temperature,
             MaxOutputTokenCount = checked((int)policy.OutputReserveTokens),
             TopP = (float)topP
         };
@@ -563,7 +561,7 @@ public class OpenAIChatService : IChatService
             options.ToolChoice = ChatToolChoice.CreateNoneChoice();
         }
 
-        var workspaceKnowledgeBudget = workspacePolicy?.WorkspaceKnowledgeTokenBudget
+        var workspaceKnowledgeBudget = workspacePolicy?.WorkspaceKnowledgeCharBudget
                                        ?? appWorkspaceKnowledgeBudget;
         var baseSystemPrompt = BuildBaseSystemPrompt(
             context,
@@ -604,8 +602,9 @@ public class OpenAIChatService : IChatService
         CompressionThresholdMode = source.CompressionThresholdMode,
         CustomCompressionThresholdTokens = source.CustomCompressionThresholdTokens,
         AutoCompress = source.AutoCompress,
-        KeepRecentRounds = source.KeepRecentRounds,
-        TargetSummaryTokens = source.TargetSummaryTokens
+        SummaryMaxTokens = source.SummaryMaxTokens,
+        ToolResultClearingEnabled = source.ToolResultClearingEnabled,
+        KeepRecentToolResultChars = source.KeepRecentToolResultChars
     };
 
     private static WorkspaceContextPolicyOverride? ClonePolicy(WorkspaceContextPolicyOverride? source) => source == null
@@ -615,9 +614,10 @@ public class OpenAIChatService : IChatService
             ContextCapTokens = source.ContextCapTokens,
             AutoCompress = source.AutoCompress,
             CompressionThresholdTokens = source.CompressionThresholdTokens,
-            KeepRecentRounds = source.KeepRecentRounds,
-            TargetSummaryTokens = source.TargetSummaryTokens,
-            WorkspaceKnowledgeTokenBudget = source.WorkspaceKnowledgeTokenBudget
+            SummaryMaxTokens = source.SummaryMaxTokens,
+            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
+            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
+            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
         };
 
     /// <summary>
@@ -634,7 +634,6 @@ public class OpenAIChatService : IChatService
             plan.PromptVersion.ToString(),
             runtime.ExecutionPolicyIdentity.ProviderId,
             runtime.ExecutionPolicyIdentity.ExternalModelId,
-            plan.TargetSummaryTokens.ToString(),
             string.Join('\u001e', plan.CompressMessageIds));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material))).ToLowerInvariant();
     }
@@ -668,7 +667,8 @@ public class OpenAIChatService : IChatService
         Action<CompressionProgress>? onCompressionProgress = null,
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
-        Action<ProviderRetryNotice>? onProviderRetry = null)
+        Action<ProviderRetryNotice>? onProviderRetry = null,
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -677,12 +677,11 @@ public class OpenAIChatService : IChatService
         var disabledToolCallRetries = 0;
         var truncatedToolCallRetries = 0;
         var contentlessTruncationRetries = 0;
-        // 真实用量锚点：供应商回报的输入 token，以及它所度量的那段前缀的长度与 regime 指纹。
-        // 有锚点时按「精确测量 + 增量上界」判定预算，估算器只负责尚未发送过的那一小段。
-        long? anchorInputTokens = null;
-        var anchorPrefixCount = -1;
-        string? anchorFixedOverhead = null;
-        string? anchorProfileKey = null;
+        // 用量只认供应商：上一次响应回报的 input + output，正好是下一次请求输入的精确下界
+        // （上一轮的输出就是下一轮输入的一部分）。null = 手里没有测量——冷启动、压缩/清理之后、尚未发出请求——
+        // 此时不主动触发压缩，超限交给被动兜底。两次响应之间新增的内容（工具结果、新消息）没有测量值，
+        // 漏判的上限受 Security.MaxToolResultChars × 本轮工具调用数约束。
+        long? measuredTokens = null;
         var anchorSeedAttempted = false;
         // 压缩不可行的缓存必须绑定材料本身。Revision 在工具循环里每加一条消息就 +1，
         // 拿它做键等于每轮都换新键，同一份材料会被反复重压——每次都要付一次完整的模型调用。
@@ -692,6 +691,13 @@ public class OpenAIChatService : IChatService
             ? []
             : new List<OpenAI.Chat.ChatMessage> { imageProjection.TransientInstruction };
         var compressionWarningRaised = false;
+        // 被动兜底（上下文超限）：同一轮最多一次，且只在尚未流出任何内容时。超限是供应商用 400 说出来的，
+        // 本地没有任何估算能比它更权威——这是预算判定唯一不靠测量值的出口。
+        var overflowRecoveryUsed = false;
+        var overflowRecoveryRequested = false;
+        var forceContextReduction = false;
+        Exception? overflowFailure = null;
+        ProviderErrorClassification? overflowClassification = null;
         // 重复失败熔断：跨轮累计，因为模型的每一次原样重发都是新的一轮。
         var repeatedToolFailures = new RepeatedToolFailureGuard(IdenticalToolFailureLimit);
 
@@ -703,15 +709,6 @@ public class OpenAIChatService : IChatService
 
             var preparedForDecision = _requestPreparer?.Prepare(
                 runtime, messages, context, apiRequestId, context.Revision, imageProjection.IncludeImageBinary, imageProjection.IsFallback);
-            var calibratedDecision = preparedForDecision == null
-                ? null
-                : _tokenCalibration?.Estimate(preparedForDecision.Features);
-            if (calibratedDecision is { } shadow)
-            {
-                Log.Debug(
-                    "Token calibration shadow RequestId={RequestId} Mean={Mean} Decision={Decision} Confidence={Confidence}",
-                    apiRequestId, shadow.MeanTokens, shadow.DecisionTokens, shadow.Confidence);
-            }
             var requestWasRebuilt = false;
             // 压缩结果是否已经报给界面。同一轮工具循环可能多次进入压缩分支，
             // 每轮迭代都要重新判定，否则状态行会停在上一次的结论上。
@@ -720,66 +717,86 @@ public class OpenAIChatService : IChatService
             // 若照常发出，会把用户自己按下的那个选择盖成一句故障报告。
             var compressionSkippedByUser = false;
 
-            // 冷启动、回溯、分支、切换会话之后的首轮：先从已落盘的账本里找回仍然有效的精确测量，
-            // 而不是用整段字符估算去重建一个供应商早就告诉过我们的数字。
-            if (anchorInputTokens == null && !anchorSeedAttempted && preparedForDecision != null)
+            // 冷启动、回溯、分支、切换会话之后的首轮：从已落盘的账本里找回仍然有效的最新测量。
+            // 有效性靠前缀摘要与固定开销指纹（含已清理集合）保证，不靠任何估算。
+            if (measuredTokens == null && !anchorSeedAttempted && preparedForDecision != null)
             {
                 anchorSeedAttempted = true;
                 var seed = ContextAnchorLedger.SelectLatestValid(
                     context.Anchors,
                     context.Messages,
-                    preparedForDecision.Features.ModelProfileKey,
-                    preparedForDecision.Features.FixedOverheadFingerprint);
+                    preparedForDecision.Identity.ModelProfileKey,
+                    preparedForDecision.Identity.FixedOverheadFingerprint);
                 if (seed != null)
                 {
-                    anchorInputTokens = seed.InputTokens;
-                    anchorPrefixCount = seed.PrefixMessageCount;
-                    anchorFixedOverhead = seed.FixedOverheadFingerprint;
-                    anchorProfileKey = seed.ProfileKey;
+                    measuredTokens = seed.InputTokens + seed.OutputTokens;
                     Log.Information(
-                        "ContextAnchorRestored ConversationId={ConversationId} PrefixMessages={PrefixMessages} InputTokens={InputTokens}",
-                        context.ConversationId, seed.PrefixMessageCount, seed.InputTokens);
+                        "ContextAnchorRestored ConversationId={ConversationId} PrefixMessages={PrefixMessages} InputTokens={InputTokens} OutputTokens={OutputTokens}",
+                        context.ConversationId, seed.PrefixMessageCount, seed.InputTokens, seed.OutputTokens);
                 }
             }
 
-            // 预算判定：有锚点就用「精确测量 + 增量上界」，只有完全没有锚点才退回整段估算。
-            // 绝不对二者取 Max——那会让一个偏高的估算永远压过供应商回报的权威值。
-            var estimatedDecision = calibratedDecision?.DecisionTokens
-                                    ?? preparedForDecision?.Features.HeuristicEstimate
-                                    ?? context.EstimatedTokenCount;
-            var decisionPrefixCount = context.Messages.Count;
-            long currentTokens;
-            string decisionBasis;
-            long deltaCharScore = 0;
-            if (anchorInputTokens is { } anchoredTokens
-                && anchorPrefixCount >= 0
-                && anchorPrefixCount <= decisionPrefixCount)
-            {
-                deltaCharScore = ContextRequestPreparer.ComputeDeltaCharScore(
-                    context.Messages.Skip(anchorPrefixCount));
-                var delta = _tokenCalibration?.EstimateDelta(
-                                preparedForDecision?.Features.ModelProfileKey ?? anchorProfileKey ?? string.Empty,
-                                deltaCharScore)
-                            ?? new DeltaTokenEstimate(deltaCharScore, deltaCharScore, deltaCharScore, 0, 0);
-                currentTokens = anchoredTokens + delta.High;
-                decisionBasis = "anchored";
-            }
-            else
-            {
-                currentTokens = estimatedDecision;
-                decisionBasis = "estimated";
-            }
+            var currentTokens = measuredTokens ?? 0;
             Log.Debug(
-                "ContextBudgetDecision RequestId={RequestId} Basis={Basis} Tokens={Tokens} Anchor={Anchor} DeltaScore={DeltaScore} Threshold={Threshold}",
-                apiRequestId, decisionBasis, currentTokens, anchorInputTokens, deltaCharScore,
-                runtime.ContextPolicy.CompressionThresholdTokens);
+                "ContextBudgetDecision RequestId={RequestId} Measured={Measured} Threshold={Threshold}",
+                apiRequestId, measuredTokens, runtime.ContextPolicy.CompressionThresholdTokens);
 
+            var forcedByOverflow = forceContextReduction;
+            forceContextReduction = false;
             if (runtime.ContextPolicy.AutoCompress
-                && currentTokens > runtime.ContextPolicy.CompressionThresholdTokens)
+                && (forcedByOverflow || (measuredTokens != null && currentTokens > runtime.ContextPolicy.CompressionThresholdTokens)))
             {
-                Log.Information("Tool-loop token budget exceeded threshold ({Tokens} > {Threshold}, basis={Basis})",
-                    currentTokens, runtime.ContextPolicy.CompressionThresholdTokens, decisionBasis);
-                if (preparedForDecision != null
+                if (forcedByOverflow)
+                    Log.Warning("The provider reported a context overflow; clearing or compacting once before resending");
+                else
+                    Log.Information("Tool-loop token budget exceeded threshold ({Tokens} > {Threshold}, measured)",
+                        currentTokens, runtime.ContextPolicy.CompressionThresholdTokens);
+
+                // 第 1 层：工具结果清理。零模型成本——保留区（按字符，从最新往回数）之外的旧工具结果一次全部换成
+                // 一行占位说明，存档原文不动。已清理集合只增不减，所以请求前缀只在这些超阈值的时刻变化一次，
+                // 不会清了又恢复、反复打掉提示缓存。
+                var newlyCleared = runtime.ContextPolicy.ToolResultClearingEnabled
+                    ? ToolResultClearing.SelectNewlyClearable(
+                        context.Messages, context.ClearedToolResultIds, runtime.ContextPolicy.KeepRecentToolResultChars)
+                    : [];
+                var clearedThisPass = newlyCleared.Count > 0;
+                if (clearedThisPass)
+                {
+                    context.ClearedToolResultIds = ToolResultClearing.Merge(context.ClearedToolResultIds, newlyCleared);
+                    if (onToolResultsCleared != null)
+                        onToolResultsCleared(newlyCleared);
+                    else
+                        Log.Debug("Tool results were cleared for this request only: the caller registered no onToolResultsCleared listener");
+                    Log.Information(
+                        "ToolResultsCleared ConversationId={ConversationId} NewlyCleared={NewlyCleared} TotalCleared={TotalCleared} KeepChars={KeepChars}",
+                        context.ConversationId, newlyCleared.Count, context.ClearedToolResultIds.Count,
+                        runtime.ContextPolicy.KeepRecentToolResultChars);
+                }
+
+                // 第 2 层什么时候接手。只做清理、本轮照发，仅限于「这次清出了新东西，而且上一次清理后的实测并没有
+                // 证明光清理不够」。另外两种情况必须全量压缩：
+                // - 清理之后的第一次实测仍高于阈值（CompactionDueAfterClearing）：工具密集的长任务每轮都会把更早的
+                //   结果挤出保留区，若「有新可清项」永远优先，压缩就永远轮不到，而工具参数、正文、推理这些清理碰不到
+                //   的内容会一路涨到供应商报超限；
+                // - 供应商已经报了超限：兜底只有一次重发机会，只清理就重发，赌输了就直接把错误交给用户。
+                var compactionNeeded = forcedByOverflow || !clearedThisPass || context.CompactionDueAfterClearing;
+                if (clearedThisPass && !compactionNeeded)
+                    context.PostClearingMeasurePending = true;
+
+                // 防抖：上一次压缩后用量仍在阈值之上，此时再压只会白烧一次模型调用。
+                var compressionDebounced = false;
+                if (!compactionNeeded)
+                {
+                    // 只清理：重建请求即可。
+                }
+                else if (!forcedByOverflow && context.AutoCompactionFloorTokens > 0 && currentTokens < context.AutoCompactionFloorTokens)
+                {
+                    compressionDebounced = true;
+                    Log.Debug(
+                        "Tool-loop compression debounced: {Tokens} is below the re-compression floor {Floor}",
+                        currentTokens, context.AutoCompactionFloorTokens);
+                }
+                else if (preparedForDecision != null
                     && runtime.CompressionPolicySnapshot != null
                     && _compressionPlanner != null
                     && _compressionCandidateGenerator != null
@@ -800,6 +817,9 @@ public class OpenAIChatService : IChatService
                             message.Attachments.Select(ConversationPersistenceHelper.CloneAttachment)),
                         IsCompressed = false
                     }).ToList();
+                    // 这次压缩就是在偿还清理欠下的那一次；无论成败都了结它——失败时下一次超阈值会先清理、再由实测决定。
+                    context.CompactionDueAfterClearing = false;
+                    context.PostClearingMeasurePending = false;
                     var planResult = _compressionPlanner.CreatePlan(new CompressionPlanRequest(
                         context.ConversationId ?? string.Empty,
                         context.Revision,
@@ -807,11 +827,11 @@ public class OpenAIChatService : IChatService
                         CompressionTriggerMode.Auto,
                         context.Summary,
                         tempMessages,
-                        runtime.ContextPolicy.KeepRecentRounds,
                         currentTokens,
-                        runtime.ContextPolicy.TargetSummaryTokens,
+                        runtime.ContextPolicy.SummaryMaxTokens,
                         runtime.ContextPolicy,
-                        runtime.CompressionPolicySnapshot.Policy));
+                        runtime.CompressionPolicySnapshot.Policy,
+                        ClearedToolResultIds: context.ClearedToolResultIds));
                     var materialKey = planResult.Plan == null
                         ? null
                         : ComputeCompressionMaterialKey(planResult.Plan, runtime);
@@ -872,9 +892,11 @@ public class OpenAIChatService : IChatService
                                     generated.Candidate.Summary,
                                     generated.Candidate.CompressionModelFingerprint,
                                     generated.Candidate.PromptVersion,
+                                    // 压缩前最后一次实测值（没有测量则为 0）；压缩后的用量要等下一次响应的 usage 才知道，记 0。
                                     currentTokens,
-                                    validation.PostCompressionEstimate,
-                                    generated.Candidate.UsedLocalFallback);
+                                    0,
+                                    generated.Candidate.UsedLocalFallback,
+                                    generated.Candidate.SummaryTokens);
                                 var commit = await onCompressionTransition(transition, cancellationToken);
                                 if (commit.IsCommitted)
                                 {
@@ -882,22 +904,29 @@ public class OpenAIChatService : IChatService
                                     if (!context.RemoveMessagesById(transition.MessageIds))
                                         throw new InvalidOperationException("Committed compression IDs were missing from the request context.");
                                     context.Revision = commit.Revision;
+                                    // 被压缩的消息已不在请求里，它们的清理记录随之作废。
+                                    context.ClearedToolResultIds = ToolResultClearing.Prune(
+                                        context.ClearedToolResultIds, context.Messages.Select(message => message.Id));
+                                    // 压完用量多少，要等下一次响应的 usage 才知道。到那时若仍不低于阈值，
+                                    // 就记 Warning 并设防抖门槛（见响应处理）；在那之前不主动再压。
+                                    // 这个「还在等第一次实测」的标记随会话持久化，重启后仍然成立——
+                                    // 否则重启后第一次超阈值会在没有防抖门槛的情况下立刻再压一轮。
+                                    context.PostCompactionMeasurePending = true;
+                                    context.AutoCompactionFloorTokens = 0;
                                     messages = BuildMessages(context, runtime, imageProjection, cancellationToken);
                                     messages.AddRange(rebuildTail);
                                     requestWasRebuilt = true;
-                                    // 压缩从列表中段移除消息，旧锚点度量的那段前缀已不复存在。
-                                    // 落盘账本靠 PrefixDigest 自动拒绝，但进程内这几个变量必须显式作废，
-                                    // 否则本轮请求若失败，下一轮会拿着错位的前缀长度去算增量。
-                                    anchorInputTokens = null;
-                                    anchorPrefixCount = -1;
-                                    anchorFixedOverhead = null;
-                                    anchorProfileKey = null;
+                                    // 压缩从列表中段移除消息，旧测量度量的那段前缀已不复存在。
+                                    // 落盘账本靠 PrefixDigest 自动拒绝，但进程内这个变量必须显式作废，
+                                    // 否则本轮请求若失败，下一轮会拿着已经过期的数字去判定。
+                                    measuredTokens = null;
                                     onContextWarning?.Invoke(string.Empty);
                                     compressionOutcomeReported = true;
                                     onCompressionProgress?.Invoke(CompressionProgress.Committed(
                                         transition.MessageIds.Count,
                                         transition.PreCompressionTokens,
-                                        transition.PostCompressionTokens));
+                                        transition.PostCompressionTokens,
+                                        transition.SummaryTokens));
                                     Log.Information("Tool-loop transactional compression committed; removed {Count} messages by ID", transition.MessageIds.Count);
                                 }
                                 else
@@ -927,28 +956,46 @@ public class OpenAIChatService : IChatService
                 // 但「正在整理上下文」是每次压缩尝试各点亮一次的，必须每次都熄灭：
                 // 同一轮里第二次失败若沾了闩锁的光跳过这里，状态行和「跳过压缩」按钮
                 // 会一直定格到整轮收尾，同时思考点还被它压着不跳。
-                if (!requestWasRebuilt && !compressionOutcomeReported)
+                if (compactionNeeded && !requestWasRebuilt && !compressionOutcomeReported && !compressionDebounced)
                 {
                     compressionOutcomeReported = true;
                     onCompressionProgress?.Invoke(CompressionProgress.Failed());
                 }
 
-                if (!requestWasRebuilt && currentTokens > runtime.ContextPolicy.AvailableInputBudgetTokens)
-                {
-                    onContextWarning?.Invoke(GetLocalized(
-                        "Chat.Context.OverBudget",
-                        "This request exceeds the available input budget and automatic compression could not be committed safely. Adjust the model metadata or compress manually, then retry."));
-                    yield break;
-                }
+                // 不再有本地硬拦截：估算越过输入预算就拒发，等于让一个猜出来的数字压过供应商——请求照常发出，
+                // 真超限时供应商会用 400 说出来，由被动兜底（清理 → 压缩 → 重发一次）接住。
                 // 跳过是用户自己的选择，不是故障：措辞已由 Skipped 给出，这里不能再盖一层。
                 // 闩锁也不置位——本轮之后若真的失败一次，那句解释仍然该发得出来。
-                if (!requestWasRebuilt && !compressionWarningRaised && !compressionSkippedByUser)
+                if (compactionNeeded && !requestWasRebuilt && !compressionWarningRaised && !compressionSkippedByUser && !compressionDebounced)
                 {
                     compressionWarningRaised = true;
                     onContextWarning?.Invoke(GetLocalized(
                         "Chat.Context.CompressionUnavailable",
                         "Automatic context compression did not succeed. This reply continues with the context unchanged."));
                 }
+
+                // 清理已经改了请求：只清理时本轮靠它发出；压缩没能提交（失败、被防抖或被跳过）时，清理的成果仍然要带上。
+                // 放在上面两段收场之后：它们以「请求是否已重建」判断压缩有没有提交，必须在这里重建之前读。
+                if (clearedThisPass && !requestWasRebuilt)
+                {
+                    messages = BuildMessages(context, runtime, imageProjection, cancellationToken);
+                    messages.AddRange(rebuildTail);
+                    requestWasRebuilt = true;
+                    // 清理改变了请求内容：旧锚点度量的是清理前的请求。落盘账本靠固定开销指纹自动拒绝，
+                    // 进程内这个变量与压缩提交一样必须显式作废。
+                    measuredTokens = null;
+                    if (!compactionNeeded) onContextWarning?.Invoke(string.Empty);
+                }
+            }
+
+            if (forcedByOverflow && !requestWasRebuilt)
+            {
+                // 清理无物可清、压缩又没能提交：把供应商原话交给用户，不再原样重发一个注定失败的请求。
+                var overflowText = FormatApiError(overflowClassification!, runtime);
+                Log.Error(overflowFailure, "API call failed and the context could not be reduced: {Error}", overflowText);
+                onProviderError?.Invoke(new ChatTurnFailure(overflowText, overflowClassification!.Category));
+                yield return $"[API 错误: {overflowText}]";
+                yield break;
             }
 
             var prepared = !requestWasRebuilt
@@ -962,8 +1009,11 @@ public class OpenAIChatService : IChatService
             // 逐轮重算而不是沿用快照里的保留额——工具结果会让输入逐轮变长，余量也就随之收窄；
             // 而保留额是按最坏情况划的一块保守预算，拿它当请求上限，等于让 1M 窗口的模型
             // 永远只能写 16K，思考稍长就在正文出现前被截断。
+            // 没有测量时不假装知道输入多大：退回保守的输出保留额，而不是把整扇窗口都许给输出。
             var requestOutputTokens = ClampToInt32(
-                runtime.ContextPolicy.ResolveRequestOutputTokens(currentTokens));
+                measuredTokens is { } known
+                    ? runtime.ContextPolicy.ResolveRequestOutputTokens(known)
+                    : runtime.ContextPolicy.OutputReserveTokens);
             Log.Debug(
                 "RequestOutputBudget RequestId={RequestId} MaxOutputTokens={MaxOutput} Reserve={Reserve} Ceiling={Ceiling} InputBasis={InputBasis}",
                 apiRequestId, requestOutputTokens, runtime.ContextPolicy.OutputReserveTokens,
@@ -1127,6 +1177,17 @@ public class OpenAIChatService : IChatService
                 if (attemptFailure == null) break;
 
                 var classification = _providerErrorClassifier.Classify(attemptFailure);
+                if (classification.Category == ProviderErrorCategory.ContextOverflow
+                    && !visibleOutputEmitted
+                    && !overflowRecoveryUsed
+                    && runtime.ContextPolicy.AutoCompress)
+                {
+                    overflowRecoveryUsed = true;
+                    overflowRecoveryRequested = true;
+                    overflowFailure = attemptFailure;
+                    overflowClassification = classification;
+                    break;
+                }
                 var retryDelay = visibleOutputEmitted || !IsRetryableStreamFailure(classification.Category, streamStarted)
                     ? null
                     : _config.ProviderRetry.ResolveDelay(retryCount, retryWaited);
@@ -1161,6 +1222,16 @@ public class OpenAIChatService : IChatService
                 await Task.Delay(delay, cancellationToken);
             }
 
+            if (overflowRecoveryRequested)
+            {
+                // 这一轮没有产出任何东西：回到循环顶部做「清理 → 仍需要则全量压缩」，然后重发。
+                // 不消耗工具轮数——它不是模型的一步。
+                overflowRecoveryRequested = false;
+                forceContextReduction = true;
+                iteration--;
+                continue;
+            }
+
             Log.Debug("Streaming response iteration {Iteration}, {Tools} tool calls", iteration, toolCallBuilders.Count);
             if (usage is { } reportedUsage)
             {
@@ -1172,63 +1243,64 @@ public class OpenAIChatService : IChatService
                     reportedUsage.OutputTokens, reasoningTokens,
                     reportedUsage.TotalTokens, iteration);
 
-                // 供应商权威值：既是下一轮预算判定的精确基准，也是训练增量标度的唯一干净观测。
+                // 供应商权威值：下一轮预算判定的唯一基准（input + output = 下一次请求输入的精确下界）。
                 var observedInput = reportedUsage.InputTokens;
-                if (prepared != null
-                    && !requestWasRebuilt
-                    && anchorInputTokens is { } previousAnchor
-                    && anchorPrefixCount >= 0
-                    && anchorPrefixCount < sentPrefixCount
-                    && observedInput > previousAnchor
-                    && string.Equals(anchorProfileKey, prepared.Features.ModelProfileKey, StringComparison.Ordinal)
-                    && string.Equals(anchorFixedOverhead, prepared.Features.FixedOverheadFingerprint, StringComparison.Ordinal))
+                if (observedInput > 0)
                 {
-                    // 干净差分：regime 与固定开销都没变，两次真实 input 之差就是新增消息的精确 token 数。
-                    // 这是唯一无需拟合即可得到的观测——单参数、单观测，不存在偏置项与标度互搏。
-                    var observedScore = ContextRequestPreparer.ComputeDeltaCharScore(
-                        context.Messages.Skip(anchorPrefixCount).Take(sentPrefixCount - anchorPrefixCount));
-                    _tokenCalibration?.ObserveDelta(
-                        prepared.Features.ModelProfileKey, observedScore, observedInput - previousAnchor);
-                }
-
-                anchorInputTokens = observedInput;
-                anchorPrefixCount = sentPrefixCount;
-                anchorFixedOverhead = prepared?.Features.FixedOverheadFingerprint;
-                anchorProfileKey = prepared?.Features.ModelProfileKey;
-                if (prepared != null && observedInput > 0)
-                {
-                    var anchorRecord = new ContextAnchorRecord
+                    measuredTokens = observedInput + reportedUsage.OutputTokens;
+                    if (prepared != null)
                     {
-                        PrefixMessageCount = sentPrefixCount,
-                        PrefixDigest = ContextAnchorLedger.ComputePrefixDigest(context.Messages, sentPrefixCount),
-                        InputTokens = observedInput,
-                        CachedInputTokens = reportedUsage.CachedInputTokens,
-                        OutputTokens = reportedUsage.OutputTokens,
-                        ProfileKey = prepared.Features.ModelProfileKey,
-                        FixedOverheadFingerprint = prepared.Features.FixedOverheadFingerprint,
-                        Revision = context.Revision,
-                        ObservedAtUtc = DateTimeOffset.UtcNow
-                    };
-                    context.Anchors = ContextAnchorLedger.Append(context.Anchors, anchorRecord);
-                    onAnchorObserved?.Invoke(anchorRecord);
+                        var anchorRecord = new ContextAnchorRecord
+                        {
+                            PrefixMessageCount = sentPrefixCount,
+                            PrefixDigest = ContextAnchorLedger.ComputePrefixDigest(context.Messages, sentPrefixCount),
+                            InputTokens = observedInput,
+                            CachedInputTokens = reportedUsage.CachedInputTokens,
+                            OutputTokens = reportedUsage.OutputTokens,
+                            ProfileKey = prepared.Identity.ModelProfileKey,
+                            FixedOverheadFingerprint = prepared.Identity.FixedOverheadFingerprint,
+                            Revision = context.Revision,
+                            ObservedAtUtc = DateTimeOffset.UtcNow
+                        };
+                        context.Anchors = ContextAnchorLedger.Append(context.Anchors, anchorRecord);
+                        onAnchorObserved?.Invoke(anchorRecord);
+                    }
+
+                    // 压缩提交后的第一次实测：用量若仍不低于阈值，说明再压也压不下去（系统提示、工具声明、新材料
+                    // 已经占满）。记 Warning，并要求下一次自动压缩至少等到用量再涨阈值的 1/4，而不是每轮都重压。
+                    // 清理之后的第一次实测：仍高于阈值说明光清理压不下来，下一次超阈值直接全量压缩。
+                    if (context.PostClearingMeasurePending)
+                    {
+                        context.PostClearingMeasurePending = false;
+                        if (measuredTokens > runtime.ContextPolicy.CompressionThresholdTokens)
+                        {
+                            context.CompactionDueAfterClearing = true;
+                            Log.Information(
+                                "The first measured usage after clearing is {Measured} tokens, still above the {Threshold} threshold; the next reduction compacts",
+                                measuredTokens, runtime.ContextPolicy.CompressionThresholdTokens);
+                        }
+                    }
+
+                    if (context.PostCompactionMeasurePending)
+                    {
+                        context.PostCompactionMeasurePending = false;
+                        var thresholdTokens = runtime.ContextPolicy.CompressionThresholdTokens;
+                        if (measuredTokens >= thresholdTokens)
+                        {
+                            context.AutoCompactionFloorTokens = measuredTokens.Value + thresholdTokens / 4;
+                            Log.Warning(
+                                "Compression committed but the first measured usage after it is {Measured} tokens, not below the {Threshold} threshold; the next automatic compression waits until usage reaches {Floor}",
+                                measuredTokens, thresholdTokens, context.AutoCompactionFloorTokens);
+                        }
+                    }
                 }
 
-                if (prepared != null && IsValidCalibrationUsage(reportedUsage))
-                {
-                    var trained = _tokenCalibration?.Observe(
-                        prepared.Features,
-                        reportedUsage.InputTokens,
-                        allowCleanDelta: !imageProjection.IsFallback,
-                        inputModalityUsage) == true;
-                    Log.Debug(
-                        "CalibrationProfileUpdated RequestId={RequestId} Trained={Trained} ImageTokens={ImageTokens} AudioTokens={AudioTokens}",
-                        apiRequestId,
-                        trained,
-                        inputModalityUsage?.ImageTokens,
-                        inputModalityUsage?.AudioTokens);
-                }
-                else if (prepared != null)
-                    Log.Warning("UsageRejectedForCalibration RequestId={RequestId}", apiRequestId);
+                Log.Debug(
+                    "UsageModalities RequestId={RequestId} Text={TextTokens} Image={ImageTokens} Audio={AudioTokens}",
+                    apiRequestId,
+                    inputModalityUsage?.TextTokens,
+                    inputModalityUsage?.ImageTokens,
+                    inputModalityUsage?.AudioTokens);
             }
             else
             {
@@ -1586,20 +1658,6 @@ public class OpenAIChatService : IChatService
     private static int ClampToInt32(long value)
         => value <= 0 ? 0 : value >= int.MaxValue ? int.MaxValue : (int)value;
 
-    private static bool IsValidCalibrationUsage(TokenUsageSnapshot usage)
-    {
-        var cached = usage.CachedInputTokens;
-        long expectedTotal;
-        try { expectedTotal = checked(usage.InputTokens + usage.OutputTokens); }
-        catch (OverflowException) { return false; }
-        return usage.InputTokens > 0
-               && usage.OutputTokens >= 0
-               && usage.TotalTokens >= 0
-               && cached >= 0
-               && cached <= usage.InputTokens
-               && (usage.TotalTokens == 0 || usage.TotalTokens >= expectedTotal);
-    }
-
     private bool IsFunctionCallingEnabled()
     {
         return _functionRegistry?.HasFunctions == true;
@@ -1627,7 +1685,7 @@ public class OpenAIChatService : IChatService
             functionCallingEnabled,
             config.EnableMcp,
             config.EnableSkills,
-            config.WorkspaceKnowledgeTokenBudget);
+            config.WorkspaceKnowledgeCharBudget);
         return BuildMessagesCore(context, baseSystemPrompt, imageProjection, cancellationToken);
     }
 
@@ -1647,7 +1705,7 @@ public class OpenAIChatService : IChatService
         bool functionCallingEnabled,
         bool enableMcp,
         bool enableSkills,
-        int workspaceKnowledgeTokenBudget)
+        int workspaceKnowledgeCharBudget)
     {
         var persona = _promptService.GetPrompt(PromptType.MainPersona);
 
@@ -1691,7 +1749,7 @@ public class OpenAIChatService : IChatService
                 var knowledge = _workspaceService.BuildWorkspaceKnowledgeContext(
                     context.WorkspaceId,
                     context.WorkspaceKnowledgeFilePath,
-                    workspaceKnowledgeTokenBudget);
+                    workspaceKnowledgeCharBudget);
                 if (!string.IsNullOrEmpty(knowledge))
                 {
                     baseSystemParts.Add($"## Workspace Knowledge\n{knowledge}");
@@ -1702,6 +1760,13 @@ public class OpenAIChatService : IChatService
         return string.Join("\n\n---\n\n", baseSystemParts.Where(s => !string.IsNullOrEmpty(s)));
     }
 
+    /// <summary>
+    /// 续写消息的措辞。给模型的是指令而不是对话内容：摘要里已经写明历史，它只需要接着干，
+    /// 不要向用户重复确认，也不要把摘要复述一遍。
+    /// </summary>
+    internal const string ContinuationNotice =
+        "本会话从之前的对话延续而来，此前的内容已汇总在上方的历史摘要中。请直接从中断处继续当前任务，不要向用户重复确认，也不要复述摘要。";
+
     private static List<OpenAI.Chat.ChatMessage> BuildMessagesCore(
         ConversationContext context,
         string baseSystemPrompt,
@@ -1709,7 +1774,6 @@ public class OpenAIChatService : IChatService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        context.SetMainPersona(baseSystemPrompt);
 
         var systemParts = new List<string> { baseSystemPrompt };
         if (!string.IsNullOrEmpty(context.Summary))
@@ -1732,6 +1796,23 @@ public class OpenAIChatService : IChatService
         {
             new SystemChatMessage(string.Join("\n\n---\n\n", systemParts.Where(s => !string.IsNullOrEmpty(s))))
         };
+
+        // 投影规则（不是一次性补丁）：有摘要、而第一条真正进入请求的消息不是 user 时，在最前面补一条不落盘的
+        // 续写 user 消息。全量压缩会把含进行中这一轮在内的全部历史吃掉，剩下的第一条可能是 assistant（刚写完的回复）
+        // 或 tool 结果，而供应商要求首条非系统消息是 user。这条规则放在构造请求处，所以压缩之后同一轮的
+        // 后续工具迭代、下一轮请求都自动满足，不依赖压缩发生的那一刻是否记得补。
+        if (!string.IsNullOrEmpty(context.Summary))
+        {
+            var first = context.Messages.FirstOrDefault(m => m.Role is "user" or "assistant" or "tool");
+            if (first == null || first.Role != "user")
+                messages.Add(new UserChatMessage(ContinuationNotice));
+        }
+
+        // 工具结果清理投影：已清理集合里的工具结果换成一行占位说明。存档原文不动，所以这里只在请求里换。
+        var clearedToolResults = context.ClearedToolResultIds.Count == 0
+            ? null
+            : new HashSet<string>(context.ClearedToolResultIds, StringComparer.Ordinal);
+        var clearedToolNames = clearedToolResults == null ? null : ToolResultClearing.BuildToolNameIndex(context.Messages);
 
         foreach (var msg in context.Messages)
         {
@@ -1788,7 +1869,11 @@ public class OpenAIChatService : IChatService
                     messages.Add(assistantMsg);
                     break;
                 case "tool":
-                    messages.Add(new ToolChatMessage(msg.ToolCallId ?? string.Empty, msg.Content));
+                    messages.Add(new ToolChatMessage(
+                        msg.ToolCallId ?? string.Empty,
+                        clearedToolResults != null && clearedToolResults.Contains(msg.Id)
+                            ? ToolResultClearing.BuildPlaceholder(msg, clearedToolNames!)
+                            : msg.Content));
                     break;
                     // "system" 角色已在上面合并到主 system prompt，无需单独处理
             }
@@ -2284,7 +2369,7 @@ public class OpenAIChatService : IChatService
                 var responsesOptions = ResponsesCallHelpers.CreateOptions(
                     effective,
                     "You are an image recognition fallback. Return factual visual observations only.",
-                    (float)effective.Temperature,
+                    (float?)effective.Temperature,
                     effective.MaxOutputTokens);
                 responsesOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(ResponsesCallHelpers.BuildContentParts(parts)));
                 var result = await responses.CreateResponseAsync(responsesOptions, cancellationToken);
@@ -2303,7 +2388,7 @@ public class OpenAIChatService : IChatService
                     },
                     new ChatCompletionOptions
                     {
-                        Temperature = (float)effective.Temperature,
+                        Temperature = (float?)effective.Temperature,
                         MaxOutputTokenCount = effective.MaxOutputTokens
                     },
                     cancellationToken);

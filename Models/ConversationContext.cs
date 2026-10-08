@@ -10,8 +10,6 @@ namespace Athena.UI.Models;
 public class ConversationContext
 {
     private readonly List<ContextMessage> _messages = new();
-    private readonly int _maxTokens;
-    private string _mainPersona = string.Empty;
     private string? _summary;
 
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
@@ -28,23 +26,43 @@ public class ConversationContext
     /// <summary>系统管理的工作区知识文件绝对路径（注入 system prompt）</summary>
     public string? WorkspaceKnowledgeFilePath { get; set; }
 
-    public int ToolsDeclarationTokenCount { get; set; } = 0;
-
     /// <summary>
     /// 本会话已观测到的真实用量锚点（按前缀长度升序）。它不是消息状态，因此 <see cref="Clear"/>
     /// 不清空它——UpdateConversationContext 会反复重建消息列表，但测量结果必须跨重建存活。
     /// </summary>
     public List<ContextAnchorRecord> Anchors { get; set; } = new();
 
-    public ConversationContext(int maxTokens = 8000)
-    {
-        _maxTokens = maxTokens;
-    }
+    /// <summary>
+    /// 已被「工具结果清理」换成占位说明的工具消息 ID。与 <see cref="Anchors"/> 一样是会话状态而非消息状态：
+    /// <see cref="Clear"/> 不清它，<see cref="Reset"/> 才清。请求投影按它把旧工具结果换成占位文本。
+    /// </summary>
+    public List<string> ClearedToolResultIds { get; set; } = new();
 
-    public void SetMainPersona(string persona)
-    {
-        _mainPersona = persona;
-    }
+    /// <summary>
+    /// 自动全量压缩的防抖门槛（token）：上次压缩提交后若压缩后的估算仍不低于阈值，说明再压也压不下去，
+    /// 此时只有当前用量涨过这个值（压缩后用量 + 阈值的 1/4）才允许再次自动压缩，避免每轮都重压。
+    /// 0 表示没有门槛。会话内状态，不落盘；<see cref="Reset"/> 清零。
+    /// </summary>
+    public long AutoCompactionFloorTokens { get; set; }
+
+    /// <summary>
+    /// 刚提交过压缩、还在等第一次实测。压缩后的用量只有下一次响应的 usage 才知道（本地不估算），
+    /// 到那时若仍不低于阈值，就按 <see cref="AutoCompactionFloorTokens"/> 设防抖门槛。会话内状态，不落盘。
+    /// </summary>
+    public bool PostCompactionMeasurePending { get; set; }
+
+    /// <summary>
+    /// 刚做过一次工具结果清理、还在等第一次实测。到那时若用量仍高于阈值，说明光清理压不下来，
+    /// 置 <see cref="CompactionDueAfterClearing"/>。会话内状态，不落盘；<see cref="Reset"/> 清零。
+    /// </summary>
+    public bool PostClearingMeasurePending { get; set; }
+
+    /// <summary>
+    /// 清理之后的第一次实测仍高于阈值：下一次超阈值时直接进入全量压缩，不再因为「又有新的可清项」而只做清理。
+    /// 工具密集的长任务每一轮都会把更早的结果挤出保留区，若可清项总是优先，压缩就永远轮不到，
+    /// 而工具参数、正文、推理这些清理碰不到的内容会一路涨到供应商报超限。会话内状态，不落盘。
+    /// </summary>
+    public bool CompactionDueAfterClearing { get; set; }
 
     public void SetSummary(string? summary)
     {
@@ -136,22 +154,30 @@ public class ConversationContext
         _messages.Clear();
         _summary = null;
         Anchors = new List<ContextAnchorRecord>();
+        ClearedToolResultIds = new List<string>();
+        AutoCompactionFloorTokens = 0;
+        PostCompactionMeasurePending = false;
+        PostClearingMeasurePending = false;
+        CompactionDueAfterClearing = false;
     }
 
     public ConversationContext Clone()
     {
-        var clone = new ConversationContext(_maxTokens)
+        var clone = new ConversationContext
         {
-            ToolsDeclarationTokenCount = ToolsDeclarationTokenCount,
             ConversationId = ConversationId,
             Revision = Revision,
             WorkspaceId = WorkspaceId,
             WorkspaceDirectoryPath = WorkspaceDirectoryPath,
             WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath,
-            Anchors = new List<ContextAnchorRecord>(Anchors)
+            Anchors = new List<ContextAnchorRecord>(Anchors),
+            ClearedToolResultIds = new List<string>(ClearedToolResultIds),
+            AutoCompactionFloorTokens = AutoCompactionFloorTokens,
+            PostCompactionMeasurePending = PostCompactionMeasurePending,
+            PostClearingMeasurePending = PostClearingMeasurePending,
+            CompactionDueAfterClearing = CompactionDueAfterClearing
         };
 
-        clone.SetMainPersona(_mainPersona);
         clone.SetSummary(_summary);
 
         foreach (var message in _messages)
@@ -180,73 +206,6 @@ public class ConversationContext
         }
 
         return clone;
-    }
-
-    // 延迟载入的附件只在上下文里放一张“清单卡”（路径+元信息+预览），固定开销近似值。
-    public const int AttachmentManifestTokenCost = 180;
-
-    // 文本 token 估算：CJK 字符约 1 token/字，拉丁/数字/标点约 1 token / 4 字符。
-    // 旧实现统一 length/2 对中文低估 ~2-3 倍、对英文高估 ~2 倍，这里按脚本分别计。
-    public static int EstimateTokens(string? content)
-    {
-        if (string.IsNullOrEmpty(content)) return 0;
-        int cjk = 0, other = 0;
-        foreach (var ch in content)
-        {
-            if (IsCjk(ch)) cjk++;
-            else other++;
-        }
-        return (int)Math.Ceiling(cjk * 1.0 + other / 4.0) + 10;
-    }
-
-    private static bool IsCjk(char ch) =>
-        (ch >= 0x4E00 && ch <= 0x9FFF) ||   // CJK 统一汉字
-        (ch >= 0x3400 && ch <= 0x4DBF) ||   // CJK 扩展 A
-        (ch >= 0x3000 && ch <= 0x30FF) ||   // CJK 标点 / 假名
-        (ch >= 0xFF00 && ch <= 0xFFEF) ||   // 全角字符
-        (ch >= 0xAC00 && ch <= 0xD7A3);     // 韩文音节
-
-    // 图片 token 估算：复刻 OpenAI vision 分块（fit 2048²→短边缩 768→512² 分块）。
-    // 尺寸未知时退回保守扁平值，避免对不支持分块的 provider 误判。
-    public static int EstimateImageTokens(int width, int height)
-    {
-        if (width <= 0 || height <= 0) return 1000;
-        double s1 = Math.Min(1.0, 2048.0 / Math.Max(width, height));
-        double w = width * s1, h = height * s1;
-        double s2 = Math.Min(1.0, 768.0 / Math.Min(w, h));
-        w *= s2; h *= s2;
-        int tiles = (int)Math.Ceiling(w / 512.0) * (int)Math.Ceiling(h / 512.0);
-        return 85 + 170 * tiles;
-    }
-
-    // 整段上下文的字符启发式估算。自「真实 usage 锚点」上线后，这里降级为兜底：
-    // 仅在冷启动（尚无任何 API 响应）、供应商不回 usage、或压缩/回滚改了上下文却未发 API 时使用。
-    // 正常路径下上下文占用以 TokenService 的真实锚点（供应商回报的 InputTokenCount）为准。
-    public int EstimatedTokenCount
-    {
-        get
-        {
-            int total = EstimateTokens(_mainPersona);
-            total += ToolsDeclarationTokenCount; // 计入工具声明开销
-            if (!string.IsNullOrEmpty(_summary)) total += EstimateTokens(_summary);
-            foreach (var msg in _messages)
-            {
-                total += EstimateTokens(msg.Content);
-                if (!string.IsNullOrEmpty(msg.ToolCallsJson))
-                {
-                    total += EstimateTokens(msg.ToolCallsJson); // 计入模型生成的工具调用 JSON
-                }
-                if (!string.IsNullOrEmpty(msg.ReasoningContent))
-                {
-                    total += EstimateTokens(msg.ReasoningContent); // 计入思维链回放所需的 reasoning_content
-                }
-                total += msg.Attachments
-                    .Where(a => a.Kind == AttachmentKind.Image)
-                    .Sum(a => EstimateImageTokens(a.Width, a.Height));
-                total += msg.Attachments.Count * AttachmentManifestTokenCost;
-            }
-            return total;
-        }
     }
 
     private static ChatAttachment CloneAttachment(ChatAttachment attachment)

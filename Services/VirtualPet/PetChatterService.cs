@@ -132,7 +132,7 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
             if (ResponsesCallHelpers.ShouldUseResponses(effective))
             {
                 var responses = ResponsesCallHelpers.CreateResponsesClient(effective, _modelFactory.TimeoutSeconds);
-                var options = ResponsesCallHelpers.CreateOptions(effective, system, (float)effective.Temperature, MaxOutputTokens);
+                var options = ResponsesCallHelpers.CreateOptions(effective, system, (float?)effective.Temperature, MaxOutputTokens);
                 ResponsesCallHelpers.AddInputItems(options, [new UserChatMessage(user)]);
                 var result = await responses.CreateResponseAsync(options, timeout.Token).ConfigureAwait(false);
                 text = ResponsesCallHelpers.GetFirstOutputText(result.Value);
@@ -144,7 +144,7 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
                     [new SystemChatMessage(system), new UserChatMessage(user)],
                     new ChatCompletionOptions
                     {
-                        Temperature = (float)effective.Temperature,
+                        Temperature = (float?)effective.Temperature,
                         MaxOutputTokenCount = MaxOutputTokens
                     },
                     timeout.Token).ConfigureAwait(false);

@@ -1049,42 +1049,6 @@ public class FunctionRegistry : IFunctionRegistry
         return result;
     }
 
-    // 工具集在进程内固定，估算结果只取决于 FilterTools 的开关组合，故按组合缓存。
-    // 必须是字典而非单槽：Office 是否携带由对话内容决定，两个调用点可能给出不同答案，
-    // 单槽会在两个取值间来回失效，每次都要重新序列化全部 49 份 schema。
-    private readonly Dictionary<(bool, bool, bool, bool, bool, bool, bool, bool), int> _toolTokenCache = new();
-
-    public int GetToolDeclarationTokenCount(bool includeOfficeTools = false)
-    {
-        var config = _configService?.Load();
-        var key = (
-            config?.ImageGenerationEnabled == true,
-            config?.WebSearchEnabled == true,
-            config?.BrowserEnabled == true,
-            config?.EnableSubAgents == true,
-            config?.DocumentParserEnabled == true,
-            config?.EnableMcp == true,
-            config?.EnableSkills == true,
-            includeOfficeTools);
-
-        if (_toolTokenCache.TryGetValue(key, out var cached))
-        {
-            return cached;
-        }
-
-        int totalTokens = 0;
-        foreach (var tool in FilterTools(_tools, includeOfficeTools).OfType<ChatTool>())
-        {
-            // 序列化 JSON Schema 后按启发式规则估 token，用于上下文占用兜底估算
-            string serializedTool = JsonSerializer.Serialize(tool, new JsonSerializerOptions { WriteIndented = false });
-            totalTokens += Models.ConversationContext.EstimateTokens(serializedTool);
-        }
-
-        _toolTokenCache[key] = totalTokens;
-        _logger.Debug("Calculated total tool declaration tokens: {Tokens} (office={Office})", totalTokens, includeOfficeTools);
-        return totalTokens;
-    }
-
     private IEnumerable<object> FilterTools(IEnumerable<object> tools, bool includeOfficeTools)
     {
         var config = _configService?.Load();

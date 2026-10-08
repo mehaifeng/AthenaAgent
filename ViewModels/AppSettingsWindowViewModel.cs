@@ -21,7 +21,6 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         IOpenRouterModelMetadataCatalog? metadataCatalog = null,
         IModelMetadataResolver? metadataResolver = null,
         IModelContextPolicyResolver? contextPolicyResolver = null,
-        ITokenCalibrationService? tokenCalibration = null,
         IUserInteractionService? userInteractionService = null,
         IPetDexCatalogService? petDexCatalogService = null)
     {
@@ -41,7 +40,6 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
             browserService,
             browserVisionService,
             localizationService,
-            tokenCalibration,
             metadataCatalog,
             userInteractionService);
 
