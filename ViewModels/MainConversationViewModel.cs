@@ -1103,8 +1103,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         });
 
         UpdateConversationContext();
-        // 新用户消息/附件不属于上一 Usage 覆盖范围；若已解锁，立即转为显式近似态。
-        MarkContextUsagePending();
+        // 新用户消息只往上下文末尾追加：上一次实测值仍是这次请求的精确下界，回复期间继续显示它，
+        // 直到本轮第一次 usage 到达覆盖。只有压缩/清理/撤销/回退这类改写才降为待测。
 
         // 先让出 UI 线程跑一次渲染，确保用户气泡立即出现，再去做后续较重的请求准备
         // （BuildMessages / token 估算 / 读取配置等），避免发送后约 1s 才看到气泡。
@@ -2107,6 +2107,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
             ClearedToolResultIds = CaptureClearedToolResultIds(),
+            Usage = _tokenService?.CaptureRecord(),
             AutoCompactionFloorTokens = _autoCompactionFloorTokens,
             PostCompactionMeasurePending = _postCompactionMeasurePending,
             PostClearingMeasurePending = _postClearingMeasurePending,
@@ -2391,9 +2392,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         assistantMsg.ToolExecutionSummary = string.Empty;
                         assistantMsg.IsComposingFileText = false;
                         assistantMsg.IsLoading = true;
-                        // 工具结果发生在刚才的 API Usage 之后，必须降为近似态等待下一轮 Usage 重锚。
+                        // 工具结果同样只是追加：保留本轮刚测到的 usage，下一轮 API 回报时再覆盖。
                         UpdateConversationContext();
-                        MarkContextUsagePending();
                     }
                     requestContext.Revision = _revision;
                 },
@@ -2756,6 +2756,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
             ClearedToolResultIds = CaptureClearedToolResultIds(),
+            Usage = _tokenService?.CaptureRecord(),
             AutoCompactionFloorTokens = _autoCompactionFloorTokens,
             PostCompactionMeasurePending = _postCompactionMeasurePending,
             PostClearingMeasurePending = _postClearingMeasurePending,
@@ -2982,11 +2983,21 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 请求的内容变了（压缩、清理、撤销、回退、切换会话、新消息……）：上一次的数字不再描述它，
+    /// 请求的内容被改写了（压缩、清理、撤销、回退……）：上一次的数字不再描述它，
+    /// （新用户消息和工具结果只是追加，上一次实测仍是精确下界，不走这里。）
     /// 显示置为「待测」，等下一次响应的 usage 重新锚定。本地不估算——一个猜出来的数字比没有数字更会误导。
     /// 唯一的例外是 <paramref name="lowerBoundTokens"/>：它是压缩摘要的实测 output tokens，
     /// 由供应商回报，不是猜的。传了就显示成「≥N」的可信下界，让待测期间不至于只剩一个空横杠。
     /// </summary>
+    private void RestoreUsage(ConversationUsageRecord? record)
+    {
+        var role = _configService?.Load().AiModels.MainConversation;
+        _tokenService?.RestoreRecord(
+            record,
+            _revision,
+            role == null ? null : Athena.UI.Services.TokenService.FormatModelFingerprint(role.ProviderId, role.Model));
+    }
+
     private void MarkContextUsagePending(long lowerBoundTokens = 0)
     {
         _tokenService?.MarkPending(_revision);
@@ -3783,7 +3794,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _ = ReconcileImageGenerationSessionAsync();
         _initialConversationSignature = CreateConversationSignature();
-        _tokenService?.ResetUsage();
+        // 用量显示随会话落盘：重启后打开会话直接显示上一次的 usage，不必等下一次请求。
+        RestoreUsage(history.Usage);
         UpdateConversationContext();
         OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();
@@ -3945,6 +3957,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             CompressionHistory = CaptureCompressionHistory(),
             Anchors = CaptureAnchors(),
             ClearedToolResultIds = CaptureClearedToolResultIds(),
+            Usage = _tokenService?.CaptureRecord(),
             AutoCompactionFloorTokens = _autoCompactionFloorTokens,
             PostCompactionMeasurePending = _postCompactionMeasurePending,
             PostClearingMeasurePending = _postClearingMeasurePending,
@@ -4044,8 +4057,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         _ = ReconcileImageGenerationSessionAsync();
 
-        // 恢复的是另一段会话快照：清空旧锚点，改由估算显示，其首次发送会重锚。
-        _tokenService?.ResetUsage();
+        // 用量显示随草稿落盘：恢复后直接显示上一次的 usage，不必等下一次请求。
+        RestoreUsage(snapshot.Usage);
         UpdateConversationContext();
         OnPropertyChanged(nameof(ContextTokensInfo));
         UpdateBubbleButtonVisibility();

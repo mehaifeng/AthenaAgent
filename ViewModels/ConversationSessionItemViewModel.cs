@@ -645,6 +645,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
             CompressionHistory = snapshot.CompressionHistory,
             Anchors = snapshot.Anchors,
             ClearedToolResultIds = snapshot.ClearedToolResultIds,
+            Usage = snapshot.Usage,
             AutoCompactionFloorTokens = snapshot.AutoCompactionFloorTokens,
             PostCompactionMeasurePending = snapshot.PostCompactionMeasurePending,
             PostClearingMeasurePending = snapshot.PostClearingMeasurePending,

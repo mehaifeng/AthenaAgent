@@ -111,6 +111,7 @@
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
     <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
     <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
+    <Compile Include="../Models/ConversationUsageRecord.cs" Link="Source/Models/ConversationUsageRecord.cs" />
     <Compile Include="../Models/WorkspaceProfile.cs" Link="Source/Models/WorkspaceProfile.cs" />
     <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />
     <Compile Include="../Models/FileSystemPolicyConfig.cs" Link="Source/Models/FileSystemPolicyConfig.cs" />

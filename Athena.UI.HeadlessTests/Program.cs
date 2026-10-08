@@ -151,6 +151,7 @@ Task.Run(TestContextInspectorBehaviorAsync).GetAwaiter().GetResult();
 TestCompactNowCommandAsync().GetAwaiter().GetResult();
 TestPendingUsageAndSavingBadgeAsync().GetAwaiter().GetResult();
 TestCompactionDebounceSurvivesRestart();
+TestUsageStaysVisibleDuringReplyAndPersistsAsync().GetAwaiter().GetResult();
 TestContextInspectorScaling(outputPath);
 TestModelWarningLocalization();
 Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetResult();
@@ -4576,6 +4577,99 @@ static async Task TestPendingUsageAndSavingBadgeAsync()
     Console.WriteLine("[PASS] usage reads a measured lower bound after compaction, the badge is computed from the first measurement after it, and the measured saving persists on the checkpoint");
 }
 
+// 回复期间用量条不能变回「—」：新用户消息和工具结果都只往上下文末尾追加，上一次实测值仍是精确下界，
+// 所以发送后显示上一轮的 usage，工具轮之间显示本轮刚测到的 usage。用量状态随会话落盘，
+// 重启后打开会话直接显示；记录里的模型和当前主模型不一致时还原数字但降为待测。
+static async Task TestUsageStaysVisibleDuringReplyAndPersistsAsync()
+{
+    var tokens = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    var chatService = new GatedUsageChatService();
+    var config = new AppConfig();
+    config.AiModels.MainConversation.ProviderId = "p";
+    config.AiModels.MainConversation.Model = "m";
+    using var chat = new MainConversationViewModel(
+        chatService,
+        new HeadlessConfigService(config),
+        null,
+        null,
+        tokens,
+        new HeadlessLocalizationService(),
+        contextPolicyProvider: new HeadlessContextPolicyProvider(100_000));
+
+    static void Run(Task task, string what)
+    {
+        PumpUntil(() => task.IsCompleted, 10_000, what);
+        task.GetAwaiter().GetResult();
+    }
+
+    chat.InputText = "first";
+    Run(chat.SendMessageCommand.ExecuteAsync(null), "The first send never finished.");
+    Dispatcher.UIThread.RunJobs();
+    PumpUntil(() => tokens.IsRealUsage && tokens.CurrentTokens == 1_010, 5000, "The first usage never arrived.");
+
+    chat.InputText = "second";
+    var second = chat.SendMessageCommand.ExecuteAsync(null);
+    PumpUntil(() => chatService.AtFirstGate, 5000, "The second turn never reached the provider.");
+    Dispatcher.UIThread.RunJobs();
+    if (!tokens.IsRealUsage || tokens.CurrentTokens != 1_010 || chat.ContextTokensInfo.StartsWith("—", StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Sending a message must keep showing the previous usage, saw '{chat.ContextTokensInfo}' (real={tokens.IsRealUsage}).");
+    chatService.FirstGate.TrySetResult();
+
+    PumpUntil(() => chatService.AtSecondGate, 5000, "The tool round never finished.");
+    PumpUntil(() => tokens.CurrentTokens == 2_010, 5000, "The tool round's usage never reached the token service.");
+    Dispatcher.UIThread.RunJobs();
+    if (!tokens.IsRealUsage || !chat.ContextTokensInfo.StartsWith("2K", StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"A tool result must not hide the usage the same turn just measured, saw '{chat.ContextTokensInfo}'.");
+    chatService.SecondGate.TrySetResult();
+    Run(second, "The second send never finished.");
+    Dispatcher.UIThread.RunJobs();
+    PumpUntil(() => tokens.CurrentTokens == 3_010, 5000, "The final round's usage never arrived.");
+
+    var snapshot = chat.CapturePersistenceSnapshot("usage-hist", "t", DateTime.Now, false, null);
+    if (snapshot.Usage is not { Measured: true, CurrentTokens: 3_010 } persisted
+        || persisted.ModelFingerprint != TokenService.FormatModelFingerprint("p", "m"))
+        throw new InvalidOperationException("The usage state must ride the persisted snapshot.");
+
+    ConversationHistoryItem Restored() => new()
+    {
+        Id = "usage-hist",
+        ConversationId = snapshot.ConversationId,
+        Revision = snapshot.Revision,
+        Usage = snapshot.Usage!.Clone(),
+        Messages = snapshot.Messages
+    };
+
+    var reopenedTokens = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    using (var reopened = new MainConversationViewModel(
+               new HeadlessChatService(), new HeadlessConfigService(config), null, null, reopenedTokens,
+               new HeadlessLocalizationService(), contextPolicyProvider: new HeadlessContextPolicyProvider(100_000)))
+    {
+        reopened.RestorePersistedConversation(Restored());
+        if (!reopenedTokens.IsRealUsage || reopenedTokens.CurrentTokens != 3_010
+            || !reopened.ContextTokensInfo.StartsWith("3K", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"A reopened conversation must show its last usage at once, saw '{reopened.ContextTokensInfo}'.");
+    }
+
+    var otherModel = new AppConfig();
+    otherModel.AiModels.MainConversation.ProviderId = "p";
+    otherModel.AiModels.MainConversation.Model = "m2";
+    var switchedTokens = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    using (var switched = new MainConversationViewModel(
+               new HeadlessChatService(), new HeadlessConfigService(otherModel), null, null, switchedTokens,
+               new HeadlessLocalizationService(), contextPolicyProvider: new HeadlessContextPolicyProvider(100_000)))
+    {
+        switched.RestorePersistedConversation(Restored());
+        if (!switchedTokens.HasVisibleUsage || switchedTokens.IsRealUsage || switchedTokens.CurrentTokens != 3_010)
+            throw new InvalidOperationException("Usage measured on another model must come back pending, not as a measurement.");
+    }
+
+    await Task.CompletedTask;
+    Console.WriteLine("[PASS] usage stays visible from send to final reply, rides the session archive, and reopens without waiting for a request");
+}
+
 // 重启后仍要记得「刚压缩过、还在等第一次实测」：防抖门槛与待测标记随会话落盘，
 // 否则第一次超阈值会在没有门槛的情况下立刻再压一轮，白烧一次压缩模型调用。
 static void TestCompactionDebounceSurvivesRestart()
@@ -8433,6 +8527,14 @@ static async Task TestProviderRetryResumesInterruptedStreamAsync()
 {
     static (OpenAIChatService Service, RetryThenSucceedSseHandler Handler, HttpClient Client) Build(AppConfig config, string id)
     {
+        var handler = new RetryThenSucceedSseHandler();
+        var (service, client) = BuildWith(config, id, handler);
+        return (service, handler, client);
+    }
+
+    static (OpenAIChatService Service, HttpClient Client) BuildWith(
+        AppConfig config, string id, HttpMessageHandler handler, TimeSpan? networkTimeout = null)
+    {
         var provider = new OpenAiProviderConfiguration
         {
             Id = $"{id}-provider",
@@ -8453,15 +8555,16 @@ static async Task TestProviderRetryResumesInterruptedStreamAsync()
             contextPolicyResolver: new ModelContextPolicyResolver(),
             requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
 
-        var handler = new RetryThenSucceedSseHandler();
         var httpClient = new HttpClient(handler);
         var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+        // 生产路径的超时被夹在 ≥10 秒；套件直接改选项，免得为一次超时干等 10 秒。
+        if (networkTimeout is { } timeout) chatOptions.NetworkTimeout = timeout;
         chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
         var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient($"{id}-model");
         var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
                         ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
         chatField.SetValue(service, chatClient);
-        return (service, handler, httpClient);
+        return (service, httpClient);
     }
 
     var retryConfig = new AppConfig();
@@ -8513,7 +8616,38 @@ static async Task TestProviderRetryResumesInterruptedStreamAsync()
             throw new InvalidOperationException($"With retrying switched off the interruption must surface immediately: '{output}'");
     }
 
-    Console.WriteLine("[PASS] an interrupted stream is resent once and recovers; switching retries off sends exactly one request");
+    // 2026-10-08 的 OrcaRouter 现场：流已建立、推理吐了一段，然后上游 60 秒没再给一个字节，SDK 的
+    // NetworkTimeout 抛 TaskCanceledException。它是 OperationCanceledException 的子类，曾被当成「用户点了停止」
+    // 原样抛出，轮内重试一次都没跑（RetriesExhausted=0）。只有调用方真的取消了才算停止；超时要重发。
+    var stallConfig = new AppConfig();
+    stallConfig.ProviderRetry.InitialDelaySeconds = ProviderRetryOptions.MinDelaySeconds;
+    using (var stallHandler = new StallThenSucceedSseHandler())
+    {
+        var (stallService, stallClient) = BuildWith(stallConfig, "retry-stall", stallHandler, TimeSpan.FromMilliseconds(500));
+        using (stallClient)
+        {
+            var notices = new List<ProviderRetryNotice>();
+            ChatTurnFailure? failure = null;
+            var output = new StringBuilder();
+            await foreach (var chunk in stallService.StreamMessageAsync(
+                               "hi",
+                               new ConversationContext { ConversationId = "retry-stall" },
+                               onProviderError: f => failure = f,
+                               onProviderRetry: notices.Add))
+            {
+                output.Append(chunk);
+            }
+
+            if (stallHandler.RequestCount != 2)
+                throw new InvalidOperationException($"A mid-stream network timeout must be resent once (requests={stallHandler.RequestCount}, output='{output}')");
+            if (output.ToString() != "超时之后成功了" || failure != null)
+                throw new InvalidOperationException($"The resent round must recover cleanly, got '{output}' (failure: {failure?.Message})");
+            if (notices.Count != 1 || notices[0].Category != ProviderErrorCategory.TimeoutOrNetwork)
+                throw new InvalidOperationException("The retry must be announced once, as a timeout.");
+        }
+    }
+
+    Console.WriteLine("[PASS] an interrupted stream is resent once and recovers, a mid-stream network timeout is resent rather than read as a user stop; switching retries off sends exactly one request");
 }
 
 // 端到端：一次「先流出半句正文，再由上游宣告失败」的回合。回复必须保留已到达的正文，
@@ -10942,6 +11076,70 @@ sealed class RetryThenSucceedSseHandler : HttpMessageHandler
     }
 }
 
+// 第一次：流出一段推理后不再给字节（直到取消）；第二次：正常完成。
+sealed class StallThenSucceedSseHandler : HttpMessageHandler
+{
+    private int _requestCount;
+    public int RequestCount => _requestCount;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (Interlocked.Increment(ref _requestCount) == 1)
+        {
+            const string head = """
+                data: {"id":"gen-stall","object":"chat.completion.chunk","created":1785580007,"model":"stall-model","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"想了一半"},"finish_reason":null}]}
+
+                """ + "\n";
+            var content = new StreamContent(new StallingStream(Encoding.UTF8.GetBytes(head)));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/event-stream");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
+
+        const string body = """
+            data: {"id":"gen-stall","object":"chat.completion.chunk","created":1785580008,"model":"stall-model","choices":[{"index":0,"delta":{"role":"assistant","content":"超时之后成功了"},"finish_reason":null}]}
+
+            data: {"id":"gen-stall","object":"chat.completion.chunk","created":1785580008,"model":"stall-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+            data: [DONE]
+
+            """ + "\n";
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+
+    // 先交出给定字节，之后的读取一直挂着，直到读取方取消——就是上游静默时 socket 的样子。
+    private sealed class StallingStream(byte[] head) : Stream
+    {
+        private int _position;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count).GetAwaiter().GetResult();
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_position < head.Length)
+            {
+                var n = Math.Min(buffer.Length, head.Length - _position);
+                head.AsMemory(_position, n).CopyTo(buffer);
+                _position += n;
+                return n;
+            }
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+}
+
 // 复刻 OpenRouter 的上游中途失败：先正常流出正文，再来一个 finish_reason="error" 的 chunk
 // （SDK 的闭集枚举在这里抛），其中带着上游真正的错误。
 sealed class StreamInterruptedSseHandler : HttpMessageHandler
@@ -11064,6 +11262,59 @@ sealed class PetDexFixtureHandler(byte[] spriteBytes) : HttpMessageHandler
 #pragma warning restore CA2000
 
 /// <summary>每次调用回报下一份脚本化的 usage 并回一句话；可选地模拟「旧工具结果被清理」的回调。</summary>
+// 第一轮：回报 1,010 后结束。第二轮：先停在 FirstGate（此时还没有任何 usage），
+// 放行后走一个工具轮（usage 2,010 → 工具调用载体 → 工具结果）再停在 SecondGate，最后回报 3,010。
+sealed class GatedUsageChatService : HeadlessChatService
+{
+    private int _calls;
+    public TaskCompletionSource FirstGate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource SecondGate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public volatile bool AtFirstGate;
+    public volatile bool AtSecondGate;
+
+    public override async IAsyncEnumerable<string> StreamMessageAsync(
+        string userMessage,
+        ConversationContext context,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default,
+        Action<ChatMessage>? onMessageAdded = null,
+        Action<TokenUsageSnapshot>? onUsageReported = null,
+        Action<string>? onToolCallArgumentsStreaming = null,
+        Action<string>? onReasoningDelta = null,
+        bool addToContext = true,
+        Func<CompressionTransition, CancellationToken, Task<CompressionCommitResult>>? onCompressionTransition = null,
+        Action<string>? onContextWarning = null,
+        Action<ContextAnchorRecord>? onAnchorObserved = null,
+        Action<CompressionProgress>? onCompressionProgress = null,
+        CancellationToken skipCompressionToken = default,
+        Action<ChatTurnFailure>? onProviderError = null,
+        Action<ProviderRetryNotice>? onProviderRetry = null,
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null)
+    {
+        static TokenUsageSnapshot Usage(int input) => new(input, 0, 10, input + 10, "gated", "p", "m", DateTimeOffset.UtcNow);
+        if (++_calls == 1)
+        {
+            onUsageReported?.Invoke(Usage(1_000));
+            yield return "ok";
+            yield break;
+        }
+
+        AtFirstGate = true;
+        await FirstGate.Task;
+        onUsageReported?.Invoke(Usage(2_000));
+        onMessageAdded?.Invoke(new ChatMessage
+        {
+            Role = "assistant",
+            ToolCallsJson = "[{\"Id\":\"gc1\",\"FunctionName\":\"probe\",\"Arguments\":\"{}\"}]"
+        });
+        onMessageAdded?.Invoke(new ChatMessage { Role = "tool", ToolCallId = "gc1", ToolName = "probe", Content = "probe output" });
+        AtSecondGate = true;
+        await SecondGate.Task;
+        onUsageReported?.Invoke(Usage(3_000));
+        yield return "done";
+    }
+}
+
 sealed class UsageReportingChatService(IReadOnlyList<(int Input, int Output)> usages) : HeadlessChatService
 {
     private int _calls;

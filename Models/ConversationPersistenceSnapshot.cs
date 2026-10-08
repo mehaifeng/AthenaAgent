@@ -57,6 +57,13 @@ public class ConversationPersistenceSnapshot
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? ClearedToolResultIds { get; set; }
 
+    /// <summary>
+    /// 上次的用量显示状态（供应商回报的 usage）；重启后打开会话直接显示它。会话状态，不进 <c>ChatMessage</c>；
+    /// null 表示从未收到过 usage，整个字段不写出。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ConversationUsageRecord? Usage { get; set; }
+
     public string? ForkedFromConversationId { get; set; }
 
     public string? ForkedFromHistoryId { get; set; }

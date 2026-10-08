@@ -1081,9 +1081,11 @@ public class OpenAIChatService : IChatService
                             if (!await updates.MoveNextAsync()) break;
                             update = updates.Current;
                         }
-                        catch (OperationCanceledException)
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
                             // 用户点了"停止"：这不是供应商故障，更不该重试。
+                            // 必须看调用方的令牌：SDK 的 NetworkTimeout（上游静默超过超时）抛的 TaskCanceledException
+                            // 也是 OperationCanceledException，它是流中断，要走下面的轮内重试，而不是被当成停止原样抛出。
                             throw;
                         }
                         catch (Exception ex)
