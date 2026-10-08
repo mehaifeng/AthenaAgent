@@ -3626,6 +3626,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             finally
             {
                 IsCompressing = false;
+                // IsCompressing 仍为 true 时 PublishCompressionUndo 已调过 UpdateBubbleButtonVisibility，
+                // 但那次早退在 IsCompressing 检查上，逐条 CanRewind 未回填；此处补刷一次。
+                UpdateBubbleButtonVisibility();
             }
         }
 
