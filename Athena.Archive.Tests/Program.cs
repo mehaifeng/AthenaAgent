@@ -52,6 +52,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Responses compatibility normalizes provider null arrays before SDK deserialization", TestResponsesNullArrayCompatibilityAsync),
     ("Responses compatibility removes the null parallel_tool_calls echo the SDK reads as a non-nullable bool", TestResponsesNullParallelToolCallsCompatibilityAsync),
     ("a tool round is replayed without the empty assistant text item OrcaRouter's /responses rejects", TestResponsesToolRoundSkipsEmptyAssistantTextAsync),
+    ("chat streams read blank enum values as absent and report unreadable ones as a format incompatibility", TestChatStreamBlankEnumValuesAsync),
     ("the streaming reader owns StreamingEnabled and surfaces provider stream failures", TestResponsesStreamingReaderAsync),
     ("model warning codes share one locale namespace and stay registered", TestModelWarningVocabularyAsync),
     ("model catalog uses OpenRouter text and embedding modality filters", TestOpenRouterModelCatalogFiltersAsync),
@@ -2817,6 +2818,259 @@ static string ExtractCompletedResponseJson(string sse)
         }
     }
     throw new InvalidOperationException("The captured stream carries no response.completed event.");
+}
+
+static async Task TestChatStreamBlankEnumValuesAsync()
+{
+    // 2026-10-08，MiniMax 官方端点（api.minimaxi.com，MiniMax-M3，Chat Completions）。会话压缩之后每一轮工具调用都死在
+    // 调用的第二片上，气泡说「上游在回复流中途中断……回复“继续”即可」，用户照做三次，三次一样。日志里的栈：
+    //   ArgumentOutOfRangeException: Unknown ChatToolCallKind value. Actual value was .
+    //   at ChatToolCallKindExtensions.ToChatToolCallKind ← StreamingChatToolCallUpdate.DeserializeStreamingChatToolCallUpdate
+    // 端点背后不止一套服务，其中一套把没有值的字段写成零值字符串：每个中间片都带 "finish_reason":""，工具调用从第二片起是
+    // {"id":"","type":"","function":{"name":"",…}}。SDK 2.12.0 的 Chat 流式面只有三个闭集枚举（finish_reason /
+    // delta.role / tool_calls[].type，反编译逐分支核对过），都对 null 设防、对空串直接抛。旧清洗器只管 finish_reason，
+    // 还把空串当成「上游宣告了一个未知结局」逐片记 Warning。2026-10-09 实测：小请求 11 次里 9 次落到这套后端，另外 2 次
+    // 一片发完、没有空串；15 万与 30 万 token 的两次长请求落到的都是别的后端——压缩把上下文缩小之后，失败才变成每轮都有。
+    // 用例四段：规则表；SDK 自己在真实流上的表现（对照）；经生产管线消费真实流；兜底分支的归类。逐行记账，最后只断言一次。
+    var failures = new List<string>();
+
+    // ── 1. 规则表 ──
+    void Row(string name, string json, bool expectRewrite, string? expectedRaw, Func<JsonNode, bool> check)
+    {
+        var line = "data: " + json;
+        var rewritten = ProviderStreamSanitizer.TrySanitizeLine(line, out var sanitized, out var raw);
+        if (rewritten != expectRewrite)
+        {
+            failures.Add($"{name}：应{(expectRewrite ? "" : "不")}改写，实际{(rewritten ? "改写了" : "没改写")}");
+        }
+        if (!rewritten && sanitized != line)
+        {
+            failures.Add($"{name}：没有改写时必须原样返回该行");
+        }
+        if (raw != expectedRaw)
+        {
+            failures.Add($"{name}：上报的 finish_reason 原值应为 {expectedRaw ?? "null"}，实际 {(raw == null ? "null" : $"\"{raw}\"")}");
+        }
+        var root = JsonNode.Parse(sanitized["data: ".Length..]);
+        if (root == null || !check(root))
+        {
+            failures.Add($"{name}：改写后的内容不符合预期：{sanitized}");
+        }
+    }
+
+    static JsonObject Choice(JsonNode root) => root["choices"]![0]!.AsObject();
+    static JsonObject ToolCall(JsonNode root) => Choice(root)["delta"]!["tool_calls"]![0]!.AsObject();
+    static bool IsNullProperty(JsonObject owner, string name) => owner.TryGetPropertyValue(name, out var value) && value is null;
+    var events = MiniMaxChatCapture.DataEvents();
+
+    // 修复项：没有修复时这几行都会失败。
+    Row("MiniMax 中间片：finish_reason 空串读成「没有值」，不当成上游宣告", events[1], true, null,
+        r => IsNullProperty(Choice(r), "finish_reason")
+             && !Choice(r).ContainsKey(ProviderStreamSanitizer.RawFinishReasonProperty)
+             && (string?)Choice(r)["delta"]!["content"] == "<think>The user is asking me to run the `date` command using the execute_terminal_command");
+    Row("MiniMax 工具调用第一片：合法的 type / id / name 原样，同片的 finish_reason 空串照改", events[3], true, null,
+        r => (string?)ToolCall(r)["type"] == "function"
+             && (string?)ToolCall(r)["id"] == "call_01a11c432be67152ba7cf573"
+             && (string?)ToolCall(r)["function"]!["name"] == "execute_terminal_command"
+             && IsNullProperty(Choice(r), "finish_reason"));
+    Row("MiniMax 工具调用第二片：type 空串读成 null，id / name 的空串与参数原样", events[4], true, null,
+        r => IsNullProperty(ToolCall(r), "type")
+             && (string?)ToolCall(r)["id"] == ""
+             && (string?)ToolCall(r)["function"]!["name"] == ""
+             && (string?)ToolCall(r)["function"]!["arguments"] == "{\"command\":\"date\"}");
+    Row("finish_reason 是 null 的片里 type 空串也要改（快速判定不能只看 finish_reason）",
+        """{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"","function":{"name":"","arguments":"{}"}}]},"finish_reason":null}]}""", true, null,
+        r => IsNullProperty(ToolCall(r), "type") && (string?)ToolCall(r)["function"]!["arguments"] == "{}");
+    Row("delta.role 空串读成 null（SDK 的第三个闭集枚举，同一条规则；线上尚未见到）",
+        """{"choices":[{"index":0,"delta":{"role":"","content":"hi"},"finish_reason":null}]}""", true, null,
+        r => IsNullProperty(Choice(r)["delta"]!.AsObject(), "role") && (string?)Choice(r)["delta"]!["content"] == "hi");
+    Row("只有空白也算没有值（与传输层读 finish_reason 原值时的 IsNullOrWhiteSpace 一致）",
+        """{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":" ","function":{"arguments":"{}"}}]},"finish_reason":null}]}""", true, null,
+        r => IsNullProperty(ToolCall(r), "type"));
+    Row("合法的 finish_reason 与同片的空 role——只改 role",
+        """{"choices":[{"index":0,"delta":{"role":""},"finish_reason":"stop"}]}""", true, null,
+        r => (string?)Choice(r)["finish_reason"] == "stop" && IsNullProperty(Choice(r)["delta"]!.AsObject(), "role"));
+
+    // 护栏：修复前后都通过，靠定向变异证明它们会咬人。
+    Row("护栏：finish_reason=error 仍挪进原值字段并上报",
+        """{"choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"code":502,"message":"upstream died"}}""", true, "error",
+        r => (string?)Choice(r)[ProviderStreamSanitizer.RawFinishReasonProperty] == "error" && IsNullProperty(Choice(r), "finish_reason"));
+    Row("护栏：同一片里两个 choice——只改需要改的那个",
+        """{"choices":[{"index":0,"delta":{},"finish_reason":"error"},{"index":1,"delta":{},"finish_reason":"stop"}]}""", true, "error",
+        r => (string?)Choice(r)[ProviderStreamSanitizer.RawFinishReasonProperty] == "error"
+             && (string?)r["choices"]![1]!["finish_reason"] == "stop"
+             && !r["choices"]![1]!.AsObject().ContainsKey(ProviderStreamSanitizer.RawFinishReasonProperty));
+    Row("护栏：usage 片里 base_resp.status_msg 的空串不是枚举字段，不碰", events[6], false, null,
+        r => (string?)r["base_resp"]!["status_msg"] == "");
+    Row("护栏：非空的未知 type 不在这里猜，留给传输层报格式不兼容",
+        """{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c","type":"custom","function":{"name":"f","arguments":"{}"}}]},"finish_reason":null}]}""", false, null,
+        r => (string?)ToolCall(r)["type"] == "custom");
+    Row("护栏：choices 之外的同名空串不碰",
+        """{"type":"","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}""", false, null,
+        r => (string?)r["type"] == "");
+
+    // ── 2. 对照：没有清洗器时，SDK 在这条真实流上就是会抛 ──
+    // 既证明夹具确实是会炸的那个形状，也钉住清洗器存在的理由。SDK 哪天对空串设防，这两条会变红：
+    // 那不是回归，是规则表里对应的项可以退役了。
+    async Task<Exception?> BareAsync(string sse)
+    {
+        try
+        {
+            await ConsumeBareChatStreamAsync(sse);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    var bareCapture = await BareAsync(MiniMaxChatCapture.ToolCallSse);
+    if (bareCapture is not ArgumentOutOfRangeException { ActualValue: "" } finishReasonThrow
+        || !finishReasonThrow.Message.Contains("ChatFinishReason", StringComparison.Ordinal))
+    {
+        failures.Add("对照：原样的 MiniMax 流应在第一片的 finish_reason 空串上抛 ArgumentOutOfRangeException（ChatFinishReason）；"
+                     + $"实际：{bareCapture?.GetType().Name ?? "没有异常"}: {bareCapture?.Message}");
+    }
+    // 旧清洗器只管 finish_reason：把那些空串处理掉之后，SDK 抛的正是 2026-10-08 日志里那一句。
+    var bareAfterFinishReason = await BareAsync(
+        MiniMaxChatCapture.ToolCallSse.Replace("\"finish_reason\":\"\"", "\"finish_reason\":null", StringComparison.Ordinal));
+    if (bareAfterFinishReason is not ArgumentOutOfRangeException { ActualValue: "" } kindThrow
+        || !kindThrow.Message.Contains("ChatToolCallKind", StringComparison.Ordinal))
+    {
+        failures.Add("对照：finish_reason 处理掉之后，SDK 应在工具调用第二片的 type 空串上抛（ChatToolCallKind）；"
+                     + $"实际：{bareAfterFinishReason?.GetType().Name ?? "没有异常"}: {bareAfterFinishReason?.Message}");
+    }
+
+    // ── 3. 经生产管线消费真实流：工厂选项（挂着清洗器）+ ChatCompletionsTransport ──
+    try
+    {
+        var updates = await CollectChatTransportUpdatesAsync(MiniMaxChatCapture.ToolCallSse);
+        var text = string.Concat(updates.Select(u => u.Text));
+        if (text != "<think>The user is asking me to run the `date` command using the execute_terminal_command tool. I should call the tool as requested.</think>\n\n")
+        {
+            failures.Add($"生产管线：正文应原样拼回，实际 '{text}'");
+        }
+
+        // 与 OpenAIChatService 的累积器同一规则：后续片里空的 id / name 不覆盖第一片的。
+        var calls = updates.Where(u => u.ToolCallIndex != null).ToList();
+        var id = calls.Select(u => u.ToolCallId).LastOrDefault(v => !string.IsNullOrEmpty(v));
+        var name = calls.Select(u => u.ToolCallName).LastOrDefault(v => !string.IsNullOrEmpty(v));
+        var arguments = string.Concat(calls.Select(u => u.ToolCallArgumentsDelta));
+        if (calls.Count != 2 || calls.Any(u => u.ToolCallIndex != 0))
+        {
+            failures.Add($"生产管线：工具调用应是同一个 index 上的两片，实际 {calls.Count} 片");
+        }
+        if (id != "call_01a11c432be67152ba7cf573" || name != "execute_terminal_command" || arguments != "{\"command\":\"date\"}")
+        {
+            failures.Add($"生产管线：工具调用应拼成 call_01a11c432be67152ba7cf573 / execute_terminal_command / {{\"command\":\"date\"}}，实际 {id} / {name} / {arguments}");
+        }
+
+        var finishReasons = updates.Where(u => u.FinishReason != null).Select(u => u.FinishReason!.Value).ToList();
+        if (finishReasons.Count != 1 || finishReasons[0] != TransportFinishReason.ToolCalls)
+        {
+            failures.Add($"生产管线：只该有最后一片宣告结局（ToolCalls），实际 [{string.Join(", ", finishReasons)}]");
+        }
+        if (updates.LastOrDefault(u => u.Usage != null).Usage is not { InputTokens: 467, OutputTokens: 59, TotalTokens: 526 })
+        {
+            failures.Add("生产管线：usage 应读到 467 / 59 / 526");
+        }
+    }
+    catch (Exception ex)
+    {
+        failures.Add($"生产管线：{ex.GetType().Name}: {ex.Message}");
+    }
+
+    // ── 4. 兜底：清洗器不接手的非空未知值，报成格式不兼容，而不是「上游中断」 ──
+    async Task<Exception?> TransportFailureAsync(string sse)
+    {
+        try
+        {
+            await CollectChatTransportUpdatesAsync(sse);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    static string Chunk(string delta, string finishReason = "null")
+        => $"data: {{\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"m\",\"choices\":[{{\"index\":0,\"delta\":{delta},\"finish_reason\":{finishReason}}}]}}\n\n";
+
+    var classifier = new ProviderErrorClassifier();
+    foreach (var (what, delta, field, value) in new[]
+             {
+                 ("未知的 tool_calls[].type",
+                  """{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"custom","function":{"name":"f","arguments":"{}"}}]}""",
+                  "choices[].delta.tool_calls[].type", "custom"),
+                 ("未知的 delta.role", """{"role":"model","content":"hi"}""", "choices[].delta.role", "model"),
+             })
+    {
+        var failure = await TransportFailureAsync(Chunk(delta));
+        if (failure is not ProviderStreamIncompatibleException incompatible)
+        {
+            failures.Add($"兜底（{what}）：应抛 ProviderStreamIncompatibleException，实际 {failure?.GetType().Name ?? "没有异常"}: {failure?.Message}");
+            continue;
+        }
+        if (incompatible.Field != field || incompatible.Value != value)
+        {
+            failures.Add($"兜底（{what}）：应指明 {field}=\"{value}\"，实际 {incompatible.Field}=\"{incompatible.Value}\"");
+        }
+        var category = classifier.Classify(incompatible).Category;
+        if (category != ProviderErrorCategory.StreamIncompatible)
+        {
+            failures.Add($"兜底（{what}）：应归为 StreamIncompatible，实际 {category}");
+        }
+    }
+
+    // 护栏：上游真的宣告了失败（finish_reason=error）仍是中断——照旧可重试、照旧附上游原话。
+    var declared = await TransportFailureAsync(Chunk("""{"content":"半句"}""") + Chunk("{}", "\"error\""));
+    if (declared is not ProviderStreamInterruptedException
+        || classifier.Classify(declared).Category != ProviderErrorCategory.StreamInterrupted)
+    {
+        failures.Add($"护栏：finish_reason=error 仍应报成 StreamInterrupted，实际 {declared?.GetType().Name ?? "没有异常"}: {declared?.Message}");
+    }
+
+    AssertTrue(failures.Count == 0,
+        $"Chat 流式的空串 / 未知枚举值处理有 {failures.Count} 处不符：\n  " + string.Join("\n  ", failures));
+}
+
+// 不挂清洗器的裸 SDK：对照组，证明夹具本身就是会让 SDK 抛的形状。
+static async Task ConsumeBareChatStreamAsync(string sse)
+{
+    using var handler = new SseHttpHandler(sse);
+    using var httpClient = new HttpClient(handler);
+    var chatClient = new OpenAI.Chat.ChatClient(
+        "MiniMax-M3",
+        new ApiKeyCredential("sk-fixture"),
+        new OpenAI.OpenAIClientOptions
+        {
+            Endpoint = new Uri("https://minimax-capture.test/v1"),
+            Transport = new HttpClientPipelineTransport(httpClient)
+        });
+    await foreach (var _ in chatClient.CompleteChatStreamingAsync(CreateTransportMessages()))
+    {
+    }
+}
+
+// 生产形状：工厂造的选项（管线里挂着清洗器）+ ChatCompletionsTransport，收集归一化增量。
+static async Task<List<NormalizedUpdate>> CollectChatTransportUpdatesAsync(string sse)
+{
+    using var handler = new SseHttpHandler(sse);
+    using var httpClient = new HttpClient(handler);
+    var options = OpenAiClientOptionsFactory.Create("https://minimax-capture.test/v1", 30);
+    options.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.Chat.ChatClient("MiniMax-M3", new ApiKeyCredential("sk-fixture"), options);
+    var runtime = CreateTransportRuntime(new OpenAI.Chat.ChatCompletionOptions { MaxOutputTokenCount = 2_000 }, chatClient: chatClient);
+
+    var updates = new List<NormalizedUpdate>();
+    await foreach (var update in ChatCompletionsTransport.Instance.StreamUpdatesAsync(
+        runtime, CreateTransportMessages(), 2_000, CancellationToken.None))
+    {
+        updates.Add(update);
+    }
+    return updates;
 }
 
 static async Task TestResponsesToolRoundSkipsEmptyAssistantTextAsync()
@@ -11017,6 +11271,40 @@ static class OrcaRouterResponsesCapture
 
 
         """;
+}
+
+/// <summary>
+/// 2026-10-09 从 MiniMax 官方端点（https://api.minimaxi.com/v1/chat/completions，MiniMax-M3）原样抓回的一条
+/// 工具调用流，是 2026-10-08 事故的现场形状，不是手写的等价物：工具 id 形如 call_01a11… 的那套后端，
+/// 每个中间片都带 "finish_reason":""，工具调用拆成两片，第二片的 id / type / name 都是空串；
+/// 最后一个事件是 choices:[] 的 usage，没有 [DONE]，以空行收尾，与线上一致。事件一字未改。
+/// </summary>
+static class MiniMaxChatCapture
+{
+    public const string ToolCallSse = """
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":"<think>The user is asking me to run the `date` command using the execute_terminal_command","role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":" tool. I should call the tool as requested.","role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":"</think>\n\n","role":"assistant","tool_calls":[{"id":"call_01a11c432be67152ba7cf573","type":"function","function":{"name":"execute_terminal_command","arguments":""},"index":0}]}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"role":"assistant","tool_calls":[{"id":"","type":"","function":{"name":"","arguments":"{\"command\":\"date\"}"},"index":0}]}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"tool_calls","index":0,"delta":{"role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":{"total_tokens":526,"total_characters":0,"prompt_tokens":467,"completion_tokens":59,"completion_tokens_details":{"reasoning_tokens":0},"prompt_tokens_details":{"cached_tokens":128}},"service_tier":"standard","base_resp":{"status_code":0,"status_msg":""}}
+
+
+        """;
+
+    /// <summary>按抓取顺序取出每个 data 事件的 JSON（不带 "data: " 前缀）。</summary>
+    public static string[] DataEvents() =>
+        ToolCallSse.Split('\n')
+            .Where(line => line.StartsWith("data: ", StringComparison.Ordinal))
+            .Select(line => line["data: ".Length..])
+            .ToArray();
 }
 
 /// <summary>SDK 消费一条 Responses 流之后调用方能看到的东西，供断言逐项核对。</summary>

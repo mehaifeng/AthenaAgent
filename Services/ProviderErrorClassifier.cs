@@ -26,6 +26,10 @@ public sealed partial class ProviderErrorClassifier : IProviderErrorClassifier
                 status,
                 interrupted.ProviderErrorCode ?? code);
         }
+        if (exception is Context.ProviderStreamIncompatibleException)
+        {
+            return new ProviderErrorClassification(ProviderErrorCategory.StreamIncompatible, safeMessage, status, code);
+        }
 
         var category = status is 401 or 403
                        || ContainsAny(normalized, "unauthorized", "authentication", "invalid api key", "permission denied")

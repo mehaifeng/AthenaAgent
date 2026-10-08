@@ -41,13 +41,11 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
             catch (ArgumentOutOfRangeException ex) when (ex.ParamName == "value" && ex.ActualValue is string unknownValue)
             {
                 // 兜底层：SDK 的闭集枚举遇到未知取值会在反序列化时直接抛，异常从 MoveNextAsync 里飞出来。
-                // 正常路径上 ProviderStreamSanitizer 已经把 finish_reason 的未知取值改写掉了，走到这里
-                // 说明命中的是别的字段（或响应体不是 SSE 形状）——仍然是「上游给了本 SDK 认不出的东西」，
-                // 而不该以一句 SDK 断言的形式糊到用户脸上。
-                throw new ProviderStreamInterruptedException(
-                    $"The provider returned a value this SDK does not recognize (\"{unknownValue}\"), and the response stream ended there.",
-                    unknownValue,
-                    innerException: ex);
+                // ProviderStreamSanitizer 已经改掉了 finish_reason 的非空未知值和三个枚举字段的空白串，走到这里
+                // 说明是 role / tool_calls[].type 的非空未知值（或响应体不是 SSE 形状，清洗器没有接手）。
+                // 这不是上游中断，是我们读不懂它的格式：曾经报成 ProviderStreamInterruptedException，于是被重试、
+                // 被说成「临时故障，回复继续即可」，连这句英文本身都被标成了「供应商原话」。
+                throw new ProviderStreamIncompatibleException(DescribeEnumField(ex), unknownValue, ex);
             }
 
             // 供应商回报的真实 token 用量随最后一个 chunk 到达（SDK 已自动开启 include_usage）。
@@ -221,6 +219,27 @@ public sealed class ChatCompletionsTransport : ICompletionTransport
     {
         var raw = TryReadPatchString(update, $"$.choices[0].{ProviderStreamSanitizer.RawFinishReasonProperty}");
         return string.IsNullOrWhiteSpace(raw) ? null : raw;
+    }
+
+    /// <summary>
+    /// SDK 只说 "Unknown ChatToolCallKind value."——换成用户能在原始流里对上号的 JSON 路径。
+    /// 映射之外的枚举原样给出类型名，诊断不能因为这里认不出而丢掉。
+    /// </summary>
+    private static string DescribeEnumField(ArgumentOutOfRangeException ex)
+    {
+        const string prefix = "Unknown ";
+        var message = ex.Message;
+        var start = message.IndexOf(prefix, StringComparison.Ordinal);
+        var end = start < 0 ? -1 : message.IndexOf(" value", start + prefix.Length, StringComparison.Ordinal);
+        if (end < 0) return "an enumerated field";
+
+        return message[(start + prefix.Length)..end] switch
+        {
+            "ChatFinishReason" => "choices[].finish_reason",
+            "ChatMessageRole" => "choices[].delta.role",
+            "ChatToolCallKind" => "choices[].delta.tool_calls[].type",
+            var enumName => enumName
+        };
     }
 
     /// <summary>失败 chunk 里供应商自己的说法（OpenRouter 放在顶层 error 对象里），没有就给一句通用描述。</summary>

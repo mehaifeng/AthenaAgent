@@ -123,6 +123,8 @@ Task.Run(TestStreamedEmptyStreamErrorSurfacedAsync).GetAwaiter().GetResult();
 Task.Run(TestStreamedImageDecodeErrorFallsBackAsync).GetAwaiter().GetResult();
 TestProviderStreamSanitizer();
 Task.Run(TestStreamedUnknownFinishReasonSurfacedAsync).GetAwaiter().GetResult();
+Task.Run(TestBlankEnumToolCallStreamCompletesAsync).GetAwaiter().GetResult();
+Task.Run(TestUnreadableStreamValueIsIncompatibleAsync).GetAwaiter().GetResult();
 TestProviderRetryPolicy();
 Task.Run(TestProviderRetryResumesInterruptedStreamAsync).GetAwaiter().GetResult();
 TestResponsesProtocolAutoResolution();
@@ -8715,6 +8717,131 @@ static async Task TestStreamedUnknownFinishReasonSurfacedAsync()
     Console.WriteLine("[PASS] a mid-stream finish_reason=error keeps the partial reply and explains itself");
 }
 
+static (OpenAIChatService Service, HttpClient Client) BuildScriptedChatService(
+    AppConfig config, string id, HttpMessageHandler handler, IFunctionRegistry? functionRegistry = null)
+{
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = $"{id}-provider",
+        DisplayName = "Scripted provider",
+        ProviderPreset = "Custom",
+        BaseUrl = $"https://{id}.invalid/v1",
+        ApiKey = "test-key"
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = $"{id}-model", DisplayName = "Scripted model", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = $"{id}-model";
+
+    var service = new OpenAIChatService(
+        config,
+        new HeadlessPromptService(),
+        functionRegistry: functionRegistry,
+        metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+        contextPolicyResolver: new ModelContextPolicyResolver(),
+        requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
+
+    // 生产的工厂选项：清洗器就挂在它的管线上，绕开它就测不到要测的东西。
+    var httpClient = new HttpClient(handler);
+    var chatOptions = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+    chatOptions.Transport = new HttpClientPipelineTransport(httpClient);
+    var chatClient = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), chatOptions).GetChatClient($"{id}-model");
+    var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+    chatField.SetValue(service, chatClient);
+    return (service, httpClient);
+}
+
+// 2026-10-08 的 MiniMax 现场，走完整的主对话工具环：第一轮回放从官方端点原样抓回的工具调用流（每个中间片
+// finish_reason:""，工具调用第二片的 id / type / name 都是空串）。修复前这一轮死在第二片上，气泡里是
+// 「上游在回复流中途中断……回复“继续”即可」；修复后工具要以第一片的名字、两片拼好的参数真正执行一次，
+// 回传结果时助手的工具调用与 tool_call_id 都得是第一片的 id——后续片里的空 id 不能把它冲掉。
+static async Task TestBlankEnumToolCallStreamCompletesAsync()
+{
+    var registry = new RecordingTerminalFunctionRegistry();
+    using var handler = new MiniMaxBlankEnumSseHandler();
+    var (service, client) = BuildScriptedChatService(new AppConfig(), "minimax-blank-enum", handler, registry);
+    using (client)
+    {
+        ChatTurnFailure? failure = null;
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync(
+                           "用 execute_terminal_command 跑一下 date",
+                           new ConversationContext { ConversationId = "minimax-blank-enum" },
+                           onProviderError: f => failure = f))
+        {
+            output.Append(chunk);
+        }
+
+        var text = output.ToString();
+        if (text.Contains("[API 错误:", StringComparison.Ordinal) || failure != null)
+            throw new InvalidOperationException($"MiniMax 的空串必须读成「没有值」，这一轮不能以报错收场：'{text}'（failure: {failure?.Message}）");
+        if (registry.Calls.Count != 1
+            || registry.Calls[0].Name != "execute_terminal_command"
+            || registry.Calls[0].Arguments != "{\"command\":\"date\"}")
+            throw new InvalidOperationException($"工具要以第一片的名字、两片拼好的参数执行恰好一次，实际：[{string.Join("; ", registry.Calls)}]");
+        if (handler.RequestBodies.Count != 2)
+            throw new InvalidOperationException($"工具结果要回传一次、拿到终态就停，应恰好两次请求，实际 {handler.RequestBodies.Count}");
+        var replay = handler.RequestBodies[1];
+        if (!replay.Contains("\"tool_call_id\":\"call_01a11c432be67152ba7cf573\"", StringComparison.Ordinal)
+            || !replay.Contains("\"id\":\"call_01a11c432be67152ba7cf573\"", StringComparison.Ordinal))
+            throw new InvalidOperationException($"回传的助手工具调用与工具结果都必须带第一片的 id：{replay}");
+        if (!text.EndsWith(MiniMaxBlankEnumSseHandler.FinalText, StringComparison.Ordinal))
+            throw new InvalidOperationException($"终态那一轮的正文必须送达：'{text}'");
+    }
+
+    Console.WriteLine("[PASS] MiniMax's blank finish_reason / tool_calls[].type are read as absent and the captured tool-call round completes");
+}
+
+// 清洗器不接手的非空未知值（tool_calls[].type:"custom"，出现在第一片上，正文一个字都还没流出，按旧规则是可以重试的）。
+// 修复前它被报成 StreamInterrupted：重试两次，三次一样，然后说「通常是临时故障，回复继续即可」，本机拼的英文还被标成
+// 「供应商原话」。它是格式不兼容：只发一次请求，归为 StreamIncompatible，文案指出字段与取值，不劝用户「继续」。
+static async Task TestUnreadableStreamValueIsIncompatibleAsync()
+{
+    var config = new AppConfig();
+    config.ProviderRetry.InitialDelaySeconds = ProviderRetryOptions.MinDelaySeconds; // 修复前会重试；别让对照组为退避干等
+    const string body = """
+        data: {"id":"gen-custom","object":"chat.completion.chunk","created":1785580005,"model":"unreadable-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_custom","type":"custom","function":{"name":"probe","arguments":"{}"}}]},"finish_reason":null}]}
+
+        data: {"id":"gen-custom","object":"chat.completion.chunk","created":1785580005,"model":"unreadable-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+
+        """;
+    using var handler = new ConstantSseHandler(body);
+    var (service, client) = BuildScriptedChatService(config, "unreadable-value", handler);
+    using (client)
+    {
+        ChatTurnFailure? failure = null;
+        var notices = new List<ProviderRetryNotice>();
+        var output = new StringBuilder();
+        await foreach (var chunk in service.StreamMessageAsync(
+                           "hi",
+                           new ConversationContext { ConversationId = "unreadable-value" },
+                           onProviderError: f => failure = f,
+                           onProviderRetry: notices.Add))
+        {
+            output.Append(chunk);
+        }
+
+        var text = output.ToString();
+        if (handler.RequestCount != 1 || notices.Count != 0)
+            throw new InvalidOperationException($"格式不兼容重发也还是这样，必须只发一次请求（requests={handler.RequestCount}, retries={notices.Count}）");
+        if (failure?.Category != ProviderErrorCategory.StreamIncompatible)
+            throw new InvalidOperationException($"应归为 StreamIncompatible，实际 {failure?.Category.ToString() ?? "<none>"}");
+        if (!text.Contains("[API 错误:", StringComparison.Ordinal))
+            throw new InvalidOperationException($"失败必须进气泡：'{text}'");
+        // 夹具没有注入本地化服务，文案落在英文缺省值上；真实运行时由 Locale.*.axaml 提供中文。
+        if (!text.Contains("format incompatibility", StringComparison.Ordinal))
+            throw new InvalidOperationException($"必须说清这是格式不兼容：'{text}'");
+        if (!text.Contains("choices[].delta.tool_calls[].type=\"custom\"", StringComparison.Ordinal))
+            throw new InvalidOperationException($"必须指出是哪个字段、什么取值：'{text}'");
+        if (text.Contains("Provider said:", StringComparison.Ordinal) || text.Contains("usually a transient", StringComparison.Ordinal))
+            throw new InvalidOperationException($"本机的诊断不能标成供应商原话，也不能劝用户当临时故障处理：'{text}'");
+    }
+
+    Console.WriteLine("[PASS] an unreadable stream value is reported once as a format incompatibility, not retried as an interruption");
+}
+
 static async Task TestStreamedImageDecodeErrorFallsBackAsync()
 {
     var config = new AppConfig();
@@ -11160,6 +11287,95 @@ sealed class StreamInterruptedSseHandler : HttpMessageHandler
         {
             Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
         });
+    }
+}
+
+/// <summary>
+/// 第一轮回放 2026-10-09 从 MiniMax 官方端点（MiniMax-M3）原样抓回的工具调用流，与 Athena.Archive.Tests 的
+/// MiniMaxChatCapture 是同一份：每个中间片 finish_reason:""，工具调用第二片的 id / type / name 都是空串，没有 [DONE]。
+/// 第二轮是手写的终态，照同一个后端的形状（中间片同样带空的 finish_reason）。
+/// </summary>
+sealed class MiniMaxBlankEnumSseHandler : HttpMessageHandler
+{
+    public const string FinalText = "现在是 2026 年 10 月 9 日。";
+
+    private const string ToolCallRound = """
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":"<think>The user is asking me to run the `date` command using the execute_terminal_command","role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":" tool. I should call the tool as requested.","role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"content":"</think>\n\n","role":"assistant","tool_calls":[{"id":"call_01a11c432be67152ba7cf573","type":"function","function":{"name":"execute_terminal_command","arguments":""},"index":0}]}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"","index":0,"delta":{"role":"assistant","tool_calls":[{"id":"","type":"","function":{"name":"","arguments":"{\"command\":\"date\"}"},"index":0}]}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[{"finish_reason":"tool_calls","index":0,"delta":{"role":"assistant"}}],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f2454f9e01896069c30586efba85","choices":[],"created":1791475525,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":{"total_tokens":526,"total_characters":0,"prompt_tokens":467,"completion_tokens":59,"completion_tokens_details":{"reasoning_tokens":0},"prompt_tokens_details":{"cached_tokens":128}},"service_tier":"standard","base_resp":{"status_code":0,"status_msg":""}}
+
+
+        """;
+
+    private const string FinalRound = """
+        data: {"id":"0716f24a00000000000000000000final","choices":[{"finish_reason":"","index":0,"delta":{"content":"现在是 2026 年 10 月 9 日。","role":"assistant"}}],"created":1791475530,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f24a00000000000000000000final","choices":[{"finish_reason":"stop","index":0,"delta":{"role":"assistant"}}],"created":1791475530,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":null,"service_tier":"standard"}
+
+        data: {"id":"0716f24a00000000000000000000final","choices":[],"created":1791475530,"model":"MiniMax-M3","object":"chat.completion.chunk","usage":{"total_tokens":560,"total_characters":0,"prompt_tokens":540,"completion_tokens":20,"completion_tokens_details":{"reasoning_tokens":0},"prompt_tokens_details":{"cached_tokens":128}},"service_tier":"standard","base_resp":{"status_code":0,"status_msg":""}}
+
+
+        """;
+
+    public List<string> RequestBodies { get; } = [];
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestBodies.Add(request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(RequestBodies.Count == 1 ? ToolCallRound : FinalRound, Encoding.UTF8, "text/event-stream")
+        };
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>每次请求都回同一段 SSE，并数请求次数。</summary>
+sealed class ConstantSseHandler(string body) : HttpMessageHandler
+{
+    public int RequestCount { get; private set; }
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        });
+    }
+#pragma warning restore CA2000
+}
+
+/// <summary>只登记 execute_terminal_command，记下每次执行拿到的名字与参数：工具环拼出来的东西原样落在这里。</summary>
+sealed class RecordingTerminalFunctionRegistry : IFunctionRegistry
+{
+    private readonly OpenAI.Chat.ChatTool _tool = OpenAI.Chat.ChatTool.CreateFunctionTool(
+        "execute_terminal_command",
+        "Run a terminal command.",
+        BinaryData.FromString("{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}},\"required\":[\"command\"]}"));
+
+    public List<(string Name, string Arguments)> Calls { get; } = [];
+
+    public bool HasFunctions => true;
+    public IEnumerable<object> GetToolDefinitions(bool includeOfficeTools = false) => [_tool];
+    public IEnumerable<object> GetToolDefinitions(IEnumerable<string> toolNames)
+        => toolNames.Contains("execute_terminal_command", StringComparer.Ordinal) ? [_tool] : [];
+    public Task<FunctionResult> ExecuteAsync(string functionName, string argumentsJson)
+    {
+        Calls.Add((functionName, argumentsJson));
+        return Task.FromResult(FunctionResult.SuccessResult("命令执行成功 (ExitCode: 0)", new { stdout = "Fri Oct  9 10:12:05 CST 2026" }));
     }
 }
 

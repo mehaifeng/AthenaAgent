@@ -105,6 +105,8 @@
     <system:String x:Key="Chat.Error.EmptyReplyIncomplete">[本轮响应没有正常结束：供应商既没有给出正文，也没有宣告响应完成（可能是内容过滤，或流式连接中途断开）。回复“继续”即可接着往下做。]</system:String>
     <system:String x:Key="Chat.Error.StreamInterrupted">上游在回复流中途中断，本轮没有完成。这通常是供应商侧的临时故障，回复“继续”即可接着往下做。</system:String>
     <system:String x:Key="Chat.Error.StreamInterruptedDetail">供应商原话：{0}</system:String>
+    <system:String x:Key="Chat.Error.StreamIncompatible">供应商的流式回复里有一个本应用读不懂的取值，本轮在这里停止。这是格式兼容问题，不是临时故障：重试或回复“继续”多半还会遇到，可以先换用其他模型。</system:String>
+    <system:String x:Key="Chat.Error.StreamIncompatibleDetail">诊断信息：{0}</system:String>
     <system:String x:Key="Chat.Error.RetriesExhausted">{0}（此前已自动重试 {1} 次）</system:String>
     <system:String x:Key="Chat.Retry.Pending">上游中断了这次回复，正在重试（第 {0}/{1} 次）…</system:String>
     <system:String x:Key="Chat.Link.OpenFile">打开文件</system:String>

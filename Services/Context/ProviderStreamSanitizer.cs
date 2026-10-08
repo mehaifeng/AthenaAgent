@@ -12,15 +12,27 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Context;
 
 /// <summary>
-/// 把 OpenAI 兼容端点回的 SSE 里 <c>finish_reason</c> 的未知取值改写成 SDK 认得的形状，
-/// 并把原值挪到一个自定义字段上交给传输层判读。
+/// 把 OpenAI 兼容端点回的 SSE 改写成 SDK 读得下去的形状。
 ///
-/// 为什么必须在 HTTP 管线这一层做：<c>ChatFinishReason</c> 是**闭集枚举**，SDK 生成的
-/// <c>ToChatFinishReason</c> 对 stop/length/tool_calls/content_filter/function_call 之外的任何取值
-/// 直接抛 <see cref="ArgumentOutOfRangeException"/>，异常从 <c>MoveNextAsync</c> 里飞出来，
+/// 为什么必须在 HTTP 管线这一层做：SDK 的 Chat 流式反序列化里有三个**闭集枚举**字段——
+/// <c>choices[].finish_reason</c>、<c>choices[].delta.role</c>、<c>choices[].delta.tool_calls[].type</c>
+/// （反编译 OpenAI 2.12.0 逐个分支核对过，就这三个）。生成的 <c>ToChatFinishReason</c> /
+/// <c>ToChatMessageRole</c> / <c>ToChatToolCallKind</c> 遇到 null 跳过，遇到集合之外的任何字符串——
+/// 包括空串——直接抛 <see cref="ArgumentOutOfRangeException"/>，异常从 <c>MoveNextAsync</c> 里飞出来，
 /// 调用方连这个 chunk 的存在都看不到（openai-dotnet#340「closed as not planned」，2.13.0 仍是这个行为）。
-/// OpenRouter 在上游中途失败时回的正是 <c>"finish_reason": "error"</c>，于是一次普通的上游抖动
-/// 在界面上变成一句 SDK 的英文断言，而真正的错误原因（同一 chunk 里的 <c>error</c> 对象）被整条丢掉。
+///
+/// 两种改写，含义不同：
+/// <list type="bullet">
+/// <item>三个字段的空白串一律读成「没有这个值」，改成 null，不记 Warning。MiniMax 官方端点（2026-10-08，
+/// MiniMax-M3）的一部分后端把没有值的字段写成零值字符串而不是省略：每个中间 chunk 都带 <c>"finish_reason":""</c>，
+/// 工具调用从第二片起是 <c>{"id":"","type":"","function":{"name":"",…}}</c>。<c>type:""</c> 让每一轮工具调用
+/// 都死在第二片上，气泡却说「上游中途中断，回复继续即可」。同一片里的 id / name 空串 SDK 读得下去，
+/// 累积器本来就不拿空值覆盖第一片的（见 <c>OpenAIChatService.ProcessStreamAsync</c>）。</item>
+/// <item>非空的未知 <c>finish_reason</c> 是上游在宣告结局：OpenRouter 在上游中途失败时回的正是
+/// <c>"finish_reason": "error"</c>，真正的原因在同一 chunk 的 <c>error</c> 对象里。原值挪到
+/// <see cref="RawFinishReasonProperty"/> 交给传输层判读，整条 chunk 进一次 Warning。</item>
+/// </list>
+/// role / type 的非空未知值不在这里改：它们不是「没有值」的另一种写法，猜不出含义，交给传输层的兜底报成格式不兼容。
 /// </summary>
 internal static class ProviderStreamSanitizer
 {
@@ -34,21 +46,30 @@ internal static class ProviderStreamSanitizer
         ["stop", "length", "tool_calls", "content_filter", "function_call"];
 
     /// <summary>
-    /// 处理一条 SSE 行。返回 true 表示做了改写，<paramref name="sanitized"/> 是替换后的整行。
-    /// 非 data 行、解析不了的行、finish_reason 合法的行一律原样放行。
+    /// 处理一条 SSE 行。返回 true 表示做了改写，<paramref name="sanitized"/> 是替换后的整行；
+    /// <paramref name="rawFinishReason"/> 只报非空的未知取值，空白串不算（它不是上游在宣告什么）。
+    /// 非 data 行、解析不了的行、取值都合法的行一律原样放行。
     /// </summary>
     internal static bool TrySanitizeLine(string line, out string sanitized, out string? rawFinishReason)
+        => TrySanitizeLine(line, out sanitized, out rawFinishReason, out _);
+
+    /// <param name="blankFields">这一行里被读成「没有值」改成 null 的字段，供包装流按响应去重记日志。</param>
+    internal static bool TrySanitizeLine(
+        string line,
+        out string sanitized,
+        out string? rawFinishReason,
+        out IReadOnlyList<string> blankFields)
     {
         sanitized = line;
         rawFinishReason = null;
+        blankFields = [];
 
         var trimmed = line.TrimEnd('\r', '\n');
         if (!trimmed.StartsWith(DataPrefix, StringComparison.Ordinal)) return false;
 
         var payload = trimmed[DataPrefix.Length..].TrimStart();
         if (payload.Length == 0 || payload[0] != '{') return false;
-        if (!payload.Contains("finish_reason", StringComparison.Ordinal)) return false;
-        if (!HasUnknownFinishReason(payload)) return false;
+        if (!MayNeedRewrite(payload)) return false;
 
         JsonNode? root;
         try
@@ -58,34 +79,52 @@ internal static class ProviderStreamSanitizer
         catch (JsonException ex)
         {
             // 半截 JSON 不该由这里判死刑——原样放行，让 SDK 按它自己的规则报错。
-            Log.Debug(ex, "SSE chunk carrying an unknown finish_reason could not be parsed; passing it through untouched");
+            Log.Debug(ex, "SSE chunk that looked rewritable could not be parsed; passing it through untouched");
             return false;
         }
 
         if (root is not JsonObject obj || obj["choices"] is not JsonArray choices) return false;
 
-        var rewritten = false;
+        List<string>? blanked = null;
         foreach (var choice in choices)
         {
             if (choice is not JsonObject choiceObj) continue;
-            if (choiceObj["finish_reason"]?.GetValueKind() != JsonValueKind.String) continue;
 
-            var value = choiceObj["finish_reason"]!.GetValue<string>();
-            if (IsKnownFinishReason(value)) continue;
+            if (StringValue(choiceObj, "finish_reason") is { } finishReason)
+            {
+                if (string.IsNullOrWhiteSpace(finishReason))
+                {
+                    choiceObj["finish_reason"] = null;
+                    (blanked ??= []).Add("finish_reason");
+                }
+                else if (!IsKnownFinishReason(finishReason))
+                {
+                    rawFinishReason ??= finishReason;
+                    choiceObj[RawFinishReasonProperty] = finishReason;
+                    choiceObj["finish_reason"] = null;
+                }
+            }
 
-            rawFinishReason ??= value;
-            choiceObj[RawFinishReasonProperty] = value;
-            choiceObj["finish_reason"] = null;
-            rewritten = true;
+            if (choiceObj["delta"] is not JsonObject delta) continue;
+            if (NullIfBlank(delta, "role")) (blanked ??= []).Add("delta.role");
+            if (delta["tool_calls"] is not JsonArray toolCalls) continue;
+            foreach (var toolCall in toolCalls)
+            {
+                if (toolCall is JsonObject call && NullIfBlank(call, "type")) (blanked ??= []).Add("delta.tool_calls[].type");
+            }
         }
 
-        if (!rewritten) return false;
+        if (rawFinishReason == null && blanked == null) return false;
+        blankFields = blanked ?? [];
 
-        // 整条原始 chunk 进日志：上游真正的失败原因（OpenRouter 的顶层 error 对象）只在这里出现过一次。
-        Log.Warning(
-            "ProviderStreamUnknownFinishReason FinishReason={FinishReason} RawChunk={RawChunk}",
-            rawFinishReason,
-            payload.Length <= MaxLoggedChunkChars ? payload : payload[..MaxLoggedChunkChars] + "…");
+        if (rawFinishReason != null)
+        {
+            // 整条原始 chunk 进日志：上游真正的失败原因（OpenRouter 的顶层 error 对象）只在这里出现过一次。
+            Log.Warning(
+                "ProviderStreamUnknownFinishReason FinishReason={FinishReason} RawChunk={RawChunk}",
+                rawFinishReason,
+                payload.Length <= MaxLoggedChunkChars ? payload : payload[..MaxLoggedChunkChars] + "…");
+        }
 
         var leading = line[..(line.Length - line.TrimStart().Length)];
         var trailing = line[trimmed.Length..];
@@ -96,30 +135,50 @@ internal static class ProviderStreamSanitizer
     private static bool IsKnownFinishReason(string value)
         => Array.Exists(KnownFinishReasons, known => string.Equals(known, value, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// 不解析 JSON 的快速判定：绝大多数 chunk 的 finish_reason 是 null 或 stop，
-    /// 让它们连一次 JSON 解析都不用付。
-    /// </summary>
-    private static bool HasUnknownFinishReason(string payload)
+    private static string? StringValue(JsonObject owner, string key)
+        => owner[key] is JsonValue value && value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : null;
+
+    /// <summary>空白串改成 null——SDK 对 null 的处理正是「没有这个值」。返回是否改了。</summary>
+    private static bool NullIfBlank(JsonObject owner, string key)
     {
+        if (StringValue(owner, key) is not { } value || !string.IsNullOrWhiteSpace(value)) return false;
+        owner[key] = null;
+        return true;
+    }
+
+    /// <summary>
+    /// 不解析 JSON 的快速判定：绝大多数 chunk 的 finish_reason 是 null 或 stop、role / type 是合法值，
+    /// 让它们连一次 JSON 解析都不用付。这里只回答「可能要改」：多报只多一次解析，漏报就是一次崩溃。
+    /// </summary>
+    private static bool MayNeedRewrite(string payload)
+        => HasStringValue(payload, "finish_reason", value => string.IsNullOrWhiteSpace(value) || !IsKnownFinishReason(value))
+           || HasStringValue(payload, "type", string.IsNullOrWhiteSpace)
+           || HasStringValue(payload, "role", string.IsNullOrWhiteSpace);
+
+    /// <summary>
+    /// 找 <c>"key": "value"</c> 形状的键值对交给 <paramref name="predicate"/>。键名连引号一起匹配：
+    /// 正文里转义过的 <c>\"type\"</c> 和 <c>athena_raw_finish_reason</c> 都不会被误认成键。
+    /// </summary>
+    private static bool HasStringValue(string payload, string key, Func<string, bool> predicate)
+    {
+        var needle = "\"" + key + "\"";
         var index = 0;
         while (true)
         {
-            index = payload.IndexOf("finish_reason", index, StringComparison.Ordinal);
+            index = payload.IndexOf(needle, index, StringComparison.Ordinal);
             if (index < 0) return false;
-            index += "finish_reason".Length;
+            index += needle.Length;
 
             var cursor = index;
-            if (cursor < payload.Length && payload[cursor] == '"') cursor++; // 键名的收尾引号
             while (cursor < payload.Length && char.IsWhiteSpace(payload[cursor])) cursor++;
-            if (cursor >= payload.Length || payload[cursor] != ':') continue; // 不是键，是值里出现的同名字串
+            if (cursor >= payload.Length || payload[cursor] != ':') continue; // 不是键，是一个恰好同名的字符串值
             cursor++;
             while (cursor < payload.Length && char.IsWhiteSpace(payload[cursor])) cursor++;
             if (cursor >= payload.Length || payload[cursor] != '"') continue; // null / 数字 / 畸形：交给 SDK
 
             var end = payload.IndexOf('"', cursor + 1);
             if (end < 0) continue;
-            if (!IsKnownFinishReason(payload[(cursor + 1)..end])) return true;
+            if (predicate(payload[(cursor + 1)..end])) return true;
         }
     }
 
@@ -173,6 +232,7 @@ internal static class ProviderStreamSanitizer
         private readonly MemoryStream _ready = new();
         private int _readyOffset;
         private bool _innerEnded;
+        private HashSet<string>? _reportedBlankFields;
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -240,9 +300,12 @@ internal static class ProviderStreamSanitizer
             _pendingLine.Clear();
 
             var line = Encoding.UTF8.GetString(raw);
-            var bytes = TrySanitizeLine(line, out var sanitized, out _)
-                ? Encoding.UTF8.GetBytes(sanitized)
-                : raw;
+            var bytes = raw;
+            if (TrySanitizeLine(line, out var sanitized, out _, out var blankFields))
+            {
+                bytes = Encoding.UTF8.GetBytes(sanitized);
+                ReportBlankFields(blankFields);
+            }
 
             // 已被读空的字节没有任何用处，趁机压回开头，免得一次长回复把整段响应留在内存里。
             if (_readyOffset > 0 && _readyOffset == _ready.Length)
@@ -253,6 +316,23 @@ internal static class ProviderStreamSanitizer
 
             _ready.Seek(0, SeekOrigin.End);
             _ready.Write(bytes, 0, bytes.Length);
+        }
+
+        /// <summary>
+        /// 空白串是这类端点的常态（MiniMax 每个中间 chunk 都带一个），逐 chunk 记日志只会淹没别的东西；
+        /// 每个响应、每个字段记一次 Debug，够回答「这条流被改过没有、改的是哪个字段」。
+        /// </summary>
+        private void ReportBlankFields(IReadOnlyList<string> blankFields)
+        {
+            foreach (var field in blankFields)
+            {
+                if ((_reportedBlankFields ??= new HashSet<string>(StringComparer.Ordinal)).Add(field))
+                {
+                    Log.Debug(
+                        "ProviderStreamBlankEnumValue Field={Field}: the provider sent an empty string where the protocol has no value; read as absent",
+                        field);
+                }
+            }
         }
 
         private bool TryDrain(Span<byte> destination, out int count)

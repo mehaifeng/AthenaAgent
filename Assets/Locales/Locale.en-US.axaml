@@ -105,6 +105,8 @@
     <system:String x:Key="Chat.Error.EmptyReplyIncomplete">[This round did not finish normally: the provider returned no answer text and never reported a completed response (content filtering, or the connection dropped mid-stream). Say “continue” to pick it up again.]</system:String>
     <system:String x:Key="Chat.Error.StreamInterrupted">The provider ended this reply mid-stream, so the round did not finish. This is usually a transient upstream failure — say “continue” to pick it up again.</system:String>
     <system:String x:Key="Chat.Error.StreamInterruptedDetail">Provider said: {0}</system:String>
+    <system:String x:Key="Chat.Error.StreamIncompatible">The provider's streamed reply contained a value this app cannot read, so the round stopped there. This is a format incompatibility, not a transient failure — retrying or saying “continue” will most likely hit it again, so switch to another model for now.</system:String>
+    <system:String x:Key="Chat.Error.StreamIncompatibleDetail">Details: {0}</system:String>
     <system:String x:Key="Chat.Error.RetriesExhausted">{0} (automatically retried {1} time(s) first)</system:String>
     <system:String x:Key="Chat.Retry.Pending">The provider interrupted this reply; retrying ({0}/{1})…</system:String>
     <system:String x:Key="Chat.Link.OpenFile">Open file</system:String>
