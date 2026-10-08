@@ -2283,7 +2283,7 @@ public class OpenAIChatService : IChatService
     /// <summary>
     /// 哪些失败值得原样重发一次。上游在流中途宣告失败（OpenRouter 的 finish_reason=error）永远算；
     /// 网络类只在流已经开始之后才算——连接阶段的失败 SDK 自己已经重试过 3 次，再叠一层只是把
-    /// 一次明确的不可达拖成十几秒的沉默。其余（认证、参数、上下文超限、不支持图片、限流）重发多少次都一样。
+    /// 一次明确的不可达拖成十几秒的沉默。其余（认证、参数、上下文超限、不支持图片、限流、流格式不兼容）重发多少次都一样。
     /// </summary>
     private static bool IsRetryableStreamFailure(ProviderErrorCategory category, bool streamStarted)
         => category == ProviderErrorCategory.StreamInterrupted
@@ -2312,6 +2312,18 @@ public class OpenAIChatService : IChatService
                 : interrupted + " " + string.Format(
                     GetLocalized("Chat.Error.StreamInterruptedDetail", "Provider said: {0}"),
                     classification.SafeProviderMessage);
+        }
+        if (classification.Category == ProviderErrorCategory.StreamIncompatible)
+        {
+            // 这里没有供应商原话：附上的是本机的诊断（哪个字段、什么取值），也别劝用户「继续」——
+            // 同一个端点重发多半还是这个形状，2026-10-08 用户照着旧文案连发三次「继续」，三次都一样。
+            return GetLocalized(
+                       "Chat.Error.StreamIncompatible",
+                       "The provider's streamed reply contained a value this app cannot read, so the round stopped there. This is a format incompatibility, not a transient failure — retrying or saying “continue” will most likely hit it again, so switch to another model for now.")
+                   + " "
+                   + string.Format(
+                       GetLocalized("Chat.Error.StreamIncompatibleDetail", "Details: {0}"),
+                       classification.SafeProviderMessage);
         }
         if (classification.Category == ProviderErrorCategory.ContextOverflow
             && runtime.ModelMetadata.ContextWindowTokens.Source == MetadataValueSource.ApplicationDefault)

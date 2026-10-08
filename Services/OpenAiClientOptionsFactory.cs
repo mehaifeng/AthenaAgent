@@ -28,8 +28,9 @@ public static class OpenAiClientOptionsFactory
             NetworkTimeout = TimeSpan.FromSeconds(NormalizeTimeoutSeconds(timeoutSeconds))
         };
 
-        // SSE 里 finish_reason 的未知取值会让 SDK 在反序列化时直接抛（见 ProviderStreamSanitizer）。
-        // 这不是重试策略能覆盖的范围——那时 HTTP 200 早已回来、响应体正在流——所以改写只能挂在管线上。
+        // SSE 里闭集枚举字段（finish_reason / role / tool_calls[].type）的未知取值或空串会让 SDK 在反序列化时
+        // 直接抛（见 ProviderStreamSanitizer）。这不是重试策略能覆盖的范围——那时 HTTP 200 早已回来、
+        // 响应体正在流——所以改写只能挂在管线上。
         options.AddPolicy(ProviderStreamSanitizer.Policy.Instance, PipelinePosition.PerCall);
 
         if (!string.IsNullOrWhiteSpace(baseUrl))
