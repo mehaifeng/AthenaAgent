@@ -298,6 +298,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
         if (_disposed || result.Endpoints is not { } endpoints || string.IsNullOrWhiteSpace(result.ApiKey)) return;
 
         PrimaryProvider.ProviderPreset = endpoints.ProviderPreset;
+        PrimaryProvider.DisplayName = endpoints.DisplayName;
         PrimaryProvider.BaseUrl = endpoints.BaseUrl;
         PrimaryProvider.ApiKey = result.ApiKey;
         OnPropertyChanged(nameof(PrimaryProvider));

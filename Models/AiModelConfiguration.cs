@@ -23,7 +23,7 @@ public partial class OpenAiProviderConfiguration : ObservableObject
     private string _id = Guid.NewGuid().ToString("N");
 
     [ObservableProperty]
-    private string _displayName = "OpenAI Official";
+    private string _displayName = "OpenAI-compatible";
 
     [ObservableProperty]
     private string _providerPreset = "OpenAI";

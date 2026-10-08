@@ -5016,6 +5016,8 @@ static void TestOrcaRouterConnectEntryPoints(string outputDirectory)
             || onboarding.PrimaryProvider.BaseUrl != endpoints.BaseUrl
             || onboarding.PrimaryProvider.ProviderPreset != endpoints.ProviderPreset)
             throw new InvalidOperationException("引导页接入必须把凭据与端点写进主连接。");
+        if (onboarding.PrimaryProvider.DisplayName != endpoints.DisplayName)
+            throw new InvalidOperationException("引导页接入必须把供应商显示名设为 OrcaRouter。");
         if (onboarding.Config.AiModels.MainConversation.Model != endpoints.DefaultModel)
             throw new InvalidOperationException("引导页接入后主对话必须有一个可用模型，否则用户仍然过不了第一步。");
         if (!onboarding.ModelOptions.Contains(endpoints.DefaultModel))

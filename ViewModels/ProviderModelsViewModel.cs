@@ -153,7 +153,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     {
         var provider = new OpenAiProviderConfiguration
         {
-            DisplayName = "OpenAI",
+            DisplayName = "OpenAI-compatible",
             ProviderPreset = "OpenAI",
             BaseUrl = "https://api.openai.com/v1"
         };

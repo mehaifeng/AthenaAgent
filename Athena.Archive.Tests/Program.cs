@@ -9055,6 +9055,7 @@ static Task TestOrcaRouterProviderBindingAsync()
     AssertEqual(2, models.Providers.Count, "首次接入应当新建一条连接，且不动已有的那条");
     AssertEqual("sk-orca-one", first.ApiKey, "首次接入必须写入 key");
     AssertEqual(endpoints.BaseUrl, first.BaseUrl, "新建的连接必须指向 OrcaRouter 的 API 根");
+    AssertEqual(endpoints.DisplayName, first.DisplayName, "新建连接必须带上 OrcaRouter 的显示名");
     AssertEqual("sk-openai", models.Providers[0].ApiKey, "接入 OrcaRouter 不能碰其他供应商的凭据");
 
     // 同一个 host 只能有一条。新建第二条的话业务角色还指着第一条，
