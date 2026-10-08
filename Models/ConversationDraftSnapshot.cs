@@ -60,6 +60,13 @@ public class ConversationDraftSnapshot
     public List<string>? ClearedToolResultIds { get; set; }
 
     /// <summary>
+    /// 上次的用量显示状态（供应商回报的 usage）；重启后打开会话直接显示它。会话状态，不进 <c>ChatMessage</c>；
+    /// null 表示从未收到过 usage，整个字段不写出。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ConversationUsageRecord? Usage { get; set; }
+
+    /// <summary>
     /// fork 元数据：当前会话若是分支，重启后仍需携带
     /// </summary>
     public string? ForkedFromConversationId { get; set; }

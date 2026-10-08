@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 
@@ -67,6 +68,13 @@ public interface ITokenService
     /// </summary>
     void MarkPending(long contextRevision = 0);
     void ResetUsage();
+    /// <summary>会话落盘用：从未收到过 usage 时返回 null。</summary>
+    ConversationUsageRecord? CaptureRecord();
+    /// <summary>
+    /// 恢复会话时还原上次的用量显示；null 等同 <see cref="ResetUsage"/>。
+    /// 记录里的模型与 <paramref name="expectedModelFingerprint"/> 不一致时还原数字但降为待测——那个数字说的是另一个模型的分词。
+    /// </summary>
+    void RestoreRecord(ConversationUsageRecord? record, long contextRevision = 0, string? expectedModelFingerprint = null);
 }
 
 public partial class TokenService : ObservableObject, ITokenService
@@ -214,7 +222,7 @@ public partial class TokenService : ObservableObject, ITokenService
         LowerBoundTokens = 0;
         LastUsageAt = usage.ObservedAtUtc ?? DateTimeOffset.UtcNow;
         LastRequestId = usage.RequestId;
-        ModelFingerprint = string.Join('\u001f', usage.ProviderId ?? string.Empty, usage.ModelId ?? string.Empty);
+        ModelFingerprint = FormatModelFingerprint(usage.ProviderId, usage.ModelId);
         ContextRevision = contextRevision;
         return true;
     }
@@ -243,6 +251,41 @@ public partial class TokenService : ObservableObject, ITokenService
         ContextRevision = 0;
         LowerBoundTokens = 0;
     }
+
+    public ConversationUsageRecord? CaptureRecord() => !HasEverReceivedValidUsage
+        ? null
+        : new ConversationUsageRecord
+        {
+            Measured = MeasurementKind == TokenMeasurementKind.ApiExact,
+            CurrentTokens = CurrentTokens,
+            CachedInputTokens = CachedInputTokens,
+            LowerBoundTokens = LowerBoundTokens,
+            LastUsageAt = LastUsageAt,
+            LastRequestId = LastRequestId,
+            ModelFingerprint = ModelFingerprint
+        };
+
+    public void RestoreRecord(ConversationUsageRecord? record, long contextRevision = 0, string? expectedModelFingerprint = null)
+    {
+        ResetUsage();
+        if (record == null || record.CurrentTokens <= 0 || record.CachedInputTokens < 0 || record.LowerBoundTokens < 0) return;
+
+        CurrentTokens = record.CurrentTokens;
+        CachedInputTokens = record.CachedInputTokens;
+        LastUsageAt = record.LastUsageAt;
+        LastRequestId = record.LastRequestId;
+        ModelFingerprint = record.ModelFingerprint ?? string.Empty;
+        ContextRevision = contextRevision;
+        HasEverReceivedValidUsage = true;
+        var sameModel = expectedModelFingerprint == null
+                        || string.Equals(expectedModelFingerprint, ModelFingerprint, StringComparison.Ordinal);
+        MeasurementKind = record.Measured && sameModel ? TokenMeasurementKind.ApiExact : TokenMeasurementKind.Unanchored;
+        LowerBoundTokens = MeasurementKind == TokenMeasurementKind.ApiExact || !sameModel ? 0 : record.LowerBoundTokens;
+    }
+
+    /// <summary>与 <see cref="TryApplyUsage"/> 写入 <see cref="ModelFingerprint"/> 的格式一致。</summary>
+    public static string FormatModelFingerprint(string? providerId, string? modelId)
+        => string.Join('\u001f', providerId ?? string.Empty, modelId ?? string.Empty);
 
     private static string Compact(long value) => Math.Abs(value) switch
     {

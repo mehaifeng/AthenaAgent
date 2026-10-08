@@ -86,6 +86,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("provider error classifier prioritizes overflow and redacts credentials", TestProviderErrorClassifierAsync),
     ("provider inventory keyed merge preserves exact identities and references", TestProviderInventoryMergeAsync),
     ("conversation usage remains hidden until valid matching API usage", TestConversationUsageStateAsync),
+    ("conversation usage record round-trips through the archive and restores the display", TestConversationUsageRecordPersistsAsync),
     ("request identity carries only HMAC fingerprints, tracks every request-shaping input, and the legacy calibration file is removed", TestRequestIdentityPrivacyAsync),
     ("model metadata CSV neutralizes formulas and replaces files atomically", TestModelMetadataCsvExportAsync),
     ("vector index rebuild requires every chunk to be embedded", TestVectorIndexRebuildResultAsync),
@@ -1574,6 +1575,71 @@ static Task TestConversationUsageStateAsync()
     AssertFalse(usage.HasVisibleUsage, "new/restored/fork reset must hide usage again");
     AssertEqual(0L, usage.LowerBoundTokens, "a reset clears the lower bound too");
     return Task.CompletedTask;
+}
+
+static async Task TestConversationUsageRecordPersistsAsync()
+{
+    // TokenService 的落盘/还原：从未收到过 usage 的会话不写字段；实测值原样回来；待测带着下界回来；
+    // 记录的模型与当前主模型不一致时数字回来、但不算实测（那是另一个分词器的数）。
+    var usage = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    AssertTrue(usage.CaptureRecord() == null, "a conversation that never received usage persists nothing");
+    var fingerprint = TokenService.FormatModelFingerprint("p", "m");
+    AssertTrue(usage.TryApplyUsage(new TokenUsageSnapshot(100, 20, 10, 110, "r1", "p", "m"), "p", "m", 1), "valid usage anchors");
+    var measured = usage.CaptureRecord()!;
+    AssertTrue(measured.Measured && measured.CurrentTokens == 110 && measured.CachedInputTokens == 20, "a measurement is captured as such");
+    AssertEqual(fingerprint, measured.ModelFingerprint, "the fingerprint is captured in the TryApplyUsage format");
+
+    var restored = new TokenService { MaxTokens = 100_000, CompressionThresholdTokens = 80_000 };
+    restored.RestoreRecord(measured, contextRevision: 7, expectedModelFingerprint: fingerprint);
+    AssertTrue(restored.HasVisibleUsage && restored.IsRealUsage, "a restored measurement is shown at once");
+    AssertEqual("110 / 100K", restored.TokenInfoText, "the restored value reads exactly like the live one");
+    AssertEqual("r1", restored.State.LastRequestId, "the request id comes back with it");
+
+    restored.RestoreRecord(measured, contextRevision: 7, expectedModelFingerprint: TokenService.FormatModelFingerprint("p", "m2"));
+    AssertTrue(restored.HasVisibleUsage && !restored.IsRealUsage, "usage from another model comes back pending");
+    AssertEqual(110L, restored.CurrentTokens, "the pending value still carries the old measurement as a baseline");
+
+    usage.MarkPending(contextRevision: 2);
+    usage.LowerBoundTokens = 50;
+    var pending = usage.CaptureRecord()!;
+    AssertFalse(pending.Measured, "a pending state is captured as pending");
+    restored.RestoreRecord(pending, expectedModelFingerprint: fingerprint);
+    AssertFalse(restored.IsRealUsage, "a pending state stays pending after a restart");
+    AssertEqual("≥50 / 100K", restored.TokenInfoText, "the lower bound survives the restart");
+
+    restored.RestoreRecord(null);
+    AssertFalse(restored.HasVisibleUsage, "restoring a conversation without usage hides the display");
+
+    // 落盘形状：没有就整个字段省掉；有就按名字写出，往返不变；草稿快照同样携带。
+    var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    AssertFalse(JsonSerializer.Serialize(new ConversationHistoryItem(), json).Contains("\"usage\"", StringComparison.Ordinal),
+        "a conversation without usage writes no field");
+    var withUsage = JsonSerializer.Serialize(new ConversationHistoryItem { Usage = measured }, json);
+    var roundTrip = JsonSerializer.Deserialize<ConversationHistoryItem>(withUsage, json)!.Usage!;
+    AssertTrue(roundTrip.Measured && roundTrip.CurrentTokens == 110 && roundTrip.ModelFingerprint == fingerprint,
+        "the usage record round-trips through JSON");
+    AssertTrue(JsonSerializer.Serialize(new ConversationDraftSnapshot { Usage = measured }, json).Contains("\"usage\"", StringComparison.Ordinal),
+        "the unarchived draft snapshot carries it too");
+
+    // 归档链路：快照 → 暂存 → 投递给存储。
+    using var harness = new TestHarness();
+    var snapshot = new ConversationArchiveSnapshot
+    {
+        CapturedAt = DateTime.Now,
+        ForceGenerateSummary = false,
+        Usage = measured,
+        Messages = [new ChatMessage { Role = "user", Content = "queued", Timestamp = DateTime.Now }]
+    };
+    var store = new QueueArchiveStore();
+    var service = new ConversationArchiveService(store, store, new TestTitleGenerator(), harness.PathService, Log.ForContext<ConversationArchiveService>());
+    var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    service.ArchiveCompleted += (_, _) => completion.TrySetResult(true);
+    await service.StageArchiveAsync(snapshot);
+    await AwaitWithTimeout(completion.Task, "archive completion");
+    AssertEqual(110L, store.SavedItems.Single().Usage?.CurrentTokens ?? 0, "the archive delivers the usage record to the store");
+
+    AssertFalse(typeof(ChatMessage).GetProperties().Any(property => property.Name.Contains("Usage", StringComparison.Ordinal)),
+        "usage state lives on the conversation, never on ChatMessage (rule 2 whitelist)");
 }
 
 static async Task TestRequestIdentityPrivacyAsync()
