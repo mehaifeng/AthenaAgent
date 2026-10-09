@@ -4257,6 +4257,13 @@ static Task TestSummaryContextBudgetAsync()
     var truncated = ConversationTitleGenerator.Truncate(emoji, 21);
     AssertEqual(20, truncated.Length, "cut point should back off before a high surrogate");
 
+    // 推理模型把思考写进正文：只取结束标记之后的答案；被截断在思考中途则没有标题
+    AssertEqual("修复登录", ConversationTitleGenerator.StripReasoning("<think>The conversation is about login</think>\n修复登录"), "think block must be stripped");
+    AssertEqual("修复登录", ConversationTitleGenerator.StripReasoning("The conversation ... </think>修复登录"), "closing tag alone must be stripped");
+    AssertTrue(ConversationTitleGenerator.StripReasoning("<think>The conversat") == null, "unclosed think block must yield no title");
+    AssertTrue(ConversationTitleGenerator.StripReasoning("<think>x</think>  ") == null, "empty answer after think must yield no title");
+    AssertEqual("普通标题", ConversationTitleGenerator.StripReasoning("普通标题"), "plain text must pass through");
+
     return Task.CompletedTask;
 }
 

@@ -70,7 +70,7 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
                         var options = ResponsesCallHelpers.CreateOptions(effective, _promptService.GetPrompt(PromptType.SummaryGeneration), (float?)effective.Temperature, effective.MaxOutputTokens);
                         ResponsesCallHelpers.AddInputItems(options, openAiMessages.Skip(1));
                         var result = await responses.CreateResponseAsync(options, cancellationToken);
-                        title = ResponsesCallHelpers.GetFirstOutputText(result.Value)?.Trim().Trim('"', '\'', ' ', '。', '.');
+                        title = StripReasoning(ResponsesCallHelpers.GetFirstOutputText(result.Value))?.Trim('"', '\'', ' ', '。', '.');
                     }
                     else
                     {
@@ -83,7 +83,7 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
                                 MaxOutputTokenCount = effective.MaxOutputTokens
                             },
                             cancellationToken);
-                        title = completion.Value.Content.FirstOrDefault()?.Text?.Trim().Trim('"', '\'', ' ', '。', '.');
+                        title = StripReasoning(completion.Value.Content.FirstOrDefault()?.Text)?.Trim('"', '\'', ' ', '。', '.');
                     }
 
                     if (!string.IsNullOrWhiteSpace(title)) return Truncate(title, TitleMaxChars);
@@ -135,6 +135,22 @@ public sealed class ConversationTitleGenerator : IConversationTitleGenerator
             };
         }
         return entries;
+    }
+
+    /// <summary>
+    /// 部分模型（如 minimax-m2）在 Chat Completions 下把推理写进正文：<c>&lt;think&gt;…&lt;/think&gt;答案</c>，
+    /// 有的端点还会吞掉开头标记，只剩结尾标记。取最后一个结束标记之后的部分；
+    /// 有开始标记却没有结束标记，说明输出在思考中途被截断（输出上限被推理花光），没有答案可取，返回 null。
+    /// </summary>
+    internal static string? StripReasoning(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var body = text.Trim();
+        const string close = "</think>";
+        var end = body.LastIndexOf(close, StringComparison.OrdinalIgnoreCase);
+        if (end >= 0) body = body[(end + close.Length)..].Trim();
+        else if (body.StartsWith("<think>", StringComparison.OrdinalIgnoreCase)) return null;
+        return body.Length == 0 ? null : body;
     }
 
     internal static string Truncate(string text, int maxChars)
