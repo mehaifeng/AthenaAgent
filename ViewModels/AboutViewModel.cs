@@ -283,9 +283,9 @@ public partial class AboutViewModel : ViewModelBase
         var lines = releaseNotes
             .Split('\n', StringSplitOptions.TrimEntries)
             .Where(line => !string.IsNullOrWhiteSpace(line))
-            .Take(8)
+            .Take(30)
             .ToArray();
         var preview = string.Join(Environment.NewLine, lines);
-        return preview.Length <= 1200 ? preview : $"{preview[..1200]}...";
+        return preview.Length <= 3000 ? preview : $"{preview[..3000]}...";
     }
 }
