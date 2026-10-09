@@ -1014,6 +1014,7 @@
     <system:String x:Key="Chat.Context.CompressionUnavailable">Automatic context compression did not succeed. This reply continues with the context unchanged.</system:String>
     <system:String x:Key="Chat.Context.CompressManually">Compress manually</system:String>
     <system:String x:Key="Chat.Context.CompressedBadge">Compressed −{0}</system:String>
+    <system:String x:Key="Chat.Context.ClearedBadge">Old tool results cleared −{0}</system:String>
     <system:String x:Key="Chat.Context.Boundary">Context compressed · {0} messages → summary</system:String>
     <system:String x:Key="Chat.Context.BoundaryAt">Context compressed · {0} messages → summary · {1:t}</system:String>
     <system:String x:Key="Chat.Reasoning.Header">Reasoning</system:String>

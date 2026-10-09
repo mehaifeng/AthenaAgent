@@ -151,7 +151,7 @@ public sealed class PetChatterService : IPetChatterService, IDisposable
                 text = completion.Value.Content.FirstOrDefault()?.Text;
             }
 
-            var line = Sanitize(text);
+            var line = Sanitize(ConversationTitleGenerator.StripReasoning(text));
             if (line == null) _logger.Debug("Pet chatter model returned nothing usable");
             return line;
         }
