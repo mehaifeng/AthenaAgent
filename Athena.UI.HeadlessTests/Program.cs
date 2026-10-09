@@ -4538,6 +4538,9 @@ static async Task TestPendingUsageAndSavingBadgeAsync()
     var snapshot = chat.CapturePersistenceSnapshot("hist", "t", DateTime.Now, false, null);
     if (snapshot.ClearedToolResultIds?.SequenceEqual(["bd-tool"]) != true)
         throw new InvalidOperationException("The cleared-results callback must reach the persisted snapshot.");
+    // 清理的基线是上一次实测；第一次发送之前没有实测，就不该出一个凭空的「已清理」角标。
+    if (!string.IsNullOrEmpty(chat.CompressionSavingBadge))
+        throw new InvalidOperationException($"Clearing without a prior measurement must not raise a badge, saw '{chat.CompressionSavingBadge}'.");
 
     Run(chat.CompactNowCommand.ExecuteAsync(null), "Compact now never finished.");
     Dispatcher.UIThread.RunJobs();

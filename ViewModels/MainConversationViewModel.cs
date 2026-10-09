@@ -488,6 +488,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 压缩前最后一次实测值；压缩后的第一次 usage 到达时用来算节省了多少，用完即清。
     private long? _pendingSavingBadgeBaseline;
 
+    // 上面这个基线是「工具结果清理」留下的（而不是压缩）。清理不进检查点栈，也不该写回栈顶检查点，
+    // 角标措辞也不同；任何一次压缩提交或会话恢复都会重新 Arm/覆盖它。
+    private bool _pendingSavingBadgeIsClearing;
+
     private sealed record CompressionCheckpoint(
         string CompressionId,
         long AppliedRevision,
@@ -2161,6 +2165,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _postClearingMeasurePending = false;
         _compactionDueAfterClearing = false;
         _pendingSavingBadgeBaseline = null;
+        _pendingSavingBadgeIsClearing = false;
         SetActiveContextSummary(null);
         SetOrphanedLegacySummary(null);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -2412,12 +2417,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         {
                             if (_pendingSavingBadgeBaseline is { } before)
                             {
+                                var clearing = _pendingSavingBadgeIsClearing;
                                 _pendingSavingBadgeBaseline = null;
+                                _pendingSavingBadgeIsClearing = false;
                                 var saved = before - _tokenService.CurrentTokens;
                                 // 把这次实测的压缩后用量写回检查点并落盘：4 秒的角标会消失，
                                 // 但「上次压缩省了多少」是一个持久事实，检查器应当一直显示得出来。
-                                RecordMeasuredPostCompressionTokens(_tokenService.CurrentTokens, before);
-                                ShowCompressionSavingBadge(saved);
+                                // 清理没有检查点：栈顶是更早的压缩，写回去就把别人的数字改了。
+                                if (!clearing)
+                                    RecordMeasuredPostCompressionTokens(_tokenService.CurrentTokens, before);
+                                ShowCompressionSavingBadge(saved, clearing);
                             }
                             OnPropertyChanged(nameof(ContextTokensInfo));
                             RefreshContextInspectorProperties();
@@ -2504,6 +2513,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     // 记下 ID、标记需要持久化就够了；用量显示降为近似态，等下一轮 Usage 重锚。
                     _clearedToolResultIds = ToolResultClearing.Merge(_clearedToolResultIds, ids);
                     _currentContext.ClearedToolResultIds = _clearedToolResultIds;
+                    // 清理是静默的：不给提示，用户只会看到用量凭空掉下来。基线必须在 MarkContextUsagePending
+                    // 之前取，之后显示的数字就不再是上一次实测了；差值等下一次 usage 到达时算，同压缩角标。
+                    // 同一轮里随后若又提交了全量压缩，Committed 会以更早的基线覆盖这里。
+                    ArmCompressionSavingBadge(LastMeasuredTokens(), clearing: true);
                     MarkContextUsagePending();
                     RefreshContextInspectorProperties();
                     MarkPersistenceStateChanged();
@@ -3348,8 +3361,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// 而是记下压缩前的实测值，等第一次 usage 到达时用它减去新的实测值（见 onUsageReported）。
     /// 压缩前没有实测值就没有角标。
     /// </summary>
-    private void ArmCompressionSavingBadge(long measuredBefore)
-        => _pendingSavingBadgeBaseline = measuredBefore > 0 ? measuredBefore : null;
+    private void ArmCompressionSavingBadge(long measuredBefore, bool clearing = false)
+    {
+        _pendingSavingBadgeBaseline = measuredBefore > 0 ? measuredBefore : null;
+        _pendingSavingBadgeIsClearing = clearing && _pendingSavingBadgeBaseline != null;
+    }
 
     /// <summary>
     /// 压缩后第一次实测到达：把实测的「压缩后用量」写回栈顶检查点，让「省了多少」这个事实
@@ -3368,7 +3384,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>压缩省下了多少——把「刚才那段等待」和「换来了什么」绑在同一个视觉事件上。</summary>
-    private void ShowCompressionSavingBadge(long savedTokens)
+    private void ShowCompressionSavingBadge(long savedTokens, bool clearing = false)
     {
         if (savedTokens <= 0)
         {
@@ -3377,7 +3393,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
 
         CompressionSavingBadge = string.Format(
-            GetString("Chat.Context.CompressedBadge", "Compressed −{0}"),
+            clearing
+                ? GetString("Chat.Context.ClearedBadge", "Old tool results cleared −{0}")
+                : GetString("Chat.Context.CompressedBadge", "Compressed −{0}"),
             FormatTokenCount(savedTokens));
         var generation = ++_compressionBadgeGeneration;
         _ = Task.Run(async () =>
@@ -3609,6 +3627,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     // 撤销了压缩：角标的被减数（压缩前实测值）不再是任何待计算量的一部分，
                     // 留着只会在下一次实测时算出一个虚假的「节省」。
                     _pendingSavingBadgeBaseline = null;
+                    _pendingSavingBadgeIsClearing = false;
                     if (_tokenService != null) _tokenService.LowerBoundTokens = 0;
                 }
                 CompressionStatusMessage = committed.IsCommitted
@@ -3771,6 +3790,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _pendingSavingBadgeBaseline = history.PostCompactionMeasurePending
             ? history.CompressionHistory?.LastOrDefault()?.PreCompressionTokens
             : null;
+        _pendingSavingBadgeIsClearing = false;
         SetActiveContextSummary(history.ContextSummary);
         SetOrphanedLegacySummary(history.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
@@ -4026,6 +4046,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _pendingSavingBadgeBaseline = snapshot.PostCompactionMeasurePending
             ? snapshot.CompressionHistory?.LastOrDefault()?.PreCompressionTokens
             : null;
+        _pendingSavingBadgeIsClearing = false;
         SetActiveContextSummary(snapshot.ContextSummary);
         SetOrphanedLegacySummary(snapshot.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
