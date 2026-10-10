@@ -1098,6 +1098,7 @@
     <system:String x:Key="Workspace.Status.UnboundWorkspace">No workspace bound</system:String>
     <system:String x:Key="Workspace.Status.GlobalChatNoFiles">Global chat does not use workspace files</system:String>
     <system:String x:Key="Workspace.Status.ReadingFilesFailed">Could not read workspace files</system:String>
+    <system:String x:Key="Workspace.Status.WatcherUnavailable">File watching unavailable; external changes will not refresh automatically</system:String>
     <system:String x:Key="Workspace.Status.ReadingGitFailed">Could not read Git status</system:String>
     <system:String x:Key="Workspace.Status.WorkingTreeClean">Working tree clean</system:String>
     <system:String x:Key="Workspace.Status.FilesChanged">{0} file(s) have changes</system:String>

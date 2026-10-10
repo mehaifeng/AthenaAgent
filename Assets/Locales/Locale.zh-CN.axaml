@@ -1098,6 +1098,7 @@
     <system:String x:Key="Workspace.Status.UnboundWorkspace">未绑定工作区</system:String>
     <system:String x:Key="Workspace.Status.GlobalChatNoFiles">全局对话不使用工作区文件</system:String>
     <system:String x:Key="Workspace.Status.ReadingFilesFailed">无法读取工作区文件</system:String>
+    <system:String x:Key="Workspace.Status.WatcherUnavailable">文件监视不可用，外部改动不会自动刷新</system:String>
     <system:String x:Key="Workspace.Status.ReadingGitFailed">无法读取 Git 状态</system:String>
     <system:String x:Key="Workspace.Status.WorkingTreeClean">工作树干净</system:String>
     <system:String x:Key="Workspace.Status.FilesChanged">{0} 个文件有更改</system:String>
