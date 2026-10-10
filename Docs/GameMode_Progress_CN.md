@@ -37,7 +37,7 @@
 | 24 | Node 单测 + Playwright 冒烟（Chromium、WebKit）+ 运动自检，覆盖实时模式 | ✅ | 「最后一轮」 |
 | 25 | 手动验收清单 `Docs/GameMode_M1_Acceptance_CN.md` | ✅ | 该文件 |
 | 26 | 文档即规范：`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ✅ | 两份文档的 "Game Mode" 一节、目录地图与命令表；设计稿 v3（各节"M1："标注） |
-| 27 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | 🔶 | 改动已全部提交（工作区只剩两个不属于本阶段的未跟踪文件，没动）；推送与 PR 见下一条提交 |
+| 27 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ✅ | 改动已全部提交（工作区只剩两个不属于本阶段的未跟踪文件，没动）；`feature/game-mode-m1` 已推送；PR [mehaifeng/AthenaAgent#29](https://github.com/mehaifeng/AthenaAgent/pull/29)（以 main 为目标，没有合并；它同时带着设计稿与 M0，因为两者都还没进 main） |
 | 28 | 最后一轮重跑 a–c，贴结果，打印清单 | ✅ | 「最后一轮」 |
 
 ### 待定问题的默认处理（设计稿第 15 节与正文里的"待定"）
