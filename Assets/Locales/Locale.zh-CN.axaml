@@ -1045,6 +1045,9 @@
     <system:String x:Key="MainWindow.Menu.Fork">分支</system:String>
     <system:String x:Key="MainWindow.Menu.Export">导出</system:String>
     <system:String x:Key="MainWindow.Menu.Delete">删除</system:String>
+    <system:String x:Key="MainWindow.Menu.RelocateWorkspace">重新定位文件夹…</system:String>
+    <system:String x:Key="MainWindow.Workspace.RelocatePick">选择这个工作区现在所在的文件夹</system:String>
+    <system:String x:Key="MainWindow.Workspace.RelocateFailedTitle">无法重新定位工作区</system:String>
     <system:String x:Key="MainWindow.Launcher.Providers">供应商模型</system:String>
     <system:String x:Key="MainWindow.Launcher.KnowledgeBase">知识库</system:String>
     <system:String x:Key="MainWindow.Launcher.Tasks">定时消息</system:String>

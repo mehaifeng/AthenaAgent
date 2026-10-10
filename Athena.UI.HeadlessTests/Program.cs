@@ -1453,7 +1453,8 @@ diffTab.Mode = WorkspaceEditorMode.Diff;
 var workbench = new WorkspaceWorkbenchViewModel(
     new WorkspaceOperationCoordinator(),
     new HeadlessPathService(),
-    new HeadlessInteractionService());
+    new HeadlessInteractionService(),
+    new WorkspaceWatcherService());
 workbench.HasGitRepository = true;
 workbench.CurrentBranchName = "codex/review-layout";
 workbench.IsReviewVisible = true;
@@ -4418,7 +4419,8 @@ static void TestRightPanelAutoExpand()
     using var workbench = new WorkspaceWorkbenchViewModel(
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
-        new HeadlessInteractionService());
+        new HeadlessInteractionService(),
+        new WorkspaceWatcherService());
     var viewModel = new MainWindowViewModel(
         chatService: null,
         configService: null,
@@ -4481,7 +4483,8 @@ static void TestWorkspaceInlineRenameVisual()
     using var workbench = new WorkspaceWorkbenchViewModel(
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
-        new HeadlessInteractionService());
+        new HeadlessInteractionService(),
+        new WorkspaceWatcherService());
     var folder = new WorkspaceFileNodeViewModel
     {
         Name = "folder",
@@ -4543,7 +4546,8 @@ static async Task TestWorkspaceRenameBehaviorAsync()
         workbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -9284,7 +9288,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
         sourceWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         foreach (var fileName in new[] { "first.txt", "second.txt", "third.txt" })
         {
@@ -9302,7 +9307,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
         restoredWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         var selectedPaths = new List<string?>();
         restoredWorkbench.PropertyChanged += (_, args) =>
         {
@@ -9363,7 +9369,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
         sourceWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         await sourceWorkbench.OpenFileCommand.ExecuteAsync(
             sourceWorkbench.Files.Single(node => node.Name == "modified.txt"));
@@ -9379,7 +9386,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
         restoredWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await restoredWorkbench.SetWorkspaceAsync(workspace);
 
         var restoredTab = restoredWorkbench.SelectedEditorTab
@@ -9470,7 +9478,8 @@ static async Task TestWorkspaceGitDiffAsync()
         workbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
-            interaction);
+            interaction,
+            new WorkspaceWatcherService());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -9574,7 +9583,8 @@ static async Task TestWorkspaceGitDiffAsync()
         using (var singleTabWorkbench = new WorkspaceWorkbenchViewModel(
                    new WorkspaceOperationCoordinator(),
                    new HeadlessPathService(),
-                   new HeadlessInteractionService()))
+                   new HeadlessInteractionService(),
+                   new WorkspaceWatcherService()))
         {
             if (singleTabWorkbench.IsEditorVisible)
                 throw new InvalidOperationException("An editor pane without tabs must start closed.");
@@ -9672,6 +9682,7 @@ static async Task TestWorkspaceCommitAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9738,6 +9749,7 @@ static async Task TestWorkspaceCommitUnstagedAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9801,6 +9813,7 @@ static async Task TestWorkspaceUnstageAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9859,6 +9872,7 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             generator);
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9931,8 +9945,9 @@ static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
 
 // 工作区文件监视器的 Error 路径。改动前 Error 从没被订阅：Windows 缓冲区溢出、Linux inotify 溢出或撞上限、
 // macOS FSEvents 丢事件时，文件树与 Git 状态停在旧样子，日志里一个字都没有；监视器建不起来时，异常从被
-// 丢弃的 SetWorkspaceAsync 任务里漏掉。Error 处理与 250 ms 去抖刷新都 Post 回 dispatcher，所以这个用例
-// 跑在主线程上、靠 PumpUntil 推进，不能塞进 Task.Run。
+// 丢弃的 SetWorkspaceAsync 任务里漏掉。监视器现在是工作台与游戏模式共用的 WorkspaceWatcherService：
+// 合并与 Warning 在服务里，整树刷新在工作台里。刷新 Post 回 dispatcher，所以这个用例跑在主线程上、
+// 靠 PumpUntil 推进，不能塞进 Task.Run。
 static void TestWorkspaceWatcherErrors()
 {
     var root = Path.Combine(Path.GetTempPath(), "athena-workspace-watcher-" + Guid.NewGuid().ToString("N"));
@@ -9940,23 +9955,30 @@ static void TestWorkspaceWatcherErrors()
     var sink = new CapturingLogSink();
     var previousLogger = Log.Logger;
     var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
-    // 工作台的 _logger 在构造时从 Log.Logger 派生，所以先换日志器、再建 VM；finally 里换回去。
+    // 监视服务与工作台的 _logger 都在构造时从 Log.Logger 派生，所以先换日志器、再建它们；finally 里换回去。
     Log.Logger = capturingLogger;
     WorkspaceWorkbenchViewModel? workbench = null;
     WorkspaceWorkbenchViewModel? unwatched = null;
+    WorkspaceWatcherService? watcherService = null;
+    WorkspaceWatcherService? unwatchableService = null;
     try
     {
         File.WriteAllText(Path.Combine(root, "before.txt"), "before\n");
         InitGitFixtureRepository(root);
 
         ScriptedErrorFileSystemWatcher? watcher = null;
-        workbench = new WorkspaceWorkbenchViewModel(
-            new WorkspaceOperationCoordinator(),
-            new HeadlessPathService(),
-            new HeadlessInteractionService())
+        watcherService = new WorkspaceWatcherService
         {
             WatcherFactory = path => watcher = new ScriptedErrorFileSystemWatcher(path)
         };
+        // 共用监视器的另一位订阅者（游戏模式就是这样订阅的）：一批错误对它也只报一次。
+        var droppedBatches = 0;
+        watcherService.ErrorsDropped += (_, _) => Interlocked.Increment(ref droppedBatches);
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            watcherService);
         PumpForCompletion(
             workbench.SetWorkspaceAsync(new WorkspaceProfile
             {
@@ -9965,8 +9987,8 @@ static void TestWorkspaceWatcherErrors()
                 DirectoryPath = root
             }),
             "loading the watcher-error workspace");
-        if (watcher is not { EnableRaisingEvents: true })
-            throw new InvalidOperationException("SetWorkspaceAsync 必须经由 WatcherFactory 启动工作区监视器。");
+        if (watcher is not { EnableRaisingEvents: true } || watcherService.State != WorkspaceWatchState.Watching)
+            throw new InvalidOperationException("SetWorkspaceAsync 必须经由共享监视服务（WatcherFactory）启动工作区监视器。");
         if (!workbench.HasGitRepository || workbench.GitChanges.All(change => change.RelativePath != "before.txt"))
             throw new InvalidOperationException("夹具的 Git 仓库没有被工作台识别，Error 路径的 Git 刷新无从断言。");
 
@@ -9983,7 +10005,7 @@ static void TestWorkspaceWatcherErrors()
                   && workbench.GitChanges.Any(change => change.RelativePath == "dropped.txt"),
             10000,
             "监视器报 Error（事件溢出）后必须整树刷新文件树与 Git 状态；否则两者停在旧样子，直到某个无关改动碰巧触发刷新。");
-        var overflowWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        var overflowWarnings = sink.Events.Where(IsWatcherWarning).ToList();
         if (overflowWarnings.Count != 1
             || overflowWarnings[0].Exception is not InternalBufferOverflowException
             || LoggedScalar(overflowWarnings[0], "Workspace") as string != root)
@@ -9994,25 +10016,30 @@ static void TestWorkspaceWatcherErrors()
         sink.Clear();
         for (var i = 0; i < 40; i++)
             watcher.RaiseError(new IOException("simulated inotify watch limit"));
-        PumpUntil(() => sink.Events.Any(IsWorkbenchWarning), 5000, "一批监视器错误没有留下任何 Warning。");
+        PumpUntil(() => sink.Events.Any(IsWatcherWarning), 5000, "一批监视器错误没有留下任何 Warning。");
         PumpFor(300);
-        var burstWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        var burstWarnings = sink.Events.Where(IsWatcherWarning).ToList();
         if (burstWarnings.Count != 1 || LoggedScalar(burstWarnings[0], "ErrorCount") is not 40)
             throw new InvalidOperationException(
                 $"同一批 40 条监视器错误必须合并成一条带计数的 Warning；实际 {burstWarnings.Count} 条。");
+        if (Volatile.Read(ref droppedBatches) != 2)
+            throw new InvalidOperationException(
+                $"共享监视器的每个订阅者对一批错误都只该收到一次通知（两批共 2 次），实际 {droppedBatches} 次。");
 
         // 监视器建不起来：SetWorkspaceAsync 不能抛，文件树与 Git 照常加载，Warning 加状态栏提示。
         sink.Clear();
         var localization = new LocalizationService();
-        unwatched = new WorkspaceWorkbenchViewModel(
-            new WorkspaceOperationCoordinator(),
-            new HeadlessPathService(),
-            new HeadlessInteractionService(),
-            localizationService: localization)
+        unwatchableService = new WorkspaceWatcherService
         {
             WatcherFactory = _ => throw new IOException(
                 "The configured user limit (128) on the number of inotify instances has been reached.")
         };
+        unwatched = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            unwatchableService,
+            localizationService: localization);
         PumpForCompletion(
             unwatched.SetWorkspaceAsync(new WorkspaceProfile
             {
@@ -10026,15 +10053,19 @@ static void TestWorkspaceWatcherErrors()
         if (unwatched.StatusText != localization.GetString("Workspace.Status.WatcherUnavailable", "<missing>"))
             throw new InvalidOperationException(
                 $"监视器建不起来时状态栏必须提示实时更新不可用（zh-CN 词条不能缺），实际为「{unwatched.StatusText}」。");
-        if (!sink.Events.Any(e => IsWorkbenchWarning(e)
+        if (!sink.Events.Any(e => IsWatcherWarning(e)
                                   && e.Exception is IOException
                                   && LoggedScalar(e, "Workspace") as string == root))
             throw new InvalidOperationException("监视器建不起来必须写一条 Warning，带上异常与工作区路径。");
+        if (unwatchableService.State != WorkspaceWatchState.Unavailable)
+            throw new InvalidOperationException("监视器建不起来时，共享监视服务的状态必须是 Unavailable，游戏模式据此改为每次回来时重扫。");
     }
     finally
     {
         workbench?.Dispose();
         unwatched?.Dispose();
+        watcherService?.Dispose();
+        unwatchableService?.Dispose();
         Log.Logger = previousLogger;
         capturingLogger.Dispose();
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
@@ -10044,10 +10075,10 @@ static void TestWorkspaceWatcherErrors()
 
     Console.WriteLine("[PASS] workspace watcher errors refresh files and Git, coalesce into one Warning, and an unstartable watcher leaves the workbench usable");
 
-    // 只认工作台自己的 Warning：日志器换掉的这段时间里，别处的静态 Log 调用也会落进同一个 sink。
-    static bool IsWorkbenchWarning(LogEvent logEvent)
+    // 只认监视服务自己的 Warning：日志器换掉的这段时间里，别处的静态 Log 调用也会落进同一个 sink。
+    static bool IsWatcherWarning(LogEvent logEvent)
         => logEvent.Level == LogEventLevel.Warning
-           && LoggedScalar(logEvent, "SourceContext") as string == typeof(WorkspaceWorkbenchViewModel).FullName;
+           && LoggedScalar(logEvent, "SourceContext") as string == typeof(WorkspaceWatcherService).FullName;
 
     static object? LoggedScalar(LogEvent logEvent, string property)
         => logEvent.Properties.TryGetValue(property, out var value) && value is ScalarValue scalar ? scalar.Value : null;
@@ -12046,6 +12077,12 @@ sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWork
     }
     public Task<bool> DeleteAsync(string id) =>
         Task.FromResult(workspaces.RemoveAll(workspace => workspace.Id == id) > 0);
+    public Task RelocateAsync(WorkspaceProfile workspace, string newDirectoryPath, CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(newDirectoryPath)) throw new DirectoryNotFoundException(newDirectoryPath);
+        workspace.DirectoryPath = newDirectoryPath;
+        return Task.CompletedTask;
+    }
     public Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath) =>
         Task.FromResult(workspaces.FirstOrDefault(workspace => workspace.DirectoryPath == directoryPath));
     public void SetActiveWorkspace(WorkspaceProfile? workspace)

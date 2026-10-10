@@ -1045,6 +1045,9 @@
     <system:String x:Key="MainWindow.Menu.Fork">Branch</system:String>
     <system:String x:Key="MainWindow.Menu.Export">Export</system:String>
     <system:String x:Key="MainWindow.Menu.Delete">Delete</system:String>
+    <system:String x:Key="MainWindow.Menu.RelocateWorkspace">Relocate folder…</system:String>
+    <system:String x:Key="MainWindow.Workspace.RelocatePick">Choose the folder this workspace now lives in</system:String>
+    <system:String x:Key="MainWindow.Workspace.RelocateFailedTitle">Could not relocate the workspace</system:String>
     <system:String x:Key="MainWindow.Launcher.Providers">Providers and models</system:String>
     <system:String x:Key="MainWindow.Launcher.KnowledgeBase">Knowledge base</system:String>
     <system:String x:Key="MainWindow.Launcher.Tasks">Scheduled messages</system:String>

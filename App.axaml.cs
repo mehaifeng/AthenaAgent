@@ -837,11 +837,14 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<IPromptService>(),
                 Log.ForContext<CommitMessageGenerator>()));
         services.AddSingleton<OfficePreviewHost>();
+        // 当前工作区唯一的递归监视器：工作台与游戏模式共用，不各开一个（设计稿 11.2）。
+        services.AddSingleton<IWorkspaceWatcherService, WorkspaceWatcherService>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>(sp =>
             new WorkspaceWorkbenchViewModel(
                 sp.GetRequiredService<WorkspaceOperationCoordinator>(),
                 sp.GetRequiredService<IPlatformPathService>(),
                 sp.GetRequiredService<IUserInteractionService>(),
+                sp.GetRequiredService<IWorkspaceWatcherService>(),
                 sp.GetService<ICommitMessageGenerator>(),
                 sp.GetService<ILocalizationService>(),
                 sp.GetService<OfficePreviewHost>()));

@@ -1320,8 +1320,66 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         group.RevealRequested += (_, _) => RevealWorkspace(group);
         group.CopyPathRequested += async (_, _) => await CopyWorkspacePathAsync(group);
         group.ContextSettingsRequested += async (_, _) => await OpenWorkspaceContextSettingsAsync(group);
+        group.RelocateRequested += (_, _) => AsyncEventGuard.Run(() => PickAndRelocateWorkspaceAsync(group), nameof(PickAndRelocateWorkspaceAsync));
         group.DeleteRequested += async (_, _) => await DeleteWorkspaceAsync(group);
     }
+
+    /// <summary>会话树菜单"重新定位文件夹…"：挑一个文件夹，交给 <see cref="RelocateWorkspaceAsync"/>。</summary>
+    private async Task PickAndRelocateWorkspaceAsync(WorkspaceConversationGroupViewModel group)
+    {
+        if (group.Workspace == null || _userInteractionService == null) return;
+        var path = await _userInteractionService.PickFolderAsync(
+            L("MainWindow.Workspace.RelocatePick", "Choose the folder this workspace now lives in"));
+        if (string.IsNullOrWhiteSpace(path)) return;
+        await RelocateWorkspaceAsync(group.Workspace, path);
+    }
+
+    /// <summary>
+    /// 重新定位工作区文件夹（设计稿 11.4）：只改 <see cref="WorkspaceProfile.DirectoryPath"/>，Id、名字、
+    /// 知识与游戏存档都不动。落盘之后：分组刷新路径、组内每个会话换掉上下文里缓存的目录；
+    /// 当前选中的会话正在这个工作区里，就重新激活作用域（工作台按新根目录重载、终端换目录）。
+    /// 游戏模式的雾里那个"重新定位"按钮也走这里。返回是否成功；失败已经告诉用户了。
+    /// </summary>
+    public async Task<bool> RelocateWorkspaceAsync(WorkspaceProfile workspace, string newDirectoryPath)
+    {
+        if (_workspaceService == null)
+        {
+            _logger.Warning("Workspace relocation is unavailable: no workspace service in this composition");
+            return false;
+        }
+        try
+        {
+            await _workspaceService.RelocateAsync(workspace, newDirectoryPath);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException)
+        {
+            _logger.Warning(ex, "Workspace relocation refused: {WorkspaceId} -> {Path}", workspace.Id, newDirectoryPath);
+            if (_userInteractionService != null)
+            {
+                await _userInteractionService.ConfirmAsync(
+                    L("MainWindow.Workspace.RelocateFailedTitle", "Could not relocate the workspace"),
+                    ex.Message,
+                    L("Common.Confirm", "OK"),
+                    L("Common.Cancel", "Close"),
+                    showDontAskAgain: false);
+            }
+            return false;
+        }
+
+        foreach (var group in ConversationGroups.Where(candidate => ReferenceEquals(candidate.Workspace, workspace)
+                                                                    || candidate.Workspace?.Id == workspace.Id))
+        {
+            group.NotifyRelocated();
+            foreach (var session in group.Conversations) session.Chat.RefreshWorkspaceDirectory();
+        }
+        if (SelectedConversation?.Workspace?.Id == workspace.Id)
+            ActivateConversationScope(SelectedConversation);
+        WorkspaceRelocated?.Invoke(this, workspace);
+        return true;
+    }
+
+    /// <summary>重新定位成功之后发布；游戏模式据此丢掉雾、按新目录重新测绘这座城。</summary>
+    public event EventHandler<WorkspaceProfile>? WorkspaceRelocated;
 
     private void RefreshPinnedConversations()
     {

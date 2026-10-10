@@ -47,6 +47,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
     ("workspace context overrides publish only after an atomic durable write", TestWorkspaceContextOverridePersistenceAsync),
+    ("workspace relocation changes only the folder: the id, the knowledge and the polis save stay", TestWorkspaceRelocationAsync),
     ("conversation persistence preserves audio metadata", TestAudioPersistenceCloneAsync),
     ("audio config reuses a referenced provider credential", TestAudioConfigInheritanceAsync),
     ("audio SDK base URL normalizes full speech endpoints", TestAudioSdkBaseUrlAsync),
@@ -2229,6 +2230,49 @@ static async Task TestWorkspaceProfileAndKnowledgeContextAsync()
     await service.DeleteAsync(workspace.Id);
     AssertTrue(!Directory.Exists(Path.Combine(harness.PathService.GetWorkspacesDirectory(), workspace.Id)),
         "removing a workspace should remove only its managed workspace data");
+}
+
+// 重新定位（设计稿 11.4）：文件夹被移动或改名后，重新添加会得到新 Id——一座新城邦、旧存档就断了。
+// 重新定位只改 DirectoryPath，Workspaces/<id>/ 下的知识与游戏存档原地不动。
+static async Task TestWorkspaceRelocationAsync()
+{
+    using var harness = new TestHarness();
+    var service = new WorkspaceService(harness.PathService, Log.ForContext<WorkspaceService>());
+    var oldFolder = Path.Combine(harness.Root, "project-old");
+    var newFolder = Path.Combine(harness.Root, "project-moved");
+    var otherFolder = Path.Combine(harness.Root, "someone-else");
+    Directory.CreateDirectory(newFolder);
+    Directory.CreateDirectory(otherFolder);
+    var workspace = new WorkspaceProfile { Name = "Moved project", DirectoryPath = oldFolder };
+    await service.SaveAsync(workspace);
+    var other = new WorkspaceProfile { Name = "Other project", DirectoryPath = otherFolder };
+    await service.SaveAsync(other);
+
+    var knowledgeFile = service.GetKnowledgeFilePath(workspace);
+    await File.WriteAllTextAsync(knowledgeFile, "kept knowledge");
+    var gameDirectory = Path.Combine(harness.PathService.GetWorkspacesDirectory(), workspace.Id, "game");
+    Directory.CreateDirectory(gameDirectory);
+    await File.WriteAllTextAsync(Path.Combine(gameDirectory, "polis.json"), "{\"schemaVersion\":2}");
+    var originalId = workspace.Id;
+    var originalCreatedAt = workspace.CreatedAt;
+
+    await service.RelocateAsync(workspace, newFolder + Path.DirectorySeparatorChar);
+    AssertEqual(originalId, workspace.Id, "重新定位不能改 Id：存档按 Id 找城邦");
+    AssertEqual(Path.GetFullPath(newFolder), workspace.DirectoryPath, "活对象要拿到规范化后的新目录（去掉末尾分隔符）");
+    var reloaded = await service.LoadByIdAsync(originalId);
+    AssertEqual(Path.GetFullPath(newFolder), reloaded?.DirectoryPath, "新目录必须落盘，重启后还在");
+    AssertEqual("Moved project", reloaded?.Name, "重新定位只改目录，名字不动");
+    AssertEqual(originalCreatedAt, reloaded?.CreatedAt, "创建时间决定群岛上的位置（设计稿 9.1），不能被重新定位改掉");
+    AssertEqual("kept knowledge", await File.ReadAllTextAsync(service.GetKnowledgeFilePath(reloaded!)), "工作区知识原样保留");
+    AssertTrue(File.Exists(Path.Combine(gameDirectory, "polis.json")), "游戏存档原样保留：整个 Workspaces/<id>/ 不动");
+    AssertEqual(originalId, (await service.FindByDirectoryAsync(newFolder))?.Id, "按新目录能找回同一个工作区（再添加同一文件夹不会多出一座城）");
+
+    var missing = Path.Combine(harness.Root, "does-not-exist");
+    await AssertThrowsAsync<DirectoryNotFoundException>(() => service.RelocateAsync(workspace, missing), "不存在的目录不能定位过去");
+    AssertEqual(Path.GetFullPath(newFolder), workspace.DirectoryPath, "失败的重新定位不能改动活对象");
+    await AssertThrowsAsync<InvalidOperationException>(() => service.RelocateAsync(workspace, otherFolder),
+        "已经属于另一个工作区的文件夹不能被抢过来：两个 Id 共用一个文件夹，存档会分叉");
+    AssertEqual(Path.GetFullPath(newFolder), (await service.LoadByIdAsync(originalId))?.DirectoryPath, "被拒绝的重新定位不能落盘");
 }
 
 static async Task TestWorkspaceContextOverridePersistenceAsync()
@@ -11171,6 +11215,8 @@ sealed class StubWorkspaceService(string workspaceId, string directory) : IWorks
     public Task UpdateContextPolicyAsync(WorkspaceProfile workspace, WorkspaceContextPolicyOverride? contextPolicyOverride,
         CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<bool> DeleteAsync(string id) => throw new NotSupportedException();
+    public Task RelocateAsync(WorkspaceProfile workspace, string newDirectoryPath, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
     public Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath) => throw new NotSupportedException();
     public void SetActiveWorkspace(WorkspaceProfile? workspace) => throw new NotSupportedException();
     public string GetKnowledgeFilePath(WorkspaceProfile workspace) => throw new NotSupportedException();

@@ -683,6 +683,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// <summary>由三栏会话宿主在创建/恢复会话时设置固定工作区归属。</summary>
     public void AssignWorkspace(WorkspaceProfile? workspace) => CurrentWorkspace = workspace;
 
+    /// <summary>
+    /// 工作区被重新定位之后由外壳调用：同一个工作区对象换了目录，Id 不变，<see cref="CurrentWorkspace"/>
+    /// 的变更通知不会触发，上下文里缓存的目录要在这里跟着换，下一次请求才会告诉模型新的位置。
+    /// </summary>
+    public void RefreshWorkspaceDirectory()
+    {
+        _currentContext.WorkspaceDirectoryPath = CurrentWorkspace?.DirectoryPath;
+        OnPropertyChanged(nameof(CurrentWorkspacePath));
+    }
+
     /// <summary>加载工作区列表并恢复上次活跃工作区</summary>
     public async Task InitializeWorkspacesAsync()
     {

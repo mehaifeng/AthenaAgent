@@ -51,6 +51,8 @@
     <StaticResource x:Key="AthenaIconWorkspace" ResourceKey="CoreIconFolder"/>
     <StaticResource x:Key="AthenaIconWorkspaceAdd" ResourceKey="CoreIconFolderAdd"/>
     <StaticResource x:Key="AthenaIconWorkspaceUnfiled" ResourceKey="CoreIconInbox"/>
+    <!-- 重新定位工作区文件夹：把同一个工作区重新接到移动后的文件夹上 -->
+    <StaticResource x:Key="AthenaIconWorkspaceRelocate" ResourceKey="CoreIconLinkAlt"/>
     <StaticResource x:Key="AthenaIconConversation" ResourceKey="CoreIconChatBubble"/>
     <StaticResource x:Key="AthenaIconConversationAdd" ResourceKey="CoreIconConversationAdd"/>
     <StaticResource x:Key="AthenaIconPin" ResourceKey="CoreIconPin"/>
