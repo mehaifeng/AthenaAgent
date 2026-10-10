@@ -26,12 +26,13 @@ public enum PolisActionCategory
 }
 
 /// <summary>
-/// 工具名 → 动作类别。以 <c>Services/SubAgents/SubAgentZones.cs</c> 的 24 个工具为起点，补全到
-/// <c>FunctionRegistry</c> 注册的全部工具；Archive.Tests 逐个核对注册表，新工具忘了登记会被断言抓住。
+/// 工具名 → 动作类别。这是游戏和猫头鹰村共用的唯一一张表（设计稿 6.1）：<c>SubAgentZones</c> 从它派生，
+/// 新工具登记一次，两边就都有动作。覆盖 <c>FunctionRegistry</c> 注册的全部工具；Archive.Tests 逐个核对注册表，
+/// 新工具忘了登记会被断言抓住。名字按不分大小写比较（与猫头鹰村原来的表一致）。
 /// </summary>
 public static class PolisToolCategories
 {
-    private static readonly Dictionary<string, PolisActionCategory> Map = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, PolisActionCategory> Map = new(StringComparer.OrdinalIgnoreCase)
     {
         // 读：走进建筑，展开卷轴
         ["read_system_file"] = PolisActionCategory.Read,

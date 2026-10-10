@@ -10276,7 +10276,7 @@ static async Task WaitForAsync(Func<bool> condition, string message)
     }
     throw new InvalidOperationException(message);
 }
-// —— 游戏模式 M0：城邦扫描、建筑汇总、布局账本、回放转换（Tools/GameMode/Polis） ——
+// —— 游戏模式：城邦扫描、建筑汇总、布局账本、回放转换（Services/GameMode；合成夹具在 Tools/GameMode/Polis） ——
 
 static Task TestPolisScanAsync()
 {
@@ -10624,7 +10624,7 @@ static Task TestPolisSyntheticFixtureCommittedAsync()
     AssertTrue(File.Exists(path), $"合成夹具应当提交在 {path}");
     var committed = File.ReadAllText(path).Replace("\r\n", "\n");
     AssertTrue(committed == generated,
-        "提交的合成夹具与管线生成的结果不一致：改了 Tools/GameMode/Polis 之后要重新生成（PolisExport synthetic --out Tools/GameMode/web/fixtures/synthetic.json），网页和测试读的才是同一份数据");
+        "提交的合成夹具与管线生成的结果不一致：改了 Services/GameMode 或 Tools/GameMode/Polis 之后要重新生成（PolisExport synthetic --out Tools/GameMode/web/fixtures/synthetic.json），网页和测试读的才是同一份数据");
 
     var fixture = PolisSyntheticFixture.Build();
     var plots = fixture.Buildings.Select(b => b.Plot).ToList();

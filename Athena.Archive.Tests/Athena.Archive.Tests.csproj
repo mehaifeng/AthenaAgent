@@ -199,8 +199,9 @@
     <!-- 更新器的 .app 布局归位与包内版本读取；不链 Program.cs，它与本项目的入口点冲突。 -->
     <Compile Include="../Athena.Updater/MacAppBundle.cs" Link="Source/Updater/MacAppBundle.cs" />
     <Compile Include="../Athena.Updater/StagedPayload.cs" Link="Source/Updater/StagedPayload.cs" />
-    <!-- 游戏模式 M0：城邦扫描、建筑汇总、布局账本、回放转换都是纯函数，放在 Tools/GameMode/Polis（M0 不进应用），
-         这里和导出工程 Tools/GameMode/PolisExport 各自逐文件链接。 -->
-    <Compile Include="../Tools/GameMode/Polis/*.cs" Link="Source/GameMode/%(Filename)%(Extension)" />
+    <!-- 游戏模式：城邦扫描、建筑汇总、布局账本、存档、差异、归属、意图校验都是纯函数（M1 起在 Services/GameMode，进应用）；
+         合成夹具只是开发期数据，留在 Tools/GameMode/Polis，不进应用。 -->
+    <Compile Include="../Services/GameMode/*.cs" Link="Source/Services/GameMode/%(Filename)%(Extension)" />
+    <Compile Include="../Tools/GameMode/Polis/PolisSyntheticFixture.cs" Link="Source/GameMode/PolisSyntheticFixture.cs" />
   </ItemGroup>
 </Project>
