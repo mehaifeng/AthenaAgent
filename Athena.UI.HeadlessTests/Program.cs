@@ -46,6 +46,8 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 try
 {
@@ -137,6 +139,7 @@ Task.Run(TestWorkspaceCommitAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceCommitUnstagedAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceUnstageAsync).GetAwaiter().GetResult();
 Task.Run(TestWorkspaceGenerateCommitMessageAsync).GetAwaiter().GetResult();
+TestWorkspaceWatcherErrors();
 TestCommitMessageGeneratorDiResolution();
 Task.Run(TestProviderRefreshOrderingAsync).GetAwaiter().GetResult();
 Task.Run(TestProviderRefreshStatusIsProviderScopedAsync).GetAwaiter().GetResult();
@@ -9926,6 +9929,137 @@ static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
     throw new InvalidOperationException(failureMessage);
 }
 
+// 工作区文件监视器的 Error 路径。改动前 Error 从没被订阅：Windows 缓冲区溢出、Linux inotify 溢出或撞上限、
+// macOS FSEvents 丢事件时，文件树与 Git 状态停在旧样子，日志里一个字都没有；监视器建不起来时，异常从被
+// 丢弃的 SetWorkspaceAsync 任务里漏掉。Error 处理与 250 ms 去抖刷新都 Post 回 dispatcher，所以这个用例
+// 跑在主线程上、靠 PumpUntil 推进，不能塞进 Task.Run。
+static void TestWorkspaceWatcherErrors()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-workspace-watcher-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    // 工作台的 _logger 在构造时从 Log.Logger 派生，所以先换日志器、再建 VM；finally 里换回去。
+    Log.Logger = capturingLogger;
+    WorkspaceWorkbenchViewModel? workbench = null;
+    WorkspaceWorkbenchViewModel? unwatched = null;
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "before.txt"), "before\n");
+        InitGitFixtureRepository(root);
+
+        ScriptedErrorFileSystemWatcher? watcher = null;
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService())
+        {
+            WatcherFactory = path => watcher = new ScriptedErrorFileSystemWatcher(path)
+        };
+        PumpForCompletion(
+            workbench.SetWorkspaceAsync(new WorkspaceProfile
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = "Watcher error fixture",
+                DirectoryPath = root
+            }),
+            "loading the watcher-error workspace");
+        if (watcher is not { EnableRaisingEvents: true })
+            throw new InvalidOperationException("SetWorkspaceAsync 必须经由 WatcherFactory 启动工作区监视器。");
+        if (!workbench.HasGitRepository || workbench.GitChanges.All(change => change.RelativePath != "before.txt"))
+            throw new InvalidOperationException("夹具的 Git 仓库没有被工作台识别，Error 路径的 Git 刷新无从断言。");
+
+        // 一次突发改动把事件全丢光：文件写进去了，工作台自己不知道。
+        File.WriteAllText(Path.Combine(root, "dropped.txt"), "dropped\n");
+        PumpFor(400);
+        if (workbench.Files.Any(node => node.Name == "dropped.txt")
+            || workbench.GitChanges.Any(change => change.RelativePath == "dropped.txt"))
+            throw new InvalidOperationException("夹具失效：监视器本不该送达任何事件，「事件被丢」的前提不成立。");
+
+        watcher.RaiseError(new InternalBufferOverflowException("simulated overflow"));
+        PumpUntil(
+            () => workbench.Files.Any(node => node.Name == "dropped.txt")
+                  && workbench.GitChanges.Any(change => change.RelativePath == "dropped.txt"),
+            10000,
+            "监视器报 Error（事件溢出）后必须整树刷新文件树与 Git 状态；否则两者停在旧样子，直到某个无关改动碰巧触发刷新。");
+        var overflowWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        if (overflowWarnings.Count != 1
+            || overflowWarnings[0].Exception is not InternalBufferOverflowException
+            || LoggedScalar(overflowWarnings[0], "Workspace") as string != root)
+            throw new InvalidOperationException(
+                $"监视器出错必须恰好写一条 Warning，带上异常与工作区路径；实际 {overflowWarnings.Count} 条。");
+
+        // 一批错误只写一条：Linux 撞上 inotify watch 上限时，每个加不上的目录各报一次 Error。
+        sink.Clear();
+        for (var i = 0; i < 40; i++)
+            watcher.RaiseError(new IOException("simulated inotify watch limit"));
+        PumpUntil(() => sink.Events.Any(IsWorkbenchWarning), 5000, "一批监视器错误没有留下任何 Warning。");
+        PumpFor(300);
+        var burstWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        if (burstWarnings.Count != 1 || LoggedScalar(burstWarnings[0], "ErrorCount") is not 40)
+            throw new InvalidOperationException(
+                $"同一批 40 条监视器错误必须合并成一条带计数的 Warning；实际 {burstWarnings.Count} 条。");
+
+        // 监视器建不起来：SetWorkspaceAsync 不能抛，文件树与 Git 照常加载，Warning 加状态栏提示。
+        sink.Clear();
+        var localization = new LocalizationService();
+        unwatched = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            localizationService: localization)
+        {
+            WatcherFactory = _ => throw new IOException(
+                "The configured user limit (128) on the number of inotify instances has been reached.")
+        };
+        PumpForCompletion(
+            unwatched.SetWorkspaceAsync(new WorkspaceProfile
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = "Unwatchable fixture",
+                DirectoryPath = root
+            }),
+            "loading a workspace whose watcher cannot start");
+        if (unwatched.Files.All(node => node.Name != "before.txt") || !unwatched.HasGitRepository)
+            throw new InvalidOperationException("监视器建不起来时，文件树与 Git 状态仍须照常加载。");
+        if (unwatched.StatusText != localization.GetString("Workspace.Status.WatcherUnavailable", "<missing>"))
+            throw new InvalidOperationException(
+                $"监视器建不起来时状态栏必须提示实时更新不可用（zh-CN 词条不能缺），实际为「{unwatched.StatusText}」。");
+        if (!sink.Events.Any(e => IsWorkbenchWarning(e)
+                                  && e.Exception is IOException
+                                  && LoggedScalar(e, "Workspace") as string == root))
+            throw new InvalidOperationException("监视器建不起来必须写一条 Warning，带上异常与工作区路径。");
+    }
+    finally
+    {
+        workbench?.Dispose();
+        unwatched?.Dispose();
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(root, recursive: true);
+    }
+
+    Console.WriteLine("[PASS] workspace watcher errors refresh files and Git, coalesce into one Warning, and an unstartable watcher leaves the workbench usable");
+
+    // 只认工作台自己的 Warning：日志器换掉的这段时间里，别处的静态 Log 调用也会落进同一个 sink。
+    static bool IsWorkbenchWarning(LogEvent logEvent)
+        => logEvent.Level == LogEventLevel.Warning
+           && LoggedScalar(logEvent, "SourceContext") as string == typeof(WorkspaceWorkbenchViewModel).FullName;
+
+    static object? LoggedScalar(LogEvent logEvent, string property)
+        => logEvent.Properties.TryGetValue(property, out var value) && value is ScalarValue scalar ? scalar.Value : null;
+}
+
+// 只推 dispatcher、不等任何条件：用来证明一段时间里「什么都没发生」。
+static void PumpFor(int milliseconds)
+{
+    var until = Environment.TickCount64 + milliseconds;
+    PumpUntil(() => Environment.TickCount64 >= until, milliseconds + 5000);
+}
+
 static string RunGitForWorkspaceTestOutput(string workingDirectory, params string[] arguments)
 {
     var start = new ProcessStartInfo("git")
@@ -12117,5 +12251,38 @@ sealed class HeadlessOrcaRouterConnectService(OrcaRouterEndpoints? endpoints, st
             Endpoints = endpoints,
             Failure = OrcaRouterConnectFailure.None
         };
+    }
+}
+
+/// <summary>
+/// 只在 <see cref="RaiseError"/> 时出声的文件监视器。构造时 <see cref="FileSystemWatcher.BeginInit"/> 让它停在
+/// 「初始化中」：之后的 <c>EnableRaisingEvents = true</c> 只记下开关、不建任何系统监视，工作区里的真实改动和
+/// 真实的平台错误都到不了工作台，Error 只来自测试。<c>OnError</c> 是 protected，子类是走真实订阅的正路。
+/// </summary>
+sealed class ScriptedErrorFileSystemWatcher : FileSystemWatcher
+{
+    public ScriptedErrorFileSystemWatcher(string path) : base(path) => BeginInit();
+
+    public void RaiseError(Exception exception) => OnError(new ErrorEventArgs(exception));
+}
+
+/// <summary>收集日志事件，供断言检查某条降级路径留下了哪一级别的记录。</summary>
+sealed class CapturingLogSink : ILogEventSink
+{
+    private readonly List<LogEvent> _events = [];
+
+    public IReadOnlyList<LogEvent> Events
+    {
+        get { lock (_events) { return _events.ToList(); } }
+    }
+
+    public void Emit(LogEvent logEvent)
+    {
+        lock (_events) { _events.Add(logEvent); }
+    }
+
+    public void Clear()
+    {
+        lock (_events) { _events.Clear(); }
     }
 }
