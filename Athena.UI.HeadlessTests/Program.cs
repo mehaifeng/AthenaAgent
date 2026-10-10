@@ -790,7 +790,7 @@ if (!workspaceMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the workspace overflow button did not open its menu.");
 var workspaceMenuItems = await AwaitMenuItemsAsync(
     workspaceMenuFlyout,
-    ["重命名", "上下文设置", "在文件夹中显示", "复制路径", "删除"],
+    ["重命名", "上下文设置", "重新定位文件夹…", "在文件夹中显示", "复制路径", "删除"],
     "Workspace menu commands or icons are incomplete.");
 workspaceMenuFlyout.Hide();
 var conversationMenus = window.GetVisualDescendants().OfType<Button>()

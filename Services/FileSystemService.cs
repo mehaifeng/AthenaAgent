@@ -193,7 +193,7 @@ public class FileSystemService : IFileSystemService
     /// 它报告的是「知识库/link-dir/x」。不存在的尾部原样拼回（尚不存在的路径上不会再有链接）；
     /// 超过 <see cref="MaxSymlinkHops"/> 跳视为环。无法解析时返回 false，由调用方拒绝。
     /// </summary>
-    private static bool TryResolveFully(string fullPath, out string realPath)
+    internal static bool TryResolveFully(string fullPath, out string realPath)
     {
         realPath = fullPath;
         try

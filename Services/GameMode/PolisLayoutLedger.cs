@@ -91,6 +91,28 @@ public static class PolisLayoutLedger
     }
 
     /// <summary>
+    /// 文件夹改了名：账本条目换个名字，地块不动——建筑原地换牌匾（设计稿 11.2 / 11.3）。
+    /// 新名字在账本里已经有一条（它以前住过别处、后来空了）时，不抢那块地也不把旧条目挤掉：
+    /// 回到它自己的老地块，旧名字那块留作空地，两边的空间记忆都不作废。<paramref name="from"/> 不在账本里时原样返回。
+    /// </summary>
+    public static PolisLedger Rename(PolisLedger ledger, string from, string to)
+    {
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentException.ThrowIfNullOrEmpty(from);
+        ArgumentException.ThrowIfNullOrEmpty(to);
+        if (string.Equals(from, to, StringComparison.Ordinal)) return ledger;
+        var source = ledger.Entries.FirstOrDefault(e => string.Equals(e.Key, from, StringComparison.Ordinal));
+        if (source == null) return ledger;
+        var targetExists = ledger.Entries.Any(e => string.Equals(e.Key, to, StringComparison.Ordinal));
+        var entries = ledger.Entries
+            .Select(e => !ReferenceEquals(e, source)
+                ? (targetExists && string.Equals(e.Key, to, StringComparison.Ordinal) ? e with { Vacated = false } : e)
+                : targetExists ? e with { Vacated = true } : e with { Key = to })
+            .ToList();
+        return new PolisLedger(PolisLedger.CurrentSchemaVersion, entries);
+    }
+
+    /// <summary>
     /// 用这一次扫描到的顶层文件夹更新账本。
     /// <list type="bullet">
     /// <item>账本里已有的文件夹回到原地；不在了的标成空地，地块保留（同名文件夹以后回来，还落回原地）。</item>
