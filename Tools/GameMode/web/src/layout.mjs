@@ -7,13 +7,12 @@ export const PLOT = BLOCK - STREET;
 export const SPEED = 10;           // 雅典娜滑行的速度（米 / 秒）：真实步速跟不上模型的节奏，神本来就走得快
 export const PLAYER_SPEED = 6;
 
-const PUBLIC_FACING = { temple: [0, 1], library: [1, 0], forge: [-1, 0], market: [0, -1], harbor: [0, -1] };
-
-/** 建筑正面朝向广场：|z| ≥ |x| 时朝南或朝北，否则朝东或朝西。返回朝向的单位向量 [dx, dz]。 */
-export function facingFor(x, z) {
-  if (x === 0 && z === 0) return [0, 1];
-  if (Math.abs(z) >= Math.abs(x)) return [0, z < 0 ? 1 : -1];
-  return [x < 0 ? 1 : -1, 0];
+/**
+ * 建筑正面一律朝南（朝镜头）。第一版让建筑朝向广场，结果广场以南的柱廊书库从默认镜头看过去只剩一堵后墙，
+ * 认不出是什么（M0 截图审查）。等距视角的游戏都让正面朝向镜头，可读性比"围着广场"重要。返回 [dx, dz]。
+ */
+export function facingFor() {
+  return [0, 1];
 }
 
 /** 朝向向量 → 绕 y 轴的旋转角（模型默认正面朝 +z）。 */
@@ -32,7 +31,7 @@ export function createLayout(fixture) {
   for (const v of fixture.vacant ?? []) ring = Math.max(ring, Math.abs(v.plot.x), Math.abs(v.plot.z));
   const publicSites = fixture.publicSites ?? {};
   for (const [name, plot] of Object.entries(publicSites)) {
-    plots.set(name, place(plot.x, plot.z, PUBLIC_FACING[name] ?? facingFor(plot.x, plot.z), null));
+    plots.set(name, place(plot.x, plot.z, facingFor(plot.x, plot.z), null));
   }
 
   // 街道网格的范围：比最外一圈再多一条街

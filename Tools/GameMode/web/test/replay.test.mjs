@@ -84,16 +84,15 @@ test('narration: display names, deterministic variants, no paths', () => {
   }
 });
 
-test('layout: buildings face the agora and stand points sit on their street side', () => {
-  assert.deepEqual(facingFor(1, -1), [0, 1], '北边的朝南');
-  assert.deepEqual(facingFor(-2, 0), [1, 0], '西边的朝东');
-  assert.deepEqual(facingFor(1, 1), [0, -1], '南边的朝北');
+test('layout: buildings face the camera (south) and stand points sit on the street in front', () => {
+  for (const [x, z] of [[1, -1], [-2, 0], [1, 1], [0, 0]]) assert.deepEqual(facingFor(x, z), [0, 1], `(${x}, ${z}) 正面朝南`);
   const layout = createLayout(fixture);
   for (const [key, plot] of layout.plots) {
     const p = layout.sitePoint(key === 'agora' ? 'agora' : key);
     if (key === 'agora' || key === 'harbor') continue;
     const d = Math.hypot(p.x - plot.cx, p.z - plot.cz);
     assert.ok(d > 6 && d < 8, `${key} 的站立点在门前（离地块中心 ${d.toFixed(1)} 米）`);
+    assert.ok(p.z > plot.cz, `${key} 的站立点在南边的街上`);
   }
   assert.ok(layout.sitePoint('harbor').z > layout.quayZ, '港口的站立点在栈桥上，伸进海里');
   assert.ok(layout.sitePoint('gate').z < -layout.ring * BLOCK, '城门在最北一圈之外');
