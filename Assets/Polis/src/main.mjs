@@ -91,11 +91,11 @@ function liveHandlers() {
         status.lastUpdate = liveGame.updateCity(m.city, m.origins ?? {});
         liveFeed.setCity(cityIndex(m.city));
       }
-      if (liveGame.voyaging && !m.partial) liveGame.arrive(performance.now());
+      liveGame.cityArrived({ partial: !!m.partial });
       wake();
     }),
     depart: whenReady((m) => { liveGame.startVoyage(m.caption ?? ''); wake(); }),
-    arrive: whenReady(() => { liveGame.arrive(performance.now()); wake(); }),
+    arrive: whenReady(() => { liveGame.cityArrived({ partial: false }); wake(); }),
     focus: whenReady((m) => {
       liveFeed = createLiveFeed({ city: cityIndex(liveGame.city ?? {}) });
       liveGame.focus({ last: m.last ?? null, interrupted: !!m.interrupted, now: clock() });

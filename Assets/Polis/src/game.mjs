@@ -15,7 +15,7 @@ import { makeMaterials } from './art/materials.mjs';
 import { buildDeliveredItem } from './art/figures.mjs';
 import { buildWorld, PUBLIC_NAMES } from './world.mjs';
 import { hashSeed } from './art/noise.mjs';
-import { framePolicy } from './live.mjs';
+import { framePolicy, transitionArrival } from './live.mjs';
 
 const CAMERA = { distance: 300, elevation: 33, azimuth: 45 };
 const BUBBLE_MS = 3600;
@@ -555,9 +555,17 @@ export function createGame({ params, status, send, onReadItem }) {
     return state;
   }
 
-  // —— 航海过场 ——
+  // —— 航海过场：最短观感时长与上限（9.2）。新城完整就绪就靠岸；到了上限还没就绪，只要已经有一座（哪怕只有顶层建筑的）城，
+  // 先靠岸显示已就绪的部分，其余陆续出现。 ——
   function voyageFrame(wall) {
     if (!voyage) return null;
+    if (voyage.arriveAt == null) {
+      const plan = transitionArrival(voyage.startedAt, voyage.readyAt, wall);
+      if (plan.arriveAt != null && (!plan.partial || (world && voyage.cityArrived))) {
+        voyage.arriveAt = plan.arriveAt;
+        status.voyage = plan.partial ? 'arriving-partial' : 'arriving';
+      }
+    }
     const { startedAt, arriveAt, caption } = voyage;
     const fadeIn = Math.min(1, (wall - startedAt) / VOYAGE_FADE_MS);
     let alpha = fadeIn;
@@ -724,8 +732,13 @@ export function createGame({ params, status, send, onReadItem }) {
     setNotices(list) { notices = (list ?? []).slice(-5); },
     setHerald(report) { herald = report && report.lines?.length ? report : null; status.herald = herald; },
     setFog(info) { fogInfo = info; status.fog = !!info; if (R.scene) R.scene.fog = info ? new THREE.Fog(0xd8d4cd, 220, 360) : null; },
-    startVoyage(caption) { voyage = { startedAt: performance.now(), arriveAt: null, caption }; status.voyage = 'sailing'; },
-    arrive(at) { if (voyage) { voyage.arriveAt = Math.max(at, voyage.startedAt + 1600); status.voyage = 'arriving'; } },
+    startVoyage(caption) { voyage = { startedAt: performance.now(), readyAt: null, cityArrived: false, arriveAt: null, caption }; status.voyage = 'sailing'; },
+    /** 新城到了：完整的（partial = false）就可以靠岸；只有顶层的，等到上限再靠。 */
+    cityArrived({ partial = false, at = performance.now() } = {}) {
+      if (!voyage) return;
+      voyage.cityArrived = true;
+      if (!partial && voyage.readyAt == null) voyage.readyAt = at;
+    },
     get voyaging() { return voyage != null; },
     get voyageStartedAt() { return voyage?.startedAt ?? null; },
     get lastInputAt() { return lastInputAt; },

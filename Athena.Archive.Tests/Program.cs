@@ -25,6 +25,7 @@ using Athena.UI.Services.Cron;
 using Athena.UI.Services.Decisions;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.GameMode;
+using Athena.UI.ViewModels.GameMode;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.OrcaRouter;
@@ -234,7 +235,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis save: a corrupt record is isolated and kept, M0 ledgers migrate, newer saves are never overwritten, and a broken file falls back to the last good copy", TestPolisSaveIsolationAndMigrationAsync),
     ("polis offline diff: renames are inferred from child names, items come back by path, rename or fingerprint, and the rest are lost but never deleted", TestPolisOfflineDiffAndRenameRecoveryAsync),
     ("polis attribution: only Athena's tool targets inside their time window are hers; batches group by building and flood into a full rescan", TestPolisChangeAttributionAsync),
-    ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync)
+    ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
+    ("polis events: derived from the bubbles' render model, the running turn only, each change once, deliveries when streaming stops", TestPolisEventProjectorAsync)
 };
 
 var failures = new List<string>();
@@ -11036,6 +11038,99 @@ static Task TestPolisIntentValidationAsync()
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         if (Directory.Exists(outside)) Directory.Delete(outside, recursive: true);
     }
+    return Task.CompletedTask;
+}
+
+// 事件推导（设计稿 12.3）：从气泡的渲染模型推导雅典娜的事件，不给聊天服务加回调。切到一个会话不重演历史，
+// 只把正在进行的那一回合报出来；之后按状态变化报新增；交付在气泡停止流式输出时；归属用的"她碰过的地方"随回合清空。
+static Task TestPolisEventProjectorAsync()
+{
+    const string root = "/Users/demo/我的工作区";
+    var t0 = new DateTimeOffset(2026, 10, 11, 9, 0, 0, TimeSpan.Zero);
+    ToolCallEntry Tool(string id, string name, string? path, ToolCallStatus status, string extra = "")
+        => new() { ToolCallId = id, Name = name, Status = status, Arguments = path == null ? "{" + extra + "}" : $"{{\"path\": \"{path}\"{extra}}}" };
+    ChatMessage Bubble(bool streaming, params ChatMessageSegment[] segments)
+    {
+        var bubble = new ChatMessage { Role = "assistant", IsStreaming = streaming };
+        foreach (var segment in segments) bubble.Segments.Add(segment);
+        return bubble;
+    }
+    ChatMessageSegment Group(params ToolCallEntry[] tools)
+    {
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        foreach (var tool in tools) group.ToolCalls.Add(tool);
+        return group;
+    }
+
+    var oldRead = Tool("old", "read_system_file", root + "/合同/旧.docx", ToolCallStatus.Success);
+    var reasoning = new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = new string('想', 300) };
+    var read = Tool("r1", "read_system_file", root + "/合同/租赁合同.docx", ToolCallStatus.Success);
+    var write = Tool("w1", "write_system_file", root + "/合同/摘要.md", ToolCallStatus.Running);
+    var terminal = Tool("x1", "execute_terminal_command", null, ToolCallStatus.Running, "\"command\": \"ls\"");
+    var maidens = Tool("s1", "dispatch_subagents", null, ToolCallStatus.Running, "\"tasks\": [{}, {}, {}]");
+    var outside = Tool("o1", "read_system_file", "/etc/hosts", ToolCallStatus.Failed);
+    var running = Bubble(true, reasoning, Group(read, write, terminal, maidens, outside));
+    var messages = new List<ChatMessage>
+    {
+        new() { Role = "user", Content = "第一件事" },
+        Bubble(false, Group(oldRead), new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "做完了" }),
+        new() { Role = "user", Content = "整理合同" },
+        running,
+    };
+
+    var keys = new HashSet<string>(new[] { "合同" }, StringComparer.Ordinal);
+    var projector = new PolisEventProjector(root, "/Users/demo", keys);
+    var baseline = projector.Baseline(messages, t0);
+    CollectionAssert(new[] { "turn", "think", "tool-start", "tool-end", "tool-start", "tool-start", "tool-start", "tool-start", "tool-end" },
+        baseline.Select(e => e.Type), "切到一个正在进行的会话：只报这一回合（开场、推理、工具），不重演上一回合");
+    AssertFalse(baseline.Any(e => e.Id == "old"), "上一回合的工具算演过");
+    AssertEqual(2, baseline[0].Turn ?? 0, "回合号按用户消息数");
+    var readStart = baseline.Single(e => e.Type == "tool-start" && e.Id == "r1");
+    AssertEqual("read", readStart.Category, "读文件是读");
+    AssertEqual("inside", readStart.Place, "工作区里的路径是城内");
+    AssertEqual("合同/租赁合同.docx", readStart.Path, "路径换成工作区相对路径（'/' 分隔）");
+    AssertEqual("合同", readStart.Building, "所在建筑由 C# 按城里的建筑算好");
+    AssertEqual("terminal", baseline.Single(e => e.Id == "x1").Category, "终端去锻炉");
+    AssertEqual("none", baseline.Single(e => e.Id == "x1").Place, "终端命令本身不读（command 可能带任何东西）");
+    AssertEqual(3, baseline.Single(e => e.Id == "s1").Agents ?? 0, "派发子代理带侍女人数");
+    var outsideStart = baseline.Single(e => e.Type == "tool-start" && e.Id == "o1");
+    AssertTrue(outsideStart.Place == "outside" && outsideStart.Path == null, "工作区外的路径只说城外，不带路径");
+    AssertFalse(baseline.Single(e => e.Type == "tool-end" && e.Id == "o1").Ok ?? true, "失败的调用 ok = false");
+    AssertTrue(projector.Touches.Any(t => t.RelativePath == "合同/摘要.md" && t.End == null), "正在写的文件是她碰过的地方，时间窗还开着");
+    AssertTrue(projector.Touches.Any(t => t.WholeWorkspace), "派发子代理期间整座城都算她的");
+
+    var t1 = t0.AddSeconds(3);
+    write.Status = ToolCallStatus.Success;
+    reasoning.Text += new string('想', PolisEventProjector.ReasoningStep);
+    var next = projector.Project(messages, t1);
+    CollectionAssert(new[] { "think", "tool-end" }, next.Select(e => e.Type), "推理涨够一步、写完了：各报一次");
+    AssertTrue(next.Single(e => e.Type == "tool-end").Ok == true, "写成功");
+    AssertTrue(projector.Touches.Single(t => t.RelativePath == "合同/摘要.md").End == t1, "工具做完，时间窗收口");
+    AssertEqual(0, projector.Project(messages, t1.AddSeconds(1)).Count, "没有变化就没有事件");
+    reasoning.Text += "多想一点";
+    AssertEqual(0, projector.Project(messages, t1.AddSeconds(2)).Count, "推理只多了几个字：不逐字报");
+
+    running.IsStreaming = false;
+    var delivered = projector.Project(messages, t1.AddSeconds(4));
+    AssertEqual("deliver", delivered.Single().Type, "气泡停止流式输出：交付");
+    AssertEqual(running.Id, delivered.Single().MessageId, "交付带着那一回合的气泡");
+    AssertEqual(0, projector.Project(messages, t1.AddSeconds(5)).Count, "交付只报一次");
+    CollectionAssert(new[] { "合同/摘要.md" }, projector.WrittenFiles(running).Select(w => w.RelativePath), "这一回合写进工作区且成功的文件（交付成果用）");
+
+    messages.Add(new ChatMessage { Role = "user", Content = "再来一件" });
+    var turn = projector.Project(messages, t1.AddSeconds(6));
+    AssertTrue(turn.Single().Type == "turn" && turn.Single().Turn == 3, "新的用户消息：新回合");
+    AssertEqual(0, projector.Touches.Count, "新回合开始：归属只看这一回合的工具");
+
+    var last = projector.LastPlace(messages, t1);
+    AssertTrue(last?.Building == null && last?.Place == "outside", "最后一次工具调用的去处（她出现在那里）：这里是城外那次读");
+
+    var sanctuary = new PolisEventProjector(null, "/Users/demo", new HashSet<string>(StringComparer.Ordinal));
+    var global = sanctuary.Baseline(new List<ChatMessage> { new() { Role = "user", Content = "x" }, Bubble(true, Group(Tool("g1", "read_system_file", root + "/合同/a.docx", ToolCallStatus.Running))) }, t0);
+    AssertEqual("outside", global.Single(e => e.Type == "tool-start").Place, "神殿（全局对话）里的文件操作一律算城外（9.1）");
+
+    var idle = new PolisEventProjector(root, null, keys);
+    AssertEqual(0, idle.Baseline(messages, t0).Count, "切到一个空闲的会话：什么都不重演");
     return Task.CompletedTask;
 }
 

@@ -106,9 +106,11 @@ public sealed class PolisEventProjector
 
         // 正在进行的这一回合：之前回合的工具都算演过，这一回合的按当前状态报出来
         var bubble = messages[^1];
-        foreach (var entry in ToolEntries(messages.Take(messages.Count - 1).ToList())) _tools[Key(entry)] = entry.Status;
+        var earlier = messages.Take(messages.Count - 1).ToList();
+        foreach (var entry in ToolEntries(earlier)) _tools[Key(entry)] = entry.Status;
+        foreach (var segment in ReasoningSegments(earlier)) _reasoning[segment] = segment.Text.Length;
         events.Add(new PolisLiveEvent("turn") { At = now, Turn = Math.Max(1, _turn) });
-        foreach (var segment in ReasoningSegments(messages)) _reasoning[segment] = segment.Text.Length;
+        // 这一回合的推理与工具照常报（推理长度驱动沉思时光的明暗）
         events.AddRange(ProjectBubble(bubble, now));
         return events;
     }

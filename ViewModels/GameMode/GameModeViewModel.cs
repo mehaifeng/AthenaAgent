@@ -484,7 +484,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             AttachSession(session);
             if (!IsGameMode || PageState != PolisPageState.Ready) return;
             var key = CityKeyOf(session);
+            // 同一座城：不换场景；第一拍可能已经让页面出港（切走又切回），这里让它靠岸
             if (key != _cityKey) await LoadCityAsync(session.Workspace);
+            else Post(new { type = "arrive" });
             SendFocus();
         }
         catch (OperationCanceledException)
@@ -493,6 +495,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
+            // 装城失败也要靠岸：过场不能卡在海上
+            Post(new { type = "arrive" });
+            Flush();
             _logger.Warning(ex, "Activating the polis for conversation {ConversationId} failed", session.ConversationId);
         }
     }
@@ -581,6 +586,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             PostCity(sanctuary, sanctuary: true, founding: false, partial: false);
             PostItems();
             Post(new { type = "fog", missing = false });
+            Post(new { type = "arrive" });
             return;
         }
 
@@ -597,6 +603,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         if (_fogged)
         {
             _logger.Information("Polis folder is missing for workspace {WorkspaceId}: {Path}", workspace.Id, root);
+            Post(new { type = "arrive" });
+            Flush();
             return;
         }
 

@@ -129,6 +129,15 @@ async function liveCheck(name, browser) {
 
     await send({ type: 'events', events: [{ type: 'approval', waiting: false }, { type: 'tool-end', id: 'w1', ok: true }, { type: 'deliver', turn: 1, itemId: 'item-1' }] });
     await page.waitForTimeout(800);
+    const landedFirst = await page.evaluate(() => window.__polis.voyage ?? null);
+
+    // 航海过场的上限（9.2）：新城只来了顶层（partial），完整测绘迟迟不到——到上限先靠岸，不卡在海上
+    await page.evaluate(() => document.getElementById('reader').hidden = true);
+    await send({ type: 'depart', caption: '驶向另一座城' });
+    await send({ type: 'city', key: 'ws-2', city: { ...city, buildings: city.buildings.slice(0, 2) }, partial: true });
+    await page.waitForTimeout(2500);
+    const stillSailing = await page.evaluate(() => window.__polis.voyage);
+    await page.waitForFunction(() => window.__polis.voyage == null, null, { timeout: 9000 });
     const inbox = await page.evaluate(() => window.__hostInbox.map((m) => m.type));
     const checks = {
       readySent: inbox[0] === 'ready',
@@ -141,6 +150,8 @@ async function liveCheck(name, browser) {
       pausesWhenHidden: stillPaused.paused === true && stillPaused.frames === pausedFrames,
       resumesWhenShown: resumed > stillPaused.frames,
       readerIsText: reader.shown && reader.images === 0 && reader.xss === 0 && reader.text.includes('<img src=x'),
+      voyageLandsWhenReady: landedFirst == null,
+      voyageWaitsForPartial: stillSailing === 'sailing',
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
