@@ -4,7 +4,6 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -44,11 +43,11 @@ public partial class MainWindow : Window
     private Grid? _rightPanelGrid;
     private ColumnDefinition? _leftShellColumn;
     private ColumnDefinition? _rightShellColumn;
+    private ColumnDefinition? _leftSplitterColumn;
+    private ColumnDefinition? _rightSplitterColumn;
     private RowDefinition? _rightTopRow;
     private RowDefinition? _rightLogRow;
     private WorkspaceWorkbenchView? _workspaceWorkbench;
-    private PathIcon? _titleBarMaximizeIcon;
-    private PathIcon? _titleBarRestoreIcon;
     private MainWindowViewModel? _viewModel;
     private readonly List<Border> _shellPanels = new();
 
@@ -59,12 +58,11 @@ public partial class MainWindow : Window
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
         _glassBackdropImage = this.FindControl<Image>("GlassBackdropImage");
-        _titleBarMaximizeIcon = this.FindControl<PathIcon>("TitleBarMaximizeIcon");
-        _titleBarRestoreIcon = this.FindControl<PathIcon>("TitleBarRestoreIcon");
-        UpdateMaximizeRestoreIcons();
         _mainShellGrid = this.FindControl<Grid>("MainShellGrid");
         _leftShellColumn = _mainShellGrid?.ColumnDefinitions[0];
         _rightShellColumn = _mainShellGrid?.ColumnDefinitions[4];
+        _leftSplitterColumn = _mainShellGrid?.ColumnDefinitions[1];
+        _rightSplitterColumn = _mainShellGrid?.ColumnDefinitions[3];
         _rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
         _rightTopRow = _rightPanelGrid?.RowDefinitions[0];
         _rightLogRow = _rightPanelGrid?.RowDefinitions[2];
@@ -96,60 +94,6 @@ public partial class MainWindow : Window
         }
     }
 
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        if (change.Property == WindowStateProperty) UpdateMaximizeRestoreIcons();
-    }
-
-    private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
-
-        if (e.ClickCount == 2)
-        {
-            ToggleMaximizeRestore();
-        }
-        else
-        {
-            BeginMoveDrag(e);
-        }
-
-        e.Handled = true;
-    }
-
-    private void OnTitleBarMinimizeClick(object? sender, RoutedEventArgs e)
-    {
-        WindowState = WindowState.Minimized;
-        e.Handled = true;
-    }
-
-    private void OnTitleBarMaximizeRestoreClick(object? sender, RoutedEventArgs e)
-    {
-        ToggleMaximizeRestore();
-        e.Handled = true;
-    }
-
-    private void OnTitleBarCloseClick(object? sender, RoutedEventArgs e)
-    {
-        Close();
-        e.Handled = true;
-    }
-
-    private void ToggleMaximizeRestore()
-    {
-        WindowState = WindowState == WindowState.Maximized
-            ? WindowState.Normal
-            : WindowState.Maximized;
-    }
-
-    private void UpdateMaximizeRestoreIcons()
-    {
-        var isMaximized = WindowState == WindowState.Maximized;
-        if (_titleBarMaximizeIcon != null) _titleBarMaximizeIcon.IsVisible = !isMaximized;
-        if (_titleBarRestoreIcon != null) _titleBarRestoreIcon.IsVisible = isMaximized;
-    }
-
     private void OnMainDataContextChanged(object? sender, EventArgs e)
     {
         if (_viewModel != null) _viewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
@@ -164,7 +108,8 @@ public partial class MainWindow : Window
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainWindowViewModel.IsSidePanelsSwapped)) ApplySavedLayout();
+        if (e.PropertyName is nameof(MainWindowViewModel.IsSidePanelsSwapped)
+            or nameof(MainWindowViewModel.IsRightPanelCollapsed)) ApplySavedLayout();
         else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
     }
@@ -397,23 +342,34 @@ public partial class MainWindow : Window
     private void ApplySavedLayout()
     {
         var layout = _viewModel?.Config?.MainLayout;
-        if (layout == null || _leftShellColumn == null || _rightShellColumn == null) return;
-        var semanticRightMinWidth = GetSemanticRightMinWidth();
-        MinWidth = Math.Max(
+        if (layout == null
+            || _leftShellColumn == null || _rightShellColumn == null
+            || _leftSplitterColumn == null || _rightSplitterColumn == null) return;
+        // 收起时语义右栏连同它那条分隔线一起归零（列宽 0、MinWidth 0），宽度全部让给中间对话。
+        // 不做宽度动画：中间消息列表没有虚拟化，每一帧改列宽都会让整棵气泡树重新布局。
+        var collapsed = layout.RightPanelCollapsed;
+        var semanticRightMinWidth = collapsed ? 0 : GetSemanticRightMinWidth();
+        var semanticRightSplitterWidth = collapsed ? 0 : ShellSplitterWidth;
+        var contentMinWidth = Math.Max(
             WindowBaseMinWidth,
             ShellHorizontalMargin
             + LeftPanelMinWidth
             + ConversationMinWidth
             + semanticRightMinWidth
-            + (2 * ShellSplitterWidth));
+            + ShellSplitterWidth
+            + semanticRightSplitterWidth);
+        MinWidth = contentMinWidth;
+        // 只在内容真的放不下时才主动撑宽（例如右栏展开、工作台要求更宽）。比的是 ClientSize：
+        // 交互缩放期间 WM 不理睬客户端的尺寸请求，拿一个会被忽略的 Width=… 去"纠正"它，
+        // 只会让 Avalonia 按新宽度重排、右侧画到窗外。
         if (WindowState == WindowState.Normal
-            && Bounds.Width > 0
-            && Bounds.Width + 0.01 < MinWidth)
+            && ClientSize.Width > 0
+            && ClientSize.Width + 0.01 < contentMinWidth)
         {
-            Width = MinWidth;
+            Width = contentMinWidth;
         }
         var leftSemanticWidth = Math.Max(LeftPanelMinWidth, layout.LeftWidth);
-        var rightSemanticWidth = Math.Max(semanticRightMinWidth, layout.RightWidth);
+        var rightSemanticWidth = collapsed ? 0 : Math.Max(semanticRightMinWidth, layout.RightWidth);
         var physicalLeftMinWidth = layout.SidePanelsSwapped ? semanticRightMinWidth : LeftPanelMinWidth;
         var physicalRightMinWidth = layout.SidePanelsSwapped ? LeftPanelMinWidth : semanticRightMinWidth;
         var physicalLeftWidth = layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth;
@@ -428,7 +384,13 @@ public partial class MainWindow : Window
         _rightShellColumn.MinWidth = physicalRightMinWidth;
         _leftShellColumn.Width = new GridLength(physicalLeftWidth);
         _rightShellColumn.Width = new GridLength(physicalRightWidth);
-        ApplySavedLogHeight(layout.RightLogHeight);
+        var physicalLeftSplitterWidth = layout.SidePanelsSwapped ? semanticRightSplitterWidth : ShellSplitterWidth;
+        var physicalRightSplitterWidth = layout.SidePanelsSwapped ? ShellSplitterWidth : semanticRightSplitterWidth;
+        _leftSplitterColumn.MinWidth = physicalLeftSplitterWidth;
+        _leftSplitterColumn.Width = new GridLength(physicalLeftSplitterWidth);
+        _rightSplitterColumn.MinWidth = physicalRightSplitterWidth;
+        _rightSplitterColumn.Width = new GridLength(physicalRightSplitterWidth);
+        if (!collapsed) ApplySavedLogHeight(layout.RightLogHeight);
     }
 
     private double GetSemanticRightMinWidth() =>
@@ -466,7 +428,8 @@ public partial class MainWindow : Window
 
         var sideBudget = Math.Max(
             leftMinWidth + rightMinWidth,
-            shellWidth - ConversationMinWidth - (2 * ShellSplitterWidth));
+            shellWidth - ConversationMinWidth - ShellSplitterWidth
+            - (_viewModel?.IsRightPanelCollapsed == true ? 0 : ShellSplitterWidth));
         var requestedWidth = leftWidth + rightWidth;
         if (requestedWidth <= sideBudget) return;
 
@@ -493,16 +456,12 @@ public partial class MainWindow : Window
     {
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _viewModel == null || _leftShellColumn == null || _rightShellColumn == null) return;
-        if (layout.SidePanelsSwapped)
-        {
-            layout.RightWidth = _leftShellColumn.ActualWidth;
-            layout.LeftWidth = _rightShellColumn.ActualWidth;
-        }
-        else
-        {
-            layout.LeftWidth = _leftShellColumn.ActualWidth;
-            layout.RightWidth = _rightShellColumn.ActualWidth;
-        }
+        var semanticLeftColumn = layout.SidePanelsSwapped ? _rightShellColumn : _leftShellColumn;
+        var semanticRightColumn = layout.SidePanelsSwapped ? _leftShellColumn : _rightShellColumn;
+        layout.LeftWidth = semanticLeftColumn.ActualWidth;
+        // 收起态下右栏列宽是 0：写回去就等于把用户调好的宽度换成了最小宽度，下次展开时才发现。
+        if (!layout.RightPanelCollapsed)
+            layout.RightWidth = semanticRightColumn.ActualWidth;
         await _viewModel.SaveConfigurationNowAsync();
     }
 

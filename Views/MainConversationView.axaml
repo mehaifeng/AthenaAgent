@@ -298,6 +298,21 @@
                 VerticalAlignment="Center"
                 Padding="12,8">
             <Grid ColumnDefinitions="Auto,*">
+                <!-- 工作台收起/展开：放在对话标题栏右端，紧挨着它要收起的那一栏。
+                     命令由外壳注入（见 RightPanelToggleCommand），没有宿主时隐藏。 -->
+                <Button x:Name="RightPanelToggleButton"
+                        Grid.Column="1"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Padding="5"
+                        Command="{Binding #ConversationRoot.RightPanelToggleCommand}"
+                        IsVisible="{Binding #ConversationRoot.RightPanelToggleCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
+                        ToolTip.Tip="{Binding #ConversationRoot.RightPanelToggleTip}"
+                        AutomationProperties.Name="{Binding #ConversationRoot.RightPanelToggleTip}">
+                    <PathIcon Width="16" Height="16"
+                              Data="{Binding #ConversationRoot.RightPanelToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                              Foreground="{DynamicResource App.IconAccentForeground}"/>
+                </Button>
                 <StackPanel Grid.Column="0"
                             Orientation="Horizontal"
                             Spacing="8"
@@ -783,8 +798,12 @@
             </StackPanel>
         </Border>
 
-        <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部 -->
+        <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部。
+             左右 12px 与上面消息列表的 Margin="12" 同一条边：宽时两者都被 ContentMaxWidth 封顶、居中对齐；
+             窄时（右栏收起且窗口最小宽度）没有这条边，输入框会直接顶到对话面板的左右边框上。 -->
         <Border Grid.Row="2"
+                x:Name="ComposerHost"
+                Margin="12,0"
                 MaxWidth="{DynamicResource App.ContentMaxWidth}"
                 HorizontalAlignment="Stretch">
             <Border CornerRadius="0,0,5,5"

@@ -20,14 +20,13 @@
 
 # --- window chrome / shell -------------------------------------------------
 x
-window-minimize
-window-maximize
-window-restore
 moon
 sun
 settings
 options
 sidebar
+chevron-double-left
+chevron-double-right
 
 # --- primary navigation ----------------------------------------------------
 storage

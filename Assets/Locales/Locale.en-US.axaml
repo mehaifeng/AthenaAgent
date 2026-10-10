@@ -1062,6 +1062,8 @@
     <system:String x:Key="MainWindow.Tip.RevealInFolder">Reveal in folder</system:String>
     <system:String x:Key="MainWindow.Tip.CopyPath">Copy path</system:String>
     <system:String x:Key="MainWindow.Tip.SwapLayout">Swap left/right layout</system:String>
+    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">Collapse workbench panel</system:String>
+    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">Expand workbench panel</system:String>
     <system:String x:Key="MainWindow.Section.Pinned">Pinned chats</system:String>
 
     <!-- Approval queue -->

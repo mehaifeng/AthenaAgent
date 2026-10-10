@@ -1062,6 +1062,8 @@
     <system:String x:Key="MainWindow.Tip.RevealInFolder">在文件夹中显示</system:String>
     <system:String x:Key="MainWindow.Tip.CopyPath">复制路径</system:String>
     <system:String x:Key="MainWindow.Tip.SwapLayout">左右布局对调</system:String>
+    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">收起工作台面板</system:String>
+    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">展开工作台面板</system:String>
     <system:String x:Key="MainWindow.Section.Pinned">置顶对话</system:String>
 
     <!-- 审批队列 -->

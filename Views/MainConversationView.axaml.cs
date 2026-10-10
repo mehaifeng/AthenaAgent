@@ -23,6 +23,7 @@ using System.Numerics;
 using System.Linq;
 using System.Threading.Tasks;
 
+using System.Windows.Input;
 namespace Athena.UI.Views;
 
 public partial class MainConversationView : UserControl
@@ -52,6 +53,38 @@ public partial class MainConversationView : UserControl
     {
         get => GetValue(IsSwitchingProperty);
         set => SetValue(IsSwitchingProperty, value);
+    }
+
+    /// <summary>
+    /// 标题栏右端的工作台（语义右栏）收起/展开按钮，由外壳注入命令、图标 key 与提示。
+    /// 与 <see cref="Workbench"/> / <see cref="IsSwitching"/> 同一形状：视图不认识 MainWindowViewModel；
+    /// 没有宿主注入命令时（设计器、单独挂载的测试窗口）按钮隐藏，而不是留一个点了没反应的按钮。
+    /// </summary>
+    public static readonly StyledProperty<ICommand?> RightPanelToggleCommandProperty =
+        AvaloniaProperty.Register<MainConversationView, ICommand?>(nameof(RightPanelToggleCommand));
+
+    public ICommand? RightPanelToggleCommand
+    {
+        get => GetValue(RightPanelToggleCommandProperty);
+        set => SetValue(RightPanelToggleCommandProperty, value);
+    }
+
+    public static readonly StyledProperty<string?> RightPanelToggleIconKeyProperty =
+        AvaloniaProperty.Register<MainConversationView, string?>(nameof(RightPanelToggleIconKey));
+
+    public string? RightPanelToggleIconKey
+    {
+        get => GetValue(RightPanelToggleIconKeyProperty);
+        set => SetValue(RightPanelToggleIconKeyProperty, value);
+    }
+
+    public static readonly StyledProperty<string?> RightPanelToggleTipProperty =
+        AvaloniaProperty.Register<MainConversationView, string?>(nameof(RightPanelToggleTip));
+
+    public string? RightPanelToggleTip
+    {
+        get => GetValue(RightPanelToggleTipProperty);
+        set => SetValue(RightPanelToggleTipProperty, value);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

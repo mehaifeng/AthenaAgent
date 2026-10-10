@@ -153,12 +153,18 @@ public partial class VirtualPetView : UserControl
         _motion.SetBounds(_targetPanelWidth, _targetPanelHeight, pet.ViewWidth, pet.ViewHeight, pet.RoamArea);
     }
 
-    private static Control? ResolveTargetPanel(Grid shellGrid, VirtualPetRoamArea roamArea) => roamArea switch
+    private static Control? ResolveTargetPanel(Grid shellGrid, VirtualPetRoamArea roamArea)
     {
-        VirtualPetRoamArea.SessionListBottom => shellGrid.FindControl<Border>("LeftPanel"),
-        VirtualPetRoamArea.LogTerminalBottom => shellGrid.FindControl<TabControl>("UtilityTabControl")?.FindAncestorOfType<Border>(),
-        _ => shellGrid.FindControl<MainConversationView>("MainConversationView")
-    };
+        var conversation = shellGrid.FindControl<MainConversationView>("MainConversationView");
+        Control? target = roamArea switch
+        {
+            VirtualPetRoamArea.SessionListBottom => shellGrid.FindControl<Border>("LeftPanel"),
+            VirtualPetRoamArea.LogTerminalBottom => shellGrid.FindControl<TabControl>("UtilityTabControl")?.FindAncestorOfType<Border>(),
+            _ => conversation
+        };
+        // 右栏整体收起时日志面板不可见、宽度为 0：宠物回落到对话面板，而不是挤在一个看不见的角落里。
+        return target is { IsEffectivelyVisible: true } ? target : conversation;
+    }
 
     private void ApplyMotion()
     {
