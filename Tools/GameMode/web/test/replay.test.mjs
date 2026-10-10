@@ -72,12 +72,16 @@ test('narration: display names, deterministic variants, no paths', () => {
   const kindOf = (b) => (b === '合同' ? 'stoaLibrary' : b === '网站' ? 'workshop' : null);
   const read = lineForVisit({ kind: 'work' }, [{ category: 'read', place: 'inside', path: '合同/租赁合同.docx', building: '合同' }], kindOf, 0);
   assert.equal(read, '我去书库翻翻《租赁合同》');
-  const write = lineForVisit({ kind: 'work' }, [{ category: 'write', place: 'inside', path: '网站/app.js', building: '网站' }], kindOf, 1);
+  const write = lineForVisit({ kind: 'work' }, [{ category: 'write', place: 'inside', path: '网站/app.js', building: '网站' }], kindOf, 1, LINES_ZH, 'at');
   assert.equal(write, '在作坊落笔写《app》');
+  const forgeGo = lineForVisit({ kind: 'work' }, [{ category: 'terminal' }], kindOf, 0);
+  const forgeAt = lineForVisit({ kind: 'work' }, [{ category: 'terminal' }], kindOf, 0, LINES_ZH, 'at');
+  assert.equal(forgeGo, '去锻炉敲打一下', '出发时说要去做什么');
+  assert.equal(forgeAt, '炉火点上了', '"炉火点上了"只在锻炉前说');
   assert.equal(lineForVisit({ kind: 'work' }, [{ category: 'subagents', agents: 3 }], kindOf, 0), '我叫上了3位侍女');
   assert.equal(lineForVisit({ kind: 'deliver' }, [], kindOf, 0), '做好了，你看看');
   assert.equal(lineForVisit({ kind: 'work' }, [{ category: 'read', place: 'outside' }], kindOf, 0), '我出城一趟');
-  const dir = lineForVisit({ kind: 'work' }, [{ category: 'read', place: 'inside', path: '合同', building: '合同' }], kindOf, 0);
+  const dir = lineForVisit({ kind: 'work' }, [{ category: 'read', place: 'inside', path: '合同', building: '合同' }], kindOf, 0, LINES_ZH, 'go');
   assert.equal(dir, '我去书库看看', '目录没有文件名：只说去哪儿');
   for (const [key, value] of Object.entries(LINES_ZH)) {
     assert.ok(!value.includes('/'), `${key}：旁白里不出现路径`);

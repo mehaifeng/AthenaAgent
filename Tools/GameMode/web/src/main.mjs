@@ -237,7 +237,7 @@ async function main() {
         sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i) });
       } else if (s.kind === 'act' && !s.visit.announced) {
         s.visit.announced = true;
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i) });
+        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, LINES_ZH, 'at') });
       } else if (s.kind === 'deliver') {
         sim.cues.push({ t: s.start, text: lineForVisit(s.visit, [], kindOf, i), minMs: 2600 });
       }
