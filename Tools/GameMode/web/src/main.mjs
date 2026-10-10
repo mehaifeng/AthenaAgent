@@ -480,6 +480,7 @@ async function main() {
     if (playing) sim.time += dt * speed;
     try {
       frame(sim.time, dt, wall);
+      status.frames = (status.frames ?? 0) + 1;
     } catch (e) {
       record(e?.stack ?? e);
       throw e;
