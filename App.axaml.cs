@@ -244,6 +244,9 @@ public partial class App : Application, IAsyncDisposable
         // 其余未处理异常保持原有崩溃路径（AppDomain.UnhandledException → crash.log）。
         Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
 
+        // Linux 上 Avalonia 不替 X11 窗口切换系统标题栏的浅/深色，这里补上（其他平台为空操作）。
+        Athena.UI.Services.Platform.LinuxWindowFrameTheme.Register();
+
         // 配置依赖注入
         var services = new ServiceCollection();
         ConfigureServices(services);

@@ -4,16 +4,13 @@
         xmlns:views="using:Athena.UI.Views"
         xmlns:loc="using:Athena.UI.Markup"
         xmlns:appconv="using:Athena.UI.Converters"
-        xmlns:chrome="using:Avalonia.Controls.Chrome"
         x:Class="Athena.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{loc:Loc App.Title}"
         Width="1440" Height="900"
         MinWidth="1180" MinHeight="720"
         WindowStartupLocation="CenterScreen"
-        WindowDecorations="BorderOnly"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="40"
+        WindowDecorations="Full"
         Icon="/Assets/Athena.ico"
         FontFamily="{DynamicResource MainFontFamily}">
     <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>
@@ -183,23 +180,6 @@
         <Style Selector="Button.launcher:pressed">
             <Setter Property="RenderTransform" Value="scale(0.97)"/>
         </Style>
-        <!-- 标题栏按钮：悬停轻微放大。这里敢加 transform 是因为它们是固定的 5 个按钮，
-             不在任何列表里，悬停翻转次数由鼠标路过决定而不是由滚动决定。 -->
-        <Style Selector="Button.titlebar-action">
-            <Setter Property="RenderTransformOrigin" Value="50%,50%"/>
-            <Setter Property="RenderTransform" Value="none"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut"/>
-                </Transitions>
-            </Setter>
-        </Style>
-        <Style Selector="Button.titlebar-action:pointerover">
-            <Setter Property="RenderTransform" Value="scale(1.12)"/>
-        </Style>
-        <Style Selector="Button.titlebar-action:pressed">
-            <Setter Property="RenderTransform" Value="scale(0.9)"/>
-        </Style>
         <Style Selector="Button.session-row">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -333,12 +313,12 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="30,*">
+    <Grid>
         <!-- 两层底图的 Opacity 过渡就是材质切换的视觉斜坡。260ms 是取值，不是测量结论。
              终值由 ApplyShellPanelMaterial 同步赋，这里只负责斜坡。
              注意底图的 Opacity 只有材质代码会写——主题过渡动的是 RenderTransform 与 Effect，
              不会和这条过渡打架。 -->
-        <Image Grid.RowSpan="2" x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False">
+        <Image x:Name="BaseBackgroundImage" Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False">
             <Image.Transitions>
                 <Transitions>
                     <DoubleTransition Property="Opacity" Duration="0:0:0.26" Easing="CubicEaseOut"/>
@@ -352,7 +332,7 @@
              关闭时只把 Opacity 归零、刻意保留 Source（位图是进程级缓存的，置空省不下内存，
              只会把"淡出还没结束就把图抹掉"变成一个要防的竞态）。
              位置在清晰底图之上、主题过渡层之下：主题切换时过渡层照旧盖住两者。 -->
-        <Image Grid.RowSpan="2" x:Name="GlassBackdropImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"
+        <Image x:Name="GlassBackdropImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"
                RenderOptions.BitmapInterpolationMode="HighQuality">
             <Image.Transitions>
                 <Transitions>
@@ -360,98 +340,11 @@
                 </Transitions>
             </Image.Transitions>
         </Image>
-        <Image Grid.RowSpan="2" x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
+        <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
-        <Border Grid.Row="0"
-                Background="{DynamicResource App.SectionBg}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto">
-                <Grid x:Name="TitleBarDragArea"
-                      Background="Transparent"
-                      PointerPressed="OnTitleBarPointerPressed"
-                      chrome:WindowDecorationProperties.ElementRole="TitleBar">
-                    <TextBlock Text="{loc:Loc App.Title}"
-                               Margin="12,0"
-                               VerticalAlignment="Center"
-                               FontSize="{DynamicResource App.FontSize.Body}"
-                               FontWeight="SemiBold"
-                               IsHitTestVisible="False"/>
-                </Grid>
+        <Image x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
 
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            Spacing="4"
-                            VerticalAlignment="Center">
-                    <Button x:Name="TitleBarThemeButton"
-                            Classes="icon-plain titlebar-action"
-                            Margin="0,0,10,0"
-                            Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
-                            Tag="{Binding MainConversationViewModel.ThemeIcon}"
-                            ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
-                        <Panel>
-                            <PathIcon Width="16" Height="16"
-                                      Data="{StaticResource AthenaIconThemeDark}"
-                                      IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
-                            <PathIcon Width="16" Height="16"
-                                      Data="{StaticResource AthenaIconThemeLight}"
-                                      IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
-                        </Panel>
-                    </Button>
-                    <Button x:Name="TitleBarAppSettingsButton"
-                            Classes="icon-plain titlebar-action"
-                            Margin="0,0,10,0"
-                            Command="{Binding OpenAppSettingsCommand}"
-                            ToolTip.Tip="{loc:Loc Settings.Window.Title}">
-                        <PathIcon Data="{StaticResource AthenaIconSettings}"
-                                  Width="16" Height="16"
-                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
-                    </Button>
-                    <Button x:Name="TitleBarMinimizeButton"
-                            Classes="icon-plain titlebar-action"
-                            Margin="0,0,10,0"
-                            Click="OnTitleBarMinimizeClick"
-                            ToolTip.Tip="{loc:Loc MainWindow.Minimize}">
-                        <PathIcon Width="16" Height="16"
-                                  Data="{StaticResource AthenaIconWindowMinimize}"
-                                  Foreground="{DynamicResource App.IconForeground}"/>
-                    </Button>
-                    <Button x:Name="TitleBarMaximizeButton"
-                            Classes="icon-plain titlebar-action"
-                            Margin="0,0,10,0"
-                            Click="OnTitleBarMaximizeRestoreClick"
-                            ToolTip.Tip="{loc:Loc MainWindow.MaximizeRestore}">
-                        <Panel Width="14" Height="14">
-                            <PathIcon x:Name="TitleBarMaximizeIcon"
-                                      Width="14" Height="14"
-                                      Data="{StaticResource AthenaIconWindowMaximize}"
-                                      Foreground="{DynamicResource App.IconForeground}"/>
-                            <PathIcon x:Name="TitleBarRestoreIcon"
-                                      Width="14" Height="14"
-                                      IsVisible="False"
-                                      Data="{StaticResource AthenaIconWindowRestore}"
-                                      Foreground="{DynamicResource App.IconForeground}"/>
-                        </Panel>
-                    </Button>
-                    <!-- Width 19 is not a typo: CoreUI insets the X to 67% of its canvas while the
-                         window glyphs fill 81-94%, so equal Width values draw a visibly smaller
-                         close button. All three land on ~13px of actual ink. -->
-                    <Button x:Name="TitleBarCloseButton"
-                            Classes="icon-plain titlebar-action"
-                            Margin="0,0,10,0"
-                            Click="OnTitleBarCloseClick"
-                            ToolTip.Tip="{loc:Loc MainWindow.Close}">
-                        <PathIcon Width="19" Height="19"
-                                  Data="{StaticResource AthenaIconClose}"
-                                  Foreground="{DynamicResource App.IconForeground}"/>
-                    </Button>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <Image Grid.RowSpan="2" x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
-
-        <Grid Grid.Row="1" x:Name="MainShellGrid" Margin="5">
+        <Grid x:Name="MainShellGrid" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
                 <ColumnDefinition Width="5" MinWidth="5"/>
@@ -595,7 +488,10 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
-                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                    <!-- 外壳控制都在这一排：全局对话、左右对调、主题、设置。
+                         窗口用系统标题栏后，原自定义标题栏上的主题与设置挪到这里；
+                         工作台收起/展开去了对话标题栏右端（MainConversationView.RightPanelToggleButton）。 -->
+                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
                         <Button x:Name="GlobalConversationButton" HorizontalAlignment="Stretch"
                                 Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}">
                             <StackPanel Orientation="Horizontal" Spacing="7">
@@ -606,6 +502,31 @@
                         </Button>
                         <Button Grid.Column="1" Classes="icon-plain" ToolTip.Tip="{loc:Loc MainWindow.Tip.SwapLayout}" Command="{Binding ToggleSidePanelsCommand}">
                             <PathIcon Data="{StaticResource AthenaIconLayoutSwap}" Width="16" Height="16" Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        </Button>
+                        <Button x:Name="ThemeToggleButton"
+                                Grid.Column="2"
+                                Classes="icon-plain"
+                                Command="{Binding MainConversationViewModel.ToggleThemeCommand}"
+                                ToolTip.Tip="{loc:Loc Chat.BtnTheme}">
+                            <Panel>
+                                <PathIcon Width="16" Height="16"
+                                          Data="{StaticResource AthenaIconThemeDark}"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"
+                                          IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Moon}"/>
+                                <PathIcon Width="16" Height="16"
+                                          Data="{StaticResource AthenaIconThemeLight}"
+                                          Foreground="{DynamicResource App.IconAccentForeground}"
+                                          IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
+                            </Panel>
+                        </Button>
+                        <Button x:Name="ShellSettingsButton"
+                                Grid.Column="3"
+                                Classes="icon-plain"
+                                Command="{Binding OpenAppSettingsCommand}"
+                                ToolTip.Tip="{loc:Loc Settings.Window.Title}">
+                            <PathIcon Data="{StaticResource AthenaIconSettings}"
+                                      Width="16" Height="16"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
                     </Grid>
                 </Grid>
@@ -632,11 +553,15 @@
                 <views:MainConversationView x:Name="MainConversationView"
                                             Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
                                             IsSwitching="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
+                                            RightPanelToggleCommand="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleRightPanelCommand}"
+                                            RightPanelToggleIconKey="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleIconKey}"
+                                            RightPanelToggleTip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleTip}"
                                             DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DisplayedConversation}"/>
             </Border>
 
             <GridSplitter x:Name="RightSideSplitter"
                           Classes="layout-splitter"
+                          IsVisible="{Binding !IsRightPanelCollapsed}"
                           Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
                           Width="5"
                           MinWidth="5"
@@ -649,6 +574,7 @@
                  工作区与日志区各自成独立圆角面板悬浮（各自自带背景，透明度跟随 App.PanelBackgroundBrush）。
                  面板直接占满右列，距窗口边缘仅剩外壳 5px，与左/中面板一致。 -->
             <Grid x:Name="RightPanelGrid"
+                  IsVisible="{Binding !IsRightPanelCollapsed}"
                   Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"
                   MinWidth="360">
                     <Grid.RowDefinitions>
