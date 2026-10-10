@@ -7,7 +7,7 @@ import { startServer } from './serve.mjs';
 import { launch, openPage } from './playwright.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []));
-const fixture = args.fixture ?? 'fixtures/synthetic.json';
+const fixture = args.fixture ?? '../fixtures/synthetic.json';
 const out = args.out ?? fileURLToPath(new URL('../../.local/shots/', import.meta.url));
 const browserName = args.browser ?? 'chromium';
 mkdirSync(out, { recursive: true });
@@ -17,7 +17,7 @@ const browser = await launch(browserName);
 try {
   let times = args.times ? args.times.split(',').map(Number) : null;
   if (!times) {
-    const { page, problems } = await openPage(browser, `${server.origin}/web/index.html?fixture=${encodeURIComponent(fixture)}&shot=1&hud=1`);
+    const { page, problems } = await openPage(browser, `${server.origin}/polis/index.html?fixture=${encodeURIComponent(fixture)}&shot=1&hud=1`);
     await page.waitForFunction(() => window.__polis?.ready || document.title === 'error', null, { timeout: 60_000 });
     if (problems.length) console.log(problems.join('\n'));
     times = await page.evaluate(() => {
@@ -38,7 +38,7 @@ try {
   }
   for (const [k, t] of times.entries()) {
     const started = Date.now();
-    const url = `${server.origin}/web/index.html?fixture=${encodeURIComponent(fixture)}&shot=1&t=${t}${args.extra ?? ''}`;
+    const url = `${server.origin}/polis/index.html?fixture=${encodeURIComponent(fixture)}&shot=1&t=${t}${args.extra ?? ''}`;
     const { page, problems } = await openPage(browser, url);
     await page.waitForFunction(() => window.__polis?.ready || document.title === 'error', null, { timeout: 60_000 });
     const file = `${out}/${String(k + 1).padStart(2, '0')}-t${t}${args.suffix ?? ''}.png`;

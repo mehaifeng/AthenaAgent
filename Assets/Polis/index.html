@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- 内容安全策略（设计稿 12.4）：脚本只能来自本站，不加载任何外部资源，不允许内联脚本；页面里的文件名与模型写的话
+     一律画在 canvas 上，卷轴阅读器只建文本节点。应用的回环服务在响应头里再给一份同样的策略。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>雅典娜的城邦</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #c8c5bf; font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+  canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #overlay { pointer-events: none; }
+  #controls { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+  #controls button {
+    font: 500 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #f4f1ec; background: rgba(30, 28, 26, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  #controls button:hover { background: rgba(30, 28, 26, 0.8); }
+  /* 实时模式：没有回放的播放 / 速度 / 重新开始，只留镜头切换 */
+  body.live #btn-play, body.live #btn-speed, body.live #btn-restart { display: none; }
+  #error { position: absolute; inset: 0; display: grid; place-items: center; background: #d8d4cd; }
+  #error[hidden] { display: none; }
+  #error .card { max-width: 520px; padding: 24px 28px; background: #f6f3ee; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); color: #2a2622; }
+  #error .detail { font: 12px ui-monospace, Menlo, monospace; color: #6b625a; white-space: pre-wrap; margin-top: 10px; }
+  /* 卷轴阅读器：正文由 reader.mjs 用文本节点建出来，这里只有排版 */
+  #reader { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 37, 34, 0.38); }
+  #reader[hidden] { display: none; }
+  #reader .scroll { width: min(760px, calc(100% - 48px)); max-height: calc(100% - 48px); display: flex; flex-direction: column;
+    background: #f7f2e7; color: #2a2622; border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.25); }
+  #reader header { display: flex; align-items: center; gap: 12px; padding: 16px 22px 10px; border-bottom: 1px solid rgba(60,55,50,0.15); }
+  #reader header h1 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #reader header button { font: 500 13px inherit; color: #f4f1ec; background: rgba(30,28,26,0.75); border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  #reader .body { padding: 8px 22px 22px; overflow-y: auto; font-size: 15px; line-height: 1.7; }
+  #reader .body pre { background: #ece5d6; padding: 10px 12px; border-radius: 6px; overflow-x: auto; font: 13px ui-monospace, Menlo, monospace; }
+  #reader .body code { font: 13px ui-monospace, Menlo, monospace; background: #ece5d6; padding: 0 3px; border-radius: 3px; }
+  #reader .body pre code { background: none; padding: 0; }
+  #reader .body blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #cdbf9f; color: #5a524a; }
+  #reader .body .href { color: #8a7f74; font-size: 13px; }
+  #reader .body li > p { margin: 2px 0; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<canvas id="overlay"></canvas>
+<div id="controls">
+  <button id="btn-play" type="button">暂停</button>
+  <button id="btn-speed" type="button">速度 ×1</button>
+  <button id="btn-follow" type="button">镜头：跟着雅典娜</button>
+  <button id="btn-restart" type="button">重新开始</button>
+</div>
+<div id="reader" hidden></div>
+<div id="error" hidden>
+  <div class="card">
+    <strong>城邦没能打开</strong>
+    <div>这一页需要 WebGL 2。下面是技术细节，反馈时请一并附上。</div>
+    <div class="detail"></div>
+  </div>
+</div>
+<script type="module" src="./src/main.mjs"></script>
+</body>
+</html>

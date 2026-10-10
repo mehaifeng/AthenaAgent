@@ -1,5 +1,7 @@
 // 旁白（设计稿 6.3）：按工具类别套模板，本地生成，零成本。做法和宠物台词库一样：一个场景一条，"|" 分隔多个变体。
-// 文件用显示名（《合同》），不用路径；工具参数、推理原文、用量一概不出现。M1 搬进 locale 文件。
+// 文件用显示名（《合同》），不用路径；工具参数、推理原文、用量一概不出现。
+// M1：台词表在应用的 locale 文件里（Polis.Line.*），实时模式下由 C# 按界面语言推来覆盖这里；
+// 这里的中文表是独立打开页面（回放、冒烟测试）时的默认值，键名与 locale 一一对应。
 
 // 同一类动作分"出发"（go，要先走过去）和"到场"（at，人已经在那儿）两套：
 // "炉火点上了"只有站在锻炉前才成立，出发时说它就是提前邀功（M0 截图审查）。
@@ -24,6 +26,8 @@ export const LINES_ZH = Object.freeze({
   outside: '我出城一趟|这一样东西在城外',
   failure: '这条路走不通，我换一条',
   deliver: '做好了，你看看|给你，刚做好的',
+  approval: '这一步需要你点头|等你点个头，我再动手',
+  interrupted: '上次在这里停下了，要接着做吗？',
 });
 
 // 建筑类型 → 旁白里的叫法
@@ -68,7 +72,7 @@ function fill(template, vars) {
  * phase 是 'go'（要先走 / 瞬移过去，出发时说）或 'at'（人已经在那儿，开工时说）。
  * @returns {string|null} null 表示这一步不说话（沉思就不说话）
  */
-export function lineForVisit(visit, tools, kindOf, seed = 0, lines = LINES_ZH, phase = 'go') {
+export function lineForVisit(visit, tools, kindOf, seed = 0, lines = LINES_ZH, phase = 'go', places = PLACE_ZH) {
   if (!visit) return null;
   if (visit.kind === 'deliver') return pick(lines.deliver, seed);
   const last = tools[tools.length - 1];
@@ -81,7 +85,7 @@ export function lineForVisit(visit, tools, kindOf, seed = 0, lines = LINES_ZH, p
   if (category === 'subagents') return fill(pick(lines.subagents, seed), { count: last.agents ?? 3 });
   if (category === 'memory') return pick(last.tool === 'create_new_memory' ? lines['memory.write'] : lines['memory.recall'], seed);
   if (last.place === 'outside') return pick(lines.outside, seed);
-  const place = PLACE_ZH[kindOf(last.building) ?? 'agora'] ?? '广场';
+  const place = places[kindOf(last.building) ?? 'agora'] ?? places.agora ?? '广场';
   const fileTool = tools.slice().reverse().find((t) => looksLikeFile(t.path));
   const base = category === 'write' ? 'write' : 'read';
   if (fileTool) return fill(pick(at(`${base}.file`), seed), { place, name: displayName(fileTool.path) });

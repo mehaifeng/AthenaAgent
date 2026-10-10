@@ -2,10 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createReplay, toEngineEvents, siteForTool, cityIndex } from '../src/replay.mjs';
-import { createOrchestrator } from '../src/orchestrator.mjs';
-import { lineForVisit, displayName, pick, LINES_ZH } from '../src/narration.mjs';
-import { createLayout, facingFor, pointAlong, polyLength, BLOCK, SPEED } from '../src/layout.mjs';
+import { createReplay, toEngineEvents, siteForTool, cityIndex } from '../../../../Assets/Polis/src/replay.mjs';
+import { createOrchestrator } from '../../../../Assets/Polis/src/orchestrator.mjs';
+import { lineForVisit, displayName, pick, LINES_ZH } from '../../../../Assets/Polis/src/narration.mjs';
+import { createLayout, facingFor, pointAlong, polyLength, BLOCK, SPEED } from '../../../../Assets/Polis/src/layout.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
 

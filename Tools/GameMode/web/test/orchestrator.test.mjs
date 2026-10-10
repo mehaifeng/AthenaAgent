@@ -2,7 +2,7 @@
 // 运行：node --test Tools/GameMode/web/test/   （Node ≥ 20；应用自带的 Playwright 驱动里也有一份 node）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOrchestrator, DEFAULTS, stepProgress } from '../src/orchestrator.mjs';
+import { createOrchestrator, DEFAULTS, stepProgress } from '../../../../Assets/Polis/src/orchestrator.mjs';
 
 const hop = (ms) => (from, to) => (from === to ? 0 : ms);
 

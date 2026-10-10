@@ -277,8 +277,62 @@ export function buildProps(M) {
   gift.add(giftTie);
   giftRod.userData.accent = true;   // 只有这一件在调色里留色
 
-  for (const g of [scroll, tablet, hammer, gift]) { g.visible = false; g.traverse((o) => { if (o.isMesh) o.userData.athena = true; }); }
-  return { scroll, tablet, hammer, gift };
+  // 等审批：手中石板的封印是红色的（设计稿 6.1）——"轮到你了"的三样东西之一，所以留色
+  const sealed = new THREE.Group();
+  sealed.add(mesh(new THREE.BoxGeometry(0.26, 0.02, 0.18), M.wood));
+  const seal = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.025, 18), M.accent);
+  seal.position.set(0, 0.022, 0);
+  seal.castShadow = true;
+  seal.userData.accent = true;
+  sealed.add(seal);
+
+  for (const g of [scroll, tablet, hammer, gift, sealed]) { g.visible = false; g.traverse((o) => { if (o.isMesh) o.userData.athena = true; }); }
+  return { scroll, tablet, hammer, gift, sealed };
+}
+
+/**
+ * 交到你手上的成果（设计稿 7.1"收"）：报告是卷轴，表格是账册，图片是彩绘板；回答本身也是一卷。
+ * 待处理时带颜色（点缀色）和一圈一胀一缩的白环；收下之后颜色褪进城邦（调用方把 userData.accent 关掉）。
+ */
+export function buildDeliveredItem(M, kind = 'scroll') {
+  if (kind === 'scroll' || kind === 'answer') return buildDeliveredScroll(M);
+  const g = new THREE.Group();
+  const base = mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.1, 24), M.marble);
+  base.position.y = 0.05;
+  g.add(base);
+  if (kind === 'ledger') {
+    // 账册：一本合起来的厚册子，封皮留色，书页是纸色
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, 0.44), M.accent);
+    cover.position.y = 0.19;
+    cover.castShadow = true;
+    cover.userData.accent = true;
+    g.add(cover);
+    const pages = mesh(new THREE.BoxGeometry(0.58, 0.12, 0.46), M.papyrus);
+    pages.position.set(0.02, 0.19, 0);
+    g.add(pages);
+  } else {
+    // 彩绘板：斜靠在小木架上的一块板，画框留色
+    const easel = mesh(new THREE.BoxGeometry(0.06, 0.7, 0.06), M.wood);
+    easel.position.set(0, 0.42, -0.16);
+    easel.rotation.x = -0.25;
+    g.add(easel);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.5, 0.05), M.accent);
+    frame.position.set(0, 0.5, -0.04);
+    frame.rotation.x = -0.22;
+    frame.castShadow = true;
+    frame.userData.accent = true;
+    g.add(frame);
+    const panel = mesh(new THREE.PlaneGeometry(0.56, 0.4), M.papyrus);
+    panel.position.set(0, 0.5, -0.01);
+    panel.rotation.x = -0.22;
+    g.add(panel);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.045, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.03;
+  g.add(ring);
+  g.userData.ring = ring;
+  return g;
 }
 
 /**

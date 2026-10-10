@@ -194,10 +194,20 @@ export function createLayout(fixture) {
     return `pt:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
   }
 
+  /**
+   * 给一座新建筑登记地块（运行期新建的文件夹）。只接受落在当前这一圈之内的地块：街道图和城市边界都按圈数建，
+   * 地块在更外一圈时返回 false，调用方整城重建。
+   */
+  function addBuildingPlot(b) {
+    if (Math.abs(b.plot.x) > ring || Math.abs(b.plot.z) > ring || b.plot.z >= seaZ) return false;
+    plots.set(`b:${b.key}`, place(b.plot.x, b.plot.z, facingFor(b.plot.x, b.plot.z), b));
+    return true;
+  }
+
   return {
     plots, ring, gate, harborPoint, quayZ, seaZ, wanderSpots,
     bounds: { minX: X(iMin) - BLOCK / 2, maxX: X(iMax) + BLOCK / 2, minZ: Z(jMin) - BLOCK / 2, maxZ: quayZ + 30 },
-    sitePoint, route, travelMs, snapClick,
+    sitePoint, route, travelMs, snapClick, addBuildingPlot,
   };
 }
 

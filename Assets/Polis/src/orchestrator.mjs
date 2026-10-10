@@ -13,7 +13,10 @@
 //   6. 等模型的时间不能出现空白：手上没有动作、这一回合还没交付的时候，她原地沉思（光一明一暗）。
 //
 // 时间线按"虚拟时间"推进：每一步在上一步结束的那一刻决定下一步，与帧率无关，同样的输入总是得到同样的输出。
-// 开放式的步骤（沉思、待命、等工具做完的动作）在新事件到来、或者可以让位的那一刻结束。
+// 开放式的步骤（沉思、待命、等工具做完的动作、等审批）在新事件到来、或者可以让位的那一刻结束。
+//
+// 审批（M1，设计稿 6.1"等待审批"）：approval-start 之后，她走到要做事的地方就停在门槛前（await），
+// 手中石板的封印是红色的；approval-end 之后才开始做事。等审批不打断移动（规则 4），走到了才停。
 
 export const DEFAULTS = Object.freeze({
   lagThresholdMs: 3000,   // 规则 5：设计稿说"阈值从 3 秒起调"
@@ -54,6 +57,7 @@ export function createOrchestrator(options = {}) {
   let thinking = false;
   let reasoning = 0;
   let turnActive = false;
+  let awaiting = false;      // 有一个审批在等你
   startStep({ kind: 'idle', at: position, start: p.startAt ?? 0, end: null });   // 一开始她在广场待命
 
   function ingest(event) {
@@ -120,7 +124,7 @@ export function createOrchestrator(options = {}) {
   }
 
   function complete(step) {
-    if ((step.kind === 'walk' || step.kind === 'teleport') && step.visit) {
+    if ((step.kind === 'walk' || step.kind === 'teleport' || step.kind === 'await') && step.visit) {
       startAct(step.visit, step.end);
     } else if (step.kind === 'act' || step.kind === 'deliver') {
       currentVisit = null;
@@ -158,7 +162,23 @@ export function createOrchestrator(options = {}) {
       case 'deliver':
         thinking = false;
         turnActive = false;
-        queue.push({ site: 'player', kind: 'deliver', toolIds: [], categories: [], firstT: e.t, turn: e.turn });
+        awaiting = false;
+        queue.push({ site: 'player', kind: 'deliver', toolIds: [], categories: [], firstT: e.t, turn: e.turn, itemId: e.itemId ?? null });
+        break;
+      case 'approval-start':
+        awaiting = true;
+        // 她已经站在那儿开工了（工具调用先出现、审批随后才弹出）：停下手，改为在门槛前等；点头之后接着做这一处
+        if (current && current.kind === 'act' && current.end == null) {
+          const visit = current.visit;
+          current.end = Math.max(current.start, e.t);
+          current.stoppedForApproval = true;
+          startStep({ kind: 'await', at: visit.site, start: current.end, end: null, visit });
+        }
+        break;
+      case 'approval-end':
+        awaiting = false;
+        // 停在门槛前的那一步就此结束；走到时间线里它会接着开始做事（complete → startAct）
+        if (current && current.kind === 'await') current.end = Math.max(current.start, e.t);
         break;
       default:
         break;   // 未知事件忽略：编排器只认这几种
@@ -193,7 +213,7 @@ export function createOrchestrator(options = {}) {
       startVisit(t);
       return;
     }
-    const want = thinking || turnActive ? 'meditate' : 'idle';
+    const want = awaiting ? 'await' : thinking || turnActive ? 'meditate' : 'idle';
     if (current && current.kind === want) {
       if (want === 'meditate') current.reasoning = reasoning;
       return;
@@ -237,7 +257,12 @@ export function createOrchestrator(options = {}) {
 
   function startAct(visit, t, extra = {}) {
     if (visit.kind === 'deliver') {
-      startStep({ kind: 'deliver', at: visit.site, start: t, end: t + p.deliverMs, visit, turn: visit.turn, ...extra });
+      startStep({ kind: 'deliver', at: visit.site, start: t, end: t + p.deliverMs, visit, turn: visit.turn, itemId: visit.itemId, ...extra });
+      return;
+    }
+    if (awaiting) {
+      // 到了，但这一步要你点头：停在门槛前等，不开工
+      startStep({ kind: 'await', at: visit.site, start: t, end: null, visit, ...extra });
       return;
     }
     const step = { kind: 'act', at: visit.site, start: t, end: null, visit, category: null, ...extra };
@@ -295,6 +320,7 @@ export function createOrchestrator(options = {}) {
       thinking,
       turnActive,
       reasoning,
+      awaiting,
     };
   }
 

@@ -14,7 +14,7 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      const { page, problems } = await openPage(browser, `${server.origin}/web/index.html?fixture=fixtures/synthetic.json&selftest=motion${nosync ? '&nosync=1' : ''}`);
+      const { page, problems } = await openPage(browser, `${server.origin}/polis/index.html?fixture=../fixtures/synthetic.json&selftest=motion${nosync ? '&nosync=1' : ''}`);
       await page.waitForFunction(() => document.title.startsWith('motion-max-error-px:') || document.title === 'error', null, { timeout: 180_000 });
       const r = await page.evaluate(() => ({ title: document.title, result: window.__polis.selftest, errors: window.__polis.errors }));
       if (!r.result) throw new Error(`selftest did not run: ${r.title} ${r.errors.join(' | ')}`);
