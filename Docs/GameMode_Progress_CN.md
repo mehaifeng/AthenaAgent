@@ -105,7 +105,9 @@ save written: True
 
 （无。设计稿 15.5「启动时恢复上次选中的会话」按要求没做，留给用户决定——它不是阻塞，M1 不依赖它。）
 
-### 最后一轮（2026-10-11，提交 f2fe631 之上；工作区只有两个不属于本阶段的未跟踪文件）
+### 最后一轮（2026-10-11，提交 42023d6 之上；工作区只有两个不属于本阶段的未跟踪文件）
+
+f2fe631 上先跑过一遍，全过（47aaf3f 记的就是那一遍）。之后为 CI（ubuntu、Release）排查平台差异时读代码，发现决定 13 的两个竞争，修完（42023d6）在同一台机器上从头重跑，下面是重跑的结果。两次的数字只有用时与 WebKit 回放那一帧的灰阶统计不同。
 
 a. 解决方案构建 + Archive.Tests + 无头套件：
 
@@ -115,9 +117,10 @@ dotnet build Athena.UI.sln -p:UseAppHost=false
 dotnet Athena.Archive.Tests/bin/Debug/net10.0/Athena.Archive.Tests.dll
 → [PASS] 193 个，[FAIL] 0 个，exit=0（含 workspace relocation 与 polis 的 ledger / save / offline diff / attribution / intents / events 各用例）
 Scripts/run-headless-tests.sh
-→ [PASS] 143 行，[ALL HEADLESS TESTS PASSED]，exit=0，用时 52 秒
+→ [PASS] 143 行，[ALL HEADLESS TESTS PASSED]，exit=0，用时 55 秒
   其中 game mode（模式切换、游戏行替换消息行且不建气泡树、宠物收起、四处失败各有原因与「回到对话」和 Warning，不实例化 WebView）
-  与 game mode city lifecycle（外部改动、重启快照与离线报告、雾与重新定位、监视器溢出整城重扫、审批镜像、收下 / 退回落盘）都 PASS
+  与 game mode city lifecycle（外部改动、重启快照与离线报告、雾与重新定位、监视器溢出整城重扫、审批镜像、收下 / 退回落盘，
+  以及决定 13 的两个竞争：核对期间来的改动等它落地、换城丢弃上一座城的补丁）都 PASS
 ```
 
 b. 新增断言对应（完成标准 b）：账本稳定（删一个文件夹，其他建筑不挪）= Archive「polis layout ledger」「polis city」；存档损坏隔离与迁移 = 「polis save」；离线差异与改名找回 = 「polis offline diff」；
@@ -133,7 +136,7 @@ bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smo
 → chromium 实时：readySent / cityLoaded / awaitsApproval / nonEmptyFrame / acceptSent / relocateSent / neverApproves / pausesWhenHidden /
   resumesWhenShown / readerIsText / voyageLandsWhenReady / voyageWaitsForPartial / noProblems 全 true；页面发回 ready、accept-delivery、relocate
 → chromium 关掉 WebGL：页面回报 failed（reason=webgl，带技术细节），没有发 ready
-→ webkit 26.5 回放：同上全 true（std 31.5、30 灰阶）；实时：同上 13 项全 true
+→ webkit 26.5 回放：同上全 true（std 31.6、30 灰阶）；实时：同上 13 项全 true
 → SMOKE PASSED，exit=0
 bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → chromium 154.0.8037.98 与 webkit 26.5：各 118 帧（窗口 6000–9873 ms、42850–43670 ms），光晕 / 旁白气泡 / 建筑名牌最大偏差 0.000 / 0.000 / 0.000 px
