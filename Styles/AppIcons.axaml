@@ -15,14 +15,14 @@
 
     <!-- Window chrome -->
     <StaticResource x:Key="AthenaIconClose" ResourceKey="CoreIconX"/>
-    <StaticResource x:Key="AthenaIconWindowMinimize" ResourceKey="CoreIconWindowMinimize"/>
-    <StaticResource x:Key="AthenaIconWindowMaximize" ResourceKey="CoreIconWindowMaximize"/>
-    <StaticResource x:Key="AthenaIconWindowRestore" ResourceKey="CoreIconWindowRestore"/>
     <StaticResource x:Key="AthenaIconThemeDark" ResourceKey="CoreIconMoon"/>
     <StaticResource x:Key="AthenaIconThemeLight" ResourceKey="CoreIconSun"/>
     <StaticResource x:Key="AthenaIconSettings" ResourceKey="CoreIconSettings"/>
     <StaticResource x:Key="AthenaIconOverflowMenu" ResourceKey="CoreIconOptions"/>
     <StaticResource x:Key="AthenaIconLayoutSwap" ResourceKey="CoreIconSidebar"/>
+    <!-- 右栏收起/展开按钮：按"往哪边推"命名，因为方向随 SidePanelsSwapped 镜像。 -->
+    <StaticResource x:Key="AthenaIconPanelTowardLeft" ResourceKey="CoreIconChevronDoubleLeft"/>
+    <StaticResource x:Key="AthenaIconPanelTowardRight" ResourceKey="CoreIconChevronDoubleRight"/>
 
     <!-- Feature launchers and navigation -->
     <StaticResource x:Key="AthenaIconModelProvider" ResourceKey="CoreIconStorage"/>

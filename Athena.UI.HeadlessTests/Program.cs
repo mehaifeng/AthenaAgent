@@ -5,7 +5,6 @@ using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Controls.Chrome;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -181,6 +180,7 @@ TestConcreteConfigServiceIdentity();
 TestShellPanelBackgroundThemeResolution();
 TestConversationSwitchVeil();
 TestConversationSwitchScrollsToBottom();
+TestRightPanelAutoExpand();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -279,6 +279,66 @@ if (shell.ColumnDefinitions[0].MinWidth < 360 || shell.ColumnDefinitions[4].MinW
     throw new InvalidOperationException("Swapping side panels did not swap their physical column minimum widths.");
 await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
 Dispatcher.UIThread.RunJobs();
+// 右栏整体收起：语义右栏与它那条分隔线一起归零，状态写进 MainLayout 并落盘。
+var shellLayout = mainViewModel.Config!.MainLayout;
+var rightWidthBeforeCollapse = shellLayout.RightWidth;
+var leftWidthBeforeCollapse = shellLayout.LeftWidth;
+var savesBeforeCollapse = shellConfigService.SaveCount;
+// 工作台收起/展开在对话标题栏右端：中间对话永远在，右栏收起后它仍然可点。
+var rightPanelHostView = window.FindControl<MainConversationView>("MainConversationView")
+                         ?? throw new InvalidOperationException("Chat view is not mounted.");
+var rightPanelToggleButton = rightPanelHostView.FindControl<Button>("RightPanelToggleButton")
+                             ?? throw new InvalidOperationException("The right panel toggle was not created in the conversation header.");
+if (!ReferenceEquals(rightPanelToggleButton.Command, mainViewModel.ToggleRightPanelCommand) || !rightPanelToggleButton.IsVisible)
+    throw new InvalidOperationException("The conversation header's right panel button must be visible and wired to ToggleRightPanelCommand.");
+if (rightPanelToggleButton.FindAncestorOfType<Grid>()?.Parent is not Border { CornerRadius.TopLeft: 10 })
+    throw new InvalidOperationException("The right panel toggle must sit in the conversation header row.");
+if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
+    throw new InvalidOperationException("An expanded right-hand panel must offer to push toward the right.");
+await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+Dispatcher.UIThread.RunJobs();
+if (!shellLayout.RightPanelCollapsed || !mainViewModel.IsRightPanelCollapsed || shellConfigService.SaveCount <= savesBeforeCollapse)
+    throw new InvalidOperationException("Collapsing the right panel must flip MainLayout.RightPanelCollapsed and save it.");
+if (shell.ColumnDefinitions[4].Width.Value != 0 || shell.ColumnDefinitions[4].MinWidth != 0
+    || shell.ColumnDefinitions[3].Width.Value != 0 || shell.ColumnDefinitions[3].MinWidth != 0
+    || shell.ColumnDefinitions[1].Width.Value != 5)
+    throw new InvalidOperationException("Collapsing must zero the right panel column and its splitter column, and leave the left splitter alone.");
+if (rightPanelGrid.IsVisible || rightSideSplitter.IsVisible)
+    throw new InvalidOperationException("A collapsed right panel and its splitter must not stay visible.");
+if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardLeft")
+    throw new InvalidOperationException("A collapsed right-hand panel must offer to pull back toward the left.");
+// 收起态拖另一条分隔线：右栏列宽此刻是 0，写回去就把用户调好的宽度换成了最小宽度。
+leftSideSplitter.RaiseEvent(new VectorEventArgs { RoutedEvent = Avalonia.Controls.Primitives.Thumb.DragCompletedEvent });
+Dispatcher.UIThread.RunJobs();
+if (shellLayout.RightWidth != rightWidthBeforeCollapse)
+    throw new InvalidOperationException($"Saving the other splitter while collapsed overwrote RightWidth ({rightWidthBeforeCollapse} -> {shellLayout.RightWidth}).");
+shellLayout.LeftWidth = leftWidthBeforeCollapse;
+// 交换布局下收起作用在物理列 0/1，而不是左侧会话栏。
+await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+Dispatcher.UIThread.RunJobs();
+if (shell.ColumnDefinitions[0].Width.Value != 0 || shell.ColumnDefinitions[1].Width.Value != 0
+    || shell.ColumnDefinitions[4].Width.Value < 260 || shell.ColumnDefinitions[3].Width.Value != 5)
+    throw new InvalidOperationException("With swapped panels, collapsing must zero physical columns 0/1 and keep the session list.");
+if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
+    throw new InvalidOperationException("A collapsed panel on the left must offer to pull back toward the right.");
+await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+Dispatcher.UIThread.RunJobs();
+if (shellLayout.RightPanelCollapsed || !rightPanelGrid.IsVisible || !rightSideSplitter.IsVisible
+    || shell.ColumnDefinitions[4].MinWidth < 360 || shell.ColumnDefinitions[4].Width.Value < 360
+    || shell.ColumnDefinitions[3].Width.Value != 5)
+    throw new InvalidOperationException("Expanding the right panel did not restore its column, splitter and visibility.");
+// 输入框必须与消息列表共用左右 12px 的边：右栏收起、窗口最小宽度时对话列窄于 ContentMaxWidth，
+// 没有这条边输入框就顶到对话面板的边框上（在真实窗口里截图确认过）。
+var composerConversationView = window.FindControl<MainConversationView>("MainConversationView")
+                                ?? throw new InvalidOperationException("Chat view is not mounted.");
+var composerHost = composerConversationView.FindControl<Border>("ComposerHost")
+                   ?? throw new InvalidOperationException("The composer host was not created.");
+var messagesItems = composerConversationView.FindControl<ItemsControl>("MessagesItemsControl")
+                    ?? throw new InvalidOperationException("The message list was not created.");
+if (composerHost.Margin.Left != messagesItems.Margin.Left || composerHost.Margin.Right != messagesItems.Margin.Right
+    || composerHost.Margin.Left < 12)
+    throw new InvalidOperationException($"The composer gutter ({composerHost.Margin}) must match the message list's ({messagesItems.Margin}).");
 var mainConversationView = window.FindControl<MainConversationView>("MainConversationView")
                            ?? throw new InvalidOperationException("Chat view is not permanently mounted in the center column.");
 // 切换幕布住在消息列表那一格里（不是盖住整块面板），骨架屏才能直接套用真实气泡的几何。
@@ -635,44 +695,40 @@ if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "
     throw new InvalidOperationException("The compact log toolbar must not expose a pause command.");
 if (window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text is "工作区文件" or "编辑区"))
     throw new InvalidOperationException("The workspace file header must not expose redundant section labels or editor buttons.");
-if (window.FindControl<Button>("AppSettingsButton") != null)
-    throw new InvalidOperationException("The old workspace-footer settings button must be removed.");
-var titleBarThemeButton = window.FindControl<Button>("TitleBarThemeButton")
-                          ?? throw new InvalidOperationException("The theme command was not moved into the title bar.");
-var titleBarSettingsButton = window.FindControl<Button>("TitleBarAppSettingsButton")
-                             ?? throw new InvalidOperationException("The settings command was not moved into the title bar.");
-var titleBarDragArea = window.FindControl<Grid>("TitleBarDragArea")
-                       ?? throw new InvalidOperationException("The title bar has no dedicated drag area.");
-if (titleBarDragArea.Background == null
-    || WindowDecorationProperties.GetElementRole(titleBarDragArea) != WindowDecorationsElementRole.TitleBar)
-    throw new InvalidOperationException("The title-bar drag area must be hit-testable and marked with the native title-bar role.");
-var titleBarMinimizeButton = window.FindControl<Button>("TitleBarMinimizeButton")
-                             ?? throw new InvalidOperationException("The title bar has no minimize button.");
-var titleBarMaximizeButton = window.FindControl<Button>("TitleBarMaximizeButton")
-                             ?? throw new InvalidOperationException("The title bar has no maximize/restore button.");
-var titleBarCloseButton = window.FindControl<Button>("TitleBarCloseButton")
-                          ?? throw new InvalidOperationException("The title bar has no close button.");
-if (window.WindowDecorations != WindowDecorations.BorderOnly)
-    throw new InvalidOperationException("The custom title bar must retain only the native resize border.");
-if (!ReferenceEquals(titleBarThemeButton.Command, mainViewModel.MainConversationViewModel.ToggleThemeCommand)
-    || !ReferenceEquals(titleBarSettingsButton.Command, mainViewModel.OpenAppSettingsCommand))
-    throw new InvalidOperationException("Title-bar commands are not bound to the existing theme and settings commands.");
-if (window.FindControl<Button>("TitleBarFullScreenButton") != null)
-    throw new InvalidOperationException("The title bar must not expose a full-screen button.");
-titleBarMaximizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+// 系统标题栏：自绘标题栏在 GNOME/XWayland 上缩放抓手极窄、最小宽度时右侧被裁，两轮补丁都没修好，
+// 改回系统装饰。不能再出现任何自绘标题栏控件，也不能再扩展客户区。
+if (window.WindowDecorations != WindowDecorations.Full || window.ExtendClientAreaToDecorationsHint)
+    throw new InvalidOperationException("The main window must use the system title bar (WindowDecorations.Full, no extended client area).");
+var staleTitleBarControl = window.GetVisualDescendants().OfType<Control>()
+    .FirstOrDefault(control => control.Name?.StartsWith("TitleBar", StringComparison.Ordinal) == true);
+if (staleTitleBarControl != null)
+    throw new InvalidOperationException($"Custom title bar control {staleTitleBarControl.Name} is still present.");
+var themeToggleButton = window.FindControl<Button>("ThemeToggleButton")
+                        ?? throw new InvalidOperationException("The theme command was not moved into the shell footer.");
+var shellSettingsButton = window.FindControl<Button>("ShellSettingsButton")
+                          ?? throw new InvalidOperationException("The settings command was not moved into the shell footer.");
+if (!ReferenceEquals(themeToggleButton.Command, mainViewModel.MainConversationViewModel.ToggleThemeCommand)
+    || !ReferenceEquals(shellSettingsButton.Command, mainViewModel.OpenAppSettingsCommand))
+    throw new InvalidOperationException("Shell footer commands are not bound to the existing theme and settings commands.");
+var shellFooter = globalConversationButtonForFooter().Parent as Grid
+                  ?? throw new InvalidOperationException("The shell footer grid was not found.");
+if (!ReferenceEquals(themeToggleButton.Parent, shellFooter) || !ReferenceEquals(shellSettingsButton.Parent, shellFooter))
+    throw new InvalidOperationException("Theme and settings must share the shell footer row with the global conversation button.");
+Button globalConversationButtonForFooter() => window.FindControl<Button>("GlobalConversationButton")
+                                             ?? throw new InvalidOperationException("Global conversation command was not created.");
+// 没有宿主注入命令（设计器、单独挂载）时按钮必须隐藏，而不是留一个点了没反应的按钮。
+var standaloneConversationView = new MainConversationView();
+var standaloneWindow = new Window { Content = standaloneConversationView, Width = 600, Height = 400 };
+standaloneWindow.Show();
 Dispatcher.UIThread.RunJobs();
-if (window.WindowState != WindowState.Maximized)
-    throw new InvalidOperationException("The title-bar maximize button did not maximize the window.");
-titleBarMaximizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-Dispatcher.UIThread.RunJobs();
-if (window.WindowState != WindowState.Normal)
-    throw new InvalidOperationException("The title-bar maximize button did not restore the window.");
-titleBarMinimizeButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-Dispatcher.UIThread.RunJobs();
-if (window.WindowState != WindowState.Minimized)
-    throw new InvalidOperationException("The title-bar minimize button did not minimize the window.");
-window.WindowState = WindowState.Normal;
-Dispatcher.UIThread.RunJobs();
+if (standaloneConversationView.FindControl<Button>("RightPanelToggleButton") is { IsVisible: true })
+    throw new InvalidOperationException("Without an injected command the right panel toggle must be hidden.");
+standaloneWindow.Close();
+// Linux 系统标题栏跟随主题：Avalonia 的 X11 SetFrameThemeVariant 是空函数，_GTK_THEME_VARIANT 由我们写。
+if (Athena.UI.Services.Platform.LinuxWindowFrameTheme.ToGtkThemeVariant(ThemeVariant.Dark) != "dark"
+    || Athena.UI.Services.Platform.LinuxWindowFrameTheme.ToGtkThemeVariant(ThemeVariant.Light) != "light"
+    || Athena.UI.Services.Platform.LinuxWindowFrameTheme.ToGtkThemeVariant(null) != "light")
+    throw new InvalidOperationException("The GNOME frame variant must map Dark to \"dark\" and everything else to \"light\".");
 if (mainConversationView.GetVisualDescendants().OfType<Button>()
     .Any(button => ReferenceEquals(button.Command, mainViewModel.CreateConversationCommand)))
     throw new InvalidOperationException("The main conversation view must not expose a new-conversation button.");
@@ -4346,6 +4402,75 @@ static void TestConcreteConfigServiceIdentity()
     }
 
     Console.WriteLine("[PASS] ConfigService owns one default instance before the first save");
+}
+
+// 右栏收起时，用户主动要看文件（对话里点 file:// 链接 → OpenFileByPathAsync）或打开 review
+// 必须把它展开并写回配置；关掉 review 不算"要看东西"，不能借机改动布局。
+static void TestRightPanelAutoExpand()
+{
+    var config = new AppConfig();
+    config.MainLayout.RightPanelCollapsed = true;
+    var configService = new HeadlessConfigService(config);
+    using var session = new AppConfigurationSession(configService);
+    using var workbench = new WorkspaceWorkbenchViewModel(
+        new WorkspaceOperationCoordinator(),
+        new HeadlessPathService(),
+        new HeadlessInteractionService());
+    var viewModel = new MainWindowViewModel(
+        chatService: null,
+        configService: null,
+        promptService: null,
+        logService: null,
+        knowledgeBaseService: null,
+        localizationService: null,
+        fileSystemService: null,
+        platformPathService: null,
+        functionRegistry: null,
+        tokenService: null,
+        attachmentStoreService: null,
+        systemAudioService: null,
+        archiveService: null,
+        imageGenerationSessionService: null,
+        configurationSession: session,
+        workbench: workbench);
+    var path = Path.Combine(Path.GetTempPath(), $"athena-right-panel-{Guid.NewGuid():N}.txt");
+    File.WriteAllText(path, "hello");
+    try
+    {
+        var notified = false;
+        viewModel.PropertyChanged += (_, e) => notified |= e.PropertyName == nameof(MainWindowViewModel.IsRightPanelCollapsed);
+        var savesBefore = configService.SaveCount;
+        var open = workbench.OpenFileByPathAsync(path);
+        PumpUntil(() => open.IsCompleted && !config.MainLayout.RightPanelCollapsed, 5000,
+            "Opening a file by path while the right panel is collapsed must expand it.");
+        open.GetAwaiter().GetResult();
+        if (!notified || viewModel.IsRightPanelCollapsed || configService.SaveCount <= savesBefore)
+            throw new InvalidOperationException("Auto-expansion must notify the view and persist RightPanelCollapsed=false.");
+
+        // 已打开的标签再次被链接点中：同样是"要看"，走激活分支也得展开。
+        config.MainLayout.RightPanelCollapsed = true;
+        var reopen = workbench.OpenFileByPathAsync(path);
+        PumpUntil(() => reopen.IsCompleted && !config.MainLayout.RightPanelCollapsed, 5000,
+            "Re-activating an already open tab from a link must expand the collapsed panel too.");
+
+        workbench.HasGitRepository = true;
+        workbench.IsReviewVisible = true;
+        config.MainLayout.RightPanelCollapsed = true;
+        var close = workbench.ToggleReviewCommand.ExecuteAsync(null);
+        PumpUntil(() => close.IsCompleted, 5000);
+        Dispatcher.UIThread.RunJobs();
+        if (!config.MainLayout.RightPanelCollapsed)
+            throw new InvalidOperationException("Closing review is not a request to see anything and must not expand the panel.");
+        var show = workbench.ToggleReviewCommand.ExecuteAsync(null);
+        PumpUntil(() => show.IsCompleted && !config.MainLayout.RightPanelCollapsed, 5000,
+            "Opening review while collapsed must expand the panel.");
+    }
+    finally
+    {
+        viewModel.Dispose();
+        File.Delete(path);
+    }
+    Console.WriteLine("[PASS] right panel auto-expands on file open / review open and persists; closing review leaves it collapsed");
 }
 
 static void TestWorkspaceInlineRenameVisual()
