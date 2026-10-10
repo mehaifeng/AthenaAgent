@@ -118,6 +118,7 @@
     <Compile Include="../Models/FileOperationModels.cs" Link="Source/Models/FileOperationModels.cs" />
     <Compile Include="../Services/DiffApplier.cs" Link="Source/Services/DiffApplier.cs" />
     <Compile Include="../Services/FileSystemService.cs" Link="Source/Services/FileSystemService.cs" />
+    <Compile Include="../Services/GeneratedDirectories.cs" Link="Source/Services/GeneratedDirectories.cs" />
     <Compile Include="../Services/DocumentOutlineExtractor.cs" Link="Source/Services/DocumentOutlineExtractor.cs" />
     <Compile Include="../Services/Interfaces/IFileSystemService.cs" Link="Source/Services/Interfaces/IFileSystemService.cs" />
     <Compile Include="../Models/ImageGenerationSessionRecord.cs" Link="Source/Models/ImageGenerationSessionRecord.cs" />
