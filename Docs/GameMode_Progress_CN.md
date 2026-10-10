@@ -25,7 +25,7 @@
 | 12 | 离线差异报告与改名找回（文件夹按子项名集合相似度配对；藏品按大小 + 哈希找回；找不到 = 遗失，不自动删） | ✅ | Archive「polis offline diff」「polis city」；`TestGameModeCityLifecycle`（离线改名原地换牌匾、删除留空地、报告） |
 | 13 | 文件夹丢失：雾 + 「重新定位」 | ✅ | `TestGameModeCityLifecycle`；冒烟「relocateSent」；截图 05-fog |
 | 14 | 事件推导：从渲染模型（`Segments` / `ToolCallEntry.Status` / 审批 / 子代理）推导，不给 `IChatService` 加回调；`InvokeScript` 约 100 ms 攒批 | ✅ | Archive「polis events」；`GameModeViewModel.Flush`；真实探针 liveEvents = 4 |
-| 15 | 动作与旁白：旁白搬进 locale 文件（`Polis.Line.*`，`|` 分隔变体），中英两套 | ✅ | `PolisLocale`；`TestGameModeSwitchAndFailures` 核对中英两份都有全部 `Polis.*` / `GameMode.*` 词条 |
+| 15 | 动作与旁白：旁白搬进 locale 文件（`Polis.Line.*`，`\|` 分隔变体），中英两套 | ✅ | `PolisLocale`；`TestGameModeSwitchAndFailures` 核对中英两份都有全部 `Polis.*` / `GameMode.*` 词条 |
 | 16 | 卷轴阅读器：Markdown 只建 DOM、不解释任何 HTML；页面 CSP | ✅ | Node「reader」×2 + 源码扫描（无 innerHTML 等）；冒烟「readerIsText」；截图 06-reader |
 | 17 | 成果交付与收下 / 退回（退回 = 同一会话追加修改要求：预填输入框并聚焦，由用户发出） | ✅ | `TestGameModeCityLifecycle`（收下 / 退回落盘、退回只预填不发送、只回答的回合交出一卷回答）；冒烟「acceptSent」 |
 | 18 | 审批状态镜像（封印变红，雅典娜停在门槛前）；网页没有「批准」意图 | ✅ | Node「approval」×3；冒烟「awaitsApproval / neverApproves」；`TestGameModeCityLifecycle`（审批开始 / 结束都镜像） |
