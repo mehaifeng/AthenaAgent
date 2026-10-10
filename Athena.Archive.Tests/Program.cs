@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
@@ -61,6 +62,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("provider-reported metadata outranks OpenRouter matching", TestProviderReportedMetadataLayerAsync),
     ("provider-reported metadata flows from the listing into the inventory", TestProviderReportedInventoryFlowAsync),
     ("optional embedding can remain unconfigured during startup", TestOptionalEmbeddingStartupAsync),
+    ("embedding requests ask for float vectors and read both response encodings", TestEmbeddingRequestsFloatEncodingAsync),
     ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
     ("legacy compression keys migrate to the full-compaction policy and are never written back", TestLegacyContextPolicyMigrationAsync),
@@ -2382,6 +2384,53 @@ static Task TestOptionalEmbeddingStartupAsync()
     AssertFalse(service.IsConfigured, "an omitted optional embedding role must produce a disabled service instead of aborting startup");
     AssertEqual<string?>(null, service.ModelId, "disabled embedding service must not expose a model id");
     return Task.CompletedTask;
+}
+
+static async Task TestEmbeddingRequestsFloatEncodingAsync()
+{
+    // 2026-10-10：嵌入角色换成 infra-text-embedding-4b 后重建索引永远停在 0 个向量。SDK 的便捷方法把
+    // encoding_format 固定成 base64，端点回 400 "encoding_format only supports float"，探测失败、整轮向量被跳过。
+    var provider = new OpenAiProviderConfiguration
+    {
+        DisplayName = "Embedding provider",
+        BaseUrl = "https://embedding.test/v1",
+        ApiKey = "test-key"
+    };
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.Embedding.ProviderId = provider.Id;
+    config.AiModels.Embedding.Model = "infra-text-embedding-4b";
+
+    var handler = new FloatOnlyEmbeddingHttpHandler();
+    using var httpClient = new HttpClient(handler);
+    var service = new OpenAIEmbeddingService(config, Log.ForContext<OpenAIEmbeddingService>(), null,
+        new HttpClientPipelineTransport(httpClient));
+    AssertTrue(service.IsConfigured, "the embedding role is configured");
+
+    var single = await service.GenerateEmbeddingAsync("test");
+    AssertTrue(single != null, "a float-only endpoint must yield a vector instead of a 400");
+    AssertEqual("float", handler.EncodingFormats.Single(), "the request must ask for float vectors");
+    AssertEqual("infra-text-embedding-4b", handler.Models.Single(), "the request names the role's model");
+    AssertTrue(Math.Abs(single!.Sum(v => v * v) - 1f) < 1e-4f, "vectors are still L2-normalized");
+
+    // 批量：端点乱序返回时按 index 排回输入顺序。
+    var batch = await service.GenerateEmbeddingsAsync(["a", "bb", "ccc"]);
+    AssertEqual(3, batch.Count, "one vector per input");
+    for (var i = 0; i < 3; i++)
+    {
+        AssertEqual(i + 1, (int)MathF.Round(batch[i]![0] / batch[i]![1]), $"vector {i} is in input order");
+    }
+
+    // 不理会参数、仍回 base64 的端点也要读得出来。
+    var base64 = Convert.ToBase64String(MemoryMarshal.AsBytes(new float[] { 0.5f, -2f }.AsSpan()));
+    var parsed = EmbeddingWireFormat.ParseResponse(
+        BinaryData.FromString($$"""{"data":[{"index":0,"embedding":"{{base64}}"}]}"""), 1);
+    AssertTrue(parsed[0].SequenceEqual(new[] { 0.5f, -2f }), "base64 responses decode to the same floats");
+
+    var shortThrew = false;
+    try { EmbeddingWireFormat.ParseResponse(BinaryData.FromString("""{"data":[{"index":0,"embedding":[1]}]}"""), 2); }
+    catch (InvalidDataException) { shortThrew = true; }
+    AssertTrue(shortThrew, "a response with fewer vectors than inputs is an error, not a partial index");
 }
 
 static async Task TestConversationExecutionPauseAsync()
@@ -11440,6 +11489,36 @@ sealed class CapturingLogSink : ILogEventSink
     public void Clear()
     {
         lock (_events) { _events.Clear(); }
+    }
+}
+
+/// <summary>只接受 encoding_format=float 的嵌入端点；每条输入回 [长度, 1]，数据倒序返回以检验按 index 排序。</summary>
+sealed class FloatOnlyEmbeddingHttpHandler : HttpMessageHandler
+{
+    public List<string?> EncodingFormats { get; } = [];
+    public List<string?> Models { get; } = [];
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+        var root = body.RootElement;
+        var format = root.TryGetProperty("encoding_format", out var f) ? f.GetString() : null;
+        EncodingFormats.Add(format);
+        Models.Add(root.TryGetProperty("model", out var m) ? m.GetString() : null);
+        if (format != "float")
+        {
+            return new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"error":{"message":"encoding_format only supports float","type":"invalid_request_error","code":"400001"}}""", Encoding.UTF8, "application/json")
+            };
+        }
+
+        var inputs = root.GetProperty("input").EnumerateArray().Select(e => e.GetString()!).ToList();
+        var items = inputs.Select((text, index) => $$"""{"object":"embedding","index":{{index}},"embedding":[{{text.Length}},1]}""").Reverse();
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent($$"""{"object":"list","data":[{{string.Join(",", items)}}],"model":"x"}""", Encoding.UTF8, "application/json")
+        };
     }
 }
 

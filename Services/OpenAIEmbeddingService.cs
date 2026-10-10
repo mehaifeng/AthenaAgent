@@ -5,9 +5,13 @@ using OpenAI.Embeddings;
 using Serilog;
 using System;
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics.Tensors;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services;
@@ -25,13 +29,21 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private EmbeddingClient? _embeddingClient;
     private string? _effectiveModelId;
     private OpenAiModelClientIdentity _clientIdentity;
+    private readonly PipelineTransport? _transportOverride;
 
     public bool IsConfigured => _embeddingClient != null;
 
     public string? ModelId => _embeddingClient != null ? _effectiveModelId : null;
 
     public OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService = null)
+        : this(config, logger, localizationService, transportOverride: null)
     {
+    }
+
+    /// <summary>测试入口：把 HTTP 传输换成脚本化的处理器，其余管线（重试、超时、端点）与生产一致。</summary>
+    internal OpenAIEmbeddingService(AppConfig config, ILogger logger, ILocalizationService? localizationService, PipelineTransport? transportOverride)
+    {
+        _transportOverride = transportOverride;
         _config = config;
         _clientIdentity = OpenAiModelRuntimeFactory.ComputeClientIdentity(
             config,
@@ -90,6 +102,10 @@ public class OpenAIEmbeddingService : IEmbeddingService
         try
         {
             var options = OpenAiClientOptionsFactory.Create(baseUrl, _config.Timeout);
+            if (_transportOverride != null)
+            {
+                options.Transport = _transportOverride;
+            }
             if (!string.IsNullOrWhiteSpace(baseUrl))
             {
                 _logger.Information("Embedding using custom Base URL: {BaseUrl}", baseUrl);
@@ -128,13 +144,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
         try
         {
-            // 使用复数形式的 GenerateEmbeddingsAsync，这在某些 SDK 版本中更稳定
-            // 且能更好地处理响应解析
-            ClientResult<OpenAIEmbeddingCollection> result = await _embeddingClient.GenerateEmbeddingsAsync(new[] { text });
+            var vectors = await RequestEmbeddingsAsync(new[] { text });
 
-            if (result?.Value != null && result.Value.Count > 0)
+            if (vectors.Count > 0)
             {
-                var embedding = NormalizeL2(result.Value[0].ToFloats().ToArray());
+                var embedding = NormalizeL2(vectors[0]);
                 _logger.Debug("Embedding generated successfully, dimension: {Dimension}", embedding.Length);
                 return embedding;
             }
@@ -161,11 +175,9 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
         try
         {
-            ClientResult<OpenAIEmbeddingCollection> response = await _embeddingClient.GenerateEmbeddingsAsync(textList);
-
-            foreach (var embedding in response.Value)
+            foreach (var embedding in await RequestEmbeddingsAsync(textList))
             {
-                results.Add(NormalizeL2(embedding.ToFloats().ToArray()));
+                results.Add(NormalizeL2(embedding));
             }
 
             _logger.Debug("Batch embedding generation succeeded, count: {Count}", results.Count);
@@ -176,6 +188,21 @@ public class OpenAIEmbeddingService : IEmbeddingService
             _logger.Error(ex, "Batch embedding generation failed");
             return new List<float[]?>();
         }
+    }
+
+    /// <summary>
+    /// 走 SDK 的协议层方法，请求体由 <see cref="EmbeddingWireFormat"/> 自己写。
+    /// SDK 的便捷方法把 <c>encoding_format</c> 固定为 <c>base64</c>（没有公开开关），而有的端点只接受 <c>float</c>
+    /// （2026-10-10，<c>infra-text-embedding-4b</c>：400 "encoding_format only supports float"），
+    /// 于是探测失败、整轮向量被跳过、重建永远停在 0 个向量。<c>float</c> 是 OpenAI 协议的缺省值，所有兼容端点都认。
+    /// </summary>
+    private async Task<IReadOnlyList<float[]>> RequestEmbeddingsAsync(IReadOnlyList<string> texts)
+    {
+        var client = _embeddingClient ?? throw new InvalidOperationException("Embedding client is not configured.");
+        var model = _effectiveModelId ?? throw new InvalidOperationException("Embedding model is not configured.");
+        using var content = BinaryContent.Create(EmbeddingWireFormat.BuildRequest(model, texts));
+        var result = await client.GenerateEmbeddingsAsync(content, new RequestOptions());
+        return EmbeddingWireFormat.ParseResponse(result.GetRawResponse().Content, texts.Count);
     }
 
     /// <summary>
@@ -243,6 +270,88 @@ public class OpenAIEmbeddingService : IEmbeddingService
         catch (Exception ex)
         {
             return (false, string.Format(GetLocalized("Service.ConnectionFailed", "Connection failed: {0}"), ex.Message));
+        }
+    }
+}
+
+/// <summary>嵌入请求/响应的线上格式。请求固定 <c>encoding_format: "float"</c>；响应两种编码都读，因为有的端点不理会这个参数。</summary>
+internal static class EmbeddingWireFormat
+{
+    public static BinaryData BuildRequest(string model, IReadOnlyList<string> texts)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("model", model);
+            writer.WriteStartArray("input");
+            foreach (var text in texts)
+            {
+                writer.WriteStringValue(text);
+            }
+            writer.WriteEndArray();
+            writer.WriteString("encoding_format", "float");
+            writer.WriteEndObject();
+        }
+        return BinaryData.FromBytes(stream.ToArray());
+    }
+
+    /// <summary>按 <c>index</c> 排回输入顺序；条数或形状不对就抛，不让半截结果冒充完整索引。</summary>
+    public static IReadOnlyList<float[]> ParseResponse(BinaryData body, int expectedCount)
+    {
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("Embedding response has no data array.");
+        }
+
+        var vectors = new float[expectedCount][];
+        var position = 0;
+        foreach (var item in data.EnumerateArray())
+        {
+            var index = item.TryGetProperty("index", out var indexElement) && indexElement.ValueKind == JsonValueKind.Number
+                ? indexElement.GetInt32()
+                : position;
+            if (index < 0 || index >= expectedCount || vectors[index] != null)
+            {
+                throw new InvalidDataException($"Embedding response index {index} is out of range or repeated (expected {expectedCount}).");
+            }
+            if (!item.TryGetProperty("embedding", out var embedding))
+            {
+                throw new InvalidDataException($"Embedding response item {index} has no embedding.");
+            }
+            vectors[index] = ReadVector(embedding, index);
+            position++;
+        }
+
+        if (position != expectedCount)
+        {
+            throw new InvalidDataException($"Embedding response returned {position} vector(s) for {expectedCount} input(s).");
+        }
+        return vectors;
+    }
+
+    private static float[] ReadVector(JsonElement embedding, int index)
+    {
+        switch (embedding.ValueKind)
+        {
+            case JsonValueKind.Array:
+                var vector = new float[embedding.GetArrayLength()];
+                var i = 0;
+                foreach (var value in embedding.EnumerateArray())
+                {
+                    vector[i++] = value.GetSingle();
+                }
+                return vector;
+            case JsonValueKind.String:
+                var bytes = Convert.FromBase64String(embedding.GetString()!);
+                if (bytes.Length % sizeof(float) != 0)
+                {
+                    throw new InvalidDataException($"Embedding response item {index} has a base64 payload that is not a whole number of floats.");
+                }
+                return MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            default:
+                throw new InvalidDataException($"Embedding response item {index} has an embedding of kind {embedding.ValueKind}.");
         }
     }
 }
