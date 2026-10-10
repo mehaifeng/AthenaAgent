@@ -488,12 +488,20 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         StartWatcher(workspace.DirectoryPath);
     }
 
+    /// <summary>
+    /// 用户主动要看某样东西（打开文件、打开 git 变更、打开 review）时触发，
+    /// 让外壳在右栏收起时把它展开。恢复路径（切换工作区时 activate:false 重开标签）不触发——
+    /// 那不是用户意图，否则每次切会话都会把用户收起的面板弹开。
+    /// </summary>
+    public event EventHandler? RevealRequested;
+
     [RelayCommand]
     private async Task ToggleReviewAsync()
     {
         if (!HasGitRepository) return;
         IsReviewVisible = !IsReviewVisible;
         if (!IsReviewVisible) return;
+        RevealRequested?.Invoke(this, EventArgs.Empty);
         await RefreshRepositoryStateAsync();
     }
 
@@ -1126,6 +1134,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         if (!IsCurrentGitChangeSelection(change, selectionVersion, cancellationToken)) return;
         SelectedEditorTab = tab;
         IsEditorVisible = true;
+        RevealRequested?.Invoke(this, EventArgs.Empty);
         await PersistStateAsync();
     }
 
@@ -1178,6 +1187,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
             {
                 SelectedEditorTab = existing;
                 IsEditorVisible = true;
+                RevealRequested?.Invoke(this, EventArgs.Empty);
             }
             return;
         }
@@ -1227,6 +1237,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             SelectedEditorTab = tab;
             IsEditorVisible = true;
+            RevealRequested?.Invoke(this, EventArgs.Empty);
         }
         OnPropertyChanged(nameof(HasEditorTabs));
         if (persist) await PersistStateAsync();

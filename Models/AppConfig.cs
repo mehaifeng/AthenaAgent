@@ -351,6 +351,11 @@ public partial class MainLayoutSettings : ObservableObject
     [ObservableProperty]
     private bool _sidePanelsSwapped;
 
+    // 语义右栏（工作台 + 日志/终端）整体收起。交换布局后它仍指同一块面板。
+    // 用户主动要看文件/diff 的路径（对话里点文件链接、打开 review）会自动展开并写回这里。
+    [ObservableProperty]
+    private bool _rightPanelCollapsed;
+
     // 三块 shell-panel 的背景透明度：0 = 完全不透明（图像被压住，与原观感一致），
     // 0.8 = 80% 透明（雅典娜图像从面板后透出）。标题栏与设置窗口不受影响。
     // 这里存的是"透明度"分率（0–0.8），VM 会转成 `Opacity = 1 - PanelTransparency` 给 XAML。

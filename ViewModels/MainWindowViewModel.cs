@@ -53,6 +53,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     public bool IsSidePanelsSwapped => Config?.MainLayout.SidePanelsSwapped == true;
 
+    /// <summary>语义右栏（工作台 + 日志/终端）是否整体收起。交换布局后指的仍是同一块面板。</summary>
+    public bool IsRightPanelCollapsed => Config?.MainLayout.RightPanelCollapsed == true;
+
+    /// <summary>
+    /// 标题栏切换按钮的图标 key：箭头指向点击后面板"去的方向"。面板在右时展开态向右收、收起态向左拉；
+    /// 交换布局时镜像。一个 key 走 ToolIconKeyToGeometryConverter，不叠两个 IsVisible 的 PathIcon。
+    /// </summary>
+    public string RightPanelToggleIconKey =>
+        IsRightPanelCollapsed == IsSidePanelsSwapped ? "AthenaIconPanelTowardRight" : "AthenaIconPanelTowardLeft";
+
+    public string RightPanelToggleTip => IsRightPanelCollapsed
+        ? L("MainWindow.Tip.ExpandRightPanel", "Expand workbench panel")
+        : L("MainWindow.Tip.CollapseRightPanel", "Collapse workbench panel");
+
+    private string L(string key, string fallback) => _localizationService?.GetString(key, fallback) ?? fallback;
+
     /// <summary>用户配置的"面板透明度"分率（0 = 完全不透明，0.8 = 80% 透明）。</summary>
     public double PanelTransparency => Config?.MainLayout.PanelTransparency ?? 0.0;
 
@@ -88,6 +104,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         else if (e.PropertyName == nameof(MainLayoutSettings.PanelGlassEnabled))
         {
             OnPropertyChanged(nameof(PanelGlassEnabled));
+        }
+        else if (e.PropertyName == nameof(MainLayoutSettings.RightPanelCollapsed))
+        {
+            RaiseRightPanelStateChanged();
         }
     }
 
@@ -457,6 +477,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _cronSessionLauncher = cronSessionLauncher;
         _conversationNavigator = conversationNavigator;
         Workbench = workbench;
+        if (Workbench != null) Workbench.RevealRequested += OnWorkbenchRevealRequested;
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
         _logService = logService;
@@ -1077,7 +1098,40 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         Config.MainLayout.SidePanelsSwapped = !Config.MainLayout.SidePanelsSwapped;
         _logger.Information("MainWindow toggled side panels: NewValue={Value}", Config.MainLayout.SidePanelsSwapped);
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
+        OnPropertyChanged(nameof(RightPanelToggleIconKey));
         await _configurationSession.SaveNowAsync();
+    }
+
+    [RelayCommand]
+    private async Task ToggleRightPanelAsync()
+    {
+        if (Config == null || _configurationSession == null) return;
+        // 通知由 OnMainLayoutPropertyChanged 统一抛出，这里只改值和落盘。
+        Config.MainLayout.RightPanelCollapsed = !Config.MainLayout.RightPanelCollapsed;
+        _logger.Information("MainWindow toggled right panel: Collapsed={Value}", Config.MainLayout.RightPanelCollapsed);
+        await _configurationSession.SaveNowAsync();
+    }
+
+    /// <summary>
+    /// 自动展开：工作台在用户主动要看文件/diff 时请求可见。展开同样写回持久化配置——
+    /// 用户是为了看东西才点的，下次启动还收着反而违背刚才的意图。
+    /// </summary>
+    private async Task ExpandRightPanelAsync(string reason)
+    {
+        if (Config == null || _configurationSession == null || !Config.MainLayout.RightPanelCollapsed) return;
+        Config.MainLayout.RightPanelCollapsed = false;
+        _logger.Information("MainWindow auto-expanded right panel: Reason={Reason}", reason);
+        await _configurationSession.SaveNowAsync();
+    }
+
+    private void OnWorkbenchRevealRequested(object? sender, EventArgs e) =>
+        AsyncEventGuard.Run(() => ExpandRightPanelAsync("workbench reveal"), nameof(OnWorkbenchRevealRequested));
+
+    private void RaiseRightPanelStateChanged()
+    {
+        OnPropertyChanged(nameof(IsRightPanelCollapsed));
+        OnPropertyChanged(nameof(RightPanelToggleIconKey));
+        OnPropertyChanged(nameof(RightPanelToggleTip));
     }
 
     public Task SaveConfigurationNowAsync() =>
@@ -1090,6 +1144,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         OnPropertyChanged(nameof(PanelTransparency));
         OnPropertyChanged(nameof(ShellPanelOpacity));
         OnPropertyChanged(nameof(PanelGlassEnabled));
+        RaiseRightPanelStateChanged();
         TrackMainLayout(config.MainLayout);
     }
 
@@ -1418,6 +1473,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (_configurationSession != null)
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         TrackMainLayout(null);
+        if (Workbench != null) Workbench.RevealRequested -= OnWorkbenchRevealRequested;
         if (_logService != null)
             _logService.LogsChanged -= OnLogsChanged;
 
