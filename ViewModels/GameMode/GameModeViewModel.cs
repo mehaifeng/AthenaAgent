@@ -123,6 +123,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private readonly List<string> _notices = new();
     private readonly List<PolisFsChange> _pendingChanges = new();
     private readonly List<PolisChangeOrigin> _pendingOrigins = new();
+    /// <summary>
+    /// 正在跑的测绘（装城、整城重扫、增量补丁）。同一时刻只跑一次：装城可以抢先（换城取消旧的一切），
+    /// 其余的在它跑的期间只记下来，落地之后由 <see cref="ContinueAfterSurvey"/> 补上。
+    /// </summary>
+    private int _surveysInFlight;
+    private string? _rescanAfterSurvey;
     private PolisEventProjector? _projector;
     private bool _projectionDirty;
     private bool _wasWaiting;
@@ -591,7 +597,25 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var cts = new CancellationTokenSource();
         _cityLoad = cts;
         var token = cts.Token;
+        // 攒着的改动与重扫请求都是对上一次装的城说的；这一次从头测绘，它们发生在扫描之前，已经包含在内
+        _watcherTimer?.Stop();
+        _pendingChanges.Clear();
+        _pendingOrigins.Clear();
+        _rescanAfterSurvey = null;
+        _surveysInFlight++;
+        try
+        {
+            await LoadCityCoreAsync(workspace, token);
+        }
+        finally
+        {
+            _surveysInFlight--;
+        }
+        ContinueAfterSurvey(token);
+    }
 
+    private async Task LoadCityCoreAsync(WorkspaceProfile? workspace, CancellationToken token)
+    {
         _cityWorkspace = workspace;
         _slot = workspace == null ? PolisSaveSlot.Sanctuary : PolisSaveSlot.ForWorkspace(workspace.Id);
         _cityKey = workspace?.Id ?? "sanctuary";
@@ -660,9 +684,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     {
         var save = _save;
         var index = _index;
+        var slot = _slot;
+        var scanned = SurveyScanned;
         var state = await Task.Run(() =>
         {
             var scan = PolisScanner.Scan(PolisFileSystem.Enumerator(root), PolisScanOptions.Default, token);
+            scanned?.Invoke(root);
             return PolisCityBuilder.Reconcile(name, scan, save, index, PolisFingerprints.ForWorkspace(root, token), DateTimeOffset.UtcNow, token);
         }, token);
         token.ThrowIfCancellationRequested();
@@ -677,7 +704,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         await PersistSaveAsync();
         try
         {
-            await _store.SaveIndexAsync(_slot, state.Index, CancellationToken.None);
+            // 用开始时的槽位：上面那次 await 期间可能已经换了城，这份快照属于这一座
+            await _store.SaveIndexAsync(slot, state.Index, CancellationToken.None);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -686,24 +714,62 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// 测试缝：后台测绘扫完文件夹、还没核对之前调用（在线程池上，参数是工作区根目录），装城、重扫、增量补丁都经过这里。
+    /// 无头测试用它把一次测绘卡在"读过文件夹、还没落地"——外部改动与换城恰好落在这段时间里的那种竞争。
+    /// </summary>
+    internal Action<string>? SurveyScanned { get; set; }
+
     private async Task RescanAsync(string why)
     {
         if (_cityWorkspace == null || _fogged || PageState != PolisPageState.Ready) return;
+        if (_surveysInFlight > 0)
+        {
+            // 不取消正在跑的那次，落地之后再整城扫一遍。取消它要付两种代价：装城那一次带着"你离开期间"的报告，
+            // 会被一个不报告的重扫顶掉；装城的前半段还没读进这座城的存档，这时起的重扫会拿上一座城的账本来核对这一座。
+            _rescanAfterSurvey ??= why;
+            _logger.Debug("Polis rescan ({Why}) deferred until the survey in flight lands", why);
+            return;
+        }
         _logger.Information("Rescanning the whole polis: {Why}", why);
         _cityLoad?.Cancel();
         _cityLoad?.Dispose();
         _cityLoad = new CancellationTokenSource();
+        var token = _cityLoad.Token;
+        _surveysInFlight++;
         try
         {
-            await ReconcileAsync(_cityWorkspace.DirectoryPath, _cityWorkspace.Name, report: false, _cityLoad.Token);
+            await ReconcileAsync(_cityWorkspace.DirectoryPath, _cityWorkspace.Name, report: false, token);
         }
         catch (OperationCanceledException)
         {
-            // 被下一次重扫或换城取代
+            // 换城取代了这一次：新的装城会从头测绘
+            return;
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "Rescanning the polis failed");
+            return;
+        }
+        finally
+        {
+            _surveysInFlight--;
+        }
+        ContinueAfterSurvey(token);
+    }
+
+    /// <summary>一次测绘落地之后：先补它跑的期间被要求的整城重扫，否则补攒下的外部改动。</summary>
+    private void ContinueAfterSurvey(CancellationToken token)
+    {
+        if (_disposed || _surveysInFlight > 0 || token.IsCancellationRequested) return;
+        if (_rescanAfterSurvey is { } why)
+        {
+            _rescanAfterSurvey = null;
+            _ = RescanAsync(why);
+        }
+        else if (_pendingChanges.Count > 0)
+        {
+            _ = ApplyPendingChangesAsync();
         }
     }
 
@@ -806,7 +872,14 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private async Task ApplyPendingChangesAsync()
     {
         _watcherTimer?.Stop();
-        if (_pendingChanges.Count == 0 || _cityWorkspace == null) return;
+        if (_disposed || _pendingChanges.Count == 0 || _cityWorkspace == null) return;
+        if (_surveysInFlight > 0)
+        {
+            // 留在队里，测绘落地之后补（ContinueAfterSurvey）。装城的核对还没落地时没有可打的底稿，
+            // 以前这里会起一次整城重扫、把那次核对连同"你离开期间"的报告一起取消掉。
+            _logger.Debug("Deferring {Count} external polis change(s) until the survey in flight lands", _pendingChanges.Count);
+            return;
+        }
         var changes = _pendingChanges.ToList();
         var origins = _pendingOrigins.ToList();
         _pendingChanges.Clear();
@@ -825,6 +898,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var previousBuildings = _city?.Buildings.ToDictionary(b => b.Key, StringComparer.Ordinal) ?? new Dictionary<string, PolisFixtureBuilding>(StringComparer.Ordinal);
         var scan = _lastScan;
         var save = _save;
+        var slot = _slot;
+        // 换城会取消它：补丁是按这一座城的账本算的，一个字节都不能落到下一座城的存档上
+        var token = _cityLoad?.Token ?? CancellationToken.None;
         foreach (var (from, to) in batch.TopLevelRenames)
         {
             // 运行时收到的顶层改名：建筑原地换牌匾，藏品的引用跟着改（11.2）
@@ -838,12 +914,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             };
         }
 
+        var failed = false;
+        var scanned = SurveyScanned;
+        _surveysInFlight++;
         try
         {
-            var patched = await Task.Run(() => PatchScan(root, scan, batch.DirtyTopLevelNames), CancellationToken.None);
-            var state = PolisCityBuilder.Reconcile(name, patched, save, null, PolisFingerprints.ForWorkspace(root), DateTimeOffset.UtcNow);
+            // 核对藏品要读盘、算哈希（每件已交付的成果都看一眼，单件最多 64 MB）：和扫描一起放在线程池上
+            var state = await Task.Run(() =>
+            {
+                var patched = PatchScan(root, scan, batch.DirtyTopLevelNames);
+                scanned?.Invoke(root);
+                return PolisCityBuilder.Reconcile(name, patched, save, null, PolisFingerprints.ForWorkspace(root, token), DateTimeOffset.UtcNow, token);
+            }, token);
+            token.ThrowIfCancellationRequested();
             _save = MergeReconciled(_save, state.Save);
-            _lastScan = patched;
+            _lastScan = state.Scan;
             _index = state.Index;
             var originMap = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var key in batch.ExternalBuildings) originMap[key] = "external";
@@ -859,13 +944,26 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             if (_projector != null) _projector.BuildingKeys = BuildingKeys();
             Flush();
             await PersistSaveAsync();
-            await _store.SaveIndexAsync(_slot, state.Index, CancellationToken.None);
+            await _store.SaveIndexAsync(slot, state.Index, CancellationToken.None);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (OperationCanceledException)
         {
-            _logger.Warning(ex, "Applying external changes to the polis failed; rescanning the whole city");
-            await RescanAsync("incremental update failed");
+            // 换城取代了这一次：新的装城会从头测绘
+            _logger.Debug("Dropped a polis change patch for {Root}: the city changed while it ran", root);
+            return;
         }
+        catch (Exception ex)
+        {
+            // 补丁打不上就整城重扫（在 finally 让出"正在测绘"之后，否则重扫会把自己排到自己后面）
+            _logger.Warning(ex, "Applying external changes to the polis failed; rescanning the whole city");
+            failed = true;
+        }
+        finally
+        {
+            _surveysInFlight--;
+        }
+        if (failed) await RescanAsync("incremental update failed");
+        else ContinueAfterSurvey(token);
     }
 
     /// <summary>

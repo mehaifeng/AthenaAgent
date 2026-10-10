@@ -4460,10 +4460,12 @@ static void TestGameModeSwitchAndFailures()
     MainWindow? window = null;
     try
     {
+        // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
+        // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
         gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization)
         {
-            ReadyTimeout = TimeSpan.FromMilliseconds(600),
-            ReleaseDelay = TimeSpan.FromMilliseconds(300)
+            ReadyTimeout = TimeSpan.FromSeconds(2),
+            ReleaseDelay = TimeSpan.FromSeconds(2)
         };
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -4609,7 +4611,7 @@ static void TestGameModeSwitchAndFailures()
         PumpTimers(() => !view.IsVeilVisible, 5000, "切回对话之后幕布必须落下。");
         if (pages[0].Disposed)
             throw new InvalidOperationException("切回对话不该立刻释放页面：来回切换不能每次都重新加载场景。");
-        PumpTimers(() => pages[0].Disposed && gameMode.PageUrl == null, 5000, "切回对话、过了保留期，页面必须释放。");
+        PumpTimers(() => pages[0].Disposed && gameMode.PageUrl == null, 8000, "切回对话、过了保留期，页面必须释放。");
 
         // 第 1 处：WebView 创建失败（例如 Linux 上没装 WebKitGTK）——下一次进入游戏模式时
         PolisPageFactory.Create = _ => throw new DllNotFoundException("libwebkit2gtk-4.1.so.0: cannot open shared object file");
@@ -4637,11 +4639,11 @@ static void TestGameModeSwitchAndFailures()
         pages[^1].Navigate(true);
         ExpectFailure(PolisFailureStage.Page, "GameMode.Failure.WebGl", () => pages[^1].Send("""{"v":1,"type":"failed","reason":"webgl","detail":"getContext('webgl2') returned null"}"""));
 
-        // 第 4 处：页面迟迟不报就绪
+        // 第 4 处：页面迟迟不报就绪（什么都不做，ExpectFailure 自己等到就绪计时到期）
         gameMode.RetryCommand.Execute(null);
         PumpTimers(() => pages.Count == 4, 5000, "重试没有重新创建页面。");
         pages[^1].Navigate(true);
-        ExpectFailure(PolisFailureStage.Timeout, "GameMode.Failure.Timeout", () => PumpTimersFor(700));
+        ExpectFailure(PolisFailureStage.Timeout, "GameMode.Failure.Timeout", () => { });
 
         // 失败之后重试成功：失败面板收起，页面回来
         gameMode.RetryCommand.Execute(null);
@@ -4679,6 +4681,17 @@ static void TestGameModeCityLifecycle()
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
     }
+    var otherRoot = Path.Combine(root, "另一座城");
+    Directory.CreateDirectory(Path.Combine(otherRoot, "信件"));
+    File.WriteAllText(Path.Combine(otherRoot, "信件", "回信.txt"), "reply");
+    // 视图模型的日志器在构造时从 Log.Logger 派生：先换日志器，测绘被推迟、补丁被丢弃这两件事只在 Debug 日志里看得见
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+    // 把一次测绘卡在"扫过文件夹、还没落地"（SurveyScanned 缝），外部改动与换城就能确定地落进这段时间
+    var surveyGate = new ManualResetEventSlim(false);
+    var surveysHeld = 0;
     var previousFactory = PolisPageFactory.Create;
     var pages = new List<FakePolisPage>();
     PolisPageFactory.Create = uri => { var page = new FakePolisPage(uri); pages.Add(page); return page; };
@@ -4692,17 +4705,28 @@ static void TestGameModeCityLifecycle()
     var previewHost = new OfficePreviewHost();
     var localization = new LocalizationService();
     var workspace = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = workspaceRoot };
-    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { workspace });
+    var otherWorkspace = new WorkspaceProfile { Name = "另一座城", DirectoryPath = otherRoot };
+    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { workspace, otherWorkspace });
     var chat = new MainConversationViewModel();
     var conversation = new ConversationSessionItemViewModel(chat, workspace, null) { Title = "整理合同" };
     chat.Messages.Add(new ChatMessage { Role = "user", Content = "开个头" });
+    var otherConversation = new ConversationSessionItemViewModel(new MainConversationViewModel(), otherWorkspace, null) { Title = "回信" };
     GameModeViewModel? gameMode = null;
     MainWindowViewModel? shell = null;
     Window? window = null;
 
-    GameModeViewModel Start()
+    // 只卡住指定文件夹的测绘；别的城照常测绘
+    Action<string> HoldSurveysOf(string heldRoot) => surveyed =>
+    {
+        if (!string.Equals(surveyed, heldRoot, StringComparison.Ordinal)) return;
+        Interlocked.Increment(ref surveysHeld);
+        surveyGate.Wait(TimeSpan.FromSeconds(30));
+    };
+
+    GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
         var vm = new GameModeViewModel(session, previewHost, store, watcher, localization);
+        configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -4711,6 +4735,8 @@ static void TestGameModeCityLifecycle()
         PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
         var group = shell.ConversationGroups.First(g => g.Workspace?.Id == workspace.Id);
         if (!group.Conversations.Contains(conversation)) group.Conversations.Add(conversation);
+        var otherGroup = shell.ConversationGroups.First(g => g.Workspace?.Id == otherWorkspace.Id);
+        if (!otherGroup.Conversations.Contains(otherConversation)) otherGroup.Conversations.Add(otherConversation);
         window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = vm } };
         window.Show();
         shell.SelectedConversation = conversation;
@@ -4723,12 +4749,15 @@ static void TestGameModeCityLifecycle()
         return vm;
     }
 
+    // 退出应用：监视器也停了。离线期间的改动只能靠回来时的核对发现，不能被一个还开着的监视器当成运行时改动送进新实例
+    // （那样测的就是事件延迟，而事件延迟各平台不同：inotify 几乎立刻，FSEvents 会攒一会儿）
     void Stop()
     {
         window?.Close();
         Dispatcher.UIThread.RunJobs();
         shell?.Dispose();
         gameMode?.Dispose();
+        watcher.Watch(null, null);
         shell = null;
         gameMode = null;
     }
@@ -4831,14 +4860,60 @@ static void TestGameModeCityLifecycle()
         var beforeOverflow = OfType(page, "city").Count;
         liveWatcher!.Inject(new InternalBufferOverflowException("simulated overflow"));
         PumpTimers(() => OfType(page, "city").Count > beforeOverflow, 10000, "监视器报 Error 之后城邦必须整城重扫。");
+
+        // —— 增量补丁还在路上就换了城：补丁是按这一座城的账本算的，不能落到下一座城的存档与画面上 ——
+        sink.Clear();
+        Interlocked.Exchange(ref surveysHeld, 0);
+        surveyGate.Reset();
+        gameMode.SurveyScanned = HoldSurveysOf(workspaceRoot);
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "草稿"));
+        File.WriteAllText(Path.Combine(workspaceRoot, "草稿", "随笔.md"), "draft");
+        liveWatcher!.InjectCreated("草稿");
+        PumpTimers(() => Volatile.Read(ref surveysHeld) > 0, 10000, "外部改动的增量补丁没有开始。");
+        shell!.SelectedConversation = otherConversation;
+        var otherSavePath = Path.Combine(paths.GetWorkspacesDirectory(), otherWorkspace.Id, "game", "polis.json");
+        PumpTimers(() => File.Exists(otherSavePath) && OfType(page, "city")[^1].GetProperty("key").GetString() == otherWorkspace.Id, 10000,
+            "换到另一座城没有落地。");
+        var citiesBeforeRelease = OfType(page, "city").Count;
+        gameMode.SurveyScanned = null;
+        surveyGate.Set();
+        // 放行之后补丁要么被丢弃（对的），要么落了地（以前的样子）：等其中一件发生，再看有没有损害
+        PumpTimers(() => sink.Events.Any(e => e.MessageTemplate.Text.StartsWith("Dropped a polis change patch", StringComparison.Ordinal))
+                         || OfType(page, "city").Count > citiesBeforeRelease,
+            10000, "放行之后，上一座城的补丁既没有被丢弃，也没有落地。");
+        PumpTimersFor(200);
+        var otherKeys = PolisSaveFormat.Parse(File.ReadAllText(otherSavePath)).Document.Ledger.Entries.Select(e => e.Key).ToList();
+        if (!otherKeys.SequenceEqual(new[] { "信件" }))
+            throw new InvalidOperationException($"上一座城的补丁不能写进这一座城的存档：账本应只有「信件」，实际 [{string.Join(", ", otherKeys)}]。");
+        var shownKeys = Plots(OfType(page, "city")[^1]).Keys.ToList();
+        if (!shownKeys.SequenceEqual(new[] { "信件" }))
+            throw new InvalidOperationException($"上一座城的补丁不能把它的城推到这一座城的画面上：画面上是 [{string.Join(", ", shownKeys)}]。");
         Stop();
 
         // —— 重启（离线期间：「账本」改名为「财务」，「照片」被删） ——
         Directory.Move(Path.Combine(workspaceRoot, "账本"), Path.Combine(workspaceRoot, "财务"));
         Directory.Delete(Path.Combine(workspaceRoot, "照片"), recursive: true);
-        gameMode = Start();
+        // 回来时的那次核对已经扫过文件夹、还没落地，应用外又新建了一个文件夹：这批改动等核对落地再补，
+        // 不能起一次重扫把核对连同"你离开期间"的报告一起取消掉
+        sink.Clear();
+        Interlocked.Exchange(ref surveysHeld, 0);
+        surveyGate.Reset();
+        gameMode = Start(vm => vm.SurveyScanned = HoldSurveysOf(workspaceRoot));
         page = pages[^1];
-        PumpTimers(() => OfType(page, "report").Count > 0, 10000, "回来时必须有一份\"你离开期间\"的报告。");
+        PumpTimers(() => Volatile.Read(ref surveysHeld) > 0, 10000, "回来时的核对没有开始。");
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "回来时新建"));
+        File.WriteAllText(Path.Combine(workspaceRoot, "回来时新建", "便签.md"), "note");
+        liveWatcher!.InjectCreated("回来时新建");
+        // 这批改动要么留在队里等核对（对的），要么起了一次整城重扫、把核对取消（以前的样子）：等其中一件发生再放行
+        PumpTimers(() => sink.Events.Any(e => e.MessageTemplate.Text.StartsWith("Deferring", StringComparison.Ordinal)
+                                              || e.MessageTemplate.Text.StartsWith("Rescanning the whole polis", StringComparison.Ordinal)),
+            10000, "核对期间到来的外部改动没有被处理。");
+        gameMode.SurveyScanned = null;
+        surveyGate.Set();
+        PumpTimers(() => OfType(page, "report").Count > 0, 10000, "回来时必须有一份\"你离开期间\"的报告——核对期间到来的外部改动不能把它顶掉。");
+        PumpTimers(() => OfType(page, "city").Any(c => c.TryGetProperty("origins", out var o) && o.ValueKind == JsonValueKind.Object
+                                                      && o.TryGetProperty("回来时新建", out var origin) && origin.GetString() == "external"),
+            10000, "核对期间到来的外部改动要在核对落地之后补上（标成 external）。");
         var cities = OfType(page, "city");
         if (!Plots(cities[0]).ContainsKey("账本"))
             throw new InvalidOperationException("重启后要先按快照把城画出来（快照里还是「账本」），再核对差异。");
@@ -4873,11 +4948,16 @@ static void TestGameModeCityLifecycle()
     }
     finally
     {
+        // 先放开可能还卡着的测绘线程，再拆别的
+        surveyGate.Set();
         Stop();
         watcher.Dispose();
         previewHost.Dispose();
         session.Dispose();
         PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        surveyGate.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
     Console.WriteLine("[PASS] game mode city lifecycle: external changes patch the city as 'external' with a notice while Athena's writes stay hers, a restart draws the snapshot then reports the offline rename and deletion with plots kept, and a missing folder fogs over until relocated; a dropped watcher batch rescans the whole city; approval is mirrored, keep and return persist, and return only prefills a revision request");
@@ -12942,4 +13022,7 @@ sealed class FakePolisPage(Uri uri) : IPolisPage
 sealed class InjectableFileSystemWatcher(string path) : FileSystemWatcher(path)
 {
     public void Inject(Exception exception) => OnError(new ErrorEventArgs(exception));
+
+    /// <summary>送一条"新建"事件，不等平台事件（它们的延迟各平台不同：inotify 几乎立刻，FSEvents 会攒一会儿）。</summary>
+    public void InjectCreated(string name) => OnCreated(new FileSystemEventArgs(WatcherChangeTypes.Created, Path, name));
 }
