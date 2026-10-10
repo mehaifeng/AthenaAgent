@@ -1,6 +1,6 @@
 # 游戏模式进度
 
-> 配合 `Docs/GameMode_Design_CN.md`（设计稿 v2）与 `Docs/GameMode_Goals_CN.md`（三段目标）使用。上下文被压缩后先读这里再继续。
+> 配合 `Docs/GameMode_Design_CN.md`（设计稿 v3）与 `Docs/GameMode_Goals_CN.md`（三段目标）使用。上下文被压缩后先读这里再继续。
 > 分支：M0 在 `feature/game-mode-m0`（从 `docs/game-mode-design` 拉出）；M1 在 `feature/game-mode-m1`（M0 未合入 main，从 `feature/game-mode-m0` 拉出，并合入了 origin/main 的 PR #28 以复用工作台监听的 Error 处理）。
 
 ## M1：接入应用
@@ -33,12 +33,12 @@
 | 20 | 失败处理：创建 / 挂载失败、导航失败、WebGL 不可用、就绪超时，四处都在游戏区显示原因 + 技术细节 + 「回到对话」，并记 Warning；Linux 同一条路 | ✅ | `TestGameModeSwitchAndFailures`（四处）；冒烟「WebGL disabled → failed(webgl)」；`NativeWebViewPolisPage.HandleAttachFailure` |
 | 21 | 性能：不可见（对话模式 / 窗口最小化）时暂停渲染；空闲降到 30 帧；切回对话后 WebView 保留一段时间再释放 | ✅ | Node「frame policy」；冒烟「pausesWhenHidden / resumesWhenShown」；`TestGameModeSwitchAndFailures`（保留期内不释放、过期释放） |
 | 22 | 断言（Archive.Tests）：账本稳定、存档损坏隔离与迁移、离线差异与改名找回、归属、意图校验 | ✅ | 193 个全过（「最后一轮」） |
-| 23 | 断言（无头）：模式切换与失败提示（不实例化 WebView） | ✅ | `TestGameModeSwitchAndFailures`、`TestGameModeCityLifecycle`；全套 144 个 |
+| 23 | 断言（无头）：模式切换与失败提示（不实例化 WebView） | ✅ | `TestGameModeSwitchAndFailures`、`TestGameModeCityLifecycle`；全套 143 个 `[PASS]`、exit 0（「最后一轮」） |
 | 24 | Node 单测 + Playwright 冒烟（Chromium、WebKit）+ 运动自检，覆盖实时模式 | ✅ | 「最后一轮」 |
 | 25 | 手动验收清单 `Docs/GameMode_M1_Acceptance_CN.md` | ✅ | 该文件 |
 | 26 | 文档即规范：`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ✅ | 两份文档的 "Game Mode" 一节、目录地图与命令表；设计稿 v3（各节"M1："标注） |
-| 27 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ⬜ | |
-| 28 | 最后一轮重跑 a–c，贴结果，打印清单 | ⬜ | |
+| 27 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | 🔶 | 改动已全部提交（工作区只剩两个不属于本阶段的未跟踪文件，没动）；推送与 PR 见下一条提交 |
+| 28 | 最后一轮重跑 a–c，贴结果，打印清单 | ✅ | 「最后一轮」 |
 
 ### 待定问题的默认处理（设计稿第 15 节与正文里的"待定"）
 
@@ -96,7 +96,43 @@ save written: True
 
 ### 阻塞
 
-（无）
+（无。设计稿 15.5「启动时恢复上次选中的会话」按要求没做，留给用户决定——它不是阻塞，M1 不依赖它。）
+
+### 最后一轮（2026-10-11，提交 f2fe631 之上；工作区只有两个不属于本阶段的未跟踪文件）
+
+a. 解决方案构建 + Archive.Tests + 无头套件：
+
+```
+dotnet build Athena.UI.sln -p:UseAppHost=false
+→ exit=0，0 个错误；唯一的警告是 main 上既有的 MainConversationViewModel.cs(3026) CS1734（fc198fc6），与本阶段无关
+dotnet Athena.Archive.Tests/bin/Debug/net10.0/Athena.Archive.Tests.dll
+→ [PASS] 193 个，[FAIL] 0 个，exit=0（含 workspace relocation 与 polis 的 ledger / save / offline diff / attribution / intents / events 各用例）
+Scripts/run-headless-tests.sh
+→ [PASS] 143 行，[ALL HEADLESS TESTS PASSED]，exit=0，用时 52 秒
+  其中 game mode（模式切换、游戏行替换消息行且不建气泡树、宠物收起、四处失败各有原因与「回到对话」和 Warning，不实例化 WebView）
+  与 game mode city lifecycle（外部改动、重启快照与离线报告、雾与重新定位、监视器溢出整城重扫、审批镜像、收下 / 退回落盘）都 PASS
+```
+
+b. 新增断言对应（完成标准 b）：账本稳定（删一个文件夹，其他建筑不挪）= Archive「polis layout ledger」「polis city」；存档损坏隔离与迁移 = 「polis save」；离线差异与改名找回 = 「polis offline diff」；
+雅典娜与外部归属 = 「polis attribution」；意图校验（越界路径、「approve」被拒）= 「polis intents」；模式切换与失败提示（无头、不实例化 WebView）= `TestGameModeSwitchAndFailures`。
+
+c. 网页：
+
+```
+node --test Tools/GameMode/web/test/*.test.mjs        （Node v22.22.3；live / orchestrator / replay 三个文件）
+→ tests 39, pass 39, fail 0, exit=0
+bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs        （Node v24.16.0）
+→ chromium 154.0.8037.98 回放：ready / noPageErrors / noConsoleErrors / nonEmptyFrame（std 30.7、31 灰阶）/ animating / syntheticFixture 全 true
+→ chromium 实时：readySent / cityLoaded / awaitsApproval / nonEmptyFrame / acceptSent / relocateSent / neverApproves / pausesWhenHidden /
+  resumesWhenShown / readerIsText / voyageLandsWhenReady / voyageWaitsForPartial / noProblems 全 true；页面发回 ready、accept-delivery、relocate
+→ chromium 关掉 WebGL：页面回报 failed（reason=webgl，带技术细节），没有发 ready
+→ webkit 26.5 回放：同上全 true（std 31.5、30 灰阶）；实时：同上 13 项全 true
+→ SMOKE PASSED，exit=0
+bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+→ chromium 154.0.8037.98 与 webkit 26.5：各 118 帧（窗口 6000–9873 ms、42850–43670 ms），光晕 / 旁白气泡 / 建筑名牌最大偏差 0.000 / 0.000 / 0.000 px
+→ 最大偏差 0.000 px，验收线 0.5 px：PASSED，exit=0
+（对照：--nosync 时 638.749 / 638.791 / 291.323 px——检查抓得住漂移）
+```
 
 ## M0：城邦原型 + 真实会话回放
 
