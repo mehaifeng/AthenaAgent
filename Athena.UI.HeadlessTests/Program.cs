@@ -4500,6 +4500,26 @@ static void TestGameModeSwitchAndFailures()
             throw new InvalidOperationException("对话模式下不该有游戏视图，也不该创建页面（WebView 惰性创建）。");
         AssertEveryIconResolved(window);
 
+        // 游戏用到的词条中英两份都要有：旁白台词库、页面界面、建筑叫法，以及游戏模式自己的提示（缺词条不报错，只会悄悄显示回退）
+        var repo = AppContext.BaseDirectory;
+        while (repo != null && !File.Exists(Path.Combine(repo, "Athena.UI.sln"))) repo = Path.GetDirectoryName(repo);
+        var gameKeys = PolisLocale.AllKeys
+            .Concat(System.Text.RegularExpressions.Regex.Matches(
+                    File.ReadAllText(Path.Combine(repo!, "ViewModels", "GameMode", "GameModeViewModel.cs")) + File.ReadAllText(Path.Combine(repo!, "Views", "GameMode", "PolisView.axaml")),
+                    @"(?:[LF]\(""|Loc )(GameMode\.[A-Za-z.]+)")
+                .Select(m => m.Groups[1].Value))
+            .Distinct()
+            .ToList();
+        if (gameKeys.Count < 60)
+            throw new InvalidOperationException($"没读全游戏模式的词条键（{gameKeys.Count} 个）。");
+        foreach (var language in new[] { "en-US", "zh-CN" })
+        {
+            localization.SwitchLanguage(language);
+            var missing = gameKeys.Where(k => localization.GetString(k, "<missing>") == "<missing>").ToList();
+            if (missing.Count > 0)
+                throw new InvalidOperationException($"{language} 缺游戏模式词条：{string.Join(", ", missing)}");
+        }
+
         // —— 进入游戏 ——
         toggle.Command.Execute(null);
         PumpTimers(() => pages.Count == 1, 5000, "进入游戏模式没有创建页面。");
@@ -4778,6 +4798,35 @@ static void TestGameModeCityLifecycle()
         PumpTimers(() => OfType(page, "items").Any(i => i.GetProperty("items").EnumerateArray().Any(x => x.GetProperty("path").GetString() == "合同/摘要.md" && x.GetProperty("state").GetString() == "pending")),
             5000, "交付的成果必须推给页面（待收下）。");
 
+        // 审批状态镜像（7.1"定"）：会话在等审批，雅典娜就停在门槛前；审批本身仍在原生审批窗口里
+        conversation.IsWaitingForApproval = true;
+        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && x.GetProperty("waiting").GetBoolean())),
+            5000, "会话在等审批时要镜像给页面（approval waiting = true）。");
+        conversation.IsWaitingForApproval = false;
+        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && !x.GetProperty("waiting").GetBoolean())),
+            5000, "审批结束也要镜像给页面。");
+
+        // 收下与退回（7.1"评"）：收下写进存档；退回 = 在同一会话里追加一条修改要求（预填输入框，由人发出）
+        var itemId = OfType(page, "items").Last().GetProperty("items").EnumerateArray().First(x => x.GetProperty("path").GetString() == "合同/摘要.md").GetProperty("id").GetString()!;
+        page.Send($$"""{"v":1,"type":"accept-delivery","itemId":"{{itemId}}"}""");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"state\": \"accepted\"", StringComparison.Ordinal), 5000, "收下要写进存档。");
+        page.Send($$"""{"v":1,"type":"return-delivery","itemId":"{{itemId}}"}""");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"state\": \"returned\"", StringComparison.Ordinal), 5000, "退回要写进存档。");
+        if (!chat.InputText.Contains("摘要", StringComparison.Ordinal))
+            throw new InvalidOperationException($"退回要在同一会话的输入框里预填一条修改要求（提到这件成果），实际「{chat.InputText}」。");
+        if (chat.Messages.Count(m => m.Role == "user") != 2)
+            throw new InvalidOperationException("退回只预填、不替人发送：发消息只走输入框这一条路径。");
+
+        // 再来一回合，只回答、不写文件：回答本身成了一卷待收下的成果（重启前不处理它）
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "合同里租期多长？" });
+        var answer = new ChatMessage { Role = "assistant", IsStreaming = true };
+        chat.Messages.Add(answer);
+        answer.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "# 租期两年\n\n押金三个月。" });
+        answer.IsStreaming = false;
+        PumpTimers(() => OfType(page, "items").Last().GetProperty("items").EnumerateArray().Any(x => x.GetProperty("kind").GetString() == "answer" && x.GetProperty("state").GetString() == "pending"),
+            5000, "只回答的回合：回答本身是一卷待收下的成果。");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"kind\": \"answer\"", StringComparison.Ordinal), 5000, "回答这件成果要写进存档。");
+
         // 监听丢了事件（缓冲区溢出）：补不回来，整城重扫——工作台整树刷新、城邦整城重扫，共用同一个监视器
         var beforeOverflow = OfType(page, "city").Count;
         liveWatcher!.Inject(new InternalBufferOverflowException("simulated overflow"));
@@ -4802,8 +4851,11 @@ static void TestGameModeCityLifecycle()
         if (!lines.Any(l => l.Contains("财务", StringComparison.Ordinal) && l.Contains("账本", StringComparison.Ordinal))
             || !lines.Any(l => l.Contains("照片", StringComparison.Ordinal)))
             throw new InvalidOperationException($"报告要写明改名与删除：{string.Join(" / ", lines)}");
-        if (!OfType(page, "items").Last().GetProperty("items").EnumerateArray().Any(x => x.GetProperty("state").GetString() == "pending"))
+        var restoredItems = OfType(page, "items").Last().GetProperty("items").EnumerateArray().ToList();
+        if (!restoredItems.Any(x => x.GetProperty("kind").GetString() == "answer" && x.GetProperty("state").GetString() == "pending"))
             throw new InvalidOperationException("重启前没处理的成果仍然带着颜色等你（10.3 第 7 条）。");
+        if (!restoredItems.Any(x => x.GetProperty("path").GetString() == "合同/摘要.md" && x.GetProperty("state").GetString() == "returned"))
+            throw new InvalidOperationException("收下 / 退回的状态本身就是存档的一部分，重启之后还在。");
         Stop();
 
         // —— 文件夹丢了：雾；重新定位：雾散、城还在 ——
@@ -4828,7 +4880,7 @@ static void TestGameModeCityLifecycle()
         PolisPageFactory.Create = previousFactory;
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode city lifecycle: external changes patch the city as 'external' with a notice while Athena's writes stay hers, a restart draws the snapshot then reports the offline rename and deletion with plots kept, and a missing folder fogs over until relocated; a dropped watcher batch rescans the whole city");
+    Console.WriteLine("[PASS] game mode city lifecycle: external changes patch the city as 'external' with a notice while Athena's writes stay hers, a restart draws the snapshot then reports the offline rename and deletion with plots kept, and a missing folder fogs over until relocated; a dropped watcher batch rescans the whole city; approval is mirrored, keep and return persist, and return only prefills a revision request");
 }
 
 // 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；

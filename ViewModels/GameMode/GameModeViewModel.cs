@@ -637,7 +637,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             return PolisCityBuilder.Reconcile(name, scan, save, index, PolisFingerprints.ForWorkspace(root, token), DateTimeOffset.UtcNow, token);
         }, token);
         token.ThrowIfCancellationRequested();
-        _save = state.Save;
+        _save = MergeReconciled(_save, state.Save);
         _index = state.Index;
         _lastScan = state.Scan;
         PostCity(state.City, sanctuary: false, founding: false, partial: false, origins: null);
@@ -813,7 +813,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         {
             var patched = await Task.Run(() => PatchScan(root, scan, batch.DirtyTopLevelNames), CancellationToken.None);
             var state = PolisCityBuilder.Reconcile(name, patched, save, null, PolisFingerprints.ForWorkspace(root), DateTimeOffset.UtcNow);
-            _save = state.Save;
+            _save = MergeReconciled(_save, state.Save);
             _lastScan = patched;
             _index = state.Index;
             var originMap = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -837,6 +837,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             _logger.Warning(ex, "Applying external changes to the polis failed; rescanning the whole city");
             await RescanAsync("incremental update failed");
         }
+    }
+
+    /// <summary>
+    /// 后台核对是拿开始那一刻的存档算的；算的期间你可能收下、退回了成果，雅典娜可能交来新的。合并时账本取核对的结果，
+    /// 每件成果的处理状态取现在的，路径 / 指纹 / 遗失标记取核对的——谁也不覆盖谁新近的那一半。
+    /// </summary>
+    private static PolisSaveDocument MergeReconciled(PolisSaveDocument current, PolisSaveDocument reconciled)
+    {
+        var byId = reconciled.Items.ToDictionary(i => i.Id, StringComparer.Ordinal);
+        var items = current.Items
+            .Select(item => byId.TryGetValue(item.Id, out var found)
+                ? item with { RelativePath = found.RelativePath, Fingerprint = found.Fingerprint, Lost = found.Lost, ModifiedSinceDelivery = found.ModifiedSinceDelivery }
+                : item)
+            .ToList();
+        return current with { Ledger = reconciled.Ledger, Items = items };
     }
 
     /// <summary>
