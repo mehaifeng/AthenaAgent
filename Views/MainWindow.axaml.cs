@@ -106,6 +106,14 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>窗口最小化 / 还原：游戏页面不可见时停止渲染（设计稿 12.6）。</summary>
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == WindowStateProperty)
+            _viewModel?.GameMode?.SetWindowVisible(change.GetNewValue<WindowState>() != WindowState.Minimized);
+    }
+
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MainWindowViewModel.IsSidePanelsSwapped)

@@ -684,6 +684,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public void AssignWorkspace(WorkspaceProfile? workspace) => CurrentWorkspace = workspace;
 
     /// <summary>
+    /// 预填输入框并要求聚焦（游戏模式的"退回 = 追加一条修改要求"、委托板的建议）。不发送：发不发由人决定，
+    /// 发消息仍然只走输入框这一条路径。已有草稿时接在后面另起一行，不覆盖用户写了一半的话。
+    /// </summary>
+    public void PrefillInput(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        InputText = string.IsNullOrWhiteSpace(InputText) ? text : InputText.TrimEnd() + "\n" + text;
+        InputFocusRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>视图据此把焦点交给输入框（光标放到末尾）。</summary>
+    public event EventHandler? InputFocusRequested;
+
+    /// <summary>
     /// 工作区被重新定位之后由外壳调用：同一个工作区对象换了目录，Id 不变，<see cref="CurrentWorkspace"/>
     /// 的变更通知不会触发，上下文里缓存的目录要在这里跟着换，下一次请求才会告诉模型新的位置。
     /// </summary>

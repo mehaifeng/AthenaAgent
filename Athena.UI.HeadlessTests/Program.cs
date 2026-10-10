@@ -33,7 +33,9 @@ using Athena.UI.Services.Preview;
 using Athena.UI.Services.Protocol;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.VirtualPet;
+using Athena.UI.Services.GameMode;
 using Athena.UI.ViewModels;
+using Athena.UI.ViewModels.GameMode;
 using Athena.UI.Views;
 using OpenAI.Responses;
 using System.Diagnostics;
@@ -78,6 +80,12 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// 只跑游戏模式这一组（迭代用，不在正式运行里）：ATHENA_HEADLESS_ONLY=game-mode
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
+{
+    TestGameModeSwitchAndFailures();
+    Environment.Exit(0);
+}
 OwlAnimationTests.Run(outputPath);
 if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 {
@@ -107,6 +115,11 @@ Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
 if (Environment.GetEnvironmentVariable("ATHENA_SCROLL_PERF") == "1")
 {
     ProbeScrollOverBubble();
+    Environment.Exit(0);
+}
+if (Environment.GetEnvironmentVariable("ATHENA_SWAP_PERF") == "1")
+{
+    ProbeHiddenSurfaceSwap();
     Environment.Exit(0);
 }
 
@@ -184,6 +197,7 @@ TestShellPanelBackgroundThemeResolution();
 TestConversationSwitchVeil();
 TestConversationSwitchScrollsToBottom();
 TestRightPanelAutoExpand();
+TestGameModeSwitchAndFailures();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -4410,6 +4424,248 @@ static void TestConcreteConfigServiceIdentity()
 
 // 右栏收起时，用户主动要看文件（对话里点 file:// 链接 → OpenFileByPathAsync）或打开 review
 // 必须把它展开并写回配置；关掉 review 不算"要看东西"，不能借机改动布局。
+// 游戏模式（设计稿 12.1 / 12.5 / 12.7）：模式切换与四处失败提示。无头环境不实例化任何 WebView——页面的构造缝
+// （PolisPageFactory）换成假页面，模式、气泡树、宠物、页面生死、失败面板都走真实的外壳与视图。
+static void TestGameModeSwitchAndFailures()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-gamemode-" + Guid.NewGuid().ToString("N"));
+    var workspaceRoot = Path.Combine(root, "我的工作区");
+    Directory.CreateDirectory(Path.Combine(workspaceRoot, "合同"));
+    Directory.CreateDirectory(Path.Combine(workspaceRoot, "照片"));
+    File.WriteAllText(Path.Combine(workspaceRoot, "合同", "租赁合同.docx"), "lease");
+    File.WriteAllText(Path.Combine(workspaceRoot, "照片", "海边.jpg"), "sea");
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    Func<Uri, IPolisPage> fakeFactory = uri =>
+    {
+        var page = new FakePolisPage(uri);
+        pages.Add(page);
+        return page;
+    };
+    PolisPageFactory.Create = fakeFactory;
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var watcher = new WorkspaceWatcherService();
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    MainWindow? window = null;
+    try
+    {
+        gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization)
+        {
+            ReadyTimeout = TimeSpan.FromMilliseconds(600),
+            ReleaseDelay = TimeSpan.FromMilliseconds(300)
+        };
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, configurationSession: session, gameMode: gameMode);
+        var workspace = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = workspaceRoot };
+        var group = new WorkspaceConversationGroupViewModel(workspace);
+        var chat = new MainConversationViewModel();
+        for (var i = 0; i < 6; i++)
+        {
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = $"第 {i} 个问题" });
+            chat.Messages.Add(new ChatMessage { Role = "assistant", Content = $"第 {i} 个回答" });
+        }
+        var conversation = new ConversationSessionItemViewModel(chat, workspace, null) { Title = "整理合同" };
+        group.Conversations.Add(conversation);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        shell.ConversationGroups.Add(group);
+        // 先把窗口显示出来：无头平台上 DispatcherTimer（会话切换的第二拍、推送攒批）要有一个窗口在才开始走
+        window = new MainWindow { DataContext = shell, Width = 1400, Height = 900 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        shell.SelectedConversation = conversation;
+        PumpTimers(() => ReferenceEquals(shell.DisplayedConversation, chat) && !shell.IsConversationSwitching, 5000, "测试会话没有落到中间面板。");
+        PumpTimers(() => window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")), 5000, "对话模式下气泡树没有建出来。");
+        var view = window.GetVisualDescendants().OfType<MainConversationView>().Single();
+        var toggle = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "GameModeToggleButton");
+        var polisView = window.GetVisualDescendants().OfType<Athena.UI.Views.GameMode.PolisView>().Single();
+        var messages = window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "MessagesItemsControl");
+        var pet = window.GetVisualDescendants().OfType<VirtualPetView>().Single();
+        if (!toggle.IsEffectivelyVisible || toggle.Command == null)
+            throw new InvalidOperationException("对话标题栏必须有游戏 / 对话模式切换按钮（外壳注入了 GameMode）。");
+        if (polisView.IsVisible || pages.Count != 0 || gameMode.PageUrl != null)
+            throw new InvalidOperationException("对话模式下不该有游戏视图，也不该创建页面（WebView 惰性创建）。");
+        AssertEveryIconResolved(window);
+
+        // —— 进入游戏 ——
+        toggle.Command.Execute(null);
+        PumpTimers(() => pages.Count == 1, 5000, "进入游戏模式没有创建页面。");
+        if (!gameMode.IsGameMode || !session.Current.MainLayout.GameMode || configService.SaveCount == 0)
+            throw new InvalidOperationException("模式必须写进 MainLayoutSettings.GameMode 并落盘（重启后停在游戏模式）。");
+        if (!view.IsGameModeActive || !polisView.IsEffectivelyVisible)
+            throw new InvalidOperationException("游戏视图必须替换消息列表那一行。");
+        if (messages.ItemsSource != null || window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")))
+            throw new InvalidOperationException("游戏模式下气泡树不建：消息列表的 ItemsSource 必须摘掉（隐藏换绑照样实体化整棵树）。");
+        if (!window.GetVisualDescendants().OfType<TextBox>().Any(t => t.Name == "MessageInputTextBox" && t.IsEffectivelyVisible))
+            throw new InvalidOperationException("输入框必须保留：发消息只走一条代码路径。");
+        if (!pet.IsSuppressed || pet.Opacity != 0 || pet.IsHitTestVisible)
+            throw new InvalidOperationException("进入游戏模式要把宠物收起来（原生 WebView 会盖住它）。");
+        if (window.GetVisualDescendants().OfType<NativeWebView>().Any())
+            throw new InvalidOperationException("无头测试不能实例化 NativeWebView：页面必须走 PolisPageFactory 的构造缝。");
+        var page = pages[0];
+        if (!page.Uri.AbsolutePath.EndsWith("/polis/index.html", StringComparison.Ordinal) || !page.Uri.Query.Contains("mode=live", StringComparison.Ordinal))
+            throw new InvalidOperationException($"页面地址必须是回环服务的 /polis/ 路由（实时模式），实际 {page.Uri}。");
+        var pageHost = polisView.FindControl<Border>("PolisPageHost");
+        if (pageHost == null || !ReferenceEquals(pageHost.Child, page.Control))
+            throw new InvalidOperationException($"页面必须挂进游戏视图的 PolisPageHost（host={pageHost != null}, child={pageHost?.Child?.GetType().Name}, pages={pages.Count}, disposed={page.Disposed}, state={gameMode.PageState}, failure={gameMode.FailureDetail}）。");
+
+        // 页面就绪：推 init（词条表）、城邦、成果、焦点
+        page.Navigate(true);
+        page.Send("""{"v":1,"type":"ready"}""");
+        PumpTimers(() => page.MessageTypes.Contains("city"), 10000, "页面就绪之后必须推来城邦。");
+        if (gameMode.PageState != PolisPageState.Ready)
+            throw new InvalidOperationException("收到 ready 之后页面状态必须是 Ready。");
+        var init = page.Messages.First(m => m.GetProperty("type").GetString() == "init");
+        if (init.GetProperty("tables").GetProperty("lines").GetProperty("turn").GetString() != localization.GetString("Polis.Line.Turn", "<missing>"))
+            throw new InvalidOperationException("旁白台词库必须从 locale 文件推给页面（Polis.Line.*）。");
+        var city = page.Messages.Last(m => m.GetProperty("type").GetString() == "city").GetProperty("city");
+        var keys = city.GetProperty("buildings").EnumerateArray().Select(b => b.GetProperty("key").GetString()).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (!keys.SequenceEqual(new[] { "合同", "照片" }.OrderBy(k => k, StringComparer.Ordinal)))
+            throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
+        PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
+            "测绘之后存档必须写进 Workspaces/<id>/game/polis.json。");
+        if (!page.MessageTypes.Contains("focus"))
+            throw new InvalidOperationException("雅典娜要转向当前选中的这份委托（focus）。");
+
+        // 网页没有"批准"：一条 approve 意图被拒绝并记 Warning，什么都不发生
+        sink.Clear();
+        page.Send("""{"v":1,"type":"approve","requestId":"r1"}""");
+        page.Send("""{"v":1,"type":"open-file","path":"../../etc/passwd"}""");
+        PumpTimersFor(150);
+        var rejections = sink.Events.Where(e => e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.StartsWith("Rejected a polis page intent", StringComparison.Ordinal)).ToList();
+        if (rejections.Count != 2)
+            throw new InvalidOperationException($"'approve' 与越界路径都必须被拒绝并各记一条 Warning，实际 {rejections.Count} 条。");
+
+        // 在游戏里切会话：会话树仍是唯一的选择来源；气泡树照旧不建
+        var other = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "另一份委托" };
+        other.Chat.Messages.Add(new ChatMessage { Role = "user", Content = "另一个问题" });
+        group.Conversations.Add(other);
+        shell.SelectedConversation = other;
+        PumpTimers(() => ReferenceEquals(shell.DisplayedConversation, other.Chat) && !shell.IsConversationSwitching, 5000, "游戏模式里切会话没有落地。");
+        if (messages.ItemsSource != null || view.IsVeilVisible)
+            throw new InvalidOperationException($"游戏模式里切会话不建气泡树、不升幕布（城邦自己演过场）：ItemsSource={(messages.ItemsSource == null ? "null" : "bound")}, veil={view.IsVeilVisible}。");
+        if (!gameMode.IsGameMode)
+            throw new InvalidOperationException("切换会话不会把人踢回对话模式（9.2）。");
+
+        // —— 四处失败 ——
+        void ExpectFailure(PolisFailureStage stage, string reasonKey, Action trigger)
+        {
+            sink.Clear();
+            trigger();
+            PumpTimers(() => gameMode!.HasFailure, 5000, $"{stage}：失败没有出现在游戏区。");
+            var panel = window!.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PolisFailurePanel");
+            var reason = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "PolisFailureReason");
+            var host = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PolisPageHost");
+            if (!panel.IsEffectivelyVisible || reason.Text != localization.GetString(reasonKey, "<missing>"))
+                throw new InvalidOperationException($"{stage}：游戏区必须显示失败面板和原因（{reasonKey}），实际「{reason.Text}」。");
+            if (host.Child != null)
+                throw new InvalidOperationException($"{stage}：失败时要拆掉页面——原生 WebView 永远在最上层，不拆它失败面板就看不见。");
+            if (!window.GetVisualDescendants().OfType<Button>().Any(b => b.Name == "PolisReturnButton" && b.IsEffectivelyVisible))
+                throw new InvalidOperationException($"{stage}：失败面板必须有「回到对话」。");
+            if (string.IsNullOrWhiteSpace(gameMode!.FailureDetail))
+                throw new InvalidOperationException($"{stage}：失败面板要附技术细节，方便反馈。");
+            if (!sink.Events.Any(e => e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.StartsWith("Game mode failed at", StringComparison.Ordinal)
+                                      && e.Properties.TryGetValue("Stage", out var s) && s.ToString() == stage.ToString()))
+                throw new InvalidOperationException($"{stage}：失败必须记一条 Warning。");
+            if (!gameMode.IsGameMode)
+                throw new InvalidOperationException($"{stage}：失败不能悄悄退回对话模式（12.5）。");
+        }
+
+        // 切回对话：页面保留一段时间再释放（来回切换不重新加载场景），过了保留期才拆
+        toggle.Command.Execute(null);
+        PumpTimers(() => !view.IsVeilVisible, 5000, "切回对话之后幕布必须落下。");
+        if (pages[0].Disposed)
+            throw new InvalidOperationException("切回对话不该立刻释放页面：来回切换不能每次都重新加载场景。");
+        PumpTimers(() => pages[0].Disposed && gameMode.PageUrl == null, 5000, "切回对话、过了保留期，页面必须释放。");
+
+        // 第 1 处：WebView 创建失败（例如 Linux 上没装 WebKitGTK）——下一次进入游戏模式时
+        PolisPageFactory.Create = _ => throw new DllNotFoundException("libwebkit2gtk-4.1.so.0: cannot open shared object file");
+        ExpectFailure(PolisFailureStage.Create, "GameMode.Failure.Create", () => toggle.Command.Execute(null));
+        PolisPageFactory.Create = fakeFactory;
+        // 「回到对话」：用户点的，模式落回对话，气泡树重建（幕布盖着）
+        window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "PolisReturnButton").Command!.Execute(null);
+        if (gameMode.IsGameMode || session.Current.MainLayout.GameMode)
+            throw new InvalidOperationException("「回到对话」必须把模式落回对话并写回设置。");
+        if (!view.IsVeilVisible)
+            throw new InvalidOperationException("切回对话时气泡树重建期间要升起幕布。");
+        PumpTimers(() => window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")) && !view.IsVeilVisible, 5000,
+            "切回对话之后气泡树必须重建，幕布随后落下。");
+        if (pet.IsSuppressed || pet.Opacity != 1 || !pet.IsHitTestVisible)
+            throw new InvalidOperationException("回到对话模式，宠物要回来。");
+
+        // 第 2 处：页面加载失败
+        toggle.Command.Execute(null);
+        PumpTimers(() => pages.Count == 2, 5000, "再次进入游戏模式没有重新创建页面（上一次失败之后要重来）。");
+        ExpectFailure(PolisFailureStage.Navigation, "GameMode.Failure.Navigation", () => pages[^1].Navigate(false));
+
+        // 第 3 处：页面自检发现没有 WebGL 2
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 3, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        ExpectFailure(PolisFailureStage.Page, "GameMode.Failure.WebGl", () => pages[^1].Send("""{"v":1,"type":"failed","reason":"webgl","detail":"getContext('webgl2') returned null"}"""));
+
+        // 第 4 处：页面迟迟不报就绪
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 4, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        ExpectFailure(PolisFailureStage.Timeout, "GameMode.Failure.Timeout", () => PumpTimersFor(700));
+
+        // 失败之后重试成功：失败面板收起，页面回来
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 5, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        pages[^1].Send("""{"v":1,"type":"ready"}""");
+        PumpTimers(() => gameMode.PageState == PolisPageState.Ready && !gameMode.HasFailure, 5000, "重试成功之后失败面板必须收起。");
+    }
+    finally
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode: the header toggle persists the mode, the game replaces the message row without building the bubble tree, the pet is put away, and all four failures show their reason and 'back to conversation' with a Warning — no WebView instantiated");
+}
+
+// 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；
+// 游戏模式靠 DispatcherTimer 走第二拍、攒批推送、就绪超时，所以这里按小段跑真正的主循环。
+static void PumpTimers(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
+{
+    var deadline = Environment.TickCount64 + timeoutMs;
+    while (!done())
+    {
+        if (Environment.TickCount64 > deadline)
+            throw new InvalidOperationException(failureMessage ?? "Timed out waiting for the condition while running the dispatcher loop.");
+        using var slice = new CancellationTokenSource(TimeSpan.FromMilliseconds(30));
+        Dispatcher.UIThread.MainLoop(slice.Token);
+        Dispatcher.UIThread.RunJobs();
+    }
+}
+
+static void PumpTimersFor(int milliseconds)
+{
+    var until = Environment.TickCount64 + milliseconds;
+    PumpTimers(() => Environment.TickCount64 >= until, milliseconds + 5000);
+}
+
 static void TestRightPanelAutoExpand()
 {
     var config = new AppConfig();
@@ -7710,6 +7966,81 @@ static void TestReasoningBulbVisualState()
 // 起因：光标压在助手气泡上滚动明显卡，压在空白处不卡。真因不是光栅化也不是命中测试，
 // 而是内容在光标下移动时 :pointerover 不断跨元素翻转，翻转触发的样式重算与重绘要钱。
 // 这段代码是当时定位它的手段，保留下来以便下次「滚动变卡」时能直接复量而不是猜。
+// 设计稿 9.2 的那条"需要实测"：游戏模式下消息列表不可见，第二拍换气泡树还有没有成本？
+// 两段与 ProbeScrollOverBubble 同样重的会话，分别量"列表可见时换绑""列表隐藏时换绑""隐藏换绑之后再显示"的耗时与视觉元素数。
+// 不在断言里：ATHENA_SWAP_PERF=1 dotnet Athena.UI.HeadlessTests/bin/Debug/net10.0/Athena.UI.HeadlessTests.dll
+static void ProbeHiddenSurfaceSwap()
+{
+    MainConversationViewModel Heavy(string tag)
+    {
+        var chat = new MainConversationViewModel();
+        for (var m = 0; m < 20; m++)
+        {
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = $"{tag} 第 {m} 个问题" });
+            var assistant = new ChatMessage { Role = "assistant" };
+            for (var r = 0; r < 3; r++)
+            {
+                assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = string.Concat(Enumerable.Repeat($"{tag} 第 {m}-{r} 轮思考。", 12)) });
+                var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+                for (var c = 0; c < 4; c++)
+                {
+                    group.ToolCalls.Add(new ToolCallEntry
+                    {
+                        ToolCallId = $"{tag}-{m}-{r}-{c}", Name = "read_file", Summary = $"读取文件 {tag}/Segment{m}_{r}_{c}.axaml",
+                        Arguments = "{\n  \"path\": \"x\"\n}", Result = string.Concat(Enumerable.Repeat("结果预览行。", 40)), Status = ToolCallStatus.Success
+                    });
+                }
+                assistant.Segments.Add(group);
+                assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = $"{tag} 第 {m}-{r} 段回复正文。" });
+            }
+            assistant.NotifySegmentsChanged();
+            chat.Messages.Add(assistant);
+        }
+        return chat;
+    }
+
+    using var a = Heavy("A");
+    using var b = Heavy("B");
+    using var c = Heavy("C");
+    var view = new MainConversationView { DataContext = a };
+    var window = new Window { Width = 1100, Height = 900, Content = view };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    var scroll = window.GetVisualDescendants().OfType<ScrollViewer>().First(sv => sv.Name == "ChatScrollViewer");
+
+    double Swap(object target)
+    {
+        var watch = Stopwatch.StartNew();
+        view.DataContext = target;
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        return watch.Elapsed.TotalMilliseconds;
+    }
+
+    // 预热一次，免得第一次的 JIT 记到可见那一项上
+    Swap(b);
+    Swap(a);
+    var visible = Swap(b);
+    var visibleVisuals = window.GetVisualDescendants().Count();
+
+    scroll.IsVisible = false;
+    Dispatcher.UIThread.RunJobs();
+    window.UpdateLayout();
+    var hidden = Swap(c);
+    var hiddenVisuals = window.GetVisualDescendants().Count();
+
+    var reveal = Stopwatch.StartNew();
+    scroll.IsVisible = true;
+    Dispatcher.UIThread.RunJobs();
+    window.UpdateLayout();
+    var revealMs = reveal.Elapsed.TotalMilliseconds;
+    var revealedVisuals = window.GetVisualDescendants().Count();
+
+    Console.WriteLine($"[SWAP] visible swap {visible:F0} ms ({visibleVisuals} visuals); hidden swap {hidden:F0} ms ({hiddenVisuals} visuals); showing it afterwards {revealMs:F0} ms ({revealedVisuals} visuals)");
+    window.Close();
+    Dispatcher.UIThread.RunJobs();
+}
+
 static void ProbeScrollOverBubble()
 {
     using var chat = new MainConversationViewModel();
@@ -12322,4 +12653,49 @@ sealed class CapturingLogSink : ILogEventSink
     {
         lock (_events) { _events.Clear(); }
     }
+}
+
+/// <summary>
+/// 游戏模式的假页面：替代 NativeWebView，记下 C# 推来的每段脚本（解出其中的消息），并能模拟导航结果与页面发来的意图。
+/// </summary>
+sealed class FakePolisPage(Uri uri) : IPolisPage
+{
+    public Uri Uri { get; } = uri;
+    public Control Control { get; } = new Border { Name = "FakePolisPageSurface" };
+    public List<string> Scripts { get; } = new();
+    public bool Disposed { get; private set; }
+    public event EventHandler<bool>? NavigationCompleted;
+    public event EventHandler<string?>? MessageReceived;
+
+    public Task InvokeScriptAsync(string script)
+    {
+        Scripts.Add(script);
+        return Task.CompletedTask;
+    }
+
+    public void Navigate(bool success) => NavigationCompleted?.Invoke(this, success);
+
+    public void Send(string json) => MessageReceived?.Invoke(this, json);
+
+    public void Dispose() => Disposed = true;
+
+    /// <summary>推来的全部消息：每段脚本是 window.polis.receive("&lt;JSON 字符串字面量&gt;")，解出那个数组。</summary>
+    public IReadOnlyList<JsonElement> Messages
+    {
+        get
+        {
+            var list = new List<JsonElement>();
+            foreach (var script in Scripts)
+            {
+                var start = script.IndexOf("receive(", StringComparison.Ordinal) + "receive(".Length;
+                var literal = script[start..script.LastIndexOf(')')];
+                var payload = JsonSerializer.Deserialize<string>(literal)!;
+                using var doc = JsonDocument.Parse(payload);
+                list.AddRange(doc.RootElement.EnumerateArray().Select(e => e.Clone()));
+            }
+            return list;
+        }
+    }
+
+    public IReadOnlyList<string> MessageTypes => Messages.Select(m => m.GetProperty("type").GetString() ?? string.Empty).ToList();
 }

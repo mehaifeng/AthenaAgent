@@ -383,9 +383,15 @@ public partial class App : Application, IAsyncDisposable
 
     private static void OnDispatcherUnhandledException(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
-        if (!OfficePreviewBridge.HandleAttachFailure(e.Exception)) return;
-        Log.Warning(e.Exception, "Office preview native host attach failed; falling back to binary placeholder");
-        e.Handled = true;
+        if (OfficePreviewBridge.HandleAttachFailure(e.Exception))
+        {
+            Log.Warning(e.Exception, "Office preview native host attach failed; falling back to binary placeholder");
+            e.Handled = true;
+            return;
+        }
+        // 游戏模式页面的原生挂载失败（设计稿 12.5 第 1 处的异步那一半）：交给游戏模式在游戏区显示原因，
+        // Warning 由它写；各平台（包括 Linux 的 WebKitGTK）走同一条路。
+        if (NativeWebViewPolisPage.HandleAttachFailure(e.Exception)) e.Handled = true;
     }
 
     /// <summary>
@@ -848,6 +854,17 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetService<ICommitMessageGenerator>(),
                 sp.GetService<ILocalizationService>(),
                 sp.GetService<OfficePreviewHost>()));
+        // 游戏模式（雅典娜的城邦）：存档在 Workspaces/<id>/game/ 与 Game/sanctuary.json；页面由 OfficePreviewHost 的 /polis/ 路由提供，
+        // 与工作台共用同一个工作区监视器。外壳（MainWindowViewModel）在运行时把自己挂上来，依赖只朝一个方向。
+        services.AddSingleton<Athena.UI.Services.GameMode.IPolisSaveStore>(sp =>
+            new Athena.UI.Services.GameMode.PolisSaveStore(sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
+        services.AddSingleton<Athena.UI.ViewModels.GameMode.GameModeViewModel>(sp =>
+            new Athena.UI.ViewModels.GameMode.GameModeViewModel(
+                sp.GetRequiredService<AppConfigurationSession>(),
+                sp.GetRequiredService<OfficePreviewHost>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisSaveStore>(),
+                sp.GetRequiredService<IWorkspaceWatcherService>(),
+                sp.GetRequiredService<ILocalizationService>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
@@ -1519,7 +1536,8 @@ public partial class App : Application, IAsyncDisposable
                 cronSessionLauncher,
                 conversationNavigator,
                 sp.GetService<ISystemNotificationService>(),
-                sp.GetService<IAppForegroundProbe>());
+                sp.GetService<IAppForegroundProbe>(),
+                sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>());
         });
 
         Log.Debug("Dependency injection services configured");

@@ -54,6 +54,8 @@
     <!-- 重新定位工作区文件夹：把同一个工作区重新接到移动后的文件夹上 -->
     <StaticResource x:Key="AthenaIconWorkspaceRelocate" ResourceKey="CoreIconLinkAlt"/>
     <StaticResource x:Key="AthenaIconConversation" ResourceKey="CoreIconChatBubble"/>
+    <!-- 游戏模式（雅典娜的城邦）：标题栏的模式切换按钮，对话模式下显示它 -->
+    <StaticResource x:Key="AthenaIconGameMode" ResourceKey="CoreIconInstitution"/>
     <StaticResource x:Key="AthenaIconConversationAdd" ResourceKey="CoreIconConversationAdd"/>
     <StaticResource x:Key="AthenaIconPin" ResourceKey="CoreIconPin"/>
     <StaticResource x:Key="AthenaIconBranch" ResourceKey="CoreIconFork"/>

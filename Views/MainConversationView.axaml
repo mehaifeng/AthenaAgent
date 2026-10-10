@@ -4,6 +4,7 @@
              xmlns:models="using:Athena.UI.Models"
              xmlns:controls="using:Athena.UI.Controls"
              xmlns:views="using:Athena.UI.Views"
+             xmlns:gmv="using:Athena.UI.Views.GameMode"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:loc="using:Athena.UI.Markup"
@@ -298,21 +299,38 @@
                 VerticalAlignment="Center"
                 Padding="12,8">
             <Grid ColumnDefinitions="Auto,*">
-                <!-- 工作台收起/展开：放在对话标题栏右端，紧挨着它要收起的那一栏。
-                     命令由外壳注入（见 RightPanelToggleCommand），没有宿主时隐藏。 -->
-                <Button x:Name="RightPanelToggleButton"
-                        Grid.Column="1"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Center"
-                        Padding="5"
-                        Command="{Binding #ConversationRoot.RightPanelToggleCommand}"
-                        IsVisible="{Binding #ConversationRoot.RightPanelToggleCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
-                        ToolTip.Tip="{Binding #ConversationRoot.RightPanelToggleTip}"
-                        AutomationProperties.Name="{Binding #ConversationRoot.RightPanelToggleTip}">
-                    <PathIcon Width="16" Height="16"
-                              Data="{Binding #ConversationRoot.RightPanelToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
-                              Foreground="{DynamicResource App.IconAccentForeground}"/>
-                </Button>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <!-- 游戏 / 对话模式切换（设计稿 12.1）：和右栏折叠按钮在同一处。命令由外壳注入（GameMode），
+                         没有宿主时隐藏。一个 PathIcon 按 key 切换图标，不叠两个 IsVisible。 -->
+                    <Button x:Name="GameModeToggleButton"
+                            VerticalAlignment="Center"
+                            Padding="5"
+                            Command="{Binding #ConversationRoot.GameMode.ToggleModeCommand}"
+                            IsVisible="{Binding #ConversationRoot.GameMode, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            ToolTip.Tip="{Binding #ConversationRoot.GameMode.ToggleTip}"
+                            AutomationProperties.Name="{Binding #ConversationRoot.GameMode.ToggleTip}">
+                        <PathIcon Width="16" Height="16"
+                                  Data="{Binding #ConversationRoot.GameMode.ToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                    <!-- 工作台收起/展开：放在对话标题栏右端，紧挨着它要收起的那一栏。
+                         命令由外壳注入（见 RightPanelToggleCommand），没有宿主时隐藏。 -->
+                    <Button x:Name="RightPanelToggleButton"
+                            VerticalAlignment="Center"
+                            Padding="5"
+                            Command="{Binding #ConversationRoot.RightPanelToggleCommand}"
+                            IsVisible="{Binding #ConversationRoot.RightPanelToggleCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            ToolTip.Tip="{Binding #ConversationRoot.RightPanelToggleTip}"
+                            AutomationProperties.Name="{Binding #ConversationRoot.RightPanelToggleTip}">
+                        <PathIcon Width="16" Height="16"
+                                  Data="{Binding #ConversationRoot.RightPanelToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                </StackPanel>
                 <StackPanel Grid.Column="0"
                             Orientation="Horizontal"
                             Spacing="8"
@@ -322,7 +340,9 @@
                                VerticalAlignment="Center"
                                FontSize="{DynamicResource App.FontSize.Heading}"/>
 
+                    <!-- 上下文检查器与猫头鹰村是对话模式的细节：游戏模式里不出现（token 用量留给对话模式，黄金侍女取代猫头鹰村）。 -->
                     <Button x:Name="ContextInspectorButton"
+                            IsVisible="{Binding !#ConversationRoot.IsGameModeActive}"
                             Command="{Binding ToggleContextInspectorCommand}"
                             VerticalAlignment="Center"
                             Padding="7,4"
@@ -339,6 +359,7 @@
                          整体包在 Panel 里：底层涟漪光环（运行时循环）+ 按钮 + 右下角数量角标；
                          Panel 挂 ScaleTransform，猫头鹰飞抵时由 code-behind 做弹跳脉冲。 -->
                     <Panel x:Name="SubAgentsEntry"
+                           IsVisible="{Binding !#ConversationRoot.IsGameModeActive}"
                            VerticalAlignment="Center"
                            RenderTransformOrigin="50%,50%">
                         <Panel.RenderTransform>
@@ -373,8 +394,9 @@
         <!-- 聊天消息列表 -->
         <ScrollViewer Grid.Row="1" Name="ChatScrollViewer"
                       IsVisible="{Binding !IsRawContextView}">
+            <!-- ItemsSource 不在这里绑：由代码后台按"是不是游戏模式"给（OnGameModeActiveChanged）。
+                 XAML 绑定在 DataContext 换绑时会重新产出值，盖掉代码里设的 null——游戏模式下切会话就又建了一整棵气泡树。 -->
             <ItemsControl x:Name="MessagesItemsControl"
-                          ItemsSource="{Binding Messages}"
                           Margin="12"
                           MaxWidth="{DynamicResource App.ContentMaxWidth}"
                           HorizontalAlignment="Stretch">
@@ -773,7 +795,7 @@
                 Grid.Row="1"
                 ZIndex="60"
                 ClipToBounds="True"
-                IsVisible="{Binding #ConversationRoot.IsSwitching}"
+                IsVisible="{Binding #ConversationRoot.IsVeilVisible}"
                 Background="{DynamicResource App.PanelVeilBrush}">
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
@@ -797,6 +819,16 @@
                            FontSize="{DynamicResource App.FontSize.Body}"/>
             </StackPanel>
         </Border>
+
+        <!-- 游戏视图：替换消息列表所在的这一行（设计稿 12.1），输入框（下一行）保留——发消息只走一条代码路径。
+             盖在消息列表、空会话占位和切换幕布之上；上下文检查器（80）与猫头鹰村弹层（100）在游戏模式里不会打开。
+             游戏模式下消息列表的 ItemsSource 被摘掉（见代码后台 OnGameModeActiveChanged）：实测隐藏的列表换绑照样
+             实体化整棵气泡树（可见 648 ms、隐藏 843 ms），所以不是藏起来，而是根本不建。 -->
+        <gmv:PolisView x:Name="PolisView"
+                       Grid.Row="1"
+                       ZIndex="70"
+                       DataContext="{Binding #ConversationRoot.GameMode}"
+                       IsVisible="{Binding #ConversationRoot.IsGameModeActive}"/>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部。
              左右 12px 与上面消息列表的 Margin="12" 同一条边：宽时两者都被 ContentMaxWidth 封顶、居中对齐；
