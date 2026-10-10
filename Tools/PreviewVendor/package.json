@@ -8,7 +8,8 @@
     "vendor:pdf": "node vendor-pdf.mjs",
     "vendor:docx": "esbuild entry-docx.mjs --bundle --format=esm --minify --outfile=../../Assets/Preview/lib/docx-viewer.bundle.mjs",
     "vendor:pptx": "node vendor-pptx.mjs",
-    "vendor:xlsx": "node vendor-xlsx.mjs"
+    "vendor:xlsx": "node vendor-xlsx.mjs",
+    "vendor:polis": "esbuild entry-polis-three.mjs --bundle --format=esm --minify --legal-comments=eof --outfile=../GameMode/web/vendor/three.bundle.mjs"
   },
   "dependencies": {
     "docx-preview": "^0.4.0",
