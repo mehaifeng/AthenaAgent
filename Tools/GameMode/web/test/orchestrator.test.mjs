@@ -48,19 +48,27 @@ test('rule 1: ingesting never waits on the presentation and never shifts engine 
 });
 
 // —— 规则 2：动画收尾有上限 ——
-test('rule 2: a finished tool gets at most tailCap of acting after it ended, a late arrival only a beat', () => {
+test('rule 2: a finished tool is presented by at most one walk and one act, and only a beat when others wait', () => {
   const near = createOrchestrator({ travelMs: hop(1000) });
   feed(near, [{ t: 0, type: 'turn' }, ...tool(0, 'a', 'A', 50)], 10_000);
   const act = near.steps.find((s) => s.kind === 'act');
   assert.equal(act.start, 1000);
-  assert.equal(act.end, 1000 + DEFAULTS.minActMs, '来得及就演满 minActMs');
-  assert.ok(act.end - 50 <= DEFAULTS.tailCapMs, '工具做完后的动作不超过收尾上限');
+  assert.equal(act.end, 1000 + DEFAULTS.minActMs, '演满一段 minActMs');
 
+  // 没人排队：走 3.5 秒到场，动作照样演满，收尾是"一段路 + 一段动作"，有上限
   const far = createOrchestrator({ travelMs: hop(3500) });
   feed(far, [{ t: 0, type: 'turn' }, ...tool(0, 'a', 'A', 50)], 10_000);
   const late = far.steps.find((s) => s.kind === 'act');
   assert.equal(late.start, 3500);
-  assert.equal(late.end - late.start, DEFAULTS.minBeatMs, '到的时候已经超过收尾上限：只演一拍');
+  assert.equal(late.end - late.start, DEFAULTS.minActMs, '没人排队时到场照样演满，不是一闪');
+  assert.ok(late.end - 50 <= DEFAULTS.maxWalkMs + DEFAULTS.minActMs, '收尾不超过 一段路 + 一段动作');
+
+  // 有人排队：到的时候已经超过"结束 + 收尾上限"，只演一拍就去下一处
+  const busy = createOrchestrator({ travelMs: hop(3500) });
+  feed(busy, [{ t: 0, type: 'turn' }, ...tool(0, 'a', 'A', 50), ...tool(1000, 'b', 'B', 50)], 20_000);
+  const hurried = busy.steps.find((s) => s.kind === 'act' && s.at === 'A');
+  assert.equal(hurried.end - hurried.start, DEFAULTS.minBeatMs, '后面有人等：只演一拍');
+  assert.ok(hurried.hurried);
 });
 
 test('rule 2: a long tool keeps her working until it ends, then the tail is only a settle beat', () => {

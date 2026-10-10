@@ -3,7 +3,8 @@
 // 输入是引擎事件（工具开始 / 结束、等模型、交付……），输出是一条呈现时间线：走、瞬移、做事、沉思、交付、待命、闲逛。
 // 六条节奏规则（猫头鹰村验证过的四条 + 设计稿新增的两条）：
 //   1. 工具执行永远不等动画。ingest() 只记账、立即返回；事件时间就是引擎时间，呈现落后多少都不改动它。
-//   2. 动画收尾有上限。工具做完之后，这一处的动作最多再演到"最后结束 + tailCapMs"（来晚了只演一拍）；
+//   2. 动画收尾有上限。工具做完之后，一处的呈现最多是"走完这段路 + 一段动作"，两样都有上限；
+//      后面有人排队时，动作最多演到"最后结束 + tailCapMs"（来晚了只演一拍）；
 //      还在跑的长工具，动作演满一段后让位给排队的新地点——它在后台接着跑，画面不被它冻住。
 //   3. 同一地点的连续动作合并成一次：一次走过去，一段动作覆盖全部调用。
 //   4. 每次移动都要完成：走到一半的路不会被改道，闲逛打断不了赶路，新目标只能排在后面。
@@ -244,8 +245,9 @@ export function createOrchestrator(options = {}) {
     scheduleActEnd(step);
   }
 
-  // 一段动作的终点（规则 2）：工具还在跑就开放着；都做完了，演满 minActMs，
-  // 但不超过"最后结束 + tailCapMs"，来晚了至少一拍；长工具做完后多演 settleMs。
+  // 一段动作的终点（规则 2）：工具还在跑就开放着；都做完了，演满 minActMs（长工具做完后多演 settleMs）。
+  // 后面有人排队时才压缩：不超过"最后结束 + tailCapMs"，来晚了至少一拍。
+  // 第一版不分有没有人排队一律压缩，结果走 3.5 秒到场时工具早已结束，几乎每次到场都只剩一闪（M0 时间线审查）。
   function scheduleActEnd(step) {
     const visit = step.visit;
     step.category = visit.categories[visit.categories.length - 1];
@@ -255,9 +257,13 @@ export function createOrchestrator(options = {}) {
       step.end = null;
       return;
     }
-    const wanted = Math.max(step.start + p.minActMs, done + p.settleMs);
-    const cap = Math.max(done + p.tailCapMs, step.start + p.minBeatMs);
-    step.end = Math.min(wanted, cap);
+    const full = Math.max(step.start + p.minActMs, done + p.settleMs);
+    if (queue.length === 0) {
+      step.end = full;
+      return;
+    }
+    step.end = Math.max(step.start + p.minBeatMs, Math.min(full, done + p.tailCapMs));
+    step.hurried = step.end < full;
   }
 
   function visitDoneAt(visit) {
