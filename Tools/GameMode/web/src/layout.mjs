@@ -4,7 +4,9 @@
 export const BLOCK = 18;           // 一个街区：约 12.5 米的地块 + 5.5 米的街道
 export const STREET = 5.5;
 export const PLOT = BLOCK - STREET;
-export const SPEED = 10;           // 雅典娜滑行的速度（米 / 秒）：真实步速跟不上模型的节奏，神本来就走得快
+// 雅典娜滑行的速度（米 / 秒）。真实步速跟不上模型的节奏（等模型中位 4.7 秒），神本来就走得快；
+// 10 米 / 秒时合成回放 11 次移动有 6 次因为超过步行上限而瞬移，空间感丢了一半，12 米 / 秒配 5 秒上限只剩出城门那样的远路
+export const SPEED = 12;
 export const PLAYER_SPEED = 6;
 
 /**
