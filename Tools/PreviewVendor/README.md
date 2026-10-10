@@ -20,6 +20,8 @@ npm run vendor  # 产出全部库到 ../../Assets/Preview/lib/
 | PPTX | `pptx-vanilla-viewer` | 1.14.0 | `pptx-viewer.bundle.mjs`（esbuild 单文件 ESM，**必须包含 three**——bundle 顶层静态引用 three，external 会导致浏览器 "Failed to resolve module specifier"） | Apache-2.0（内含 MPL-2.0 `mtx-decompressor`，见 NOTICE） |
 | XLSX | `xlsx`（SheetJS CE） | 0.18.5 | `xlsx.full.min.js`（UMD）+ viewer.js 内手写只读表格渲染 | Apache-2.0 |
 
+| 游戏模式原型 | `three`（含 OrbitControls、后期处理、RoomEnvironment、BufferGeometryUtils） | 0.185.1 | `../GameMode/web/vendor/three.bundle.mjs`（esbuild 单文件 ESM，`npm run vendor:polis`；不随应用发布，M0 只在浏览器里跑） | MIT（`LICENSE-three.txt` 同目录） |
+
 > XLSX 为何不用 Univer：Univer 0.25 开源版（preset-sheets-core）**不含 xlsx 导入**，导入功能已迁入依赖商业许可的 preset-sheets-advanced。SheetJS CE + 只读表格渲染对预览场景足够且无许可顾虑。
 
 升级库版本时：改 package.json → `npm install` → `npm run vendor` → 核对 `viewer.js` 中对应 API 是否变化（pptx-viewer 代际 API 漂移最大，其次 docx-preview）。

@@ -41,6 +41,8 @@
     <Compile Remove="artifacts/**/*.cs" />
     <Compile Remove="publish/**/*.cs" />
     <Compile Remove="Output/**/*.cs" />
+    <!-- Tools/ holds dev-time tooling (the game-mode prototype and its exporter), never app code. -->
+    <Compile Remove="Tools/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 

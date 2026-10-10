@@ -101,6 +101,9 @@ chevron-bottom
 chevron-right
 chevron-top
 
+# --- game mode (Athena's polis) -------------------------------------------
+institution
+
 # --- brands ----------------------------------------------------------------
 brand:github
 

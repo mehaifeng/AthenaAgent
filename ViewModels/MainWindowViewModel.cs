@@ -2,6 +2,7 @@ using Athena.UI.Models;
 using Athena.UI.Services;
 using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.ViewModels.GameMode;
 using Athena.UI.Views;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -23,7 +24,7 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSessionHost, IConversationNavigationTarget
+public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSessionHost, IConversationNavigationTarget, IPolisShell
 {
     private readonly ILogger _logger = Log.ForContext<MainWindowViewModel>();
     private readonly ILocalizationService? _localizationService;
@@ -48,6 +49,19 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private bool _disposed;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
+
+    /// <summary>
+    /// 游戏模式（中间区域的另一种呈现）。设计器与单独挂载的测试外壳里为空：标题栏不出现切换按钮。
+    /// </summary>
+    public GameModeViewModel? GameMode { get; }
+
+    /// <summary>中间区域此刻是不是游戏：中间面板据此摘掉气泡树、收起宠物。</summary>
+    public bool IsGameModeActive => GameMode?.IsGameMode == true;
+
+    private void OnGameModePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GameModeViewModel.IsGameMode)) OnPropertyChanged(nameof(IsGameModeActive));
+    }
 
     public AppConfig? Config => _configurationSession?.Current;
 
@@ -172,6 +186,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // 连切时会攒下多个待退场会话（A→B→C 要各自结算 A 和 B），所以是队列而不是单个字段。
         if (oldValue != null && !ReferenceEquals(oldValue, newValue)) _pendingRetirement.Add(oldValue);
         BeginConversationSurfaceSwap(newValue);
+        // 游戏模式的第一拍同样只做一件事：要换城就让页面出港（一次 InvokeScript），不装城、不扫描
+        GameMode?.OnSelectionChanged(newValue);
     }
 
     /// <summary>切走但还没结算的会话：空会话摘除与静默标题生成都推迟到换绑那一拍统一处理。</summary>
@@ -301,6 +317,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 previousConversation.Dispose();
             }
             ActivateConversationScope(target);
+            // 游戏模式的第二拍：换城（同城不换）、雅典娜转向这份委托。气泡树在游戏模式里根本不建，所以这一拍不冻。
+            GameMode?.OnSurfaceSwapDue(target);
         }
         // ContextIdle(3) 比 ScrollToBottom 用的 Loaded/Background 还低，
         // 保证落幕排在「布局 → 滚到底」之后，幕布不会比内容先掀开。
@@ -460,8 +478,19 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         ICronSessionLauncher? cronSessionLauncher = null,
         IConversationNavigator? conversationNavigator = null,
         ISystemNotificationService? notifications = null,
-        IAppForegroundProbe? foregroundProbe = null)
+        IAppForegroundProbe? foregroundProbe = null,
+        GameModeViewModel? gameMode = null)
     {
+        GameMode = gameMode;
+        if (GameMode != null)
+        {
+            GameMode.PropertyChanged += OnGameModePropertyChanged;
+            GameMode.AttachShell(this);
+        }
+        else
+        {
+            _logger.Debug("MainWindowViewModel composed without game mode (designer or test shell); the mode toggle stays hidden");
+        }
         _notifications = notifications;
         _foregroundProbe = foregroundProbe;
         _titleGenerator = titleGenerator;
@@ -1320,7 +1349,107 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         group.RevealRequested += (_, _) => RevealWorkspace(group);
         group.CopyPathRequested += async (_, _) => await CopyWorkspacePathAsync(group);
         group.ContextSettingsRequested += async (_, _) => await OpenWorkspaceContextSettingsAsync(group);
+        group.RelocateRequested += (_, _) => AsyncEventGuard.Run(() => PickAndRelocateWorkspaceAsync(group), nameof(PickAndRelocateWorkspaceAsync));
         group.DeleteRequested += async (_, _) => await DeleteWorkspaceAsync(group);
+    }
+
+    /// <summary>会话树菜单"重新定位文件夹…"：挑一个文件夹，交给 <see cref="RelocateWorkspaceAsync"/>。</summary>
+    private async Task PickAndRelocateWorkspaceAsync(WorkspaceConversationGroupViewModel group)
+    {
+        if (group.Workspace == null || _userInteractionService == null) return;
+        var path = await _userInteractionService.PickFolderAsync(
+            L("MainWindow.Workspace.RelocatePick", "Choose the folder this workspace now lives in"));
+        if (string.IsNullOrWhiteSpace(path)) return;
+        await RelocateWorkspaceAsync(group.Workspace, path);
+    }
+
+    /// <summary>
+    /// 重新定位工作区文件夹（设计稿 11.4）：只改 <see cref="WorkspaceProfile.DirectoryPath"/>，Id、名字、
+    /// 知识与游戏存档都不动。落盘之后：分组刷新路径、组内每个会话换掉上下文里缓存的目录；
+    /// 当前选中的会话正在这个工作区里，就重新激活作用域（工作台按新根目录重载、终端换目录）。
+    /// 游戏模式的雾里那个"重新定位"按钮也走这里。返回是否成功；失败已经告诉用户了。
+    /// </summary>
+    public async Task<bool> RelocateWorkspaceAsync(WorkspaceProfile workspace, string newDirectoryPath)
+    {
+        if (_workspaceService == null)
+        {
+            _logger.Warning("Workspace relocation is unavailable: no workspace service in this composition");
+            return false;
+        }
+        try
+        {
+            await _workspaceService.RelocateAsync(workspace, newDirectoryPath);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or ArgumentException)
+        {
+            _logger.Warning(ex, "Workspace relocation refused: {WorkspaceId} -> {Path}", workspace.Id, newDirectoryPath);
+            if (_userInteractionService != null)
+            {
+                await _userInteractionService.ConfirmAsync(
+                    L("MainWindow.Workspace.RelocateFailedTitle", "Could not relocate the workspace"),
+                    ex.Message,
+                    L("Common.Confirm", "OK"),
+                    L("Common.Cancel", "Close"),
+                    showDontAskAgain: false);
+            }
+            return false;
+        }
+
+        foreach (var group in ConversationGroups.Where(candidate => ReferenceEquals(candidate.Workspace, workspace)
+                                                                    || candidate.Workspace?.Id == workspace.Id))
+        {
+            group.NotifyRelocated();
+            foreach (var session in group.Conversations) session.Chat.RefreshWorkspaceDirectory();
+        }
+        if (SelectedConversation?.Workspace?.Id == workspace.Id)
+            ActivateConversationScope(SelectedConversation);
+        WorkspaceRelocated?.Invoke(this, workspace);
+        return true;
+    }
+
+    /// <summary>重新定位成功之后发布；游戏模式据此丢掉雾、按新目录重新测绘这座城。</summary>
+    public event EventHandler<WorkspaceProfile>? WorkspaceRelocated;
+
+    // —— 游戏模式能请外壳做的事（IPolisShell）。都走对话模式已有的那一条路径：会话树是唯一的选择来源。 ——
+
+    ConversationSessionItemViewModel? IPolisShell.SelectedSession => SelectedConversation;
+
+    IEnumerable<ConversationSessionItemViewModel> IPolisShell.AllSessions => ConversationGroups.SelectMany(group => group.Conversations);
+
+    bool IPolisShell.SelectConversation(string conversationId) => TryNavigateToConversationCore(null, conversationId);
+
+    async Task IPolisShell.CreateCommissionAsync(WorkspaceProfile? workspace)
+    {
+        var group = workspace == null
+            ? GlobalConversationGroup
+            : ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == workspace.Id);
+        if (group == null) return;
+        SelectedConversation = await CreateConversationCoreAsync(group);
+    }
+
+    Task IPolisShell.OpenFileAsync(string fullPath) => Workbench?.OpenFileByPathAsync(fullPath) ?? Task.CompletedTask;
+
+    async Task IPolisShell.AttachFileAsync(string fullPath)
+    {
+        var storage = MainOwner?.StorageProvider;
+        if (storage == null) return;
+        var file = await storage.TryGetFileFromPathAsync(new Uri(fullPath));
+        if (file != null) await MainConversationViewModel.AddStorageFilesAsync(new[] { file });
+    }
+
+    void IPolisShell.PrefillInput(string text) => MainConversationViewModel.PrefillInput(text);
+
+    void IPolisShell.StopCurrentTurn()
+    {
+        if (MainConversationViewModel.StopResponseCommand.CanExecute(null)) MainConversationViewModel.StopResponseCommand.Execute(null);
+    }
+
+    async Task<bool> IPolisShell.PickAndRelocateWorkspaceAsync(WorkspaceProfile workspace)
+    {
+        if (_userInteractionService == null) return false;
+        var path = await _userInteractionService.PickFolderAsync(
+            L("MainWindow.Workspace.RelocatePick", "Choose the folder this workspace now lives in"));
+        return !string.IsNullOrWhiteSpace(path) && await RelocateWorkspaceAsync(workspace, path);
     }
 
     private void RefreshPinnedConversations()
@@ -1460,6 +1589,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
         if (_approvalQueue != null)
             _approvalQueue.Pending.CollectionChanged -= OnApprovalQueueChanged;
+        if (GameMode != null)
+            GameMode.PropertyChanged -= OnGameModePropertyChanged;
         if (_conversationArchiveService != null)
         {
             _conversationArchiveService.ArchiveStaged -= OnArchiveStaged;

@@ -1,0 +1,453 @@
+{
+  "schema": 1,
+  "kind": "athena-polis-fixture",
+  "synthetic": true,
+  "generatedAt": "2026-10-11T12:00:00+00:00",
+  "workspaceName": "我的工作区",
+  "scan": {
+    "files": 34,
+    "visited": 44,
+    "truncated": false,
+    "skippedDirectories": 2,
+    "unreadableDirectories": 0
+  },
+  "agora": {
+    "files": 2,
+    "bytes": 2348,
+    "lastModified": "2026-10-11T09:07:12+00:00",
+    "incomplete": false
+  },
+  "buildings": [
+    {
+      "key": "网站",
+      "kind": "workshop",
+      "files": 5,
+      "bytes": 18900,
+      "kinds": {
+        "document": 1,
+        "code": 4
+      },
+      "lastModified": "2026-10-11T10:48:00+00:00",
+      "state": "bustling",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 1,
+        "z": -1
+      },
+      "order": 0
+    },
+    {
+      "key": "合同",
+      "kind": "stoaLibrary",
+      "files": 6,
+      "bytes": 528900,
+      "kinds": {
+        "document": 6
+      },
+      "lastModified": "2026-10-11T09:36:00+00:00",
+      "state": "bustling",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 1,
+        "z": 1
+      },
+      "order": 1
+    },
+    {
+      "key": "账本",
+      "kind": "treasury",
+      "files": 3,
+      "bytes": 146000,
+      "kinds": {
+        "sheet": 3
+      },
+      "lastModified": "2026-10-05T12:00:00+00:00",
+      "state": "lived",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": -1,
+        "z": -1
+      },
+      "order": 2
+    },
+    {
+      "key": "照片",
+      "kind": "sculptureGarden",
+      "files": 7,
+      "bytes": 16200400,
+      "kinds": {
+        "document": 1,
+        "image": 6
+      },
+      "lastModified": "2026-09-21T12:00:00+00:00",
+      "state": "quiet",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 0,
+        "z": -2
+      },
+      "order": 3
+    },
+    {
+      "key": "下载",
+      "kind": "warehouse",
+      "files": 4,
+      "bytes": 392400000,
+      "kinds": {
+        "document": 1,
+        "archive": 3
+      },
+      "lastModified": "2026-09-01T12:00:00+00:00",
+      "state": "quiet",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 1,
+        "z": -2
+      },
+      "order": 4
+    },
+    {
+      "key": "杂物",
+      "kind": "house",
+      "files": 4,
+      "bytes": 6903000,
+      "kinds": {
+        "document": 1,
+        "image": 1,
+        "sheet": 1,
+        "other": 1
+      },
+      "lastModified": "2026-07-03T12:00:00+00:00",
+      "state": "ivy",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 2,
+        "z": -2
+      },
+      "order": 5
+    },
+    {
+      "key": "空文件夹",
+      "kind": "house",
+      "files": 0,
+      "bytes": 0,
+      "kinds": {},
+      "lastModified": "2025-09-06T12:00:00+00:00",
+      "state": "ruin",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 2,
+        "z": -1
+      },
+      "order": 6
+    },
+    {
+      "key": "旧项目",
+      "kind": "stoaLibrary",
+      "files": 3,
+      "bytes": 2070000,
+      "kinds": {
+        "document": 2,
+        "sheet": 1
+      },
+      "lastModified": "2024-08-02T12:00:00+00:00",
+      "state": "ruin",
+      "sizeClass": 1,
+      "incomplete": false,
+      "plot": {
+        "x": 2,
+        "z": 0
+      },
+      "order": 7
+    }
+  ],
+  "vacant": [],
+  "market": [],
+  "publicSites": {
+    "agora": {
+      "x": 0,
+      "z": 0
+    },
+    "temple": {
+      "x": 0,
+      "z": -1
+    },
+    "library": {
+      "x": -1,
+      "z": 0
+    },
+    "forge": {
+      "x": 1,
+      "z": 0
+    },
+    "harbor": {
+      "x": 0,
+      "z": 1
+    },
+    "market": {
+      "x": -1,
+      "z": 1
+    }
+  },
+  "seaStartsAtZ": 2,
+  "replay": {
+    "schemaVersion": 1,
+    "durationMs": 84000,
+    "turns": 3,
+    "toolCalls": 12,
+    "compressedGaps": 2,
+    "events": [
+      {
+        "t": 0,
+        "type": "turn",
+        "turn": 1
+      },
+      {
+        "t": 0,
+        "type": "think",
+        "end": 6200,
+        "reasoning": 820
+      },
+      {
+        "t": 6200,
+        "type": "tool",
+        "end": 6260,
+        "id": "t1",
+        "tool": "read_system_file",
+        "category": "read",
+        "place": "inside",
+        "path": "合同/租赁合同.docx",
+        "building": "合同",
+        "ok": true
+      },
+      {
+        "t": 6260,
+        "type": "think",
+        "end": 10900,
+        "reasoning": 400
+      },
+      {
+        "t": 10900,
+        "type": "tool",
+        "end": 11020,
+        "id": "t2",
+        "tool": "read_system_file",
+        "category": "read",
+        "place": "inside",
+        "path": "合同/附件/附件一.pdf",
+        "building": "合同",
+        "ok": true
+      },
+      {
+        "t": 10900,
+        "type": "tool",
+        "end": 11030,
+        "id": "t3",
+        "tool": "list_system_directory",
+        "category": "read",
+        "place": "inside",
+        "path": "合同",
+        "building": "合同",
+        "ok": true
+      },
+      {
+        "t": 11030,
+        "type": "think",
+        "end": 15500
+      },
+      {
+        "t": 15500,
+        "type": "tool",
+        "end": 15580,
+        "id": "t4",
+        "tool": "write_system_file",
+        "category": "write",
+        "place": "inside",
+        "path": "合同/合同摘要.md",
+        "building": "合同",
+        "ok": true
+      },
+      {
+        "t": 15580,
+        "type": "think",
+        "end": 21050
+      },
+      {
+        "t": 21050,
+        "type": "deliver",
+        "turn": 1
+      },
+      {
+        "t": 24050,
+        "type": "turn",
+        "turn": 2
+      },
+      {
+        "t": 24050,
+        "type": "think",
+        "end": 28150
+      },
+      {
+        "t": 28150,
+        "type": "tool",
+        "end": 30450,
+        "id": "t5",
+        "tool": "execute_terminal_command",
+        "category": "terminal",
+        "place": "inside",
+        "path": "网站",
+        "building": "网站",
+        "ok": true
+      },
+      {
+        "t": 30450,
+        "type": "think",
+        "end": 33050,
+        "reasoning": 300
+      },
+      {
+        "t": 33050,
+        "type": "tool",
+        "end": 35550,
+        "id": "t6",
+        "tool": "web_search",
+        "category": "web",
+        "place": "none",
+        "ok": true
+      },
+      {
+        "t": 35550,
+        "type": "think",
+        "end": 38250
+      },
+      {
+        "t": 38250,
+        "type": "tool",
+        "end": 40050,
+        "id": "t7",
+        "tool": "fetch_url_to_file",
+        "category": "web",
+        "place": "inside",
+        "path": "下载/报价单.pdf",
+        "building": "下载",
+        "ok": true
+      },
+      {
+        "t": 40050,
+        "type": "think",
+        "end": 43050,
+        "reasoning": 150
+      },
+      {
+        "t": 43050,
+        "type": "tool",
+        "end": 43150,
+        "id": "t8",
+        "tool": "modify_system_file",
+        "category": "write",
+        "place": "inside",
+        "path": "网站/app.js",
+        "building": "网站",
+        "ok": true
+      },
+      {
+        "t": 43150,
+        "type": "think",
+        "end": 48600
+      },
+      {
+        "t": 48600,
+        "type": "deliver",
+        "turn": 2
+      },
+      {
+        "t": 51600,
+        "type": "turn",
+        "turn": 3
+      },
+      {
+        "t": 51600,
+        "type": "think",
+        "end": 54600
+      },
+      {
+        "t": 54600,
+        "type": "tool",
+        "end": 54900,
+        "id": "t9",
+        "tool": "recall_from_memory",
+        "category": "memory",
+        "place": "none",
+        "ok": true
+      },
+      {
+        "t": 54900,
+        "type": "think",
+        "end": 59100,
+        "reasoning": 600
+      },
+      {
+        "t": 59100,
+        "type": "tool",
+        "end": 71100,
+        "id": "t10",
+        "tool": "dispatch_subagents",
+        "category": "subagents",
+        "place": "none",
+        "ok": true,
+        "agents": 3
+      },
+      {
+        "t": 71100,
+        "type": "think",
+        "end": 74600
+      },
+      {
+        "t": 74600,
+        "type": "tool",
+        "end": 74620,
+        "id": "t11",
+        "tool": "read_system_file",
+        "category": "read",
+        "place": "outside",
+        "ok": false
+      },
+      {
+        "t": 74620,
+        "type": "think",
+        "end": 79100
+      },
+      {
+        "t": 79100,
+        "type": "tool",
+        "end": 79200,
+        "id": "t12",
+        "tool": "read_system_file",
+        "category": "read",
+        "place": "inside",
+        "path": "账本/2026预算.xlsx",
+        "building": "账本",
+        "ok": true
+      },
+      {
+        "t": 79200,
+        "type": "think",
+        "end": 84000,
+        "estimated": true
+      },
+      {
+        "t": 84000,
+        "type": "deliver",
+        "turn": 3,
+        "estimated": true
+      }
+    ]
+  }
+}

@@ -31,6 +31,15 @@ public interface IWorkspaceService
     /// <summary>删除工作区配置和受管知识目录；历史会话保留原工作区 ID，并在工作区不存在时显示为未分组。</summary>
     Task<bool> DeleteAsync(string id);
 
+    /// <summary>
+    /// 重新定位工作区文件夹：只改 <see cref="WorkspaceProfile.DirectoryPath"/>，<c>Id</c>、名字、知识文件与
+    /// <c>Workspaces/&lt;id&gt;/</c> 下的一切（知识、游戏存档）原样保留。文件夹被移动或改名之后，
+    /// 重新添加会得到一个新 Id——一座新城邦，旧存档就断了；这里是不断的那条路。
+    /// 先持久化、后发布到活对象（与 <see cref="UpdateContextPolicyAsync"/> 同一次序），写失败时活对象不变。
+    /// 新目录必须存在，且不能已经被另一个工作区绑定（两个 Id 共用一个文件夹会让存档分叉）。
+    /// </summary>
+    Task RelocateAsync(WorkspaceProfile workspace, string newDirectoryPath, CancellationToken cancellationToken = default);
+
     /// <summary>根据目录路径查找已有工作区（避免重复创建）</summary>
     Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath);
 

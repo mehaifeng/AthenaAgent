@@ -460,6 +460,9 @@
                                                         <MenuItem Header="{loc:Loc WorkspaceContext.Menu}" Command="{Binding RequestContextSettingsCommand}">
                                                             <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconSettings}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
                                                         </MenuItem>
+                                                        <MenuItem Header="{loc:Loc MainWindow.Menu.RelocateWorkspace}" Command="{Binding RequestRelocateCommand}">
+                                                            <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconWorkspaceRelocate}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                                                        </MenuItem>
                                                         <MenuItem Header="{loc:Loc MainWindow.Tip.RevealInFolder}" Command="{Binding RequestRevealCommand}">
                                                             <MenuItem.Icon>
                                                                 <PathIcon Data="{StaticResource AthenaIconFolderReveal}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
@@ -556,6 +559,8 @@
                                             RightPanelToggleCommand="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleRightPanelCommand}"
                                             RightPanelToggleIconKey="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleIconKey}"
                                             RightPanelToggleTip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleTip}"
+                                            GameMode="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).GameMode}"
+                                            IsGameModeActive="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive}"
                                             DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DisplayedConversation}"/>
             </Border>
 
@@ -668,12 +673,14 @@
                     </Border>
                 </Grid>
 
-        <!-- 窗口级宠物覆盖层：根据漫游区域锚定到不同面板的底部。 -->
+        <!-- 窗口级宠物覆盖层：根据漫游区域锚定到不同面板的底部。
+             游戏模式里收起来（设计稿 12.1）：原生 WebView 永远在最上层，宠物会被它盖住；IsSuppressed 同时停掉它的计时器。 -->
         <views:VirtualPetView x:Name="VirtualPet"
                               Grid.ColumnSpan="5"
                               ZIndex="60"
                               HorizontalAlignment="Left"
                               VerticalAlignment="Top"
+                              IsSuppressed="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive}"
                               DataContext="{Binding MainConversationViewModel.Pet}"/>
 
         </Grid>

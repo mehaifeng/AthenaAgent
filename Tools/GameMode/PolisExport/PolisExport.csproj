@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 游戏模式 M0 的导出入口：把一个真实文件夹扫描成城邦快照、把一段真实会话转成回放事件，写成网页原型读的夹具。
+       开发期工具，不随应用发布。逻辑在 Services/GameMode 的纯函数里（Athena.Archive.Tests 同样逐文件链接它们）。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Athena.GameMode.PolisExport</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 与 Athena.UI / Athena.Archive.Tests 同一个版本：不引入新包 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.6.26359.118" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 运行时的纯函数在 Services/GameMode（M1 起进应用），逐个链接：那个目录里其余的文件依赖应用的模型与服务。 -->
+    <Compile Include="../Polis/PolisSyntheticFixture.cs" Link="Polis/PolisSyntheticFixture.cs" />
+    <Compile Include="../../../Services/GameMode/PolisScanner.cs" Link="Source/Services/GameMode/PolisScanner.cs" />
+    <Compile Include="../../../Services/GameMode/PolisBuildings.cs" Link="Source/Services/GameMode/PolisBuildings.cs" />
+    <Compile Include="../../../Services/GameMode/PolisLayoutLedger.cs" Link="Source/Services/GameMode/PolisLayoutLedger.cs" />
+    <Compile Include="../../../Services/GameMode/PolisToolCategories.cs" Link="Source/Services/GameMode/PolisToolCategories.cs" />
+    <Compile Include="../../../Services/GameMode/PolisReplayConverter.cs" Link="Source/Services/GameMode/PolisReplayConverter.cs" />
+    <Compile Include="../../../Services/GameMode/PolisFixture.cs" Link="Source/Services/GameMode/PolisFixture.cs" />
+    <Compile Include="../../../Services/GeneratedDirectories.cs" Link="Source/Services/GeneratedDirectories.cs" />
+  </ItemGroup>
+</Project>

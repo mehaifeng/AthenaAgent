@@ -33,7 +33,9 @@ using Athena.UI.Services.Preview;
 using Athena.UI.Services.Protocol;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.VirtualPet;
+using Athena.UI.Services.GameMode;
 using Athena.UI.ViewModels;
+using Athena.UI.ViewModels.GameMode;
 using Athena.UI.Views;
 using OpenAI.Responses;
 using System.Diagnostics;
@@ -78,6 +80,13 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// 只跑游戏模式这一组（迭代用，不在正式运行里）：ATHENA_HEADLESS_ONLY=game-mode
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
+{
+    TestGameModeSwitchAndFailures();
+    TestGameModeCityLifecycle();
+    Environment.Exit(0);
+}
 OwlAnimationTests.Run(outputPath);
 if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 {
@@ -107,6 +116,11 @@ Task.Run(TestConnectionProbeAsync).GetAwaiter().GetResult();
 if (Environment.GetEnvironmentVariable("ATHENA_SCROLL_PERF") == "1")
 {
     ProbeScrollOverBubble();
+    Environment.Exit(0);
+}
+if (Environment.GetEnvironmentVariable("ATHENA_SWAP_PERF") == "1")
+{
+    ProbeHiddenSurfaceSwap();
     Environment.Exit(0);
 }
 
@@ -184,6 +198,8 @@ TestShellPanelBackgroundThemeResolution();
 TestConversationSwitchVeil();
 TestConversationSwitchScrollsToBottom();
 TestRightPanelAutoExpand();
+TestGameModeSwitchAndFailures();
+TestGameModeCityLifecycle();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -790,7 +806,7 @@ if (!workspaceMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the workspace overflow button did not open its menu.");
 var workspaceMenuItems = await AwaitMenuItemsAsync(
     workspaceMenuFlyout,
-    ["重命名", "上下文设置", "在文件夹中显示", "复制路径", "删除"],
+    ["重命名", "上下文设置", "重新定位文件夹…", "在文件夹中显示", "复制路径", "删除"],
     "Workspace menu commands or icons are incomplete.");
 workspaceMenuFlyout.Hide();
 var conversationMenus = window.GetVisualDescendants().OfType<Button>()
@@ -1453,7 +1469,8 @@ diffTab.Mode = WorkspaceEditorMode.Diff;
 var workbench = new WorkspaceWorkbenchViewModel(
     new WorkspaceOperationCoordinator(),
     new HeadlessPathService(),
-    new HeadlessInteractionService());
+    new HeadlessInteractionService(),
+    new WorkspaceWatcherService());
 workbench.HasGitRepository = true;
 workbench.CurrentBranchName = "codex/review-layout";
 workbench.IsReviewVisible = true;
@@ -4409,6 +4426,564 @@ static void TestConcreteConfigServiceIdentity()
 
 // 右栏收起时，用户主动要看文件（对话里点 file:// 链接 → OpenFileByPathAsync）或打开 review
 // 必须把它展开并写回配置；关掉 review 不算"要看东西"，不能借机改动布局。
+// 游戏模式（设计稿 12.1 / 12.5 / 12.7）：模式切换与四处失败提示。无头环境不实例化任何 WebView——页面的构造缝
+// （PolisPageFactory）换成假页面，模式、气泡树、宠物、页面生死、失败面板都走真实的外壳与视图。
+static void TestGameModeSwitchAndFailures()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-gamemode-" + Guid.NewGuid().ToString("N"));
+    var workspaceRoot = Path.Combine(root, "我的工作区");
+    Directory.CreateDirectory(Path.Combine(workspaceRoot, "合同"));
+    Directory.CreateDirectory(Path.Combine(workspaceRoot, "照片"));
+    File.WriteAllText(Path.Combine(workspaceRoot, "合同", "租赁合同.docx"), "lease");
+    File.WriteAllText(Path.Combine(workspaceRoot, "照片", "海边.jpg"), "sea");
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    Func<Uri, IPolisPage> fakeFactory = uri =>
+    {
+        var page = new FakePolisPage(uri);
+        pages.Add(page);
+        return page;
+    };
+    PolisPageFactory.Create = fakeFactory;
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var watcher = new WorkspaceWatcherService();
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    MainWindow? window = null;
+    try
+    {
+        // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
+        // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
+        gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization)
+        {
+            ReadyTimeout = TimeSpan.FromSeconds(2),
+            ReleaseDelay = TimeSpan.FromSeconds(2)
+        };
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, configurationSession: session, gameMode: gameMode);
+        var workspace = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = workspaceRoot };
+        var group = new WorkspaceConversationGroupViewModel(workspace);
+        var chat = new MainConversationViewModel();
+        for (var i = 0; i < 6; i++)
+        {
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = $"第 {i} 个问题" });
+            chat.Messages.Add(new ChatMessage { Role = "assistant", Content = $"第 {i} 个回答" });
+        }
+        var conversation = new ConversationSessionItemViewModel(chat, workspace, null) { Title = "整理合同" };
+        group.Conversations.Add(conversation);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        shell.ConversationGroups.Add(group);
+        // 先把窗口显示出来：无头平台上 DispatcherTimer（会话切换的第二拍、推送攒批）要有一个窗口在才开始走
+        window = new MainWindow { DataContext = shell, Width = 1400, Height = 900 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        shell.SelectedConversation = conversation;
+        PumpTimers(() => ReferenceEquals(shell.DisplayedConversation, chat) && !shell.IsConversationSwitching, 5000, "测试会话没有落到中间面板。");
+        PumpTimers(() => window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")), 5000, "对话模式下气泡树没有建出来。");
+        var view = window.GetVisualDescendants().OfType<MainConversationView>().Single();
+        var toggle = window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "GameModeToggleButton");
+        var polisView = window.GetVisualDescendants().OfType<Athena.UI.Views.GameMode.PolisView>().Single();
+        var messages = window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "MessagesItemsControl");
+        var pet = window.GetVisualDescendants().OfType<VirtualPetView>().Single();
+        if (!toggle.IsEffectivelyVisible || toggle.Command == null)
+            throw new InvalidOperationException("对话标题栏必须有游戏 / 对话模式切换按钮（外壳注入了 GameMode）。");
+        if (polisView.IsVisible || pages.Count != 0 || gameMode.PageUrl != null)
+            throw new InvalidOperationException("对话模式下不该有游戏视图，也不该创建页面（WebView 惰性创建）。");
+        AssertEveryIconResolved(window);
+
+        // 游戏用到的词条中英两份都要有：旁白台词库、页面界面、建筑叫法，以及游戏模式自己的提示（缺词条不报错，只会悄悄显示回退）
+        var repo = AppContext.BaseDirectory;
+        while (repo != null && !File.Exists(Path.Combine(repo, "Athena.UI.sln"))) repo = Path.GetDirectoryName(repo);
+        var gameKeys = PolisLocale.AllKeys
+            .Concat(System.Text.RegularExpressions.Regex.Matches(
+                    File.ReadAllText(Path.Combine(repo!, "ViewModels", "GameMode", "GameModeViewModel.cs")) + File.ReadAllText(Path.Combine(repo!, "Views", "GameMode", "PolisView.axaml")),
+                    @"(?:[LF]\(""|Loc )(GameMode\.[A-Za-z.]+)")
+                .Select(m => m.Groups[1].Value))
+            .Distinct()
+            .ToList();
+        if (gameKeys.Count < 60)
+            throw new InvalidOperationException($"没读全游戏模式的词条键（{gameKeys.Count} 个）。");
+        foreach (var language in new[] { "en-US", "zh-CN" })
+        {
+            localization.SwitchLanguage(language);
+            var missing = gameKeys.Where(k => localization.GetString(k, "<missing>") == "<missing>").ToList();
+            if (missing.Count > 0)
+                throw new InvalidOperationException($"{language} 缺游戏模式词条：{string.Join(", ", missing)}");
+        }
+
+        // —— 进入游戏 ——
+        toggle.Command.Execute(null);
+        PumpTimers(() => pages.Count == 1, 5000, "进入游戏模式没有创建页面。");
+        if (!gameMode.IsGameMode || !session.Current.MainLayout.GameMode || configService.SaveCount == 0)
+            throw new InvalidOperationException("模式必须写进 MainLayoutSettings.GameMode 并落盘（重启后停在游戏模式）。");
+        if (!view.IsGameModeActive || !polisView.IsEffectivelyVisible)
+            throw new InvalidOperationException("游戏视图必须替换消息列表那一行。");
+        if (messages.ItemsSource != null || window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")))
+            throw new InvalidOperationException("游戏模式下气泡树不建：消息列表的 ItemsSource 必须摘掉（隐藏换绑照样实体化整棵树）。");
+        if (!window.GetVisualDescendants().OfType<TextBox>().Any(t => t.Name == "MessageInputTextBox" && t.IsEffectivelyVisible))
+            throw new InvalidOperationException("输入框必须保留：发消息只走一条代码路径。");
+        if (!pet.IsSuppressed || pet.Opacity != 0 || pet.IsHitTestVisible)
+            throw new InvalidOperationException("进入游戏模式要把宠物收起来（原生 WebView 会盖住它）。");
+        if (window.GetVisualDescendants().OfType<NativeWebView>().Any())
+            throw new InvalidOperationException("无头测试不能实例化 NativeWebView：页面必须走 PolisPageFactory 的构造缝。");
+        var page = pages[0];
+        if (!page.Uri.AbsolutePath.EndsWith("/polis/index.html", StringComparison.Ordinal) || !page.Uri.Query.Contains("mode=live", StringComparison.Ordinal))
+            throw new InvalidOperationException($"页面地址必须是回环服务的 /polis/ 路由（实时模式），实际 {page.Uri}。");
+        var pageHost = polisView.FindControl<Border>("PolisPageHost");
+        if (pageHost == null || !ReferenceEquals(pageHost.Child, page.Control))
+            throw new InvalidOperationException($"页面必须挂进游戏视图的 PolisPageHost（host={pageHost != null}, child={pageHost?.Child?.GetType().Name}, pages={pages.Count}, disposed={page.Disposed}, state={gameMode.PageState}, failure={gameMode.FailureDetail}）。");
+
+        // 页面就绪：推 init（词条表）、城邦、成果、焦点
+        page.Navigate(true);
+        page.Send("""{"v":1,"type":"ready"}""");
+        PumpTimers(() => page.MessageTypes.Contains("city"), 10000, "页面就绪之后必须推来城邦。");
+        if (gameMode.PageState != PolisPageState.Ready)
+            throw new InvalidOperationException("收到 ready 之后页面状态必须是 Ready。");
+        var init = page.Messages.First(m => m.GetProperty("type").GetString() == "init");
+        if (init.GetProperty("tables").GetProperty("lines").GetProperty("turn").GetString() != localization.GetString("Polis.Line.Turn", "<missing>"))
+            throw new InvalidOperationException("旁白台词库必须从 locale 文件推给页面（Polis.Line.*）。");
+        var city = page.Messages.Last(m => m.GetProperty("type").GetString() == "city").GetProperty("city");
+        var keys = city.GetProperty("buildings").EnumerateArray().Select(b => b.GetProperty("key").GetString()).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (!keys.SequenceEqual(new[] { "合同", "照片" }.OrderBy(k => k, StringComparer.Ordinal)))
+            throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
+        PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
+            "测绘之后存档必须写进 Workspaces/<id>/game/polis.json。");
+        if (!page.MessageTypes.Contains("focus"))
+            throw new InvalidOperationException("雅典娜要转向当前选中的这份委托（focus）。");
+
+        // 网页没有"批准"：一条 approve 意图被拒绝并记 Warning，什么都不发生
+        sink.Clear();
+        page.Send("""{"v":1,"type":"approve","requestId":"r1"}""");
+        page.Send("""{"v":1,"type":"open-file","path":"../../etc/passwd"}""");
+        PumpTimersFor(150);
+        var rejections = sink.Events.Where(e => e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.StartsWith("Rejected a polis page intent", StringComparison.Ordinal)).ToList();
+        if (rejections.Count != 2)
+            throw new InvalidOperationException($"'approve' 与越界路径都必须被拒绝并各记一条 Warning，实际 {rejections.Count} 条。");
+
+        // 在游戏里切会话：会话树仍是唯一的选择来源；气泡树照旧不建
+        var other = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "另一份委托" };
+        other.Chat.Messages.Add(new ChatMessage { Role = "user", Content = "另一个问题" });
+        group.Conversations.Add(other);
+        shell.SelectedConversation = other;
+        PumpTimers(() => ReferenceEquals(shell.DisplayedConversation, other.Chat) && !shell.IsConversationSwitching, 5000, "游戏模式里切会话没有落地。");
+        if (messages.ItemsSource != null || view.IsVeilVisible)
+            throw new InvalidOperationException($"游戏模式里切会话不建气泡树、不升幕布（城邦自己演过场）：ItemsSource={(messages.ItemsSource == null ? "null" : "bound")}, veil={view.IsVeilVisible}。");
+        if (!gameMode.IsGameMode)
+            throw new InvalidOperationException("切换会话不会把人踢回对话模式（9.2）。");
+
+        // —— 四处失败 ——
+        void ExpectFailure(PolisFailureStage stage, string reasonKey, Action trigger)
+        {
+            sink.Clear();
+            trigger();
+            PumpTimers(() => gameMode!.HasFailure, 5000, $"{stage}：失败没有出现在游戏区。");
+            var panel = window!.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PolisFailurePanel");
+            var reason = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "PolisFailureReason");
+            var host = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PolisPageHost");
+            if (!panel.IsEffectivelyVisible || reason.Text != localization.GetString(reasonKey, "<missing>"))
+                throw new InvalidOperationException($"{stage}：游戏区必须显示失败面板和原因（{reasonKey}），实际「{reason.Text}」。");
+            if (host.Child != null)
+                throw new InvalidOperationException($"{stage}：失败时要拆掉页面——原生 WebView 永远在最上层，不拆它失败面板就看不见。");
+            if (!window.GetVisualDescendants().OfType<Button>().Any(b => b.Name == "PolisReturnButton" && b.IsEffectivelyVisible))
+                throw new InvalidOperationException($"{stage}：失败面板必须有「回到对话」。");
+            if (string.IsNullOrWhiteSpace(gameMode!.FailureDetail))
+                throw new InvalidOperationException($"{stage}：失败面板要附技术细节，方便反馈。");
+            if (!sink.Events.Any(e => e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.StartsWith("Game mode failed at", StringComparison.Ordinal)
+                                      && e.Properties.TryGetValue("Stage", out var s) && s.ToString() == stage.ToString()))
+                throw new InvalidOperationException($"{stage}：失败必须记一条 Warning。");
+            if (!gameMode.IsGameMode)
+                throw new InvalidOperationException($"{stage}：失败不能悄悄退回对话模式（12.5）。");
+        }
+
+        // 切回对话：页面保留一段时间再释放（来回切换不重新加载场景），过了保留期才拆
+        toggle.Command.Execute(null);
+        PumpTimers(() => !view.IsVeilVisible, 5000, "切回对话之后幕布必须落下。");
+        if (pages[0].Disposed)
+            throw new InvalidOperationException("切回对话不该立刻释放页面：来回切换不能每次都重新加载场景。");
+        PumpTimers(() => pages[0].Disposed && gameMode.PageUrl == null, 8000, "切回对话、过了保留期，页面必须释放。");
+
+        // 第 1 处：WebView 创建失败（例如 Linux 上没装 WebKitGTK）——下一次进入游戏模式时
+        PolisPageFactory.Create = _ => throw new DllNotFoundException("libwebkit2gtk-4.1.so.0: cannot open shared object file");
+        ExpectFailure(PolisFailureStage.Create, "GameMode.Failure.Create", () => toggle.Command.Execute(null));
+        PolisPageFactory.Create = fakeFactory;
+        // 「回到对话」：用户点的，模式落回对话，气泡树重建（幕布盖着）
+        window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "PolisReturnButton").Command!.Execute(null);
+        if (gameMode.IsGameMode || session.Current.MainLayout.GameMode)
+            throw new InvalidOperationException("「回到对话」必须把模式落回对话并写回设置。");
+        if (!view.IsVeilVisible)
+            throw new InvalidOperationException("切回对话时气泡树重建期间要升起幕布。");
+        PumpTimers(() => window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")) && !view.IsVeilVisible, 5000,
+            "切回对话之后气泡树必须重建，幕布随后落下。");
+        if (pet.IsSuppressed || pet.Opacity != 1 || !pet.IsHitTestVisible)
+            throw new InvalidOperationException("回到对话模式，宠物要回来。");
+
+        // 第 2 处：页面加载失败
+        toggle.Command.Execute(null);
+        PumpTimers(() => pages.Count == 2, 5000, "再次进入游戏模式没有重新创建页面（上一次失败之后要重来）。");
+        ExpectFailure(PolisFailureStage.Navigation, "GameMode.Failure.Navigation", () => pages[^1].Navigate(false));
+
+        // 第 3 处：页面自检发现没有 WebGL 2
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 3, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        ExpectFailure(PolisFailureStage.Page, "GameMode.Failure.WebGl", () => pages[^1].Send("""{"v":1,"type":"failed","reason":"webgl","detail":"getContext('webgl2') returned null"}"""));
+
+        // 第 4 处：页面迟迟不报就绪（什么都不做，ExpectFailure 自己等到就绪计时到期）
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 4, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        ExpectFailure(PolisFailureStage.Timeout, "GameMode.Failure.Timeout", () => { });
+
+        // 失败之后重试成功：失败面板收起，页面回来
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 5, 5000, "重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        pages[^1].Send("""{"v":1,"type":"ready"}""");
+        PumpTimers(() => gameMode.PageState == PolisPageState.Ready && !gameMode.HasFailure, 5000, "重试成功之后失败面板必须收起。");
+    }
+    finally
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode: the header toggle persists the mode, the game replaces the message row without building the bubble tree, the pet is put away, and all four failures show their reason and 'back to conversation' with a Warning — no WebView instantiated");
+}
+
+// 游戏模式的城邦生命周期（设计稿 10 / 11）：外部改动增量同步并区分雅典娜与外部；重启后先按快照显示、再核对出
+// "你离开期间"的报告（离线改名原地换牌匾、删掉的留空地）；文件夹丢了笼上雾，重新定位之后雾散、城还在。
+static void TestGameModeCityLifecycle()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-life-" + Guid.NewGuid().ToString("N"));
+    var workspaceRoot = Path.Combine(root, "我的工作区");
+    foreach (var (path, content) in new[] { ("合同/租赁合同.docx", "lease"), ("合同/采购合同.docx", "buy"), ("照片/海边.jpg", "sea"), ("账本/2026预算.xlsx", "budget"), ("账本/流水.csv", "flow") })
+    {
+        var full = Path.Combine(workspaceRoot, path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, content);
+    }
+    var otherRoot = Path.Combine(root, "另一座城");
+    Directory.CreateDirectory(Path.Combine(otherRoot, "信件"));
+    File.WriteAllText(Path.Combine(otherRoot, "信件", "回信.txt"), "reply");
+    // 视图模型的日志器在构造时从 Log.Logger 派生：先换日志器，测绘被推迟、补丁被丢弃这两件事只在 Debug 日志里看得见
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+    // 把一次测绘卡在"扫过文件夹、还没落地"（SurveyScanned 缝），外部改动与换城就能确定地落进这段时间
+    var surveyGate = new ManualResetEventSlim(false);
+    var surveysHeld = 0;
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    PolisPageFactory.Create = uri => { var page = new FakePolisPage(uri); pages.Add(page); return page; };
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var store = new PolisSaveStore(paths, Log.Logger);
+    InjectableFileSystemWatcher? liveWatcher = null;
+    var watcher = new WorkspaceWatcherService { WatcherFactory = path => liveWatcher = new InjectableFileSystemWatcher(path) };
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    var workspace = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = workspaceRoot };
+    var otherWorkspace = new WorkspaceProfile { Name = "另一座城", DirectoryPath = otherRoot };
+    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { workspace, otherWorkspace });
+    var chat = new MainConversationViewModel();
+    var conversation = new ConversationSessionItemViewModel(chat, workspace, null) { Title = "整理合同" };
+    chat.Messages.Add(new ChatMessage { Role = "user", Content = "开个头" });
+    var otherConversation = new ConversationSessionItemViewModel(new MainConversationViewModel(), otherWorkspace, null) { Title = "回信" };
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    Window? window = null;
+
+    // 只卡住指定文件夹的测绘；别的城照常测绘
+    Action<string> HoldSurveysOf(string heldRoot) => surveyed =>
+    {
+        if (!string.Equals(surveyed, heldRoot, StringComparison.Ordinal)) return;
+        Interlocked.Increment(ref surveysHeld);
+        surveyGate.Wait(TimeSpan.FromSeconds(30));
+    };
+
+    GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
+    {
+        var vm = new GameModeViewModel(session, previewHost, store, watcher, localization);
+        configure?.Invoke(vm);
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: workspaceService, configurationSession: session, gameMode: vm);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var group = shell.ConversationGroups.First(g => g.Workspace?.Id == workspace.Id);
+        if (!group.Conversations.Contains(conversation)) group.Conversations.Add(conversation);
+        var otherGroup = shell.ConversationGroups.First(g => g.Workspace?.Id == otherWorkspace.Id);
+        if (!otherGroup.Conversations.Contains(otherConversation)) otherGroup.Conversations.Add(otherConversation);
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = vm } };
+        window.Show();
+        shell.SelectedConversation = conversation;
+        // 工作台在 SetWorkspaceAsync 里切换共享监视器（文件夹不在时不监视）；这个外壳没有工作台，这里替它切
+        if (Directory.Exists(workspace.DirectoryPath)) watcher.Watch(workspace.Id, workspace.DirectoryPath);
+        else watcher.Watch(null, null);
+        PumpTimers(() => pages.Count > 0 && !pages[^1].Disposed, 5000, "游戏模式没有创建页面。");
+        pages[^1].Navigate(true);
+        pages[^1].Send("""{"v":1,"type":"ready"}""");
+        return vm;
+    }
+
+    // 退出应用：监视器也停了。离线期间的改动只能靠回来时的核对发现，不能被一个还开着的监视器当成运行时改动送进新实例
+    // （那样测的就是事件延迟，而事件延迟各平台不同：inotify 几乎立刻，FSEvents 会攒一会儿）
+    void Stop()
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Watch(null, null);
+        shell = null;
+        gameMode = null;
+    }
+
+    static List<JsonElement> OfType(FakePolisPage page, string type)
+        => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
+
+    static Dictionary<string, string> Plots(JsonElement cityMessage)
+        => cityMessage.GetProperty("city").GetProperty("buildings").EnumerateArray()
+            .ToDictionary(b => b.GetProperty("key").GetString()!, b => $"{b.GetProperty("plot").GetProperty("x").GetInt32()},{b.GetProperty("plot").GetProperty("z").GetInt32()}", StringComparer.Ordinal);
+
+    try
+    {
+        gameMode = Start();
+        var page = pages[^1];
+        var savePath = Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json");
+        var indexPath = Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "index.json");
+        PumpTimers(() => File.Exists(savePath) && File.Exists(indexPath), 10000, "第一次测绘之后存档与索引快照都要写下来。");
+        var firstPlots = Plots(OfType(page, "city")[^1]);
+        if (!new[] { "合同", "照片", "账本" }.All(firstPlots.ContainsKey))
+            throw new InvalidOperationException("第一次测绘的城邦缺了顶层文件夹。");
+
+        // —— 外部改动：在应用外新建一个文件夹 ——
+        var citiesBefore = OfType(page, "city").Count;
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "新项目"));
+        File.WriteAllText(Path.Combine(workspaceRoot, "新项目", "计划.md"), "plan");
+        PumpTimers(() => OfType(page, "city").Skip(citiesBefore).Any(c => Plots(c).ContainsKey("新项目")), 15000,
+            "在应用外新建的文件夹必须增量地出现在城邦里（监听 → 去抖 → 只重扫受影响的顶层文件夹）。");
+        var update = OfType(page, "city").Last(c => Plots(c).ContainsKey("新项目"));
+        if (update.GetProperty("origins").GetProperty("新项目").GetString() != "external")
+            throw new InvalidOperationException("应用外的改动必须标成 external：它没有光、没有角色动作。");
+        foreach (var key in firstPlots.Keys)
+            if (Plots(update)[key] != firstPlots[key])
+                throw new InvalidOperationException($"新建一个文件夹不能挪动「{key}」。");
+        PumpTimers(() => OfType(page, "notices").Any(n => n.GetProperty("notices").EnumerateArray().Any(x => x.GetProperty("text").GetString()!.Contains("新项目", StringComparison.Ordinal))),
+            5000, "外部改动要记到广场的公告板上。");
+
+        // —— 雅典娜的改动：这一回合她在写《摘要》，写盘的那一刻归她 ——
+        var bubble = new ChatMessage { Role = "assistant", IsStreaming = true };
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        var write = new ToolCallEntry
+        {
+            ToolCallId = "w1", Name = "write_system_file", Status = ToolCallStatus.Running,
+            Arguments = JsonSerializer.Serialize(new { path = Path.Combine(workspaceRoot, "合同", "摘要.md") })
+        };
+        group.ToolCalls.Add(write);
+        bubble.Segments.Add(group);
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "写个摘要" });
+        chat.Messages.Add(bubble);
+        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "tool-start" && x.GetProperty("id").GetString() == "w1")),
+            5000, "回合里的工具调用必须从渲染模型推导出来推给页面。");
+        var noticesBefore = OfType(page, "notices").Count;
+        var updatesBefore = OfType(page, "city").Count;
+        File.WriteAllText(Path.Combine(workspaceRoot, "合同", "摘要.md"), "summary");
+        write.Status = ToolCallStatus.Success;
+        PumpTimers(() => OfType(page, "city").Skip(updatesBefore).Any(c => c.TryGetProperty("origins", out var o) && o.ValueKind == JsonValueKind.Object && o.TryGetProperty("合同", out _)),
+            15000, "雅典娜写进「合同」的文件也要让建筑更新。");
+        var athenaUpdate = OfType(page, "city").Skip(updatesBefore).Last(c => c.TryGetProperty("origins", out var o) && o.ValueKind == JsonValueKind.Object && o.TryGetProperty("合同", out _));
+        if (athenaUpdate.GetProperty("origins").GetProperty("合同").GetString() != "athena")
+            throw new InvalidOperationException("落在她这一回合工具目标里的改动必须归雅典娜（她的动作已经演过，不再配外部改动的提示）。");
+        if (OfType(page, "notices").Skip(noticesBefore).Any(n => n.GetProperty("notices").EnumerateArray().Any(x => x.GetProperty("text").GetString()!.Contains("合同", StringComparison.Ordinal))))
+            throw new InvalidOperationException("雅典娜自己的改动不能上公告板。");
+
+        // 交付：气泡停止流式输出，写进工作区的《摘要》成了一卷待收下的成果
+        bubble.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "摘要写好了。" });
+        bubble.IsStreaming = false;
+        PumpTimers(() => OfType(page, "items").Any(i => i.GetProperty("items").EnumerateArray().Any(x => x.GetProperty("path").GetString() == "合同/摘要.md" && x.GetProperty("state").GetString() == "pending")),
+            5000, "交付的成果必须推给页面（待收下）。");
+
+        // 审批状态镜像（7.1"定"）：会话在等审批，雅典娜就停在门槛前；审批本身仍在原生审批窗口里
+        conversation.IsWaitingForApproval = true;
+        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && x.GetProperty("waiting").GetBoolean())),
+            5000, "会话在等审批时要镜像给页面（approval waiting = true）。");
+        conversation.IsWaitingForApproval = false;
+        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && !x.GetProperty("waiting").GetBoolean())),
+            5000, "审批结束也要镜像给页面。");
+
+        // 收下与退回（7.1"评"）：收下写进存档；退回 = 在同一会话里追加一条修改要求（预填输入框，由人发出）
+        var itemId = OfType(page, "items").Last().GetProperty("items").EnumerateArray().First(x => x.GetProperty("path").GetString() == "合同/摘要.md").GetProperty("id").GetString()!;
+        page.Send($$"""{"v":1,"type":"accept-delivery","itemId":"{{itemId}}"}""");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"state\": \"accepted\"", StringComparison.Ordinal), 5000, "收下要写进存档。");
+        page.Send($$"""{"v":1,"type":"return-delivery","itemId":"{{itemId}}"}""");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"state\": \"returned\"", StringComparison.Ordinal), 5000, "退回要写进存档。");
+        if (!chat.InputText.Contains("摘要", StringComparison.Ordinal))
+            throw new InvalidOperationException($"退回要在同一会话的输入框里预填一条修改要求（提到这件成果），实际「{chat.InputText}」。");
+        if (chat.Messages.Count(m => m.Role == "user") != 2)
+            throw new InvalidOperationException("退回只预填、不替人发送：发消息只走输入框这一条路径。");
+
+        // 再来一回合，只回答、不写文件：回答本身成了一卷待收下的成果（重启前不处理它）
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "合同里租期多长？" });
+        var answer = new ChatMessage { Role = "assistant", IsStreaming = true };
+        chat.Messages.Add(answer);
+        answer.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "# 租期两年\n\n押金三个月。" });
+        answer.IsStreaming = false;
+        PumpTimers(() => OfType(page, "items").Last().GetProperty("items").EnumerateArray().Any(x => x.GetProperty("kind").GetString() == "answer" && x.GetProperty("state").GetString() == "pending"),
+            5000, "只回答的回合：回答本身是一卷待收下的成果。");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("\"kind\": \"answer\"", StringComparison.Ordinal), 5000, "回答这件成果要写进存档。");
+
+        // 监听丢了事件（缓冲区溢出）：补不回来，整城重扫——工作台整树刷新、城邦整城重扫，共用同一个监视器
+        var beforeOverflow = OfType(page, "city").Count;
+        liveWatcher!.Inject(new InternalBufferOverflowException("simulated overflow"));
+        PumpTimers(() => OfType(page, "city").Count > beforeOverflow, 10000, "监视器报 Error 之后城邦必须整城重扫。");
+
+        // —— 增量补丁还在路上就换了城：补丁是按这一座城的账本算的，不能落到下一座城的存档与画面上 ——
+        sink.Clear();
+        Interlocked.Exchange(ref surveysHeld, 0);
+        surveyGate.Reset();
+        gameMode.SurveyScanned = HoldSurveysOf(workspaceRoot);
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "草稿"));
+        File.WriteAllText(Path.Combine(workspaceRoot, "草稿", "随笔.md"), "draft");
+        liveWatcher!.InjectCreated("草稿");
+        PumpTimers(() => Volatile.Read(ref surveysHeld) > 0, 10000, "外部改动的增量补丁没有开始。");
+        shell!.SelectedConversation = otherConversation;
+        var otherSavePath = Path.Combine(paths.GetWorkspacesDirectory(), otherWorkspace.Id, "game", "polis.json");
+        PumpTimers(() => File.Exists(otherSavePath) && OfType(page, "city")[^1].GetProperty("key").GetString() == otherWorkspace.Id, 10000,
+            "换到另一座城没有落地。");
+        var citiesBeforeRelease = OfType(page, "city").Count;
+        gameMode.SurveyScanned = null;
+        surveyGate.Set();
+        // 放行之后补丁要么被丢弃（对的），要么落了地（以前的样子）：等其中一件发生，再看有没有损害
+        PumpTimers(() => sink.Events.Any(e => e.MessageTemplate.Text.StartsWith("Dropped a polis change patch", StringComparison.Ordinal))
+                         || OfType(page, "city").Count > citiesBeforeRelease,
+            10000, "放行之后，上一座城的补丁既没有被丢弃，也没有落地。");
+        PumpTimersFor(200);
+        var otherKeys = PolisSaveFormat.Parse(File.ReadAllText(otherSavePath)).Document.Ledger.Entries.Select(e => e.Key).ToList();
+        if (!otherKeys.SequenceEqual(new[] { "信件" }))
+            throw new InvalidOperationException($"上一座城的补丁不能写进这一座城的存档：账本应只有「信件」，实际 [{string.Join(", ", otherKeys)}]。");
+        var shownKeys = Plots(OfType(page, "city")[^1]).Keys.ToList();
+        if (!shownKeys.SequenceEqual(new[] { "信件" }))
+            throw new InvalidOperationException($"上一座城的补丁不能把它的城推到这一座城的画面上：画面上是 [{string.Join(", ", shownKeys)}]。");
+        Stop();
+
+        // —— 重启（离线期间：「账本」改名为「财务」，「照片」被删） ——
+        Directory.Move(Path.Combine(workspaceRoot, "账本"), Path.Combine(workspaceRoot, "财务"));
+        Directory.Delete(Path.Combine(workspaceRoot, "照片"), recursive: true);
+        // 回来时的那次核对已经扫过文件夹、还没落地，应用外又新建了一个文件夹：这批改动等核对落地再补，
+        // 不能起一次重扫把核对连同"你离开期间"的报告一起取消掉
+        sink.Clear();
+        Interlocked.Exchange(ref surveysHeld, 0);
+        surveyGate.Reset();
+        gameMode = Start(vm => vm.SurveyScanned = HoldSurveysOf(workspaceRoot));
+        page = pages[^1];
+        PumpTimers(() => Volatile.Read(ref surveysHeld) > 0, 10000, "回来时的核对没有开始。");
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "回来时新建"));
+        File.WriteAllText(Path.Combine(workspaceRoot, "回来时新建", "便签.md"), "note");
+        liveWatcher!.InjectCreated("回来时新建");
+        // 这批改动要么留在队里等核对（对的），要么起了一次整城重扫、把核对取消（以前的样子）：等其中一件发生再放行
+        PumpTimers(() => sink.Events.Any(e => e.MessageTemplate.Text.StartsWith("Deferring", StringComparison.Ordinal)
+                                              || e.MessageTemplate.Text.StartsWith("Rescanning the whole polis", StringComparison.Ordinal)),
+            10000, "核对期间到来的外部改动没有被处理。");
+        gameMode.SurveyScanned = null;
+        surveyGate.Set();
+        PumpTimers(() => OfType(page, "report").Count > 0, 10000, "回来时必须有一份\"你离开期间\"的报告——核对期间到来的外部改动不能把它顶掉。");
+        PumpTimers(() => OfType(page, "city").Any(c => c.TryGetProperty("origins", out var o) && o.ValueKind == JsonValueKind.Object
+                                                      && o.TryGetProperty("回来时新建", out var origin) && origin.GetString() == "external"),
+            10000, "核对期间到来的外部改动要在核对落地之后补上（标成 external）。");
+        var cities = OfType(page, "city");
+        if (!Plots(cities[0]).ContainsKey("账本"))
+            throw new InvalidOperationException("重启后要先按快照把城画出来（快照里还是「账本」），再核对差异。");
+        var reconciled = Plots(cities[^1]);
+        if (reconciled.GetValueOrDefault("财务") != firstPlots["账本"])
+            throw new InvalidOperationException("离线改名：「财务」必须原地换牌匾，占「账本」原来的地。");
+        if (!cities[^1].GetProperty("city").GetProperty("vacant").EnumerateArray().Any(v => v.GetProperty("key").GetString() == "照片"))
+            throw new InvalidOperationException("离线删除的「照片」留下空地。");
+        var lines = OfType(page, "report")[^1].GetProperty("lines").EnumerateArray().Select(l => l.GetString()!).ToList();
+        if (!lines.Any(l => l.Contains("财务", StringComparison.Ordinal) && l.Contains("账本", StringComparison.Ordinal))
+            || !lines.Any(l => l.Contains("照片", StringComparison.Ordinal)))
+            throw new InvalidOperationException($"报告要写明改名与删除：{string.Join(" / ", lines)}");
+        var restoredItems = OfType(page, "items").Last().GetProperty("items").EnumerateArray().ToList();
+        if (!restoredItems.Any(x => x.GetProperty("kind").GetString() == "answer" && x.GetProperty("state").GetString() == "pending"))
+            throw new InvalidOperationException("重启前没处理的成果仍然带着颜色等你（10.3 第 7 条）。");
+        if (!restoredItems.Any(x => x.GetProperty("path").GetString() == "合同/摘要.md" && x.GetProperty("state").GetString() == "returned"))
+            throw new InvalidOperationException("收下 / 退回的状态本身就是存档的一部分，重启之后还在。");
+        Stop();
+
+        // —— 文件夹丢了：雾；重新定位：雾散、城还在 ——
+        var moved = Path.Combine(root, "搬走的工作区");
+        Directory.Move(workspaceRoot, moved);
+        gameMode = Start();
+        page = pages[^1];
+        PumpTimers(() => OfType(page, "fog").Any(f => f.GetProperty("missing").GetBoolean()), 10000, "找不到文件夹的城邦要笼罩在雾里（11.4）。");
+        PumpForCompletion(shell!.RelocateWorkspaceAsync(workspace, moved), "relocating the workspace");
+        PumpTimers(() => OfType(page, "fog").Last() is var f && !f.GetProperty("missing").GetBoolean() && OfType(page, "city").Count > 0
+                         && Plots(OfType(page, "city")[^1]).GetValueOrDefault("财务") == firstPlots["账本"],
+            10000, "重新定位之后雾要散开，城邦按原来的账本出现（只改目录，Id 不变）。");
+        if (workspace.DirectoryPath != moved)
+            throw new InvalidOperationException("重新定位只改 DirectoryPath。");
+    }
+    finally
+    {
+        // 先放开可能还卡着的测绘线程，再拆别的
+        surveyGate.Set();
+        Stop();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        surveyGate.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode city lifecycle: external changes patch the city as 'external' with a notice while Athena's writes stay hers, a restart draws the snapshot then reports the offline rename and deletion with plots kept, and a missing folder fogs over until relocated; a dropped watcher batch rescans the whole city; approval is mirrored, keep and return persist, and return only prefills a revision request");
+}
+
+// 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；
+// 游戏模式靠 DispatcherTimer 走第二拍、攒批推送、就绪超时，所以这里按小段跑真正的主循环。
+static void PumpTimers(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
+{
+    var deadline = Environment.TickCount64 + timeoutMs;
+    while (!done())
+    {
+        if (Environment.TickCount64 > deadline)
+            throw new InvalidOperationException(failureMessage ?? "Timed out waiting for the condition while running the dispatcher loop.");
+        using var slice = new CancellationTokenSource(TimeSpan.FromMilliseconds(30));
+        Dispatcher.UIThread.MainLoop(slice.Token);
+        Dispatcher.UIThread.RunJobs();
+    }
+}
+
+static void PumpTimersFor(int milliseconds)
+{
+    var until = Environment.TickCount64 + milliseconds;
+    PumpTimers(() => Environment.TickCount64 >= until, milliseconds + 5000);
+}
+
 static void TestRightPanelAutoExpand()
 {
     var config = new AppConfig();
@@ -4418,7 +4993,8 @@ static void TestRightPanelAutoExpand()
     using var workbench = new WorkspaceWorkbenchViewModel(
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
-        new HeadlessInteractionService());
+        new HeadlessInteractionService(),
+        new WorkspaceWatcherService());
     var viewModel = new MainWindowViewModel(
         chatService: null,
         configService: null,
@@ -4481,7 +5057,8 @@ static void TestWorkspaceInlineRenameVisual()
     using var workbench = new WorkspaceWorkbenchViewModel(
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
-        new HeadlessInteractionService());
+        new HeadlessInteractionService(),
+        new WorkspaceWatcherService());
     var folder = new WorkspaceFileNodeViewModel
     {
         Name = "folder",
@@ -4543,7 +5120,8 @@ static async Task TestWorkspaceRenameBehaviorAsync()
         workbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -7706,6 +8284,81 @@ static void TestReasoningBulbVisualState()
 // 起因：光标压在助手气泡上滚动明显卡，压在空白处不卡。真因不是光栅化也不是命中测试，
 // 而是内容在光标下移动时 :pointerover 不断跨元素翻转，翻转触发的样式重算与重绘要钱。
 // 这段代码是当时定位它的手段，保留下来以便下次「滚动变卡」时能直接复量而不是猜。
+// 设计稿 9.2 的那条"需要实测"：游戏模式下消息列表不可见，第二拍换气泡树还有没有成本？
+// 两段与 ProbeScrollOverBubble 同样重的会话，分别量"列表可见时换绑""列表隐藏时换绑""隐藏换绑之后再显示"的耗时与视觉元素数。
+// 不在断言里：ATHENA_SWAP_PERF=1 dotnet Athena.UI.HeadlessTests/bin/Debug/net10.0/Athena.UI.HeadlessTests.dll
+static void ProbeHiddenSurfaceSwap()
+{
+    MainConversationViewModel Heavy(string tag)
+    {
+        var chat = new MainConversationViewModel();
+        for (var m = 0; m < 20; m++)
+        {
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = $"{tag} 第 {m} 个问题" });
+            var assistant = new ChatMessage { Role = "assistant" };
+            for (var r = 0; r < 3; r++)
+            {
+                assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = string.Concat(Enumerable.Repeat($"{tag} 第 {m}-{r} 轮思考。", 12)) });
+                var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+                for (var c = 0; c < 4; c++)
+                {
+                    group.ToolCalls.Add(new ToolCallEntry
+                    {
+                        ToolCallId = $"{tag}-{m}-{r}-{c}", Name = "read_file", Summary = $"读取文件 {tag}/Segment{m}_{r}_{c}.axaml",
+                        Arguments = "{\n  \"path\": \"x\"\n}", Result = string.Concat(Enumerable.Repeat("结果预览行。", 40)), Status = ToolCallStatus.Success
+                    });
+                }
+                assistant.Segments.Add(group);
+                assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = $"{tag} 第 {m}-{r} 段回复正文。" });
+            }
+            assistant.NotifySegmentsChanged();
+            chat.Messages.Add(assistant);
+        }
+        return chat;
+    }
+
+    using var a = Heavy("A");
+    using var b = Heavy("B");
+    using var c = Heavy("C");
+    var view = new MainConversationView { DataContext = a };
+    var window = new Window { Width = 1100, Height = 900, Content = view };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    var scroll = window.GetVisualDescendants().OfType<ScrollViewer>().First(sv => sv.Name == "ChatScrollViewer");
+
+    double Swap(object target)
+    {
+        var watch = Stopwatch.StartNew();
+        view.DataContext = target;
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        return watch.Elapsed.TotalMilliseconds;
+    }
+
+    // 预热一次，免得第一次的 JIT 记到可见那一项上
+    Swap(b);
+    Swap(a);
+    var visible = Swap(b);
+    var visibleVisuals = window.GetVisualDescendants().Count();
+
+    scroll.IsVisible = false;
+    Dispatcher.UIThread.RunJobs();
+    window.UpdateLayout();
+    var hidden = Swap(c);
+    var hiddenVisuals = window.GetVisualDescendants().Count();
+
+    var reveal = Stopwatch.StartNew();
+    scroll.IsVisible = true;
+    Dispatcher.UIThread.RunJobs();
+    window.UpdateLayout();
+    var revealMs = reveal.Elapsed.TotalMilliseconds;
+    var revealedVisuals = window.GetVisualDescendants().Count();
+
+    Console.WriteLine($"[SWAP] visible swap {visible:F0} ms ({visibleVisuals} visuals); hidden swap {hidden:F0} ms ({hiddenVisuals} visuals); showing it afterwards {revealMs:F0} ms ({revealedVisuals} visuals)");
+    window.Close();
+    Dispatcher.UIThread.RunJobs();
+}
+
 static void ProbeScrollOverBubble()
 {
     using var chat = new MainConversationViewModel();
@@ -9284,7 +9937,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
         sourceWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         foreach (var fileName in new[] { "first.txt", "second.txt", "third.txt" })
         {
@@ -9302,7 +9956,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
         restoredWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         var selectedPaths = new List<string?>();
         restoredWorkbench.PropertyChanged += (_, args) =>
         {
@@ -9363,7 +10018,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
         sourceWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         await sourceWorkbench.OpenFileCommand.ExecuteAsync(
             sourceWorkbench.Files.Single(node => node.Name == "modified.txt"));
@@ -9379,7 +10035,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
         restoredWorkbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             pathService,
-            new HeadlessInteractionService());
+            new HeadlessInteractionService(),
+            new WorkspaceWatcherService());
         await restoredWorkbench.SetWorkspaceAsync(workspace);
 
         var restoredTab = restoredWorkbench.SelectedEditorTab
@@ -9470,7 +10127,8 @@ static async Task TestWorkspaceGitDiffAsync()
         workbench = new WorkspaceWorkbenchViewModel(
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
-            interaction);
+            interaction,
+            new WorkspaceWatcherService());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -9574,7 +10232,8 @@ static async Task TestWorkspaceGitDiffAsync()
         using (var singleTabWorkbench = new WorkspaceWorkbenchViewModel(
                    new WorkspaceOperationCoordinator(),
                    new HeadlessPathService(),
-                   new HeadlessInteractionService()))
+                   new HeadlessInteractionService(),
+                   new WorkspaceWatcherService()))
         {
             if (singleTabWorkbench.IsEditorVisible)
                 throw new InvalidOperationException("An editor pane without tabs must start closed.");
@@ -9672,6 +10331,7 @@ static async Task TestWorkspaceCommitAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9738,6 +10398,7 @@ static async Task TestWorkspaceCommitUnstagedAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9801,6 +10462,7 @@ static async Task TestWorkspaceUnstageAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9859,6 +10521,7 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
+            new WorkspaceWatcherService(),
             generator);
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -9931,8 +10594,9 @@ static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
 
 // 工作区文件监视器的 Error 路径。改动前 Error 从没被订阅：Windows 缓冲区溢出、Linux inotify 溢出或撞上限、
 // macOS FSEvents 丢事件时，文件树与 Git 状态停在旧样子，日志里一个字都没有；监视器建不起来时，异常从被
-// 丢弃的 SetWorkspaceAsync 任务里漏掉。Error 处理与 250 ms 去抖刷新都 Post 回 dispatcher，所以这个用例
-// 跑在主线程上、靠 PumpUntil 推进，不能塞进 Task.Run。
+// 丢弃的 SetWorkspaceAsync 任务里漏掉。监视器现在是工作台与游戏模式共用的 WorkspaceWatcherService：
+// 合并与 Warning 在服务里，整树刷新在工作台里。刷新 Post 回 dispatcher，所以这个用例跑在主线程上、
+// 靠 PumpUntil 推进，不能塞进 Task.Run。
 static void TestWorkspaceWatcherErrors()
 {
     var root = Path.Combine(Path.GetTempPath(), "athena-workspace-watcher-" + Guid.NewGuid().ToString("N"));
@@ -9940,23 +10604,30 @@ static void TestWorkspaceWatcherErrors()
     var sink = new CapturingLogSink();
     var previousLogger = Log.Logger;
     var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
-    // 工作台的 _logger 在构造时从 Log.Logger 派生，所以先换日志器、再建 VM；finally 里换回去。
+    // 监视服务与工作台的 _logger 都在构造时从 Log.Logger 派生，所以先换日志器、再建它们；finally 里换回去。
     Log.Logger = capturingLogger;
     WorkspaceWorkbenchViewModel? workbench = null;
     WorkspaceWorkbenchViewModel? unwatched = null;
+    WorkspaceWatcherService? watcherService = null;
+    WorkspaceWatcherService? unwatchableService = null;
     try
     {
         File.WriteAllText(Path.Combine(root, "before.txt"), "before\n");
         InitGitFixtureRepository(root);
 
         ScriptedErrorFileSystemWatcher? watcher = null;
-        workbench = new WorkspaceWorkbenchViewModel(
-            new WorkspaceOperationCoordinator(),
-            new HeadlessPathService(),
-            new HeadlessInteractionService())
+        watcherService = new WorkspaceWatcherService
         {
             WatcherFactory = path => watcher = new ScriptedErrorFileSystemWatcher(path)
         };
+        // 共用监视器的另一位订阅者（游戏模式就是这样订阅的）：一批错误对它也只报一次。
+        var droppedBatches = 0;
+        watcherService.ErrorsDropped += (_, _) => Interlocked.Increment(ref droppedBatches);
+        workbench = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            watcherService);
         PumpForCompletion(
             workbench.SetWorkspaceAsync(new WorkspaceProfile
             {
@@ -9965,8 +10636,8 @@ static void TestWorkspaceWatcherErrors()
                 DirectoryPath = root
             }),
             "loading the watcher-error workspace");
-        if (watcher is not { EnableRaisingEvents: true })
-            throw new InvalidOperationException("SetWorkspaceAsync 必须经由 WatcherFactory 启动工作区监视器。");
+        if (watcher is not { EnableRaisingEvents: true } || watcherService.State != WorkspaceWatchState.Watching)
+            throw new InvalidOperationException("SetWorkspaceAsync 必须经由共享监视服务（WatcherFactory）启动工作区监视器。");
         if (!workbench.HasGitRepository || workbench.GitChanges.All(change => change.RelativePath != "before.txt"))
             throw new InvalidOperationException("夹具的 Git 仓库没有被工作台识别，Error 路径的 Git 刷新无从断言。");
 
@@ -9983,7 +10654,7 @@ static void TestWorkspaceWatcherErrors()
                   && workbench.GitChanges.Any(change => change.RelativePath == "dropped.txt"),
             10000,
             "监视器报 Error（事件溢出）后必须整树刷新文件树与 Git 状态；否则两者停在旧样子，直到某个无关改动碰巧触发刷新。");
-        var overflowWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        var overflowWarnings = sink.Events.Where(IsWatcherWarning).ToList();
         if (overflowWarnings.Count != 1
             || overflowWarnings[0].Exception is not InternalBufferOverflowException
             || LoggedScalar(overflowWarnings[0], "Workspace") as string != root)
@@ -9994,25 +10665,30 @@ static void TestWorkspaceWatcherErrors()
         sink.Clear();
         for (var i = 0; i < 40; i++)
             watcher.RaiseError(new IOException("simulated inotify watch limit"));
-        PumpUntil(() => sink.Events.Any(IsWorkbenchWarning), 5000, "一批监视器错误没有留下任何 Warning。");
+        PumpUntil(() => sink.Events.Any(IsWatcherWarning), 5000, "一批监视器错误没有留下任何 Warning。");
         PumpFor(300);
-        var burstWarnings = sink.Events.Where(IsWorkbenchWarning).ToList();
+        var burstWarnings = sink.Events.Where(IsWatcherWarning).ToList();
         if (burstWarnings.Count != 1 || LoggedScalar(burstWarnings[0], "ErrorCount") is not 40)
             throw new InvalidOperationException(
                 $"同一批 40 条监视器错误必须合并成一条带计数的 Warning；实际 {burstWarnings.Count} 条。");
+        if (Volatile.Read(ref droppedBatches) != 2)
+            throw new InvalidOperationException(
+                $"共享监视器的每个订阅者对一批错误都只该收到一次通知（两批共 2 次），实际 {droppedBatches} 次。");
 
         // 监视器建不起来：SetWorkspaceAsync 不能抛，文件树与 Git 照常加载，Warning 加状态栏提示。
         sink.Clear();
         var localization = new LocalizationService();
-        unwatched = new WorkspaceWorkbenchViewModel(
-            new WorkspaceOperationCoordinator(),
-            new HeadlessPathService(),
-            new HeadlessInteractionService(),
-            localizationService: localization)
+        unwatchableService = new WorkspaceWatcherService
         {
             WatcherFactory = _ => throw new IOException(
                 "The configured user limit (128) on the number of inotify instances has been reached.")
         };
+        unwatched = new WorkspaceWorkbenchViewModel(
+            new WorkspaceOperationCoordinator(),
+            new HeadlessPathService(),
+            new HeadlessInteractionService(),
+            unwatchableService,
+            localizationService: localization);
         PumpForCompletion(
             unwatched.SetWorkspaceAsync(new WorkspaceProfile
             {
@@ -10026,15 +10702,19 @@ static void TestWorkspaceWatcherErrors()
         if (unwatched.StatusText != localization.GetString("Workspace.Status.WatcherUnavailable", "<missing>"))
             throw new InvalidOperationException(
                 $"监视器建不起来时状态栏必须提示实时更新不可用（zh-CN 词条不能缺），实际为「{unwatched.StatusText}」。");
-        if (!sink.Events.Any(e => IsWorkbenchWarning(e)
+        if (!sink.Events.Any(e => IsWatcherWarning(e)
                                   && e.Exception is IOException
                                   && LoggedScalar(e, "Workspace") as string == root))
             throw new InvalidOperationException("监视器建不起来必须写一条 Warning，带上异常与工作区路径。");
+        if (unwatchableService.State != WorkspaceWatchState.Unavailable)
+            throw new InvalidOperationException("监视器建不起来时，共享监视服务的状态必须是 Unavailable，游戏模式据此改为每次回来时重扫。");
     }
     finally
     {
         workbench?.Dispose();
         unwatched?.Dispose();
+        watcherService?.Dispose();
+        unwatchableService?.Dispose();
         Log.Logger = previousLogger;
         capturingLogger.Dispose();
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
@@ -10044,10 +10724,10 @@ static void TestWorkspaceWatcherErrors()
 
     Console.WriteLine("[PASS] workspace watcher errors refresh files and Git, coalesce into one Warning, and an unstartable watcher leaves the workbench usable");
 
-    // 只认工作台自己的 Warning：日志器换掉的这段时间里，别处的静态 Log 调用也会落进同一个 sink。
-    static bool IsWorkbenchWarning(LogEvent logEvent)
+    // 只认监视服务自己的 Warning：日志器换掉的这段时间里，别处的静态 Log 调用也会落进同一个 sink。
+    static bool IsWatcherWarning(LogEvent logEvent)
         => logEvent.Level == LogEventLevel.Warning
-           && LoggedScalar(logEvent, "SourceContext") as string == typeof(WorkspaceWorkbenchViewModel).FullName;
+           && LoggedScalar(logEvent, "SourceContext") as string == typeof(WorkspaceWatcherService).FullName;
 
     static object? LoggedScalar(LogEvent logEvent, string property)
         => logEvent.Properties.TryGetValue(property, out var value) && value is ScalarValue scalar ? scalar.Value : null;
@@ -12046,6 +12726,12 @@ sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWork
     }
     public Task<bool> DeleteAsync(string id) =>
         Task.FromResult(workspaces.RemoveAll(workspace => workspace.Id == id) > 0);
+    public Task RelocateAsync(WorkspaceProfile workspace, string newDirectoryPath, CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(newDirectoryPath)) throw new DirectoryNotFoundException(newDirectoryPath);
+        workspace.DirectoryPath = newDirectoryPath;
+        return Task.CompletedTask;
+    }
     public Task<WorkspaceProfile?> FindByDirectoryAsync(string directoryPath) =>
         Task.FromResult(workspaces.FirstOrDefault(workspace => workspace.DirectoryPath == directoryPath));
     public void SetActiveWorkspace(WorkspaceProfile? workspace)
@@ -12285,4 +12971,58 @@ sealed class CapturingLogSink : ILogEventSink
     {
         lock (_events) { _events.Clear(); }
     }
+}
+
+/// <summary>
+/// 游戏模式的假页面：替代 NativeWebView，记下 C# 推来的每段脚本（解出其中的消息），并能模拟导航结果与页面发来的意图。
+/// </summary>
+sealed class FakePolisPage(Uri uri) : IPolisPage
+{
+    public Uri Uri { get; } = uri;
+    public Control Control { get; } = new Border { Name = "FakePolisPageSurface" };
+    public List<string> Scripts { get; } = new();
+    public bool Disposed { get; private set; }
+    public event EventHandler<bool>? NavigationCompleted;
+    public event EventHandler<string?>? MessageReceived;
+
+    public Task InvokeScriptAsync(string script)
+    {
+        Scripts.Add(script);
+        return Task.CompletedTask;
+    }
+
+    public void Navigate(bool success) => NavigationCompleted?.Invoke(this, success);
+
+    public void Send(string json) => MessageReceived?.Invoke(this, json);
+
+    public void Dispose() => Disposed = true;
+
+    /// <summary>推来的全部消息：每段脚本是 window.polis.receive("&lt;JSON 字符串字面量&gt;")，解出那个数组。</summary>
+    public IReadOnlyList<JsonElement> Messages
+    {
+        get
+        {
+            var list = new List<JsonElement>();
+            foreach (var script in Scripts)
+            {
+                var start = script.IndexOf("receive(", StringComparison.Ordinal) + "receive(".Length;
+                var literal = script[start..script.LastIndexOf(')')];
+                var payload = JsonSerializer.Deserialize<string>(literal)!;
+                using var doc = JsonDocument.Parse(payload);
+                list.AddRange(doc.RootElement.EnumerateArray().Select(e => e.Clone()));
+            }
+            return list;
+        }
+    }
+
+    public IReadOnlyList<string> MessageTypes => Messages.Select(m => m.GetProperty("type").GetString() ?? string.Empty).ToList();
+}
+
+/// <summary>真实的文件监视器，外加一个能手动引发 Error 的入口（缓冲区溢出那一类）：真实改动照常送达。</summary>
+sealed class InjectableFileSystemWatcher(string path) : FileSystemWatcher(path)
+{
+    public void Inject(Exception exception) => OnError(new ErrorEventArgs(exception));
+
+    /// <summary>送一条"新建"事件，不等平台事件（它们的延迟各平台不同：inotify 几乎立刻，FSEvents 会攒一会儿）。</summary>
+    public void InjectCreated(string name) => OnCreated(new FileSystemEventArgs(WatcherChangeTypes.Created, Path, name));
 }
