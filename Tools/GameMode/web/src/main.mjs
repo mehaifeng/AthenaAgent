@@ -124,6 +124,7 @@ async function main() {
       const level = 0.6 + Math.min(1, (step.reasoning ?? 0) / 1200) * 0.8;
       pose.glow = 0.2 + 0.07 * level * (0.5 + 0.5 * Math.sin(((now - step.start) / 1700) * Math.PI * 2));
     } else if (step.kind === 'act') {
+      pose.acting = true;
       pose.glow = step.failed ? 0.07 : 0.32;   // 失败：光暗下去
       const c = step.category;
       pose.prop = c === 'read' || c === 'memory' ? 'scroll' : c === 'write' ? 'tablet' : c === 'terminal' || c === 'workshop' ? 'hammer' : null;
@@ -142,7 +143,18 @@ async function main() {
     a.visible = pose.visible;
     for (const [name, prop] of Object.entries(world.props)) prop.visible = pose.visible && pose.prop === name;
     if (pose.prop === 'hammer') world.props.hammer.rotation.x = -0.6 + 0.6 * pose.swing;
-    a.userData.light.intensity = 0.6 + pose.glow * 3;
+    // 光属于雅典娜：她在哪干活，哪里就亮。做事时她的光挪到身前、照得更远，把所在建筑的正面照亮
+    const light = a.userData.light;
+    if (pose.acting) {
+      // 物理光照单位（坎德拉，平方反比）：28 cd 在 3 米外约等于日光的强度，建筑正面看得出被照亮；9 cd 几乎看不出来
+      light.position.set(0, 2.6, 2.2);
+      light.distance = 14;
+      light.intensity = pose.glow > 0.1 ? 28 : 2;
+    } else {
+      light.position.set(0, 0.45, 0.3);
+      light.distance = 4.5;
+      light.intensity = 0.6 + pose.glow * 3;
+    }
   }
 
   // —— 场景里随动作变化的东西：脚手架、船、侍女、交付的卷轴 ——
@@ -227,20 +239,28 @@ async function main() {
         s.visit.announced = true;
         sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i) });
       } else if (s.kind === 'deliver') {
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, [], kindOf, i) });
+        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, [], kindOf, i), minMs: 2600 });
       }
       if (s.kind === 'act' && s.failed) sim.cues.push({ t: s.start + 900, text: pick(LINES_ZH.failure, i) });
     }
     sim.cueSteps = steps.length;
   }
 
+  // 台词按时间排队：每一句至少显示 minMs（交付那句更久），后一句顺延，不会被下一回合的开场白立刻盖掉
   function currentLine(now) {
+    const all = [
+      ...sim.replay.fed.filter((e) => e.type === 'turn').map((e) => ({ t: e.t, text: pick(LINES_ZH.turn, e.turn), minMs: 1600 })),
+      ...sim.cues.filter((c) => c.text),
+    ].sort((a, b) => a.t - b.t);
     let best = null;
-    for (const e of sim.replay.fed) {
-      if (e.type === 'turn' && e.t <= now && now - e.t < BUBBLE_MS && (!best || e.t >= best.t)) best = { t: e.t, text: pick(LINES_ZH.turn, e.turn) };
+    let free = -Infinity;
+    for (const c of all) {
+      const shown = Math.max(c.t, free);
+      if (shown > now) break;
+      best = { text: c.text, t: shown };
+      free = shown + (c.minMs ?? 1200);
     }
-    for (const c of sim.cues) if (c.text && c.t <= now && now - c.t < BUBBLE_MS && (!best || c.t >= best.t)) best = c;
-    if (!best) return null;
+    if (!best || now - best.t >= BUBBLE_MS) return null;
     const age = now - best.t;
     return { text: best.text, alpha: Math.min(1, age / 150, (BUBBLE_MS - age) / 400) };
   }

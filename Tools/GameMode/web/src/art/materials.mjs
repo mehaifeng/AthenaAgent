@@ -72,7 +72,16 @@ export function makeMaterials() {
   // 街道与广场同一种石板，略灰一点；贴图的平铺靠几何体的 UV（每 4 米一块），不靠贴图的 repeat
   const street = pave.clone();
   street.color = new THREE.Color(0.93, 0.92, 0.9);
+  // 同一类建筑之间的深浅变化（屋瓦、墙面各三档），按建筑名的哈希挑一档：稳定，不随加载变化
+  const tileShades = [0.86, 1.0, 1.12].map((k) => new THREE.MeshStandardMaterial({ color: new THREE.Color(0x8a6656).multiplyScalar(k), roughness: 0.75 }));
+  const plasterShades = [0.94, 1.0, 1.04].map((k) => {
+    const m = new THREE.MeshStandardMaterial({ map: plasterMap, roughness: 0.9 });
+    m.color.setScalar(k);
+    return m;
+  });
   return {
+    tileShades,
+    plasterShades,
     marble,
     wall,
     plaster: new THREE.MeshStandardMaterial({ map: plasterMap, roughness: 0.9 }),

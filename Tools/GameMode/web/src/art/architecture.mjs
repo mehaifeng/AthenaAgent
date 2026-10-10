@@ -414,8 +414,10 @@ export function buildHouse(M, b, r) {
   const storeys = sc >= 3 ? 2 : 1;
   const ruin = b.state === 'ruin';
   const H = storeys * 3 * (ruin ? 0.75 : 1);
+  const plaster = M.plasterShades[Math.floor(r() * 3)];
+  const tile = M.tileShades[Math.floor(r() * 3)];
   kit.box(M.stone, W + 0.3, 0.25, D + 0.3, 0, 0.125, 0);
-  kit.box(M.plaster, W, H, D, 0, 0.25 + H / 2, 0);
+  kit.box(plaster, W, H, D, 0, 0.25 + H / 2, 0);
   const doorX = (r() - 0.5) * W * 0.4;
   kit.box(M.dark, 1.05, 2.05, 0.08, doorX, 0.25 + 1.03, D / 2 + 0.02);
   kit.box(M.wood, 1.35, 0.14, 0.14, doorX, 0.25 + 2.13, D / 2 + 0.05);
@@ -426,7 +428,7 @@ export function buildHouse(M, b, r) {
     }
   }
   if (!ruin) {
-    gabledRoof(kit, M.tile, M.plaster, W, D, 1.4, 0.25 + H, 0, 0.4);
+    gabledRoof(kit, tile, plaster, W, D, 1.4, 0.25 + H, 0, 0.4);
   } else {
     // 塌了一半的屋顶：只剩几根檩条
     for (let i = 0; i < 4; i++) kit.box(M.darkWood, W * (0.5 + r() * 0.5), 0.14, 0.14, (r() - 0.5) * 1.5, 0.25 + H + 0.1, -D / 2 + 0.8 + i * (D / 4), r() * 0.2, 0, (r() - 0.5) * 0.4);
@@ -445,28 +447,42 @@ export function buildHouse(M, b, r) {
   return group;
 }
 
-/** 作坊：屋前搭着木棚，棚下是工作台和陶罐，屋侧一座窑和烟囱。 */
+/**
+ * 作坊：屋前搭着木棚，棚下是工作台和陶罐，屋侧一座窑和烟囱。
+ * 代码仓库里一大半顶层文件夹都是作坊，第一版一模一样、分不出谁是谁（M0 真实夹具截图审查）。所以：
+ * 体量等级决定宽度和层数（数据驱动），窑在哪侧、烟囱多高、木棚多长、屋瓦和墙面深浅按名字的哈希定（稳定的细节）。
+ */
 export function buildWorkshop(M, b, r) {
   const kit = new Kit();
   const sc = b.sizeClass;
-  const W = 6.4 + sc * 0.6, D = 5.2, H = 3.2;
+  const W = 6.0 + sc * 0.9, D = 4.8 + sc * 0.3;
+  const storeys = sc >= 3 ? 2 : 1;
+  const H = storeys === 2 ? 5.6 : 3.2;
   const ruin = b.state === 'ruin';
+  const tile = M.tileShades[Math.floor(r() * 3)];
+  const plaster = M.plasterShades[Math.floor(r() * 3)];
+  const kilnSide = r() > 0.5 ? 1 : -1;
+  const shedW = W * (0.55 + r() * 0.45);
+  const shedX = (W - shedW) / 2 * -kilnSide;
+  const shedD = 2.0 + r() * 1.0;
   kit.box(M.stone, W + 0.3, 0.22, D + 0.3, 0, 0.11, -0.8);
-  kit.box(M.plaster, W, H, D, 0, 0.22 + H / 2, -0.8);
-  kit.box(M.dark, 2.2, 2.3, 0.08, -W * 0.18, 0.22 + 1.15, D / 2 - 0.78);
-  if (!ruin) gabledRoof(kit, M.tile, M.plaster, W, D, 1.2, 0.22 + H, -0.8, 0.35);
+  kit.box(plaster, W, H, D, 0, 0.22 + H / 2, -0.8);
+  kit.box(M.dark, 2.2, 2.3, 0.08, shedX, 0.22 + 1.15, D / 2 - 0.78);
+  if (storeys === 2) for (const wx of [-W * 0.3, 0, W * 0.3]) kit.box(M.dark, 0.6, 0.6, 0.06, wx, 0.22 + 4.0, D / 2 - 0.78);
+  if (!ruin) gabledRoof(kit, tile, plaster, W, D, 1.2, 0.22 + H, -0.8, 0.35);
   // 木棚：四根柱子撑一片斜顶
-  const shedD = 2.6;
-  for (const sx of [-1, 1]) for (const sz of [0, 1]) kit.cylinder(M.wood, 0.09, 0.1, 2.6, sx * (W / 2 - 0.4), 1.3, D / 2 - 0.8 + 0.3 + sz * shedD, 8);
-  if (!ruin) kit.box(M.darkWood, W - 0.4, 0.12, shedD + 0.6, 0, 2.75, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
-  kit.box(M.wood, 2.2, 0.12, 0.9, W * 0.18, 0.95, D / 2 + 0.9);   // 工作台
-  for (const lx of [-0.95, 0.95]) for (const lz of [-0.35, 0.35]) kit.box(M.wood, 0.08, 0.9, 0.08, W * 0.18 + lx, 0.45, D / 2 + 0.9 + lz);
+  for (const sx of [-1, 1]) for (const sz of [0, 1]) kit.cylinder(M.wood, 0.09, 0.1, 2.6, shedX + sx * (shedW / 2 - 0.3), 1.3, D / 2 - 0.8 + 0.3 + sz * shedD, 8);
+  if (!ruin) kit.box(M.darkWood, shedW, 0.12, shedD + 0.6, shedX, 2.75, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
+  kit.box(M.wood, Math.min(2.2, shedW - 0.6), 0.12, 0.9, shedX, 0.95, D / 2 + 0.6);   // 工作台
+  for (const lx of [-0.8, 0.8]) for (const lz of [-0.35, 0.35]) kit.box(M.wood, 0.08, 0.9, 0.08, shedX + lx, 0.45, D / 2 + 0.6 + lz);
   // 窑与烟囱
-  const kx = (r() > 0.5 ? 1 : -1) * (W / 2 + 1.1);
-  kit.add(M.stone, new THREE.SphereGeometry(1.15, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), m4(kx, 0, -0.6));
-  kit.cylinder(M.stone, 0.32, 0.4, 4.6, kx, 2.3, -1.3, 10);
-  kit.box(M.dark, 0.6, 0.5, 0.1, kx, 0.35, 0.53);
-  for (let i = 0; i < 4; i++) kit.add(M.tile, amphoraBody(), m4(W / 2 - 0.6 - i * 0.45, 0, D / 2 + 2.2, r() * 6, 0, 0, 0.8));
+  const kx = kilnSide * (W / 2 + 1.0);
+  const chimney = 3.6 + r() * 1.8 + (storeys === 2 ? 1.6 : 0);
+  kit.add(M.stone, new THREE.SphereGeometry(1.05, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), m4(kx, 0, -0.6));
+  kit.cylinder(M.stone, 0.3, 0.38, chimney, kx, chimney / 2, -1.3, 10);
+  kit.box(M.dark, 0.6, 0.5, 0.1, kx, 0.35, 0.43);
+  const jars = 2 + Math.floor(r() * 4);
+  for (let i = 0; i < jars; i++) kit.add(M.tile, amphoraBody(), m4(-kilnSide * (W / 2 - 0.6 - i * 0.45), 0, D / 2 + shedD - 0.2, r() * 6, 0, 0, 0.8));
   if (ruin) rubble(kit, M, r, 5, W, D);
   decorate(kit, M, b, r, { w: W, d: D, h: H });
   const group = kit.build();
