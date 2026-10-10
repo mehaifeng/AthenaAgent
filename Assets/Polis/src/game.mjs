@@ -151,7 +151,11 @@ export function createGame({ params, status, send, onReadItem }) {
       if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); }
     }
     if (!keepPlayer || !sim) sim = createSim(options.home ?? 'agora', options.now ?? 0);
-    if (options.founding) reveal = { startedAt: performance.now() };
+    if (options.founding) {
+      // 第一次进入这座城（5.4）：俯瞰揭幕，旁白"这是你的城邦，每座建筑都是你的一个文件夹"；之后从存档恢复，不再播
+      reveal = { startedAt: performance.now() };
+      sim.cues.push({ t: sim.time, text: ui.founding, minMs: REVEAL_MS });
+    }
     status.city = { buildings: doc.buildings.length, vacant: (doc.vacant ?? []).length, market: (doc.market ?? []).length, sanctuary, key: cityKey };
   }
 

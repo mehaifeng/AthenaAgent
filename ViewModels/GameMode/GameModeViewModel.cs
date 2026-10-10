@@ -86,6 +86,19 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private readonly ILogger _logger = Log.ForContext<GameModeViewModel>();
     private readonly string? _home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+    /// <summary>
+    /// 手动验收用的失败注入（<c>ATHENA_POLIS_FAILURE=create|navigation|webgl|timeout</c>）：在一台一切正常的电脑上
+    /// 也能看到四处失败提示各自的样子（见 Docs/GameMode_M1_Acceptance_CN.md）。没设这个环境变量时为 null，
+    /// 设了就在启动时写一条 Warning，免得有人忘了它还开着。
+    /// </summary>
+    private readonly string? _simulatedFailure = SimulatedFailureFromEnvironment();
+
+    private static string? SimulatedFailureFromEnvironment()
+    {
+        var value = Environment.GetEnvironmentVariable("ATHENA_POLIS_FAILURE")?.Trim().ToLowerInvariant();
+        return value is "create" or "navigation" or "webgl" or "timeout" ? value : null;
+    }
+
     private IPolisShell? _shell;
     private IPolisPageChannel? _page;
     private readonly List<object> _outbox = new();
@@ -133,6 +146,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _watcher.StateChanged += OnWatcherStateChanged;
         _localization.LanguageChanged += OnLanguageChanged;
         _configuration.CurrentChanged += OnConfigurationReplaced;
+        if (_simulatedFailure != null)
+            _logger.Warning("ATHENA_POLIS_FAILURE={Failure} is set: game mode will simulate this failure for manual acceptance", _simulatedFailure);
         if (_isGameMode) EnsurePage();
     }
 
@@ -295,6 +310,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     public void AttachPage(IPolisPageChannel page)
     {
         _page = page ?? throw new ArgumentNullException(nameof(page));
+        if (_simulatedFailure == "create")
+        {
+            OnPageCreateFailed(new InvalidOperationException("Simulated by ATHENA_POLIS_FAILURE=create (manual acceptance)"));
+            return;
+        }
         _readyTimer ??= new DispatcherTimer(ReadyTimeout, DispatcherPriority.Background, (_, _) => OnReadyTimeout());
         _readyTimer.Interval = ReadyTimeout;
         _readyTimer.Stop();
@@ -320,6 +340,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>第 2 处：页面加载失败。</summary>
     public void OnNavigationCompleted(bool success)
     {
+        if (_simulatedFailure == "navigation") success = false;
         if (success) return;
         Fail(PolisFailureStage.Navigation, L("GameMode.Failure.Navigation", "The game page did not load"), PageUrl ?? string.Empty);
     }
@@ -368,6 +389,14 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         switch (intent.Type)
         {
             case PolisIntentType.Ready:
+                if (_simulatedFailure == "webgl")
+                {
+                    Fail(PolisFailureStage.Page, L("GameMode.Failure.WebGl", "WebGL 2 is not available here, so the polis cannot be drawn"),
+                        "webgl: simulated by ATHENA_POLIS_FAILURE=webgl (manual acceptance)");
+                    break;
+                }
+                // 就绪超时的手动验收：当作没听见，让计时器自己走到头
+                if (_simulatedFailure == "timeout") break;
                 OnPageReady();
                 break;
             case PolisIntentType.Failed:

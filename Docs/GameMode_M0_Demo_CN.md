@@ -1,21 +1,18 @@
 # 游戏模式 M0 演示说明
 
 > 2026-10-11。M0 是一个在普通浏览器里跑的原型，不接入应用、不调用任何模型：一座由文件夹生成的城邦，加一段按真实节奏回放的会话。设计见 `Docs/GameMode_Design_CN.md`，进度与证据见 `Docs/GameMode_Progress_CN.md`。
+> M1 之后页面挪进了应用（`Assets/Polis/`，应用里由回环服务的 `/polis/` 路由提供）；这份回放演示照样可用，下面的地址已按新位置改过。应用里的游戏模式怎么验收，见 `Docs/GameMode_M1_Acceptance_CN.md`。
 
 M0 的通过标准（设计稿第 14 节）：**给两三个不懂技术的人看，不做任何解释，他们能说出雅典娜在干什么。** 这份说明就是为这件事准备的。
 
 ## 1. 启动回放
 
-需要：一个浏览器（Chrome / Edge / Safari 都行，要有 WebGL 2）和一个本地静态服务。仓库里的东西都是离线的（three.js 已经打包在 `Tools/GameMode/web/vendor/`），不需要装任何东西、不联网。
+需要：一个浏览器（Chrome / Edge / Safari 都行，要有 WebGL 2）和一个本地静态服务。仓库里的东西都是离线的（three.js 已经打包在 `Assets/Polis/vendor/`），不需要装任何东西、不联网。
 
-在仓库根目录起服务（二选一）：
+在仓库根目录起服务（它按应用里的样子挂载：`/polis/` 是页面，`/fixtures/` 是合成夹具，`/.local/` 是被忽略的真实夹具）：
 
 ```bash
 node Tools/GameMode/web/test/serve.mjs 8766
-```
-
-```bash
-python3 -I -m http.server 8766 --bind 127.0.0.1 --directory Tools/GameMode
 ```
 
 没有自己的 Node 时，构建过应用的机器上有一份：`bin/Debug/net10.0/.playwright/node/<平台>/node`。
@@ -24,14 +21,14 @@ python3 -I -m http.server 8766 --bind 127.0.0.1 --directory Tools/GameMode
 
 | 回放 | 地址 | 时长（1 倍速） |
 |---|---|---|
-| 合成城邦（默认，推荐给不懂技术的人看） | `http://127.0.0.1:8766/web/index.html` | 约 1 分 30 秒 |
-| 真实会话（本仓库 + 一段真实会话，需先导出，见第 3 节） | `http://127.0.0.1:8766/web/index.html?fixture=../.local/real-fixture.json&speed=2` | 约 5 分 30 秒，2 倍速约 2 分 45 秒 |
+| 合成城邦（默认，推荐给不懂技术的人看） | `http://127.0.0.1:8766/polis/index.html` | 约 1 分 30 秒 |
+| 真实会话（本仓库 + 一段真实会话，需先导出，见第 3 节） | `http://127.0.0.1:8766/polis/index.html?fixture=../.local/real-fixture.json&speed=2` | 约 5 分 30 秒，2 倍速约 2 分 45 秒 |
 
 操作：
 
 - 右下角按钮：暂停 / 继续、速度（×1 / ×2 / ×4）、镜头（跟着雅典娜 / 跟着你）、重新开始。
 - 键盘：空格暂停，`1` `2` `4` 调速度，`F` 切换镜头，`R` 重新开始，`H` 隐藏左上角的状态行。
-- 鼠标：左键点地面，你（深色斗篷的人）就走过去；点红色的卷轴就是"收下"；右键拖动平移镜头，滚轮缩放。
+- 鼠标：左键点地面，你（深色斗篷的人）就走过去；点红色的卷轴会弹出一张卡片，点"收下"颜色就褪进城邦；右键拖动平移镜头，滚轮缩放。
 - 地址参数：`&t=30000` 从第 30 秒开始，`&paused=1` 先暂停，`&speed=2` 2 倍速。
 
 ## 2. 画面里有什么

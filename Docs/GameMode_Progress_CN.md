@@ -11,32 +11,32 @@
 
 | # | 项 | 状态 | 证据 |
 |---|---|---|---|
-| 1 | 前置①：`GeneratedDirectories` 已在 M0 提出共用（deeacb4）——核实并复用 | ⬜ | |
-| 2 | 前置②：M0 的 C# 纯函数挪进 `Services/GameMode/`；`SubAgentZones` 与类别表合成一张 | ⬜ | |
-| 3 | 前置③：工作区文件监听提成服务（`WorkspaceWatcherService`），工作台与游戏共用；Error → 整城重扫；建不起来 → 降级并提示；改写 `TestWorkspaceWatcherErrors` | ⬜ | |
-| 4 | 前置④：「重新定位工作区文件夹」（只改 `DirectoryPath`，`Id` 不变）：服务 + 会话树入口 + 游戏雾中入口；断言 | ⬜ | |
-| 5 | 模式切换：`MainLayoutSettings.CenterMode` 持久化；对话标题栏按钮；游戏视图替换消息列表那一行、输入框保留；进入游戏收起宠物（并停掉它的计时器） | ⬜ | |
-| 6 | 网页承载：前端挪进 `Assets/Polis/` 离线打包；`OfficePreviewHost` 新增 `/polis/` 路由（路径白名单 + CSP 响应头）；`NativeWebView` 惰性创建 | ⬜ | |
-| 7 | 城邦：后台、有界、可取消的扫描 → 汇总 → 账本；新的切换取消旧的扫描 | ⬜ | |
-| 8 | 9.2 切换：会话树是唯一选择来源；同工作区 / 跨工作区（航海过场）/ 全局对话（神殿）；两拍；过场 = 加载遮罩（最短观感、上限） | ⬜ | |
-| 9 | 存档：`AthenaData/Workspaces/<id>/game/{polis,index}.json`、`AthenaData/Game/sanctuary.json`；原子写、按记录隔离损坏、保留上一份完好副本、schema 版本与迁移 | ⬜ | |
-| 10 | 重启：先按快照显示，再后台扫描核对差异；未处理的成果仍带颜色；被打断的委托显示停工 | ⬜ | |
-| 11 | 外部改动：增量更新受影响建筑、区分雅典娜与外部改动、批量合并（超阈值整城重扫）、运行时改名换牌匾 | ⬜ | |
-| 12 | 离线差异报告与改名找回（文件夹按子项名集合相似度配对；藏品按大小 + 哈希找回；找不到 = 遗失，不自动删） | ⬜ | |
-| 13 | 文件夹丢失：雾 + 「重新定位」 | ⬜ | |
-| 14 | 事件推导：从渲染模型（`Segments` / `ToolCallEntry.Status` / 审批 / 子代理）推导，不给 `IChatService` 加回调；`InvokeScript` 约 100 ms 攒批 | ⬜ | |
-| 15 | 动作与旁白：旁白搬进 locale 文件（`Polis.Line.*`，`|` 分隔变体），中英两套 | ⬜ | |
-| 16 | 卷轴阅读器：Markdown 只建 DOM、不解释任何 HTML；页面 CSP | ⬜ | |
-| 17 | 成果交付与收下 / 退回（退回 = 同一会话追加修改要求：预填输入框并聚焦，由用户发出） | ⬜ | |
-| 18 | 审批状态镜像（封印变红，雅典娜停在门槛前）；网页没有「批准」意图 | ⬜ | |
-| 19 | 安全边界：意图封闭集合，C# 逐条校验（越界路径、未知类型、「批准」都拒绝）；C# 只发事件类型与工作区相对路径；文字画在 canvas 上 | ⬜ | |
-| 20 | 失败处理：创建 / 挂载失败、导航失败、WebGL 不可用、就绪超时，四处都在游戏区显示原因 + 技术细节 + 「回到对话」，并记 Warning；Linux 同一条路 | ⬜ | |
-| 21 | 性能：不可见（对话模式 / 窗口最小化）时暂停渲染；空闲降到 30 帧；切回对话后 WebView 保留一段时间再释放 | ⬜ | |
-| 22 | 断言（Archive.Tests）：账本稳定、存档损坏隔离与迁移、离线差异与改名找回、归属、意图校验 | ⬜ | |
-| 23 | 断言（无头）：模式切换与失败提示（不实例化 WebView） | ⬜ | |
-| 24 | Node 单测 + Playwright 冒烟（Chromium、WebKit）+ 运动自检，覆盖实时模式 | ⬜ | |
-| 25 | 手动验收清单 `Docs/GameMode_M1_Acceptance_CN.md` | ⬜ | |
-| 26 | 文档即规范：`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ⬜ | |
+| 1 | 前置①：`GeneratedDirectories` 已在 M0 提出共用（deeacb4）——核实并复用 | ✅ | `Services/GeneratedDirectories.cs`；`PolisScanner.IsSkippedDirectory` 与目录搜索共用它 |
+| 2 | 前置②：M0 的 C# 纯函数挪进 `Services/GameMode/`；`SubAgentZones` 与类别表合成一张 | ✅ | 8a9ff18；Archive.Tests「polis tool categories」逐个核对 `FunctionRegistry` 注册 |
+| 3 | 前置③：工作区文件监听提成服务（`WorkspaceWatcherService`），工作台与游戏共用；Error → 整城重扫；建不起来 → 降级并提示；改写 `TestWorkspaceWatcherErrors` | ✅ | 1a5ea0a；`TestWorkspaceWatcherErrors`（第二个订阅者每批只收一次）；`TestGameModeCityLifecycle`（注入溢出 → 整城重扫） |
+| 4 | 前置④：「重新定位工作区文件夹」（只改 `DirectoryPath`，`Id` 不变）：服务 + 会话树入口 + 游戏雾中入口；断言 | ✅ | 1a5ea0a；Archive「workspace relocation」；`TestGameModeCityLifecycle`（雾 → 重新定位 → 同一本账本） |
+| 5 | 模式切换：`MainLayoutSettings.GameMode` 持久化；对话标题栏按钮；游戏视图替换消息列表那一行、输入框保留；进入游戏收起宠物（并停掉它的计时器） | ✅ | a05843c；`TestGameModeSwitchAndFailures` |
+| 6 | 网页承载：前端挪进 `Assets/Polis/` 离线打包；`OfficePreviewHost` 新增 `/polis/` 路由（路径白名单 + CSP 响应头）；`NativeWebView` 惰性创建 | ✅ | a61347e、a05843c；真实 WKWebView 探针（「真实 WebView」） |
+| 7 | 城邦：后台、有界、可取消的扫描 → 汇总 → 账本；新的切换取消旧的扫描 | ✅ | `GameModeViewModel.LoadCityAsync`（`Task.Run` + 每次换城一个新的 `CancellationTokenSource`）；Archive「polis city」 |
+| 8 | 9.2 切换：会话树是唯一选择来源；同工作区 / 跨工作区（航海过场）/ 全局对话（神殿）；两拍；过场 = 加载遮罩（最短观感、上限） | ✅ | `IPolisShell`；`TestGameModeSwitchAndFailures`（游戏里切会话不建气泡树、不踢回对话）；冒烟「voyageLandsWhenReady / voyageWaitsForPartial」 |
+| 9 | 存档：`AthenaData/Workspaces/<id>/game/{polis,index}.json`、`AthenaData/Game/sanctuary.json`；原子写、按记录隔离损坏、保留上一份完好副本、schema 版本与迁移 | ✅ | ba3bd85；Archive「polis save」 |
+| 10 | 重启：先按快照显示，再后台扫描核对差异；未处理的成果仍带颜色；被打断的委托显示停工 | ✅ | `TestGameModeCityLifecycle`（第一座城来自快照、报告、待处理成果仍在）；页面 `focus.interrupted` → 停工脚手架 |
+| 11 | 外部改动：增量更新受影响建筑、区分雅典娜与外部改动、批量合并（超阈值整城重扫）、运行时改名换牌匾 | ✅ | Archive「polis attribution」；`TestGameModeCityLifecycle`（外部新建 = external + 公告板、她写的 = athena 无公告、其他建筑不挪） |
+| 12 | 离线差异报告与改名找回（文件夹按子项名集合相似度配对；藏品按大小 + 哈希找回；找不到 = 遗失，不自动删） | ✅ | Archive「polis offline diff」「polis city」；`TestGameModeCityLifecycle`（离线改名原地换牌匾、删除留空地、报告） |
+| 13 | 文件夹丢失：雾 + 「重新定位」 | ✅ | `TestGameModeCityLifecycle`；冒烟「relocateSent」；截图 05-fog |
+| 14 | 事件推导：从渲染模型（`Segments` / `ToolCallEntry.Status` / 审批 / 子代理）推导，不给 `IChatService` 加回调；`InvokeScript` 约 100 ms 攒批 | ✅ | Archive「polis events」；`GameModeViewModel.Flush`；真实探针 liveEvents = 4 |
+| 15 | 动作与旁白：旁白搬进 locale 文件（`Polis.Line.*`，`|` 分隔变体），中英两套 | ✅ | `PolisLocale`；`TestGameModeSwitchAndFailures` 核对中英两份都有全部 `Polis.*` / `GameMode.*` 词条 |
+| 16 | 卷轴阅读器：Markdown 只建 DOM、不解释任何 HTML；页面 CSP | ✅ | Node「reader」×2 + 源码扫描（无 innerHTML 等）；冒烟「readerIsText」；截图 06-reader |
+| 17 | 成果交付与收下 / 退回（退回 = 同一会话追加修改要求：预填输入框并聚焦，由用户发出） | ✅ | `TestGameModeCityLifecycle`（收下 / 退回落盘、退回只预填不发送、只回答的回合交出一卷回答）；冒烟「acceptSent」 |
+| 18 | 审批状态镜像（封印变红，雅典娜停在门槛前）；网页没有「批准」意图 | ✅ | Node「approval」×3；冒烟「awaitsApproval / neverApproves」；`TestGameModeCityLifecycle`（审批开始 / 结束都镜像） |
+| 19 | 安全边界：意图封闭集合，C# 逐条校验（越界路径、未知类型、「批准」都拒绝）；C# 只发事件类型与工作区相对路径；文字画在 canvas 上 | ✅ | Archive「polis intents」；`TestGameModeSwitchAndFailures`（approve 与越界路径各一条 Warning）；Node 源码扫描 |
+| 20 | 失败处理：创建 / 挂载失败、导航失败、WebGL 不可用、就绪超时，四处都在游戏区显示原因 + 技术细节 + 「回到对话」，并记 Warning；Linux 同一条路 | ✅ | `TestGameModeSwitchAndFailures`（四处）；冒烟「WebGL disabled → failed(webgl)」；`NativeWebViewPolisPage.HandleAttachFailure` |
+| 21 | 性能：不可见（对话模式 / 窗口最小化）时暂停渲染；空闲降到 30 帧；切回对话后 WebView 保留一段时间再释放 | ✅ | Node「frame policy」；冒烟「pausesWhenHidden / resumesWhenShown」；`TestGameModeSwitchAndFailures`（保留期内不释放、过期释放） |
+| 22 | 断言（Archive.Tests）：账本稳定、存档损坏隔离与迁移、离线差异与改名找回、归属、意图校验 | ✅ | 193 个全过（「最后一轮」） |
+| 23 | 断言（无头）：模式切换与失败提示（不实例化 WebView） | ✅ | `TestGameModeSwitchAndFailures`、`TestGameModeCityLifecycle`；全套 144 个 |
+| 24 | Node 单测 + Playwright 冒烟（Chromium、WebKit）+ 运动自检，覆盖实时模式 | ✅ | 「最后一轮」 |
+| 25 | 手动验收清单 `Docs/GameMode_M1_Acceptance_CN.md` | ✅ | 该文件 |
+| 26 | 文档即规范：`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ✅ | 两份文档的 "Game Mode" 一节、目录地图与命令表；设计稿 v3（各节"M1："标注） |
 | 27 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ⬜ | |
 | 28 | 最后一轮重跑 a–c，贴结果，打印清单 | ⬜ | |
 
@@ -50,10 +50,49 @@
 | 15.4 猫头鹰 | 不加（美术项，留给 M2） |
 | 15.5 启动时恢复上次选中的会话 | **按用户要求不做，留给用户决定**；启动仍选中最近更新的会话 |
 | 15.6 2D 半身像风格 | 白底陶瓶线描（设计稿默认）；M1 不画半身像 |
+| 9.2 过场时长 | 最短 1.6 秒、上限 6 秒；同城与装城失败都要靠岸 |
+| 11.2 一大批改动 | 一批超过 200 处或涉及 8 座以上建筑：整城重扫，公告板"城里起了大变化" |
+| 11.3 离线改名配对 | 子项名字集合 Jaccard ≥ 0.5、一对一；没有子项的不配 |
+| 12.5 就绪超时 | 导航完成后 20 秒 |
+| 12.6 WebView 保留多久 | 切回对话后 3 分钟 |
 
 ### 决定
 
-（随实现补充）
+1. **工作区监视器由工作台驱动**：共享的 `WorkspaceWatcherService` 由 `WorkspaceWorkbenchViewModel.SetWorkspaceAsync` 切换（外壳"当前作用域"的唯一入口，也保住了"先加载、后监听"的次序），游戏按事件里的工作区 Id 认领。没用 `IWorkspaceService.ActiveWorkspaceChanged`：它在每个会话 `AssignWorkspace` 时都会触发（启动恢复全部会话、定时任务在后台开会话），不等于"当前选中"。
+2. **`SetWorkspaceAsync` 同时比较 Id 与根目录**：工作区是共享的活对象，重新定位后 Id 不变，只比 Id 会把新位置当成"同一个工作区"什么都不做。
+3. **游戏模式下不建气泡树**（设计稿 9.2 的"需要实测"）：`ATHENA_SWAP_PERF=1` 的探针（`ProbeHiddenSurfaceSwap`，20 条助手消息、240 个工具行的会话）：可见换绑 648 ms，**隐藏换绑 843 ms**，都是 10 770 个视觉元素；隐藏换绑之后再显示 0 ms——隐藏的列表照样实体化整棵树。所以不是"藏起来"，而是消息列表不给数据源；`ItemsSource` 改在代码里给（XAML 绑定在 DataContext 换绑时会重新产出值，盖掉 null，测试抓到过）。切回对话：升幕布、等 60 ms（够提交一帧幕布）、再给数据源。
+4. **页面放进 `Assets/Polis/`**，随应用作为 Avalonia 资源发布；测试、夹具、导出工具留在 `Tools/GameMode/`。开发用的静态服务按应用的样子挂载 `/polis/`、`/fixtures/`、`/.local/`。
+5. **C# → 页面的数据编码**：整批消息序列化成 JSON，再把这段 JSON 文本序列化成一个 JS 字符串字面量（默认编码器转义 `<` `>` `&` `'` 与 U+2028/2029），页面 `JSON.parse`。数据从不拼进脚本。
+6. **退回只预填，不发送**：网页的文字有一部分来自模型；"退回"把"关于《…》，请修改："预填进同一会话的输入框并聚焦，由人写完发出。发消息仍只走输入框一条路径。
+7. **审批的到达顺序**：渲染模型里工具调用先出现（Running），审批随后弹出。编排器里她若已经站在那儿开工，收到 approval-start 就停手改为在门槛前等，点头后接着做这一处；正在走路时不打断（规则 4），走到了才停。
+8. **成果**：一回合一件。写进工作区的文档 / 表格 / 图片（取最后写的那个）是卷轴 / 账册 / 彩绘板；生成了图片是彩绘板；都没有就是"回答"本身（标题取回答第一行）。读回答在页面的卷轴阅读器里（那段 Markdown 按需发给页面，是 12.4 唯一的例外）；读文件在工作台里打开，文件内容不进页面。
+9. **后台核对与新近决定的合并**（`MergeReconciled`）：账本、路径、指纹、遗失标记取核对结果，处理状态和核对期间新交来的成果取当前存档——否则扫描期间的"收下"会被悄悄撤销。
+10. **手动验收的失败注入**：`ATHENA_POLIS_FAILURE=create|navigation|webgl|timeout`，设了就在启动时写一条 Warning。没有它，一台正常的 Mac 上看不到四处失败提示各自的样子。
+11. **雅典娜的"碰过"**：工具参数里的目标路径（读写类）；终端命令只有 `workingDirectory` 落在工作区里才算（命令本身不读）；派发子代理期间整座城都算她的（侍女替她跑腿）。之外一律算外部改动。
+12. **页面不可见就停**：`visibility` 消息（模式切换、窗口最小化）加上 `document.hidden`；有东西在动 60 帧，待命 / 沉思 / 等审批 30 帧。
+
+### 真实 WebView（一次性探针，不进仓库）
+
+`/tmp/polis-real`：引用 `Athena.UI.csproj` 的小程序，真实 macOS 平台 + `NativeWebView`（WKWebView）+ 回环服务 `/polis/` + `GameModeViewModel`，假外壳与临时目录（不碰开发版 AthenaData）。结果：
+
+```
+[INF] Polis page ready                         （窗口显示后约 1 秒）
+page status: {"ready":true,"mode":"live","city":{"buildings":4,...},"items":[{"state":"pending",...}],"errors":[],"liveEvents":4,"sent":["ready"]}
+save written: True
+```
+
+城邦装进了真实的 WKWebView，四个实时事件（开场、工具开始 / 结束、交付）被页面吃下，回答成了一件待收下的成果，存档写盘，页面没有报错。探针窗口是命令行进程开的，WebKit 判定 `document.hidden = true`、暂停了 `requestAnimationFrame`——这正是"不可见就停"的行为；可见时出帧由 Playwright WebKit 冒烟证明。
+
+### 截图审查（被忽略的 `Tools/GameMode/.local/m1-shots/`）
+
+| 画面 | 看到的问题 | 处理 |
+|---|---|---|
+| 01 航海过场 | 无 | — |
+| 02 城邦 + "你离开期间" + 公告板 | 无 | — |
+| 03 成果卡片 | 第一版卡片的两行字被按钮压住 | 面板加按钮行的高度（`panel` 的 footer） |
+| 04 等审批 | 第一版气泡还是"我在誊写《摘要》"（刚开工就停下等审批，那句不成立了） | 刚开工就被审批打断的那一句撤掉，只说"这一步需要你点头" |
+| 05 雾 | 无 | — |
+| 06 卷轴阅读器 | 列表项间距偏大 | `li > p` 收紧 |
 
 ### 阻塞
 
