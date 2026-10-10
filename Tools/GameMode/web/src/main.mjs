@@ -238,6 +238,10 @@ async function main() {
       } else if (s.kind === 'act' && !s.visit.announced) {
         s.visit.announced = true;
         sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, LINES_ZH, 'at') });
+      } else if (s.kind === 'act' && !s.visit.arrived && ['terminal', 'web'].includes(s.category)) {
+        // 锻炉、港口到场时再说一句：出发时"去锻炉敲打一下"，到了"炉火点上了"——读写类到场那句只是复述，不说
+        s.visit.arrived = true;
+        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, LINES_ZH, 'at') });
       } else if (s.kind === 'deliver') {
         sim.cues.push({ t: s.start, text: lineForVisit(s.visit, [], kindOf, i), minMs: 2600 });
       }

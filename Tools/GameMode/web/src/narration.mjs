@@ -14,7 +14,7 @@ export const LINES_ZH = Object.freeze({
   'write.dir': '去{place}收拾一下|{place}要搭个脚手架',
   'write.dir.at': '我在{place}收拾一下|{place}搭起了脚手架',
   terminal: '去锻炉敲打一下|我去锻炉一趟',
-  'terminal.at': '炉火点上了|再敲打一下',
+  'terminal.at': '炉火点上了|炉火正旺',
   web: '去港口放船|我去港口一趟',
   'web.at': '船出海打听消息去了|放船出海，去外面问问',
   'memory.recall': '去图书馆翻翻旧卷|看看我记过些什么',
