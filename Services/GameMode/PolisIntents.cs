@@ -37,7 +37,23 @@ public enum PolisIntentType
     /// <summary>文件夹不见了，重新定位它（打开原生的文件夹选择器）。</summary>
     Relocate,
     /// <summary>记下玩家的位置与镜头缩放（存档里的"玩家进度"）。</summary>
-    SavePlayer
+    SavePlayer,
+    /// <summary>把一件收下的藏品摆进一处场馆的某个位次（或挪过去）。只改存档，不碰工作区（7.2）。</summary>
+    PlaceItem,
+    /// <summary>把一件藏品撤下来：回到"收着、没摆出来"。</summary>
+    UnplaceItem,
+    /// <summary>移除一件遗失藏品的记录——只有你点了才会删（11.3）。</summary>
+    RemoveItem,
+    /// <summary>采纳委托板上的一条建议：新建一份委托并预填请求（不发送）。</summary>
+    TakeSuggestion,
+    /// <summary>在神庙请雅典娜设立每日神谕：新建一份委托并预填请求（不发送；建任务走现有审批）。</summary>
+    RequestOracle,
+    /// <summary>在海图上选一座岛：选中那个工作区最近的会话（没有就新建）——走会话树的同一条路径。</summary>
+    SelectIsland,
+    /// <summary>和一位居民说过话（记进玩家进度"已结识的居民"）。</summary>
+    MeetResident,
+    /// <summary>请雅典娜试试这位居民代表的能力：新建一份委托并预填一句示范请求（不发送）。</summary>
+    TryResident
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -53,13 +69,28 @@ public sealed record PolisIntent(PolisIntentType Type)
     public double? X { get; init; }
     public double? Z { get; init; }
     public double? Zoom { get; init; }
+    public PolisVenue? Venue { get; init; }
+    public int? Slot { get; init; }
+    public string? SuggestionId { get; init; }
+    public string? IslandId { get; init; }
+    public PolisResidentKind? Resident { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
 public sealed record PolisIntentContext(
     string? WorkspaceRoot,
     IReadOnlySet<string> KnownConversationIds,
-    IReadOnlySet<string> KnownItemIds);
+    IReadOnlySet<string> KnownItemIds)
+{
+    /// <summary>委托板上此刻挂着的建议（页面只能采纳 C# 生成的那几条，不能自己写一条）。</summary>
+    public IReadOnlySet<string> KnownSuggestionIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>海图上的岛：工作区 Id 与神殿。</summary>
+    public IReadOnlySet<string> KnownIslandIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>这座城里此刻出现了的居民（camelCase 名）。</summary>
+    public IReadOnlySet<string> KnownResidentIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}
 
 public sealed record PolisIntentResult(PolisIntent? Intent, string? Rejection)
 {
@@ -101,6 +132,14 @@ public static class PolisIntents
         ["read-scroll"] = PolisIntentType.ReadScroll,
         ["relocate"] = PolisIntentType.Relocate,
         ["save-player"] = PolisIntentType.SavePlayer,
+        ["place-item"] = PolisIntentType.PlaceItem,
+        ["unplace-item"] = PolisIntentType.UnplaceItem,
+        ["remove-item"] = PolisIntentType.RemoveItem,
+        ["take-suggestion"] = PolisIntentType.TakeSuggestion,
+        ["request-oracle"] = PolisIntentType.RequestOracle,
+        ["select-island"] = PolisIntentType.SelectIsland,
+        ["meet-resident"] = PolisIntentType.MeetResident,
+        ["try-resident"] = PolisIntentType.TryResident,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -143,6 +182,7 @@ public static class PolisIntents
                 case PolisIntentType.NewCommission:
                 case PolisIntentType.StopTurn:
                 case PolisIntentType.Relocate:
+                case PolisIntentType.RequestOracle:
                     return new PolisIntentResult(new PolisIntent(type), null);
 
                 case PolisIntentType.Failed:
@@ -177,9 +217,54 @@ public static class PolisIntents
                     return new PolisIntentResult(new PolisIntent(type) { Text = text }, null);
                 }
 
+                case PolisIntentType.PlaceItem:
+                {
+                    var itemId = ReadString(root, "itemId");
+                    if (string.IsNullOrEmpty(itemId) || !context.KnownItemIds.Contains(itemId))
+                        return PolisIntentResult.Reject("unknown item");
+                    if (!PolisCollection.TryParseVenue(ReadString(root, "venue"), out var venue))
+                        return PolisIntentResult.Reject("unknown venue");
+                    int? slot = null;
+                    if (root.TryGetProperty("slot", out var rawSlot) && rawSlot.ValueKind != JsonValueKind.Null)
+                    {
+                        if (rawSlot.ValueKind != JsonValueKind.Number || !rawSlot.TryGetInt32(out var s)
+                            || s < 0 || s >= PolisCollection.SlotsPerVenue)
+                            return PolisIntentResult.Reject("slot out of range");
+                        slot = s;
+                    }
+                    return new PolisIntentResult(new PolisIntent(type) { ItemId = itemId, Venue = venue, Slot = slot }, null);
+                }
+
+                case PolisIntentType.TakeSuggestion:
+                {
+                    var id = ReadString(root, "suggestionId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownSuggestionIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown suggestion");
+                    return new PolisIntentResult(new PolisIntent(type) { SuggestionId = id }, null);
+                }
+
+                case PolisIntentType.SelectIsland:
+                {
+                    var id = ReadString(root, "islandId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownIslandIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown island");
+                    return new PolisIntentResult(new PolisIntent(type) { IslandId = id }, null);
+                }
+
+                case PolisIntentType.MeetResident:
+                case PolisIntentType.TryResident:
+                {
+                    var id = ReadString(root, "residentId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownResidentIds.Contains(id) || !PolisResidents.TryParse(id, out var kind))
+                        return PolisIntentResult.Reject("unknown resident");
+                    return new PolisIntentResult(new PolisIntent(type) { Resident = kind }, null);
+                }
+
                 case PolisIntentType.AcceptDelivery:
                 case PolisIntentType.ReturnDelivery:
                 case PolisIntentType.ReadScroll:
+                case PolisIntentType.UnplaceItem:
+                case PolisIntentType.RemoveItem:
                 {
                     var itemId = ReadString(root, "itemId");
                     if (string.IsNullOrEmpty(itemId) || !context.KnownItemIds.Contains(itemId))

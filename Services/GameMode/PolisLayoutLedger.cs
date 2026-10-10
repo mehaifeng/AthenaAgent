@@ -12,7 +12,15 @@ public enum PolisPublicSite
     Library,
     Forge,
     Harbor,
-    Market
+    Market,
+    /// <summary>彩绘柱廊：挂画的场馆（M2，港前第 z = 2 行）。</summary>
+    PaintedStoa,
+    /// <summary>书库：放卷轴与回答的场馆（M2）。</summary>
+    Archive,
+    /// <summary>金库：放账册的场馆（M2）。</summary>
+    Vault,
+    /// <summary>橄榄林的第一块台地（M2）；林子从这里沿海岸向西一块一块长出去。</summary>
+    Grove
 }
 
 /// <summary>棋盘格上的一块地。广场在 (0, 0)；z 向南增大，z ≥ <see cref="PolisLayoutLedger.SeaStartsAtZ"/> 是海。</summary>
@@ -55,6 +63,13 @@ public static class PolisLayoutLedger
         [PolisPublicSite.Forge] = new(1, 0),
         [PolisPublicSite.Harbor] = new(0, 1),
         [PolisPublicSite.Market] = new(-1, 1),
+        // M2 的公共建筑在海边的第 z = 2 行：生长次序只给 z < SeaStartsAtZ 的地块，这一行永远不会被文件夹占用，
+        // 而第一圈里剩下的三块地在每座已有的城里都已经是文件夹的建筑——在那里加保留地块就得挪走它们。
+        // 港口正南的 (0, 2) 留作港池（栈桥与船）。
+        [PolisPublicSite.PaintedStoa] = new(1, 2),
+        [PolisPublicSite.Archive] = new(-1, 2),
+        [PolisPublicSite.Vault] = new(2, 2),
+        [PolisPublicSite.Grove] = new(-2, 2),
     };
 
     private static readonly HashSet<PolisPlot> Reserved = new(PublicSites.Values);

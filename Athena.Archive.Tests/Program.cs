@@ -236,13 +236,25 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis offline diff: renames are inferred from child names, items come back by path, rename or fingerprint, and the rest are lost but never deleted", TestPolisOfflineDiffAndRenameRecoveryAsync),
     ("polis attribution: only Athena's tool targets inside their time window are hers; batches group by building and flood into a full rescan", TestPolisChangeAttributionAsync),
     ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
-    ("polis events: derived from the bubbles' render model, the running turn only, each change once, deliveries when streaming stops", TestPolisEventProjectorAsync)
+    ("polis events: derived from the bubbles' render model, the running turn only, each change once, deliveries when streaming stops", TestPolisEventProjectorAsync),
+    ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
+    ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
+    ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
+    ("polis suggestions: three local suggestions from statistics only, no repeated kind, stable within a day", TestPolisSuggestionsAsync),
+    ("polis herald: cron results since the last visit, interrupted commissions and outside changes; the oracle's runs arrive as scrolls", TestPolisHeraldAsync),
+    ("polis islands: one island per workspace in creation order around the sanctuary; running islands light up; an island picks its most recent session", TestPolisIslandsAsync),
+    ("polis asset manifest: overrides are validated and anything unknown, unsafe or missing falls back to the procedural asset", TestPolisAssetManifestAsync),
+    ("polis oracle: the daily oracle is the workspace's task named for it, and create_task only ever reaches a person", TestPolisOracleGoesThroughApprovalAsync),
+    ("polis intents (M2): placements, suggestions, islands and residents are checked against what C# published", TestPolisAccumulationIntentsAsync)
 };
 
 var failures = new List<string>();
+// 只跑名字以它开头的用例（迭代用，不在正式运行里）：ATHENA_ARCHIVE_ONLY=polis
+var only = Environment.GetEnvironmentVariable("ATHENA_ARCHIVE_ONLY");
 
 foreach (var (name, run) in tests)
 {
+    if (!string.IsNullOrEmpty(only) && !name.StartsWith(only, StringComparison.Ordinal)) continue;
     try
     {
         await run();
@@ -11131,6 +11143,491 @@ static Task TestPolisEventProjectorAsync()
 
     var idle = new PolisEventProjector(root, null, keys);
     AssertEqual(0, idle.Baseline(messages, t0).Count, "切到一个空闲的会话：什么都不重演");
+    return Task.CompletedTask;
+}
+
+static async Task TestPolisCollectionAsync()
+{
+    // v2 存档（M1 写的）：没有摆放、没有居民、没有来访时间
+    var v2 = """
+        {
+          "schemaVersion": 2,
+          "ledger": { "schemaVersion": 1, "entries": [ { "key": "合同", "x": 1, "z": -1, "order": 0, "vacated": false } ] },
+          "items": [
+            { "id": "a", "kind": "scroll", "title": "《摘要》", "relativePath": "合同/摘要.md", "conversationId": "c1", "sourceMessageId": "m-a", "state": "pending", "createdAt": "2026-10-11T09:00:00+00:00" },
+            { "id": "b", "kind": "painting", "title": "《海边》", "relativePath": "照片/海边.png", "conversationId": "c1", "sourceMessageId": "m-b", "state": "accepted", "createdAt": "2026-10-11T09:01:00+00:00" },
+            { "id": "c", "kind": "ledger", "title": "《预算》", "relativePath": "账本/预算.xlsx", "conversationId": "c2", "sourceMessageId": "m-c", "state": "accepted", "createdAt": "2026-10-11T09:02:00+00:00" },
+            { "id": "d", "kind": "answer", "title": "怎么报销", "conversationId": "c2", "sourceMessageId": "m-d", "state": "returned", "createdAt": "2026-10-11T09:03:00+00:00" }
+          ]
+        }
+        """;
+    var migrated = PolisSaveFormat.Parse(v2);
+    AssertEqual(2, migrated.MigratedFromVersion, "认得出 v2（M1）的存档");
+    AssertEqual(3, PolisSaveDocument.CurrentSchemaVersion, "M2 的存档是 v3");
+    AssertTrue(migrated.Document.Items.All(i => i.Placement == null), "迁移过来的藏品都还收着、没摆出来");
+    AssertTrue(migrated.Document.MetResidents.Count == 0 && migrated.Document.LastVisitedAt == null, "v2 没有居民与来访时间");
+    var save = migrated.Document;
+
+    AssertEqual(PolisVenue.PaintedStoa, PolisCollection.DefaultVenue(PolisItemKind.Painting), "彩绘板默认挂进彩绘柱廊");
+    AssertEqual(PolisVenue.Vault, PolisCollection.DefaultVenue(PolisItemKind.Ledger), "账册默认收进金库");
+    AssertEqual(PolisVenue.Archive, PolisCollection.DefaultVenue(PolisItemKind.Scroll), "卷轴默认放进书库");
+    AssertEqual(PolisVenue.Archive, PolisCollection.DefaultVenue(PolisItemKind.Answer), "回答也是一卷，进书库");
+
+    AssertFalse(PolisCollection.Place(save, "a", PolisVenue.Archive, null).Ok, "待处理的成果要先收下才能摆");
+    AssertFalse(PolisCollection.Place(save, "d", PolisVenue.Archive, null).Ok, "退回的不算你的藏品，不能摆");
+    AssertFalse(PolisCollection.Place(save, "zzz", PolisVenue.Archive, null).Ok, "不认识的藏品不能摆");
+
+    var placed = PolisCollection.Place(save, "b", PolisVenue.PaintedStoa, null);
+    AssertTrue(placed.Ok && placed.Save.Items.Single(i => i.Id == "b").Placement == new PolisPlacement(PolisVenue.PaintedStoa, 0), "不指定位次时放进第一个空位");
+    save = placed.Save;
+    save = PolisCollection.Place(save, "c", PolisVenue.PaintedStoa, 3).Save;
+    AssertEqual(new PolisPlacement(PolisVenue.PaintedStoa, 3), save.Items.Single(i => i.Id == "c").Placement, "你也可以把账册挂进柱廊的第 4 个位次（摆在哪由你决定）");
+    AssertFalse(PolisCollection.Place(save, "c", PolisVenue.PaintedStoa, 0).Ok, "别的藏品占着的位次不能放");
+    AssertFalse(PolisCollection.Place(save, "c", PolisVenue.Vault, PolisCollection.SlotsPerVenue).Ok, "位次越界");
+    save = PolisCollection.Place(save, "c", PolisVenue.Vault, null).Save;
+    AssertEqual(new PolisPlacement(PolisVenue.Vault, 0), save.Items.Single(i => i.Id == "c").Placement, "挪到金库：放进那里第一个空位，原来的位次空出来");
+    CollectionAssert(Enumerable.Range(1, PolisCollection.SlotsPerVenue - 1).Select(s => s.ToString()),
+        PolisCollection.FreeSlots(save.Items, PolisVenue.PaintedStoa).Select(s => s.ToString()), "柱廊里只剩第 1 个位次有画");
+    var again = PolisCollection.Place(save, "c", PolisVenue.Vault, null);
+    AssertEqual(new PolisPlacement(PolisVenue.Vault, 0), again.Save.Items.Single(i => i.Id == "c").Placement, "已经摆在这处场馆的，再放进这里就是原地不动");
+
+    // 满了就拒绝，不自动扩建
+    var crowd = save with
+    {
+        Items = save.Items.Concat(Enumerable.Range(0, PolisCollection.SlotsPerVenue).Select(n => new PolisItem
+        {
+            Id = $"v{n}", Kind = PolisItemKind.Ledger, Title = $"《账{n}》", ConversationId = "c9", SourceMessageId = $"m-v{n}",
+            State = PolisItemState.Accepted, Placement = new PolisPlacement(PolisVenue.Archive, n)
+        })).ToList()
+    };
+    AssertEqual("venue is full", PolisCollection.Place(crowd, "b", PolisVenue.Archive, null).Rejection ?? "", "书库满了：先撤下一件");
+
+    var down = PolisCollection.Unplace(save, "b");
+    AssertTrue(down.Ok && down.Save.Items.Single(i => i.Id == "b").Placement == null && down.Save.Items.Single(i => i.Id == "b").State == PolisItemState.Accepted,
+        "撤下只是回到收着：记录和处理状态都不变");
+
+    // 写回再读：摆放、居民、来访时间都在
+    var visited = new DateTimeOffset(2026, 10, 11, 10, 0, 0, TimeSpan.Zero);
+    var full = save with { MetResidents = new[] { "scribe", "herald" }, LastVisitedAt = visited };
+    var roundTrip = PolisSaveFormat.Parse(PolisSaveFormat.Serialize(full));
+    AssertEqual(0, roundTrip.QuarantinedRecords, "写回的存档读得懂");
+    AssertEqual(new PolisPlacement(PolisVenue.PaintedStoa, 0), roundTrip.Document.Items.Single(i => i.Id == "b").Placement, "摆放写进存档");
+    AssertEqual(new PolisPlacement(PolisVenue.Vault, 0), roundTrip.Document.Items.Single(i => i.Id == "c").Placement, "挪过的位次写进存档");
+    CollectionAssert(new[] { "scribe", "herald" }, roundTrip.Document.MetResidents, "已结识的居民写进存档");
+    AssertEqual(visited, roundTrip.Document.LastVisitedAt ?? default, "上次离开的时刻写进存档");
+    AssertTrue(PolisSaveFormat.Serialize(full).Contains("\"venue\": \"paintedStoa\"", StringComparison.Ordinal), "场馆按名字存（camelCase），不按数字");
+
+    // 摆放坏了只回到未摆放，不连累藏品；两件抢一个位次时先来的留下
+    var broken = """
+        {
+          "schemaVersion": 3,
+          "items": [
+            { "id": "p", "kind": "painting", "title": "《甲》", "conversationId": "c1", "sourceMessageId": "m-p", "state": "accepted", "placement": { "venue": "throneRoom", "slot": 1 } },
+            { "id": "q", "kind": "painting", "title": "《乙》", "conversationId": "c1", "sourceMessageId": "m-q", "state": "accepted", "placement": { "venue": "paintedStoa", "slot": 2 } },
+            { "id": "r", "kind": "painting", "title": "《丙》", "conversationId": "c1", "sourceMessageId": "m-r", "state": "accepted", "placement": { "venue": "paintedStoa", "slot": 2 } },
+            { "id": "s", "kind": "painting", "title": "《丁》", "conversationId": "c1", "sourceMessageId": "m-s", "state": "accepted", "placement": { "venue": "vault", "slot": 99 } }
+          ],
+          "metResidents": ["scribe", 7, "scribe", "smith"],
+          "lastVisitedAt": "not a date"
+        }
+        """;
+    var repaired = PolisSaveFormat.Parse(broken);
+    CollectionAssert(new[] { "p", "q", "r", "s" }, repaired.Document.Items.Select(i => i.Id), "四件藏品都在：坏掉的只是摆放");
+    AssertEqual(0, repaired.QuarantinedRecords, "坏掉的摆放不让藏品进隔离区");
+    AssertEqual(3, repaired.RepairedPlacements, "修补了 3 处：不认识的场馆、抢位次的后一件、越界的位次");
+    AssertEqual(new PolisPlacement(PolisVenue.PaintedStoa, 2), repaired.Document.Items.Single(i => i.Id == "q").Placement, "抢位次时先来的留下");
+    AssertTrue(repaired.Document.Items.Where(i => i.Id != "q").All(i => i.Placement == null), "其余回到未摆放");
+    CollectionAssert(new[] { "scribe", "smith" }, repaired.Document.MetResidents, "居民名单里不是字符串的、重复的丢掉");
+    AssertTrue(repaired.Document.LastVisitedAt == null, "读不懂的来访时间当没有：传令官少报一次，不出错");
+
+    // 遗失：保留位次与名字，显示为空底座；只有你点"移除"才删记录；文件回来了自动复原
+    AssertEqual("only lost items can be removed", PolisCollection.Remove(save, "b").Rejection ?? "", "文件还在的藏品不能移除");
+    var files = new Dictionary<string, PolisFingerprint>(StringComparer.Ordinal) { ["账本/预算.xlsx"] = new PolisFingerprint(10, "aa") };
+    var (afterScan, scanReport) = PolisDiff.ReconcileItems(save.Items, files.Select(kv => new PolisScannedFile(kv.Key, kv.Value.Size, DateTimeOffset.UnixEpoch)).ToList(),
+        Array.Empty<(string, string)>(), path => files.TryGetValue(path, out var f) ? f : null);
+    var lostPainting = afterScan.Single(i => i.Id == "b");
+    AssertTrue(lostPainting.Lost, "照片被删了：彩绘板遗失");
+    AssertEqual(new PolisPlacement(PolisVenue.PaintedStoa, 0), lostPainting.Placement, "遗失的藏品保留位次：原地是一个空底座");
+    AssertEqual("《海边》", lostPainting.Title, "名字留着，名牌照写");
+    AssertTrue(scanReport.Any(r => r.ItemId == "b" && r.Kind == PolisItemRecoveryKind.Lost), "报告里写它找不到了");
+    AssertTrue(afterScan.Count == save.Items.Count, "遗失绝不自动删除");
+    var lostSave = save with { Items = afterScan };
+    var removed = PolisCollection.Remove(lostSave, "b");
+    AssertTrue(removed.Ok && removed.Save.Items.All(i => i.Id != "b") && removed.Save.Items.Count == save.Items.Count - 1, "你点了移除，这一条记录才删掉，别的不动");
+    files["照片/海边.png"] = new PolisFingerprint(20, "bb");
+    var (back, _) = PolisDiff.ReconcileItems(lostSave.Items, files.Select(kv => new PolisScannedFile(kv.Key, kv.Value.Size, DateTimeOffset.UnixEpoch)).ToList(),
+        Array.Empty<(string, string)>(), path => files.TryGetValue(path, out var f) ? f : null);
+    AssertTrue(!back.Single(i => i.Id == "b").Lost && back.Single(i => i.Id == "b").Placement == new PolisPlacement(PolisVenue.PaintedStoa, 0), "文件回来了：藏品复原，还在原来的位次上");
+
+    // 按内容指纹找回：挪了地方的账册换了路径，位次不变
+    var movedFiles = new Dictionary<string, PolisFingerprint>(StringComparer.Ordinal) { ["财务/预算-终版.xlsx"] = new PolisFingerprint(10, "aa") };
+    var withPrint = save with { Items = save.Items.Select(i => i.Id == "c" ? i with { Fingerprint = new PolisFingerprint(10, "aa") } : i).ToList() };
+    var (found, foundReport) = PolisDiff.ReconcileItems(withPrint.Items, movedFiles.Select(kv => new PolisScannedFile(kv.Key, kv.Value.Size, DateTimeOffset.UnixEpoch)).ToList(),
+        Array.Empty<(string, string)>(), path => movedFiles.TryGetValue(path, out var f) ? f : null);
+    var ledgerItem = found.Single(i => i.Id == "c");
+    AssertTrue(ledgerItem.RelativePath == "财务/预算-终版.xlsx" && !ledgerItem.Lost && ledgerItem.Placement == new PolisPlacement(PolisVenue.Vault, 0),
+        "路径找不到时按内容指纹找回：引用跟着改，摆放不变");
+    AssertTrue(foundReport.Any(r => r.ItemId == "c" && r.Kind == PolisItemRecoveryKind.Moved), "报告里写它换了地方");
+
+    // 存储层：v3 原样写盘、读回
+    using var harness = new TestHarness();
+    var store = new PolisSaveStore(harness.PathService, Log.Logger);
+    var slot = PolisSaveSlot.ForWorkspace(Guid.NewGuid().ToString("N"));
+    await store.SaveAsync(slot, full);
+    var loaded = await store.LoadAsync(slot);
+    AssertEqual(new PolisPlacement(PolisVenue.Vault, 0), loaded.Document.Items.Single(i => i.Id == "c").Placement, "存储层读回摆放");
+    AssertTrue(File.ReadAllText(store.GetSavePath(slot)).Contains("\"schemaVersion\": 3", StringComparison.Ordinal), "写盘的是 v3");
+}
+
+static Task TestPolisGroveDerivationAsync()
+{
+    var t0 = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+    PolisCommission C(string id, string? ws, int startDay, int turns, bool running = false, bool interrupted = false, string? cron = null)
+        => new(id, ws, "委托" + id, t0.AddDays(startDay), t0.AddDays(startDay + 1), turns, running, false, interrupted, cron);
+    var commissions = new[]
+    {
+        C("c3", "w1", 3, 1),
+        C("c1", "w1", 1, 12),
+        C("c2", "w1", 2, 0, running: true),          // 第一回合还没交付：还没有树
+        C("c4", "w2", 0, 5),                          // 别的城
+        C("c5", null, 0, 2),                          // 神殿
+        C("c6", "w1", 3, 6, interrupted: true),       // 与 c3 同一刻开始：按会话 Id
+        C("c7", "w1", 5, 3, running: true),           // 交付过一回合、正在做第二回合：树已经在了
+        C("c8", "w1", 6, 1, cron: "task-1"),
+    };
+    var grove = PolisGrove.Derive(commissions, "w1");
+    CollectionAssert(new[] { "c1", "c3", "c6", "c7", "c8" }, grove.Select(t => t.ConversationId), "每份完成过的委托一棵树，按开始的先后（同一刻按会话 Id）；还没交付过的没有树，别的城的不算");
+    CollectionAssert(new[] { "0", "1", "2", "3", "4" }, grove.Select(t => t.Index.ToString()), "位次就是种下的先后");
+    AssertEqual(PolisTreeStage.Ancient, grove[0].Stage, "12 回合：老树");
+    AssertEqual(PolisTreeStage.Sapling, grove[1].Stage, "1 回合：树苗");
+    AssertEqual(PolisTreeStage.Grown, grove[2].Stage, "6 回合：成树");
+    AssertEqual(PolisTreeStage.Young, grove[3].Stage, "3 回合：小树");
+    AssertTrue(grove[2].Interrupted && grove[4].Scheduled, "停在半路、定时任务开的委托都带着标记（树的样子由页面画）");
+    AssertEqual("委托c1", grove[0].Title, "树上挂着委托的标题");
+    CollectionAssert(new[] { "c5" }, PolisGrove.Derive(commissions, null).Select(t => t.ConversationId), "神殿的林子只有全局对话");
+    CollectionAssert(grove.Select(t => t.ConversationId), PolisGrove.Derive(commissions.Reverse(), "w1").Select(t => t.ConversationId), "与会话的排列次序无关");
+    var afterDelete = PolisGrove.Derive(commissions.Where(c => c.ConversationId != "c3"), "w1");
+    CollectionAssert(new[] { "c1", "c6", "c7", "c8" }, afterDelete.Select(t => t.ConversationId), "删掉一个会话，它的树跟着没了——林子不另存");
+    AssertEqual(PolisTreeStage.Young, PolisGrove.StageFor(4), "4 回合仍是小树");
+    AssertEqual(PolisTreeStage.Grown, PolisGrove.StageFor(9), "9 回合仍是成树");
+
+    // 完成了几回合：可见、已经停止流式输出的助手气泡；隐藏的工具调用载体不算
+    var messages = new List<ChatMessage>
+    {
+        new() { Role = "user", Content = "整理合同", Timestamp = new DateTime(2026, 10, 2, 8, 0, 0) },
+        new() { Role = "assistant", IsHidden = true, ToolCallsJson = "[{}]" },
+        new() { Role = "assistant", Content = "做好了" },
+        new() { Role = "user", Content = "再改改" },
+        new() { Role = "assistant", Content = "", IsStreaming = true },
+    };
+    AssertEqual(1, PolisCommissions.CompletedTurns(messages), "完成了 1 回合（第二回合还在流）");
+    AssertEqual(new DateTimeOffset(new DateTime(2026, 10, 2, 8, 0, 0)), PolisCommissions.StartedAt(messages, t0), "委托从第一条消息开始");
+    AssertEqual(t0, PolisCommissions.StartedAt(new List<ChatMessage>(), t0), "还没有消息的委托用回退时间");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisResidentDerivationAsync()
+{
+    // 每个登记过的工具都有一位居民（新工具忘了给居民会被抓住），反之亦然
+    var categories = PolisToolCategories.RegisteredTools.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var residents = PolisResidents.RegisteredTools.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    AssertTrue(categories.SetEquals(residents),
+        $"居民表与工具类别表必须登记同一批工具：只在类别表里 [{string.Join(", ", categories.Except(residents))}]，只在居民表里 [{string.Join(", ", residents.Except(categories))}]");
+    AssertEqual(PolisResidentKind.Accountant, PolisResidents.ForTool("edit_spreadsheet"), "表格归账房");
+    AssertEqual(PolisResidentKind.Scribe, PolisResidents.ForTool("create_document"), "生成文档归抄写员");
+    AssertEqual(PolisResidentKind.Herald, PolisResidents.ForTool("create_task"), "定时任务归传令官");
+    AssertEqual(PolisResidentKind.Artisan, PolisResidents.ForTool("some_future_tool"), "没登记的归工匠");
+    foreach (var kind in Enum.GetValues<PolisResidentKind>())
+    {
+        AssertTrue(PolisResidents.TryParse(PolisResidents.Slug(kind), out var parsed) && parsed == kind, $"{kind} 的名字能来回换算");
+    }
+    AssertFalse(PolisResidents.TryParse("Scribe", out _), "名字区分大小写（页面协议用 camelCase）");
+
+    ChatMessage Bubble(DateTime at, params (string Name, ToolCallStatus Status)[] tools)
+    {
+        var bubble = new ChatMessage { Role = "assistant", Timestamp = at };
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        foreach (var (name, status) in tools) group.ToolCalls.Add(new ToolCallEntry { ToolCallId = Guid.NewGuid().ToString("N"), Name = name, Status = status });
+        bubble.Segments.Add(group);
+        return bubble;
+    }
+    var d = new DateTime(2026, 10, 1, 9, 0, 0);
+    var conversations = new List<(string, IReadOnlyList<ChatMessage>)>
+    {
+        ("c2", new List<ChatMessage>
+        {
+            new() { Role = "user", Content = "查一下", Timestamp = d.AddDays(1) },
+            Bubble(d.AddDays(1), ("read_system_file", ToolCallStatus.Success), ("web_search", ToolCallStatus.Failed)),
+            Bubble(d.AddDays(2), ("execute_terminal_command", ToolCallStatus.Success), ("read_system_file", ToolCallStatus.Success)),
+        }),
+        ("c1", new List<ChatMessage>
+        {
+            Bubble(d, ("write_system_file", ToolCallStatus.Success)),
+            Bubble(d.AddDays(3), ("web_search", ToolCallStatus.Success), ("create_task", ToolCallStatus.Running)),
+        }),
+    };
+    var town = PolisResidents.Derive(conversations);
+    CollectionAssert(new[] { "Scribe", "Surveyor", "Smith", "Sailor" }, town.Select(r => r.Kind.ToString()),
+        "居民按第一次成功用到的先后出现；失败的、还在跑的调用不算用到");
+    AssertEqual("c1", town[0].ConversationId ?? "", "记下是在哪份委托里第一次用到的");
+    AssertEqual(2, town.Single(r => r.Kind == PolisResidentKind.Surveyor).Uses, "用过几次");
+    AssertEqual(new DateTimeOffset(d.AddDays(3)), town.Single(r => r.Kind == PolisResidentKind.Sailor).FirstUsedAt, "水手在第一次成功的网页搜索时到来（之前那次失败的不算）");
+
+    var withOracle = PolisResidents.Derive(conversations, new DateTimeOffset(d.AddDays(4)));
+    AssertEqual(PolisResidentKind.Priestess, withOracle[^1].Kind, "设立了神谕，女祭司随之出现");
+    var reordered = PolisResidents.Derive(conversations.AsEnumerable().Reverse());
+    CollectionAssert(town.Select(r => $"{r.Kind}@{r.FirstUsedAt:O}"), reordered.Select(r => $"{r.Kind}@{r.FirstUsedAt:O}"),
+        "从会话归档重新推导，结果与会话的先后无关——存档丢了也推得回来");
+    AssertEqual(0, PolisResidents.Derive(Array.Empty<(string, IReadOnlyList<ChatMessage>)>()).Count, "还没用过任何能力：城里没有居民");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisSuggestionsAsync()
+{
+    var now = new DateTimeOffset(2026, 10, 11, 9, 0, 0, TimeSpan.Zero);
+    PolisFixtureBuilding B(string key, PolisBuildingKind kind, int files, int ageDays, PolisBuildingState state)
+        => new(key, kind, files, files * 1000L, new Dictionary<string, int>(), now.AddDays(-ageDays), state, PolisBuildings.SizeClassFor(files), false, new PolisPlot(1, -1), 0);
+    var buildings = new[]
+    {
+        B("下载", PolisBuildingKind.House, 300, 1, PolisBuildingState.Bustling),
+        B("照片", PolisBuildingKind.SculptureGarden, 120, 30, PolisBuildingState.Quiet),
+        B("账本", PolisBuildingKind.Treasury, 6, 400, PolisBuildingState.Ruin),
+        B("合同", PolisBuildingKind.StoaLibrary, 8, 3, PolisBuildingState.Lived),
+    };
+    var interrupted = new PolisCommission("c1", "w1", "整理合同", now.AddDays(-2), now.AddDays(-1), 1, false, false, true, null);
+    var lost = new PolisItem { Id = "i1", Kind = PolisItemKind.Scroll, Title = "《会议纪要》", ConversationId = "c1", SourceMessageId = "m1", State = PolisItemState.Accepted, Lost = true };
+    var input = new PolisSuggestionInput("w1", buildings, new PolisFixtureAgora(3, 100, now, false), new[] { lost }, new[] { interrupted }, HasOracle: false, HasMemory: true, now);
+    var board = PolisSuggestions.Generate(input);
+    AssertEqual(PolisSuggestions.Count, board.Count, "委托板上挂三条");
+    CollectionAssert(new[] { "ResumeCommission", "FindLostItem", "SortMixedBuilding" }, board.Select(s => s.Kind.ToString()),
+        "停在半路的委托最要紧，其次是找不到的藏品，再次是最大的一堆杂物");
+    AssertEqual("整理合同", board[0].Subject ?? "", "主语是委托的标题");
+    AssertEqual("c1", board[0].ConversationId ?? "", "接着做那一条记着是哪份委托");
+    AssertEqual(300, board[2].Count, "带着数量：下载区堆了 300 件");
+    CollectionAssert(board.Select(s => s.Id), PolisSuggestions.Generate(input).Select(s => s.Id), "同一天、同样的统计给出同样的三条");
+    AssertTrue(board.Select(s => s.Kind).Distinct().Count() == board.Count, "同一种建议不出现两次");
+
+    // 没有要紧事时，按文件夹的样子出主意
+    var calm = PolisSuggestions.Generate(input with { Items = Array.Empty<PolisItem>(), Commissions = Array.Empty<PolisCommission>() });
+    CollectionAssert(new[] { "SortMixedBuilding", "ReviewStaleBuilding", "RecapBusyBuilding" }, calm.Select(s => s.Kind.ToString()),
+        "杂物最多的、一年多没动的、这两天改得最多的（图片目录排在它们后面）");
+    AssertEqual("账本", calm[1].Subject ?? "", "一年多没动的是账本");
+    AssertEqual(400, calm[1].AgeDays, "带着它多久没动了");
+    AssertEqual("下载", calm[2].Subject ?? "", "这两天改得最多的是下载");
+
+    var empty = PolisSuggestions.Generate(new PolisSuggestionInput("w2", Array.Empty<PolisFixtureBuilding>(), new PolisFixtureAgora(0, 0, null, false),
+        Array.Empty<PolisItem>(), Array.Empty<PolisCommission>(), false, false, now));
+    CollectionAssert(new[] { "PlanEmptyCity", "SetOracle", "RememberPreference" }, empty.Select(s => s.Kind.ToString()), "一座空城：先规划，再设神谕、让她记住你的偏好");
+    var sanctuary = PolisSuggestions.Generate(new PolisSuggestionInput(null, Array.Empty<PolisFixtureBuilding>(), null,
+        Array.Empty<PolisItem>(), Array.Empty<PolisCommission>(), true, true, now));
+    CollectionAssert(new[] { "AskAnything" }, sanctuary.Select(s => s.Kind.ToString()), "神殿没有文件夹：只有一条'问我任何事'，不编造统计");
+    var clutter = PolisSuggestions.Generate(new PolisSuggestionInput("w3", Array.Empty<PolisFixtureBuilding>(), new PolisFixtureAgora(48, 1, now, false),
+        Array.Empty<PolisItem>(), Array.Empty<PolisCommission>(), true, true, now));
+    AssertTrue(clutter.Any(s => s.Kind == PolisSuggestionKind.TidyAgora && s.Count == 48), "广场上散着 48 个文件：归类");
+
+    // 只读统计：输入里没有任何文件内容可读——建议的主语只来自文件夹名、委托标题与藏品名
+    var subjects = board.Concat(calm).Select(s => s.Subject).Where(s => s != null).ToHashSet();
+    AssertTrue(subjects.IsSubsetOf(buildings.Select(b => (string?)b.Key).Concat(new string?[] { "整理合同", "《会议纪要》" })), "建议的主语只有名字");
+
+    // 同分的候选按日期轮换：两天的板子可以不同，一天之内不变
+    var ties = Enumerable.Range(0, 6).Select(n => B($"文集{n}", PolisBuildingKind.StoaLibrary, 4, 3, PolisBuildingState.Lived)).ToArray();
+    var tieInput = new PolisSuggestionInput("w4", ties, null, Array.Empty<PolisItem>(), Array.Empty<PolisCommission>(), true, true, now);
+    var days = Enumerable.Range(0, 10).Select(k => PolisSuggestions.Generate(tieInput with { Now = now.AddDays(k) })[0].Subject).ToHashSet();
+    AssertTrue(days.Count > 1, "同分的候选每天轮换，板子不是一成不变的");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisHeraldAsync()
+{
+    var lastVisit = new DateTimeOffset(2026, 10, 10, 18, 0, 0, TimeSpan.Zero);
+    CronTaskRunRecord Run(string id, CronRunState state, double hoursAfterVisit, string? conversation = null, string? error = null)
+        => new() { RunId = id, State = state, CompletedAt = lastVisit.AddHours(hoursAfterVisit), ConversationId = conversation, Error = error };
+    var oracle = new CronTask { Id = "t-oracle", Name = "每日神谕", WorkspaceId = "w1", CronExpression = "0 8 * * *" };
+    oracle.RecentRuns.Add(Run("r3", CronRunState.Succeeded, 14, "conv-oracle"));
+    oracle.RecentRuns.Add(Run("r0", CronRunState.Succeeded, -10, "conv-old"));        // 上次来之前的：不报
+    var weekly = new CronTask { Id = "t-weekly", Name = "周报", WorkspaceId = "w1" };
+    weekly.RecentRuns.Add(Run("r2", CronRunState.Failed, 2, "conv-weekly", "API 错误: 401 Unauthorized\nat line 2"));
+    weekly.RecentRuns.Add(new CronTaskRunRecord { RunId = "r4", State = CronRunState.Running, StartedAt = lastVisit.AddHours(20) });   // 还在跑：不是结果
+    var skipped = new CronTask { Id = "t-skip", Name = "夜间备份", WorkspaceId = "w1" };
+    skipped.RecentRuns.Add(new CronTaskRunRecord { RunId = "r1", State = CronRunState.Skipped, ScheduledFor = lastVisit.AddHours(1) });
+    var elsewhere = new CronTask { Id = "t-other", Name = "别处", WorkspaceId = "w2" };
+    elsewhere.RecentRuns.Add(Run("r9", CronRunState.Succeeded, 3, "conv-x"));
+    var tasks = new[] { oracle, weekly, skipped, elsewhere };
+    var commissions = new[]
+    {
+        new PolisCommission("c-int", "w1", "整理合同", lastVisit.AddDays(-1), lastVisit, 1, false, false, true, null),
+        new PolisCommission("c-run", "w1", "正在做", lastVisit, lastVisit, 0, true, false, true, null),
+    };
+    var report = new PolisAwayReport(
+        new[] { new PolisBuildingChange("财务", PolisBuildingChangeKind.Renamed, 3, 3, "账本"), new PolisBuildingChange("照片", PolisBuildingChangeKind.Grew, 2, 5) },
+        new[] { new PolisItemRecovery("i1", PolisItemRecoveryKind.Lost, "合同/纪要.docx", null), new PolisItemRecovery("i2", PolisItemRecoveryKind.Unchanged, "a", "a") });
+    var lines = PolisHerald.Compose(tasks, "w1", lastVisit, commissions, report, id => id == "i1" ? "《会议纪要》" : null, t => PolisOracle.IsOracle(t, "w1"));
+    CollectionAssert(new[] { "OracleScroll", "CronFailed", "CronSkipped", "CommissionInterrupted", "BuildingRenamed", "BuildingGrew", "ItemLost" },
+        lines.Select(l => l.Kind.ToString()), "先报定时任务（新的在前），再报停在半路的委托，然后是建筑与藏品；没变的藏品、还在跑的运行不报");
+    AssertEqual("conv-oracle", lines[0].ConversationId ?? "", "神谕的那一卷可以点：选中那次会话");
+    AssertEqual("API 错误: 401 Unauthorized", lines[1].Detail ?? "", "失败带着原因（第一行）");
+    AssertEqual("夜间备份", lines[2].Subject ?? "", "错过的计划时刻也报（应用关着时按 Skip 记的那一条）");
+    AssertEqual("c-int", lines[3].ConversationId ?? "", "被打断的委托可以点；正在跑的那份不算被打断");
+    AssertEqual("账本", lines[4].Detail ?? "", "改名带着旧名字");
+    AssertEqual(3, lines[5].Count, "多了 3 个文件");
+    AssertEqual("《会议纪要》", lines[6].Subject ?? "", "遗失的藏品用它的名字");
+    AssertFalse(lines.Any(l => l.ConversationId == "conv-x" || l.ConversationId == "conv-old"), "别的城、上次来之前的结果都不报");
+
+    var firstVisit = PolisHerald.Compose(tasks, "w1", null, commissions, null, _ => null, _ => false);
+    CollectionAssert(new[] { "CommissionInterrupted" }, firstVisit.Select(l => l.Kind.ToString()), "第一次来没有'离开期间'：不报定时任务");
+    var many = new CronTask { Id = "t-many", Name = "每分钟", WorkspaceId = "w1" };
+    for (var i = 0; i < 40; i++) many.RecentRuns.Add(Run($"m{i}", CronRunState.Succeeded, 1 + i * 0.1, $"conv-m{i}"));
+    AssertEqual(PolisHerald.MaxCronLines, PolisHerald.Compose(new[] { many }, "w1", lastVisit, Array.Empty<PolisCommission>(), null, _ => null, _ => false).Count,
+        "几个月没回来：定时任务最多报几条，不刷屏");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisIslandsAsync()
+{
+    var t0 = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero);
+    var workspaces = new[]
+    {
+        new PolisIslandSource("w-c", "第三座", t0.AddDays(5), false),
+        new PolisIslandSource("w-a", "第一座", t0, false),
+        new PolisIslandSource("w-b", "第二座", t0.AddDays(2), true),
+    };
+    var commissions = new[]
+    {
+        new PolisCommission("c1", "w-a", "旧的", t0, t0.AddDays(1), 1, false, false, false, null),
+        new PolisCommission("c2", "w-a", "新的", t0, t0.AddDays(3), 1, false, false, false, null),
+        new PolisCommission("c3", "w-c", "在跑", t0, t0.AddDays(2), 0, true, true, false, null),
+        new PolisCommission("g1", null, "全局", t0, t0.AddDays(9), 1, false, false, false, null),
+    };
+    var islands = PolisIslands.Build(workspaces, commissions, "w-a");
+    CollectionAssert(new[] { "sanctuary", "w-a", "w-b", "w-c" }, islands.Select(i => i.Id), "神殿居中（位次 0），工作区按创建时间排");
+    CollectionAssert(new[] { "0", "1", "2", "3" }, islands.Select(i => i.Order.ToString()), "位次连续");
+    AssertTrue(islands.Single(i => i.Id == "w-c").Running && !islands.Single(i => i.Id == "w-a").Running, "有会话在跑的岛亮灯，别的不亮");
+    AssertTrue(islands.Single(i => i.Id == "w-c").WaitingForApproval, "有一步在等你点头：海图上要标出来");
+    AssertTrue(islands.Single(i => i.Id == "w-a").Current && islands.Count(i => i.Current) == 1, "你所在的那座岛只有一座");
+    AssertTrue(islands.Single(i => i.Id == "w-b").FolderMissing, "文件夹不见了的城在海图上也罩着雾");
+    AssertEqual(2, islands.Single(i => i.Id == "w-a").Commissions, "岛上有几份委托");
+    AssertTrue(PolisIslands.Build(workspaces, commissions, null).Single(i => i.IsSanctuary).Current, "当前在神殿");
+    CollectionAssert(islands.Select(i => i.Id), PolisIslands.Build(workspaces.Reverse().ToArray(), commissions, "w-a").Select(i => i.Id),
+        "位次只看创建时间，与列表次序无关");
+
+    AssertEqual("c2", PolisIslands.MostRecentConversation("w-a", commissions) ?? "", "选岛 = 选中这个工作区最近更新的会话");
+    AssertEqual("g1", PolisIslands.MostRecentConversation(PolisIslands.SanctuaryId, commissions) ?? "", "选神殿 = 最近的全局对话");
+    AssertTrue(PolisIslands.MostRecentConversation("w-b", commissions) == null, "岛上还没有委托：返回空，由调用方新建一份");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisAssetManifestAsync()
+{
+    var present = new HashSet<string>(StringComparer.Ordinal) { "house.glb", "athena.gltf", "stoa.glb" };
+    var json = """
+        {
+          "schema": 1,
+          "assets": {
+            "building.house": { "model": "house.glb", "scale": 1.5, "rotateY": 90, "offset": [0, 0.1, 0] },
+            "figure.athena": { "model": "athena.gltf", "animations": { "walk": "Walk", "idle": "Idle" } },
+            "building.stoaLibrary": { "model": "missing.glb" },
+            "building.workshop": { "model": "../secrets/key.glb" },
+            "prop.amphora": { "model": "stoa.glb", "scale": 0 },
+            "plant.olive": { "model": "stoa.glb", "offset": [0, 900, 0] },
+            "figure.player": { "model": "stoa.glb", "animations": { "dance": "Dance" } },
+            "Building.House": { "model": "house.glb" },
+            "prop.krater": { "model": "house.fbx" },
+            "prop.lamp": "house.glb"
+          }
+        }
+        """;
+    var result = PolisAssetManifest.Parse(json, present.Contains);
+    CollectionAssert(new[] { "building.house", "figure.athena" }, result.Assets.Keys.OrderBy(k => k, StringComparer.Ordinal), "只有写法正确、文件在资产目录里的覆盖留下");
+    var house = result.Assets["building.house"];
+    AssertTrue(house.Model == "house.glb" && house.Scale == 1.5 && house.RotateY == 90 && house.Offset[1] == 0.1, "缩放、朝向、偏移原样读出");
+    var athena = result.Assets["figure.athena"];
+    AssertTrue(athena.Scale == 1 && athena.RotateY == 0 && athena.Offset.All(v => v == 0), "没写的数字取缺省值");
+    AssertEqual("Walk", athena.Animations["walk"], "动作映射到模型里的动画片段");
+    AssertFalse(athena.Animations.ContainsKey("work"), "没映射的动作留给页面退回 idle / 静止");
+    AssertEqual(8, result.Rejections.Count, "8 条被拒，各有原因");
+    AssertTrue(result.Rejections.Any(r => r.Contains("missing.glb", StringComparison.Ordinal) && r.Contains("procedural", StringComparison.Ordinal)),
+        "文件不在资产目录里：拒绝，程序化的那件留着（缺省回退）");
+    AssertTrue(result.Rejections.Any(r => r.StartsWith("building.workshop", StringComparison.Ordinal)), "带路径的模型名一律拒绝：页面只能按一段文件名去取");
+    AssertTrue(result.Rejections.Any(r => r.StartsWith("prop.krater", StringComparison.Ordinal)), "只认 .glb / .gltf");
+    AssertTrue(result.Rejections.Any(r => r.Contains("Building.House", StringComparison.Ordinal)), "资产 Id 的写法要对（小写的种类前缀）");
+
+    AssertEqual(0, PolisAssetManifest.Parse(null, present.Contains).Assets.Count, "没有清单：全部是程序化的");
+    AssertEqual(0, PolisAssetManifest.Parse("{\"schema\": 2, \"assets\": {}}", present.Contains).Assets.Count, "版本不认识：整份不用");
+    AssertTrue(PolisAssetManifest.Parse("{not json", present.Contains).Rejections.Single().StartsWith("manifest is not JSON", StringComparison.Ordinal), "坏 JSON：一条原因，整份回退");
+    AssertTrue(PolisAssetManifest.Parse(new string(' ', PolisAssetManifest.MaxManifestBytes + 1) + "{}", present.Contains).Rejections.Count == 1, "太大的清单不读");
+
+    AssertTrue(PolisAssetManifest.IsServableFileName("house.glb") && PolisAssetManifest.IsServableFileName("house_0.bin") && PolisAssetManifest.IsServableFileName("bark.png"),
+        "模型、缓冲、贴图可以被页面取");
+    foreach (var bad in new[] { "../x.glb", "a/b.glb", ".hidden.glb", "x.exe", "", "x.GLB\u0000", "manifest.json" })
+        AssertFalse(PolisAssetManifest.IsServableFileName(bad), $"'{bad}' 不能被页面取");
+    return Task.CompletedTask;
+}
+
+static async Task TestPolisOracleGoesThroughApprovalAsync()
+{
+    var oracle = new CronTask { Id = "t1", Name = "每日神谕", WorkspaceId = "w1", CreatedAt = DateTimeOffset.UnixEpoch.AddDays(2) };
+    var older = new CronTask { Id = "t0", Name = "Daily Oracle", WorkspaceId = "w1", IsEnabled = false, CreatedAt = DateTimeOffset.UnixEpoch };
+    var otherCity = new CronTask { Id = "t2", Name = "每日神谕", WorkspaceId = "w2" };
+    var notOracle = new CronTask { Id = "t3", Name = "周报", WorkspaceId = "w1" };
+    var tasks = new[] { older, notOracle, otherCity, oracle };
+    AssertEqual("t1", PolisOracle.Find(tasks, "w1")?.Id ?? "", "这座城的神谕：同一个工作区、名字带神谕；启用的优先");
+    AssertEqual("t2", PolisOracle.Find(tasks, "w2")?.Id ?? "", "每座城有自己的神谕");
+    AssertTrue(PolisOracle.Find(tasks, null) == null, "神殿还没有神谕");
+    AssertTrue(PolisOracle.IsOracleName("Daily Oracle") && PolisOracle.IsOracleName("每日神谕") && !PolisOracle.IsOracleName("周报"), "认名字：神谕 / Oracle");
+    oracle.RecentRuns.Add(new CronTaskRunRecord { RunId = "a", State = CronRunState.Failed, CompletedAt = DateTimeOffset.UnixEpoch.AddDays(5), ConversationId = "x" });
+    oracle.RecentRuns.Add(new CronTaskRunRecord { RunId = "b", State = CronRunState.Succeeded, CompletedAt = DateTimeOffset.UnixEpoch.AddDays(4), ConversationId = "conv-b" });
+    AssertEqual("conv-b", PolisOracle.LatestScroll(oracle)?.ConversationId ?? "", "最近一卷是最近一次成功的运行");
+
+    // 仪式就是那次批准（设计稿 7.3）：雅典娜调用 create_task 时，平衡、严格、自动审批三种模式下都弹给人，自动审批的模型碰不到它
+    var args = "{\"name\":\"每日神谕\",\"instruction\":\"回顾这个工作区最近一天的变化，写一卷晨报\",\"cronExpression\":\"" + PolisOracle.DefaultCronExpression + "\",\"workspaceId\":\"w1\"}";
+    foreach (var mode in new[] { ToolApprovalMode.Balanced, ToolApprovalMode.Strict, ToolApprovalMode.Automatic })
+    {
+        var evaluator = new CapturingApprovalEvaluator();
+        var prompter = new FakeApprovalPrompter(ToolApprovalScope.AllowOnce);
+        var service = new ToolApprovalService(new TestConfigService(new AppConfig { ToolApprovalMode = mode }), prompter, Log.Logger, aiEvaluator: evaluator);
+        using var scope = ToolApprovalContext.EnterInteractive("请在这个工作区设立「每日神谕」");
+        var decision = await service.EvaluateAsync("create_task", args, CancellationToken.None);
+        AssertTrue(prompter.CallCount == 1 && evaluator.Request == null && decision.Approved,
+            $"{mode}：神谕的 create_task 由你在原生审批窗口里批准（prompted {prompter.CallCount}, model asked {evaluator.Request != null}）");
+    }
+    var denyPrompter = new FakeApprovalPrompter(ToolApprovalScope.Deny);
+    var denying = new ToolApprovalService(new TestConfigService(new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic }), denyPrompter, Log.Logger, aiEvaluator: new CapturingApprovalEvaluator());
+    using (ToolApprovalContext.EnterInteractive("请设立每日神谕"))
+    {
+        AssertFalse((await denying.EvaluateAsync("create_task", args, CancellationToken.None)).Approved, "你不点头，神谕就不设立");
+    }
+    AssertTrue(ToolRiskClassifier.IsNeverUnattended("create_task"), "create_task 是只能由人批准的那一类");
+}
+
+static Task TestPolisAccumulationIntentsAsync()
+{
+    var context = new PolisIntentContext(null, new HashSet<string>(StringComparer.Ordinal) { "c1" }, new HashSet<string>(StringComparer.Ordinal) { "item-1" })
+    {
+        KnownSuggestionIds = new HashSet<string>(StringComparer.Ordinal) { "tidyAgora:" },
+        KnownIslandIds = new HashSet<string>(StringComparer.Ordinal) { "sanctuary", "w1" },
+        KnownResidentIds = new HashSet<string>(StringComparer.Ordinal) { "scribe" },
+    };
+    PolisIntentResult V(string json) => PolisIntents.Validate(json, context);
+
+    var place = V("""{"v":1,"type":"place-item","itemId":"item-1","venue":"vault","slot":4}""");
+    AssertTrue(place.Accepted && place.Intent!.Venue == PolisVenue.Vault && place.Intent.Slot == 4, "摆放：藏品、场馆、位次");
+    AssertTrue(V("""{"v":1,"type":"place-item","itemId":"item-1","venue":"paintedStoa"}""").Intent?.Slot == null, "不给位次 = 第一个空位");
+    AssertFalse(V("""{"v":1,"type":"place-item","itemId":"item-9","venue":"vault"}""").Accepted, "不认识的藏品");
+    AssertFalse(V("""{"v":1,"type":"place-item","itemId":"item-1","venue":"bedroom"}""").Accepted, "不认识的场馆");
+    AssertFalse(V("""{"v":1,"type":"place-item","itemId":"item-1","venue":"vault","slot":12}""").Accepted, "位次越界");
+    AssertFalse(V("""{"v":1,"type":"place-item","itemId":"item-1","venue":"vault","slot":"3"}""").Accepted, "位次必须是数字");
+    AssertTrue(V("""{"v":1,"type":"unplace-item","itemId":"item-1"}""").Accepted && V("""{"v":1,"type":"remove-item","itemId":"item-1"}""").Accepted, "撤下、移除带藏品 Id");
+    AssertFalse(V("""{"v":1,"type":"remove-item","itemId":"nope"}""").Accepted, "移除不认识的藏品");
+    AssertTrue(V("""{"v":1,"type":"take-suggestion","suggestionId":"tidyAgora:"}""").Accepted, "采纳 C# 挂上的建议");
+    AssertFalse(V("""{"v":1,"type":"take-suggestion","suggestionId":"rm -rf /"}""").Accepted, "页面不能自己写一条建议");
+    AssertTrue(V("""{"v":1,"type":"request-oracle"}""").Accepted, "请雅典娜设立神谕：没有参数（请求的文字由 C# 生成）");
+    AssertTrue(V("""{"v":1,"type":"select-island","islandId":"w1"}""").Intent?.IslandId == "w1", "选岛");
+    AssertFalse(V("""{"v":1,"type":"select-island","islandId":"w9"}""").Accepted, "不认识的岛");
+    AssertTrue(V("""{"v":1,"type":"meet-resident","residentId":"scribe"}""").Intent?.Resident == PolisResidentKind.Scribe, "结识一位已经出现的居民");
+    AssertFalse(V("""{"v":1,"type":"try-resident","residentId":"smith"}""").Accepted, "还没出现的居民不能请");
+    AssertFalse(V("""{"v":1,"type":"approve","itemId":"item-1"}""").Accepted, "网页仍然没有'批准'");
+    foreach (var name in new[] { "place-item", "unplace-item", "remove-item", "take-suggestion", "request-oracle", "select-island", "meet-resident", "try-resident" })
+        AssertTrue(PolisIntents.KnownTypeNames.Contains(name), $"{name} 在封闭集合里");
     return Task.CompletedTask;
 }
 
