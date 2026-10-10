@@ -24,6 +24,7 @@ using Athena.UI.Services;
 using Athena.UI.Services.Cron;
 using Athena.UI.Services.Decisions;
 using Athena.UI.Services.Functions;
+using Athena.UI.Services.GameMode;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.OrcaRouter;
@@ -221,7 +222,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("the loopback listener keeps waiting through stray and mismatched requests", TestOrcaRouterLoopbackListenerAsync),
     ("OrcaRouter connect carries the referral only in the authorization url and never keeps an empty key", TestOrcaRouterConnectFlowAsync),
     ("doc citations: only Docs/ paths and the doc map count, and existence is case-exact", TestDocCitationRuleAsync),
-    ("doc citations: every path CLAUDE.md, AGENTS.md and the READMEs point at exists", TestDocCitationsResolveAsync)
+    ("doc citations: every path CLAUDE.md, AGENTS.md and the READMEs point at exists", TestDocCitationsResolveAsync),
+    ("polis scan: breadth-first, skips generated and hidden entries, and marks what the budget cut as not fully surveyed", TestPolisScanAsync),
+    ("polis buildings: the dominant kind picks the building, mixed or empty is a house, size is logarithmic and state follows the last change", TestPolisBuildingsAsync),
+    ("polis layout ledger: existing plots never move, a deleted folder leaves its plot, newcomers take the next edge plot, overflow goes to the market", TestPolisLayoutLedgerAsync),
+    ("polis replay: real timestamps become think/tool/deliver events with workspace-relative places and no message text", TestPolisReplayConverterAsync),
+    ("polis tool categories: every tool FunctionRegistry registers has an explicit action category", TestPolisToolCategoriesCoverRegistryAsync),
+    ("polis fixture: the committed synthetic fixture is exactly what the pipeline generates", TestPolisSyntheticFixtureCommittedAsync)
 };
 
 var failures = new List<string>();
@@ -10269,6 +10276,372 @@ static async Task WaitForAsync(Func<bool> condition, string message)
     }
     throw new InvalidOperationException(message);
 }
+// —— 游戏模式 M0：城邦扫描、建筑汇总、布局账本、回放转换（Tools/GameMode/Polis） ——
+
+static Task TestPolisScanAsync()
+{
+    AssertTrue(GeneratedDirectories.IsGenerated("node_modules") && GeneratedDirectories.IsGenerated("BIN") && !GeneratedDirectories.IsGenerated("src"),
+        "构建/依赖目录名单大小写不敏感，且只认名单里的名字");
+
+    var expectedTop = new[] { "下载", "合同", "旧项目", "杂物", "照片", "空文件夹", "网站", "账本" }.OrderBy(n => n, StringComparer.Ordinal).ToArray();
+    var full = PolisScanner.Scan(PolisSyntheticFixture.Enumerator());
+    CollectionAssert(expectedTop, full.TopLevelDirectories.Select(d => d.Name), "顶层文件夹按名字的序数顺序列出，node_modules 与 .git 不在其中");
+    AssertEqual(2, full.SkippedDirectories, "跳过的目录：node_modules（构建/依赖名单）和 .git（隐藏）");
+    AssertEqual(34, full.Files.Count, "合成树里可见的文件一共 34 个");
+    AssertFalse(full.Files.Any(f => f.RelativePath.Contains(".DS_Store", StringComparison.Ordinal)), "隐藏文件不进城邦");
+    AssertFalse(full.Files.Any(f => f.RelativePath.StartsWith("node_modules/", StringComparison.Ordinal)), "跳过的目录根本不列");
+    AssertTrue(full.Files.Any(f => f.RelativePath == "合同/附件/附件一.pdf"), "子目录里的文件带着 '/' 分隔的相对路径");
+    AssertFalse(full.Truncated, "预算足够时没有未完全测绘的部分");
+
+    // 预算砍掉的是最深处：根目录的子项都在预算内时，每座建筑都出现，只是部分"未完全测绘"
+    var budget = PolisScanner.Scan(PolisSyntheticFixture.Enumerator(), new PolisScanOptions { MaxEntries = 12 });
+    CollectionAssert(expectedTop, budget.TopLevelDirectories.Select(d => d.Name), "预算用完也要列出每座建筑");
+    AssertEqual(12, budget.VisitedEntries, "访问条目数正好停在预算上");
+    AssertTrue(budget.Truncated && budget.IncompleteTopLevel.Count > 0, "预算砍掉的建筑标成未完全测绘");
+    AssertTrue(budget.IncompleteTopLevel.All(k => expectedTop.Contains(k)), "未完全测绘只记顶层文件夹名");
+    AssertFalse(budget.RootIncomplete, "根目录的 10 个子项都在预算内，广场是完整的");
+
+    // 预算比根目录的子项还少：建筑照样全部列出，广场（根目录下的文件）没扫完
+    var tiny = PolisScanner.Scan(PolisSyntheticFixture.Enumerator(), new PolisScanOptions { MaxEntries = 3 });
+    CollectionAssert(expectedTop, tiny.TopLevelDirectories.Select(d => d.Name), "顶层文件夹只是名字，超出预算也要列出");
+    AssertTrue(tiny.RootIncomplete, "根目录下有文件没扫到时，广场未完全测绘");
+
+    var shallow = PolisScanner.Scan(PolisSyntheticFixture.Enumerator(), new PolisScanOptions { MaxDepth = 1 });
+    AssertEqual(expectedTop.Length, shallow.IncompleteTopLevel.Count, "深度 1 只列根目录：每个文件夹都没进去");
+    AssertTrue(shallow.Files.All(f => !f.RelativePath.Contains('/', StringComparison.Ordinal)), "深度 1 不会有子目录里的文件");
+
+    var tree = PolisSyntheticFixture.Tree();
+    var broken = PolisScanner.Scan(dir => dir == "照片" ? throw new UnauthorizedAccessException("denied") : tree[dir]);
+    AssertTrue(broken.UnreadableDirectories.SequenceEqual(new[] { "照片" }), "读不了的目录被记下，而不是中断整次扫描");
+    AssertTrue(broken.IncompleteTopLevel.SetEquals(new[] { "照片" }), "读不了的目录所属的建筑未完全测绘，其余不受影响");
+    AssertTrue(broken.Files.Any(f => f.RelativePath.StartsWith("合同/", StringComparison.Ordinal)), "别的建筑照常扫描");
+
+    using (var cancelled = new CancellationTokenSource())
+    {
+        cancelled.Cancel();
+        var threw = false;
+        try { PolisScanner.Scan(PolisSyntheticFixture.Enumerator(), cancellationToken: cancelled.Token); }
+        catch (OperationCanceledException) { threw = true; }
+        AssertTrue(threw, "取消必须抛出来，不能当成读不了的目录吞掉");
+    }
+
+    var rejected = 0;
+    foreach (var bad in new[] { new PolisScanOptions { MaxEntries = 0 }, new PolisScanOptions { MaxDepth = 0 } })
+    {
+        try { PolisScanner.Scan(PolisSyntheticFixture.Enumerator(), bad); }
+        catch (ArgumentOutOfRangeException) { rejected++; }
+    }
+    AssertEqual(2, rejected, "预算或深度小于 1 的参数直接报错，不静默地扫出一座空城");
+
+    // 真实文件系统适配器：软链接目录不进入（顺着它可能走出工作区或成环），构建目录跳过
+    var root = Path.Combine(Path.GetTempPath(), "polis-scan-" + Guid.NewGuid().ToString("N"));
+    var outside = Path.Combine(Path.GetTempPath(), "polis-outside-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(Path.Combine(root, "文档"));
+        Directory.CreateDirectory(Path.Combine(root, "node_modules", "pkg"));
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(root, "文档", "a.md"), "hello");
+        File.WriteAllText(Path.Combine(root, "node_modules", "pkg", "x.js"), "x");
+        File.WriteAllText(Path.Combine(outside, "secret.txt"), "s");
+        var linked = true;
+        try { Directory.CreateSymbolicLink(Path.Combine(root, "链接"), outside); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException) { linked = false; }
+
+        var real = PolisScanner.Scan(PolisFileSystem.Enumerator(root));
+        AssertTrue(real.Files.Any(f => f.RelativePath == "文档/a.md" && f.Size == 5), "真实目录里的文件带着大小被扫到");
+        AssertFalse(real.Files.Any(f => f.RelativePath.StartsWith("node_modules", StringComparison.Ordinal)), "真实扫描同样跳过构建目录");
+        if (linked)
+        {
+            AssertFalse(real.Files.Any(f => f.RelativePath.Contains("secret.txt", StringComparison.Ordinal)), "软链接目录不进入：不能经它扫到工作区外面");
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(root, recursive: true); } catch (IOException) { /* 临时目录清理失败不影响断言 */ }
+        try { Directory.Delete(outside, recursive: true); } catch (IOException) { /* 同上 */ }
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestPolisBuildingsAsync()
+{
+    AssertEqual(PolisFileKind.Document, PolisBuildings.ClassifyFile("合同.DOCX"), "扩展名大小写不敏感");
+    AssertEqual(PolisFileKind.Image, PolisBuildings.ClassifyFile("a.PNG"), "图片");
+    AssertEqual(PolisFileKind.Sheet, PolisBuildings.ClassifyFile("流水.csv"), "表格");
+    AssertEqual(PolisFileKind.Code, PolisBuildings.ClassifyFile("Program.cs"), "代码");
+    AssertEqual(PolisFileKind.Archive, PolisBuildings.ClassifyFile("资料.tar.gz"), "压缩包看最后一个扩展名");
+    AssertEqual(PolisFileKind.Other, PolisBuildings.ClassifyFile("歌.mp3"), "不认识的归其他");
+    AssertEqual(PolisFileKind.Other, PolisBuildings.ClassifyFile("Makefile"), "没有扩展名归其他");
+
+    static Dictionary<PolisFileKind, int> Counts(params (PolisFileKind Kind, int N)[] items) => items.ToDictionary(i => i.Kind, i => i.N);
+    AssertEqual(PolisBuildingKind.StoaLibrary, PolisBuildings.ChooseKind(Counts((PolisFileKind.Document, 5), (PolisFileKind.Code, 5))), "并列时按固定次序：文档先于代码");
+    AssertEqual(PolisBuildingKind.StoaLibrary, PolisBuildings.ChooseKind(Counts((PolisFileKind.Code, 5), (PolisFileKind.Document, 5))), "并列的结果与字典顺序无关");
+    AssertEqual(PolisBuildingKind.House, PolisBuildings.ChooseKind(Counts((PolisFileKind.Document, 2), (PolisFileKind.Image, 2), (PolisFileKind.Other, 1))), "没有哪一类过半：民居");
+    AssertEqual(PolisBuildingKind.SculptureGarden, PolisBuildings.ChooseKind(Counts((PolisFileKind.Image, 3), (PolisFileKind.Other, 3))), "恰好一半也算「主要」");
+    AssertEqual(PolisBuildingKind.House, PolisBuildings.ChooseKind(Counts((PolisFileKind.Other, 3))), "只有其他文件：民居");
+    AssertEqual(PolisBuildingKind.House, PolisBuildings.ChooseKind(new Dictionary<PolisFileKind, int>()), "空文件夹：民居");
+    AssertEqual(PolisBuildingKind.Treasury, PolisBuildings.ChooseKind(Counts((PolisFileKind.Sheet, 1))), "表格：金库");
+    AssertEqual(PolisBuildingKind.Warehouse, PolisBuildings.ChooseKind(Counts((PolisFileKind.Archive, 2), (PolisFileKind.Document, 1))), "压缩包：仓库");
+
+    foreach (var (files, level) in new[] { (0, 1), (9, 1), (10, 2), (99, 2), (100, 3), (999, 3), (1000, 4), (5_000_000, 4) })
+    {
+        AssertEqual(level, PolisBuildings.SizeClassFor(files), $"{files} 个文件的体量等级取对数");
+    }
+    var negative = false;
+    try { PolisBuildings.SizeClassFor(-1); } catch (ArgumentOutOfRangeException) { negative = true; }
+    AssertTrue(negative, "负的文件数直接报错");
+
+    var now = PolisSyntheticFixture.Now;
+    AssertEqual(PolisBuildingState.Bustling, PolisBuildings.StateFor(now.AddDays(-2), now), "整 2 天仍算常用");
+    AssertEqual(PolisBuildingState.Lived, PolisBuildings.StateFor(now.AddDays(-2).AddSeconds(-1), now), "过了 2 天就安静一档");
+    AssertEqual(PolisBuildingState.Quiet, PolisBuildings.StateFor(now.AddDays(-90), now), "90 天内：安静");
+    AssertEqual(PolisBuildingState.Ivy, PolisBuildings.StateFor(now.AddDays(-365), now), "一年内：爬满常春藤");
+    AssertEqual(PolisBuildingState.Ruin, PolisBuildings.StateFor(now.AddDays(-366), now), "一年以上：废墟");
+    AssertEqual(PolisBuildingState.Bustling, PolisBuildings.StateFor(now.AddMinutes(5), now), "时钟略有偏差、修改时间在未来时按刚改过算");
+
+    var summary = PolisBuildings.Summarize(PolisScanner.Scan(PolisSyntheticFixture.Enumerator()), now);
+    var byKey = summary.Buildings.ToDictionary(b => b.Key);
+    var expected = new Dictionary<string, (PolisBuildingKind Kind, PolisBuildingState State, int Files)>
+    {
+        ["合同"] = (PolisBuildingKind.StoaLibrary, PolisBuildingState.Bustling, 6),
+        ["照片"] = (PolisBuildingKind.SculptureGarden, PolisBuildingState.Quiet, 7),
+        ["账本"] = (PolisBuildingKind.Treasury, PolisBuildingState.Lived, 3),
+        ["网站"] = (PolisBuildingKind.Workshop, PolisBuildingState.Bustling, 5),
+        ["下载"] = (PolisBuildingKind.Warehouse, PolisBuildingState.Quiet, 4),
+        ["杂物"] = (PolisBuildingKind.House, PolisBuildingState.Ivy, 4),
+        ["空文件夹"] = (PolisBuildingKind.House, PolisBuildingState.Ruin, 0),
+        ["旧项目"] = (PolisBuildingKind.StoaLibrary, PolisBuildingState.Ruin, 3),
+    };
+    AssertEqual(expected.Count, summary.Buildings.Count, "每个顶层文件夹一座建筑");
+    foreach (var (key, want) in expected)
+    {
+        var b = byKey[key];
+        AssertEqual(want.Kind, b.Kind, $"{key} 的建筑类型");
+        AssertEqual(want.State, b.State, $"{key} 的状态");
+        AssertEqual(want.Files, b.FileCount, $"{key} 的文件数（含子目录）");
+    }
+    AssertEqual(PolisSyntheticFixture.Now.AddDays(-400), byKey["空文件夹"].LastModifiedUtc, "空文件夹用它自己的修改时间");
+    AssertEqual(2, summary.Agora.FileCount, "根目录下的可见文件归广场（.DS_Store 除外）");
+    AssertEqual(2_348L, summary.Agora.TotalBytes, "广场的总大小");
+
+    return Task.CompletedTask;
+}
+
+static Task TestPolisLayoutLedgerAsync()
+{
+    var order = PolisLayoutLedger.GrowthOrder().Take(60).ToList();
+    CollectionAssert(new[] { "1,-1", "1,1", "-1,-1" }, order.Take(3).Select(p => $"{p.X},{p.Z}"), "第一圈去掉公共建筑后，从正北顺时针");
+    AssertEqual(order.Count, order.Distinct().Count(), "生长次序里没有重复的地块");
+    AssertFalse(order.Any(PolisLayoutLedger.IsReserved), "公共建筑的地块从不分给文件夹");
+    AssertFalse(order.Any(p => p.Z >= PolisLayoutLedger.SeaStartsAtZ), "海里不盖房子");
+    var rings = order.Select(p => Math.Max(Math.Abs(p.X), Math.Abs(p.Z))).ToList();
+    AssertTrue(rings.Zip(rings.Skip(1)).All(pair => pair.First <= pair.Second), "一圈一圈向外长，不跳圈");
+    AssertEqual(3 + 11 + 15, rings.Count(r => r <= 3), "前三圈的可用地块数：3、11、15");
+
+    var t = PolisSyntheticFixture.Now;
+    PolisBuilding B(string key, double ageDays) => new(key, PolisBuildingKind.House, 1, 1, new Dictionary<PolisFileKind, int>(), t.AddDays(-ageDays), PolisBuildingState.Quiet, 1, false);
+    static string Where(PolisLayout layout, string key)
+    {
+        var e = layout.Ledger.Entries.Single(x => x.Key == key);
+        return $"{e.X},{e.Z}";
+    }
+
+    var first = PolisLayoutLedger.Update(PolisLedger.Empty, new[] { B("C", 3), B("A", 1), B("B", 2) });
+    AssertEqual("1,-1", Where(first, "A"), "最近改过的离广场最近");
+    AssertEqual("1,1", Where(first, "B"), "其次");
+    AssertEqual("-1,-1", Where(first, "C"), "再次");
+    CollectionAssert(new[] { "A", "B", "C" }, first.Ledger.Entries.Select(e => e.Key), "账本按落户次序排列");
+
+    var again = PolisLayoutLedger.Update(first.Ledger, new[] { B("A", 1), B("B", 2), B("C", 3) });
+    AssertEqual(PolisFixture.LedgerToJson(first.Ledger), PolisFixture.LedgerToJson(again.Ledger), "同样的城再算一遍，账本一字不变");
+
+    // 删掉 B：A、C 原地不动，B 的地留成空地
+    var deleted = PolisLayoutLedger.Update(again.Ledger, new[] { B("A", 1), B("C", 3) });
+    AssertEqual("1,-1", Where(deleted, "A"), "删掉别的文件夹，A 不挪位");
+    AssertEqual("-1,-1", Where(deleted, "C"), "删掉别的文件夹，C 不挪位");
+    AssertTrue(deleted.Vacant.Single().Key == "B" && Where(deleted, "B") == "1,1", "被删的文件夹留下空地，地块记在账本里");
+
+    // 新来的 D 占新地，绝不占 B 留下的空地；网格只长不缩
+    var grown = PolisLayoutLedger.Update(deleted.Ledger, new[] { B("A", 1), B("C", 3), B("D", 0) });
+    AssertEqual("0,-2", Where(grown, "D"), "新文件夹在城市边缘占一块新地（第二圈正北），不回收空地");
+    AssertEqual("1,1", Where(grown, "B"), "空地仍属于 B");
+
+    // B 回来，落回原地
+    var back = PolisLayoutLedger.Update(grown.Ledger, new[] { B("A", 1), B("B", 2), B("C", 3), B("D", 0) });
+    AssertEqual("1,1", Where(back, "B"), "同名文件夹回来，落回自己原来的地");
+    AssertEqual(0, back.Vacant.Count, "B 回来后没有空地");
+    AssertEqual("1,-1", Where(back, "A"), "A 自始至终没动过");
+
+    // 同一时间修改的两个新文件夹按名字定次序
+    var tie = PolisLayoutLedger.Update(PolisLedger.Empty, new[] { B("乙", 1), B("甲", 1) });
+    AssertEqual(string.CompareOrdinal("乙", "甲") < 0 ? "乙" : "甲", tie.Ledger.Entries[0].Key, "修改时间相同时按名字的序数顺序");
+
+    // 超出独立建筑上限：最近常用的盖房子，其余进市集；已经有地的永远不会被挤进市集
+    var crowded = PolisLayoutLedger.Update(PolisLedger.Empty, new[] { B("w", 4), B("x", 1), B("y", 2), B("z", 3) }, maxIndependentBuildings: 2);
+    CollectionAssert(new[] { "x", "y" }, crowded.Standing.Select(e => e.Key), "上限 2：最近改过的两个盖独立建筑");
+    CollectionAssert(new[] { "w", "z" }, crowded.MarketStalls, "其余并入市集的摊位（按名字排）");
+    var freed = PolisLayoutLedger.Update(crowded.Ledger, new[] { B("w", 4), B("x", 1), B("z", 3) }, maxIndependentBuildings: 2);
+    AssertTrue(freed.Standing.Any(e => e.Key == "z") && freed.MarketStalls.SequenceEqual(new[] { "w" }), "有建筑空出名额后，摊位里最近改过的那个盖房子");
+    var lowered = PolisLayoutLedger.Update(freed.Ledger, new[] { B("w", 4), B("x", 1), B("z", 3), B("新", 0) }, maxIndependentBuildings: 1);
+    AssertTrue(lowered.Standing.Select(e => e.Key).OrderBy(k => k, StringComparer.Ordinal).SequenceEqual(new[] { "x", "z" }), "上限调低也不拆已有的建筑");
+    CollectionAssert(new[] { "w", "新" }, lowered.MarketStalls, "名额满了，新来的进市集");
+
+    // 损坏的账本：同一文件夹两条、两条占同一块地，只留落户更早的
+    var corrupt = new PolisLedger(1, new[]
+    {
+        new PolisLedgerEntry("A", 1, -1, 0, false),
+        new PolisLedgerEntry("A", 2, -2, 1, false),
+        new PolisLedgerEntry("B", 1, -1, 2, false),
+        new PolisLedgerEntry("C", -1, -1, 3, false),
+    });
+    var repaired = PolisLayoutLedger.Update(corrupt, new[] { B("A", 1), B("B", 2), B("C", 3) });
+    AssertEqual("1,-1", Where(repaired, "A"), "重复的条目只认落户更早的那条");
+    AssertEqual("-1,-1", Where(repaired, "C"), "没受损的条目原样保留");
+    AssertTrue(Where(repaired, "B") != "1,-1" && Where(repaired, "B") != "-1,-1", "抢了别人地块的条目作废，B 重新落户到一块空地");
+
+    var roundTrip = PolisFixture.LedgerFromJson(PolisFixture.LedgerToJson(back.Ledger));
+    AssertEqual(PolisFixture.LedgerToJson(back.Ledger), PolisFixture.LedgerToJson(roundTrip), "账本 JSON 往返不丢东西");
+
+    return Task.CompletedTask;
+}
+
+static Task TestPolisReplayConverterAsync()
+{
+    var replay = PolisReplayConverter.Convert(PolisSyntheticFixture.Conversation(), PolisSyntheticFixture.WorkspaceRoot, PolisSyntheticFixture.Home);
+    AssertEqual(3, replay.Turns, "三个回合");
+    AssertEqual(12, replay.ToolCalls, "十二次工具调用");
+    AssertEqual(2, replay.CompressedGaps, "两段回合之间的空闲被剪短");
+    AssertEqual(84_000L, replay.DurationMs, "回放总长（剪掉空闲之后）");
+
+    var events = replay.Events;
+    AssertTrue(events.Zip(events.Skip(1)).All(p => p.First.T <= p.Second.T), "事件时间单调不减");
+    AssertTrue(events.All(e => e.End is null || e.End >= e.T), "每个区间的结束不早于开始");
+
+    var think1 = events[1];
+    AssertTrue(think1.Type == "think" && think1.T == 0 && think1.End == 6_200 && think1.Reasoning == 820, "第一段等模型：从提问到第一个调用载体，带推理长度");
+    var t1 = events.Single(e => e.Id == "t1");
+    AssertTrue(t1.T == 6_200 && t1.End == 6_260 && t1.Category == "read" && t1.Path == "合同/租赁合同.docx" && t1.Ok == true, "工具从载体开始、到结果回填结束，路径转成工作区相对路径");
+    var t2 = events.Single(e => e.Id == "t2");
+    var t3 = events.Single(e => e.Id == "t3");
+    AssertTrue(t2.T == 10_900 && t3.T == 10_900, "结果一起回填的一批并发调用共享开始时间");
+    AssertEqual(24_050L, events.Single(e => e.Type == "turn" && e.Turn == 2).T, "上一回合交付后 39 秒的空闲剪成 3 秒");
+    var t5 = events.Single(e => e.Id == "t5");
+    AssertTrue(t5.Category == "terminal" && t5.Place == "inside" && t5.Path == "网站", "终端只留类别和工作目录，命令不进回放");
+    var t6 = events.Single(e => e.Id == "t6");
+    AssertTrue(t6.Category == "web" && t6.Place == "none" && t6.Path is null, "没有路径的调用：地点为 none");
+    AssertEqual("下载/报价单.pdf", events.Single(e => e.Id == "t7").Path, "下载类工具的地点取产出路径");
+    AssertEqual(3, events.Single(e => e.Id == "t10").Agents ?? -1, "派发子代理只留侍女人数");
+    var t11 = events.Single(e => e.Id == "t11");
+    AssertTrue(t11.Place == "outside" && t11.Path is null && t11.Ok == false, "工作区外的路径只说城外，不带路径；失败如实记下");
+    AssertEqual("账本/2026预算.xlsx", events.Single(e => e.Id == "t12").Path, "~ 开头的路径按主目录展开后落进工作区");
+    var lastThink = events[^2];
+    var deliver = events[^1];
+    AssertTrue(lastThink.Type == "think" && lastThink.Estimated == true && lastThink.End - lastThink.T == 4_800, "气泡没记总时长时，收尾按 4.8 秒估，并标明是估的");
+    AssertTrue(deliver.Type == "deliver" && deliver.Turn == 3 && deliver.T == 84_000, "最后一次交付");
+
+    // 回放里没有任何正文：参数里的内容、查询词、命令都不出现；字段只来自固定的集合
+    var json = JsonSerializer.Serialize(replay, PolisFixture.JsonOptions);
+    foreach (var secret in new[] { "正文不进回放", "查询词不进回放", "统计.py", "python3", "example.invalid", "上次的预算", "diffContent", "/Users/demo" })
+    {
+        AssertFalse(json.Contains(secret, StringComparison.Ordinal), $"回放 JSON 不应包含「{secret}」");
+    }
+    var allowed = new HashSet<string>(StringComparer.Ordinal) { "t", "type", "end", "turn", "id", "tool", "category", "place", "path", "building", "ok", "reasoning", "estimated", "agents" };
+    using (var doc = JsonDocument.Parse(json))
+    {
+        foreach (var e in doc.RootElement.GetProperty("events").EnumerateArray())
+        {
+            foreach (var property in e.EnumerateObject())
+            {
+                AssertTrue(allowed.Contains(property.Name), $"回放事件出现了白名单之外的字段 {property.Name}");
+            }
+        }
+    }
+
+    // 路径 → 地点
+    const string root = "/Users/demo/我的工作区";
+    AssertEqual(("inside", (string?)string.Empty), PolisReplayConverter.ResolvePath(root + "/", root, null), "工作区根目录本身是广场（空串）");
+    AssertEqual(("inside", (string?)"合同/a.md"), PolisReplayConverter.ResolvePath(root + "/../我的工作区/./合同/a.md", root, null), "'.' 与 '..' 先规范化再比较");
+    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath(root + "2/x.md", root, null), "前缀相同的兄弟目录不算工作区内");
+    AssertEqual(("inside", (string?)"合同"), PolisReplayConverter.ResolvePath("/users/DEMO/我的工作区/合同", root, null), "默认忽略大小写");
+    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("/users/DEMO/我的工作区/合同", root, null, ignoreCase: false), "区分大小写时大小写不同就不算");
+    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("合同/a.md", root, null), "相对路径不是工作区（文件工具解析到知识库）");
+    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("~/x", root, null), "没有主目录时 ~ 无从展开");
+    AssertEqual(("inside", (string?)"src/a.cs"), PolisReplayConverter.ResolvePath(@"C:\Work\Proj\src\a.cs", "c:/work/proj", null), "Windows 路径：盘符与分隔符都规范化");
+    AssertEqual(("none", (string?)null), PolisReplayConverter.ResolvePath("  ", root, null), "空路径：none");
+
+    AssertEqual("b", PolisReplayConverter.ExtractTargetPath("{\"path\":\"a\",\"outputPath\":\"b\"}"), "产出路径优先于输入路径");
+    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("{\"command\":\"rm -rf /tmp/x\"}"), "command 从不当作路径读");
+    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("{not json"), "参数 JSON 坏了：没有地点");
+    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("[\"/a\"]"), "参数不是对象：没有地点");
+
+    // 坏数据不拖垮回放：载体 JSON 损坏、调用没有结果（被打断）、时钟回拨、没有用户消息
+    var t0 = new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero);
+    var messy = new List<PolisReplayMessage>
+    {
+        new("user", t0, false, null, null, null, null, 0),
+        new("assistant", t0.AddSeconds(2), true, "{oops", null, null, null, 0),
+        new("assistant", t0.AddSeconds(3), true, "[{\"Id\":\"c1\",\"FunctionName\":\"read_system_file\",\"Arguments\":\"{\\\"path\\\":\\\"/w/a.md\\\"}\"}]", null, null, null, 0),
+        new("assistant", t0.AddSeconds(1), true, "[{\"Id\":\"c2\",\"FunctionName\":\"no_such_tool\",\"Arguments\":\"{}\"}]", null, null, null, 0),
+        new("tool", t0.AddSeconds(0.5), false, null, "c2", true, null, 0),
+        new("assistant", t0.AddSeconds(0.1), false, null, null, null, 9_000, 0),
+    };
+    var messyReplay = PolisReplayConverter.Convert(messy, "/w", null);
+    var interrupted = messyReplay.Events.Single(e => e.Tool == "read_system_file");
+    AssertTrue(interrupted.Ok == false && interrupted.End == interrupted.T, "没有结果的调用算被打断：失败、零时长");
+    AssertEqual("workshop", messyReplay.Events.Single(e => e.Tool == "no_such_tool").Category, "没登记的工具归工坊");
+    AssertTrue(messyReplay.Events.Zip(messyReplay.Events.Skip(1)).All(p => p.First.T <= p.Second.T), "时间戳乱序时事件仍不倒退");
+    AssertEqual(9_100L, messyReplay.Events[^1].T, "交付时间 = 气泡开始 + 回合总时长");
+    AssertEqual(0, PolisReplayConverter.Convert(new[] { messy[1] }, "/w", null).Events.Count, "没有用户消息就没有回放");
+
+    return Task.CompletedTask;
+}
+
+static Task TestPolisToolCategoriesCoverRegistryAsync()
+{
+    var registry = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Services", "Functions", "FunctionRegistry.cs"));
+    var registered = Regex.Matches(registry, "RegisterFunction\\(\\s*\"([a-z_]+)\"").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+    AssertTrue(registered.Count >= 50, $"从 FunctionRegistry.cs 里应当读出全部注册的工具（实际 {registered.Count} 个）——注册写法变了就同步改这条正则");
+    var missing = registered.Where(name => !PolisToolCategories.IsRegistered(name)).OrderBy(n => n, StringComparer.Ordinal).ToList();
+    AssertTrue(missing.Count == 0, $"这些工具在游戏里没有动作类别，新工具要在 PolisToolCategories 登记：{string.Join(", ", missing)}");
+    var stale = PolisToolCategories.RegisteredTools.Where(name => !registered.Contains(name)).OrderBy(n => n, StringComparer.Ordinal).ToList();
+    AssertTrue(stale.Count == 0, $"类别表里有注册表已经没有的工具：{string.Join(", ", stale)}");
+
+    AssertEqual(PolisActionCategory.Workshop, PolisToolCategories.ForTool("mcp__some_server__tool"), "没登记的工具归工坊");
+    AssertEqual(PolisActionCategory.Read, PolisToolCategories.ForTool("search_in_directory"), "跨文件搜索是读");
+    AssertEqual(PolisActionCategory.Write, PolisToolCategories.ForTool("delete_system_file"), "删除也走写的动作（搭脚手架）");
+    AssertEqual(PolisActionCategory.Web, PolisToolCategories.ForTool("fetch_url_to_file"), "抓网页去港口");
+    CollectionAssert(new[] { "read", "write", "terminal", "web", "memory", "subagents", "workshop" },
+        Enum.GetValues<PolisActionCategory>().Select(PolisToolCategories.Slug), "网页认的类别名");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisSyntheticFixtureCommittedAsync()
+{
+    var generated = PolisFixture.ToJson(PolisSyntheticFixture.Build());
+    var path = Path.Combine(FindRepositoryRoot(), "Tools", "GameMode", "web", "fixtures", "synthetic.json");
+    AssertTrue(File.Exists(path), $"合成夹具应当提交在 {path}");
+    var committed = File.ReadAllText(path).Replace("\r\n", "\n");
+    AssertTrue(committed == generated,
+        "提交的合成夹具与管线生成的结果不一致：改了 Tools/GameMode/Polis 之后要重新生成（PolisExport synthetic --out Tools/GameMode/web/fixtures/synthetic.json），网页和测试读的才是同一份数据");
+
+    var fixture = PolisSyntheticFixture.Build();
+    var plots = fixture.Buildings.Select(b => b.Plot).ToList();
+    AssertEqual(plots.Count, plots.Distinct().Count(), "夹具里每座建筑一块地");
+    AssertFalse(plots.Any(PolisLayoutLedger.IsReserved), "建筑不占公共建筑的地");
+    AssertTrue(new[] { PolisBuildingKind.StoaLibrary, PolisBuildingKind.House, PolisBuildingKind.Workshop }.All(k => fixture.Buildings.Any(b => b.Kind == k)),
+        "M0 要求的三种建筑（柱廊书库、民居、作坊）在合成城邦里都有");
+
+    var keys = new HashSet<string>(new[] { "合同", "摊位" }, StringComparer.Ordinal);
+    AssertEqual("合同", PolisFixture.SiteOf("合同/附件/a.pdf", keys), "第一段是建筑名就落在那座建筑");
+    AssertEqual("摊位", PolisFixture.SiteOf("摊位/x", keys), "市集摊位也是一个地点");
+    AssertEqual(string.Empty, PolisFixture.SiteOf("README.md", keys), "根目录下的文件归广场");
+    AssertEqual(string.Empty, PolisFixture.SiteOf("bin/Debug/x.dll", keys), "扫描里没有的文件夹（被跳过的构建目录）归广场");
+    AssertEqual(string.Empty, PolisFixture.SiteOf(string.Empty, keys), "根目录本身归广场");
+    return Task.CompletedTask;
+}
+
 sealed class FakeMcpHost : Athena.UI.Services.Mcp.IMcpToolHost
 {
     private readonly Athena.UI.Services.Mcp.McpToolRegistry _reg = new();
