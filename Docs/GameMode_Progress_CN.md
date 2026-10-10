@@ -142,7 +142,7 @@ node --test Tools/GameMode/web/test/*.test.mjs
 `?selftest=motion`（`test/motion.mjs` 驱动）：先把合成回放过一遍，挑出一段"走"和一次"瞬移"，在这两个时间窗里逐帧推进（每帧 40 ms，共 128 帧）；每帧镜头跟着雅典娜的同时按脚本绕转（每帧 1.3°）、推拉（缩放 ±35%）、平移（±2.5 m），镜头朝向交给 `lookAt`（与 OrbitControls 相同的陷阱）。比较光晕中心、旁白气泡锚点、全部建筑名牌这一帧用的位置与渲染之后的真实投影，按设备像素计。
 
 - 对齐矩阵（正常代码）：Chromium、WebKit 均为 **0.000 px**（光晕、气泡、名牌三项）。
-- `--nosync`（故意跳过"渲染前对齐矩阵"）：光晕 308.4 px、气泡 308.4 px、名牌 287.0 px——检查确实抓得住打样里那种漂移。
+- `--nosync`（故意跳过"渲染前对齐矩阵"）：最终代码上光晕 882.8 px、气泡 882.8 px、名牌 284.4 px（调速之前的时间窗里是 308 / 308 / 287 px）——检查确实抓得住打样里那种漂移。
 
 ### 真实夹具审查
 
@@ -184,6 +184,39 @@ node --test Tools/GameMode/web/test/*.test.mjs
 
 （无）
 
-### 最后一轮
+### 最后一轮（2026-10-11，提交 edfa464 之上，工作区干净）
 
-（见下一次提交里贴的结果）
+a. 解决方案构建 + Archive.Tests：
+
+```
+dotnet build Athena.UI.sln -p:UseAppHost=false
+→ exit=0（唯一的警告是既有的 MainConversationViewModel.cs(3002) CS1734，与本阶段无关），已用时间 00:05:50
+dotnet Athena.Archive.Tests/bin/Debug/net10.0/Athena.Archive.Tests.dll
+→ [PASS] 186 个，[FAIL] 0 个，exit=0；新增的 6 个 polis 用例全部 PASS
+```
+
+b. 编排器 Node 单测：
+
+```
+node --test Tools/GameMode/web/test/*.test.mjs        （Node v22.22.3）
+→ tests 28, pass 28, fail 0, exit=0（rule 1–6 各至少一例，见「编排器」）
+```
+
+c. Playwright 冒烟：
+
+```
+bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+→ chromium 154.0.8037.98：ready / noPageErrors / noConsoleErrors / nonEmptyFrame（std 33.9、32 灰阶）/ animating / syntheticFixture 全为 true
+→ webkit 26.5：同上全为 true（std 31.7、31 灰阶）
+→ SMOKE PASSED，exit=0
+```
+
+d. 运动自检：
+
+```
+bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+→ chromium 154.0.8037.98：118 帧（窗口 6000–9873 ms 步行、42850–43670 ms 瞬移），最大偏差 光晕 0.000 px · 旁白气泡 0.000 px · 建筑名牌 0.000 px
+→ webkit 26.5：同上，0.000 / 0.000 / 0.000 px
+→ 最大偏差 0.000 px，验收线 0.5 px：PASSED，exit=0
+（对照：--nosync 时 882.8 / 882.8 / 284.4 px）
+```
