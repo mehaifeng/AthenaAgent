@@ -7,6 +7,8 @@
 //       &shot=1   固定一帧、不跑动画循环（截图用），渲染完 document.title = 'ready'
 //       &selftest=motion   运动自检：镜头逐帧移动，比较屏幕空间效果与当帧真实投影，title = 'motion-max-error-px:…'
 //       &ao=0 &shadows=0 &grade=0 &accent=0   调试开关
+//       &demo=1   回放里加上一组合成的积累数据（居民、橄榄林、委托板、神谕、海图、摆好的藏品）——演示、截图与冒烟用
+//       &gallery=<资产 Id>&view=game|mid   美术审查：只画一件资产（gallery.mjs），渲染完 title = 'gallery-ready'
 //
 // 失败要明说（设计稿 12.5）：没有 WebGL 2、脚本出错，都在实时模式里回报 failed（C# 在游戏区显示原因和"回到对话"），
 // 在回放模式里显示页面自己的错误卡片。
@@ -17,6 +19,7 @@ import { createLiveFeed } from './live.mjs';
 import { connectHost } from './bridge.mjs';
 import { openReader } from './reader.mjs';
 import { cityIndex } from './replay.mjs';
+import { demoAccumulation } from './demo.mjs';
 
 const params = new URLSearchParams(location.search);
 const live = params.get('mode') === 'live';
@@ -46,6 +49,12 @@ async function main() {
   const probe = document.createElement('canvas').getContext('webgl2');
   if (!probe) throw new Error('这个环境没有 WebGL 2，城邦画不出来（设计稿 12.5：失败要明说，不静默降级）');
   probe.getExtension('WEBGL_lose_context')?.loseContext();
+
+  if (params.get('gallery')) {
+    status.phase = 'gallery';
+    const { runGallery } = await import('./gallery.mjs');
+    return runGallery({ params, status });
+  }
 
   status.phase = 'build';
   const game = createGame({
@@ -81,7 +90,13 @@ const backlog = [];   // ready 之前到的消息（C# 不会这么做，但不�
 function liveHandlers() {
   const whenReady = (fn) => (m) => (liveGame ? fn(m) : backlog.push(() => fn(m)));
   return {
-    init: whenReady((m) => { liveGame.setTables(m.tables ?? {}); syncFollowButton(); }),
+    init: whenReady((m) => {
+      liveGame.setTables(m.tables ?? {});
+      syncFollowButton();
+      syncChartButton();
+      // 资产清单：C# 校验过的覆盖；外部模型取到之前先用程序化的，取不到就一直用程序化的（缺省回退）
+      if (m.assets && Object.keys(m.assets).length > 0) liveGame.setAssetManifest(m.assets).then(wake, (e) => record(e?.stack ?? e));
+    }),
     city: whenReady((m) => {
       const isNew = !liveGame.city || m.key !== status.city?.key;
       if (isNew) {
@@ -108,6 +123,11 @@ function liveHandlers() {
       wake();
     }),
     items: whenReady((m) => { liveGame.setItems(m.items); wake(); }),
+    grove: whenReady((m) => { liveGame.setGrove(m.trees); wake(); }),
+    residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
+    board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),
+    oracle: whenReady((m) => { liveGame.setOracle(m.oracle ?? null); wake(); }),
+    islands: whenReady((m) => { liveGame.setIslands(m.islands); wake(); }),
     notices: whenReady((m) => { liveGame.setNotices(m.notices); wake(); }),
     report: whenReady((m) => { liveGame.setHerald(m); wake(); }),
     fog: whenReady((m) => { liveGame.setFog(m.missing ? { path: m.path ?? null } : null); wake(); }),
@@ -127,11 +147,21 @@ function syncFollowButton() {
     liveGame.follow === 'player' ? ui.followPlayer : liveGame.follow === 'athena' ? ui.followAthena : ui.followFree;
 }
 
+function syncChartButton(game = liveGame) {
+  if (!game) return;
+  document.getElementById('btn-chart').textContent = game.ui.chart;
+}
+
 function startLive(game) {
   liveGame = game;
   document.body.classList.add('live');
   const follow = document.getElementById('btn-follow');
   follow.addEventListener('click', () => { game.toggleFollow(); syncFollowButton(); wake(); });
+  document.getElementById('btn-chart').addEventListener('click', () => { game.toggleChart(); wake(); });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'm' || e.key === 'M') { game.toggleChart(); wake(); }
+    if (e.key === 'Escape' && game.chartOpen) { game.toggleChart(false); wake(); }
+  });
   document.addEventListener('visibilitychange', wake);
   for (const run of backlog.splice(0)) run();
   game.frame(clock(), 16, performance.now(), { snap: true });
@@ -185,7 +215,19 @@ async function startReplay(game) {
   status.fixture = { synthetic: fixture.synthetic, buildings: fixture.buildings.length, toolCalls: fixture.replay?.toolCalls ?? 0, durationMs: fixture.replay?.durationMs ?? 0 };
 
   status.phase = 'build';
+  if (params.get('demo') === '1') {
+    // 合成的积累数据：居民、橄榄林、委托板、神谕、海图与摆好的藏品（演示、截图、冒烟——不是任何人的真实数据）
+    const demo = demoAccumulation(fixture);
+    game.setGrove(demo.trees);
+    game.setResidents(demo.residents);
+    game.setBoard(demo.suggestions);
+    game.setOracle(demo.oracle);
+    game.setIslands(demo.islands);
+    game.setItems(demo.items);
+  }
   game.loadCity(fixture, { key: 'fixture' });
+  syncChartButton(game);
+  document.getElementById('btn-chart').addEventListener('click', () => game.toggleChart());
   let replay = createReplay(fixture);
   // 回放的时钟喂事件；turn 事件顺带记下开场白
   const feedReplay = (orch, now) => replay.feed({ ingest: (e) => { if (e.type === 'turn') game.noteTurn(e.t, e.turn); orch.ingest(e); } }, now);
@@ -224,6 +266,7 @@ async function startReplay(game) {
     else if (e.key === '1' || e.key === '2' || e.key === '4') speed = Number(e.key);
     else if (e.key === 'r' || e.key === 'R') restart();
     else if (e.key === 'h' || e.key === 'H') hudVisible = !hudVisible;
+    else if (e.key === 'm' || e.key === 'M') game.toggleChart();
     syncButtons();
   });
   const buttons = {

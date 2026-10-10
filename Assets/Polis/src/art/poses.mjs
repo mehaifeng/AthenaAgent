@@ -9,7 +9,7 @@ export const ACTIONS = Object.freeze(['walk', 'idle', 'work', 'deliver']);
 
 /** 做事的几种样子：按工具类别（雅典娜）或居民的行当选。 */
 export const WORK_VARIANTS = Object.freeze([
-  'read', 'write', 'hammer', 'summon', 'haul', 'paint', 'announce', 'shelve', 'count', 'survey', 'carve', 'tend',
+  'read', 'write', 'hammer', 'summon', 'haul', 'paint', 'announce', 'shelve', 'count', 'survey', 'carve', 'tend', 'await',
 ]);
 
 const JOINTS = ['hips', 'spine', 'head', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'legL', 'legR', 'kneeL', 'kneeR', 'skirt'];
@@ -207,6 +207,13 @@ function work(t, style) {
       p.shoulderR.rx = -0.72; p.shoulderR.rz = 0.18; p.elbowR.rx = -0.62;
       p.spine.rx = 0.1 + 0.08 * Math.sin(w(3600)); p.head.rx = 0.25;
       p.propR = 'phiale';
+      break;
+    case 'await':  // 等审批：停在门槛前，双手把封着红印的石板捧在胸前，静静等（设计稿 6.1）
+      p.shoulderL.rx = -0.62; p.shoulderL.rz = -0.12; p.elbowL.rx = -1.3;
+      p.shoulderR.rx = -0.5; p.shoulderR.rz = 0.1; p.elbowR.rx = -1.0;
+      p.head.rx = 0.12 + 0.03 * Math.sin(w(5200));
+      p.spine.rx = 0.012 * Math.sin(w(4200));
+      p.propL = 'sealed';
       break;
     default:
       throw new Error(`poses: unknown work variant '${v}'`);

@@ -116,5 +116,20 @@ export function makeMaterials() {
     papyrus: new THREE.MeshStandardMaterial({ color: 0xe9e1cf, roughness: 0.8, side: THREE.DoubleSide }),
     // 点缀色：红绘陶器的赤陶红（设计稿 8 节）。只给"轮到你了"的东西用，并且要配合 userData.accent 才会在调色里留色。
     accent: new THREE.MeshStandardMaterial({ color: 0xb9572f, roughness: 0.5 }),
+    // M2：器物的陶土与黑釉。陶土去色后是中灰、黑釉近黑，瓶身上的纹饰带读得出来；
+    // 陶土与点缀色不是同一个颜色，也从不挂 userData.accent——器物永远是灰的。
+    terracotta: new THREE.MeshStandardMaterial({ color: 0x9a6a52, roughness: 0.7 }),
+    glaze: new THREE.MeshStandardMaterial({ color: 0x1f1b18, roughness: 0.32, metalness: 0.05 }),
+    laurel: new THREE.MeshStandardMaterial({ color: 0x3f4a39, roughness: 0.92 }),
+    // 城邦金库的灰石：比大理石暗两档，比土亮一档——方屋在一片白里一眼认得出
+    vaultStone: new THREE.MeshStandardMaterial({ color: 0x8f877d, roughness: 0.95 }),
+    // 居民衣料的五档深浅：在一张黑白的画面里，人和人靠明暗分开（雅典娜最亮，你的斗篷偏深）
+    clothShades: [0.95, 0.8, 0.66, 0.52, 0.4].map((k) => {
+      const m = new THREE.MeshStandardMaterial({ map: clothMap, roughness: 0.88, side: THREE.DoubleSide });
+      m.color.setScalar(k);
+      return m;
+    }),
+    leather: new THREE.MeshStandardMaterial({ color: 0x4c3b2e, roughness: 0.8 }),
+    greyHair: new THREE.MeshStandardMaterial({ color: 0xb8b2aa, roughness: 0.7 }),
   };
 }

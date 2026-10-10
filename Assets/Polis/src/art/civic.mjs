@@ -1,0 +1,403 @@
+// 公共建筑（设计稿 5.3：能力做成公共建筑，在城里逛一圈就能发现）：神庙（每日神谕）、圆形图书馆（记忆）、锻炉（终端）、
+// 市集、城门、广场（委托板、日晷与传令官）、港口与船；M2 加了港前的三处场馆——彩绘柱廊、书库、金库——
+// 和橄榄林的台地。M2 的几座立在伸进海里的石台上（海边第 z = 2 行，账本永远不会把它分给文件夹）。
+// 神庙、柱头、三陇板、棕叶饰取自打样。原点在地块中心，正面朝 +z。
+import * as THREE from '../../vendor/three.bundle.mjs';
+import {
+  Kit, m4, deg, doricColumn, column, triglyphGeometry, palmette, gable, gabledRoof, frontGabledRoof, flatRoof, podium, door,
+  window_, colonnade, groundPlane,
+} from './kit.mjs';
+import { amphoraBody } from './props.mjs';
+import { venueSlotLocal, TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
+
+
+// ------------------------------------------------------------------
+// 多立克神庙（打样，参数化）：nx × nz 列，台基三级。scale 之前约为赫菲斯托斯神庙一类的比例。
+// ------------------------------------------------------------------
+export function buildTemple(M, { nx = 6, nz = 7 } = {}) {
+  const kit = new Kit();
+  const R1 = 0.39, H_SHAFT = 5.2, H_CAP = 0.408, H_COL = H_SHAFT + H_CAP;
+  const AX = 2.55;
+  const spanX = (nx - 1) * AX, spanZ = (nz - 1) * AX;
+  const STEP_H = 0.33, STEP_T = 0.42, NSTEPS = 3;
+  const styW = spanX + 1.6, styL = spanZ + 1.6;
+  const yS = NSTEPS * STEP_H;
+
+  for (let i = 0; i < NSTEPS; i++) {
+    const grow = (NSTEPS - 1 - i) * STEP_T * 2;
+    kit.box(M.marble, styW + grow, STEP_H, styL + grow, 0, i * STEP_H + STEP_H / 2, 0);
+  }
+
+  const colGeom = () => doricColumn(H_COL);
+  let k = 0;
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    if (i !== 0 && i !== nx - 1 && j !== 0 && j !== nz - 1) continue;
+    kit.instance('temple-column', colGeom, M.marble, m4(-spanX / 2 + i * AX, yS, -spanZ / 2 + j * AX, (k++) * 0.37));
+  }
+
+  const cellaW = spanX - 2 * 1.05 * AX, cellaL = spanZ - 2 * 1.45 * AX;
+  kit.box(M.wall, cellaW, H_COL, cellaL, 0, yS + H_COL / 2, -0.2);
+  kit.box(M.dark, 2.1, 4.1, 0.12, 0, yS + 2.05, -0.2 + cellaL / 2 + 0.02);
+  for (const sx of [-1, 1]) kit.box(M.wall, 0.6, H_COL, 0.5, sx * (cellaW / 2 - 0.3), yS + H_COL / 2, -0.2 + cellaL / 2 + 0.2);
+
+  const yA = yS + H_COL;
+  const entW = spanX + 1.28, entL = spanZ + 1.28;
+  const ARCH_H = 0.74, TAENIA = 0.07, FRIEZE_H = 0.74, CROWN = 0.07, CORN_H = 0.34, OVER = 0.42;
+  kit.box(M.marble, entW - 0.06, ARCH_H, entL - 0.06, 0, yA + ARCH_H / 2, 0);
+  kit.box(M.marble, entW + 0.02, TAENIA, entL + 0.02, 0, yA + ARCH_H + TAENIA / 2, 0);
+  const yF = yA + ARCH_H + TAENIA;
+  kit.box(M.marble, entW - 0.18, FRIEZE_H, entL - 0.18, 0, yF + FRIEZE_H / 2, 0);
+
+  const along = (n, len) => {
+    const a = [];
+    for (let i = 0; i <= 2 * (n - 1); i++) a.push(-((n - 1) * AX) / 2 + (i * AX) / 2);
+    a[0] = -len / 2 + 0.27; a[a.length - 1] = len / 2 - 0.27;   // 角部三陇板顶到转角（古典多立克的做法）
+    return a;
+  };
+  const tri = () => triglyphGeometry(0.5, FRIEZE_H);
+  for (const x of along(nx, entW)) {
+    kit.instance('temple-triglyph', tri, M.marble, m4(x, yF + FRIEZE_H / 2, entL / 2 - 0.07, 0));
+    kit.instance('temple-triglyph', tri, M.marble, m4(x, yF + FRIEZE_H / 2, -(entL / 2 - 0.07), Math.PI));
+  }
+  for (const z of along(nz, entL)) {
+    kit.instance('temple-triglyph', tri, M.marble, m4(entW / 2 - 0.07, yF + FRIEZE_H / 2, z, Math.PI / 2));
+    kit.instance('temple-triglyph', tri, M.marble, m4(-(entW / 2 - 0.07), yF + FRIEZE_H / 2, z, -Math.PI / 2));
+  }
+
+  kit.box(M.marble, entW + 0.06, CROWN, entL + 0.06, 0, yF + FRIEZE_H + CROWN / 2, 0);
+  const yC = yF + FRIEZE_H + CROWN;
+  kit.box(M.marble, entW + 2 * OVER, CORN_H, entL + 2 * OVER, 0, yC + CORN_H / 2, 0);
+
+  // 山墙与屋顶：13° 坡，前后山花三角退进檐口（屋脊沿 z，正面朝 +z）
+  const yR = yC + CORN_H;
+  const RW = entW + 2 * OVER, RL = entL + 2 * OVER;
+  const pitch = deg(13);
+  const ridge = (RW / 2) * Math.tan(pitch);
+  const tym = new THREE.Shape();
+  tym.moveTo(-RW / 2 + 0.35, 0); tym.lineTo(RW / 2 - 0.35, 0); tym.lineTo(0, ridge - 0.12); tym.closePath();
+  const prism = new THREE.ExtrudeGeometry(tym, { depth: RL - 0.8, bevelEnabled: false });
+  prism.translate(0, 0, -(RL - 0.8) / 2);
+  kit.add(M.marble, prism, m4(0, yR, 0));
+  const slopeLen = Math.hypot(RW / 2, ridge);
+  for (const sz of [1, -1]) for (const sx of [1, -1]) {
+    kit.box(M.marble, slopeLen + 0.25, 0.32, 0.72, sx * RW / 4, yR + ridge / 2 + 0.06, sz * (RL / 2 - 0.36), 0, 0, -sx * pitch);
+  }
+  for (const sx of [1, -1]) kit.box(M.roof, slopeLen + 0.35, 0.12, RL + 0.08, sx * RW / 4, yR + ridge / 2 + 0.25, 0, 0, 0, -sx * pitch);
+  const tile = () => {
+    const g = new THREE.CylinderGeometry(0.075, 0.075, slopeLen + 0.3, 6, 1, false, 0, Math.PI);
+    g.rotateZ(Math.PI / 2);
+    return g;
+  };
+  for (const sx of [1, -1]) for (let z = -RL / 2 + 0.3; z <= RL / 2 - 0.3; z += 0.62) {
+    kit.instance('temple-tile', tile, M.roof, m4(sx * RW / 4, yR + ridge / 2 + 0.33, z, 0, 0, -sx * pitch));
+  }
+  kit.cylinder(M.roof, 0.13, 0.13, RL + 0.1, 0, yR + ridge + 0.26, 0, 10, Math.PI / 2);
+  for (const sz of [1, -1]) {
+    kit.add(M.marble, palmette(1.15, 0.85), m4(0, yR + ridge + 0.22, sz * (RL / 2 - 0.36)));
+    for (const sx of [1, -1]) kit.add(M.marble, palmette(0.6, 0.45), m4(sx * (RW / 2 - 0.25), yR + 0.2, sz * (RL / 2 - 0.36)));
+  }
+  const group = kit.build();
+  group.userData.height = yR + ridge + 1.3;
+  group.userData.front = styL / 2 + (NSTEPS - 1) * STEP_T;
+  return group;
+}
+
+// ------------------------------------------------------------------
+
+// ------------------------------------------------------------------
+// 公共建筑
+// ------------------------------------------------------------------
+
+/** 图书馆（记忆）：圆形的 tholos，一圈柱子、圆筒内殿、锥形瓦顶，一眼就和柱廊书库分得开。 */
+export function buildTholos(M) {
+  const kit = new Kit();
+  const R = 5.1, colH = 4.0, n = 12;
+  for (let i = 0; i < 3; i++) kit.cylinder(M.marble, R + 0.9 - i * 0.35, R + 0.9 - i * 0.35, 0.25, 0, 0.125 + i * 0.25, 0, 48);
+  const y0 = 0.75;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    kit.instance('tholos-col', () => doricColumn(colH, { detail: 'low' }), M.marble, m4(Math.sin(a) * (R - 0.35), y0, Math.cos(a) * (R - 0.35), a));
+  }
+  kit.cylinder(M.wall, R - 1.6, R - 1.6, colH, 0, y0 + colH / 2, 0, 40);
+  kit.box(M.dark, 1.3, 2.6, 0.2, 0, y0 + 1.3, R - 1.56);
+  kit.cylinder(M.marble, R + 0.15, R + 0.15, 0.55, 0, y0 + colH + 0.27, 0, 48);
+  kit.add(M.tile, new THREE.ConeGeometry(R + 0.35, 2.9, 48, 1, true), m4(0, y0 + colH + 0.55 + 1.45, 0));
+  kit.add(M.marble, palmette(0.9, 0.6), m4(0, y0 + colH + 3.3, 0));
+  const group = kit.build();
+  group.userData.height = y0 + colH + 4.4;
+  return group;
+}
+
+/** 锻炉：敞开的炉棚，铁砧、炉膛、风箱。炉火不发光——光只属于雅典娜，她来干活这里才亮。 */
+export function buildForge(M) {
+  const kit = new Kit();
+  const W = 8.4, D = 6.4, H = 3.4;
+  kit.box(M.stone, W + 0.4, 0.2, D + 0.4, 0, 0.1, -0.6);
+  kit.box(M.stone, W, H, 0.5, 0, 0.2 + H / 2, -D / 2 - 0.35);
+  for (const sx of [-1, 1]) kit.box(M.stone, 0.5, H, D - 1.4, sx * (W / 2 - 0.25), 0.2 + H / 2, -1.25);
+  gabledRoof(kit, M.tile, M.stone, W, D, 1.3, 0.2 + H, -0.6, 0.4);
+  for (const sx of [-1, 1]) kit.cylinder(M.wood, 0.14, 0.16, H, sx * (W / 2 - 0.3), 0.2 + H / 2, D / 2 - 0.9, 10);
+  // 炉膛（后墙下）、烟囱
+  kit.box(M.stone, 2.4, 1.1, 1.4, -1.2, 0.75, -D / 2 + 0.5);
+  kit.box(M.dark, 1.6, 0.25, 0.9, -1.2, 1.35, -D / 2 + 0.55);
+  kit.cylinder(M.stone, 0.45, 0.6, 3.5, -1.2, 0.2 + H + 1.2, -D / 2 - 0.2, 12);
+  // 铁砧和木墩
+  kit.cylinder(M.darkWood, 0.42, 0.48, 0.6, 1.0, 0.5, 0.6, 14);
+  kit.box(M.bronze, 0.9, 0.32, 0.36, 1.0, 0.96, 0.6);
+  kit.box(M.bronze, 0.35, 0.18, 0.28, 1.6, 1.0, 0.6);
+  kit.box(M.wood, 1.6, 0.9, 0.7, 2.6, 0.45, -1.8);   // 风箱架
+  for (let i = 0; i < 3; i++) kit.add(M.tile, amphoraBody(), m4(-W / 2 + 0.9 + i * 0.5, 0.2, D / 2 - 0.3, i, 0, 0, 0.8));
+  const group = kit.build();
+  group.userData.height = 0.2 + H + 3;
+  group.userData.anvil = new THREE.Vector3(1.0, 1.2, 0.6);
+  return group;
+}
+
+/** 市集：两排布篷摊位。顶层文件夹太多时，多出来的就在这里各占一个摊位。 */
+export function buildMarket(M, stallCount) {
+  const kit = new Kit();
+  kit.add(M.pave, groundPlane(12, 12, 4), m4(0, 0.02, 0));
+  const n = Math.max(6, stallCount);
+  const spots = [];
+  for (let i = 0; i < n; i++) {
+    const row = i % 2, col = Math.floor(i / 2);
+    const x = -4.2 + col * 2.9, z = row === 0 ? -3.2 : 2.2;
+    if (x > 5) break;
+    spots.push([x, z]);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.cylinder(M.wood, 0.05, 0.06, 2.3, x + sx * 1.1, 1.15, z + sz * 0.8, 6);
+    kit.box(M.awning, 2.5, 0.06, 2.0, x, 2.35, z, 0, row === 0 ? 0.12 : -0.12);
+    kit.box(M.wood, 2.0, 0.1, 0.8, x, 0.9, z + (row === 0 ? 0.4 : -0.4));
+    kit.add(M.tile, amphoraBody(), m4(x - 0.5, 0.95, z + (row === 0 ? 0.4 : -0.4), i, 0, 0, 0.45));
+    kit.add(M.wood, new THREE.CylinderGeometry(0.3, 0.22, 0.28, 10), m4(x + 0.4, 1.09, z + (row === 0 ? 0.4 : -0.4)));
+  }
+  const group = kit.build();
+  group.userData.height = 3.2;
+  group.userData.stallSpots = spots;
+  return group;
+}
+
+/** 城门：一座小门楼（propylon）横跨街口：两根方柱、过梁、三角楣。 */
+export function buildGate(M) {
+  const kit = new Kit();
+  for (const sx of [-1, 1]) {
+    kit.box(M.marble, 1.2, 4.6, 1.4, sx * 2.6, 2.3, 0);
+    kit.box(M.stone, 7, 2.2, 0.8, sx * 6.6, 1.1, 0);   // 两侧的一段城墙
+  }
+  kit.box(M.marble, 6.6, 0.7, 1.6, 0, 4.95, 0);
+  kit.add(M.marble, gable(6.8, 1.2, 1.6), m4(0, 5.3, 0));
+  const group = kit.build();
+  group.userData.height = 7.2;
+  return group;
+}
+
+/** 港口：港前广场（铺地、货堆、一尊海神像）、伸进海里的栈桥、系船柱。船是单独的动画件，见 buildBoat。 */
+export function buildHarbor(M, quayLocalZ, pierLength, plotCenterZ, statueGeometry) {
+  const kit = new Kit();
+  kit.add(M.pave, groundPlane(12.4, 12.4, 4), m4(0, 0.016, plotCenterZ));
+  kit.box(M.marble, 1.2, 1.1, 1.2, 0, 0.55, plotCenterZ - 2.5);
+  kit.add(M.marble, statueGeometry, m4(0, 1.1, plotCenterZ - 2.5, 0, 0, 0, 1.25));
+  for (let i = 0; i < 6; i++) kit.box(M.wood, 0.75, 0.75, 0.75, -4 + (i % 3) * 0.85, 0.375 + (i >= 3 ? 0.75 : 0), plotCenterZ + 2.5, i * 0.2);
+  for (let i = 0; i < 6; i++) kit.add(M.tile, amphoraBody(), m4(3 + (i % 3) * 0.5, 0, plotCenterZ + 2 + Math.floor(i / 3) * 0.55, i, 0, 0, 0.85));
+  kit.box(M.stone, 3.2, 0.9, pierLength, 0, -0.35, quayLocalZ + pierLength / 2);
+  for (let z = quayLocalZ + 2; z < quayLocalZ + pierLength; z += 3.2) {
+    for (const sx of [-1, 1]) kit.cylinder(M.stone, 0.16, 0.2, 0.55, sx * 1.35, 0.35, z, 8);
+  }
+  for (let i = 0; i < 4; i++) kit.box(M.wood, 0.7, 0.7, 0.7, -3 + (i % 2) * 0.8, 0.35 + (i >= 2 ? 0.7 : 0), quayLocalZ - 2.5, i * 0.3);
+  for (let i = 0; i < 5; i++) kit.add(M.tile, amphoraBody(), m4(2.2 + (i % 3) * 0.5, 0, quayLocalZ - 2.2 - Math.floor(i / 3) * 0.5, i, 0, 0, 0.85));
+  const group = kit.build();
+  group.userData.height = 2;
+  return group;
+}
+
+/** 一条小商船：船身是车削体压扁，一根桅杆、收着的帆。 */
+export function buildBoat(M) {
+  const kit = new Kit();
+  const pts = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    pts.push(new THREE.Vector2(Math.max(0.02, Math.sin(Math.PI * t) * 1.15), (t - 0.5) * 9));
+  }
+  // 半个车削体：phi ∈ [-90°, 90°] 绕 x 转 90° 之后落在水线以下，开口朝上
+  const hull = new THREE.LatheGeometry(pts, 20, -Math.PI / 2, Math.PI);
+  hull.rotateX(Math.PI / 2);
+  hull.scale(1, 0.85, 1);
+  kit.add(M.darkWood, hull, m4(0, 0.15, 0));
+  kit.box(M.wood, 2.1, 0.08, 7.8, 0, 0.12, 0);
+  kit.cylinder(M.darkWood, 0.09, 0.12, 1.6, 0, 0.9, -4.7, 8, -0.75);   // 船尾翘起的尾饰
+  kit.cylinder(M.wood, 0.08, 0.1, 6, 0, 3.1, 0.4, 8);
+  kit.cylinder(M.wood, 0.05, 0.05, 3.6, 0, 5.2, 0.4, 6, 0, Math.PI / 2);
+  kit.box(M.awning, 3.2, 0.5, 0.08, 0, 4.9, 0.4);
+  kit.add(M.wood, new THREE.CylinderGeometry(0.1, 0.25, 1.2, 8), m4(0, 0.9, -4.6, 0, -0.6));
+  const group = kit.build();
+  group.userData.height = 6;
+  return group;
+}
+
+// ------------------------------------------------------------------
+// 广场：委托板（一块立着的大理石碑，带小山花，碑面上钉着三张建议）、日晷与传令官的讲台、两条石凳、一尊方柱头像。
+// 委托板的三张纸条在城里不写字（文字画在叠加层上）；有几条建议就钉几张。
+// ------------------------------------------------------------------
+export function buildAgora(M) {
+  const kit = new Kit();
+  kit.box(M.marble, 2.2, 0.25, 1.0, 0, 0.125, -4.2);
+  kit.box(M.marble, 1.8, 0.25, 0.8, 0, 0.375, -4.2);
+  kit.box(M.marble, 1.3, 2.6, 0.28, 0, 1.8, -4.2);
+  kit.add(M.marble, gable(1.5, 0.45, 0.32), m4(0, 3.1, -4.2));
+  for (const sx of [-1, 1]) {
+    kit.box(M.marble, 2.4, 0.18, 0.6, sx * 4.2, 0.5, 1.5);
+    for (const lx of [-0.9, 0.9]) kit.box(M.marble, 0.25, 0.42, 0.5, sx * 4.2 + lx, 0.21, 1.5);
+  }
+  kit.box(M.marble, 0.42, 1.5, 0.42, 4.6, 0.75, -3.6);
+  kit.add(M.marble, new THREE.SphereGeometry(0.26, 16, 12), m4(4.6, 1.75, -3.6, 0, 0, 0, 0.9, 1.15, 0.95));
+  // 日晷：一根短柱上的半球形晷盘（skaphe），晷针朝北；旁边是传令官站的两级讲台（bema）
+  kit.cylinder(M.marble, 0.26, 0.3, 1.0, -4.6, 0.5, -3.4, 14);
+  kit.box(M.marble, 0.78, 0.36, 0.62, -4.6, 1.18, -3.4);
+  kit.add(M.dark, new THREE.SphereGeometry(0.27, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), m4(-4.6, 1.37, -3.38, 0, -0.5));
+  kit.cylinder(M.bronze, 0.012, 0.012, 0.3, -4.6, 1.42, -3.52, 6, 1.1);
+  kit.box(M.marble, 1.6, 0.22, 1.2, -4.4, 0.11, -1.9);
+  kit.box(M.marble, 1.1, 0.22, 0.8, -4.4, 0.33, -2.05);
+  const notices = [];
+  for (let i = 0; i < 3; i++) {
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.44), M.papyrus);
+    sheet.position.set(-0.38 + i * 0.38, 2.15 - (i % 2) * 0.12, -4.05);
+    sheet.rotation.z = (i - 1) * 0.06;
+    sheet.castShadow = true;
+    sheet.visible = false;
+    kit.object(sheet);
+    notices.push(sheet);
+  }
+  const group = kit.build();
+  group.userData.height = 3.6;
+  group.userData.notices = notices;
+  group.userData.board = new THREE.Vector3(0, 1.8, -4.2);
+  group.userData.sundial = new THREE.Vector3(-4.6, 1.2, -3.4);
+  group.userData.bema = new THREE.Vector3(-4.4, 0.44, -2.05);
+  return group;
+}
+
+// ------------------------------------------------------------------
+// M2：港前的石台与场馆
+// ------------------------------------------------------------------
+
+/**
+ * 伸进海里的石台：地块那么大，台面与城里的地面一样高，四边是石砌的护岸，南边临水的一侧留几级台阶下到水面，
+ * 东西两侧是连到码头大街的步道。quayLocalZ 是码头大街在这块地的局部坐标里的位置（石台的北边接着它）。
+ */
+export function buildTerrace(M, { surface = 'pave' } = {}) {
+  const kit = new Kit();
+  const S = PLOT_SIZE;
+  kit.box(M.stone, S + 0.4, 1.4, S, 0, -0.7, 0);
+  kit.add(surface === 'earth' ? M.earth : M.pave, groundPlane(S, S - 0.2, 4), m4(0, 0.015, 0.1));
+  // 临水一侧：一道矮护墙，中间留出台阶
+  for (const sx of [-1, 1]) kit.box(M.stone, S / 2 - 1.6, 0.42, 0.32, sx * (S / 4 + 0.8), 0.21, S / 2 - 0.16);
+  for (let k = 0; k < 3; k++) kit.box(M.stone, 2.6, 0.22, 0.42, 0, -0.11 - k * 0.22, S / 2 + 0.2 + k * 0.42);
+  for (const sx of [-1, 1]) kit.box(M.stone, 0.32, 0.42, S - 1.2, sx * (S / 2 + 0.04), 0.21, 0.4);
+  // 系船的石柱（两根）
+  for (const sx of [-1, 1]) kit.cylinder(M.stone, 0.14, 0.18, 0.5, sx * 1.8, 0.25, S / 2 - 0.2, 8);
+  return kit.build();
+}
+
+/** 一排排底座（12 个），摆藏品用；底座本身是器物（props.buildPedestal），这里只给每个位次的局部坐标。 */
+export function venueSlots() {
+  return Array.from({ length: 12 }, (_, i) => venueSlotLocal(i));
+}
+
+/**
+ * 彩绘柱廊（Stoa Poikile）：雅典广场北边真有一座专门挂画的柱廊（设计稿 7.2）。比文件夹的柱廊书库更高、更长，
+ * 双坡瓦顶（两端是山墙，不是单坡），后墙上挂着一排带框的画板；正面一排多立克柱。画放在前面台地的底座上。
+ */
+export function buildPaintedStoa(M) {
+  const kit = new Kit();
+  const W = 11.2, D = 4.4, H = 3.6, zc = -PLOT_SIZE / 2 + D / 2 + 0.5;
+  const y0 = podium(kit, M.marble, W, D, { steps: 2, stepH: 0.22, stepT: 0.25, z: zc });
+  kit.box(M.wall, W, H, 0.45, 0, y0 + H / 2, zc - D / 2 + 0.22);
+  for (const sx of [-1, 1]) kit.box(M.wall, 0.45, H, D - 0.4, sx * (W / 2 - 0.22), y0 + H / 2, zc - 0.2);
+  // 后墙上的画板：深色木框里一块浅色的板，板上几笔深色的剪影（远看是一排挂着的画）
+  for (let i = 0; i < 6; i++) {
+    const x = -W / 2 + 1.25 + i * ((W - 2.5) / 5);
+    kit.box(M.darkWood, 1.3, 1.0, 0.08, x, y0 + 1.9, zc - D / 2 + 0.5);
+    kit.box(M.papyrus, 1.12, 0.82, 0.02, x, y0 + 1.9, zc - D / 2 + 0.55);
+    kit.box(M.glaze, 0.16, 0.42, 0.02, x - 0.18 + (i % 3) * 0.12, y0 + 1.84, zc - D / 2 + 0.57);
+    kit.add(M.glaze, new THREE.SphereGeometry(0.08, 8, 6), m4(x - 0.18 + (i % 3) * 0.12, y0 + 2.12, zc - D / 2 + 0.57, 0, 0, 0, 1, 1, 0.2));
+  }
+  colonnade(kit, M.marble, { n: 8, x0: -W / 2 + 0.5, x1: W / 2 - 0.5, y: y0, z: zc + D / 2 - 0.45, height: H, order: 'doric', key: 'poikile' });
+  const top = y0 + H;
+  kit.box(M.marble, W + 0.3, 0.5, D + 0.3, 0, top + 0.25, zc);
+  const tri = () => triglyphGeometry(0.36, 0.5);
+  for (let i = 0; i < 11; i++) kit.instance('poikile-tri', tri, M.marble, m4(-W / 2 + 0.4 + i * ((W - 0.8) / 10), top + 0.25, zc + D / 2 + 0.2));
+  gabledRoof(kit, M.tile, M.marble, W + 0.3, D + 0.3, 1.1, top + 0.5, zc, 0.35);
+  for (const sx of [-1, 1]) kit.add(M.marble, palmette(0.7, 0.5), m4(sx * (W / 2 + 0.4), top + 1.6, zc, Math.PI / 2));
+  const group = kit.build();
+  group.userData.height = top + 2.2;
+  return group;
+}
+
+/**
+ * 书库：一座方正的厅，正面四根爱奥尼亚柱撑着门廊，上面一层开着小方窗的阁楼，顶是四坡的攒尖瓦顶——
+ * 和文件夹的金库（两根柱、陡的三角山花）从剪影上分开。门廊两侧各立一只卷轴筒。
+ */
+export function buildArchive(M) {
+  const kit = new Kit();
+  const W = 8.2, D = 4.6, H = 3.4, zc = -PLOT_SIZE / 2 + D / 2 + 0.6;
+  const y0 = podium(kit, M.marble, W, D, { steps: 3, stepH: 0.2, stepT: 0.22, z: zc });
+  kit.box(M.wall, W - 0.6, H, D - 1.6, 0, y0 + H / 2, zc - 0.8);
+  door(kit, M, 1.5, 2.6, 0, y0, zc + D / 2 - 1.6 - 0.02, { lintel: M.marble });
+  for (const sx of [-1, 1]) {
+    window_(kit, M, 0.7, 0.9, sx * 2.4, y0 + 1.9, zc + D / 2 - 1.62);
+  }
+  colonnade(kit, M.marble, { n: 4, x0: -W / 2 + 0.7, x1: W / 2 - 0.7, y: y0, z: zc + D / 2 - 0.45, height: H, order: 'ionic', key: 'archive' });
+  const top = y0 + H;
+  kit.box(M.marble, W + 0.2, 0.45, D + 0.2, 0, top + 0.22, zc);
+  // 阁楼：缩进一圈，一排小方窗
+  kit.box(M.wall, W - 1.2, 1.2, D - 1.0, 0, top + 1.05, zc - 0.2);
+  for (let i = 0; i < 5; i++) window_(kit, M, 0.42, 0.42, -2.2 + i * 1.1, top + 1.1, zc - 0.2 + (D - 1.0) / 2);
+  // 四坡攒尖顶：底面压成长方形的四棱锥
+  kit.add(M.tile, new THREE.ConeGeometry(1, 1, 4, 1).rotateY(Math.PI / 4), m4(0, top + 1.65 + 0.7, zc - 0.2, 0, 0, 0, (W - 0.6) * 0.72, 1.4, (D - 0.4) * 0.72));
+  kit.add(M.marble, palmette(0.6, 0.45), m4(0, top + 3.0, zc - 0.2));
+  for (const sx of [-1, 1]) {
+    kit.add(M.darkWood, new THREE.CylinderGeometry(0.2, 0.2, 0.42, 14), m4(sx * 1.4, y0 + 0.21, zc + D / 2 - 0.9));
+    for (let k = 0; k < 4; k++) kit.cylinder(M.papyrus, 0.045, 0.045, 0.5, sx * 1.4 + Math.cos(k * 1.6) * 0.09, y0 + 0.36, zc + D / 2 - 0.9 + Math.sin(k * 1.6) * 0.09, 8);
+  }
+  const group = kit.build();
+  group.userData.height = top + 3.6;
+  return group;
+}
+
+/**
+ * 金库（城邦的）：一座厚重的石砌方屋，墙是一层层错缝的条石，平顶一圈女儿墙，正面一对包铜的大门、门上一个小山花。
+ * 文件夹的金库是大理石的小神殿；这一座是灰石的、方的、没有柱子——收账册的地方。
+ */
+export function buildVault(M) {
+  const kit = new Kit();
+  const W = 7.6, D = 5.0, H = 3.8, zc = -PLOT_SIZE / 2 + D / 2 + 0.6;
+  const y0 = podium(kit, M.stone, W, D, { steps: 2, stepH: 0.24, stepT: 0.25, z: zc });
+  // 错缝的条石：每一层比上一层错半块，层与层之间一道细缝
+  const courses = 7;
+  for (let c = 0; c < courses; c++) {
+    const y = y0 + (c + 0.5) * (H / courses);
+    const inset = c % 2 === 0 ? 0 : 0.04;
+    kit.box(M.vaultStone, W - inset, H / courses - 0.05, D - inset, 0, y, zc);
+  }
+  door(kit, M, 2.0, 2.7, 0, y0, zc + D / 2, { lintel: M.stone, frame: M.stone });
+  for (const sx of [-1, 1]) {
+    kit.box(M.bronze, 0.92, 2.6, 0.06, sx * 0.48, y0 + 1.3, zc + D / 2 + 0.06);
+    for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) kit.add(M.bronze, new THREE.SphereGeometry(0.04, 6, 4), m4(sx * (0.2 + j * 0.28), y0 + 0.5 + k * 0.6, zc + D / 2 + 0.1));
+  }
+  kit.add(M.stone, gable(2.8, 0.7, 0.3), m4(0, y0 + 2.86, zc + D / 2 + 0.1));
+  flatRoof(kit, M.stone, M.vaultStone, W, D, y0 + H, zc);
+  const group = kit.build();
+  group.userData.height = y0 + H + 1.6;
+  return group;
+}
+
+/** 橄榄林的台地标：第一块台地上一根方柱头像（名牌挂在它上面）。树由 world.mjs 按委托实例化。 */
+export function buildGroveMarker(M) {
+  const kit = new Kit();
+  kit.box(M.marble, 0.4, 1.3, 0.4, 0, 0.65, 0);
+  kit.add(M.marble, new THREE.SphereGeometry(0.22, 14, 10), m4(0, 1.5, 0, 0, 0, 0, 0.9, 1.1, 0.95));
+  const group = kit.build();
+  group.userData.height = 2.2;
+  return group;
+}
+
+export { deg, doricColumn, column, frontGabledRoof, TERRACE };

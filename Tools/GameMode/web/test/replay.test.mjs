@@ -94,9 +94,21 @@ test('layout: buildings face the camera (south) and stand points sit on the stre
   for (const [key, plot] of layout.plots) {
     const p = layout.sitePoint(key === 'agora' ? 'agora' : key);
     if (key === 'agora' || key === 'harbor') continue;
+    if (plot.terrace) {
+      // M2 的港前石台：站在台面上（场馆在两排底座之间的过道，橄榄林在台地北沿），不在海里
+      assert.ok(Math.abs(p.x - plot.cx) < 6.25 && Math.abs(p.z - plot.cz) < 6.25, `${key} 的站立点在石台上`);
+      continue;
+    }
     const d = Math.hypot(p.x - plot.cx, p.z - plot.cz);
     assert.ok(d > 6 && d < 8, `${key} 的站立点在门前（离地块中心 ${d.toFixed(1)} 米）`);
     assert.ok(p.z > plot.cz, `${key} 的站立点在南边的街上`);
+  }
+  // 走到石台上的路沿码头大街走、从东侧步道上台，不横穿别的地块
+  for (const site of ['paintedStoa', 'archive', 'vault', 'grove:0']) {
+    const route = layout.route('agora', site);
+    const end = route[route.length - 1], stand = layout.sitePoint(site);
+    assert.ok(Math.hypot(end.x - stand.x, end.z - stand.z) < 1e-6, `${site}：路走到站立点`);
+    assert.ok(route.some((q) => Math.abs(q.z - layout.quayZ) < 1e-6), `${site}：路经过码头大街`);
   }
   assert.ok(layout.sitePoint('harbor').z > layout.quayZ, '港口的站立点在栈桥上，伸进海里');
   assert.ok(layout.sitePoint('gate').z < -layout.ring * BLOCK, '城门在最北一圈之外');
