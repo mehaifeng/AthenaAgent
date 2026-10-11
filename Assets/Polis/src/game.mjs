@@ -830,7 +830,9 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   function closeUpCamera(dt, snap) {
     const wanted = closeUpWanted();
     if (wanted && (!closeUp || closeUp.kind !== wanted.kind || closeUp.id !== wanted.id)) {
-      if (!closeUp) closeUp = { ...wanted, saved: { zoom: camera.zoom, elevation: cameraElevation() } };
+      // 退回的半路上又进近景（托付之后马上又开口）：记住的仍是退回的目标——你原来的远近与俯角。
+      // 记下半路的镜头，收起时就退到半路、停在那儿回不去了（冒烟 zoomRestoredAfterClose 时好时坏就是它，2026-10-12）
+      if (!closeUp) closeUp = { ...wanted, saved: restoring ?? { zoom: camera.zoom, elevation: cameraElevation() } };
       else closeUp = { ...wanted, saved: closeUp.saved };
       restoring = null;
       status.closeUp = wanted.kind;
