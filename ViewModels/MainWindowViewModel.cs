@@ -1416,15 +1416,20 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     IEnumerable<ConversationSessionItemViewModel> IPolisShell.AllSessions => ConversationGroups.SelectMany(group => group.Conversations);
 
+    IReadOnlyList<WorkspaceProfile> IPolisShell.Workspaces
+        => ConversationGroups.Select(group => group.Workspace).OfType<WorkspaceProfile>().ToList();
+
     bool IPolisShell.SelectConversation(string conversationId) => TryNavigateToConversationCore(null, conversationId);
 
-    async Task IPolisShell.CreateCommissionAsync(WorkspaceProfile? workspace)
+    async Task<ConversationSessionItemViewModel?> IPolisShell.CreateCommissionAsync(WorkspaceProfile? workspace)
     {
         var group = workspace == null
             ? GlobalConversationGroup
             : ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == workspace.Id);
-        if (group == null) return;
-        SelectedConversation = await CreateConversationCoreAsync(group);
+        if (group == null) return null;
+        var created = await CreateConversationCoreAsync(group);
+        SelectedConversation = created;
+        return created;
     }
 
     Task IPolisShell.OpenFileAsync(string fullPath) => Workbench?.OpenFileByPathAsync(fullPath) ?? Task.CompletedTask;
@@ -1437,7 +1442,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (file != null) await MainConversationViewModel.AddStorageFilesAsync(new[] { file });
     }
 
-    void IPolisShell.PrefillInput(string text) => MainConversationViewModel.PrefillInput(text);
+    void IPolisShell.PrefillInput(string conversationId, string text)
+    {
+        var session = ConversationGroups.SelectMany(group => group.Conversations).FirstOrDefault(s => s.ConversationId == conversationId);
+        if (session == null)
+        {
+            Log.Warning("Polis asked to prefill conversation {ConversationId}, which is not in the tree", conversationId);
+            return;
+        }
+        session.Chat.PrefillInput(text);
+    }
 
     void IPolisShell.StopCurrentTurn()
     {

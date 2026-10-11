@@ -28,6 +28,18 @@ public sealed class OfficePreviewHost : IDisposable
     private CancellationTokenSource? _cts;
     private string? _baseUrl;
     private bool _disposed;
+    private readonly Athena.UI.Services.GameMode.IPolisAssetFiles? _polisAssets;
+
+    /// <summary>没有外部资产目录（设计器、测试、Office 预览本身）：/polis-assets/ 一律 404，页面全部用程序化资产。</summary>
+    public OfficePreviewHost() : this(null)
+    {
+    }
+
+    /// <param name="polisAssets">游戏模式的外部资产目录（<c>AthenaData/Game/assets</c>）；页面按资产清单从 <c>/polis-assets/</c> 取模型。</param>
+    public OfficePreviewHost(Athena.UI.Services.GameMode.IPolisAssetFiles? polisAssets)
+    {
+        _polisAssets = polisAssets;
+    }
 
     /// <summary>注册一个可预览文件的只读会话，返回会话 ID（配合 <see cref="BuildPreviewUrl"/> 使用）。</summary>
     public string RegisterSession(string path) => _store.CreateSession(path);
@@ -168,6 +180,10 @@ public sealed class OfficePreviewHost : IDisposable
             {
                 await ServeFileAsync(context, path["/file/".Length..]);
             }
+            else if (path.StartsWith(PolisAssetRoute.ModelPrefix, StringComparison.Ordinal))
+            {
+                await ServePolisModelAsync(context, path[PolisAssetRoute.ModelPrefix.Length..]);
+            }
             else if (path.StartsWith(PolisAssetRoute.Prefix, StringComparison.Ordinal))
             {
                 var relative = path[PolisAssetRoute.Prefix.Length..];
@@ -227,6 +243,35 @@ public sealed class OfficePreviewHost : IDisposable
             response.AddHeader("Cache-Control", "public, max-age=86400");
         }
         if (stream.CanSeek) response.ContentLength64 = stream.Length;
+        if (string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase)) return;
+        await stream.CopyToAsync(response.OutputStream);
+    }
+
+    /// <summary>
+    /// 游戏模式的外部模型（资产清单把某件程序化资产换成了 glTF）：只认资产目录里的一段文件名，
+    /// 校验在 <see cref="Athena.UI.Services.GameMode.IPolisAssetFiles.TryResolveFile"/>（名字、目录边界、软链、大小）。
+    /// 找不到一律 404——页面把那一件退回程序化的（缺省回退），不会因为一个模型坏了就画不出城。
+    /// </summary>
+    private async Task ServePolisModelAsync(HttpListenerContext context, string name)
+    {
+        var response = context.Response;
+        if (_polisAssets == null)
+        {
+            _logger.Debug("Polis model {Name} requested but no asset folder is configured", name);
+            response.StatusCode = (int)HttpStatusCode.NotFound;
+            return;
+        }
+        if (!_polisAssets.TryResolveFile(name, out var fullPath))
+        {
+            response.StatusCode = (int)HttpStatusCode.NotFound;
+            return;
+        }
+        response.ContentType = OfficeMimeMap.ForPath(fullPath);
+        response.AddHeader("Content-Security-Policy", PolisAssetRoute.ContentSecurityPolicy);
+        response.AddHeader("X-Content-Type-Options", "nosniff");
+        response.AddHeader("Cache-Control", "no-store");
+        await using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        response.ContentLength64 = stream.Length;
         if (string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase)) return;
         await stream.CopyToAsync(response.OutputStream);
     }

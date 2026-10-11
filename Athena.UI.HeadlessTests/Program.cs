@@ -85,6 +85,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
     TestGameModeCityLifecycle();
+    TestGameModeAccumulation();
     Environment.Exit(0);
 }
 OwlAnimationTests.Run(outputPath);
@@ -200,6 +201,7 @@ TestConversationSwitchScrollsToBottom();
 TestRightPanelAutoExpand();
 TestGameModeSwitchAndFailures();
 TestGameModeCityLifecycle();
+TestGameModeAccumulation();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -4462,7 +4464,8 @@ static void TestGameModeSwitchAndFailures()
     {
         // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
         // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
-        gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization)
+        gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization,
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger))
         {
             ReadyTimeout = TimeSpan.FromSeconds(2),
             ReleaseDelay = TimeSpan.FromSeconds(2)
@@ -4559,8 +4562,8 @@ static void TestGameModeSwitchAndFailures()
             throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
         PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
             "测绘之后存档必须写进 Workspaces/<id>/game/polis.json。");
-        if (!page.MessageTypes.Contains("focus"))
-            throw new InvalidOperationException("雅典娜要转向当前选中的这份委托（focus）。");
+        // 焦点在城装好、传令官播报完之后才推（M2 到达时多了一步）：等它来，不假设它和存档落盘的先后
+        PumpTimers(() => page.MessageTypes.Contains("focus"), 10000, "雅典娜要转向当前选中的这份委托（focus）。");
 
         // 网页没有"批准"：一条 approve 意图被拒绝并记 Warning，什么都不发生
         sink.Clear();
@@ -4700,6 +4703,7 @@ static void TestGameModeCityLifecycle()
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var store = new PolisSaveStore(paths, Log.Logger);
+    var cronReader = new HeadlessCronTaskReader();
     InjectableFileSystemWatcher? liveWatcher = null;
     var watcher = new WorkspaceWatcherService { WatcherFactory = path => liveWatcher = new InjectableFileSystemWatcher(path) };
     var previewHost = new OfficePreviewHost();
@@ -4725,7 +4729,8 @@ static void TestGameModeCityLifecycle()
 
     GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
-        var vm = new GameModeViewModel(session, previewHost, store, watcher, localization);
+        var vm = new GameModeViewModel(session, previewHost, store, watcher, localization,
+            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger));
         configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -4922,7 +4927,8 @@ static void TestGameModeCityLifecycle()
             throw new InvalidOperationException("离线改名：「财务」必须原地换牌匾，占「账本」原来的地。");
         if (!cities[^1].GetProperty("city").GetProperty("vacant").EnumerateArray().Any(v => v.GetProperty("key").GetString() == "照片"))
             throw new InvalidOperationException("离线删除的「照片」留下空地。");
-        var lines = OfType(page, "report")[^1].GetProperty("lines").EnumerateArray().Select(l => l.GetString()!).ToList();
+        // M2：报告的每一行是 { text, conversationId?, itemId? }——带会话的那几行在页面上可点
+        var lines = OfType(page, "report")[^1].GetProperty("lines").EnumerateArray().Select(l => l.GetProperty("text").GetString()!).ToList();
         if (!lines.Any(l => l.Contains("财务", StringComparison.Ordinal) && l.Contains("账本", StringComparison.Ordinal))
             || !lines.Any(l => l.Contains("照片", StringComparison.Ordinal)))
             throw new InvalidOperationException($"报告要写明改名与删除：{string.Join(" / ", lines)}");
@@ -4961,6 +4967,260 @@ static void TestGameModeCityLifecycle()
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
     Console.WriteLine("[PASS] game mode city lifecycle: external changes patch the city as 'external' with a notice while Athena's writes stay hers, a restart draws the snapshot then reports the offline rename and deletion with plots kept, and a missing folder fogs over until relocated; a dropped watcher batch rescans the whole city; approval is mirrored, keep and return persist, and return only prefills a revision request");
+}
+
+// 游戏模式 M2（积累系统、群岛海图）：走真实的外壳与游戏视图模型，页面是假的（不实例化 WebView）。
+// 海图选岛、点橄榄树都走会话树的同一条选择路径；神庙只新开委托、预填请求（不发送，游戏也没有建任务的路）；
+// 收下的成果摆进场馆、挪位、撤下都落进存档，没遗失的不能移除；委托板与居民的"试试"只预填；回来时传令官报离开期间的
+// 定时任务结果，神谕的那一卷作为成果放下；资产清单只有校验通过的覆盖随 init 推给页面。
+static void TestGameModeAccumulation()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-m2-" + Guid.NewGuid().ToString("N"));
+    var rootA = Path.Combine(root, "我的工作区");
+    foreach (var (path, content) in new[] { ("合同/租赁合同.docx", "lease"), ("合同/采购合同.docx", "buy"), ("合同/补充协议.docx", "add"), ("照片/海边.jpg", "sea"), ("账本/2026预算.xlsx", "budget"), ("账本/流水.csv", "flow") })
+    {
+        var full = Path.Combine(rootA, path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, content);
+    }
+    var rootB = Path.Combine(root, "家庭账本");
+    Directory.CreateDirectory(Path.Combine(rootB, "票据"));
+    File.WriteAllText(Path.Combine(rootB, "票据", "十月.csv"), "oct");
+    var rootC = Path.Combine(root, "空城");
+    Directory.CreateDirectory(rootC);
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var store = new PolisSaveStore(paths, Log.Logger);
+    var cronReader = new HeadlessCronTaskReader();
+    var watcher = new WorkspaceWatcherService();
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    var t0 = DateTime.Now.AddDays(-30);
+    var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = t0 };
+    var wsB = new WorkspaceProfile { Name = "家庭账本", DirectoryPath = rootB, CreatedAt = t0.AddDays(3) };
+    var wsC = new WorkspaceProfile { Name = "空城", DirectoryPath = rootC, CreatedAt = t0.AddDays(9) };
+    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsC, wsA, wsB });
+
+    // 资产清单：一条合法的覆盖、两条被拒的（文件不在、带路径）
+    var assetsDir = Path.Combine(root, "AthenaData", "Game", "assets");
+    Directory.CreateDirectory(assetsDir);
+    File.WriteAllBytes(Path.Combine(assetsDir, "house.glb"), new byte[] { 0x67, 0x6C, 0x54, 0x46 });
+    File.WriteAllText(Path.Combine(assetsDir, "manifest.json"), """
+        { "schema": 1, "assets": {
+            "building.house": { "model": "house.glb", "scale": 1.2 },
+            "prop.amphora": { "model": "missing.glb" },
+            "figure.athena": { "model": "../athena.glb" } } }
+        """);
+
+    ChatMessage Bubble(DateTime at, params (string Name, string Path)[] tools)
+    {
+        var bubble = new ChatMessage { Role = "assistant", Timestamp = at, Content = "做好了" };
+        if (tools.Length > 0)
+        {
+            var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+            foreach (var (name, path) in tools)
+                group.ToolCalls.Add(new ToolCallEntry { ToolCallId = Guid.NewGuid().ToString("N"), Name = name, Status = ToolCallStatus.Success, Arguments = $"{{\"path\": \"{Path.Combine(rootA, path).Replace("\\", "\\\\")}\"}}" });
+            bubble.Segments.Add(group);
+        }
+        bubble.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "做好了" });
+        return bubble;
+    }
+    var chatA = new MainConversationViewModel();
+    chatA.Messages.Add(new ChatMessage { Role = "user", Content = "整理合同", Timestamp = t0.AddDays(20) });
+    chatA.Messages.Add(Bubble(t0.AddDays(20), ("read_system_file", "合同/租赁合同.docx"), ("write_system_file", "合同/摘要.md")));
+    var convA = new ConversationSessionItemViewModel(chatA, wsA, null) { Title = "整理合同" };
+    var chatOld = new MainConversationViewModel();
+    chatOld.Messages.Add(new ChatMessage { Role = "user", Content = "看看照片", Timestamp = t0.AddDays(5) });
+    chatOld.Messages.Add(Bubble(t0.AddDays(5), ("list_system_directory", "照片")));
+    var convOld = new ConversationSessionItemViewModel(chatOld, wsA, null) { Title = "旧委托", UpdatedAt = t0.AddDays(5) };
+    // 定时任务开的会话：每日神谕的一次运行
+    var chatCron = new MainConversationViewModel();
+    chatCron.Messages.Add(new ChatMessage { Role = "user", Content = "回顾昨天的变化", Timestamp = DateTime.Now.AddMinutes(-20) });
+    chatCron.Messages.Add(Bubble(DateTime.Now.AddMinutes(-19)));
+    var convCron = new ConversationSessionItemViewModel(chatCron, wsA, null) { Title = "每日神谕", CreatedByCronTaskId = "t-oracle", UpdatedAt = DateTime.Now.AddMinutes(-19) };
+    var chatB = new MainConversationViewModel();
+    chatB.Messages.Add(new ChatMessage { Role = "user", Content = "记账", Timestamp = t0.AddDays(10) });
+    chatB.Messages.Add(Bubble(t0.AddDays(10)));
+    var convB = new ConversationSessionItemViewModel(chatB, wsB, null) { Title = "家用账", UpdatedAt = t0.AddDays(10) };
+    var oracle = new CronTask { Id = "t-oracle", Name = "每日神谕", WorkspaceId = wsA.Id, CronExpression = "0 8 * * *", CreatedAt = DateTimeOffset.Now.AddDays(-2) };
+    oracle.RecentRuns.Add(new CronTaskRunRecord { RunId = "run-1", State = CronRunState.Succeeded, CompletedAt = DateTimeOffset.Now.AddMinutes(-19), ConversationId = convCron.ConversationId });
+    cronReader.Set(oracle);
+    // 上次离开这座城是一小时前：那之后跑完的神谕要由传令官来报
+    PumpForCompletion(store.SaveAsync(PolisSaveSlot.ForWorkspace(wsA.Id), PolisSaveDocument.Empty with { FoundedAt = DateTimeOffset.Now.AddDays(-9), LastVisitedAt = DateTimeOffset.Now.AddHours(-1) }), "seeding the save");
+
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    Window? window = null;
+    try
+    {
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger));
+        var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
+            .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
+            .ToList();
+        if (structural.Any(t => typeof(ICronTaskService).IsAssignableFrom(t) || t == typeof(FunctionRegistry)))
+            throw new InvalidOperationException("游戏视图模型只能拿到定时任务的只读视图（ICronTaskReader）：神谕只能由雅典娜调用 create_task 建，那一步走审批。");
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: workspaceService, configurationSession: session, gameMode: gameMode);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var groupA = shell.ConversationGroups.First(g => g.Workspace?.Id == wsA.Id);
+        var groupB = shell.ConversationGroups.First(g => g.Workspace?.Id == wsB.Id);
+        var groupC = shell.ConversationGroups.First(g => g.Workspace?.Id == wsC.Id);
+        foreach (var c in new[] { convOld, convCron, convA }) groupA.Conversations.Add(c);
+        groupB.Conversations.Add(convB);
+        groupC.Conversations.Clear();   // 一座还没有委托的城
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
+        window.Show();
+        shell.SelectedConversation = convA;
+        PumpTimers(() => pages.Count > 0 && !pages[^1].Disposed, 5000, "游戏模式没有创建页面。");
+        var page = pages[^1];
+        page.Navigate(true);
+        page.Send("""{"v":1,"type":"ready"}""");
+        List<JsonElement> Of(string type) => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
+        PumpTimers(() => Of("islands").Count > 0 && Of("report").Count > 0, 15000, "到了城里要推积累（橄榄林、居民、委托板、神谕、海图）和传令官的报告。");
+
+        // —— 资产清单：只有校验通过的覆盖随 init 推给页面，被拒的各记一条 Warning ——
+        var init = Of("init")[^1];
+        var overrides = init.GetProperty("assets").EnumerateObject().Select(p => p.Name).ToList();
+        if (!overrides.SequenceEqual(new[] { "building.house" }) || init.GetProperty("assets").GetProperty("building.house").GetProperty("scale").GetDouble() != 1.2)
+            throw new InvalidOperationException($"资产清单只把校验通过的那一条推给页面，实际 [{string.Join(", ", overrides)}]。");
+        if (sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().Contains("manifest", StringComparison.OrdinalIgnoreCase)) < 2)
+            throw new InvalidOperationException("被拒的资产清单条目要各记一条 Warning（页面对它们照常用程序化的那一件）。");
+
+        // —— 橄榄林：这座城里完成过的委托，一份一棵，按开始的先后 ——
+        var trees = Of("grove")[^1].GetProperty("trees").EnumerateArray().Select(t => t.GetProperty("conversationId").GetString()).ToList();
+        if (!trees.SequenceEqual(new[] { convOld.ConversationId, convA.ConversationId, convCron.ConversationId }))
+            throw new InvalidOperationException($"橄榄林要按委托开始的先后一份一棵，实际 [{string.Join(", ", trees)}]。");
+
+        // —— 居民：这座城里用到过的能力；设了神谕，女祭司也在 ——
+        var residents = Of("residents")[^1].GetProperty("residents").EnumerateArray().Select(r => r.GetProperty("kind").GetString()).ToList();
+        if (!residents.SequenceEqual(new[] { "surveyor", "scribe", "priestess" }))
+            throw new InvalidOperationException($"居民要按第一次用到的先后出现（神谕的女祭司随神谕），实际 [{string.Join(", ", residents)}]。");
+        var surveyor = Of("residents")[^1].GetProperty("residents").EnumerateArray().First();
+        if (string.IsNullOrWhiteSpace(surveyor.GetProperty("intro").GetString()) || surveyor.GetProperty("met").GetBoolean())
+            throw new InvalidOperationException("居民要讲得出这项能力还能做什么；还没说过话的不算结识。");
+
+        // —— 传令官：离开期间跑完的神谕，那一卷作为成果放在广场上 ——
+        var report = Of("report")[^1].GetProperty("lines").EnumerateArray().ToList();
+        var oracleLine = report.FirstOrDefault(l => l.TryGetProperty("conversationId", out var c) && c.GetString() == convCron.ConversationId);
+        if (oracleLine.ValueKind != JsonValueKind.Object || string.IsNullOrEmpty(oracleLine.GetProperty("itemId").GetString()))
+            throw new InvalidOperationException($"回来时传令官要报离开期间跑完的神谕（可点，带着那一卷成果），实际：{string.Join(" / ", report.Select(l => l.GetProperty("text").GetString()))}");
+        var scrollId = oracleLine.GetProperty("itemId").GetString()!;
+        var savePath = Path.Combine(paths.GetWorkspacesDirectory(), wsA.Id, "game", "polis.json");
+        PumpTimers(() => File.ReadAllText(savePath).Contains(scrollId, StringComparison.Ordinal), 5000, "神谕送来的那一卷要写进存档，带颜色等你收下。");
+
+        // —— 藏品：收下 → 摆进书库第一个空位；挪到金库第 6 位；没遗失的不能移除；撤下 ——
+        page.Send($$"""{"v":1,"type":"accept-delivery","itemId":"{{scrollId}}"}""");
+        PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.Items.FirstOrDefault(i => i.Id == scrollId)?.Placement == new PolisPlacement(PolisVenue.Archive, 0),
+            5000, "收下的回答摆进书库的第一个空位（7.2），写进存档。");
+        page.Send($$"""{"v":1,"type":"place-item","itemId":"{{scrollId}}","venue":"vault","slot":5}""");
+        PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.Items.First(i => i.Id == scrollId).Placement == new PolisPlacement(PolisVenue.Vault, 5),
+            5000, "摆在哪由你决定：挪到金库第 6 个位次，写进存档。");
+        page.Send($$"""{"v":1,"type":"remove-item","itemId":"{{scrollId}}"}""");
+        PumpTimersFor(300);
+        if (!PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.Items.Any(i => i.Id == scrollId))
+            throw new InvalidOperationException("没遗失的藏品不能移除：移除只对找不到文件的藏品开放。");
+        page.Send($$"""{"v":1,"type":"unplace-item","itemId":"{{scrollId}}"}""");
+        PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.Items.First(i => i.Id == scrollId).Placement == null,
+            5000, "撤下：回到收着、没摆出来。");
+        var lastItems = Of("items")[^1].GetProperty("items").EnumerateArray().First(i => i.GetProperty("id").GetString() == scrollId);
+        if (lastItems.TryGetProperty("placement", out var pl) && pl.ValueKind != JsonValueKind.Null)
+            throw new InvalidOperationException("推给页面的藏品要带着摆放（撤下之后为空）。");
+
+        // —— 委托板：采纳一条 = 新开一份委托，预填请求，不发送 ——
+        var board = Of("board")[^1].GetProperty("suggestions").EnumerateArray().ToList();
+        if (board.Count is < 1 or > 3) throw new InvalidOperationException($"委托板挂一到三条建议，实际 {board.Count}。");
+        var before = groupA.Conversations.ToList();
+        page.Send($$"""{"v":1,"type":"take-suggestion","suggestionId":"{{board[0].GetProperty("id").GetString()}}"}""");
+        PumpTimers(() => groupA.Conversations.Count > before.Count, 5000, "采纳委托板上的一条建议要新开一份委托（走会话树的新建会话）。");
+        var fromBoard = groupA.Conversations.Except(before).Single();
+        PumpTimers(() => fromBoard.Chat.InputText.Length > 0, 5000, "新委托的输入框里要预填建议的请求。");
+        if (!ReferenceEquals(shell.SelectedConversation, fromBoard) || fromBoard.Chat.Messages.Any(m => m.Role == "user"))
+            throw new InvalidOperationException("采纳建议：选中新委托、只预填，不替人发送。");
+        page.Send("""{"v":1,"type":"take-suggestion","suggestionId":"made-up"}""");
+        PumpTimersFor(150);
+
+        // —— 神谕：新开一份委托，预填请雅典娜用 create_task 建任务的请求（带着工作区 Id），不发送 ——
+        PumpTimers(() => OfTypeCity(page) == wsA.Id, 10000, "回到第一座城没有落地。");
+        before = groupA.Conversations.ToList();
+        page.Send("""{"v":1,"type":"request-oracle"}""");
+        PumpTimers(() => groupA.Conversations.Count > before.Count, 5000, "请雅典娜设立神谕要新开一份委托。");
+        var fromOracle = groupA.Conversations.Except(before).Single();
+        PumpTimers(() => fromOracle.Chat.InputText.Length > 0, 5000, "神谕的请求要预填进新委托的输入框。");
+        if (!fromOracle.Chat.InputText.Contains("create_task", StringComparison.Ordinal) || !fromOracle.Chat.InputText.Contains(wsA.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException($"神谕的请求要请雅典娜用 create_task 建任务、带上这个工作区的 Id，实际「{fromOracle.Chat.InputText}」。");
+        if (fromOracle.Chat.Messages.Count > 0)
+            throw new InvalidOperationException("神庙不替人发消息：请求只预填，由你按发送（之后 create_task 的审批照常弹出）。");
+
+        // —— 居民：说过话记进存档；"试试"只预填 ——
+        PumpTimers(() => OfTypeCity(page) == wsA.Id, 10000, "回到第一座城没有落地。");
+        page.Send("""{"v":1,"type":"meet-resident","residentId":"scribe"}""");
+        PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("scribe"), 5000, "和抄写员说过话，要记进存档（已结识的居民）。");
+        page.Send("""{"v":1,"type":"meet-resident","residentId":"smith"}""");
+        before = groupA.Conversations.ToList();
+        page.Send("""{"v":1,"type":"try-resident","residentId":"scribe"}""");
+        PumpTimers(() => groupA.Conversations.Count > before.Count, 5000, "请雅典娜试试要新开一份委托。");
+        var fromResident = groupA.Conversations.Except(before).Single();
+        PumpTimers(() => fromResident.Chat.InputText.Length > 0 && fromResident.Chat.Messages.Count == 0, 5000, "居民的示范请求只预填，不发送。");
+        if (PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("smith"))
+            throw new InvalidOperationException("还没出现的居民（铁匠）不能被'结识'：意图在 C# 被拒。");
+
+        // —— 海图：神殿居中，工作区按创建时间排；选岛 = 选中那个工作区最近的会话（走会话树的同一条路径） ——
+        chatB.IsSending = true;
+        PumpTimers(() => Of("islands")[^1].GetProperty("islands").EnumerateArray().Any(i => i.GetProperty("id").GetString() == wsB.Id && i.GetProperty("running").GetBoolean()),
+            6000, "有会话在跑的岛要亮灯（积累每两秒刷新一次）。");
+        var islands = Of("islands")[^1].GetProperty("islands").EnumerateArray().Select(i => i.GetProperty("id").GetString()).ToList();
+        if (!islands.SequenceEqual(new[] { "sanctuary", wsA.Id, wsB.Id, wsC.Id }))
+            throw new InvalidOperationException($"海图：神殿居中，工作区按创建时间排位，实际 [{string.Join(", ", islands)}]。");
+        chatB.IsSending = false;
+        var departsBefore = Of("depart").Count;
+        page.Send($$"""{"v":1,"type":"select-island","islandId":"{{wsB.Id}}"}""");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, convB), 5000, "选岛要选中那个工作区最近的会话。");
+        PumpTimers(() => Of("depart").Count > departsBefore, 5000, "选岛走会话选择的同一条路径：第一拍出港。");
+        PumpTimers(() => OfTypeCity(page) == wsB.Id, 10000, "第二拍要装上那座城。");
+        var cBefore = groupC.Conversations.Count;
+        page.Send($$"""{"v":1,"type":"select-island","islandId":"{{wsC.Id}}"}""");
+        PumpTimers(() => groupC.Conversations.Count == cBefore + 1 && ReferenceEquals(shell.SelectedConversation, groupC.Conversations[0]), 5000,
+            "岛上还没有委托：新开一份并选中它。");
+        page.Send("""{"v":1,"type":"select-island","islandId":"not-a-workspace"}""");
+        PumpTimersFor(150);
+
+        // —— 点一棵橄榄树 = 选中那份委托 ——
+        PumpTimers(() => OfTypeCity(page) == wsC.Id, 10000, "第三座城没有落地。");
+        page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{convOld.ConversationId}}"}""");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, convOld), 5000, "点橄榄树要选中那份委托（与在会话树上点它完全相同）。");
+        if (sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal)) < 3)
+            throw new InvalidOperationException("编造的建议、还没出现的居民、不存在的岛：三条意图都要被拒并记 Warning。");
+    }
+    finally
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode accumulation: an island or an olive tree selects through the session tree's own path, the temple only opens a commission and prefills a create_task request (the game has no way to create tasks), kept items are placed, moved and taken down in the save while an unlost one cannot be removed, the board and residents only prefill, the herald reports the oracle's run and leaves its scroll, and only validated asset overrides reach the page");
+
+    static string? OfTypeCity(FakePolisPage page)
+        => page.Messages.LastOrDefault(m => m.GetProperty("type").GetString() == "city") is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
 }
 
 // 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；
@@ -12976,6 +13236,22 @@ sealed class CapturingLogSink : ILogEventSink
 /// <summary>
 /// 游戏模式的假页面：替代 NativeWebView，记下 C# 推来的每段脚本（解出其中的消息），并能模拟导航结果与页面发来的意图。
 /// </summary>
+/// <summary>
+/// 定时任务的只读视图（游戏模式只拿这一半）：测试往里放任务、推进运行记录，再触发一次变更通知。
+/// </summary>
+sealed class HeadlessCronTaskReader : ICronTaskReader
+{
+    private readonly List<CronTask> _tasks = new();
+    public event EventHandler<CronTaskListChangedEventArgs>? TasksChanged;
+    public IReadOnlyList<CronTask> GetTasks() => _tasks.ToList();
+    public void Set(params CronTask[] tasks)
+    {
+        _tasks.Clear();
+        _tasks.AddRange(tasks);
+        TasksChanged?.Invoke(this, new CronTaskListChangedEventArgs { Tasks = _tasks.ToList() });
+    }
+}
+
 sealed class FakePolisPage(Uri uri) : IPolisPage
 {
     public Uri Uri { get; } = uri;

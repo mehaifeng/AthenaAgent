@@ -11560,6 +11560,33 @@ static Task TestPolisAssetManifestAsync()
         "模型、缓冲、贴图可以被页面取");
     foreach (var bad in new[] { "../x.glb", "a/b.glb", ".hidden.glb", "x.exe", "", "x.GLB\u0000", "manifest.json" })
         AssertFalse(PolisAssetManifest.IsServableFileName(bad), $"'{bad}' 不能被页面取");
+
+    // 资产目录（AthenaData/Game/assets）：文件要真的在目录里，解析软链之后也在；目录不存在 = 没有外部资产
+    var dir = Path.Combine(Path.GetTempPath(), "polis-assets-" + Guid.NewGuid().ToString("N"));
+    var outside = Path.Combine(Path.GetTempPath(), "polis-assets-outside-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var missingStore = new PolisAssetStore(dir, Log.Logger);
+        AssertFalse(missingStore.TryResolveFile("house.glb", out _), "资产目录不存在：什么都取不到");
+        AssertEqual(0, missingStore.LoadManifest().Assets.Count, "资产目录不存在：全部程序化");
+        Directory.CreateDirectory(dir);
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(dir, "house.glb"), new byte[] { 1, 2, 3 });
+        File.WriteAllText(Path.Combine(outside, "secret.glb"), "outside");
+        File.CreateSymbolicLink(Path.Combine(dir, "sneaky.glb"), Path.Combine(outside, "secret.glb"));
+        File.WriteAllText(Path.Combine(dir, PolisAssetManifest.FileName), "{\"schema\":1,\"assets\":{\"building.house\":{\"model\":\"house.glb\"},\"building.workshop\":{\"model\":\"sneaky.glb\"}}}");
+        var assetStore = new PolisAssetStore(dir, Log.Logger);
+        AssertTrue(assetStore.TryResolveFile("house.glb", out var full) && File.Exists(full), "资产目录里的模型取得到");
+        AssertFalse(assetStore.TryResolveFile("sneaky.glb", out _), "软链指到资产目录外面：拒绝（页面借模型读不到别处的文件）");
+        AssertFalse(assetStore.TryResolveFile("../" + Path.GetFileName(outside) + "/secret.glb", out _), "带路径的名字：拒绝");
+        var loaded = assetStore.LoadManifest();
+        CollectionAssert(new[] { "building.house" }, loaded.Assets.Keys, "清单里指向软链的那一条被拒，程序化的作坊留着");
+    }
+    finally
+    {
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        if (Directory.Exists(outside)) Directory.Delete(outside, recursive: true);
+    }
     return Task.CompletedTask;
 }
 

@@ -842,7 +842,10 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
                 sp.GetRequiredService<IPromptService>(),
                 Log.ForContext<CommitMessageGenerator>()));
-        services.AddSingleton<OfficePreviewHost>();
+        // 游戏模式的外部资产（AthenaData/Game/assets）：资产清单可以把任何一件程序化资产换成 glTF，回环服务从这里取模型
+        services.AddSingleton(sp => new Athena.UI.Services.GameMode.PolisAssetStore(
+            Path.Combine(sp.GetRequiredService<IPlatformPathService>().GetAppDataDirectory(), "Game", "assets"), Log.Logger));
+        services.AddSingleton(sp => new OfficePreviewHost(sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>()));
         // 当前工作区唯一的递归监视器：工作台与游戏模式共用，不各开一个（设计稿 11.2）。
         services.AddSingleton<IWorkspaceWatcherService, WorkspaceWatcherService>();
         services.AddSingleton<WorkspaceWorkbenchViewModel>(sp =>
@@ -864,7 +867,10 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OfficePreviewHost>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisSaveStore>(),
                 sp.GetRequiredService<IWorkspaceWatcherService>(),
-                sp.GetRequiredService<ILocalizationService>()));
+                sp.GetRequiredService<ILocalizationService>(),
+                // 只读：神庙看每日神谕设没设、传令官报结果；游戏结构上建不了任务（神谕只能由雅典娜调用 create_task，走审批）
+                sp.GetRequiredService<ICronTaskReader>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
@@ -926,6 +932,7 @@ public partial class App : Application, IAsyncDisposable
             sp.GetRequiredService<ICronScheduleService>(),
             sp.GetRequiredService<ISystemClock>(),
             Log.Logger));
+        services.AddSingleton<ICronTaskReader>(sp => sp.GetRequiredService<ICronTaskService>());
         services.AddSingleton<ICronSessionLauncher>(_ => new CronSessionLauncher(Log.Logger));
         services.AddSingleton<IConversationNavigator>(_ => new ConversationNavigator(Log.Logger));
         services.AddSingleton<CronExecutionWorker>(sp => new CronExecutionWorker(
