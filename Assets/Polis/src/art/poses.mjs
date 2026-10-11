@@ -52,6 +52,38 @@ function keyed(keys, f) {
   return keys[keys.length - 1][1];
 }
 
+/**
+ * 手腕补回整条手臂（连脊柱）在 x 轴上转过的角度：手的坐标轴回到和身体一样竖直，握着的长杖才是竖的。
+ * 前臂水平时，肩的外展（rz）只是让杖绕竖轴转一下，不会让它歪，所以只补 rx。
+ */
+export function upright(p, side) {
+  return -(p.spine.rx + p[`shoulder${side}`].rx + p[`elbow${side}`].rx);
+}
+
+/**
+ * 走和停的时候手里拿着家什（居民的 spec.carry）：
+ *   staff — 长杖（测杆、权杖）：前臂平端、手腕补正，杖竖着；这只手不随步子摆；
+ *   hug   — 石板、算板、卷轴、调色板：前臂收在胸前抱着。
+ */
+export const CARRY_GRIPS = Object.freeze(['staff', 'hug']);
+function applyCarry(p, carry) {
+  if (!carry) return p;
+  const side = carry.side === 'L' ? 'L' : 'R';
+  const sx = side === 'L' ? 1 : -1;
+  if (carry.grip === 'staff') {
+    p[`shoulder${side}`].rx = -0.3; p[`shoulder${side}`].rz = 0.12 * sx;
+    p[`elbow${side}`].rx = -1.2;
+    p[`hand${side}`].rx = upright(p, side);
+  } else if (carry.grip === 'hug') {
+    p[`shoulder${side}`].rx = -0.38; p[`shoulder${side}`].rz = -0.06 * sx;
+    p[`elbow${side}`].rx = -1.55;
+  } else {
+    throw new Error(`poses: unknown carry grip '${carry.grip}'`);
+  }
+  p[`prop${side}`] = carry.prop;
+  return p;
+}
+
 /** 走路一个完整周期（左右各迈一步）的时长：步幅 / 速度。 */
 export function walkPeriod({ stride = 1.3, speed = 1.3 } = {}) {
   return (1000 * 2 * stride) / Math.max(0.2, speed);
@@ -87,17 +119,21 @@ function walk(t, style) {
   return p;
 }
 
-/** 雅典娜的"走"：神不迈步，沿街滑行（M0 定的 12 米 / 秒）——身体前倾、衣摆向后拖、两臂微张，轻轻浮动。 */
+/**
+ * 雅典娜的"走"：神不迈步，沿街滑行（M0 定的 12 米 / 秒）——身体前倾、衣摆向后拖、两臂微张向后，轻轻浮动。
+ * M2 美术审查：第一版前倾 0.08、衣摆 0.1，游戏视距里和站着分不出来；现在前倾与拖摆都加倍，头抬起来看前方
+ */
 function glide(t) {
   const p = restPose();
-  p.hips.y = 0.012 * Math.sin((t / 700) * TAU) + 0.006;
-  p.spine.rx = 0.08;
-  p.head.rx = -0.04;
-  p.shoulderL.rx = 0.24; p.shoulderL.rz = 0.2;
-  p.shoulderR.rx = 0.24; p.shoulderR.rz = -0.2;
-  p.elbowL.rx = -0.18; p.elbowR.rx = -0.18;
-  p.skirt.rx = 0.1 + 0.02 * Math.sin((t / 260) * TAU);
-  p.skirt.sz = 1.05;
+  p.hips.y = 0.014 * Math.sin((t / 700) * TAU) + 0.02;
+  p.hips.z = -0.02;
+  p.spine.rx = 0.17;
+  p.head.rx = -0.12;
+  p.shoulderL.rx = 0.4; p.shoulderL.rz = 0.28;
+  p.shoulderR.rx = 0.4; p.shoulderR.rz = -0.28;
+  p.elbowL.rx = -0.22; p.elbowR.rx = -0.22;
+  p.skirt.rx = 0.24 + 0.03 * Math.sin((t / 260) * TAU);
+  p.skirt.sz = 1.1;
   return p;
 }
 
@@ -154,13 +190,14 @@ function work(t, style) {
       p.spine.rx = -0.05 * k;
       break;
     }
-    case 'haul': {  // 水手收缆：两手交替往回拉，身子后仰
+    case 'haul': {  // 水手收缆：两手交替往回拉，身子后仰；缆从右手往前斜下（手腕补正，缆的方向和地面对齐）
       const s = Math.sin(w(1100));
       p.shoulderL.rx = -1.15 + 0.45 * s; p.elbowL.rx = -0.6 - 0.5 * Math.max(0, s);
       p.shoulderR.rx = -1.15 - 0.45 * s; p.elbowR.rx = -0.6 - 0.5 * Math.max(0, -s);
       p.shoulderL.rz = -0.1; p.shoulderR.rz = 0.1;
       p.spine.rx = -0.12 + 0.05 * s;
       p.hips.z = -0.03;
+      p.handR.rx = upright(p, 'R');
       p.propR = 'rope';
       break;
     }
@@ -170,10 +207,11 @@ function work(t, style) {
       p.head.rx = 0.12; p.head.ry = -0.1;
       p.propR = 'brush'; p.propL = 'palette';
       break;
-    case 'announce':  // 传令官：右手立着权杖，左手扬起比划，头左右看
+    case 'announce':  // 传令官：右手立着权杖（手腕补正，杖是竖的），左手扬起比划，头左右看
       p.shoulderR.rx = -0.32; p.shoulderR.rz = -0.1; p.elbowR.rx = -1.25;
       p.shoulderL.rx = -1.35 + 0.28 * Math.sin(w(1400)); p.shoulderL.rz = 0.35; p.elbowL.rx = -0.55;
       p.head.ry = 0.3 * Math.sin(w(4000)); p.head.rx = -0.06;
+      p.handR.rx = upright(p, 'R');
       p.propR = 'staff';
       break;
     case 'shelve':  // 图书管理员：伸手把卷轴放上高处的格子
@@ -188,10 +226,11 @@ function work(t, style) {
       p.head.rx = 0.4;
       p.propL = 'abacus';
       break;
-    case 'survey':  // 测绘员：右手立着测杆，左手搭在额前远望，头慢慢扫视
+    case 'survey':  // 测绘员：右手立着测杆（手腕补正，杆是竖的、杖脚落地），左手搭在额前远望，头慢慢扫视
       p.shoulderR.rx = -0.3; p.shoulderR.rz = -0.12; p.elbowR.rx = -1.2;
       p.shoulderL.rx = -2.1; p.shoulderL.rz = 0.35; p.elbowL.rx = -2.0;
       p.head.ry = 0.45 * Math.sin(w(5200)); p.head.rx = -0.05;
+      p.handR.rx = upright(p, 'R');
       p.propR = 'rod';
       break;
     case 'carve': {  // 工匠：左手扶凿，右手持槌一下一下敲
@@ -251,13 +290,13 @@ function deliver(t, style) {
  * 某个动作在 t 毫秒时的姿势。
  * @param {'walk'|'idle'|'work'|'deliver'} action
  * @param {number} t 动作开始后过了多久（毫秒）
- * @param {{ variant?: string, duration?: number, glide?: boolean, stride?: number, speed?: number, period?: number, legSwing?: number, armSwing?: number }} [style]
+ * @param {{ variant?: string, duration?: number, glide?: boolean, stride?: number, speed?: number, period?: number, legSwing?: number, armSwing?: number, carry?: { side: 'L'|'R', grip: 'staff'|'hug', prop: string } | null }} [style]
  */
 export function poseAt(action, t, style = {}) {
   if (!Number.isFinite(t)) throw new TypeError('poses: t must be a finite number');
   switch (action) {
-    case 'walk': return style.glide ? glide(t) : walk(t, style);
-    case 'idle': return idle(t);
+    case 'walk': return style.glide ? glide(t) : applyCarry(walk(t, style), style.carry);
+    case 'idle': return applyCarry(idle(t), style.carry);
     case 'work': return work(t, style);
     case 'deliver': return deliver(t, style);
     default: throw new Error(`poses: unknown action '${action}'`);

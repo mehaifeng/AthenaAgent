@@ -25,19 +25,23 @@ export const RESIDENT_ROLES = Object.freeze({
   priestess: { work: 'tend', site: 'temple', spot: [2.0, 6.6], facing: -0.3 },
 });
 
-/** 人物参数（rig.buildFigure 吃的那一份）。cloth 是材质的名字或衣料深浅的档位，建骨架时换成材质。 */
+/**
+ * 人物参数（rig.buildFigure 吃的那一份）。cloth 是材质的名字或衣料深浅的档位，建骨架时换成材质。
+ * carry：走和停的时候拿在手里的家什（poses.mjs 的 CARRY_GRIPS）——远看认得出是谁，不只在做事的那几秒。
+ */
 export const CHARACTER_SPECS = Object.freeze({
-  athena: { height: 1.9, garment: 'peplos', cloth: 'cloth', hair: 'bun', headgear: 'fillet', glow: true, glides: true, props: ['scrollOpen', 'tablet', 'stylus', 'hammer', 'gift', 'sealed', 'scroll'] },
+  // 雅典娜做事的样子按工具类别（workVariantFor）：读、写、锻、召唤、收缆（取网页）——每样手里都有对应的东西，收缆也有一根缆
+  athena: { height: 1.9, garment: 'peplos', cloth: 'cloth', hair: 'bun', headgear: 'fillet', glow: true, glides: true, props: ['scrollOpen', 'tablet', 'stylus', 'hammer', 'gift', 'sealed', 'scroll', 'rope'] },
   player: { height: 1.75, garment: 'himation', cloth: 'playerCloth', hair: 'hidden', headgear: 'hood', props: [] },
-  surveyor: { height: 1.76, garment: 'himation', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasos', props: ['rod'] },
-  scribe: { height: 1.7, garment: 'chiton', cloth: 1, hair: 'short', headgear: 'headband', props: ['tablet', 'stylus', 'gift'] },
-  accountant: { height: 1.68, garment: 'himation', cloth: 2, hair: 'receding', beard: 'short', hairMat: 'greyHair', props: ['abacus'] },
+  surveyor: { height: 1.76, garment: 'himation', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasos', props: ['rod'], carry: { side: 'R', grip: 'staff', prop: 'rod' } },
+  scribe: { height: 1.7, garment: 'chiton', cloth: 1, hair: 'short', headgear: 'headband', props: ['tablet', 'stylus', 'gift'], carry: { side: 'L', grip: 'hug', prop: 'tablet' } },
+  accountant: { height: 1.68, garment: 'himation', cloth: 2, hair: 'receding', beard: 'short', hairMat: 'greyHair', props: ['abacus'], carry: { side: 'L', grip: 'hug', prop: 'abacus' } },
   smith: { height: 1.74, garment: 'exomis', cloth: 4, hair: 'short', beard: 'full', headgear: 'pilos', build: 1.12, apron: true, props: ['hammer'] },
   sailor: { height: 1.72, garment: 'exomis', cloth: 3, hair: 'short', beard: 'stubble', headgear: 'pilosTilted', props: ['rope'] },
-  librarian: { height: 1.66, garment: 'himation', cloth: 0, hair: 'receding', beard: 'long', hairMat: 'greyHair', props: ['scroll'] },
+  librarian: { height: 1.66, garment: 'himation', cloth: 0, hair: 'receding', beard: 'long', hairMat: 'greyHair', props: ['scroll'], carry: { side: 'R', grip: 'hug', prop: 'scroll' } },
   maiden: { height: 1.55, garment: 'peplos', cloth: 'maiden', hair: 'braids', headgear: 'diadem', gold: true, faceless: true, props: ['scrollOpen'] },
-  herald: { height: 1.78, garment: 'chlamys', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasosBack', props: ['staff'] },
-  painter: { height: 1.65, garment: 'chiton', cloth: 1, hair: 'bun', headgear: 'sakkos', props: ['brush', 'palette'] },
+  herald: { height: 1.78, garment: 'chlamys', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasosBack', props: ['staff'], carry: { side: 'R', grip: 'staff', prop: 'staff' } },
+  painter: { height: 1.65, garment: 'chiton', cloth: 1, hair: 'bun', headgear: 'sakkos', props: ['brush', 'palette'], carry: { side: 'L', grip: 'hug', prop: 'palette' } },
   artisan: { height: 1.73, garment: 'exomis', cloth: 3, hair: 'short', beard: 'full', headgear: 'headband', build: 1.08, apron: true, props: ['chisel', 'mallet'] },
   priestess: { height: 1.72, garment: 'peplos', cloth: 0, hair: 'bun', headgear: 'veil', props: ['phiale'] },
 });

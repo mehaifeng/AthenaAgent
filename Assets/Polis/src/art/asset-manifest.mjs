@@ -86,3 +86,16 @@ export function resolveSource(id, overrides, loads) {
   if (!load.ok) return { source: 'procedural', reason: load.reason ?? 'load failed' };
   return { source: 'external', reason: null };
 }
+
+/** "轮到你了"的两样东西：交付的红卷轴、等审批时手中石板的红封印（设计稿第 8 节）。 */
+export const ACCENT_PROPS = Object.freeze(['gift', 'sealed']);
+
+/**
+ * 外部人物此刻该浮出哪几样点缀色的东西：姿势让哪只手拿着它，它就出现——不管左手右手。
+ * 换了外部模型，人物没有手里的小件，但颜色的规则不能因此失效（第一版只看右手，而等审批的石板在左手：
+ * 换成外部模型的雅典娜等审批时，胸前的红封印从来不出现）。
+ * @param {{ propL?: string|null, propR?: string|null }} pose poses.poseAt 的结果
+ */
+export function accentPropsShown(pose) {
+  return ACCENT_PROPS.filter((name) => pose?.propR === name || pose?.propL === name);
+}

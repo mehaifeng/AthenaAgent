@@ -189,8 +189,9 @@ function headgear(spec, M) {
   const out = [];
   switch (spec.headgear) {
     case 'fillet': {
-      const t = new THREE.Mesh(new THREE.TorusGeometry(0.093, 0.004, 6, 40), M.gold);
-      t.rotation.x = Math.PI / 2 - 0.7; t.position.set(0, 0.03, -0.012);
+      // 发带贴着头发：头在发带那个高度的截面是椭圆（前后比左右深），环也压成椭圆，不再浮在头外一圈
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.086, 0.004, 6, 40), M.gold);
+      t.rotation.x = Math.PI / 2 - 0.7; t.scale.set(1, 1.12, 1); t.position.set(0, 0.03, -0.012);
       out.push(t);
       break;
     }
@@ -201,8 +202,9 @@ function headgear(spec, M) {
       break;
     }
     case 'headband': {
-      const t = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 6, 32), M.clothShades[1]);
-      t.rotation.x = Math.PI / 2 - 0.25; t.position.set(0, 0.04, 0);
+      // M2 美术审查：第一版的环比那个高度的头宽出一圈、管径 1.2 厘米，近看像一圈浮着的帽檐。改成细带、贴着头发
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.084, 0.006, 6, 32), M.clothShades[1]);
+      t.rotation.x = Math.PI / 2 - 0.25; t.scale.set(1, 1.15, 1); t.position.set(0, 0.045, -0.004);
       out.push(t);
       break;
     }
@@ -255,6 +257,9 @@ function headgear(spec, M) {
   return out;
 }
 
+/** 挂在左手上的小件（其余挂在右手）。 */
+export const LEFT_HAND_PROPS = Object.freeze(['tablet', 'palette', 'abacus', 'chisel', 'sealed']);
+
 /** 手里能拿的小件：按名字建好、挂在手上，姿势里点到名字的才显示。 */
 function buildProp(name, M, accentGift) {
   const g = new THREE.Group();
@@ -286,20 +291,26 @@ function buildProp(name, M, accentGift) {
       add(new THREE.CylinderGeometry(0.008, 0.012, 0.2, 6), M.bronze, [0, 0.02, 0.06], [1.2, 0, 0]);
       break;
     case 'staff': {
-      // 传令官的权杖：一根长杖，杖头两条相对的蛇（两个小环）
-      add(new THREE.CylinderGeometry(0.013, 0.015, 1.5, 8), M.wood, [0, 0.38, 0.02]);
-      for (const sx of [-1, 1]) add(new THREE.TorusGeometry(0.04, 0.008, 6, 14), M.gold, [sx * 0.03, 1.16, 0.02], [0, 0, 0]);
+      // 传令官的权杖（kerykeion）：举着的短杖，杖头两条相对的蛇（两个小环）。握在杖身下三分之一处；
+      // 姿势里手腕补回前臂的角度（poses.mjs 的 upright），杖才是竖的
+      add(new THREE.CylinderGeometry(0.014, 0.016, 1.1, 8), M.wood, [0, 0.22, 0.02]);
+      for (const sx of [-1, 1]) add(new THREE.TorusGeometry(0.042, 0.009, 6, 14), M.gold, [sx * 0.032, 0.8, 0.02], [0, 0, 0]);
       break;
     }
     case 'rod':
-      // 测绘员的测杆：2 米多长，一节一节的刻度
-      add(new THREE.CylinderGeometry(0.014, 0.016, 2.2, 8), M.wood, [0, 0.5, 0.02]);
-      for (let k = 0; k < 6; k++) add(new THREE.CylinderGeometry(0.019, 0.019, 0.04, 8), M.dark, [0, -0.3 + k * 0.32, 0.02]);
+      // 测绘员的测杆：2.2 米长，一节一节的刻度。握在胸口的高度，杖脚落在地上（手腕补回前臂的角度，杆是竖的）
+      add(new THREE.CylinderGeometry(0.015, 0.017, 2.2, 8), M.wood, [0, -0.1, 0.02]);
+      for (let k = 0; k < 6; k++) add(new THREE.CylinderGeometry(0.021, 0.021, 0.05, 8), M.dark, [0, -0.95 + k * 0.34, 0.02]);
       break;
-    case 'rope':
-      add(new THREE.TorusGeometry(0.09, 0.016, 6, 20), M.awning, [0, -0.02, 0.05], [Math.PI / 2, 0, 0]);
-      add(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), M.awning, [0, -0.1, 0.42], [Math.PI / 2 - 0.3, 0, 0]);
+    case 'rope': {
+      // 收缆：一段缆从手里往前斜下到船上，一段从手里垂到身后的地上（姿势里手腕补正，手的坐标和地面对齐）。
+      // 第一版是一根从手里平伸出去的直杆，远看是一根长矛
+      const ahead = [0, -0.5, 0.866], behind = [0, -0.8, -0.6];
+      add(new THREE.CylinderGeometry(0.018, 0.018, 1.4, 6), M.awning, ahead.map((v) => v * 0.7), [Math.atan2(ahead[2], ahead[1]), 0, 0]);
+      add(new THREE.CylinderGeometry(0.018, 0.018, 1.6, 6), M.awning, behind.map((v) => v * 0.8), [Math.atan2(behind[2], behind[1]), 0, 0]);
+      add(new THREE.TorusGeometry(0.03, 0.016, 6, 12), M.awning, [0, 0, 0.01], [0, 0, 0]);
       break;
+    }
     case 'brush':
       add(new THREE.CylinderGeometry(0.006, 0.008, 0.22, 6), M.wood, [0, 0.04, 0.04], [0.5, 0, 0]);
       break;
@@ -325,12 +336,14 @@ function buildProp(name, M, accentGift) {
       break;
     }
     case 'sealed': {
+      // 等审批：手中石板捆着一道红绳、压着一枚红封印——"轮到你了"。石板捧在胸前时是竖着的，
+      // 红绳与封印穿过板子、两面都露出来：第一版的封印只在一面，正好贴着她的胸口，游戏视距里看不见红
       add(new THREE.BoxGeometry(0.26, 0.02, 0.18), M.wood, [0, 0, 0.06]);
-      const seal = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.025, 18), M.accent);
-      seal.position.set(0, 0.022, 0.06);
-      seal.castShadow = true;
-      seal.userData.accent = true;   // 等审批：手中石板的封印是红色的——"轮到你了"
-      g.add(seal);
+      const cord = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.03, 0.188), M.accent);
+      cord.position.set(0, 0, 0.06);
+      const seal = new THREE.Mesh(new THREE.CylinderGeometry(0.066, 0.066, 0.05, 18), M.accent);
+      seal.position.set(0, 0, 0.06);
+      for (const m of [cord, seal]) { m.castShadow = true; m.userData.accent = true; g.add(m); }
       break;
     }
     default:
@@ -374,26 +387,33 @@ export function buildFigure(M, spec) {
   J.kneeL = joint(J.legL, 0, -0.44, 0);
   J.kneeR = joint(J.legR, 0, -0.44, 0);
   const legMat = spec.gold ? M.maiden : M.skin;
+  // 长衣（到脚踝）里看不见腿：只建脚。M2 美术审查：走路时屈膝的小腿会从衣摆前面戳出来一截肉色
+  const longGarment = !['exomis', 'chlamys'].includes(spec.garment);
   for (const [leg, knee] of [[J.legL, J.kneeL], [J.legR, J.kneeR]]) {
-    leg.add(mesh(limbGeometry([0, 0, 0], [0, -0.44, 0.0], 0.062 * b), legMat));
-    knee.add(mesh(limbGeometry([0, 0, 0], [0, -0.4, -0.01], 0.048 * b), legMat));
-    knee.add(mesh(blobGeometry([0, -0.455, 0.05], [0.042, 0.03, 0.1]), spec.gold ? M.maiden : M.leather));
+    if (!longGarment) {
+      leg.add(mesh(limbGeometry([0, 0, 0], [0, -0.44, 0.0], 0.062 * b), legMat));
+      knee.add(mesh(limbGeometry([0, 0, 0], [0, -0.4, -0.01], 0.048 * b), legMat));
+    }
+    // 脚：滑行的神不迈步，也就不露脚（衣摆向后拖时，两只深色的鞋会从衣摆前面露成两个黑点）
+    if (!spec.glides) knee.add(mesh(blobGeometry([0, -0.455, 0.05], [0.042, 0.03, 0.1]), spec.gold ? M.maiden : M.leather));
   }
   J.skirt = joint(J.hips, 0, 0, 0);
   J.skirt.add(mesh(lowerGarment(spec), cloth));
+  if (spec.apron) {
+    // 铁匠、工匠的皮围裙：从腰带垂到膝上、顺着身体弯过来的一片浅色鞣皮，挂在下摆上，走路时跟着下摆一起晃。
+    // 第一版是挂在胸前的一块平板、用深皮，去色后是一块纯黑的长方形
+    const apron = new THREE.CylinderGeometry(0.2 * b, 0.27 * b, 0.6, 18, 4, true, -1.0, 2.0);
+    apron.scale(1, 1, 0.74);
+    apron.translate(0, 0.8 - 0.95, 0);
+    J.skirt.add(mesh(apron, M.hide));
+  }
 
   J.spine = joint(J.hips, 0, 0.03, 0);
   J.spine.add(mesh(upperGarment(spec), cloth));
-  if (spec.apron) {
-    // 铁匠、工匠的皮围裙：一块垂在身前的皮
-    const apron = mesh(new THREE.BoxGeometry(0.3 * b, 0.55, 0.02), M.leather);
-    apron.position.set(0, 0.0, 0.16 * b);
-    apron.rotation.x = -0.08;
-    J.spine.add(apron);
-  }
   const skinTorso = [
     ...[-1, 1].map((sx) => blobGeometry([sx * 0.168 * b, 1.432 - 0.98, 0], [0.04, 0.042, 0.042])),
-    limbGeometry([0, 1.47 - 0.98, 0.0], [0, 1.6 - 0.98, 0.015], 0.042),
+    // 脖子：第一版 4.2 厘米，在宽大的上衣上面细得像一根杆
+    limbGeometry([0, 1.47 - 0.98, 0.0], [0, 1.6 - 0.98, 0.015], 0.047),
   ];
   J.spine.add(mesh(merge(skinTorso), skin));
 
@@ -407,8 +427,11 @@ export function buildFigure(M, spec) {
   J.head.rotation.x = 0.06;
   // 头发
   if (spec.hair !== 'hidden' && spec.hair !== 'bald') {
-    const hair = mesh(sculptHair(spec.hair === 'short' || spec.hair === 'receding' ? 'short' : 'cap'), hairMat);
-    hair.scale.set(0.087, 0.113, 0.1); hair.position.set(0, 0.008, -0.01); hair.rotation.x = spec.hair === 'receding' ? -1.4 : -0.95;
+    const kind = spec.hair === 'short' || spec.hair === 'receding' ? 'short' : 'cap';
+    const hair = mesh(sculptHair(kind), hairMat);
+    // 发际线：发罩往后转。M2 美术审查：长发（发髻、辫子）的发罩第一版压到眉毛上，近看是一顶帽子
+    hair.scale.set(0.087, 0.113, 0.1); hair.position.set(0, 0.008, -0.01);
+    hair.rotation.x = spec.hair === 'receding' ? -1.4 : kind === 'cap' ? -1.15 : -0.98;
     J.head.add(hair);
   }
   if (spec.hair === 'bun' || spec.hair === 'braids') {
@@ -442,10 +465,18 @@ export function buildFigure(M, spec) {
   // 手里的东西：每样建一份挂在手上，按姿势显隐
   const props = new Map();
   for (const name of spec.props ?? []) {
-    const p = buildProp(name, M, spec.accentGift !== false);
-    const hand = ['tablet', 'palette', 'abacus', 'chisel', 'sealed'].includes(name) ? J.handL : J.handR;
+    // 交付的卷轴只有雅典娜的那一卷是点缀色（她把成果交到你手上——"轮到你了"）；居民手里的卷轴永远是纸色。
+    // M2 美术审查：第一版抄写员的交付动作里也是一卷红色的卷轴
+    const p = buildProp(name, M, spec.accentGift ?? spec.id === 'athena');
+    const hand = LEFT_HAND_PROPS.includes(name) ? J.handL : J.handR;
     hand.add(p);
     props.set(name, p);
+  }
+  if (spec.carry) {
+    // 走和停时拿着的家什必须真的挂在那只手上：否则姿势抬起了一只空手，另一只手里的东西又不显示
+    const { prop, side } = spec.carry;
+    if (!props.has(prop)) throw new Error(`rig: '${spec.id}' carries '${prop}' but has no such prop`);
+    if ((side === 'L') !== LEFT_HAND_PROPS.includes(prop)) throw new Error(`rig: '${spec.id}' carries '${prop}' in the wrong hand`);
   }
 
   if (spec.glow) root.traverse((o) => { if (o.isMesh) o.userData.athena = true; });
@@ -482,10 +513,17 @@ export function buildFigure(M, spec) {
     props,
     spec,
     apply,
-    /** 摆一个动作在 t 毫秒时的姿势（长衣的人腿摆得小，免得膝盖从衣摆里戳出来）。 */
+    /**
+     * 摆一个动作在 t 毫秒时的姿势（长衣的人腿摆得小，免得脚从衣摆里踢出来）。走和停的时候，居民手里拿着
+     * 他那一行的家什（spec.carry）——测杆、权杖、石板远看认得出是谁，不只在做事的那几秒出现。
+     */
     pose(action, t, style = {}) {
-      const long = !['exomis', 'chlamys'].includes(spec.garment);
-      apply(poseAt(action, t, { legSwing: long ? 0.24 : 0.42, ...style, glide: style.glide ?? (action === 'walk' && spec.glides) }));
+      apply(poseAt(action, t, {
+        legSwing: longGarment ? 0.24 : 0.42,
+        carry: spec.carry ?? null,
+        ...style,
+        glide: style.glide ?? (action === 'walk' && spec.glides),
+      }));
     },
   };
 }

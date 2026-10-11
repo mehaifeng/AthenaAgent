@@ -6,7 +6,7 @@
 // 外部模型到之前一律先用程序化的，城不等模型。格式见 Docs/GameMode_AssetManifest_CN.md。
 import * as THREE from '../../vendor/three.bundle.mjs';
 import { GLTFLoader, cloneSkinned } from '../../vendor/three.bundle.mjs';
-import { planOverrides, resolveSource, clipFor, modelUrl } from './asset-manifest.mjs';
+import { planOverrides, resolveSource, clipFor, modelUrl, accentPropsShown, ACCENT_PROPS } from './asset-manifest.mjs';
 import { BUILDINGS } from './buildings.mjs';
 import * as civic from './civic.mjs';
 import * as props from './props.mjs';
@@ -165,9 +165,11 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     wrapper.userData.headTop = new THREE.Vector3(0, H + 0.05, 0);
     wrapper.userData.height = H;
     const accentProps = {};
-    for (const name of ['gift', 'sealed']) {
-      const p = new THREE.Mesh(name === 'gift' ? new THREE.CylinderGeometry(0.05, 0.05, 0.36, 14) : new THREE.CylinderGeometry(0.06, 0.06, 0.03, 18), M.accent);
+    for (const name of ACCENT_PROPS) {
+      // 封印是一颗扁圆的珠子：从哪个角度看都是一块红，不像一张平放的圆片那样被俯视压扁
+      const p = new THREE.Mesh(name === 'gift' ? new THREE.CylinderGeometry(0.05, 0.05, 0.36, 14) : new THREE.SphereGeometry(0.075, 18, 12), M.accent);
       if (name === 'gift') p.rotation.z = Math.PI / 2;
+      else p.scale.set(1, 0.6, 1);
       p.position.set(0, H * 0.55, 0.32);
       p.userData.accent = true;
       p.visible = false;
@@ -200,8 +202,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
           current.time = clip.duration > 0 ? ((t / 1000) % clip.duration) : 0;
           mixer.update(0);
         }
-        const p = poseAt(action === 'walk' ? 'idle' : action, t, style);
-        for (const [n, mesh] of Object.entries(accentProps)) mesh.visible = p.propR === n || (n === 'sealed' && style.sealed === true);
+        const shown = accentPropsShown(poseAt(action === 'walk' ? 'idle' : action, t, style));
+        for (const [n, mesh] of Object.entries(accentProps)) mesh.visible = shown.includes(n);
       },
     };
   }

@@ -3,13 +3,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS, WORK_VARIANTS, JOINT_NAMES, poseAt, blendPoses, restPose, walkPeriod, LIMITS } from '../../../../Assets/Polis/src/art/poses.mjs';
-import { planOverrides, resolveSource, clipFor, modelUrl, isAssetId, MODEL_ROUTE } from '../../../../Assets/Polis/src/art/asset-manifest.mjs';
-import { bust, toSvg, CHARACTERS, EXPRESSIONS, BUST_VIEWBOX } from '../../../../Assets/Polis/src/art/busts.mjs';
+import { planOverrides, resolveSource, clipFor, modelUrl, isAssetId, MODEL_ROUTE, accentPropsShown, ACCENT_PROPS } from '../../../../Assets/Polis/src/art/asset-manifest.mjs';
+import { bust, toSvg, CHARACTERS, EXPRESSIONS, BUST_VIEWBOX, CURLS, CURL_BOX, crownPolygon } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
   venueSlotLocal, venueStandLocal, groveSpot, groveTerraces, islandLayout, chartTransform, hitIsland,
   SLOTS_PER_VENUE, TREES_PER_TERRACE, PLOT_SIZE, TERRACE,
 } from '../../../../Assets/Polis/src/civic-layout.mjs';
 import { intent, INTENT_TYPES } from '../../../../Assets/Polis/src/live.mjs';
+import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
+import { buildCharacter, CHARACTER_IDS, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';
+
+/** 材质的替身：人物只要按名字拿到一份材质（Node 里没有画布，真材质的贴图建不出来）。 */
+function stubMaterials() {
+  const cache = new Map();
+  return new Proxy({}, {
+    get: (_, key) => {
+      if (typeof key !== 'string') return undefined;
+      if (!cache.has(key)) {
+        cache.set(key, key.endsWith('Shades')
+          ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
+          : new THREE.MeshStandardMaterial({ name: key }));
+      }
+      return cache.get(key);
+    },
+  });
+}
 
 const angles = (pose) => JOINT_NAMES.flatMap((j) => Object.entries(pose[j]).filter(([k]) => k !== 'sz' && !['x', 'y', 'z'].includes(k)).map(([, v]) => v));
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
@@ -56,6 +74,8 @@ test('poses: Athena glides — no stepping legs, robe trailing back', () => {
     assert.equal(p.legL.rx, 0); assert.equal(p.legR.rx, 0);
     assert.ok(p.skirt.rx > 0, 'the hem trails behind her');
     assert.ok(p.spine.rx > 0, 'she leans into the motion');
+    // M2 美术审查：前倾 0.08、拖摆 0.1 在游戏视距里和站着分不出来
+    assert.ok(p.spine.rx >= 0.15 && p.skirt.rx >= 0.2, `the lean and the trailing hem read at game distance (t=${t})`);
   }
 });
 
@@ -97,6 +117,76 @@ test('poses: blending is exact at the ends and switches the held tool halfway', 
     assert.ok(near(at0[j][k], a[j][k]) && near(at1[j][k], b[j][k]), `${j}.${k}`);
   }
   assert.equal(at0.propL, null); assert.equal(mid.propL, 'tablet');
+});
+
+test('poses: residents carry their tools while walking and standing; long staves stay upright', () => {
+  // 手的坐标轴在 x 上转过的总角度（脊柱 + 肩 + 肘 + 腕）：0 就是竖直，握着的杖是竖的
+  const tilt = (p, side) => p.spine.rx + p[`shoulder${side}`].rx + p[`elbow${side}`].rx + p[`hand${side}`].rx;
+  const staff = { side: 'R', grip: 'staff', prop: 'rod' };
+  for (let t = 0; t < 4000; t += 50) {
+    for (const action of ['idle', 'walk']) {
+      const p = poseAt(action, t, { carry: staff, stride: 1.3, speed: 1.3 });
+      assert.equal(p.propR, 'rod', `${action} t=${t}: the rod is in hand`);
+      assert.ok(Math.abs(tilt(p, 'R')) < 1e-9, `${action} t=${t}: the rod stands upright`);
+      for (const a of angles(p)) assert.ok(Math.abs(a) <= LIMITS.angle, `${action} t=${t}: angle ${a}`);
+    }
+  }
+  const w0 = poseAt('walk', 500, { carry: staff }), w1 = poseAt('walk', 1500, { carry: staff });
+  assert.equal(w0.shoulderR.rx, w1.shoulderR.rx, 'the staff arm does not swing with the steps');
+  assert.notEqual(w0.shoulderL.rx, w1.shoulderL.rx, 'the free arm still swings');
+  const hug = poseAt('walk', 700, { carry: { side: 'L', grip: 'hug', prop: 'tablet' } });
+  assert.equal(hug.propL, 'tablet');
+  assert.ok(hug.elbowL.rx < -1.2, 'the tablet is held against the chest');
+  // 做事时立着的权杖、测杆，收缆时的缆：手腕同样补正（第一版的杖随前臂倒向一边）
+  for (const v of ['announce', 'survey', 'haul']) {
+    for (let t = 0; t < 3000; t += 70) assert.ok(Math.abs(tilt(poseAt('work', t, { variant: v }), 'R')) < 1e-9, `${v} t=${t}: the hand frame stays level`);
+  }
+  assert.equal(poseAt('idle', 0, { carry: null }).propR, null, 'no carry, empty hands');
+  assert.equal(poseAt('work', 300, { variant: 'write', carry: staff }).propR, 'stylus', 'work poses have their own tools');
+  assert.equal(poseAt('deliver', 300, { duration: 1800, carry: staff }).propR, 'gift', 'delivering puts the tool away');
+  assert.throws(() => poseAt('idle', 0, { carry: { side: 'R', grip: 'juggle', prop: 'rod' } }), /unknown carry grip/);
+});
+
+test('figures: only Athena carries the accent color; carried tools hang on the hand that carries them; robes hide legs', () => {
+  const M = stubMaterials();
+  for (const id of CHARACTER_IDS) {
+    const f = buildCharacter(M, id);
+    const red = [], flagged = [];
+    f.root.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.material?.name === 'accent') red.push(o);
+      if (o.userData.accent) flagged.push(o);
+    });
+    assert.deepEqual(red, flagged, `${id}: every red mesh is flagged for the grade's accent mask, and nothing else is`);
+    if (id === 'athena') {
+      // 交付的红卷轴、等审批时石板上的红绳与封印
+      assert.ok(red.length >= 3, 'Athena: the gift and the sealed tablet are red');
+      assert.ok([...f.props.get('gift').children, ...f.props.get('sealed').children].some((m) => m.userData.accent));
+    } else {
+      // M2 美术审查：第一版抄写员交付时手里也是一卷红色的卷轴
+      assert.equal(red.length, 0, `${id}: no accent color — the terracotta red means "your turn", and only Athena hands you things`);
+    }
+    // 长衣（到脚踝）里不建腿；滑行的雅典娜连脚也不露
+    const long = !['exomis', 'chlamys'].includes(CHARACTER_SPECS[id].garment);
+    const legMeshes = f.joints.legL.children.filter((c) => c.isMesh).length + f.joints.kneeL.children.filter((c) => c.isMesh).length;
+    const expected = long ? (CHARACTER_SPECS[id].glides ? 0 : 1) : 3;
+    assert.equal(legMeshes, expected, `${id}: ${long ? 'a long robe shows no legs' : 'a short tunic shows thigh, shin and foot'}`);
+    const carry = CHARACTER_SPECS[id].carry;
+    if (carry) assert.equal(f.props.get(carry.prop).parent, f.joints[`hand${carry.side}`], `${id}: the ${carry.prop} hangs on the ${carry.side} hand`);
+  }
+  assert.throws(() => buildCharacter(M, 'surveyor', { carry: { side: 'L', grip: 'staff', prop: 'rod' } }), /wrong hand/);
+  assert.throws(() => buildCharacter(M, 'smith', { carry: { side: 'R', grip: 'staff', prop: 'rod' } }), /no such prop/);
+});
+
+test('asset manifest: an external figure still shows the "your turn" props, whichever hand holds them', () => {
+  assert.deepEqual([...ACCENT_PROPS], ['gift', 'sealed']);
+  // 等审批的石板在左手：第一版只看右手，换成外部模型的雅典娜等审批时，胸前的红封印从来不出现
+  assert.deepEqual(accentPropsShown(poseAt('work', 800, { variant: 'await' })), ['sealed'], 'waiting for approval: the red seal');
+  assert.deepEqual(accentPropsShown(poseAt('deliver', 300, { duration: 1800 })), ['gift'], 'delivering: the red scroll');
+  assert.deepEqual(accentPropsShown(poseAt('deliver', 1500, { duration: 1800 })), [], 'set down: nothing floats any more');
+  assert.deepEqual(accentPropsShown(poseAt('work', 800, { variant: 'write' })), [], 'ordinary tools are not accents');
+  assert.deepEqual(accentPropsShown(poseAt('idle', 0)), []);
+  assert.deepEqual(accentPropsShown(null), []);
 });
 
 test('asset manifest: unknown ids, bad entries and failed loads all fall back to the procedural asset', () => {
@@ -153,6 +243,81 @@ test('busts: every character has the three expressions, deterministic, inside th
   assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"') && svg.includes(`viewBox="0 0 ${BUST_VIEWBOX.width} ${BUST_VIEWBOX.height}"`));
   assert.ok(!/<script|on\w+=/i.test(svg), 'the exported SVG is drawing only');
   assert.throws(() => bust('zeus'), /unknown character/);
+});
+
+/** 把半身像的一条路径采样成点（M/L/C/Q/Z 与相对的 m/l/c/a；弧线只取外接的两角，偏保守）。 */
+function pathPoints(d) {
+  const tok = d.trim().split(/\s+/);
+  const pts = [];
+  let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cmd = null;
+  const num = () => Number(tok[i++]);
+  const cubic = (x0, y0, x1, y1, x2, y2, x3, y3) => {
+    for (let k = 1; k <= 16; k++) {
+      const t = k / 16, u = 1 - t;
+      pts.push([u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3]);
+    }
+  };
+  while (i < tok.length) {
+    if (/^[A-Za-z]$/.test(tok[i])) cmd = tok[i++];
+    switch (cmd) {
+      case 'M': cx = num(); cy = num(); sx = cx; sy = cy; pts.push([cx, cy]); cmd = 'L'; break;
+      case 'm': cx += num(); cy += num(); sx = cx; sy = cy; pts.push([cx, cy]); cmd = 'l'; break;
+      case 'L': cx = num(); cy = num(); pts.push([cx, cy]); break;
+      case 'l': cx += num(); cy += num(); pts.push([cx, cy]); break;
+      case 'C': case 'c': {
+        const v = [num(), num(), num(), num(), num(), num()];
+        if (cmd === 'c') for (let k = 0; k < 6; k += 2) { v[k] += cx; v[k + 1] += cy; }
+        cubic(cx, cy, ...v); cx = v[4]; cy = v[5];
+        break;
+      }
+      case 'Q': {
+        const [x1, y1, x2, y2] = [num(), num(), num(), num()];
+        cubic(cx, cy, cx + (2 / 3) * (x1 - cx), cy + (2 / 3) * (y1 - cy), x2 + (2 / 3) * (x1 - x2), y2 + (2 / 3) * (y1 - y2), x2, y2);
+        cx = x2; cy = y2;
+        break;
+      }
+      case 'a': {
+        const rx = num(), ry = num(); num(); num(); num();
+        const dx = num(), dy = num();
+        pts.push([Math.min(cx, cx + dx) - rx, Math.min(cy, cy + dy) - ry], [Math.max(cx, cx + dx) + rx, Math.max(cy, cy + dy) + ry]);
+        cx += dx; cy += dy;
+        break;
+      }
+      case 'Z': case 'z': cx = sx; cy = sy; break;
+      default: throw new Error(`unexpected path command '${cmd}' in ${d}`);
+    }
+  }
+  return pts;
+}
+
+test('busts: curls sit inside the hair, and nothing but the meander reaches into the frieze band', () => {
+  const poly = crownPolygon();
+  const inside = (x, y) => {
+    let c = false;
+    for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) {
+      const [xa, ya] = poly[a], [xb, yb] = poly[b];
+      if ((ya > y) !== (yb > y) && x < xa + ((y - ya) * (xb - xa)) / (yb - ya)) c = !c;
+    }
+    return c;
+  };
+  // M2 美术审查：第一版按方格排卷，靠前的一列落在额头和太阳穴上
+  for (const [x, y] of CURLS) {
+    for (const [dx, dy] of [[CURL_BOX.dx0, CURL_BOX.dy0], [CURL_BOX.dx1, CURL_BOX.dy0], [CURL_BOX.dx0, CURL_BOX.dy1], [CURL_BOX.dx1, CURL_BOX.dy1]]) {
+      assert.ok(inside(x + dx, y + dy), `the curl at (${x}, ${y}) stays in the hair`);
+    }
+  }
+  // 画框顶上的回纹带在 y 11–19、下面一道线在 22；画框之内的一切（头饰、手里的长家什）都在 23 以下、两边的框之内。
+  // 第一版水手的尖帽顶到了 12，传令官背后的帽檐伸到 x=4
+  for (const c of Object.keys(CHARACTERS)) {
+    for (const e of EXPRESSIONS) {
+      for (const p of bust(c, e).paths.slice(4)) {
+        for (const [x, y] of pathPoints(p.d)) {
+          assert.ok(y >= 23, `${c}/${e}: ${p.d.slice(0, 40)}… reaches y=${y.toFixed(1)}, into the frieze`);
+          assert.ok(x >= 4 && x <= 116, `${c}/${e}: ${p.d.slice(0, 40)}… reaches x=${x.toFixed(1)}, onto the frame`);
+        }
+      }
+    }
+  }
 });
 
 test('venues: twelve pedestals in two rows on the terrace, the stand in the aisle between them', () => {

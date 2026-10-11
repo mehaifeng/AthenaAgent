@@ -31,6 +31,45 @@ export const CHARACTERS = Object.freeze({
 });
 
 const f1 = (n) => Math.round(n * 10) / 10;
+
+/** 头发的发区（多数发式共用）：从额前发际线翻过头顶、沿后脑垂到颈后，再沿鬓角回到额前。 */
+const CROWN = Object.freeze([
+  [72, 42],
+  ['C', 66, 30, 50, 27, 42, 36], ['C', 35, 44, 36, 60, 40, 72], ['C', 42, 79, 44, 84, 46, 88],
+  ['L', 54, 85],
+  ['C', 52, 78, 52, 70, 56, 62], ['C', 60, 54, 66, 48, 72, 42],
+]);
+const crownPath = () => path('M', ...CROWN[0], ...CROWN.slice(1).flat(), 'Z');
+
+/** 发区轮廓采样成的多边形（测试用它核对卷发的小卷都落在头发里，不落在脸上）。 */
+export function crownPolygon(steps = 24) {
+  const pts = [CROWN[0]];
+  let cur = CROWN[0];
+  for (const [cmd, ...v] of CROWN.slice(1)) {
+    if (cmd === 'L') { cur = [v[0], v[1]]; pts.push(cur); continue; }
+    const [x1, y1, x2, y2, x3, y3] = v;
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps, u = 1 - t;
+      pts.push([
+        u * u * u * cur[0] + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+        u * u * u * cur[1] + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+      ]);
+    }
+    cur = [x3, y3];
+  }
+  return pts;
+}
+
+/** 卷发的一个小卷相对起点占的范围（下面 'curly' 里那条路径的外接框）。 */
+export const CURL_BOX = Object.freeze({ dx0: 0, dx1: 5.2, dy0: -1.6, dy1: 2.7 });
+/** 卷发的小卷（起点）：每一个都整个落在发区之内，测试逐个核对。 */
+export const CURLS = Object.freeze([
+  [47, 36], [55, 34.5], [62, 38],
+  [41, 45], [50, 44], [58, 45],
+  [39, 55], [47, 54], [53, 52],
+  [41, 64], [49, 63],
+  [44, 73], [47, 81],
+]);
 /** 把 [命令, 坐标…] 的列表拼成 SVG 路径（坐标保留一位小数，结果稳定可比）。 */
 function path(...parts) {
   return parts.map((p) => (typeof p === 'number' ? f1(p) : p)).join(' ');
@@ -149,7 +188,7 @@ export function bust(character, expression = 'neutral') {
   ink(path('M', 57.4, 67.2, 'C', 55.6, 68.6, 55.8, 73, 57.2, 75.4), 0.6, { opacity: 0.75 });
 
   // —— 头发 ——
-  const crown = path('M', 72, 42, 'C', 66, 30, 50, 27, 42, 36, 'C', 35, 44, 36, 60, 40, 72, 'C', 42, 79, 44, 84, 46, 88, 'L', 54, 85, 'C', 52, 78, 52, 70, 56, 62, 'C', 60, 54, 66, 48, 72, 42, 'Z');
+  const crown = crownPath();
   switch (c.hair) {
     case 'bun':
     case 'braids':
@@ -178,13 +217,17 @@ export function bust(character, expression = 'neutral') {
       for (let k = 0; k < 4; k++) ink(path('M', 48 + k * 5, 40 + k * 1.2, 'C', 46 + k * 4, 46, 44 + k * 3, 54, 44 + k * 2, 62 + k * 3), 0.5, { opacity: 0.7 });
       break;
     }
-    case 'curly':
+    case 'curly': {
+      // 一个个小卷排在发区里面。M2 美术审查：第一版按方格排，靠前的一列落在额头和太阳穴的皮肤上；
+      // 现在每个卷的位置都落在 crown 的轮廓之内（一个卷宽 5.2、高 4.1）。戴尖毡帽的人，帽子盖住的那几个不画
+      const capped = c.headgear === 'pilos' || c.headgear === 'pilosTilted';
       wash(crown, 0.85);
-      for (let k = 0; k < 9; k++) {
-        const x = 44 + (k % 3) * 9, y = 36 + Math.floor(k / 3) * 12;
+      for (const [x, y] of CURLS) {
+        if (capped && y < 48) continue;
         ink(path('M', x, y, 'c', 2.4, -2.2, 5.2, -0.8, 4.6, 1.8, 'c', -0.6, 2.4, -3.6, 2.6, -4.6, 0.6), 0.6, { opacity: 0.85 });
       }
       break;
+    }
     case 'sakkos':
       // 包在发网（sakkos）里的头发：一个向后垂的布袋
       wash(path('M', 72, 42, 'C', 64, 28, 44, 26, 36, 40, 'C', 28, 52, 30, 70, 38, 80, 'C', 42, 84, 46, 86, 50, 86, 'L', 54, 84, 'C', 52, 74, 53, 64, 57, 58, 'C', 61, 52, 66, 46, 72, 42, 'Z'), 0.35);
@@ -228,22 +271,29 @@ export function bust(character, expression = 'neutral') {
       ink(path('M', 71.6, 44, 'C', 64, 38, 50, 38, 40, 48), 1.8);
       break;
     case 'petasos':
-    case 'petasosBack': {
-      // 宽檐旅人帽；传令官的挂在脑后
-      const back = c.headgear === 'petasosBack';
-      const dy = back ? 34 : 0, dx = back ? -22 : 0;
-      wash(path('M', 36 + dx, 40 + dy, 'C', 44 + dx, 22 + dy, 66 + dx, 22 + dy, 74 + dx, 38 + dy, 'Z'), 0.3);
-      ink(path('M', 36 + dx, 40 + dy, 'C', 44 + dx, 22 + dy, 66 + dx, 22 + dy, 74 + dx, 38 + dy), 1.0);
-      ink(path('M', 26 + dx, 42 + dy, 'C', 44 + dx, 34 + dy, 70 + dx, 33 + dy, 86 + dx, 38 + dy), 1.4);
-      if (back) ink(path('M', 52, 74, 'C', 60, 90, 70, 100, 76, 104), 0.6, { opacity: 0.7 }); // 帽带
+      // 宽檐旅人帽
+      wash(path('M', 36, 40, 'C', 44, 22, 66, 22, 74, 38, 'Z'), 0.3);
+      ink(path('M', 36, 40, 'C', 44, 22, 66, 22, 74, 38), 1.0);
+      ink(path('M', 26, 42, 'C', 44, 34, 70, 33, 86, 38), 1.4);
       break;
-    }
+    case 'petasosBack':
+      // 传令官：帽子用带子挂在背后，侧面看是颈后一只竖着的帽檐、帽顶朝后，帽带绕过喉前。
+      // M2 美术审查：第一版把帽子整个平移到脑后，帽檐那道线正好横穿耳朵和脸颊
+      wash(path('M', 30, 88, 'C', 18, 90, 17, 110, 30, 113, 'Z'), 0.3);
+      ink(path('M', 30, 88, 'C', 18, 90, 17, 110, 30, 113), 1.0);
+      wash(path('M', 33, 80, 'C', 41, 81, 41, 120, 33, 121, 'C', 26, 120, 26, 81, 33, 80, 'Z'), 0.22);
+      ink(path('M', 33, 80, 'C', 41, 81, 41, 120, 33, 121, 'C', 26, 120, 26, 81, 33, 80, 'Z'), 1.3);
+      ink(path('M', 38, 86, 'C', 52, 99, 64, 104, 77, 105), 0.7, { opacity: 0.8 }); // 帽带
+      break;
     case 'pilos':
     case 'pilosTilted': {
-      // 圆锥形的毡帽（pilos）：铁匠、水手
+      // 圆锥形的毡帽（pilos）：铁匠、水手；水手的帽尖歪向前。帽尖不高过 y=25：
+      // 第一版的帽尖到了 12–20，戳进顶上的回纹带（回纹在 11–19，下面一道线在 22）
       const tilt = c.headgear === 'pilosTilted' ? 6 : 0;
-      wash(path('M', 38, 46, 'C', 42, 30 - tilt, 54, 18 - tilt, 60 + tilt, 20 - tilt, 'C', 68 + tilt, 24, 74, 34, 74, 44, 'C', 62, 40, 48, 41, 38, 46, 'Z'), 0.55);
-      ink(path('M', 38, 46, 'C', 42, 30 - tilt, 54, 18 - tilt, 60 + tilt, 20 - tilt, 'C', 68 + tilt, 24, 74, 34, 74, 44), 1.1);
+      const tipX = 58 + tilt * 1.4, tipY = 25.5;
+      const cone = path('M', 38, 46, 'C', 40, 37, 50, 27, tipX, tipY, 'C', 66 + tilt, 27, 73, 35, 74, 44);
+      wash(cone + path(' C', 62, 40, 48, 41, 38, 46, 'Z'), 0.55);
+      ink(cone, 1.1);
       ink(path('M', 37, 46.6, 'C', 50, 40.4, 64, 40, 75, 44.4), 1.5);
       break;
     }
@@ -283,9 +333,10 @@ export function bust(character, expression = 'neutral') {
       for (let k = 0; k < 6; k++) fill(path('M', 88 + k * 4, 136 - k * 0.8, 'm', -1.2, 0, 'a', 1.2, 1.2, 0, 1, 0, 2.4, 0, 'a', 1.2, 1.2, 0, 1, 0, -2.4, 0), INK, 0.8);
       break;
     case 'hammer':
-      ink(path('M', 104, 147, 'L', 98, 112), 2.4);
-      wash(path('M', 90, 108, 'L', 106, 104, 'L', 108, 112, 'L', 92, 116, 'Z'), 0.6);
-      ink(path('M', 90, 108, 'L', 106, 104, 'L', 108, 112, 'L', 92, 116, 'Z'), 1.0);
+      // 锤头加大一号：对话面板里的实际大小下，第一版的锤头读成一块小牌子
+      ink(path('M', 104, 147, 'L', 98, 112), 2.6);
+      wash(path('M', 86, 107, 'L', 108, 101, 'L', 111, 112, 'L', 89, 118, 'Z'), 0.65);
+      ink(path('M', 86, 107, 'L', 108, 101, 'L', 111, 112, 'L', 89, 118, 'Z'), 1.1);
       break;
     case 'rope':
       for (let k = 0; k < 3; k++) ink(path('M', 24 + k * 3, 118 + k * 2, 'C', 34, 110 + k * 2, 52, 116 + k * 2, 50, 130 + k * 2), 1.4, { opacity: 0.85 });
