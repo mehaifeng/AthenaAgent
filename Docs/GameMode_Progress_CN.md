@@ -32,8 +32,8 @@
 | 18 | Node 单测（资产清单回退、姿势、半身像、林地与海图布局、新意图）；冒烟（Chromium、WebKit，含外部模型替换与回退）；运动自检覆盖新的屏幕空间效果 | ✅ | `art.test.mjs` 16 个（姿势与拿家什、点缀色只在雅典娜身上、外部人物两只手的点缀件、半身像卷发与回纹带、清单回退、场馆 / 林地 / 海图布局、新意图）+ 其余共 55 个全过；冒烟 Chromium + WebKit PASSED（live·积累：现写的盒子 GLB 换掉民居、指向不存在文件的条目回退、M2 全部意图）；运动自检 0.000 px（名牌按种类含 resident / tree / lost）；见「M2 最后一轮」 |
 | 19 | 美术审查：每件资产游戏视距 + 中景各一张、人物每个动作连续帧，逐张看过，逐件记录结论与处理 | ✅ | 见上面「美术审查」：两轮各 250 张（`gallery.mjs`），逐件结论与处理；修复 6252645、c29fb7e、27f83d7 |
 | 20 | 文档：M2 手动验收清单、资产清单格式说明；`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ✅ | b4aebec：`Docs/GameMode_M2_Acceptance_CN.md`、`Docs/GameMode_AssetManifest_CN.md`、`CLAUDE.md` / `AGENTS.md`（M2 规则与守着它们的测试、目录图、文档行）、设计稿 v4 的「M2：」标注；Archive「doc citations」PASS |
-| 21 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ⬜ | |
-| 22 | 最后一轮重跑完成标准 a，贴结果，打印清单 | ⬜ | |
+| 21 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ✅ | `feature/game-mode-m2` 已推送；PR mehaifeng/AthenaAgent#30（目标 main，未合并；#29 合入前差异里也有 M0 / M1）；工作区只剩两个不属于本阶段的未跟踪文件 |
+| 22 | 最后一轮重跑完成标准 a，贴结果，打印清单 | ✅ | 见「M2 最后一轮」 |
 
 ### 决定
 
@@ -154,6 +154,19 @@
 
 **连带发现并修掉的一个真缺陷**：换成外部模型的雅典娜等审批时，胸前浮着的红封印从来不出现——判断只看右手，而等审批的石板在左手。
 现在规则是纯函数 `accentPropsShown`（哪只手拿着就浮出来），Node 断言守着（`art.test.mjs`），资产清单说明第 5 节写的行为因此才成立。
+
+### M2 最后一轮
+
+2026-10-11 10:02–10:23，在 f38ba5e 上（之后只提交这一节）；工作区只有两个不属于本阶段的未跟踪文件（`.claude/launch.json`、`Docs/MXC_Sandbox_Integration_Plan_CN.md`）。机器同时被别的程序占满（负载 20+），构建用了 13 分半。
+
+| 命令 | 结果 |
+|---|---|
+| `dotnet build Athena.UI.sln -p:UseAppHost=false` | exit 0，0 个错误，1 个警告（`MainConversationViewModel.cs` 的 XML 注释 CS1734，本阶段之前就有） |
+| `dotnet Athena.Archive.Tests/bin/Debug/net10.0/Athena.Archive.Tests.dll` | exit 0，202 个 `[PASS]`、0 个 `[FAIL]`（含 M2 的 9 个 polis 用例与 doc citations） |
+| `Scripts/run-headless-tests.sh` | exit 0，144 个 `[PASS]`、0 个失败，`[ALL HEADLESS TESTS PASSED]`（含 `TestGameModeAccumulation`） |
+| `node --test Tools/GameMode/web/test/*.test.mjs` | exit 0，tests 55 / pass 55 / fail 0 |
+| `…/node Tools/GameMode/web/test/smoke.mjs` | exit 0，SMOKE PASSED：Chromium 154.0.8037.98 与 WebKit 26.5 的回放、实时、实时·积累（外部 GLB 替换 `externalModelUsed`、缺文件回退 `missingModelFallsBack`）三段 0 个页面问题，另加 Chromium 关掉 WebGL 的失败提示 |
+| `…/node Tools/GameMode/web/test/motion.mjs` | exit 0，两个引擎各 118 帧，光晕 / 旁白气泡 / 名牌最大偏差 0.000 px（验收线 0.5 px；名牌按种类 public 1287、building 936、resident 468、tree 117、lost 117） |
 
 ### 阻塞
 
