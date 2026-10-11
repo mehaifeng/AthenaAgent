@@ -759,6 +759,16 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
 
     public string DirectoryPath => Workspace?.DirectoryPath ?? _globalDirectoryPath;
 
+    /// <summary>工作区文件夹找不到了（被移动、改名或删除）：菜单上的"重新定位"就是为这种情况准备的。</summary>
+    public bool IsDirectoryMissing => Workspace != null && !System.IO.Directory.Exists(Workspace.DirectoryPath);
+
+    /// <summary>重新定位落盘之后，由外壳调用：目录变了，名字与 Id 不变。</summary>
+    public void NotifyRelocated()
+    {
+        OnPropertyChanged(nameof(DirectoryPath));
+        OnPropertyChanged(nameof(IsDirectoryMissing));
+    }
+
     public System.Collections.ObjectModel.ObservableCollection<ConversationSessionItemViewModel> Conversations { get; } = new();
 
     [ObservableProperty]
@@ -777,6 +787,7 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     public event EventHandler? RevealRequested;
     public event EventHandler? CopyPathRequested;
     public event EventHandler? ContextSettingsRequested;
+    public event EventHandler? RelocateRequested;
     public event EventHandler? DeleteRequested;
 
     [RelayCommand]
@@ -819,6 +830,12 @@ public partial class WorkspaceConversationGroupViewModel : ViewModelBase
     private void RequestContextSettings()
     {
         if (IsWorkspace) ContextSettingsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    private void RequestRelocate()
+    {
+        if (IsWorkspace) RelocateRequested?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

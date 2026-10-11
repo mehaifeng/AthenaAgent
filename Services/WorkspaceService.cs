@@ -247,6 +247,54 @@ public class WorkspaceService : IWorkspaceService
         }
     }
 
+    public async Task RelocateAsync(WorkspaceProfile workspace, string newDirectoryPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newDirectoryPath);
+        var safeId = ValidateId(workspace.Id);
+        var normalized = NormalizeDirectory(newDirectoryPath);
+        if (!Directory.Exists(normalized))
+            throw new DirectoryNotFoundException($"The folder '{normalized}' does not exist.");
+
+        var others = await LoadAllAsync();
+        var owner = others.FirstOrDefault(other =>
+            !string.Equals(other.Id, safeId, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(other.DirectoryPath)
+            && string.Equals(NormalizeDirectory(other.DirectoryPath), normalized, StringComparison.OrdinalIgnoreCase));
+        if (owner != null)
+            throw new InvalidOperationException($"The folder '{normalized}' already belongs to the workspace '{owner.Name}'.");
+
+        var previousPath = workspace.DirectoryPath;
+        var committedAt = DateTime.Now;
+        var persisted = new WorkspaceProfile
+        {
+            Id = safeId,
+            Name = workspace.Name,
+            DirectoryPath = normalized,
+            KnowledgeFileName = workspace.KnowledgeFileName,
+            CreatedAt = workspace.CreatedAt,
+            UpdatedAt = committedAt,
+            ContextPolicyOverride = CloneContextPolicy(workspace.ContextPolicyOverride)
+        };
+        await EnsureKnowledgeFileAsync(persisted);
+        var filePath = Path.Combine(_workspacesDirectory, $"{safeId}.json");
+        await WriteAtomicAsync(filePath, JsonSerializer.Serialize(persisted, JsonOptions), cancellationToken);
+
+        // 持久化成功之后才发布：会话、分组和工作台握着的都是这个活对象。
+        workspace.Id = safeId;
+        workspace.DirectoryPath = normalized;
+        workspace.UpdatedAt = committedAt;
+        _logger.Information("Relocated workspace {Id}: {OldPath} -> {NewPath}", safeId, previousPath, normalized);
+    }
+
+    /// <summary>目录的规范写法：绝对路径、去掉末尾分隔符（文件系统根除外）。</summary>
+    private static string NormalizeDirectory(string directoryPath)
+    {
+        var full = Path.GetFullPath(directoryPath);
+        var trimmed = Path.TrimEndingDirectorySeparator(full);
+        return trimmed.Length == 0 ? full : trimmed;
+    }
+
     private static string ValidateId(string id)
     {
         if (!Guid.TryParse(id, out var parsed))

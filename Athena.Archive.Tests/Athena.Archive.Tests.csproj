@@ -118,6 +118,7 @@
     <Compile Include="../Models/FileOperationModels.cs" Link="Source/Models/FileOperationModels.cs" />
     <Compile Include="../Services/DiffApplier.cs" Link="Source/Services/DiffApplier.cs" />
     <Compile Include="../Services/FileSystemService.cs" Link="Source/Services/FileSystemService.cs" />
+    <Compile Include="../Services/GeneratedDirectories.cs" Link="Source/Services/GeneratedDirectories.cs" />
     <Compile Include="../Services/DocumentOutlineExtractor.cs" Link="Source/Services/DocumentOutlineExtractor.cs" />
     <Compile Include="../Services/Interfaces/IFileSystemService.cs" Link="Source/Services/Interfaces/IFileSystemService.cs" />
     <Compile Include="../Models/ImageGenerationSessionRecord.cs" Link="Source/Models/ImageGenerationSessionRecord.cs" />
@@ -198,5 +199,11 @@
     <!-- 更新器的 .app 布局归位与包内版本读取；不链 Program.cs，它与本项目的入口点冲突。 -->
     <Compile Include="../Athena.Updater/MacAppBundle.cs" Link="Source/Updater/MacAppBundle.cs" />
     <Compile Include="../Athena.Updater/StagedPayload.cs" Link="Source/Updater/StagedPayload.cs" />
+    <!-- 游戏模式：城邦扫描、建筑汇总、布局账本、存档、差异、归属、意图校验都是纯函数（M1 起在 Services/GameMode，进应用）；
+         合成夹具只是开发期数据，留在 Tools/GameMode/Polis，不进应用。 -->
+    <Compile Include="../Services/GameMode/*.cs" Link="Source/Services/GameMode/%(Filename)%(Extension)" />
+    <Compile Include="../Tools/GameMode/Polis/PolisSyntheticFixture.cs" Link="Source/GameMode/PolisSyntheticFixture.cs" />
+    <!-- 事件推导读的是气泡的渲染模型（Models 已链接），没有 Avalonia 依赖，在这里断言。 -->
+    <Compile Include="../ViewModels/GameMode/PolisEventProjector.cs" Link="Source/ViewModels/GameMode/PolisEventProjector.cs" />
   </ItemGroup>
 </Project>

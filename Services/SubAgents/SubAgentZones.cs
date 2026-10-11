@@ -1,47 +1,20 @@
 using Athena.UI.Models;
-using System;
-using System.Collections.Generic;
+using Athena.UI.Services.GameMode;
 
 namespace Athena.UI.Services.SubAgents;
 
-/// <summary>工具名 → 猫头鹰所在"场所"的映射。未知工具归入工坊。</summary>
+/// <summary>
+/// 工具名 → 猫头鹰所在"场所"。不另存一张表：从游戏模式的工具类别表（<see cref="PolisToolCategories"/>）派生，
+/// 新工具在那里登记一次，城邦和猫头鹰村就都有动作（设计稿 6.1）。未知工具归入工坊。
+/// </summary>
 public static class SubAgentZones
 {
-    private static readonly Dictionary<string, SubAgentZone> _map = new(StringComparer.OrdinalIgnoreCase)
+    public static SubAgentZone ForTool(string functionName) => PolisToolCategories.ForTool(functionName) switch
     {
-        // 文件区
-        ["get_file_info"] = SubAgentZone.Files,
-        ["search_in_file"] = SubAgentZone.Files,
-        ["get_document_outline"] = SubAgentZone.Files,
-        ["read_system_file"] = SubAgentZone.Files,
-        ["write_system_file"] = SubAgentZone.Files,
-        ["modify_system_file"] = SubAgentZone.Files,
-        ["delete_system_file"] = SubAgentZone.Files,
-        ["list_system_directory"] = SubAgentZone.Files,
-        ["create_directory"] = SubAgentZone.Files,
-        ["move_system_file"] = SubAgentZone.Files,
-        ["copy_system_file"] = SubAgentZone.Files,
-
-        // 电脑区
-        ["web_search"] = SubAgentZone.Web,
-        ["run_browser_task"] = SubAgentZone.Web,
-
-        // 书房区（知识库记忆）
-        ["recall_from_memory"] = SubAgentZone.Library,
-        ["create_new_memory"] = SubAgentZone.Library,
-
-        // 工坊
-        ["execute_terminal_command"] = SubAgentZone.Workshop,
-        ["generate_image"] = SubAgentZone.Workshop,
-        ["view_self_configuration"] = SubAgentZone.Workshop,
-        ["modify_self_configuration"] = SubAgentZone.Workshop,
-        ["create_task"] = SubAgentZone.Workshop,
-        ["update_task"] = SubAgentZone.Workshop,
-        ["cancel_task"] = SubAgentZone.Workshop,
-        ["list_tasks"] = SubAgentZone.Workshop,
-        ["run_task_now"] = SubAgentZone.Workshop,
+        PolisActionCategory.Read or PolisActionCategory.Write => SubAgentZone.Files,
+        PolisActionCategory.Web => SubAgentZone.Web,
+        PolisActionCategory.Memory => SubAgentZone.Library,
+        // 终端、派发子代理、配置 / 定时任务 / 图像 / 技能 / MCP：都在工坊里干
+        _ => SubAgentZone.Workshop
     };
-
-    public static SubAgentZone ForTool(string functionName)
-        => functionName != null && _map.TryGetValue(functionName, out var zone) ? zone : SubAgentZone.Workshop;
 }

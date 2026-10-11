@@ -255,10 +255,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private const long MaxEditableFileSize = 5 * 1024 * 1024;
     private const long MaxOfficePreviewFileSize = 100L * 1024 * 1024;
     private readonly OfficePreviewHost? _previewHost;
-    private FileSystemWatcher? _watcher;
-    // 排到 UI 线程、还没上报的监视器错误（只在 UI 线程上读写），见 CollectWatcherError。
-    private int _watcherErrorBurstCount;
-    private Exception? _watcherErrorBurstFirst;
+    // 当前工作区唯一的递归监视器，与游戏模式共用（设计稿 11.2）。工作台在 SetWorkspaceAsync 里切换它：
+    // 这里是外壳"当前作用域"的唯一入口，也保住了"先加载、后监听"的次序。
+    private readonly IWorkspaceWatcherService _watcherService;
     private CancellationTokenSource? _refreshDebounce;
     private CancellationTokenSource? _gitChangeOpenCts;
     private readonly SemaphoreSlim _repositoryRefreshGate = new(1, 1);
@@ -266,6 +265,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     private bool _refreshGitStatePending;
     private int _gitChangeSelectionVersion;
     private WorkspaceProfile? _workspace;
+    // 加载时的根目录。工作区对象是共享的活对象，重新定位（只改 DirectoryPath）后 Id 不变，
+    // 只比 Id 会把新位置当成"同一个工作区"而什么都不做。
+    private string? _workspaceRoot;
     private WorkspaceFileNodeViewModel? _renamingFile;
     private string? _repositoryRoot;
     private string _workspaceRepositoryPathspec = ".";
@@ -277,6 +279,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         WorkspaceOperationCoordinator operations,
         IPlatformPathService pathService,
         IUserInteractionService interaction,
+        IWorkspaceWatcherService watcherService,
         ICommitMessageGenerator? commitMessageGenerator = null,
         ILocalizationService? localizationService = null,
         OfficePreviewHost? previewHost = null)
@@ -284,6 +287,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         _operations = operations;
         _pathService = pathService;
         _interaction = interaction;
+        _watcherService = watcherService ?? throw new ArgumentNullException(nameof(watcherService));
+        _watcherService.Changed += OnExternalFileChanged;
+        _watcherService.ErrorsDropped += OnWatcherErrorsDropped;
         _commitMessageGenerator = commitMessageGenerator;
         _localizationService = localizationService;
         _previewHost = previewHost;
@@ -441,9 +447,10 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
 
     public async Task SetWorkspaceAsync(WorkspaceProfile? workspace)
     {
-        if (_workspace?.Id == workspace?.Id) return;
+        if (_workspace?.Id == workspace?.Id
+            && string.Equals(_workspaceRoot, workspace?.DirectoryPath, StringComparison.Ordinal)) return;
         await PersistStateAsync();
-        DisposeWatcher();
+        _watcherService.Watch(null, null);
         CancelScheduledRefresh();
         CancelRenameFile(_renamingFile);
         _previewHost?.ReleaseAll();
@@ -454,6 +461,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         Files.Clear();
         GitChanges.Clear();
         _workspace = workspace;
+        _workspaceRoot = workspace?.DirectoryPath;
         _repositoryRoot = null;
         _workspaceRepositoryPathspec = ".";
         WorkspaceName = workspace?.Name ?? L("MainWindow.Launcher.GlobalChat", "Global chat");
@@ -1556,83 +1564,32 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 文件监视器的构造缝，生产路径就是 <c>new FileSystemWatcher(path)</c>。
-    /// 无头测试借它换上能手动引发 <see cref="FileSystemWatcher.Error"/> 的监视器，或一个直接抛出的工厂，
-    /// 运行期出错和启动失败两条路径因此都有断言。
-    /// </summary>
-    internal Func<string, FileSystemWatcher> WatcherFactory { get; init; } = static path => new FileSystemWatcher(path);
-
-    /// <summary>
-    /// 递归监视当前工作区。启动失败只降级、不抛出：<see cref="SetWorkspaceAsync"/> 被会话切换以
-    /// <c>_ = ...</c> 丢弃，漏出去的异常只会变成未观察的任务异常，等 GC 终结任务时才写进 crash.log，
-    /// Serilog 里一个字都没有。走到这里时文件树和 Git 状态已经加载完，工作台照常可用，只是不再跟随外部改动。
+    /// 把共享监视器切到当前工作区。启动失败只降级、不抛出（警告由监视服务写）：<see cref="SetWorkspaceAsync"/>
+    /// 被会话切换以 <c>_ = ...</c> 丢弃，漏出去的异常只会变成未观察的任务异常。走到这里时文件树和 Git 状态
+    /// 已经加载完，工作台照常可用，只是不再跟随外部改动——状态栏要把这一点说出来。
     /// </summary>
     private void StartWatcher(string path)
     {
-        try
-        {
-            _watcher = WatcherFactory(path);
-            _watcher.IncludeSubdirectories = true;
-            _watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size;
-            _watcher.Changed += OnExternalFileChanged;
-            _watcher.Created += OnExternalFileChanged;
-            _watcher.Renamed += OnExternalFileChanged;
-            _watcher.Deleted += OnExternalFileChanged;
-            _watcher.Error += OnWatcherError;
-            // 先订阅、后启用：macOS（FSEventStreamStart 失败）和 Linux（初次递归添加 inotify watch 撞上
-            // max_user_watches，每个加不上的目录各报一次）都在这个 setter 内部同步引发 Error，
-            // 晚一步订阅就一条也收不到（.NET 10.0.1 反编译核实）。
-            _watcher.EnableRaisingEvents = true;
-        }
-        catch (Exception ex)
-        {
-            // 构造时目录已不存在（加载期间被删）、inotify 实例数上限（max_user_instances）、
-            // FSEvents / CreateFile 失败，都落在这里。
-            DisposeWatcher();
-            _logger.Warning(ex, "Workspace file watcher could not start; the workbench will not follow external changes: {Workspace}", path);
+        if (_workspace == null) return;
+        if (_watcherService.Watch(_workspace.Id, path) == WorkspaceWatchState.Unavailable)
             StatusText = L("Workspace.Status.WatcherUnavailable", "File watching unavailable; external changes will not refresh automatically");
-        }
     }
 
     /// <summary>
-    /// 监视器丢了事件（Windows 缓冲区溢出、Linux inotify 队列溢出、macOS FSEvents 要求重扫）或出了别的错。
-    /// 丢掉的事件补不回来，只能整树重读；否则文件树和 Git 状态会停在旧样子，直到某个无关改动碰巧触发刷新。
-    /// 运行期在监视器自己的线程上引发，启动阶段在 UI 线程的 EnableRaisingEvents setter 里；一律 Post，不等待。
+    /// 监视器丢了事件（已由监视服务合并成一批、写过一条 Warning）。丢掉的事件补不回来，只能整树重读；
+    /// 否则文件树和 Git 状态会停在旧样子，直到某个无关改动碰巧触发刷新。在线程池上引发，Post 回 UI 线程。
     /// </summary>
-    private void OnWatcherError(object sender, ErrorEventArgs e)
+    private void OnWatcherErrorsDropped(object? sender, WorkspaceWatcherErrorEventArgs e)
     {
-        var exception = e.GetException();
-        Dispatcher.UIThread.Post(() => CollectWatcherError(sender, exception));
+        Dispatcher.UIThread.Post(() =>
+        {
+            // 工作区已经换过：那一批错误属于已经不在屏幕上的工作区。
+            if (_disposed || _workspace?.Id != e.WorkspaceId) return;
+            ScheduleRefresh(refreshFiles: true, refreshGitState: HasGitRepository);
+        });
     }
 
-    // 同一批排到 UI 线程的错误只上报一次：Linux 撞上 inotify watch 上限时每个加不上的目录各报一次，
-    // 大仓库能有上千条，逐条写 Warning 会淹掉日志。第一条排一次上报，其余只计数。
-    private void CollectWatcherError(object watcher, Exception exception)
-    {
-        // 工作区已经换过：旧监视器停下之前的最后一声，它的工作区已经不在屏幕上了。
-        if (!ReferenceEquals(watcher, _watcher)) return;
-        if (_watcherErrorBurstCount++ > 0) return;
-        _watcherErrorBurstFirst = exception;
-        Dispatcher.UIThread.Post(ReportWatcherErrorBurst);
-    }
-
-    private void ReportWatcherErrorBurst()
-    {
-        var errorCount = _watcherErrorBurstCount;
-        var firstError = _watcherErrorBurstFirst;
-        _watcherErrorBurstCount = 0;
-        _watcherErrorBurstFirst = null;
-        // DisposeWatcher 清过零：攒下这些错误的监视器在上报之前就被换掉了。
-        if (errorCount == 0) return;
-        _logger.Warning(
-            firstError,
-            "Workspace file watcher reported {ErrorCount} error(s); events may have been dropped, refreshing the whole workspace: {Workspace}",
-            errorCount,
-            _workspace?.DirectoryPath);
-        ScheduleRefresh(refreshFiles: true, refreshGitState: HasGitRepository);
-    }
-
-    private void OnExternalFileChanged(object sender, FileSystemEventArgs e)
+    private void OnExternalFileChanged(object? sender, WorkspaceFileChange e)
     {
         var changedAt = DateTime.UtcNow;
         var isGitMetadata = IsGitMetadataPath(e.FullPath);
@@ -1641,6 +1598,8 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         var refreshFiles = !isGitMetadata && e.ChangeType != WatcherChangeTypes.Changed;
         Dispatcher.UIThread.Post(async () =>
         {
+            // 共享监视器也服务游戏模式：只认当前工作区的事件（切换途中旧工作区的最后几声不算）。
+            if (_disposed || _workspace?.Id != e.WorkspaceId) return;
             var tab = EditorTabs.FirstOrDefault(candidate => string.Equals(candidate.FullPath, e.FullPath, StringComparison.Ordinal));
             // 删除/移动例外：Tab 保持原状，之后保存会重建原路径。
             if (tab != null && e.ChangeType != WatcherChangeTypes.Deleted && File.Exists(tab.FullPath))
@@ -2210,22 +2169,6 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         return Path.Combine(directory, $"{stem}-{DateTime.Now:yyyyMMddHHmmssfff}{extension}");
     }
 
-    private void DisposeWatcher()
-    {
-        // 这个监视器攒下、还没上报的错误随它作废。
-        _watcherErrorBurstCount = 0;
-        _watcherErrorBurstFirst = null;
-        if (_watcher == null) return;
-        _watcher.Changed -= OnExternalFileChanged;
-        _watcher.Created -= OnExternalFileChanged;
-        _watcher.Renamed -= OnExternalFileChanged;
-        _watcher.Deleted -= OnExternalFileChanged;
-        _watcher.Error -= OnWatcherError;
-        _watcher.EnableRaisingEvents = false;
-        _watcher.Dispose();
-        _watcher = null;
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
@@ -2234,7 +2177,9 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         {
             _localizationService.LanguageChanged -= OnLanguageChanged;
         }
-        DisposeWatcher();
+        // 监视器本身是共享的单例（游戏模式也订阅它），由容器释放；这里只摘掉自己的订阅。
+        _watcherService.Changed -= OnExternalFileChanged;
+        _watcherService.ErrorsDropped -= OnWatcherErrorsDropped;
         _previewHost?.ReleaseAll();
         foreach (var tab in EditorTabs) tab.Dispose();
         CancelScheduledRefresh();

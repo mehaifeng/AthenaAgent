@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Athena Polis · art sample</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #c8c5bf; }
+  canvas { display: block; }
+</style>
+<!-- three.js 取自仓库里现成的 Tools/PreviewVendor/node_modules，所以要从仓库根目录起静态服务 -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/Tools/PreviewVendor/node_modules/three/build/three.module.js",
+    "three/addons/": "/Tools/PreviewVendor/node_modules/three/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module" src="./polis-sample.js"></script>
+</body>
+</html>

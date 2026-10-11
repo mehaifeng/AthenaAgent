@@ -193,7 +193,7 @@ public class FileSystemService : IFileSystemService
     /// 它报告的是「知识库/link-dir/x」。不存在的尾部原样拼回（尚不存在的路径上不会再有链接）；
     /// 超过 <see cref="MaxSymlinkHops"/> 跳视为环。无法解析时返回 false，由调用方拒绝。
     /// </summary>
-    private static bool TryResolveFully(string fullPath, out string realPath)
+    internal static bool TryResolveFully(string fullPath, out string realPath)
     {
         realPath = fullPath;
         try
@@ -952,13 +952,6 @@ public class FileSystemService : IFileSystemService
         return group;
     }
 
-    /// <summary>构建/依赖产物目录：搜索它们几乎总是噪音，且能让一次搜索慢上两个数量级。</summary>
-    private static readonly HashSet<string> GeneratedDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "bin", "obj", "node_modules", ".git", ".vs", ".idea", "dist", "build",
-        "__pycache__", ".venv", "venv", "packages", ".gradle", "target", ".next", ".nuxt"
-    };
-
     /// <summary>已知的二进制/压缩/媒体扩展名，直接跳过，不必读首块探测。</summary>
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1012,7 +1005,7 @@ public class FileSystemService : IFileSystemService
             foreach (var directory in directories.OrderByDescending(p => p, StringComparer.Ordinal))
             {
                 var name = Path.GetFileName(directory);
-                if (!includeGenerated && GeneratedDirectoryNames.Contains(name)) continue;
+                if (!includeGenerated && GeneratedDirectories.IsGenerated(name)) continue;
                 stack.Push(directory);
             }
         }

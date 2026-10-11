@@ -19,6 +19,7 @@ namespace Athena.UI.Services.Preview;
 public sealed class OfficePreviewHost : IDisposable
 {
     private const string AssetPrefix = "avares://Athena.UI/Assets/Preview/";
+    private const string PolisAssetPrefix = "avares://Athena.UI/Assets/Polis/";
     private const int MaxStartAttempts = 5;
     private readonly OfficePreviewSessionStore _store = new();
     private readonly object _startGate = new();
@@ -50,6 +51,16 @@ public sealed class OfficePreviewHost : IDisposable
     }
 
     public int SessionCount => _store.SessionCount;
+
+    /// <summary>
+    /// 游戏模式页面的地址（<c>/polis/index.html?mode=live</c>）。页面是应用自带的静态资源，不需要文件会话；
+    /// 与 C# 之间的数据只走 InvokeScript / WebMessageReceived，不走 HTTP。
+    /// </summary>
+    public string BuildPolisUrl(string lang)
+    {
+        EnsureStarted();
+        return $"{_baseUrl}polis/index.html?mode=live&lang={Uri.EscapeDataString(lang)}";
+    }
 
     private void EnsureStarted()
     {
@@ -138,7 +149,7 @@ public sealed class OfficePreviewHost : IDisposable
             if (path == "/" || path is "/index.html" or "/viewer.js")
             {
                 // 页面顶层静态资源（index.html 内部以相对路径引用 viewer.js，必须同源可加载）
-                await ServeAssetAsync(context, path == "/" ? "index.html" : path.TrimStart('/'));
+                await ServeAssetAsync(context, AssetPrefix, path == "/" ? "index.html" : path.TrimStart('/'));
             }
             else if (path.StartsWith("/libs/", StringComparison.Ordinal))
             {
@@ -146,7 +157,7 @@ public sealed class OfficePreviewHost : IDisposable
                 var name = path["/libs/".Length..];
                 if (IsSafeFileName(name))
                 {
-                    await ServeAssetAsync(context, $"lib/{name}");
+                    await ServeAssetAsync(context, AssetPrefix, $"lib/{name}");
                 }
                 else
                 {
@@ -156,6 +167,18 @@ public sealed class OfficePreviewHost : IDisposable
             else if (path.StartsWith("/file/", StringComparison.Ordinal))
             {
                 await ServeFileAsync(context, path["/file/".Length..]);
+            }
+            else if (path.StartsWith(PolisAssetRoute.Prefix, StringComparison.Ordinal))
+            {
+                var relative = path[PolisAssetRoute.Prefix.Length..];
+                if (PolisAssetRoute.IsSafeRelativePath(relative))
+                {
+                    await ServeAssetAsync(context, PolisAssetPrefix, relative, polis: true);
+                }
+                else
+                {
+                    context.Response.StatusCode = (int)HttpStatusCode.NotFound;
+                }
             }
             else
             {
@@ -180,9 +203,9 @@ public sealed class OfficePreviewHost : IDisposable
            && name != ".."
            && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
 
-    private async Task ServeAssetAsync(HttpListenerContext context, string assetRelativePath)
+    private async Task ServeAssetAsync(HttpListenerContext context, string prefix, string assetRelativePath, bool polis = false)
     {
-        using var stream = TryOpenAsset(new Uri(AssetPrefix + assetRelativePath, UriKind.Absolute));
+        using var stream = TryOpenAsset(new Uri(prefix + assetRelativePath, UriKind.Absolute));
         if (stream == null)
         {
             context.Response.StatusCode = (int)HttpStatusCode.NotFound;
@@ -191,7 +214,18 @@ public sealed class OfficePreviewHost : IDisposable
 
         var response = context.Response;
         response.ContentType = OfficeMimeMap.ForPath(assetRelativePath);
-        response.AddHeader("Cache-Control", "public, max-age=86400");
+        if (polis)
+        {
+            // 游戏页面：CSP 走响应头（比 <meta> 早生效，也覆盖 frame-ancestors）；不缓存——每次启动端口都换，
+            // 同一次运行里也不该拿到旧脚本
+            response.AddHeader("Content-Security-Policy", PolisAssetRoute.ContentSecurityPolicy);
+            response.AddHeader("X-Content-Type-Options", "nosniff");
+            response.AddHeader("Cache-Control", "no-store");
+        }
+        else
+        {
+            response.AddHeader("Cache-Control", "public, max-age=86400");
+        }
         if (stream.CanSeek) response.ContentLength64 = stream.Length;
         if (string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase)) return;
         await stream.CopyToAsync(response.OutputStream);

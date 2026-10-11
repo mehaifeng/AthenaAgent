@@ -36,6 +36,40 @@ public partial class VirtualPetView : UserControl
     private double _targetPanelWidth;
     private double _targetPanelHeight;
 
+    /// <summary>
+    /// 收起宠物（游戏模式，设计稿 12.1）：原生 WebView 永远在最上层，宠物会被它盖住。收起 = 不可见、不可点，
+    /// 并且停掉两个计时器——它们挂在视觉树上就一直按 16 ms / 60 ms 跑，看不见的宠物不该继续占 UI 线程。
+    /// 不碰视图自己的 IsVisible 绑定（那是"宠物开没开"）。
+    /// </summary>
+    public static readonly StyledProperty<bool> IsSuppressedProperty =
+        AvaloniaProperty.Register<VirtualPetView, bool>(nameof(IsSuppressed));
+
+    public bool IsSuppressed
+    {
+        get => GetValue(IsSuppressedProperty);
+        set => SetValue(IsSuppressedProperty, value);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property != IsSuppressedProperty) return;
+        var suppressed = change.GetNewValue<bool>();
+        Opacity = suppressed ? 0 : 1;
+        IsHitTestVisible = !suppressed;
+        if (suppressed)
+        {
+            _spriteTimer.Stop();
+            _motionTimer.Stop();
+        }
+        else if (VisualRoot != null)
+        {
+            _lastMotionAt = Stopwatch.GetTimestamp();
+            _spriteTimer.Start();
+            _motionTimer.Start();
+        }
+    }
+
     public VirtualPetView()
     {
         InitializeComponent();
@@ -63,6 +97,7 @@ public partial class VirtualPetView : UserControl
             AdvanceSprite();
             UpdateMotionBounds();
             ApplyMotion();
+            if (IsSuppressed) return;
             _spriteTimer.Start();
             _motionTimer.Start();
         };

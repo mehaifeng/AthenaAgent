@@ -2,6 +2,7 @@ using Athena.UI.Services;
 using Athena.UI.Controls;
 using Athena.UI.Models;
 using Athena.UI.ViewModels;
+using Athena.UI.ViewModels.GameMode;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -87,12 +88,120 @@ public partial class MainConversationView : UserControl
         set => SetValue(RightPanelToggleTipProperty, value);
     }
 
+    /// <summary>
+    /// 游戏模式（中间区域的另一种呈现），由外壳注入；与 <see cref="Workbench"/> 同一形状。为空时（设计器、单独挂载的
+    /// 测试窗口）标题栏不出现切换按钮。
+    /// </summary>
+    public static readonly StyledProperty<GameModeViewModel?> GameModeProperty =
+        AvaloniaProperty.Register<MainConversationView, GameModeViewModel?>(nameof(GameMode));
+
+    public GameModeViewModel? GameMode
+    {
+        get => GetValue(GameModeProperty);
+        set => SetValue(GameModeProperty, value);
+    }
+
+    /// <summary>中间区域此刻是不是游戏（外壳绑到 <see cref="GameModeViewModel.IsGameMode"/>）。</summary>
+    public static readonly StyledProperty<bool> IsGameModeActiveProperty =
+        AvaloniaProperty.Register<MainConversationView, bool>(nameof(IsGameModeActive));
+
+    public bool IsGameModeActive
+    {
+        get => GetValue(IsGameModeActiveProperty);
+        set => SetValue(IsGameModeActiveProperty, value);
+    }
+
+    /// <summary>
+    /// 幕布此刻是否可见：会话切换中（游戏模式里不需要——气泡树根本不建），或者从游戏切回对话、正在重建气泡树。
+    /// </summary>
+    public static readonly StyledProperty<bool> IsVeilVisibleProperty =
+        AvaloniaProperty.Register<MainConversationView, bool>(nameof(IsVeilVisible));
+
+    public bool IsVeilVisible
+    {
+        get => GetValue(IsVeilVisibleProperty);
+        private set => SetValue(IsVeilVisibleProperty, value);
+    }
+
+    /// <summary>游戏模式里、以及切回对话后幕布还没画出来之前：不给气泡树数据源（不建树）。</summary>
+    private bool _bubblesWithheld;
+
+    /// <summary>从游戏切回对话、重建气泡树期间：幕布升着，等它画出一帧再付布局的账。</summary>
+    private bool _restoringBubbles;
+    private DispatcherTimer? _restoreTimer;
+
+    /// <summary>幕布升起之后等多久再重建气泡树：够提交一帧幕布（同一个 dispatcher turn 里重建，幕布一个像素都画不出来）。</summary>
+    internal static readonly TimeSpan BubbleRestoreDelay = TimeSpan.FromMilliseconds(60);
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property != IsSwitchingProperty) return;
+        if (change.Property == IsGameModeActiveProperty)
+        {
+            OnGameModeActiveChanged(change.GetNewValue<bool>());
+            UpdateVeil();
+            return;
+        }
+        if (change.Property == IsSwitchingProperty)
+        {
+            UpdateVeil();
+            return;
+        }
+        if (change.Property != IsVeilVisibleProperty) return;
         if (change.GetNewValue<bool>()) StartVeilAnimations();
         else StopVeilAnimations();
+    }
+
+    private void UpdateVeil() => IsVeilVisible = (IsSwitching && !IsGameModeActive) || _restoringBubbles;
+
+    /// <summary>
+    /// 游戏模式下不建气泡树：不给消息列表数据源（设计稿 9.2"第二拍可以先不换气泡树"——实测隐藏的列表换绑
+    /// 照样实体化整棵树，可见 648 ms、隐藏 843 ms，见 ProbeHiddenSurfaceSwap）。于是在游戏里切会话没有那 2–3 秒的冻结；
+    /// 切回对话时先升幕布、等它画出一帧，再把数据源给回去，这一次的布局开销和一次普通的会话切换一样，被幕布盖着。
+    /// </summary>
+    private void OnGameModeActiveChanged(bool active)
+    {
+        _restoreTimer?.Stop();
+        _bubblesWithheld = true;
+        if (active)
+        {
+            _restoringBubbles = false;
+            UpdateMessagesSource();
+            // 对话模式的细节在游戏里不出现：开着的检查器与猫头鹰村弹层收起来
+            if (_viewModel?.IsContextInspectorOpen == true) _viewModel.CloseContextInspectorCommand.Execute(null);
+            if (_viewModel?.IsSubAgentPopupOpen == true) _viewModel.IsSubAgentPopupOpen = false;
+            return;
+        }
+        _restoringBubbles = true;
+        _restoreTimer ??= new DispatcherTimer(BubbleRestoreDelay, DispatcherPriority.Background, (_, _) => RestoreBubbles());
+        _restoreTimer.Start();
+    }
+
+    /// <summary>
+    /// 气泡树的数据源：对话模式下是当前会话的消息；游戏模式下、以及切回对话后幕布还没画出来之前，没有。
+    /// 不用 XAML 绑定，是因为 DataContext 换绑时绑定会重新产出值，盖掉这里给的 null。
+    /// </summary>
+    private void UpdateMessagesSource()
+    {
+        var messages = this.FindControl<ItemsControl>("MessagesItemsControl");
+        if (messages == null) return;
+        var source = _bubblesWithheld ? null : _viewModel?.Messages;
+        if (!ReferenceEquals(messages.ItemsSource, source)) messages.ItemsSource = source;
+    }
+
+    private void RestoreBubbles()
+    {
+        _restoreTimer?.Stop();
+        if (IsGameModeActive) return;
+        _bubblesWithheld = false;
+        UpdateMessagesSource();
+        // ContextIdle 低于布局与滚到底：落幕排在新内容排好之后
+        Dispatcher.UIThread.Post(() =>
+        {
+            ScrollToBottomIfHasMessages();
+            _restoringBubbles = false;
+            UpdateVeil();
+        }, DispatcherPriority.ContextIdle);
     }
 
     /// <summary>
@@ -111,7 +220,7 @@ public partial class MainConversationView : UserControl
         // 幕布刚被设为可见，这一帧还没布局，合成视觉可能尚未建立；退一拍再试一次。
         // Render(7) 高于我们自己的一切后续调度，且换绑要等 RowSelectionSettle（380ms），时间绰绰有余。
         if (!TryStartVeilAnimations())
-            Dispatcher.UIThread.Post(() => { if (IsSwitching) TryStartVeilAnimations(); }, DispatcherPriority.Loaded);
+            Dispatcher.UIThread.Post(() => { if (IsVeilVisible) TryStartVeilAnimations(); }, DispatcherPriority.Loaded);
     }
 
     internal bool TryStartVeilAnimations()
@@ -215,6 +324,7 @@ public partial class MainConversationView : UserControl
         {
             _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.InputFocusRequested -= OnInputFocusRequested;
         }
         if (_subAgentsCollection != null)
         {
@@ -227,6 +337,7 @@ public partial class MainConversationView : UserControl
             _viewModel = viewModel;
             viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            viewModel.InputFocusRequested += OnInputFocusRequested;
 
             _subAgentsCollection = viewModel.Orchestrator?.ActiveAgents;
             if (_subAgentsCollection != null)
@@ -234,6 +345,7 @@ public partial class MainConversationView : UserControl
                 _subAgentsCollection.CollectionChanged += OnActiveSubAgentsChanged;
             }
 
+            UpdateMessagesSource();
             // 换会话就回到底部。换 DataContext 时 ItemsSource 是整体替换，不产生 Add 事件，
             // OnAttachedToVisualTree 也早就跑过了——两条既有的滚动触发路径一条都不会命中，
             // ScrollViewer 只会把旧 offset 夹到新内容的范围内。结果是切到更长的会话时
@@ -243,7 +355,15 @@ public partial class MainConversationView : UserControl
         else
         {
             _viewModel = null;
+            UpdateMessagesSource();
         }
+    }
+
+    private void OnInputFocusRequested(object? sender, System.EventArgs e)
+    {
+        if (_messageInputTextBox == null) return;
+        _messageInputTextBox.Focus();
+        _messageInputTextBox.CaretIndex = _messageInputTextBox.Text?.Length ?? 0;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

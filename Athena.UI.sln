@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.UI.HeadlessTests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Athena.Presentation.Tests", "Athena.Presentation.Tests\Athena.Presentation.Tests.csproj", "{6C8A201B-31F7-42B8-9252-73D349A9AE48}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolisExport", "Tools\GameMode\PolisExport\PolisExport.csproj", "{55CEF326-DF21-4D61-9AC1-0E14183FF51B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,6 +40,10 @@ Global
 		{6C8A201B-31F7-42B8-9252-73D349A9AE48}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6C8A201B-31F7-42B8-9252-73D349A9AE48}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6C8A201B-31F7-42B8-9252-73D349A9AE48}.Release|Any CPU.Build.0 = Release|Any CPU
+		{55CEF326-DF21-4D61-9AC1-0E14183FF51B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{55CEF326-DF21-4D61-9AC1-0E14183FF51B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{55CEF326-DF21-4D61-9AC1-0E14183FF51B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{55CEF326-DF21-4D61-9AC1-0E14183FF51B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

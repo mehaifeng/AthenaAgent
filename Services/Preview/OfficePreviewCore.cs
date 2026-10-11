@@ -101,6 +101,43 @@ public static class OfficeRangeParser
     }
 }
 
+/// <summary>
+/// 游戏模式页面（Assets/Polis）在回环服务里的路由：<c>/polis/&lt;相对路径&gt;</c>。
+/// 页面是应用自带的静态资源，不经文件会话、不读用户文件；这里只决定"哪些路径可以要"和"响应头怎么给"。
+/// </summary>
+public static class PolisAssetRoute
+{
+    public const string Prefix = "/polis/";
+
+    /// <summary>
+    /// 与页面里 &lt;meta&gt; 一致的内容安全策略，在响应头里再给一份（设计稿 12.4）：脚本只来自本站、不许内联脚本、
+    /// 不许连外部、不许被别的页面嵌套。页面里的文件名与模型写的话一律画在 canvas 上或作为文本节点。
+    /// </summary>
+    public const string ContentSecurityPolicy =
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+    /// <summary>
+    /// 路由里允许的相对路径：1–4 段，每段只含字母、数字、'.'、'_'、'-'，不是 '.' 或 '..'，以文件扩展名结尾。
+    /// 路径遍历（..）、编码过的分隔符、反斜杠、空段一律不认，映射成 404。
+    /// </summary>
+    public static bool IsSafeRelativePath(string? relative)
+    {
+        if (string.IsNullOrEmpty(relative) || relative.Length > 200) return false;
+        var segments = relative.Split('/');
+        if (segments.Length is < 1 or > 4) return false;
+        foreach (var segment in segments)
+        {
+            if (segment.Length is 0 or > 64 || segment is "." or "..") return false;
+            foreach (var ch in segment)
+            {
+                if (!(char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-')) return false;
+            }
+        }
+        return Path.HasExtension(segments[^1]);
+    }
+}
+
 /// <summary>预览服务器使用的 Content-Type 映射。</summary>
 public static class OfficeMimeMap
 {
