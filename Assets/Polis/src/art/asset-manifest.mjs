@@ -9,7 +9,9 @@
 //   3. 模型加载失败（404、解析错误、没有网格）→ 回退，记一笔（status.assets.fallbacks）。
 
 export const ASSET_KINDS = Object.freeze(['building', 'prop', 'plant', 'figure', 'civic']);
-export const MODEL_ACTIONS = Object.freeze(['walk', 'idle', 'work', 'deliver']);
+export const MODEL_ACTIONS = Object.freeze(['walk', 'run', 'idle', 'work', 'deliver', 'talk', 'wave', 'receive']);
+/** 模型里没有某个动作的片段时退到哪一个（M3 加了跑、说话、挥手、接过）。 */
+const ACTION_FALLBACK = Object.freeze({ run: 'walk', talk: 'idle', wave: 'idle', receive: 'idle', work: 'idle', deliver: 'idle', walk: 'idle' });
 const ID = /^(building|prop|plant|figure|civic)(\.[a-z][a-zA-Z0-9-]{0,31}){1,3}$/;
 const MODEL = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
 
@@ -67,10 +69,15 @@ export function modelUrl(entry) {
   return MODEL_ROUTE + encodeURIComponent(entry.model);
 }
 
-/** 一个动作用模型里的哪段动画：映射了的用映射；没映射的退回 idle；连 idle 都没有就是静止（null）。 */
+/** 一个动作用模型里的哪段动画：映射了的用映射；没映射的按 ACTION_FALLBACK 退（跑 → 走 → 停）；连 idle 都没有就是静止（null）。 */
 export function clipFor(entry, action) {
   const map = entry?.animations ?? {};
-  return map[action] ?? map.idle ?? null;
+  let a = action;
+  for (let i = 0; i < 4 && a; i++) {
+    if (map[a]) return map[a];
+    a = ACTION_FALLBACK[a] ?? null;
+  }
+  return map.idle ?? null;
 }
 
 /**

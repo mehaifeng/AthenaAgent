@@ -9,6 +9,8 @@ namespace Athena.UI.Services.GameMode;
 /// <summary>
 /// 网页能请求 C# 做的事——一个封闭集合（设计稿 12.4）。这里没有、也永远不会有"批准"：
 /// 页面里显示的文字有一部分是模型写的，一旦被注入脚本，就能替你点同意。审批只在原生审批窗口里。
+/// 2026-10-11 起游戏盖住了整个中间区域（输入框也在其中），城里的对话栏可以把你写的字托付出去（<see cref="Say"/>）：
+/// 只送到此刻显示的这一份委托，走输入框同一条发送路径；工具调用照旧过审批闸门。
 /// </summary>
 public enum PolisIntentType
 {
@@ -53,7 +55,14 @@ public enum PolisIntentType
     /// <summary>和一位居民说过话（记进玩家进度"已结识的居民"）。</summary>
     MeetResident,
     /// <summary>请雅典娜试试这位居民代表的能力：新建一份委托并预填一句示范请求（不发送）。</summary>
-    TryResident
+    TryResident,
+    /// <summary>
+    /// 城里对话栏的"托付"：把你写的这段话发给此刻显示的这份委托——走输入框的同一条路径（SendMessageCommand）。
+    /// 只认显示着的那一份（ViewModel 核对），不能替别的会话说话；她在回答时不收。
+    /// </summary>
+    Say,
+    /// <summary>对话栏的草稿：同步进这份委托自己的输入框（切回对话模式，写了一半的话还在）。不发送。</summary>
+    Draft
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -106,8 +115,11 @@ public sealed record PolisIntentResult(PolisIntent? Intent, string? Rejection)
 /// </summary>
 public static class PolisIntents
 {
-    public const int MaxMessageChars = 16 * 1024;
+    /// <summary>一条消息的上限：一次托付最多 <see cref="MaxSayChars"/> 个字，JSON 转义（换行、引号）之后要放得下。</summary>
+    public const int MaxMessageChars = 64 * 1024;
     public const int MaxPrefillChars = 2000;
+    /// <summary>对话栏一次托付 / 一份草稿最多多少字（页面的输入框同一个上限，超过的打不进去）。</summary>
+    public const int MaxSayChars = 16000;
     public const int MaxDetailChars = 4000;
     public const int ProtocolVersion = 1;
 
@@ -140,6 +152,8 @@ public static class PolisIntents
         ["select-island"] = PolisIntentType.SelectIsland,
         ["meet-resident"] = PolisIntentType.MeetResident,
         ["try-resident"] = PolisIntentType.TryResident,
+        ["say"] = PolisIntentType.Say,
+        ["draft"] = PolisIntentType.Draft,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -215,6 +229,21 @@ public static class PolisIntents
                     var text = Clean(ReadString(root, "text"), MaxPrefillChars);
                     if (string.IsNullOrWhiteSpace(text)) return PolisIntentResult.Reject("empty text");
                     return new PolisIntentResult(new PolisIntent(type) { Text = text }, null);
+                }
+
+                case PolisIntentType.Say:
+                case PolisIntentType.Draft:
+                {
+                    var id = ReadString(root, "conversationId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownConversationIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown conversation");
+                    var raw = ReadString(root, "text");
+                    if (raw == null) return PolisIntentResult.Reject("missing text");
+                    // 托付的字不截断：截掉一半再发出去，等于替你改了要求——超长的整条拒绝（页面的输入框本来就打不进去）
+                    if (raw.Length > MaxSayChars) return PolisIntentResult.Reject($"text longer than {MaxSayChars} characters");
+                    var text = Clean(raw, MaxSayChars)!;
+                    if (type == PolisIntentType.Say && string.IsNullOrWhiteSpace(text)) return PolisIntentResult.Reject("empty text");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = text }, null);
                 }
 
                 case PolisIntentType.PlaceItem:

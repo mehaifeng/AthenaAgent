@@ -12,8 +12,13 @@
 //
 // 失败要明说（设计稿 12.5）：没有 WebGL 2、脚本出错，都在实时模式里回报 failed（C# 在游戏区显示原因和"回到对话"），
 // 在回放模式里显示页面自己的错误卡片。
+//
+// 操作（2026-10-11）：WASD / 方向键走路，鼠标点物件互动，左上角三种视角（缺省自由），V 换视角，M 海图，Esc 收起；
+// 实时模式底部是和雅典娜说话的对话栏（talk.mjs）——按 Enter、或者点她。
 import * as THREE from '../vendor/three.bundle.mjs';
-import { createGame } from './game.mjs';
+import { createGame, ATHENA_HOVER_ANCHOR } from './game.mjs';
+import { createTalk } from './talk.mjs';
+import { isTypingTarget } from './controls.mjs';
 import { createReplay } from './replay.mjs';
 import { createLiveFeed } from './live.mjs';
 import { connectHost } from './bridge.mjs';
@@ -23,6 +28,9 @@ import { demoAccumulation } from './demo.mjs';
 
 const params = new URLSearchParams(location.search);
 const live = params.get('mode') === 'live';
+// 夜里（M3 第三轮：跟着应用的深色主题）：地址里带着打开时的主题，页面一加载就是那一套颜色，不先白一下
+const nightAtStart = params.get('theme') === 'dark';
+document.body.classList.toggle('night', nightAtStart);
 const status = { ready: false, errors: [], phase: 'boot', mode: live ? 'live' : 'replay' };
 window.__polis = status;
 const record = (msg) => status.errors.push(String(msg));
@@ -57,14 +65,32 @@ async function main() {
   }
 
   status.phase = 'build';
+  const send = (type, fields) => {
+    if (type === 'say') liveGame?.noteSaid();   // 托付了：你在城里比划两秒（M3）
+    return host ? host.send(type, fields) : sentLocally(type, fields);
+  };
+  // 对话栏只在实时模式里有：回放是一段录好的委托，没有人在听
+  if (live) {
+    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys() });
+    window.__polisTalk = talk;
+  }
   const game = createGame({
     params,
     status,
-    send: (type, fields) => (host ? host.send(type, fields) : sentLocally(type, fields)),
+    send,
     onReadItem: (item) => openReader(document, document.getElementById('reader'), { title: item.title, markdown: item.markdown ?? item.title }),
+    onTalk: talk ? () => { talk.open({ focus: true }); } : null,
+    onUiBlocked: (blocked) => talk?.setSuppressed(blocked),
+    onViewChange: () => syncView(game),
+    modalOpen: readerOpen,
+    topInset: live ? 52 : 0,
+    defaultView: live ? 'free' : 'athena',
+    talkOpen: () => !!talk?.isOpen,
   });
   window.__polisGame = game;
+  game.setNight(nightAtStart, { instant: true });
   window.addEventListener('resize', () => game.resize());
+  wireView(game);
 
   if (live) return startLive(game);
   return startReplay(game);
@@ -75,9 +101,46 @@ function sentLocally(type, fields) {
   return false;
 }
 
+const readerOpen = () => !document.getElementById('reader').hidden;
+
+function closeReader() {
+  const reader = document.getElementById('reader');
+  reader.hidden = true;
+  reader.replaceChildren();
+}
+
+// —— 视角：左上角（回放在右下）一组三选一的按钮，缺省"自由"；拖动平移会把镜头交还给你，按钮跟着变 ——
+function wireView(game) {
+  for (const button of document.querySelectorAll('#view button[data-view]')) {
+    button.addEventListener('click', () => { game.setFollow(button.dataset.view); syncView(game); wake(); });
+  }
+  syncView(game);
+}
+
+function syncView(game) {
+  const ui = game.ui;
+  const labels = { free: ui.viewFree, player: ui.viewPlayer, athena: ui.viewAthena };
+  const view = document.getElementById('view');
+  view.setAttribute('aria-label', ui.viewLabel);
+  view.querySelector('.view-label').textContent = ui.viewLabel;
+  for (const button of view.querySelectorAll('button[data-view]')) {
+    button.textContent = labels[button.dataset.view] ?? button.dataset.view;
+    button.setAttribute('aria-checked', String(button.dataset.view === game.follow));
+    if (button.dataset.view === 'free') button.title = ui.viewFreeTip;
+  }
+}
+
+/** Esc：先收起最上面的那一层——阅读器、海图、摆放、卡片或面板。 */
+function dismissTopmost(game) {
+  if (readerOpen()) closeReader();
+  else if (game.chartOpen) game.toggleChart(false);
+  else game.dismiss();
+}
+
 // ———————————————————————— 实时模式 ————————————————————————
 
 let liveGame = null;
+let talk = null;
 let liveFeed = createLiveFeed();
 const epoch = performance.now();
 const clock = () => performance.now() - epoch;
@@ -92,7 +155,8 @@ function liveHandlers() {
   return {
     init: whenReady((m) => {
       liveGame.setTables(m.tables ?? {});
-      syncFollowButton();
+      talk?.setTables(liveGame.ui);
+      syncView(liveGame);
       syncChartButton();
       // 资产清单：C# 校验过的覆盖；外部模型取到之前先用程序化的，取不到就一直用程序化的（缺省回退）
       if (m.assets && Object.keys(m.assets).length > 0) liveGame.setAssetManifest(m.assets).then(wake, (e) => record(e?.stack ?? e));
@@ -131,20 +195,23 @@ function liveHandlers() {
     notices: whenReady((m) => { liveGame.setNotices(m.notices); wake(); }),
     report: whenReady((m) => { liveGame.setHerald(m); wake(); }),
     fog: whenReady((m) => { liveGame.setFog(m.missing ? { path: m.path ?? null } : null); wake(); }),
+    // 对话栏的状态（这份委托在不在办事、能不能托付、草稿、附件）；带 open 时展开并聚焦（预填之后）
+    composer: whenReady((m) => { talk?.apply(m); wake(); }),
     visibility: (m) => { visible = !!m.visible; status.visible = visible; wake(); },
+    // 应用的主题换了（深 / 浅色）：页面上的条、阅读器立刻换（CSS 自己过渡），城里一秒多从白天走到夜里
+    theme: (m) => {
+      const night = !!m.night;
+      document.body.classList.toggle('night', night);
+      status.theme = night ? 'dark' : 'light';
+      if (liveGame) { liveGame.setNight(night, { instant: !!m.instant }); wake(); }
+      else backlog.push(() => liveGame.setNight(night, { instant: true }));
+    },
     scroll: whenReady((m) => {
       openReader(document, document.getElementById('reader'), { title: m.title ?? '', markdown: m.markdown ?? '', closeLabel: m.closeLabel ?? '收起' });
     }),
     onUnknown: (m) => record(`unknown host message: ${m?.type}`),
     onError: (e) => record(e?.stack ?? e),
   };
-}
-
-function syncFollowButton() {
-  if (!liveGame) return;
-  const ui = liveGame.ui;
-  document.getElementById('btn-follow').textContent =
-    liveGame.follow === 'player' ? ui.followPlayer : liveGame.follow === 'athena' ? ui.followAthena : ui.followFree;
 }
 
 function syncChartButton(game = liveGame) {
@@ -155,13 +222,23 @@ function syncChartButton(game = liveGame) {
 function startLive(game) {
   liveGame = game;
   document.body.classList.add('live');
-  const follow = document.getElementById('btn-follow');
-  follow.addEventListener('click', () => { game.toggleFollow(); syncFollowButton(); wake(); });
+  talk?.setTables(game.ui);
   document.getElementById('btn-chart').addEventListener('click', () => { game.toggleChart(); wake(); });
+  // 按键：落在对话栏里的是字（talk.mjs 自己处理 Enter / Esc）；在城里，Enter 开口、Esc 收起、M 海图、V 换视角。
+  // WASD / 方向键走路在 game.mjs 里。按物理键位认（e.code），开着中文输入法也一样。
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'm' || e.key === 'M') { game.toggleChart(); wake(); }
-    if (e.key === 'Escape' && game.chartOpen) { game.toggleChart(false); wake(); }
+    if (isTypingTarget(e.target) || e.isComposing) return;
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (talk?.available && !readerOpen() && !game.chartOpen) { e.preventDefault(); talk.open({ focus: true }); }
+      return;
+    }
+    if (e.key === 'Escape') { dismissTopmost(game); wake(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === 'KeyM') { game.toggleChart(); wake(); }
+    else if (e.code === 'KeyV') { game.cycleView(); wake(); }
   });
+  window.addEventListener('focus', () => updateHint());
+  window.addEventListener('blur', () => updateHint());
   document.addEventListener('visibilitychange', wake);
   for (const run of backlog.splice(0)) run();
   game.frame(clock(), 16, performance.now(), { snap: true });
@@ -170,6 +247,22 @@ function startLive(game) {
   document.title = 'ready';
   host.send('ready');
   wake();
+}
+
+/**
+ * 操作提示：对话栏正上方一行小字，走过第一步就不再出现。页面没有键盘焦点时（刚进游戏、点过左边的会话树）
+ * 先提示"点一下画面"——原生 WebView 拿到焦点之前，按键到不了这里。
+ */
+let walkedOnce = false;
+function updateHint() {
+  const el = document.getElementById('hint');
+  if (!liveGame) return;
+  if (liveGame.playerMoving) walkedOnce = true;
+  const ui = liveGame.ui;
+  const show = !walkedOnce && !!liveGame.world && !!talk?.available && !talk.isOpen && !readerOpen();
+  const text = show ? (document.hasFocus() ? ui.controlsHint : ui.focusHint) : '';
+  if (el.textContent !== text) el.textContent = text;
+  if (el.hidden !== !show) el.hidden = !show;
 }
 
 /** 按帧率策略推进：不可见就停（不再请求帧），空闲 30 帧，有东西在动 60 帧（设计稿 12.6）。 */
@@ -194,6 +287,7 @@ function liveLoop(wall) {
     lastRender = wall;
     try {
       liveGame.frame(clock(), dt, wall, { feed: (orch) => liveFeed.drain(orch) });
+      updateHint();
     } catch (e) {
       loopRunning = false;
       fail('runtime', e);
@@ -256,33 +350,33 @@ async function startReplay(game) {
     const follow = game.follow;
     return [
       `回放 ${clock2(game.sim.time)} / ${clock2(replay.duration)} · 第 ${turn} 回合 / 共 ${fixture.replay?.turns ?? 0}${delivered ? '（已交付）' : ''} · ×${speed}${playing ? '' : ' · 已暂停'}`,
-      `镜头：${follow === 'athena' ? '跟着雅典娜' : follow === 'player' ? '跟着你' : '自由'} · 点地面让你走过去 · 红色的卷轴是交给你的成果，点它看看`,
+      `视角：${follow === 'athena' ? '跟着雅典娜' : follow === 'player' ? '跟着你' : '自由'}（V 换）· WASD / 方向键走动 · 拖动转视角 · 红色的卷轴是交给你的成果，走近按 E 看看`,
     ];
   };
 
   window.addEventListener('keydown', (e) => {
+    if (isTypingTarget(e.target) || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { playing = !playing; e.preventDefault(); }
-    else if (e.key === 'f' || e.key === 'F') game.toggleFollow();
+    else if (e.code === 'KeyV') game.cycleView();
     else if (e.key === '1' || e.key === '2' || e.key === '4') speed = Number(e.key);
-    else if (e.key === 'r' || e.key === 'R') restart();
-    else if (e.key === 'h' || e.key === 'H') hudVisible = !hudVisible;
-    else if (e.key === 'm' || e.key === 'M') game.toggleChart();
+    else if (e.code === 'KeyR') restart();
+    else if (e.code === 'KeyH') hudVisible = !hudVisible;
+    else if (e.code === 'KeyM') game.toggleChart();
+    else if (e.key === 'Escape') dismissTopmost(game);
     syncButtons();
   });
   const buttons = {
     play: document.getElementById('btn-play'),
     speed: document.getElementById('btn-speed'),
-    follow: document.getElementById('btn-follow'),
     restart: document.getElementById('btn-restart'),
   };
   function syncButtons() {
     buttons.play.textContent = playing ? '暂停' : '继续';
     buttons.speed.textContent = `速度 ×${speed}`;
-    buttons.follow.textContent = game.follow === 'player' ? '镜头：跟着你' : game.follow === 'athena' ? '镜头：跟着雅典娜' : '镜头：自由';
+    syncView(game);
   }
   buttons.play.addEventListener('click', () => { playing = !playing; syncButtons(); });
   buttons.speed.addEventListener('click', () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; syncButtons(); });
-  buttons.follow.addEventListener('click', () => { game.toggleFollow(); syncButtons(); });
   buttons.restart.addEventListener('click', () => { restart(); syncButtons(); });
   syncButtons();
 
@@ -346,42 +440,78 @@ function motionSelftest(game, seek, duration) {
   const controls = game.controls;
   const size = game.R.size, dpr = game.overlay.dpr;
   let i = 0;
+  // M2：站在一棵橄榄树跟前（有积累数据时），树的名牌和脚下的"E 去这份委托"也进自检；隔一帧换成站在一位居民跟前——
+  // 他在走，脚下那块"E 和他说话"跟着他走，和旁白气泡一样按他这一帧的位置投影（M3 第三轮：互动改成走近按 E）
+  const tree = game.world?.groveTrees?.[0];
+  const walker = [...(game.world?.residents?.keys() ?? [])][0] ?? null;
+
+  function measure(t) {
+    if (tree && i % 2 === 0) game.setHover('tree', tree.conversationId);
+    else if (walker) game.setHover('resident', walker);
+    else game.setHover(null);
+    const script = () => {
+      camera.zoom = 1 + 0.35 * Math.sin(i / 7);
+      camera.updateProjectionMatrix();
+      controls.target.add(new THREE.Vector3(Math.sin(i / 5) * 2.5, 0, Math.cos(i / 6) * 2.5));
+      game.placeCamera(controls.target, 45 + i * 1.3, 33 + 6 * Math.sin(i / 9));
+    };
+    game.frame(t, 40, performance.now(), { snap: true, sync, script });
+    const used = game.used;
+    const world = game.world;
+    const teleporting = game.sim.orch.state(t).step?.kind === 'teleport';
+    const truthGlow = used.glowWorld.clone();
+    if (!teleporting) truthGlow.copy(world.athena.userData.chest).applyMatrix4(world.athena.matrixWorld);
+    const tg = truthGlow.project(camera);
+    if (frames > 0) {
+      errors.glow = Math.max(errors.glow, Math.hypot(((tg.x + 1) / 2 - used.glowUv.x) * size.x, ((tg.y + 1) / 2 - used.glowUv.y) * size.y));
+      const head = teleporting ? used.headWorld.clone() : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
+      const hb = head.project(camera);
+      errors.bubble = Math.max(errors.bubble, Math.hypot(((hb.x + 1) / 2) * window.innerWidth - used.bubbleCss.x, (1 - (hb.y + 1) / 2) * window.innerHeight - used.bubbleCss.y) * dpr);
+      for (const l of used.labels) {
+        kinds[l.kind] = (kinds[l.kind] ?? 0) + 1;
+        const truth = l.key?.startsWith('prompt:athena') && !teleporting
+          ? ATHENA_HOVER_ANCHOR.clone().applyMatrix4(world.athena.matrixWorld)
+          : l.key?.startsWith('prompt:resident:')
+            ? (() => { const r = world.residents.get(l.key.split(':')[2]); return new THREE.Vector3(r.figure.root.position.x, 0.02, r.figure.root.position.z); })()
+            : l.world.clone();
+        const lp = truth.project(camera);
+        errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
+      }
+    }
+    frames++;
+    i++;
+  }
+
   for (const [from, to] of windows) {
     seek(Math.max(0, from));
     game.follow = 'athena';
-    // M2：指针停在一棵橄榄树上（有积累数据时），树的名牌也进自检
-    const tree = game.world?.groveTrees?.[0];
-    if (tree) game.setHover('tree', tree.conversationId);
-    for (let t = Math.max(0, from); t <= to; t += 40, i++) {
-      const script = () => {
-        camera.zoom = 1 + 0.35 * Math.sin(i / 7);
-        camera.updateProjectionMatrix();
-        controls.target.add(new THREE.Vector3(Math.sin(i / 5) * 2.5, 0, Math.cos(i / 6) * 2.5));
-        game.placeCamera(controls.target, 45 + i * 1.3, 33 + 6 * Math.sin(i / 9));
-      };
-      game.frame(t, 40, performance.now(), { snap: true, sync, script });
-      const used = game.used;
-      const world = game.world;
-      const teleporting = game.sim.orch.state(t).step?.kind === 'teleport';
-      const truthGlow = used.glowWorld.clone();
-      if (!teleporting) truthGlow.copy(world.athena.userData.chest).applyMatrix4(world.athena.matrixWorld);
-      const tg = truthGlow.project(camera);
-      if (frames > 0) {
-        errors.glow = Math.max(errors.glow, Math.hypot(((tg.x + 1) / 2 - used.glowUv.x) * size.x, ((tg.y + 1) / 2 - used.glowUv.y) * size.y));
-        const head = teleporting ? used.headWorld.clone() : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
-        const hb = head.project(camera);
-        errors.bubble = Math.max(errors.bubble, Math.hypot(((hb.x + 1) / 2) * window.innerWidth - used.bubbleCss.x, (1 - (hb.y + 1) / 2) * window.innerHeight - used.bubbleCss.y) * dpr);
-        for (const l of used.labels) {
-          kinds[l.kind] = (kinds[l.kind] ?? 0) + 1;
-          const lp = l.world.clone().project(camera);
-          errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
-        }
-      }
-      frames++;
-    }
+    for (let t = Math.max(0, from); t <= to; t += 40) measure(t);
   }
+
+  // 自由视角里走路（2026-10-11）：按住 W + D，镜头不跟任何人，只在你快走出画面时挪一下（keepPlayerInView）——
+  // 它和脚本的绕转、推拉、平移一起挪镜头，屏幕空间效果照样要和当帧投影对齐；而且你一直在画面里
+  const walkFrom = windows[windows.length - 1][1] + 400;
+  seek(walkFrom);
+  game.follow = 'free';
+  const start = game.player;
+  const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code.slice(3).toLowerCase() }));
+  key('keydown', 'KeyW');
+  key('keydown', 'KeyD');
+  let playerNdc = 0;
+  const walkFrames = 90;
+  for (let k = 0; k < walkFrames; k++) {
+    measure(walkFrom + k * 40);
+    const p = game.player;
+    const ndc = new THREE.Vector3(p.x, 0.9, p.z).project(camera);
+    playerNdc = Math.max(playerNdc, Math.abs(ndc.x), Math.abs(ndc.y));
+  }
+  key('keyup', 'KeyW');
+  key('keyup', 'KeyD');
+  const end = game.player;
+  const walking = { frames: walkFrames, metres: +Math.hypot(end.x - start.x, end.z - start.z).toFixed(2), maxPlayerNdc: +playerNdc.toFixed(3) };
+
   const maxErrorPx = Math.max(errors.glow, errors.bubble, errors.labels);
-  return { maxErrorPx, errors, frames, windows, sync, kinds };
+  return { maxErrorPx, errors, frames, windows, sync, kinds, walk: walking };
 }
 
 function pixelStats(canvas) {

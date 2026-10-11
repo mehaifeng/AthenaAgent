@@ -174,15 +174,25 @@ export function buildScrollCase(M) {
   return kit.build();
 }
 
-/** 画架：三条腿的木架，上面靠着一块彩绘板（画面朝前）。 */
+/**
+ * 画架：三条腿的木架，上面靠着一块彩绘板（画面朝前）。M3 第三轮：板心抬到 1.21 米——画师站着画，笔尖落在板上
+ * （第一版板心 0.94，画板矮到腰下，站着的人够不着）。userData.panel：画面中心与朝向（画架的局部坐标），画师的工位按它算。
+ */
+export const EASEL_PANEL = Object.freeze({ centre: Object.freeze([0, 1.21, 0.13]), tilt: -0.1 });
 export function buildEasel(M) {
   const kit = new Kit();
-  for (const sx of [-1, 1]) kit.cylinder(M.wood, 0.02, 0.025, 1.5, sx * 0.3, 0.74, 0.06, 6, -0.1, sx * 0.12);
-  kit.cylinder(M.wood, 0.02, 0.025, 1.5, 0, 0.72, -0.28, 6, 0.32);
-  kit.box(M.wood, 0.8, 0.04, 0.08, 0, 0.62, 0.12);
-  kit.box(M.darkWood, 0.72, 0.56, 0.04, 0, 0.94, 0.1, 0, -0.1);
-  kit.box(M.papyrus, 0.62, 0.46, 0.01, 0, 0.94, 0.125, 0, -0.1);
-  return kit.build();
+  for (const sx of [-1, 1]) kit.cylinder(M.wood, 0.02, 0.025, 1.62, sx * 0.3, 0.8, 0.06, 6, -0.1, sx * 0.12);
+  kit.cylinder(M.wood, 0.02, 0.025, 1.62, 0, 0.78, -0.3, 6, 0.32);
+  kit.box(M.wood, 0.8, 0.04, 0.08, 0, 0.9, 0.12);
+  kit.box(M.darkWood, 0.72, 0.56, 0.04, 0, 1.21, 0.1, 0, -0.1);
+  kit.box(M.papyrus, 0.62, 0.46, 0.01, 0, 1.21, 0.125, 0, -0.1);
+  // 板上几笔：一个人形的剪影和一道地平线（灰度里读得出是一幅画）
+  kit.box(M.dark, 0.5, 0.012, 0.004, 0, 1.08, 0.135, 0, -0.1);
+  kit.box(M.dark, 0.06, 0.2, 0.004, -0.08, 1.2, 0.134, 0, -0.1);
+  kit.add(M.dark, new THREE.SphereGeometry(0.035, 8, 6), m4(-0.08, 1.33, 0.134, 0, 0, 0, 1, 1, 0.12));
+  const group = kit.build();
+  group.userData.panel = EASEL_PANEL;
+  return group;
 }
 
 /** 方柱头像（herm）：一根方柱，顶上一颗有胡子的头。 */

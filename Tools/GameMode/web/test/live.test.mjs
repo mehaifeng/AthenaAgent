@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createLiveFeed, framePolicy, transitionArrival, intent, INTENT_TYPES, TRANSITION, FRAME } from '../../../../Assets/Polis/src/live.mjs';
-import { parseMarkdown, parseInline } from '../../../../Assets/Polis/src/reader.mjs';
+import { parseMarkdown, parseInline, BLOCK_TYPES, INLINE_TYPES } from '../../../../Assets/Polis/src/reader.mjs';
 import { createOrchestrator } from '../../../../Assets/Polis/src/orchestrator.mjs';
 import { cityIndex } from '../../../../Assets/Polis/src/replay.mjs';
 
@@ -117,7 +117,8 @@ test('reader: raw HTML is text, never markup', () => {
     }
   };
   walk(blocks);
-  for (const t of types) assert.ok(['paragraph', 'heading', 'list', 'code', 'text', 'strong', 'em', 'link', 'quote', 'rule'].includes(t), `只有这几种节点，没有 html：${t}`);
+  for (const t of types) assert.ok([...BLOCK_TYPES, ...INLINE_TYPES].includes(t), `只有这几种节点，没有 html：${t}`);
+  assert.ok(!types.has('html'));
   assert.ok(json.includes('<img src=x onerror=\\"alert(1)\\">'), 'HTML 原样作为文字保留');
   assert.equal(blocks[1].type, 'heading');
   assert.equal(blocks[3].type, 'code');

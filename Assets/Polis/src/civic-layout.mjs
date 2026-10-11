@@ -25,7 +25,9 @@ export const TERRACE = Object.freeze({
   rowBack: 2.0,
   aisle: 3.4,
   rowFront: 4.8,
-  sideWalk: 5.6,
+  // 两侧步道的中线。M3：建筑按足迹挡路之后，最宽的彩绘柱廊（10 米，台基伸到 ±5.25）加上人的半径到 5.5；
+  // 石台的地到 6.25——步道在 5.5 与 6.25 之间，中线 5.9（collision.test.mjs 沿这条线采样）
+  sideWalk: 5.9,
 });
 
 /** 第 slot 个底座的位置（相对地块中心）：后排 0–5 从西到东，前排 6–11 从西到东。 */

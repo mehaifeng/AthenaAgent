@@ -361,7 +361,8 @@ public partial class MainConversationView : UserControl
 
     private void OnInputFocusRequested(object? sender, System.EventArgs e)
     {
-        if (_messageInputTextBox == null) return;
+        // 游戏模式下输入框收起了：预填的字由城里的对话栏展开接住（GameModeViewModel.OnChatInputFocusRequested）
+        if (_messageInputTextBox == null || IsGameModeActive) return;
         _messageInputTextBox.Focus();
         _messageInputTextBox.CaretIndex = _messageInputTextBox.Text?.Length ?? 0;
     }

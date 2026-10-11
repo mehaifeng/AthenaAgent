@@ -1,6 +1,8 @@
 using Athena.UI.Controls;
 using Athena.UI.ViewModels.GameMode;
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using System;
 using System.ComponentModel;
@@ -17,12 +19,20 @@ public partial class PolisView : UserControl
     private IPolisPage? _page;
     private string? _pageUrl;
 
+    // 页面出来之前（加载中、失败面板后面）的底色：和城里的白天 / 夜里同色，切模式时不闪一块别的颜色
+    private static readonly IBrush DayBackground = new SolidColorBrush(Color.Parse("#C8C5BF"));
+    private static readonly IBrush NightBackground = new SolidColorBrush(Color.Parse("#15181D"));
+    private static readonly IBrush DayText = new SolidColorBrush(Color.Parse("#4A433D"));
+    private static readonly IBrush NightText = new SolidColorBrush(Color.Parse("#B8B0A2"));
+
     public PolisView()
     {
         InitializeComponent();
         DataContextChanged += (_, _) => Bind(DataContext as GameModeViewModel);
-        AttachedToVisualTree += (_, _) => UpdatePage();
+        AttachedToVisualTree += (_, _) => { SyncTheme(); UpdatePage(); };
         DetachedFromVisualTree += (_, _) => DisposePage();
+        // 应用换了深 / 浅色主题：主题变体一落地就告诉游戏（不等 App.ThemeChanged——它在 1.2 秒的背景过渡之后才广播）
+        ActualThemeVariantChanged += (_, _) => SyncTheme();
     }
 
     private void Bind(GameModeViewModel? viewModel)
@@ -32,7 +42,20 @@ public partial class PolisView : UserControl
         DisposePage();
         _viewModel = viewModel;
         if (_viewModel != null) _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        SyncTheme();
         UpdatePage();
+    }
+
+    /// <summary>夜里（游戏的夜跟着应用的深色主题）：底色、加载提示的字色，以及告诉 ViewModel。没挂到界面上时主题变体读不准，不动。</summary>
+    private void SyncTheme()
+    {
+        if (VisualRoot == null) return;
+        var night = ActualThemeVariant == ThemeVariant.Dark;
+        var surface = this.FindControl<Grid>("PolisSurface");
+        if (surface != null) surface.Background = night ? NightBackground : DayBackground;
+        var loading = this.FindControl<TextBlock>("PolisLoadingText");
+        if (loading != null) loading.Foreground = night ? NightText : DayText;
+        _viewModel?.SetNight(night);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

@@ -3,6 +3,8 @@
 // 新建或删除文件夹）按座替换，不重建整座城——外部改动只让建筑轻微变化（设计稿 11.2）。
 //
 // M2：每一件东西都经资产库（art/assets.mjs）按 Id 造出来——缺省程序化，清单可以把任何一件换成外部模型。
+// M3：挡路的不再是整块地块，而是每件东西自己的足迹（footprint.mjs）：建好之后把每件可见资产的足迹按摆放矩阵盖到
+// 一张全城的占用栅格上（rebuildOccupancy），layout.walkable 查它；城里有东西增减（换建筑、空地、橄榄林、神谕）就重盖一遍。
 // 港前第 z = 2 行加了三处场馆（彩绘柱廊、书库、金库，每处 12 个底座）和橄榄林的台地；广场上加了日晷与传令官的讲台，
 // 委托板上钉着建议的纸条；居民站在各自能力的建筑旁；设立了神谕，神庙前立起三足鼎。
 import * as THREE from '../vendor/three.bundle.mjs';
@@ -13,6 +15,7 @@ import { buildSlotMarker } from './art/items.mjs';
 import { RESIDENT_ROLES } from './art/characters.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
+import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
 
 /** 公共建筑的名字。实时模式里由 C# 按界面语言推来（locale 文件），这里是独立打开页面时的默认值。 */
 export const PUBLIC_NAMES = Object.freeze({
@@ -21,6 +24,9 @@ export const PUBLIC_NAMES = Object.freeze({
 });
 
 const shadowed = (o) => { o.castShadow = true; o.receiveShadow = true; return o; };
+
+/** 神庙的缩放：普通城邦里 0.62；神殿（全局对话，没有文件夹的城）里神庙是主角，0.95。居民站的地方按 city 的那一档给。 */
+export const TEMPLE_SCALE = Object.freeze({ city: 0.62, sanctuary: 0.95 });
 
 /**
  * @param {THREE.Scene} scene
@@ -42,8 +48,112 @@ export function buildWorld(scene, city, layout, M, options) {
   };
   const add = (o) => { root.add(o); return o; };
 
+  // —— 占用栅格（M3 决定 1）：城的范围再往外留一圈（城门在最北一条街之外、码头大街向西接长到橄榄林） ——
+  const ob = layout.bounds, qr = layout.quayRange;
+  const occupancy = createOccupancy({
+    minX: Math.min(ob.minX, qr.minX - BLOCK / 2) - 12, maxX: Math.max(ob.maxX, qr.maxX + BLOCK / 2) + 12,
+    minZ: ob.minZ - 12, maxZ: ob.maxZ + 12,
+  });
+  world.occupancy = occupancy;
+
+  /**
+   * 把每件可见资产的足迹重新盖到占用栅格上。资产的足迹按它自己的网格算一次（assets.footprint）；嵌在别的资产里的资产
+   * （民居旁的柏树、场馆台地上的器物与底座）各自盖；空地的地基石与橄榄林的实例化树干另记在 userData 上。
+   * 隐藏的东西（没设立的神谕、停工的脚手架、空位的白环、消散的侍女）不算。
+   */
+  world.rebuildOccupancy = () => {
+    root.updateMatrixWorld(true);
+    occupancy.clear();
+    const inst = new THREE.Matrix4(), m = new THREE.Matrix4();
+    const walk = (o) => {
+      if (o.visible === false) return;
+      if (o.userData.asset) occupancy.stamp(assets.footprint(o), o.matrixWorld);
+      else if (o.userData.footprint) occupancy.stamp(o.userData.footprint, o.matrixWorld);
+      if (o.userData.instancedFootprint && o.isInstancedMesh) {
+        for (let k = 0; k < o.count; k++) {
+          o.getMatrixAt(k, inst);
+          occupancy.stamp(o.userData.instancedFootprint, m.multiplyMatrices(o.matrixWorld, inst));
+        }
+      }
+      for (const child of o.children) walk(child);
+    };
+    walk(root);
+    layout.setObstacles(obstacles);
+    // 城里的东西变了，居民站的地方和出门的那段路也要重新挑（神谕的月桂可能正落在侍女出门的路上）
+    for (const resident of world.residents.values()) settleResident(resident);
+    return occupancy.stamped;
+  };
+  const obstacles = (p) => occupancy.blocked(p.x, p.z);
+
+  /**
+   * 居民站在哪：设定点（他那项能力的建筑旁）附近最近的能站的地方——器物挡路之后，设定点可能正压在货堆或铁砧的边上；
+   * 站在讲台上的传令官例外（role.fixed）。出门走一小段的落脚点也在这里挑（findOuting：一路上没有东西挡着）。
+   */
+  function settleResident(resident) {
+    const { role, spot } = resident;
+    // 有工位的（铁匠的铁砧、工匠的石料、画师的画架）：站在工位上、面朝活儿，不出门闲逛——手上的活儿是按这个站位解出来的
+    const station = stationFor(role);
+    if (station) {
+      resident.figure.root.position.set(station.stand.x, station.stand.y + 0.012, station.stand.z);
+      resident.label.anchor.set(station.stand.x, station.stand.y + (resident.figure.root.userData.height ?? 1.75) + 0.55, station.stand.z);
+      resident.home = { x: station.stand.x, z: station.stand.z, y: station.stand.y + 0.012, yaw: station.yaw };
+      resident.out = { x: station.stand.x, z: station.stand.z };
+      resident.station = station;
+      return;
+    }
+    const at = role.fixed ? { x: spot.x, z: spot.z } : nearestWalkable(spot, layout.walkable);
+    const y = world.groundAt(at.x, at.z) + 0.012;
+    resident.figure.root.position.set(at.x, y, at.z);
+    resident.label.anchor.x = at.x;
+    resident.label.anchor.z = at.z;
+    resident.home = { x: at.x, z: at.z, y, yaw: role.facing };
+    // 站在讲台上的传令官不出门：走路的人一路按家门口的高度摆（不会上下台阶），他从 0.44 米的台面走下去，就是一路穿过讲台
+    // （M3 第四轮，用户实测）。别的居民挑一条平地上、没东西挡着的路
+    resident.out = role.fixed ? { x: at.x, z: at.z } : findOuting(resident.home, layout.walkable, 2.4, world.groundAt);
+  }
+
+  /**
+   * 工位（RESIDENT_ROLES[kind].station = { in: 'forge' | 场馆名, key }）：宿主（锻炉、场馆的那一组）userData.stations 里的一项，
+   * 按宿主的摆放矩阵换到世界里——stand 是人站的地方（含地坪的高度），at 是活儿落下的那一点，yaw 是他面朝的方向。
+   */
+  function stationFor(role) {
+    if (!role?.station) return null;
+    const host = role.station.in === 'forge' ? world.forge : world.venues.get(role.station.in)?.group;
+    const st = host?.userData.stations?.[role.station.key];
+    if (!st) return null;
+    host.updateMatrixWorld(true);
+    return { stand: st.stand.clone().applyMatrix4(host.matrixWorld), at: st.at.clone().applyMatrix4(host.matrixWorld), yaw: (st.yaw ?? 0) + host.rotation.y };
+  }
+  world.stationFor = stationFor;
+
+  /**
+   * 脚下的地面有多高：锻炉的地坪比街面高 0.2 米（userData.floors，宿主的局部坐标里的矩形）；别处都是 0。
+   * 你、雅典娜、居民走上去，脚落在地坪上（第一版人一律 y = 0，铁匠和工匠的脚陷在地坪里 19 厘米）。
+   */
+  const floors = [];
+  world.addFloors = (host) => {
+    host.updateMatrixWorld(true);
+    for (const f of host.userData.floors ?? []) {
+      const box = new THREE.Box3();
+      for (const x of [f.minX, f.maxX]) for (const z of [f.minZ, f.maxZ]) box.expandByPoint(new THREE.Vector3(x, 0, z).applyMatrix4(host.matrixWorld));
+      floors.push({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z, y: f.y });
+    }
+  };
+  world.groundAt = (x, z) => {
+    let y = 0;
+    for (const f of floors) if (x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ && f.y > y) y = f.y;
+    return y;
+  };
+
+  /** 布局重建了（橄榄林长出新台地）：新布局接上同一张栅格。 */
+  world.setLayout = (next) => {
+    layout = next;
+    world.layout = next;
+    layout.setObstacles(obstacles);
+  };
+
   // —— 地面与海 ——
-  const shoreZ = layout.quayZ + STREET / 2 + 0.2;
+  const shoreZ = layout.shoreZ;   // 与键盘走路的边界（layout.walkable）是同一条岸线
   const landDepth = 600;
   const land = new THREE.Mesh(groundPlane(600, landDepth, 15), M.earth);
   land.position.set(0, 0, shoreZ - landDepth / 2);
@@ -93,7 +203,7 @@ export function buildWorld(scene, city, layout, M, options) {
   // —— 公共建筑 ——
   const temple = assets.object('civic.temple', { nx: 6, nz: 7 });
   // 神殿（全局对话）：没有文件夹的城，神庙就是主角，盖得更大
-  const templeScale = world.sanctuary ? 0.95 : 0.62;
+  const templeScale = world.sanctuary ? TEMPLE_SCALE.sanctuary : TEMPLE_SCALE.city;
   temple.scale.setScalar(templeScale);
   placeAt(temple, pub('temple'));
   labelAt(world.sanctuary ? names.sanctuary : names.temple, pub('temple'), (temple.userData.height ?? 9) * templeScale, 'public', 'temple');
@@ -118,6 +228,7 @@ export function buildWorld(scene, city, layout, M, options) {
   const forge = placeAt(assets.object('civic.forge'), pub('forge'));
   labelAt(names.forge, pub('forge'), forge.userData.height, 'public', 'forge');
   world.forge = forge;
+  world.addFloors(forge);
   const marketKeys = city.market ?? [];
   const market = placeAt(assets.object('civic.market', { stalls: marketKeys.length }), pub('market'));
   labelAt(names.market, pub('market'), market.userData.height, 'public', 'market');
@@ -131,6 +242,7 @@ export function buildWorld(scene, city, layout, M, options) {
   agora.rotation.y = 0;
   labelAt(names.agora, { cx: 0, cz: -4.2 }, 3.4, 'public', 'agora');
   world.agora = agora;
+  world.addFloors(agora);   // 传令官的讲台
 
   const harbor = assets.object('civic.harbor', { quayLocalZ: layout.quayZ, pierLength: 14, plotCenterZ: pub('harbor').cz });
   add(harbor);
@@ -148,10 +260,11 @@ export function buildWorld(scene, city, layout, M, options) {
 
   // —— M2：港前的三处场馆 ——
   const venueBuilders = { paintedStoa: 'civic.paintedStoa', archive: 'civic.archive', vault: 'civic.vault' };
+  // 场馆门前的陈设贴着台基的正面摆（M3：器物挡路了，第一版摆在 ±5.4 正好压在两侧的步道上）
   const venueDecor = {
-    paintedStoa: [['prop.easel', -5.4, 1.2, 0.4], ['prop.easel', 5.4, 1.2, -0.4]],
-    archive: [['prop.scrollCase', -5.5, 1.1, 0], ['prop.scrollCase', 5.5, 1.1, 0], ['prop.lekythos', -5.2, 5.6, 0]],
-    vault: [['prop.chest', -5.3, 1.2, 0.2], ['prop.chest', 5.3, 1.2, -0.2]],
+    paintedStoa: [['prop.easel', -3.4, -0.3, 0.4], ['prop.easel', 3.4, -0.3, -0.4]],
+    archive: [['prop.scrollCase', -3.4, -0.1, 0], ['prop.scrollCase', 3.4, -0.1, 0], ['prop.lekythos', -5.7, 5.9, 0]],
+    vault: [['prop.chest', -3.2, 0.2, 0.2], ['prop.chest', 3.2, 0.2, -0.2]],
   };
   for (const [venue, site] of Object.entries(VENUES)) {
     const plot = pub(site);
@@ -165,6 +278,16 @@ export function buildWorld(scene, city, layout, M, options) {
       o.position.set(x, 0, z);
       o.rotation.y = yaw;
       group.add(o);
+      // 画师的工位：西边那架画架前。她面朝画面，笔尖落在画面上——poses.ARMS 是用她自己的骨架解的"身前 0.53 米、偏右 0.08 米"
+      if (venue === 'paintedStoa' && id === 'prop.easel' && x < 0 && o.userData.panel) {
+        const c = o.userData.panel.centre;
+        const at = new THREE.Vector3(c[0], c[1], c[2]).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(o.position);
+        const face = yaw + Math.PI;   // 面朝画架（画面朝 +z 转过 yaw）
+        const fwd = new THREE.Vector3(Math.sin(face), 0, Math.cos(face)), right = new THREE.Vector3(-Math.cos(face), 0, Math.sin(face));
+        const stand = at.clone().addScaledVector(fwd, -0.53).addScaledVector(right, -0.08);
+        stand.y = 0;
+        group.userData.stations = { paint: { at, stand, yaw: face } };
+      }
     }
     placeAt(group, plot);
     const slots = [];
@@ -236,6 +359,7 @@ export function buildWorld(scene, city, layout, M, options) {
     }
     const g = kit.build();
     g.position.set(v.plot.x * BLOCK, 0, v.plot.z * BLOCK);
+    g.userData.footprint = footprintOf(g);   // 地基石齐膝高，挡路（M3）
     add(g);
     world.vacant.set(v.key, g);
   }
@@ -306,13 +430,17 @@ export function buildWorld(scene, city, layout, M, options) {
       let resident = world.residents.get(kind);
       if (!resident) {
         const figure = assets.figure(`figure.${kind}`);
-        const x = plot.cx + role.spot[0], z = plot.cz + role.spot[1];
+        // 站在神庙前的（侍女、女祭司）按神庙真正的正面站：神殿里的神庙放大到 0.95，台基一直伸到街上，
+        // 按普通城邦的米数站，两个人整个陷在 0.94 米高的台基里（M3 第四轮，按人站的地方往下照出来的）
+        const front = role.site === 'temple' ? (temple.userData.front ?? 0) * (templeScale - TEMPLE_SCALE.city) : 0;
+        const x = plot.cx + role.spot[0], z = plot.cz + role.spot[1] + front;
         figure.root.position.set(x, 0.012, z);
         figure.root.rotation.y = role.facing;
         add(figure.root);
         const label = { text: nameOf(kind), kind: 'resident', key: `resident:${kind}`, anchor: new THREE.Vector3(x, (figure.root.userData.height ?? 1.75) + 0.55, z) };
         world.labels.push(label);
-        resident = { kind, figure, label, home: { x, z, yaw: role.facing }, work: role.work, phase: hashSeed(kind) % 9000, met: false };
+        resident = { kind, figure, label, role, spot: { x, z }, home: { x, z, yaw: role.facing }, out: { x, z }, work: role.work, phase: hashSeed(kind) % 9000, met: false };
+        settleResident(resident);
         world.residents.set(kind, resident);
       }
       resident.met = !!info.met;
@@ -354,11 +482,14 @@ export function buildWorld(scene, city, layout, M, options) {
           mine.forEach((s, i) => inst.setMatrixAt(i, m4(s.x, 0, s.z, s.yaw)));
           inst.instanceMatrix.needsUpdate = true;
           inst.computeBoundingSphere();
+          // 树干挡路、树冠不挡（人身高度带）：足迹按这一份几何算一次，每棵按实例矩阵盖（M3）
+          if (part === geo.bark) inst.userData.instancedFootprint = footprintOfGeometry(part, { minHeight: BLOCKING_HEIGHT });
           groveRoot.add(inst);
           groveMeshes.push(inst);
         }
       }
     }
+    world.rebuildOccupancy();
     return world.groveTrees;
   };
 
@@ -367,8 +498,13 @@ export function buildWorld(scene, city, layout, M, options) {
     (agora.userData.notices ?? []).forEach((sheet, i) => { sheet.visible = i < count; });
   };
 
-  /** 设立了每日神谕：神庙前立起三足鼎与月桂。 */
-  world.setOracle = (on) => { oracle.visible = !!on; };
+  /** 设立了每日神谕：神庙前立起三足鼎与月桂（它们从此挡路）。 */
+  world.setOracle = (on) => {
+    const next = !!on;
+    if (oracle.visible === next) return;
+    oracle.visible = next;
+    world.rebuildOccupancy();
+  };
 
   /** 摆放时空位上的白环：只给空着的位次（filter(venue, slot) 为 true 的那些）。 */
   world.showSlotMarkers = (on, filter = () => true) => {
@@ -395,7 +531,9 @@ export function buildWorld(scene, city, layout, M, options) {
     }
     if (!layout.plots.has(id)) return false;
     layout.plots.get(id).building = bld;
-    return placeBuilding(bld) != null;
+    const placed = placeBuilding(bld) != null;
+    world.rebuildOccupancy();
+    return placed;
   };
 
   /** 文件夹被删：拆掉建筑，留下一圈地基石（空地记在账本里，永不回收）。 */
@@ -409,6 +547,7 @@ export function buildWorld(scene, city, layout, M, options) {
       world.scaffolds.delete(id);
     }
     if (!world.vacant.has(v.key)) placeVacant(v);
+    world.rebuildOccupancy();
   };
 
   /** 整座城拆掉（换城、或者城长出了新的一圈）。共享的材质留着，几何体（包括这座城共用的那几份）全部释放。 */
@@ -422,5 +561,43 @@ export function buildWorld(scene, city, layout, M, options) {
     });
   };
 
+  world.rebuildOccupancy();
   return world;
+}
+
+/** 离 p 最近的能站的点（0.1 米一圈向外找，最远 maxR）；找不到就原地。 */
+export function nearestWalkable(p, walkable, maxR = 1.5) {
+  if (walkable(p)) return { x: p.x, z: p.z };
+  for (let r = 0.1; r <= maxR + 1e-9; r += 0.1) {
+    const n = Math.max(8, Math.round((2 * Math.PI * r) / 0.1));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const q = { x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r };
+      if (walkable(q)) return q;
+    }
+  }
+  return { x: p.x, z: p.z };
+}
+
+/**
+ * 居民出门走一小段的落脚点：从家门口按他的朝向偏一点走 2.4 米；撞上东西就换个方向试，八个方向都不通就待在家里不出门。
+ * 一路上每 0.2 米都要能站（家门口本身被占着时，头 0.8 米不算）；给了 groundAt 的话，一路上的地面还要和家门口一样高——
+ * 走路的人按家门口的高度摆、不会上下台阶，走到讲台下一级那样 0.22 米高的台面上，脚就陷在石头里。
+ */
+export function findOuting(home, walkable, distance = 2.4, groundAt = null) {
+  const base = home.yaw + 1.2;
+  const homeClear = walkable(home);
+  const level = groundAt ? groundAt(home.x, home.z) : 0;
+  for (let k = 0; k < 8; k++) {
+    const a = base + (k % 2 === 0 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 4);
+    const out = { x: home.x + Math.sin(a) * distance, z: home.z + Math.cos(a) * distance };
+    let clear = true;
+    for (let d = 0.2; d <= distance + 1e-6 && clear; d += 0.2) {
+      const p = { x: home.x + Math.sin(a) * d, z: home.z + Math.cos(a) * d };
+      if (!walkable(p) && (homeClear || d > 0.8)) clear = false;
+      if (groundAt && Math.abs(groundAt(p.x, p.z) - level) > 0.02) clear = false;
+    }
+    if (clear) return out;
+  }
+  return { x: home.x, z: home.z };
 }

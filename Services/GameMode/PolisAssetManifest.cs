@@ -41,7 +41,7 @@ public static class PolisAssetManifest
     public const int MaxEntries = 256;
 
     /// <summary>动作名：与页面的姿势表一致。</summary>
-    public static IReadOnlyList<string> Actions { get; } = new[] { "walk", "idle", "work", "deliver" };
+    public static IReadOnlyList<string> Actions { get; } = new[] { "walk", "run", "idle", "work", "deliver", "talk", "wave", "receive" };
 
     private static readonly Regex AssetId = new(@"^(building|prop|plant|figure|civic)(\.[a-z][a-zA-Z0-9-]{0,31}){1,3}$", RegexOptions.CultureInvariant);
 
@@ -193,14 +193,14 @@ public static class PolisAssetManifest
         if (!value.TryGetProperty("animations", out var raw)) return true;
         if (raw.ValueKind != JsonValueKind.Object)
         {
-            why = "\"animations\" must map walk / idle / work / deliver to clip names";
+            why = "\"animations\" must map walk / run / idle / work / deliver / talk / wave / receive to clip names";
             return false;
         }
         foreach (var clip in raw.EnumerateObject())
         {
             if (!Actions.Contains(clip.Name))
             {
-                why = $"unknown action '{Shorten(clip.Name)}' in \"animations\" (walk / idle / work / deliver)";
+                why = $"unknown action '{Shorten(clip.Name)}' in \"animations\" (walk / run / idle / work / deliver / talk / wave / receive)";
                 return false;
             }
             var name = clip.Value.ValueKind == JsonValueKind.String ? clip.Value.GetString() : null;

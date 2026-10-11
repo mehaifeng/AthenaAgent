@@ -10,7 +10,7 @@
 <title>雅典娜的城邦</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #c8c5bf; font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
-  canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #scene, #overlay { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
   #overlay { pointer-events: none; }
   #controls { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
   #controls button {
@@ -18,27 +18,126 @@
     border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 6px 12px; cursor: pointer;
   }
   #controls button:hover { background: rgba(30, 28, 26, 0.8); }
-  /* 实时模式：没有回放的播放 / 速度 / 重新开始，只留镜头切换 */
-  body.live #btn-play, body.live #btn-speed, body.live #btn-restart { display: none; }
+  /* 实时模式：没有回放的播放 / 速度 / 重新开始 */
+  body.live #controls { display: none; }
+  /* 视角与海图：实时模式在左上角（底部正中留给对话栏）；回放模式在右下、播放按钮上面（左上角是回放的状态行） */
+  #toolbar { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; align-items: center; }
+  body:not(.live) #toolbar { left: auto; top: auto; right: 12px; bottom: 54px; }
+  #toolbar > button, #view {
+    font: 500 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #f4f1ec; background: rgba(30, 28, 26, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px;
+  }
+  #toolbar > button { padding: 6px 12px; cursor: pointer; }
+  #toolbar > button:hover { background: rgba(30, 28, 26, 0.8); }
+  #view { display: flex; align-items: center; gap: 2px; padding: 3px; }
+  #view .view-label { color: rgba(244, 241, 236, 0.7); font-size: 12px; padding: 0 6px; }
+  #view button { font: inherit; color: inherit; background: transparent; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  #view button:hover { background: rgba(255, 255, 255, 0.12); }
+  #view button[aria-checked="true"] { background: rgba(250, 247, 241, 0.94); color: #26221f; }
+  /* 操作提示：对话栏正上方一行小字，走过几步就淡掉 */
+  #hint { position: absolute; left: 50%; bottom: 66px; transform: translateX(-50%); max-width: calc(100% - 32px); box-sizing: border-box;
+    padding: 4px 12px; border-radius: 12px; background: rgba(30, 28, 26, 0.5); color: #f4f1ec; font-size: 12.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  #hint[hidden] { display: none; }
+  /* 和雅典娜说话：收起时一行（左边一枚小像），展开时半身像 + 状态 + 能写几行的输入框。文字都由 talk.mjs 用 textContent 填 */
+  #talk { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); box-sizing: border-box;
+    width: min(520px, calc(100% - 32px)); display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 6px;
+    background: rgba(250, 247, 241, 0.985); border: 1px solid rgba(60, 55, 50, 0.25); border-radius: 24px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); color: #26221f; cursor: text;
+    font: 14px "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+  #talk[hidden] { display: none; }
+  #talk.open { width: min(660px, calc(100% - 32px)); align-items: flex-start; gap: 14px; padding: 12px 14px 12px 12px; border-radius: 12px; cursor: default; }
+  #talk .talk-bust { flex: none; display: block; border-radius: 50%; background: #f3ede1; border: 1px solid rgba(60, 55, 50, 0.25); }
+  #talk.open .talk-bust { border-radius: 8px; }
+  #talk .talk-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  #talk .talk-head, #talk .talk-hint, #talk .talk-attachments { display: none; }
+  #talk.open .talk-head { display: flex; align-items: baseline; gap: 10px; }
+  #talk.open .talk-hint { display: block; }
+  #talk.open .talk-attachments:not([hidden]) { display: block; }
+  #talk .talk-name { font-weight: 600; font-size: 15px; }
+  #talk .talk-status { color: #6b625a; font-size: 12.5px; }
+  /* 她在办事：状态前一粒白光一明一暗（光属于雅典娜；不用点缀色） */
+  #talk.busy .talk-status::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
+    background: #fffbea; box-shadow: 0 0 0 1px rgba(60, 55, 50, 0.55), 0 0 8px 3px rgba(255, 246, 214, 0.95); animation: talk-pulse 1.4s ease-in-out infinite; }
+  @keyframes talk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  #talk .talk-row { display: flex; align-items: flex-end; gap: 8px; }
+  #talk .talk-input { flex: 1; min-width: 0; box-sizing: border-box; height: 25px; resize: none; border: 0; outline: none; background: transparent; color: inherit;
+    font: inherit; line-height: 1.5; padding: 2px 4px; overflow-y: auto; }
+  #talk.open .talk-input { background: rgba(255, 255, 255, 0.75); border: 1px solid rgba(60, 55, 50, 0.2); border-radius: 8px; padding: 7px 10px; }
+  #talk .talk-input::placeholder { color: #8a7f74; }
+  #talk button { flex: none; font: 600 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #fbf8f3; background: rgba(40, 37, 34, 0.88);
+    border: 0; border-radius: 16px; padding: 7px 16px; cursor: pointer; }
+  #talk button[hidden] { display: none; }
+  #talk button:disabled { opacity: 0.38; cursor: default; }
+  #talk .talk-hint { color: #8a7f74; font-size: 12px; }
+  #talk .talk-attachments { color: #4a433d; font-size: 12.5px; }
+  /* 夜里（M3 第三轮：跟着应用的深色主题）：页面自己的几样东西换成夜里的颜色，颜色之间过渡 0.6 秒 */
+  #talk, #toolbar > button, #view, #view button, #hint, #controls button { transition: background-color 0.6s ease, color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease; }
+  body.night { background: #15181d; }
+  body.night #controls button, body.night #toolbar > button, body.night #view { color: #ece5d6; background: rgba(10, 11, 13, 0.7); border-color: rgba(236, 229, 214, 0.14); }
+  body.night #view .view-label { color: rgba(236, 229, 214, 0.6); }
+  body.night #view button[aria-checked="true"] { background: rgba(214, 204, 186, 0.92); color: #1d1b19; }
+  body.night #hint { background: rgba(10, 11, 13, 0.66); color: #ece5d6; }
+  body.night #talk { background: rgba(32, 30, 28, 0.97); border-color: rgba(236, 229, 214, 0.16); color: #ece5d6; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); }
+  body.night #talk .talk-bust { background: #2b2825; border-color: rgba(236, 229, 214, 0.2); }
+  body.night #talk .talk-status, body.night #talk .talk-hint { color: #a39a8c; }
+  body.night #talk .talk-attachments { color: #c9c0b0; }
+  body.night #talk.open .talk-input { background: rgba(255, 255, 255, 0.06); border-color: rgba(236, 229, 214, 0.18); }
+  body.night #talk .talk-input::placeholder { color: #857c70; }
+  body.night #talk button { color: #1d1b19; background: rgba(214, 204, 186, 0.92); }
+  body.night #talk.busy .talk-status::before { box-shadow: 0 0 0 1px rgba(236, 229, 214, 0.5), 0 0 10px 4px rgba(255, 236, 190, 0.9); }
+  body.night #reader { background: rgba(0, 0, 0, 0.52); }
+  body.night #reader .scroll { --reader-paper: #23211e; --reader-ink: #ece5d6; --reader-ink-soft: #b8b0a2; --reader-ink-faint: #8f877b; --reader-code: #302d29;
+    --reader-quote: #6a604f; --reader-rule: rgba(236, 229, 214, 0.16); --reader-zebra: rgba(236, 229, 214, 0.04); --reader-button: rgba(214, 204, 186, 0.9); --reader-button-ink: #1d1b19;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6); }
+  body.night #error { background: #15181d; }
+  body.night #error .card { background: #23211e; color: #ece5d6; }
   #error { position: absolute; inset: 0; display: grid; place-items: center; background: #d8d4cd; }
   #error[hidden] { display: none; }
   #error .card { max-width: 520px; padding: 24px 28px; background: #f6f3ee; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); color: #2a2622; }
   #error .detail { font: 12px ui-monospace, Menlo, monospace; color: #6b625a; white-space: pre-wrap; margin-top: 10px; }
-  /* 卷轴阅读器：正文由 reader.mjs 用文本节点建出来，这里只有排版 */
-  #reader { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 37, 34, 0.38); }
+  /* 卷轴阅读器：正文由 reader.mjs 用文本节点建出来，这里只有排版。
+     M3 第三轮：外层用 flex 居中、卷轴的最大高度按视口算，正文那一块 min-height: 0 才能缩、才能在自己里面滚——第一版是 grid：
+     自动行按内容长高，max-height: calc(100% - 48px) 跟着行一起变高，长回答 1927 像素高的卷轴塞在 800 像素的窗口里，
+     正文只能滚 48 像素，下面一千多像素看不到（用户：内容很长时看不到下方的内容、滚动不到位、底部遮挡） */
+  #reader { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;
+    background: rgba(40, 37, 34, 0.38); }
   #reader[hidden] { display: none; }
-  #reader .scroll { width: min(760px, calc(100% - 48px)); max-height: calc(100% - 48px); display: flex; flex-direction: column;
-    background: #f7f2e7; color: #2a2622; border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.25); }
-  #reader header { display: flex; align-items: center; gap: 12px; padding: 16px 22px 10px; border-bottom: 1px solid rgba(60,55,50,0.15); }
-  #reader header h1 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #reader header button { font: 500 13px inherit; color: #f4f1ec; background: rgba(30,28,26,0.75); border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
-  #reader .body { padding: 8px 22px 22px; overflow-y: auto; font-size: 15px; line-height: 1.7; }
-  #reader .body pre { background: #ece5d6; padding: 10px 12px; border-radius: 6px; overflow-x: auto; font: 13px ui-monospace, Menlo, monospace; }
-  #reader .body code { font: 13px ui-monospace, Menlo, monospace; background: #ece5d6; padding: 0 3px; border-radius: 3px; }
-  #reader .body pre code { background: none; padding: 0; }
-  #reader .body blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #cdbf9f; color: #5a524a; }
-  #reader .body .href { color: #8a7f74; font-size: 13px; }
+  #reader .scroll { width: min(820px, 100%); max-height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--reader-paper, #f7f2e7); color: var(--reader-ink, #2a2622); border-radius: 10px; box-shadow: 0 10px 32px rgba(0,0,0,0.25); }
+  #reader header { flex: none; display: flex; align-items: center; gap: 12px; padding: 16px 22px 10px; border-bottom: 1px solid var(--reader-rule, rgba(60,55,50,0.15)); }
+  #reader header h1 { flex: 1; min-width: 0; margin: 0; font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #reader header button { flex: none; font: 500 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: var(--reader-button-ink, #f4f1ec); background: var(--reader-button, rgba(30,28,26,0.75));
+    border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  #reader .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 26px 28px; font-size: 15px; line-height: 1.7;
+    outline: none; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+  #reader .body > :first-child { margin-top: 8px; }
+  #reader .body h1, #reader .body h2, #reader .body h3, #reader .body h4, #reader .body h5, #reader .body h6 { line-height: 1.35; margin: 1.1em 0 0.45em; font-weight: 650; }
+  #reader .body h1 { font-size: 21px; } #reader .body h2 { font-size: 18.5px; } #reader .body h3 { font-size: 16.5px; }
+  #reader .body h4, #reader .body h5, #reader .body h6 { font-size: 15px; }
+  #reader .body p { margin: 0.55em 0; }
+  #reader .body ul, #reader .body ol { margin: 0.4em 0; padding-left: 1.5em; }
+  #reader .body li { margin: 0.2em 0; }
   #reader .body li > p { margin: 2px 0; }
+  #reader .body li.task { list-style: none; position: relative; }
+  #reader .body li.task .task-box { position: absolute; left: -1.25em; top: 0; }
+  #reader .body li.task.done > p { color: var(--reader-ink-soft, #6b625a); }
+  #reader .body pre { background: var(--reader-code, #ece5d6); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font: 13px/1.5 ui-monospace, Menlo, monospace; overflow-wrap: normal; }
+  #reader .body code { font: 13px ui-monospace, Menlo, monospace; background: var(--reader-code, #ece5d6); padding: 0 3px; border-radius: 3px; }
+  #reader .body pre code { background: none; padding: 0; }
+  #reader .body blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--reader-quote, #cdbf9f); color: var(--reader-ink-soft, #5a524a); }
+  #reader .body hr { border: 0; border-top: 1px solid var(--reader-rule, rgba(60,55,50,0.2)); margin: 1.2em 0; }
+  #reader .body del { opacity: 0.6; }
+  #reader .body .href, #reader .body .image { color: var(--reader-ink-faint, #8a7f74); font-size: 13px; }
+  #reader .body .link { text-decoration: underline; text-decoration-color: var(--reader-rule, rgba(60,55,50,0.35)); text-underline-offset: 2px; }
+  /* 表格：宽的在自己那一块里横着滚，不把卷轴撑宽；表头底色、隔行浅底、按分隔行的冒号对齐 */
+  #reader .body .table-wrap { overflow-x: auto; margin: 0.7em 0; border: 1px solid var(--reader-rule, rgba(60,55,50,0.2)); border-radius: 6px; }
+  #reader .body table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.5; overflow-wrap: normal; }
+  #reader .body th, #reader .body td { padding: 6px 10px; border-bottom: 1px solid var(--reader-rule, rgba(60,55,50,0.14)); text-align: left; vertical-align: top; }
+  #reader .body th { background: var(--reader-code, #ece5d6); font-weight: 600; white-space: nowrap; }
+  #reader .body tbody tr:nth-child(even) td { background: var(--reader-zebra, rgba(60,55,50,0.035)); }
+  #reader .body tbody tr:last-child td { border-bottom: 0; }
+  #reader .body .align-center { text-align: center; } #reader .body .align-right { text-align: right; } #reader .body .align-left { text-align: left; }
 </style>
 </head>
 <body>
@@ -47,9 +146,30 @@
 <div id="controls">
   <button id="btn-play" type="button">暂停</button>
   <button id="btn-speed" type="button">速度 ×1</button>
-  <button id="btn-follow" type="button">镜头：跟着雅典娜</button>
-  <button id="btn-chart" type="button">海图</button>
   <button id="btn-restart" type="button">重新开始</button>
+</div>
+<div id="toolbar">
+  <div id="view" role="radiogroup">
+    <span class="view-label">视角</span>
+    <button type="button" role="radio" data-view="free" aria-checked="true">自由</button>
+    <button type="button" role="radio" data-view="player" aria-checked="false">跟着你</button>
+    <button type="button" role="radio" data-view="athena" aria-checked="false">跟着雅典娜</button>
+  </div>
+  <button id="btn-chart" type="button">海图</button>
+</div>
+<div id="hint" hidden></div>
+<div id="talk" hidden>
+  <canvas class="talk-bust" aria-hidden="true"></canvas>
+  <div class="talk-main">
+    <div class="talk-head"><span class="talk-name"></span><span class="talk-status"></span></div>
+    <div class="talk-attachments" hidden></div>
+    <div class="talk-row">
+      <textarea class="talk-input" rows="1" spellcheck="false"></textarea>
+      <button class="talk-send" type="button"></button>
+      <button class="talk-stop" type="button" hidden></button>
+    </div>
+    <div class="talk-hint"></div>
+  </div>
 </div>
 <div id="reader" hidden></div>
 <div id="error" hidden>

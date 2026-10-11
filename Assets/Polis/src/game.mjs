@@ -6,10 +6,16 @@
 //
 // M2：人物是可动的骨架（art/rig.mjs），动作来自纯函数的姿势（art/poses.mjs）；城里的一切经资产库（art/assets.mjs）造出来。
 // 积累：收下的藏品摆在港前三处场馆的底座上（摆在哪由你选）、橄榄林一份委托一棵树、居民随能力出现、委托板三条建议、
-// 神庙的每日神谕、传令官的报告、群岛海图——意图都是封闭集合里的那几条，C# 逐条校验；网页从不替人发消息，也没有"批准"。
+// 神庙的每日神谕、传令官的报告、群岛海图——意图都是封闭集合里的那几条，C# 逐条校验；网页没有"批准"。
+//
+// 操作（controls.mjs，2026-10-11 实测之后）：WASD / 方向键走路，鼠标点物件互动（点地面不走路）；视角缺省是自由的——
+// 左键拖动绕着转、右键拖动平移、滚轮缩放。和雅典娜说话在城里的对话栏（talk.mjs）：点她、或者按 Enter。
 import * as THREE from '../vendor/three.bundle.mjs';
 import { OrbitControls } from '../vendor/three.bundle.mjs';
-import { createLayout, pointAlong, PLAYER_SPEED } from './layout.mjs';
+import { createLayout, pointAlong, polyLength, PLAYER_SPEED, SPEED, ATHENA_STRIDE } from './layout.mjs';
+import {
+  VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
+} from './controls.mjs';
 import { cityIndex, siteForTool } from './replay.mjs';
 import { createOrchestrator, stepProgress } from './orchestrator.mjs';
 import { lineForVisit, pick, LINES_ZH, PLACE_ZH } from './narration.mjs';
@@ -18,6 +24,9 @@ import { createOverlay } from './overlay.mjs';
 import { makeMaterials } from './art/materials.mjs';
 import { createAssetLibrary } from './art/assets.mjs';
 import { workVariantFor } from './art/characters.mjs';
+import { setClothWind } from './art/rig.mjs';
+import { windAt } from './art/springs.mjs';
+import { ONE_SHOT_MS, oneShotDone } from './art/poses.mjs';
 import { buildWorld, PUBLIC_NAMES } from './world.mjs';
 import { hashSeed } from './art/noise.mjs';
 import { framePolicy, transitionArrival } from './live.mjs';
@@ -28,7 +37,11 @@ const BUBBLE_MS = 3600;
 const BOAT_MS = 7000;
 const VOYAGE_FADE_MS = 400;
 const REVEAL_MS = 3200;
-const PICK_PX = 26;
+/** 指针停在她身上时那块名牌的位置（她自己的坐标系里）：脚下，头顶留给旁白气泡。 */
+export const ATHENA_HOVER_ANCHOR = Object.freeze(new THREE.Vector3(0, -0.6, 0));
+const SAVE_PLAYER_MS = 700;    // 停下来这么久才记下位置（走的途中不发）
+/** 交互键（物理键位）：走到人或物件跟前按它。 */
+export const INTERACT_KEY = 'KeyE';
 
 /** 页面自己的界面词条。实时模式下由 C# 按界面语言覆盖（locale 文件里的 Polis.Ui.*）。 */
 export const UI_ZH = Object.freeze({
@@ -54,15 +67,44 @@ export const UI_ZH = Object.freeze({
   voyageCity: '驶向城邦',
   voyageSanctuary: '驶向雅典娜的神殿',
   close: '收起',
-  followAthena: '镜头：跟着雅典娜',
-  followPlayer: '镜头：跟着你',
-  followFree: '镜头：自由',
+  // 视角（2026-10-11：自由视角是缺省）
+  viewLabel: '视角',
+  viewFree: '自由',
+  viewPlayer: '跟着你',
+  viewAthena: '跟着雅典娜',
+  viewFreeTip: '左键拖动转视角，右键拖动平移，滚轮缩放；你走远了镜头会跟上',
+  controlsHint: 'WASD / 方向键走动（按住 Shift 跑）· 拖动转视角 · 走近人或物件按 E 互动 · Enter 和雅典娜说话',
+  focusHint: '点一下画面，就能用键盘走动',
+  athenaHere: '雅典娜在这边',
+  // 走近按 E（M3 第三轮）：脚下那块提示
+  interactKey: 'E',
+  interactTalk: '和雅典娜说话',
+  interactResident: '和{name}说话',
+  interactItem: '看看「{title}」',
+  interactPlace: '摆在这里',
+  interactTree: '去「{title}」这份委托',
+  interactBoard: '看看委托板',
+  interactOracle: '看看每日神谕',
+  interactVenue: '进{venue}看看',
+  // 和雅典娜说话（城里的对话栏）
+  talkName: '雅典娜',
+  talkToAthena: '和雅典娜说话',
+  talkPlaceholder: '想请雅典娜做什么？',
+  talkSend: '托付',
+  talkStop: '请她停下',
+  talkHint: 'Enter 托付 · Shift+Enter 换行 · Esc 收起',
+  talkIdle: '她在听',
+  talkBusy: '她在办你交代的事——可以先写下一件',
+  talkQueued: '排在后面，前一件做完就开始',
+  talkWaiting: '她在等你点头：看看审批窗口',
+  talkCompressing: '她在整理记忆，稍等一下',
+  talkAttachments: '一并交给她：{names}',
   // M2
   place: '摆放',
   move: '换个地方',
   takeDown: '撤下',
   remove: '移除',
-  placeHint: '点一个空底座，把《{title}》摆在那里',
+  placeHint: '走到一个空底座前按 E，把《{title}》摆在那里',
   placeDefault: '放进{venue}',
   cancel: '取消',
   storedIn: '摆在{venue}',
@@ -94,8 +136,15 @@ export const UI_ZH = Object.freeze({
  * @param {object} options.status window.__polis（测试读它）
  * @param {(type: string, fields?: object) => void} options.send 发一条意图给宿主（回放模式里只记下）
  * @param {(item: object) => void} [options.onReadItem] 读一件成果（回放模式在本地开阅读器）
+ * @param {() => void} [options.onTalk] 点了雅典娜：打开对话栏（实时模式才有；回放里点她什么也不做）
+ * @param {(blocked: boolean) => void} [options.onUiBlocked] 画面中间被卡片、面板、海图、雾或过场占着（对话栏让开）
+ * @param {(mode: string) => void} [options.onViewChange] 视角变了（按钮、V 键，或者拖动平移把镜头交还给你）
+ * @param {() => boolean} [options.modalOpen] 页面上有别的东西挡着（卷轴阅读器）：这时方向键不走路
+ * @param {number} [options.topInset] 顶上被 DOM 工具条占着的高度（实时模式左上角的视角与海图）：顶上的面板往下让
+ * @param {string} [options.defaultView] 缺省视角：应用里是自由（你是主角）；回放是一段录好的委托，缺省跟着雅典娜看
+ * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onReadItem }) {
+export function createGame({ params, status, send, onReadItem, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -131,12 +180,22 @@ export function createGame({ params, status, send, onReadItem }) {
   let islands = [];            // 海图
   let panel = null;            // { type: 'resident' | 'board' | 'oracle' | 'venue' | 'chart', … }
   let placing = null;          // 正在摆放的藏品 id
-  let hover = null;            // { type: 'tree' | 'resident', id }
+  // 互动（M3 第三轮，用户：互动从鼠标点击改为控制角色接近目标、按交互键触发）：每一帧挑出你身边够得着的那一样（focus），
+  // 脚下画一块"E 和雅典娜说话"；按 E 才触发。鼠标不再点城里的东西——叠加层上的按钮、海图、"雅典娜在这边"仍然是点的
+  let focus = null;            // { type: 'athena' | 'resident' | 'item' | 'slot' | 'tree' | 'board' | 'oracle' | 'venue', id?, venue?, slot?, x, z }
+  let forcedFocus = null;      // 测试与运动自检：不管远近，就当你站在它跟前（setHover）
   let pendingBoardLine = null; // 奠基揭幕之后雅典娜说的第一条建议
 
-  // —— 玩家：点哪走哪（真实时间，不随回放暂停） ——
-  const player = { pos: { x: 2.6, z: 4.4 }, route: null, start: 0, length: 0, yaw: Math.PI * 0.85, savedAt: 0 };
+  // —— 玩家：WASD / 方向键走路（真实时间，不随回放暂停）。点地面不走——鼠标只管互动 ——
+  const player = { pos: { x: 2.6, z: 4.4 }, yaw: Math.PI * 0.85, walkClock: 0, moving: false, dirty: false, stoppedAt: 0 };
   const playerSite = () => `pt:${(player.pos.x + 0.9).toFixed(2)},${(player.pos.z + 0.4).toFixed(2)}`;
+  const pressed = new Set();   // 按住的方向：'up' | 'down' | 'left' | 'right'
+  let running = false;
+  // —— M3 的动画状态：一次性的动作（接过、挥手）、托付的时刻（之后两秒多做"说"的手势）、看向谁 ——
+  const anim = { playerOneShot: null, saidAt: -Infinity };
+  const TALK_GESTURE_MS = 2600;
+  const playerHead = new THREE.Vector3();
+  const athenaChest = new THREE.Vector3();
 
   // —— 编排器 + 旁白（换城、换会话时整个重建） ——
   let sim = null;
@@ -161,7 +220,9 @@ export function createGame({ params, status, send, onReadItem }) {
   let reveal = null;            // 第一次进入的俯瞰揭幕
   let lastInputAt = -Infinity;
 
-  // —— 镜头：默认跟着雅典娜，F 切到跟着你；右键拖动平移、滚轮缩放 ——
+  // —— 镜头：三种视角，缺省自由（controls.mjs）。左键拖动绕着转（自己处理：拖过几像素才算转，点击不会把镜头拧歪）；
+  // 右键、或者按住 Shift / Ctrl / ⌘ 用左键拖动是平移（交给 OrbitControls——它在 enableRotate 为假时不处理左键的转动）；
+  // 滚轮缩放。在"跟着谁"的视角里平移，镜头就交还给你（切到自由）。 ——
   const camera = R.camera;
   const target = new THREE.Vector3(0, 1, 0);
   const placeCamera = (center, az = CAMERA.azimuth, el = CAMERA.elevation) => {
@@ -173,13 +234,59 @@ export function createGame({ params, status, send, onReadItem }) {
   controls.target.copy(target);
   controls.enableRotate = false;
   controls.screenSpacePanning = true;
-  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-  controls.minZoom = 0.4; controls.maxZoom = 2.6;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.minZoom = 0.4; controls.maxZoom = 6.5;   // M3（决定 4）：能推到近景——人物约 300 像素高（中景 2.6 是 130）
+  controls.minPolarAngle = THREE.MathUtils.degToRad(90 - VIEW.maxElevation);
+  controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - VIEW.minElevation);
   controls.update();
-  let follow = params.get('follow') === 'player' ? 'player' : 'athena';
+  let follow = VIEW_MODES.includes(params.get('follow')) ? params.get('follow') : VIEW_MODES.includes(defaultView) ? defaultView : 'free';
   let dragButton = -1;
+  let dragModified = false;   // 按下时按着 Shift / Ctrl / ⌘：左键拖动是平移
   let glide = null;   // 镜头被"请"去某处（摆放时看场馆）：{ to, until }
-  controls.addEventListener('start', () => { if (dragButton === 2) { follow = 'free'; glide = null; } lastInputAt = performance.now(); });
+  // M3（决定 4）近景：对话栏开着（你和雅典娜说话）、居民的卡片开着，镜头推近到两个人中间、俯角放低；收起就退回原来的远近
+  const CLOSE_UP = { zoom: 4.6, elevation: 26, tauMs: 380 };
+  let closeUp = null;    // { kind: 'talk' | 'resident', id, saved: { zoom, elevation } }
+  let restoring = null;  // 退出近景之后往回走的目标：{ zoom, elevation }
+  controls.addEventListener('start', () => {
+    if (dragButton === 2 || (dragButton === 0 && dragModified)) setFollow('free');
+    lastInputAt = performance.now();
+  });
+
+  function setFollow(mode) {
+    if (!VIEW_MODES.includes(mode)) return;
+    glide = null;
+    if (mode === follow) return;
+    follow = mode;
+    status.view = mode;
+    onViewChange?.(mode);
+  }
+  status.view = follow;
+
+  /** 镜头此刻的方位角（弧度，与 Spherical.theta 同一个量）：键盘走路"朝画面上方"按它算。 */
+  const offsetTmp = new THREE.Vector3();
+  function cameraAzimuth() {
+    offsetTmp.copy(camera.position).sub(controls.target);
+    return Math.atan2(offsetTmp.x, offsetTmp.z);
+  }
+
+  /** 绕着镜头的目标点转（拖动的像素）：方位角不限，仰角夹在 VIEW 的上下限之间。 */
+  const spherical = new THREE.Spherical();
+  function orbitBy(dxPx, dyPx) {
+    offsetTmp.copy(camera.position).sub(controls.target);
+    spherical.setFromVector3(offsetTmp);
+    const next = orbitAngles(THREE.MathUtils.radToDeg(spherical.theta), 90 - THREE.MathUtils.radToDeg(spherical.phi), dxPx, dyPx);
+    spherical.theta = THREE.MathUtils.degToRad(next.azimuth);
+    spherical.phi = THREE.MathUtils.degToRad(90 - next.elevation);
+    camera.position.copy(controls.target).add(offsetTmp.setFromSpherical(spherical));
+    lastInputAt = performance.now();
+  }
+
+  /** 镜头的目标点挪到 (x, z)，角度与缩放不变（换城时看着你）。 */
+  function centerCameraOn(x, z) {
+    const delta = new THREE.Vector3(x, 1, z).sub(controls.target);
+    controls.target.add(delta);
+    camera.position.add(delta);
+  }
 
   // —— 城的装载：整座重建，或者按座替换 ——
   function loadCity(doc, options = {}) {
@@ -194,11 +301,18 @@ export function createGame({ params, status, send, onReadItem }) {
     kindOf = (key) => doc.buildings.find((b) => b.key === key)?.kind ?? null;
     buildingKeys = [...world.buildings.keys()];
     for (const record of items.values()) { record.object = null; record.display = null; }   // 旧城的物件随旧城拆掉
+    player.y = null;
+    athenaY = null;
     if (!keepPlayer) {
       const p = options.player;
       player.pos = p && Number.isFinite(p.x) && Number.isFinite(p.z) ? { x: p.x, z: p.z } : { x: 2.6, z: 4.4 };
-      player.route = null;
-      if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); }
+      player.moving = false;
+      player.dirty = false;
+      pressed.clear();
+      // 存档里这座城的远近：靠岸时镜头推回的就是它（没有存档就推回出港前的远近）
+      if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); if (voyage) voyage.restoreZoom = p.zoom; }
+      // 换了一座城：镜头先看着你（跟着雅典娜的视角下一帧自己会转过去）
+      if (follow !== 'athena') centerCameraOn(player.pos.x, player.pos.z);
     }
     if (!keepPlayer || !sim) sim = createSim(options.home ?? 'agora', options.now ?? 0);
     if (options.founding) {
@@ -304,8 +418,11 @@ export function createGame({ params, status, send, onReadItem }) {
     if (!step) return pose;
     const t = now - step.start;
     if (step.kind === 'walk' || step.kind === 'wander') {
-      const p = pointAlong(routeOf(step), ease(stepProgress(step, now)));
-      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, glow: 0.24, action: 'walk', t });
+      // 她走路（M3）：步子的相位按走过的距离推进（起步和停步时慢下来，脚也慢下来，不打滑）
+      const route = routeOf(step);
+      const f = ease(stepProgress(step, now));
+      const p = pointAlong(route, f);
+      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, glow: 0.24, action: 'walk', t: ((polyLength(route) * f) / SPEED) * 1000, style: { speed: SPEED, stride: ATHENA_STRIDE } });
       return pose;
     }
     if (step.kind === 'teleport') {
@@ -341,28 +458,42 @@ export function createGame({ params, status, send, onReadItem }) {
     return pose;
   }
 
-  function applyAthena(pose) {
+  function applyAthena(pose, line = null, dt = 16) {
     const a = world.athena;
-    a.position.set(pose.x, 0.012, pose.z);
+    const ground = world.groundAt(pose.x, pose.z);
+    athenaY = athenaY == null || pose.teleport ? ground : stepToward(athenaY, ground, dt);
+    a.position.set(pose.x, athenaY + 0.012, pose.z);
     a.rotation.y = pose.yaw;
     a.visible = pose.visible;
-    world.athenaFigure.pose(pose.action, pose.t, pose.style);
+    // M3：停着的时候，旁白气泡在说就做"说"的手势，对话栏开着、你在旁边就侧耳听；离你近就看着你（做事和交付时不看）
+    let action = pose.action;
+    const style = { ...pose.style, seed: 7 };
+    const dp = Math.hypot(pose.x - player.pos.x, pose.z - player.pos.z);
+    if (action === 'idle' && !pose.teleport) {
+      if (line && line.alpha > 0.3) { action = 'talk'; style.speaker = true; }
+      else if (talkOpen() && dp < 7) { action = 'talk'; style.speaker = false; }
+    }
+    if (dp < 8 && !pose.teleport) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+    world.athenaFigure.pose(action, pose.t, style);
+    status.athenaPose = action;
     // 光属于雅典娜：她在哪干活，哪里就亮。做事时她的光挪到身前、照得更远，把所在建筑的正面照亮
     const light = a.userData.light;
     if (!light) return;
+    // 夜里她的光照得更亮、更远：夜城里只有她这一处亮（光属于雅典娜）
+    const boost = 1 + 1.4 * nightK;
     if (pose.acting) {
       light.position.set(0, 2.6, 2.2);
-      light.distance = 14;
-      light.intensity = pose.glow > 0.1 ? 28 : 2;
+      light.distance = 14 + 4 * nightK;
+      light.intensity = (pose.glow > 0.1 ? 28 : 2) * boost;
     } else {
       light.position.set(0, 0.45, 0.3);
-      light.distance = 4.5;
-      light.intensity = 0.6 + pose.glow * 3;
+      light.distance = 4.5 + 2.5 * nightK;
+      light.intensity = (0.6 + pose.glow * 3) * boost;
     }
   }
 
   // —— 场景里随动作变化的东西：脚手架、船、侍女、居民、交付的成果 ——
-  function applyEffects(state, now, wall) {
+  function applyEffects(state, now, wall, dt) {
     const step = state.step;
     for (const [key, scaffold] of world.scaffolds) {
       const writing = step && step.kind === 'act' && step.category === 'write' && step.at === key;
@@ -404,12 +535,14 @@ export function createGame({ params, status, send, onReadItem }) {
       }
     }
 
-    animateResidents(wall);
+    animateResidents(wall, dt);
 
     // 回放里的交付：递到 55% 时在你脚下生成一件本地成果（实时模式里成果由 C# 推来，按 itemId 对上这一步）
     for (const s of sim.orch.steps) {
       if (s.kind !== 'deliver' || now < s.start + (s.end - s.start) * 0.55 || sim.delivered.has(s)) continue;
       sim.delivered.set(s, true);
+      // 她把成果递到你脚下：你伸手接一下（一次性的动作；走起来就打断）
+      if (String(s.at ?? '').startsWith('pt:') && !player.moving) anim.playerOneShot = { action: 'receive', start: wall };
       const id = s.itemId ?? `replay:${s.turn ?? sim.delivered.size}:${Math.round(s.start)}`;
       const existing = items.get(id);
       const p = layout.sitePoint(safeSite(s.at));
@@ -427,28 +560,50 @@ export function createGame({ params, status, send, onReadItem }) {
    * 居民：多数时候待在自己的位置上——停一会儿、干一会儿自己的活；每隔一阵沿一小段路走出去再走回来。
    * 节拍按居民的名字错开，满城的人不会同时抬手。
    */
-  function animateResidents(wall) {
+  function animateResidents(wall, dt) {
     for (const r of world.residents.values()) {
       const cycle = 26000;
       const t = (wall + r.phase * 3) % cycle;
-      const out = { x: r.home.x + Math.sin(r.home.yaw + 1.2) * 2.4, z: r.home.z + Math.cos(r.home.yaw + 1.2) * 2.4 };
+      // 出门的落脚点由世界挑（一路上没有东西挡着，M3）；没有能走的方向就待在家里，只停和做事
+      const out = r.out ?? r.home;
+      const span = Math.hypot(out.x - r.home.x, out.z - r.home.z);
+      const stays = span < 0.5;
+      // 走路的相位按走过的距离推进（脚不打滑）：ease(f) 是走过的比例
+      const walked = (f) => ((span * ease(f)) / 1.3) * 1000;
       let action = 'idle', at = t, x = r.home.x, z = r.home.z, yaw = r.home.yaw;
-      if (t < 9000) { action = 'idle'; at = t; }
+      if (r.station) { action = t < 4000 ? 'idle' : 'work'; at = action === 'work' ? t - 4000 : t; }   // 在工位上：大半时间在干活
+      else if (stays) { action = t < 9000 || t >= 16000 ? 'idle' : 'work'; at = action === 'work' ? t - 9000 : t; }
+      else if (t < 9000) { action = 'idle'; at = t; }
       else if (t < 16000) { action = 'work'; at = t - 9000; }
       else if (t < 18600) {
         const f = (t - 16000) / 2600;
         x = r.home.x + (out.x - r.home.x) * ease(f); z = r.home.z + (out.z - r.home.z) * ease(f);
-        yaw = Math.atan2(out.x - r.home.x, out.z - r.home.z); action = 'walk'; at = t - 16000;
+        yaw = Math.atan2(out.x - r.home.x, out.z - r.home.z); action = 'walk'; at = walked(f);
       } else if (t < 21400) { action = 'idle'; x = out.x; z = out.z; yaw = Math.atan2(out.x - r.home.x, out.z - r.home.z) + Math.PI * 0.5; at = t; }
       else if (t < 24000) {
         const f = (t - 21400) / 2600;
         x = out.x + (r.home.x - out.x) * ease(f); z = out.z + (r.home.z - out.z) * ease(f);
-        yaw = Math.atan2(r.home.x - out.x, r.home.z - out.z); action = 'walk'; at = t - 21400;
+        yaw = Math.atan2(r.home.x - out.x, r.home.z - out.z); action = 'walk'; at = walked(f);
       } else { action = 'idle'; at = t; }
-      r.figure.root.position.set(x, 0.012, z);
-      r.figure.root.rotation.y = yaw;
-      r.figure.pose(action, at, { variant: r.work, speed: 1.3, stride: 1.3 });
-      r.label.anchor.set(x, (r.figure.root.userData.height ?? 1.75) + 0.55, z);
+      // 他的卡片开着：站在原地，转身面向你，先挥一下手，然后一边比划一边讲（M3）
+      const greeting = panel?.type === 'resident' && panel.id === r.kind;
+      const style = { variant: r.work, speed: 1.3, stride: 1.3, seed: r.phase };
+      if (greeting) {
+        if (!r.greetAt) r.greetAt = wall;
+        x = r.home.x; z = r.home.z;
+        yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
+        const since = wall - r.greetAt;
+        if (since < ONE_SHOT_MS.wave) { action = 'wave'; at = since; } else { action = 'talk'; at = since; style.speaker = true; }
+      } else {
+        r.greetAt = null;
+      }
+      const dp = Math.hypot(player.pos.x - x, player.pos.z - z);
+      if (dp < 4 && action !== 'work') style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+      r.yawNow = r.yawNow == null ? yaw : turnToward(r.yawNow, yaw, 1 - Math.exp(-dt / 180));
+      r.figure.root.position.set(x, r.home.y ?? world.groundAt(x, z) + 0.012, z);
+      r.figure.root.rotation.y = r.yawNow;
+      r.figure.pose(action, at, style);
+      r.label.anchor.set(x, (r.home.y ?? 0) + (r.figure.root.userData.height ?? 1.75) + 0.55, z);   // 站在讲台、锻炉地坪上的，名牌跟着高上去
       r.action = action;
     }
   }
@@ -579,53 +734,172 @@ export function createGame({ params, status, send, onReadItem }) {
     return { text: best.text, alpha: Math.min(1, age / 150, (BUBBLE_MS - age) / 400) };
   }
 
-  // —— 玩家走路 ——
-  function updatePlayer(wall) {
-    let action = 'idle', t = wall;
-    if (player.route) {
-      const f = Math.min(1, (wall - player.start) / (player.length / PLAYER_SPEED * 1000));
-      const p = pointAlong(player.route, f);
-      player.pos = { x: p.x, z: p.z };
-      player.yaw = p.dir;
-      action = 'walk';
-      t = wall - player.start;
-      if (f >= 1) {
-        player.route = null;
-        // 走到了就记下位置（存档里的"玩家进度"）；走的途中不发
+  // —— 玩家走路：按住的方向键相对镜头换算成地面上的方向，撞上房子、走到海边就沿着滑（controls.mjs、layout.walkable） ——
+  /** 现在能不能走：过场、雾、海图、阅读器挡着的时候不走（方向键交给它们）。 */
+  const movementAllowed = () => !!world && !voyage && !fogInfo && !chartOpen && !modalOpen();
+
+  /** 脚下地面高度的变化：60 毫秒的时间常数（迈上锻炉的地坪是一步，不是一帧瞬移）。 */
+  const stepToward = (y, target, dt) => (Math.abs(target - y) < 1e-4 ? target : y + (target - y) * (1 - Math.exp(-Math.max(0, dt) / 60)));
+  let athenaY = null;
+
+  function updatePlayer(wall, dt) {
+    const dir = movementAllowed() ? moveDirection(pressed, cameraAzimuth()) : null;
+    const speed = PLAYER_SPEED * (running ? RUN_FACTOR : 1);
+    let action = 'idle';
+    const style = { speed, stride: running ? 2.2 : 2.0, seed: 1 };
+    if (dir) {
+      const step = (speed * Math.min(dt, 100)) / 1000;
+      const next = slide(player.pos, { x: dir.x * step, z: dir.z * step }, layout.walkable);
+      const moved = Math.hypot(next.x - player.pos.x, next.z - player.pos.z);
+      player.yaw = turnToward(player.yaw, Math.atan2(dir.x, dir.z), 1 - Math.exp(-dt / 70));
+      player.pos = next;
+      player.stoppedAt = wall;
+      // 顶着墙按住方向键：转过身去，但不原地踏步
+      player.moving = moved > step * 0.2;
+      if (player.moving) {
+        player.dirty = true;
+        // 步子的相位按走过的距离推进（不按时间）：贴着墙慢下来脚也慢下来，跑和走的周期都由步幅 / 速度算——脚不打滑（M3）
+        player.walkClock += (moved / speed) * 1000;
+        action = running ? 'run' : 'walk';
+        anim.playerOneShot = null;
+      }
+    } else {
+      player.moving = false;
+      // 停下来一会儿才记下位置（存档里的"玩家进度"）；走的途中不发
+      if (player.dirty && wall - player.stoppedAt >= SAVE_PLAYER_MS) {
+        player.dirty = false;
         send('save-player', { x: +player.pos.x.toFixed(2), z: +player.pos.z.toFixed(2), zoom: +camera.zoom.toFixed(2) });
       }
     }
-    world.player.position.set(player.pos.x, 0.012, player.pos.z);
+    // M3：站着的时候——刚接过成果就伸手接；对话栏开着就和她说话（托付之后比划两秒多，其余时间听）；离她近就看着她
+    const athena = world.athena;
+    const dp = athena.visible ? Math.hypot(athena.position.x - player.pos.x, athena.position.z - player.pos.z) : Infinity;
+    const talking = talkOpen();
+    let t = wall;
+    if (action === 'idle') {
+      if (anim.playerOneShot && !oneShotDone(anim.playerOneShot.action, wall - anim.playerOneShot.start)) {
+        action = anim.playerOneShot.action;
+        t = wall - anim.playerOneShot.start;
+      } else {
+        anim.playerOneShot = null;
+        if (talking) { action = 'talk'; style.speaker = wall - anim.saidAt < TALK_GESTURE_MS; }
+      }
+      if (talking && dp < 9) player.yaw = turnToward(player.yaw, Math.atan2(athena.position.x - player.pos.x, athena.position.z - player.pos.z), 1 - Math.exp(-dt / 220));
+    } else {
+      t = player.walkClock;
+    }
+    if (dp < 7 && action !== 'run') style.lookAt = athenaChest.set(athena.position.x, 1.45, athena.position.z);
+    // 脚下的地面（锻炉的地坪高 0.2 米）：迈上去用 60 毫秒，不是一帧跳上去
+    player.y = player.y == null ? world.groundAt(player.pos.x, player.pos.z) : stepToward(player.y, world.groundAt(player.pos.x, player.pos.z), dt);
+    world.player.position.set(player.pos.x, player.y + 0.012, player.pos.z);
     world.player.rotation.y = player.yaw;
-    world.playerFigure.pose(action, t, { speed: PLAYER_SPEED, stride: 2.0 });
+    world.playerFigure.pose(action, t, style);
+    status.player = { x: +player.pos.x.toFixed(2), z: +player.pos.z.toFixed(2), moving: player.moving };
+    status.playerAction = action;
   }
 
-  function walkPlayerTo(site, wall) {
-    const from = `pt:${player.pos.x.toFixed(2)},${player.pos.z.toFixed(2)}`;
-    const route = layout.route(from, site);
-    player.route = route;
-    player.start = wall;
-    player.length = route.reduce((d, p, i) => (i ? d + Math.hypot(p.x - route[i - 1].x, p.z - route[i - 1].z) : 0), 0);
+  /** 镜头的仰角（度）。 */
+  function cameraElevation() {
+    offsetTmp.copy(camera.position).sub(controls.target);
+    spherical.setFromVector3(offsetTmp);
+    return 90 - THREE.MathUtils.radToDeg(spherical.phi);
+  }
+
+  /** 远近与仰角朝目标走一步（方位角不动，拖动转的视角保留）。返回还差多少。 */
+  function approachView(view, k) {
+    camera.zoom += (view.zoom - camera.zoom) * k;
+    camera.updateProjectionMatrix();
+    offsetTmp.copy(camera.position).sub(controls.target);
+    spherical.setFromVector3(offsetTmp);
+    const el = 90 - THREE.MathUtils.radToDeg(spherical.phi);
+    const next = THREE.MathUtils.clamp(el + (view.elevation - el) * k, VIEW.minElevation, VIEW.maxElevation);
+    spherical.phi = THREE.MathUtils.degToRad(90 - next);
+    camera.position.copy(controls.target).add(offsetTmp.setFromSpherical(spherical));
+    return Math.abs(view.zoom - camera.zoom) + Math.abs(view.elevation - next) / 10;
+  }
+
+  /** 此刻该不该是近景、看着谁：对话栏开着看你和雅典娜；居民的卡片开着看你和他。 */
+  function closeUpWanted() {
+    if (!world || voyage || reveal || fogInfo) return null;
+    if (talkOpen()) return { kind: 'talk', id: null };
+    if (panel?.type === 'resident' && world.residents.has(panel.id)) return { kind: 'resident', id: panel.id };
+    return null;
+  }
+
+  const closeUpFocus = new THREE.Vector3();
+  function closeUpCamera(dt, snap) {
+    const wanted = closeUpWanted();
+    if (wanted && (!closeUp || closeUp.kind !== wanted.kind || closeUp.id !== wanted.id)) {
+      if (!closeUp) closeUp = { ...wanted, saved: { zoom: camera.zoom, elevation: cameraElevation() } };
+      else closeUp = { ...wanted, saved: closeUp.saved };
+      restoring = null;
+      status.closeUp = wanted.kind;
+    } else if (!wanted && closeUp) {
+      restoring = closeUp.saved;
+      closeUp = null;
+      status.closeUp = null;
+    }
+    const k = snap ? 1 : 1 - Math.exp(-dt / CLOSE_UP.tauMs);
+    if (closeUp) {
+      const other = closeUp.kind === 'talk' ? world.athena.position : world.residents.get(closeUp.id).figure.root.position;
+      const far = Math.hypot(other.x - player.pos.x, other.z - player.pos.z) > 12;
+      closeUpFocus.set(far ? player.pos.x : (player.pos.x + other.x) / 2, 1.1, far ? player.pos.z : (player.pos.z + other.z) / 2);
+      const delta = closeUpFocus.sub(controls.target).multiplyScalar(k);
+      controls.target.add(delta);
+      camera.position.add(delta);
+      approachView(CLOSE_UP, k);
+      return true;
+    }
+    if (restoring) {
+      if (approachView(restoring, k) < 0.02) { approachView(restoring, 1); restoring = null; }
+    }
+    return false;
   }
 
   function followCamera(dt, pose, snap = false) {
     if (glide && performance.now() > glide.until) glide = null;
-    if (follow === 'free' && !glide) return;
+    if (closeUpCamera(dt, snap)) return;
     const want = glide
       ? glide.to.clone()
       : follow === 'player'
         ? new THREE.Vector3(player.pos.x, 1, player.pos.z)
-        : pose.teleport ? new THREE.Vector3(pose.teleport.x, 1, pose.teleport.z) : new THREE.Vector3(pose.x, 1, pose.z);
+        : follow === 'athena'
+          ? pose.teleport ? new THREE.Vector3(pose.teleport.x, 1, pose.teleport.z) : new THREE.Vector3(pose.x, 1, pose.z)
+          : null;
+    if (!want) {
+      if (player.moving) keepPlayerInView(dt, snap);
+      return;
+    }
     const k = snap ? 1 : 1 - Math.exp(-dt / 450);
     const delta = want.sub(controls.target).multiplyScalar(k);
     controls.target.add(delta);
     camera.position.add(delta);
   }
 
+  /**
+   * 自由视角：镜头不跟任何人，只在你走到画面中心那个方框之外时把画面挪一点（沿着镜头自己的右 / 上方向，和平移一样），
+   * 让你留在画面里。先按目标点重新对准镜头再投影——这一帧 OrbitControls 还没 lookAt，用旧朝向投影会算错。
+   */
+  const right = new THREE.Vector3(), up = new THREE.Vector3();
+  function keepPlayerInView(dt, snap) {
+    camera.lookAt(controls.target);
+    camera.updateMatrixWorld();
+    const ndc = tmp.set(player.pos.x, 0.9, player.pos.z).project(camera);
+    const shift = deadZoneShift(ndc);
+    if (!shift) return;
+    const k = snap ? 1 : 1 - Math.exp(-dt / 140);
+    const halfW = (camera.right - camera.left) / 2 / camera.zoom, halfH = (camera.top - camera.bottom) / 2 / camera.zoom;
+    right.set(1, 0, 0).applyQuaternion(camera.quaternion).multiplyScalar(shift.x * halfW * k);
+    up.set(0, 1, 0).applyQuaternion(camera.quaternion).multiplyScalar(shift.y * halfH * k);
+    const move = right.add(up);
+    controls.target.add(move);
+    camera.position.add(move);
+  }
+
   /** 请镜头去看一处（摆放时看场馆）：几秒后交还给原来的跟随方式。 */
   function lookAt(x, z, ms = 4000) {
+    if (follow !== 'free') setFollow('free');   // 先切（切换会清掉 glide），再请镜头过去
     glide = { to: new THREE.Vector3(x, 1, z), until: performance.now() + ms };
-    if (follow === 'athena') follow = 'free';
   }
 
   // —— 一帧：推进 → 摆好人物和镜头 → 对齐矩阵 → 算屏幕空间位置 → 渲染 → 叠加层 ——
@@ -634,19 +908,26 @@ export function createGame({ params, status, send, onReadItem }) {
   let regions = [];
   function frame(now, dt, wall, { snap = false, sync = true, script = null, feed = null, hud = null } = {}) {
     if (!world) {
-      overlay.draw({ time: wall, labels: [], bubble: null, edges: [], voyage: voyageFrame(wall), ui, chart: chartView() });
+      overlay.draw({ time: wall, labels: [], bubble: null, edges: [], voyage: voyageFrame(wall), ui, chart: chartView(), topInset });
+      syncUiBlocked();
       return null;
     }
     if (feed) feed(sim.orch, now);
     const state = sim.orch.update(now);
     sim.time = now;
     refreshCues();
-    updatePlayer(wall);
+    setClothWind(windAt(wall));   // 海上吹来的风：全城的衣摆、面纱、斗篷都吃它（M3）
+    stepNight(dt);
+    const line = currentLine(now);
+    updatePlayer(wall, dt);
     const pose = athenaPose(state, now);
-    applyAthena(pose);
-    applyEffects(state, now, wall);
+    applyAthena(pose, line, dt);
+    applyEffects(state, now, wall, dt);
+    focus = pickFocus(pose);
+    status.focus = focus ? { type: focus.type, id: focus.id ?? focus.venue ?? null, slot: focus.slot ?? null } : null;
     followCamera(dt, pose, snap);
     if (reveal) applyReveal(wall);
+    else if (arrival) applyArrival(wall);
     if (script) script();          // 运动自检：在跟随之后、lookAt 之前按脚本挪动镜头
     controls.update();             // 内部调用 camera.lookAt——矩阵在这里变旧，下面必须重新对齐
     R.placeSun(controls.target);
@@ -667,10 +948,15 @@ export function createGame({ params, status, send, onReadItem }) {
     const flashNow = performance.now();
     // 名牌：建筑、公共建筑、市集摊位一直画；居民的只在还没结识、或者指针停在他身上时画（满城的名字太挤）；
     // 橄榄树的只在指针停在那棵树上时画；遗失的藏品在它的底座上挂一块名牌
-    const anchored = world.labels.filter((l) => l.kind !== 'resident' || l.unmet || (hover?.type === 'resident' && l.key === `resident:${hover.id}`));
-    if (hover?.type === 'tree') {
-      const tree = world.groveTrees.find((t) => t.conversationId === hover.id);
+    const anchored = world.labels.filter((l) => l.kind !== 'resident' || l.unmet || (focus?.type === 'resident' && l.key === `resident:${focus.id}`));
+    if (focus?.type === 'tree') {
+      const tree = world.groveTrees.find((t) => t.conversationId === focus.id);
       if (tree) anchored.push({ text: tree.title, kind: 'tree', key: `tree:${tree.conversationId}`, anchor: tree.top });
+    }
+    // 走到够得着的东西跟前：它脚下一块"E 和雅典娜说话"（头顶留给旁白气泡、名牌）。按当帧矩阵投影，和名牌一起进运动自检
+    if (focus && !uiBlocked) {
+      const anchor = focus.type === 'athena' ? ATHENA_HOVER_ANCHOR.clone().applyMatrix4(world.athena.matrixWorld) : new THREE.Vector3(focus.x, 0.02, focus.z);
+      anchored.push({ text: promptText(focus), kind: 'prompt', key: `prompt:${focus.type}:${focus.id ?? focus.venue ?? ''}:${focus.slot ?? ''}`, keyCap: ui.interactKey, anchor });
     }
     for (const record of items.values()) {
       const pl = record.item.placement && world.venues.get(record.item.placement.venue);
@@ -683,7 +969,6 @@ export function createGame({ params, status, send, onReadItem }) {
       const flash = started != null ? Math.max(0, 1 - (flashNow - started) / 2400) : 0;
       return { ...l, ...R.projectCss(l.anchor), world: l.anchor.clone(), flash };
     });
-    const line = currentLine(now);
     const edges = [];
     for (const record of items.values()) {
       if (!record.object || !record.object.visible || record.item.state !== 'pending' || record.item.lost) continue;
@@ -691,25 +976,26 @@ export function createGame({ params, status, send, onReadItem }) {
       if (p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight) edges.push(p);
     }
     // 等审批：她停在门槛前，红色的封印也算"轮到你了"——在画面外时同样在边缘指一下
+    const offscreen = (p) => p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight;
+    let athenaEdge = null;
     if (state.step?.kind === 'await') {
       const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
-      if (p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight) edges.push(p);
+      if (offscreen(p)) edges.push(p);
+    } else if (follow !== 'athena' && pose.visible && !reveal) {
+      // 自由视角（缺省）下她常常在画面外干活：边缘一枚白色的标记指着她（光属于雅典娜，不用点缀色），点它就跟过去
+      const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
+      if (offscreen(p)) athenaEdge = { x: p.x, y: p.y, busy: pose.action !== 'idle' || pose.glow > 0.25 };
     }
-    // 点击要用的屏幕位置也在这里算（同一组矩阵）：树、居民、空着的底座
-    picks = {
-      trees: world.groveTrees.map((t) => ({ id: t.conversationId, ...R.projectCss(t.base) })),
-      residents: [...world.residents.values()].map((r) => ({ id: r.kind, ...R.projectCss(tmp.copy(r.figure.root.position).setY(1.0)) })),
-      slots: [...world.venues.values()].flatMap((v) => v.slots.map((s) => ({ venue: v.venue, slot: s.index, item: s.item, ...R.projectCss(s.world) }))),
-      board: R.projectCss(tmp.copy(world.agora.userData.board).add(world.agora.position)),
-    };
     used = { glowWorld, glowUv: { x: glowUv.x, y: glowUv.y }, headWorld, bubbleCss, labels };
 
     R.render();
+    syncUiBlocked();
     regions = overlay.draw({
       time: wall,
       labels: labels.filter((l) => l.x > -60 && l.y > -20 && l.x < window.innerWidth + 60 && l.y < window.innerHeight + 20),
       bubble: line ? { text: line.text, x: bubbleCss.x, y: bubbleCss.y, alpha: line.alpha } : null,
       edges,
+      athenaEdge: athenaEdge ? { ...athenaEdge, label: ui.athenaHere } : null,
       hud,
       notices: notices.length ? notices : null,
       herald,
@@ -720,6 +1006,7 @@ export function createGame({ params, status, send, onReadItem }) {
       voyage: voyageFrame(wall),
       chart: chartView(),
       ui,
+      topInset,
     });
     status.now = now;
     status.step = state.step?.kind ?? null;
@@ -727,7 +1014,15 @@ export function createGame({ params, status, send, onReadItem }) {
     status.athenaAction = pose.action;
     return state;
   }
-  let picks = { trees: [], residents: [], slots: [], board: null };
+  let uiBlocked = false;
+
+  /** 画面中间被卡片、面板、海图、雾、过场或摆放提示占着的时候，对话栏让开（同一时间底部只有一块）。 */
+  function syncUiBlocked() {
+    const blocked = !world || !!(card || panel || chartOpen || placing || fogInfo || voyage);
+    if (blocked === uiBlocked) return;
+    uiBlocked = blocked;
+    onUiBlocked?.(blocked);
+  }
 
   // —— 航海过场：最短观感时长与上限（9.2）。新城完整就绪就靠岸；到了上限还没就绪，只要已经有一座（哪怕只有顶层建筑的）城，
   // 先靠岸显示已就绪的部分，其余陆续出现。 ——
@@ -743,12 +1038,53 @@ export function createGame({ params, status, send, onReadItem }) {
     const { startedAt, arriveAt, caption } = voyage;
     const fadeIn = Math.min(1, (wall - startedAt) / VOYAGE_FADE_MS);
     let alpha = fadeIn;
+    // 出港：城还看得见的那 400 毫秒里，镜头往后拉一点（像船离岸、城往后退）——遮住之后镜头停在那儿，靠岸时再推回来
+    if (fadeIn < 1 && voyage.departZoom != null && world) {
+      camera.zoom = voyage.departZoom * (1 - 0.16 * ease(fadeIn));
+      camera.updateProjectionMatrix();
+    }
     if (arriveAt != null && wall >= arriveAt) {
-      alpha = Math.max(0, 1 - (wall - arriveAt) / VOYAGE_FADE_MS);
+      if (!voyage.settled && world && !reveal) {
+        // 靠岸：新城从略远处推近到原来的远近（1.2 秒，先快后慢），和遮罩淡出同时开始
+        voyage.settled = true;
+        arrival = { startedAt: wall, to: voyage.restoreZoom ?? camera.zoom };
+        camera.zoom = arrival.to * ARRIVAL.from;
+        camera.updateProjectionMatrix();
+      }
+      alpha = Math.max(0, 1 - (wall - arriveAt) / ARRIVAL.fadeMs);
       if (alpha === 0) { voyage = null; status.voyage = null; return null; }
     }
     const progress = Math.min(1, (wall - startedAt) / Math.max(1600, (arriveAt ?? wall + 2000) - startedAt));
     return { alpha, progress, caption };
+  }
+
+  /** 靠岸之后镜头推近（arrival）：从 0.82 倍推到原来的缩放。 */
+  const ARRIVAL = Object.freeze({ from: 0.82, ms: 1200, fadeMs: 650 });
+
+  // —— 夜里（M3 第三轮：跟着应用的深 / 浅色主题）：nightK 朝 nightTarget 走（时间常数 380 毫秒，一秒多走完），
+  // 灯光、天色、调色、叠加层一起换；第一次（打开页面时就是深色）直接到位，不从白天过渡 ——
+  const NIGHT_TAU_MS = 380;
+  let nightK = 0, nightTarget = 0;
+  function stepNight(dt) {
+    if (nightK === nightTarget) return;
+    const k = 1 - Math.exp(-Math.max(0, dt) / NIGHT_TAU_MS);
+    nightK += (nightTarget - nightK) * k;
+    if (Math.abs(nightTarget - nightK) < 0.004) nightK = nightTarget;
+    applyNight();
+  }
+  function applyNight() {
+    R.setNight(nightK);
+    overlay.setNight(nightK > 0.5);
+    if (fogInfo && R.scene.fog) R.scene.fog.color.set(nightK > 0.5 ? 0x1b1e23 : 0xd8d4cd);
+    status.night = +nightK.toFixed(3);
+  }
+  let arrival = null;
+  function applyArrival(wall) {
+    const f = Math.min(1, (wall - arrival.startedAt) / ARRIVAL.ms);
+    const k = 1 - Math.pow(1 - f, 3);
+    camera.zoom = arrival.to * (ARRIVAL.from + (1 - ARRIVAL.from) * k);
+    camera.updateProjectionMatrix();
+    if (f >= 1) arrival = null;
   }
 
   function applyReveal(wall) {
@@ -824,34 +1160,150 @@ export function createGame({ params, status, send, onReadItem }) {
     return { islands, layout: layoutIslands, transform, title: ui.chartTitle, hint: ui.chartHint, labels: { running: ui.chartRunning, waiting: ui.chartWaiting, here: ui.chartHere, missing: ui.chartMissing, sanctuary: publicNames.sanctuary } };
   }
 
-  // —— 输入 ——
+  // —— 输入：鼠标 ——
+  // 左键点一下只点叠加层上的按钮和海图（城里的东西走近按 E）；左键拖动是转镜头（超过 VIEW.dragPx 才算拖）；
+  // 右键拖动、滚轮交给 OrbitControls。
   const canvas = R.renderer.domElement;
-  let downAt = null;
-  canvas.addEventListener('pointerdown', (e) => { dragButton = e.button; downAt = { x: e.clientX, y: e.clientY, t: performance.now() }; lastInputAt = performance.now(); });
+  let downAt = null;   // { x, y, lastX, lastY, rotating }
+  canvas.addEventListener('pointerdown', (e) => {
+    dragButton = e.button;
+    dragModified = e.shiftKey || e.ctrlKey || e.metaKey;
+    downAt = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, rotating: false };
+    lastInputAt = performance.now();
+  });
   canvas.addEventListener('pointermove', (e) => {
-    if (downAt || !world) return;
-    hover = null;
-    const near = (list) => list.reduce((best, p) => {
-      const d = Math.hypot(p.x - e.clientX, p.y - e.clientY);
-      return d < PICK_PX && (!best || d < best.d) ? { ...p, d } : best;
-    }, null);
-    const r = near(picks.residents);
-    if (r) { hover = { type: 'resident', id: r.id }; return; }
-    const t = near(picks.trees);
-    if (t) hover = { type: 'tree', id: t.id };
+    if (downAt) {
+      if (dragButton === 0 && !dragModified && !chartOpen) {
+        if (!downAt.rotating && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > VIEW.dragPx) {
+          downAt.rotating = true;
+          glide = null;
+        }
+        if (downAt.rotating) {
+          orbitBy(e.clientX - downAt.lastX, e.clientY - downAt.lastY);
+          downAt.lastX = e.clientX;
+          downAt.lastY = e.clientY;
+        }
+      }
+      updateCursor();
+      return;
+    }
+    updateCursor();
   });
   canvas.addEventListener('pointerup', (e) => {
     const d = downAt;
     downAt = null;
     dragButton = -1;
+    dragModified = false;
     lastInputAt = performance.now();
-    if (!d || e.button !== 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+    updateCursor();
+    if (!d || e.button !== 0 || d.rotating || Math.hypot(e.clientX - d.x, e.clientY - d.y) > VIEW.dragPx) return;
     click(e.clientX, e.clientY);
   });
+  canvas.addEventListener('pointercancel', () => { downAt = null; dragButton = -1; dragModified = false; updateCursor(); });
+  canvas.addEventListener('pointerleave', () => { if (!downAt) updateCursor(); });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+  function updateCursor() {
+    const cursor = downAt?.rotating ? 'grabbing' : '';
+    if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
+  }
+
+  /**
+   * 城里能互动的东西，各自的位置和够得着的距离（米）：雅典娜、居民、地上待收的成果与底座上的藏品（遗失的只剩底座）、
+   * 摆放时的空底座、橄榄树、委托板、神庙（神谕）、三处场馆。priority 小的先挑（摆放时空底座最先）。
+   */
+  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, board: 2.6, tree: 2.2, oracle: 3.2, venue: 3.2 });
+  const PRIORITY = Object.freeze({ slot: 0, item: 1, athena: 2, resident: 3, board: 4, tree: 5, oracle: 6, venue: 7 });
+  function interactables(pose) {
+    const list = [];
+    if (!world) return list;
+    const add = (type, x, z, extra = {}) => list.push({ type, x, z, reach: REACH[type], priority: PRIORITY[type], ...extra });
+    if (placing) {
+      for (const v of world.venues.values()) for (const s of v.slots) if (!s.item) add('slot', s.world.x, s.world.z, { venue: v.venue, slot: s.index });
+    }
+    for (const record of items.values()) {
+      const object = record.display?.visible ? record.display : record.object;
+      if (!object || !object.visible) continue;
+      const p = object.getWorldPosition(tmpPick);
+      add('item', p.x, p.z, { id: record.item.id });
+    }
+    for (const v of world.venues.values()) for (const s of v.slots) {
+      if (s.item && items.get(s.item)?.item.lost) add('item', s.world.x, s.world.z, { id: s.item });
+    }
+    if (onTalk && pose?.visible && !pose.teleport) add('athena', world.athena.position.x, world.athena.position.z);
+    for (const r of world.residents.values()) add('resident', r.figure.root.position.x, r.figure.root.position.z, { id: r.kind });
+    for (const t of world.groveTrees) add('tree', t.base.x, t.base.z, { id: t.conversationId, title: t.title });
+    if (world.agora?.userData.board) {
+      const b = tmpPick.copy(world.agora.userData.board).add(world.agora.position);
+      add('board', b.x, b.z + 0.6);
+    }
+    const temple = layout.plots.get('temple');
+    if (temple && world.oracle) add('oracle', world.oracle.position.x, world.oracle.position.z);
+    for (const v of world.venues.values()) add('venue', v.plot.cx, v.plot.cz - 1.2, { id: v.venue });
+    return list;
+  }
+  const tmpPick = new THREE.Vector3();
+
+  /** 你此刻够得着的那一样：离你近、在你面前的先挑。过场、雾、海图、阅读器挡着的时候什么也不挑。 */
+  function pickFocus(pose) {
+    if (!world || voyage || fogInfo || chartOpen || modalOpen()) return null;
+    const list = interactables(pose);
+    if (forcedFocus) return list.find((c) => c.type === forcedFocus.type && (forcedFocus.id == null || c.id === forcedFocus.id)) ?? null;
+    const px = player.pos.x, pz = player.pos.z, fx = Math.sin(player.yaw), fz = Math.cos(player.yaw);
+    let best = null, bestScore = Infinity;
+    for (const c of list) {
+      const dx = c.x - px, dz = c.z - pz, d = Math.hypot(dx, dz);
+      if (d > c.reach) continue;
+      const facing = d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
+      const score = d - 0.6 * facing + c.priority * 0.08;
+      if (score < bestScore) { best = c; bestScore = score; }
+    }
+    return best;
+  }
+
+  /** 脚下那块提示上写什么。 */
+  function promptText(target) {
+    const clip = (str, n = 14) => { const t = String(str ?? ''); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+    switch (target.type) {
+      case 'athena': return ui.interactTalk;
+      case 'resident': return fill(ui.interactResident, { name: residents.find((r) => r.kind === target.id)?.name ?? target.id });
+      case 'item': return fill(ui.interactItem, { title: clip((items.get(target.id)?.item.title ?? '').replace(/^《|》$/g, '')) });
+      case 'slot': return ui.interactPlace;
+      case 'tree': return fill(ui.interactTree, { title: clip(target.title) });
+      case 'board': return ui.interactBoard;
+      case 'oracle': return ui.interactOracle;
+      case 'venue': return fill(ui.interactVenue, { venue: venueName(target.id) });
+      default: return '';
+    }
+  }
+
+  /** 触发一样东西（按 E；测试也直接调它）。 */
+  function activate(target) {
+    if (!target) return false;
+    switch (target.type) {
+      case 'slot': placeItem(placing, target.venue, target.slot); break;
+      case 'item': card = target.id; panel = null; break;
+      case 'athena': openTalk(); break;
+      case 'resident': openResident(target.id); break;
+      case 'tree':
+        // 一棵树 = 一份委托：走会话树的同一条路径（9.2）
+        send('select-conversation', { conversationId: target.id });
+        status.treeSelected = target.id;
+        break;
+      case 'board': openPanel({ type: 'board' }); break;
+      case 'oracle': openPanel({ type: 'oracle' }); break;
+      case 'venue': openPanel({ type: 'venue', id: target.id }); break;
+      default: return false;
+    }
+    status.interacted = (status.interacted ?? 0) + 1;
+    return true;
+  }
+
+  /**
+   * 鼠标点一下：只认叠加层上的按钮（卡片、面板、"雅典娜在这边"）和海图上的岛；城里的东西不再是点的（走近按 E）。
+   * 点空地收起成果卡片。
+   */
   function click(x, y) {
-    // 先看叠加层上的按钮（面板画在 canvas 上，按坐标命中）
     const hitId = overlay.hit(x, y);
     if (hitId) { onButton(hitId); return; }
     if (chartOpen) {
@@ -860,53 +1312,49 @@ export function createGame({ params, status, send, onReadItem }) {
       if (id) selectIsland(id);
       return;
     }
-    if (!world || fogInfo || voyage) return;
-    const near = (list, radius = PICK_PX) => list.reduce((best, p) => {
-      const dist = Math.hypot(p.x - x, p.y - y);
-      return dist < radius && (!best || dist < best.d) ? { ...p, d: dist } : best;
-    }, null);
-    // 摆放：点一个空底座
-    if (placing) {
-      const slot = near(picks.slots.filter((s) => !s.item), 34);
-      if (slot) { placeItem(placing, slot.venue, slot.slot); return; }
-    }
-    for (const record of items.values()) {
-      const object = record.display?.visible ? record.display : record.object;
-      if (!object || !object.visible) continue;
-      const p = R.projectCss(object.getWorldPosition(new THREE.Vector3()).setY(object === record.display ? 1.0 : 0.2));
-      if (Math.hypot(p.x - x, p.y - y) < 28) { card = record.item.id; panel = null; return; }
-    }
-    // 遗失的藏品：点它的空底座也打开卡片
-    const lostSlot = near(picks.slots.filter((s) => s.item && items.get(s.item)?.item.lost), 30);
-    if (lostSlot) { card = lostSlot.item; panel = null; return; }
-    const resident = near(picks.residents);
-    if (resident) { openResident(resident.id); return; }
-    const tree = near(picks.trees);
-    if (tree) {
-      // 点一棵树 = 选中那份委托（走会话树的同一条路径，9.2）
-      send('select-conversation', { conversationId: tree.id });
-      status.treeSelected = tree.id;
-      return;
-    }
-    if (picks.board && Math.hypot(picks.board.x - x, picks.board.y - y) < 40) { openPanel({ type: 'board' }); return; }
-    card = null;
-    const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
-    const ray = new THREE.Raycaster();
-    R.syncMatrices();
-    ray.setFromCamera(ndc, camera);
-    const hit = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
-    if (!hit) return;
-    // 神庙：每日神谕；场馆的北半边（建筑）：场馆面板
-    const temple = layout.plots.get('temple');
-    if (temple && Math.abs(hit.x - temple.cx) < 6 && Math.abs(hit.z - temple.cz) < 6) { openPanel({ type: 'oracle' }); return; }
-    for (const v of world.venues.values()) {
-      if (Math.abs(hit.x - v.plot.cx) < 6 && hit.z > v.plot.cz - 6.25 && hit.z < v.plot.cz + 0.8) { openPanel({ type: 'venue', id: v.venue }); return; }
-    }
-    if (hit.z < layout.quayZ + 2 || layout.onTerrace(hit)) {
-      const site = layout.snapClick({ x: hit.x, z: hit.z });
-      if (site) walkPlayerTo(site, performance.now());
-    }
+    if (world && !fogInfo && !voyage) card = null;
   }
+
+  /** 和雅典娜说话：卡片、面板先收起来（底部同一时间只有一块），对话栏展开。 */
+  function openTalk() {
+    if (!onTalk) return;
+    card = null;
+    panel = null;
+    pressed.clear();
+    syncUiBlocked();
+    status.talkOpened = (status.talkOpened ?? 0) + 1;
+    onTalk();
+  }
+
+  // —— 输入：键盘走路 ——
+  // 只认物理键位（MOVE_KEYS）；落在对话栏里的按键是字，不是脚步；输入法正在选字、按着 ⌘ / Ctrl / Alt 的组合键不算。
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') { running = true; return; }
+    const dir = MOVE_KEYS[e.code];
+    if (!dir || isTypingTarget(e.target) || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!movementAllowed()) return;
+    e.preventDefault();   // 方向键不去滚动页面
+    pressed.add(dir);
+    running = e.shiftKey;
+    lastInputAt = performance.now();
+  });
+  // 交互键 E（物理键位，开着中文输入法也一样）：开着卡片或面板就收起；否则触发你跟前的那一样
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== INTERACT_KEY || e.repeat || isTypingTarget(e.target) || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!world || voyage || fogInfo || chartOpen || modalOpen()) return;
+    e.preventDefault();
+    lastInputAt = performance.now();
+    if (placing && focus?.type !== 'slot') return;
+    if (!placing && (card || panel)) { card = null; panel = null; return; }
+    activate(focus);
+  });
+  // 松开一律认（哪怕焦点已经跑到对话栏里），否则会卡住一直走
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift') running = false;
+    const dir = MOVE_KEYS[e.code];
+    if (dir) pressed.delete(dir);
+  });
+  window.addEventListener('blur', () => { pressed.clear(); running = false; });
 
   function openPanel(next) {
     panel = next;
@@ -1021,6 +1469,7 @@ export function createGame({ params, status, send, onReadItem }) {
         panel = null;
         break;
       case 'chart-close': chartOpen = false; status.chartOpen = false; break;
+      case 'follow-athena': setFollow('athena'); break;
       default: break;
     }
   }
@@ -1035,7 +1484,8 @@ export function createGame({ params, status, send, onReadItem }) {
     card = null;
   }
 
-  function toggleFollow() { follow = follow === 'athena' ? 'player' : 'athena'; glide = null; }
+  /** 视角轮换：自由 → 跟着你 → 跟着雅典娜（V 键）。 */
+  function cycleView() { setFollow(nextView(follow)); }
 
   /** 换一份资产清单（应用推来的覆盖）：先用程序化的把城画出来，外部模型取到了再整城重建一次。 */
   async function setAssetManifest(manifest) {
@@ -1056,15 +1506,31 @@ export function createGame({ params, status, send, onReadItem }) {
     get sim() { return sim; },
     get used() { return used; },
     get follow() { return follow; },
-    set follow(v) { follow = v; },
+    set follow(v) { setFollow(v); },
     get regions() { return regions; },
     get assets() { return assets; },
-    get picks() { return picks; },
     placeCamera,
     loadCity,
     updateCity,
     frame,
-    toggleFollow,
+    setFollow,
+    cycleView,
+    orbitBy,
+    openTalk,
+    /** 你托付了一件事：接下来两秒多你做"说"的手势（M3）。 */
+    noteSaid() { anim.saidAt = performance.now(); },
+    /** 对话栏拿走了键盘：按住的方向键全部松开，人停下。 */
+    releaseKeys() { pressed.clear(); running = false; },
+    /** Esc：收起摆放提示、卡片或面板（一次一层）。 */
+    dismiss() {
+      if (placing) { placing = null; status.placing = null; } else if (card) card = null; else if (panel) panel = null;
+    },
+    /** 镜头此刻的方位角与仰角（度）：测试用。 */
+    cameraAngles() {
+      offsetTmp.copy(camera.position).sub(controls.target);
+      spherical.setFromVector3(offsetTmp);
+      return { azimuth: THREE.MathUtils.radToDeg(spherical.theta), elevation: 90 - THREE.MathUtils.radToDeg(spherical.phi) };
+    },
     onButton,
     click,
     setAssetManifest,
@@ -1127,20 +1593,41 @@ export function createGame({ params, status, send, onReadItem }) {
       herald = linesIn.length ? { ...report, lines: linesIn } : null;
       status.herald = herald;
     },
-    setGrove(trees) { groveTrees = Array.isArray(trees) ? trees : []; if (world && city) { const before = layout.plots.size; layout = createLayout({ ...city, groveTrees: groveTrees.length }); if (layout.plots.size !== before) { loadCity(city, { key: cityKey, sanctuary, now: sim?.time ?? 0 }); return; } world.layout = layout; applyAccumulation(); } },
+    setGrove(trees) { groveTrees = Array.isArray(trees) ? trees : []; if (world && city) { const before = layout.plots.size; layout = createLayout({ ...city, groveTrees: groveTrees.length }); if (layout.plots.size !== before) { loadCity(city, { key: cityKey, sanctuary, now: sim?.time ?? 0 }); return; } world.setLayout(layout); applyAccumulation(); } },
     setResidents(list) { residents = Array.isArray(list) ? list.map((r) => ({ ...r })) : []; applyAccumulation(); },
     setBoard(list) { suggestions = Array.isArray(list) ? list.filter((s) => s && s.id && s.line) : []; applyAccumulation(); status.board = suggestions.map((s) => s.id); },
     setOracle(info) { oracle = info ?? null; applyAccumulation(); status.oracle = !!oracle?.exists; },
     setIslands(list) { islands = Array.isArray(list) ? list : []; status.islands = islands.map((i) => i.id); },
     toggleChart(open = !chartOpen) { chartOpen = !!open; status.chartOpen = chartOpen; if (chartOpen) { panel = null; card = null; } },
     get chartOpen() { return chartOpen; },
+    /** 近景此刻看着谁（'talk' | 'resident' | null）：测试用。 */
+    get closeUp() { return closeUp?.kind ?? null; },
     openPanel(type, id = null) { openPanel({ type, id }); },
-    /** 指针停在哪（测试与运动自检用：停在一棵树上，树的名牌就出现，它同样按当帧矩阵投影）。 */
-    setHover(type, id) { hover = type ? { type, id } : null; },
+    /** 测试与运动自检：就当你站在这一样跟前（树的名牌、脚下的"E …"提示都出现，同样按当帧矩阵投影）；null 取消。 */
+    setHover(type, id) { forcedFocus = type ? { type, id: id ?? null } : null; },
+    /** 你此刻够得着的那一样（测试用）。 */
+    get focus() { return focus; },
+    /** 城里能互动的东西（测试用）。 */
+    interactables: () => interactables(world ? athenaPose(sim.orch.state(sim.time), sim.time) : null),
+    /** 按一下交互键（测试与外部调用）。 */
+    interact() { if (card || panel) { card = null; panel = null; return true; } return activate(focus); },
+    /** 测试：把你放到 (x, z)，面朝 yaw。 */
+    placePlayer(x, z, yaw = player.yaw) { player.pos = { x, z }; player.yaw = yaw; player.y = null; },
     openResident,
     startPlacing,
-    setFog(info) { fogInfo = info; status.fog = !!info; if (R.scene) R.scene.fog = info ? new THREE.Fog(0xd8d4cd, 220, 360) : null; },
-    startVoyage(caption) { voyage = { startedAt: performance.now(), readyAt: null, cityArrived: false, arriveAt: null, caption }; status.voyage = 'sailing'; },
+    setFog(info) { fogInfo = info; status.fog = !!info; if (R.scene) R.scene.fog = info ? new THREE.Fog(nightK > 0.5 ? 0x1b1e23 : 0xd8d4cd, 220, 360) : null; },
+    /** 夜里 / 白天（应用的深 / 浅色主题）。instant：直接到位（打开页面时）；否则一秒多过渡过去。 */
+    setNight(on, { instant = false } = {}) {
+      nightTarget = on ? 1 : 0;
+      if (instant) nightK = nightTarget;
+      applyNight();
+    },
+    get night() { return nightK; },
+    startVoyage(caption) {
+      arrival = null;
+      voyage = { startedAt: performance.now(), readyAt: null, cityArrived: false, arriveAt: null, caption, departZoom: camera.zoom, restoreZoom: camera.zoom, settled: false };
+      status.voyage = 'sailing';
+    },
     /** 新城到了：完整的（partial = false）就可以靠岸；只有顶层的，等到上限再靠。 */
     cityArrived({ partial = false, at = performance.now() } = {}) {
       if (!voyage) return;
@@ -1150,9 +1637,10 @@ export function createGame({ params, status, send, onReadItem }) {
     get voyaging() { return voyage != null; },
     get voyageStartedAt() { return voyage?.startedAt ?? null; },
     get lastInputAt() { return lastInputAt; },
-    get playerMoving() { return player.route != null; },
+    get playerMoving() { return player.moving || pressed.size > 0; },
+    get player() { return { ...player.pos, yaw: player.yaw }; },
     policy(visible) {
-      return framePolicy({ visible, step: sim?.orch.state(sim.time).step?.kind ?? null, playerMoving: player.route != null, transitioning: voyage != null || reveal != null || glide != null, now: performance.now(), lastInputAt, residents: world?.residents.size ?? 0 });
+      return framePolicy({ visible, step: sim?.orch.state(sim.time).step?.kind ?? null, playerMoving: player.moving || pressed.size > 0, transitioning: voyage != null || reveal != null || glide != null || arrival != null || nightK !== nightTarget, now: performance.now(), lastInputAt, residents: world?.residents.size ?? 0 });
     },
     resize() { R.resize(); overlay.resize(); },
     collectAll() { for (const id of items.keys()) { card = id; decide('accepted'); } },

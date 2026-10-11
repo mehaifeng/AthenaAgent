@@ -11044,6 +11044,23 @@ static Task TestPolisIntentValidationAsync()
         AssertEqual(PolisIntents.MaxPrefillChars, V("{\"v\":1,\"type\":\"prefill-input\",\"text\":\"" + new string('字', 5000) + "\"}").Intent?.Text?.Length ?? 0, "预填文字有长度上限");
         AssertFalse(V("""{"v":1,"type":"save-player","x":1e9,"z":0}""").Accepted, "玩家位置超出范围拒绝");
         AssertEqual("webgl", V("""{"v":1,"type":"failed","reason":"webgl","detail":"no context"}""").Intent?.Reason, "页面自检失败带回原因");
+
+        // 城里的对话栏（2026-10-11）：托付与草稿都带着会话 Id；字去掉控制字符、保留换行；托付的字超长整条拒绝（不截断——截掉一半等于替你改了要求）
+        var say = V("{\"v\":1,\"type\":\"say\",\"conversationId\":\"conv-1\",\"text\":\"把合同\\u0007列个清单\\n谢谢\"}");
+        AssertTrue(say.Accepted && say.Intent!.Type == PolisIntentType.Say, "对话栏的托付是合法意图");
+        AssertEqual("conv-1", say.Intent!.ConversationId, "托付带着会话 Id");
+        AssertEqual("把合同列个清单\n谢谢", say.Intent!.Text, "托付的字去掉控制字符（保留换行）");
+        AssertFalse(V("""{"v":1,"type":"say","conversationId":"conv-404","text":"你好"}""").Accepted, "托付给不存在的会话：拒绝");
+        AssertFalse(V("""{"v":1,"type":"say","text":"你好"}""").Accepted, "托付不带会话 Id：拒绝");
+        AssertFalse(V("""{"v":1,"type":"say","conversationId":"conv-1","text":"  \n "}""").Accepted, "只有空白的托付：拒绝");
+        AssertFalse(V("""{"v":1,"type":"say","conversationId":"conv-1"}""").Accepted, "没有字的托付：拒绝");
+        var longSay = "{\"v\":1,\"type\":\"say\",\"conversationId\":\"conv-1\",\"text\":\"" + new string('字', PolisIntents.MaxSayChars + 1) + "\"}";
+        AssertTrue(longSay.Length < PolisIntents.MaxMessageChars, "超长托付的这条消息本身没超过消息上限（拒绝的是字数）");
+        AssertFalse(V(longSay).Accepted, "超过字数上限的托付整条拒绝");
+        AssertEqual(PolisIntents.MaxSayChars, V("{\"v\":1,\"type\":\"say\",\"conversationId\":\"conv-1\",\"text\":\"" + new string('字', PolisIntents.MaxSayChars) + "\"}").Intent?.Text?.Length ?? 0,
+            "上限之内的托付一个字都不少");
+        AssertEqual(string.Empty, V("""{"v":1,"type":"draft","conversationId":"conv-1","text":""}""").Intent?.Text, "草稿可以清空");
+        AssertFalse(V("""{"v":1,"type":"draft","conversationId":"conv-404","text":"x"}""").Accepted, "草稿也只给存在的会话");
     }
     finally
     {

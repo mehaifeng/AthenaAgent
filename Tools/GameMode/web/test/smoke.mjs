@@ -5,6 +5,9 @@
 //         不可见时停止渲染；卷轴里的 HTML 只是文字。Chromium 另外关掉 WebGL 跑一遍：页面必须回报 failed（webgl）。
 //   M2：积累（橄榄林、居民、委托板、神谕、海图、藏品的摆放）的每一条意图都发得出去、形状对；传令官的行可点；
 //   资产清单：一件换成外部 glTF（测试现写的 GLB）真的换上了，另一件模型不存在（404）退回程序化的，页面没有报错。
+//   操作（2026-10-11）：视角缺省自由、V 轮换、左键拖动转镜头；WASD 走路且走不进房子；点雅典娜打开对话栏；对话栏收到 composer
+//   才出现，Enter 托付（say 带会话 Id）、草稿同步（draft）、她在办事时"请她停下"（stop-turn）；在对话栏里按 W 是字不是脚步，
+//   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,6 +35,7 @@ try {
       failed = !(await replayCheck(name, browser)) || failed;
       failed = !(await liveCheck(name, browser)) || failed;
       failed = !(await accumulationCheck(name, browser)) || failed;
+      failed = !(await controlsCheck(name, browser)) || failed;
     } finally {
       await browser.close();
     }
@@ -235,7 +239,11 @@ async function accumulationCheck(name, browser) {
     // 每一种操作发出它那一条意图
     const intents = {};
     let n = await inboxLength();
-    await page.evaluate(() => { const g = window.__polisGame; const t = g.picks.trees[4]; g.click(t.x, t.y); });
+    // M3 第三轮：城里的东西不再是点的——走到第 5 棵树跟前、面朝它，按 E（真的按键，走 window 上的那一条监听）
+    await page.evaluate(() => { const g = window.__polisGame; const t = g.world.groveTrees[4]; g.setFollow('player'); g.placePlayer(t.base.x + 1.0, t.base.z, -Math.PI / 2); });
+    await page.waitForTimeout(150);
+    const treeFocus = await page.evaluate(() => window.__polis.focus);
+    await page.keyboard.press('KeyE');
     intents.tree = await sentSince(n);
     n = await inboxLength();
     await page.evaluate(() => { const g = window.__polisGame; g.openPanel('board'); g.onButton('suggestion:0'); });
@@ -258,7 +266,10 @@ async function accumulationCheck(name, browser) {
     n = await inboxLength();
     await page.evaluate(() => { const g = window.__polisGame; g.startPlacing('kept'); });
     await page.waitForTimeout(200);
-    await page.evaluate(() => { const g = window.__polisGame; const s = g.picks.slots.find((x) => x.venue === 'archive' && !x.item && x.slot === 5); g.click(s.x, s.y); });
+    // 摆放：走到书库的第 6 个空底座跟前按 E
+    await page.evaluate(() => { const g = window.__polisGame; const s = g.world.venues.get('archive').slots[5]; g.setFollow('player'); g.placePlayer(s.world.x, s.world.z + 0.9, Math.PI); });
+    await page.waitForTimeout(150);
+    await page.keyboard.press('KeyE');
     intents.placeSlot = await sentSince(n);
     n = await inboxLength();
     await page.evaluate(() => { const g = window.__polisGame; g.openCard('shown'); g.onButton('card-unplace'); g.openCard('gone'); g.onButton('card-remove'); });
@@ -275,7 +286,7 @@ async function accumulationCheck(name, browser) {
       displayedOnPedestal: shape.displayed === 'shown' && shape.lostSlot === 'gone',
       externalModelUsed: shape.assets.external.includes('building.house') && shape.externalHouse,
       missingModelFallsBack: shape.assets.fallbacks.some((f) => f.startsWith('prop.amphora')),
-      treeSelects: of(intents.tree, 'select-conversation')?.conversationId === 'c-4',
+      treeSelects: treeFocus?.type === 'tree' && of(intents.tree, 'select-conversation')?.conversationId === 'c-4',
       boardTakes: of(intents.board, 'take-suggestion')?.suggestionId === 'tidyAgora:',
       oracleRequests: !!of(intents.oracle, 'request-oracle') && Object.keys(of(intents.oracle, 'request-oracle')).every((k) => k === 'v' || k === 'type'),
       residentMeetsAndTries: of(intents.resident, 'meet-resident')?.residentId === 'scribe' && of(intents.resident, 'try-resident')?.residentId === 'scribe',
@@ -289,6 +300,182 @@ async function accumulationCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, assets: shape.assets, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 2026-10-11 实测之后的操作：游戏盖住了输入框，说话在城里的对话栏；视角缺省自由；WASD / 方向键走路，鼠标只管互动。
+ */
+async function controlsCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, controls and talk bar' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    const inbox = () => page.evaluate(() => window.__hostInbox);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city, player: { x: 2.6, z: 4.4 } });
+    await send({ type: 'focus', last: null });
+    await page.waitForFunction(() => (window.__polis.frames ?? 0) > 5, null, { timeout: 20_000 });
+    const talkBefore = await page.evaluate(() => document.getElementById('talk').hidden);
+    const viewDefault = await page.evaluate(() => ({ status: window.__polis.view, radio: document.querySelector('#view button[aria-checked="true"]')?.dataset.view }));
+
+    // 视角：V 轮换三种，再回到自由
+    const views = [];
+    for (let k = 0; k < 3; k++) { await page.keyboard.press('KeyV'); views.push(await page.evaluate(() => window.__polis.view)); }
+
+    // 左键拖动转镜头：方位角变了，没有当成一次点击
+    const a0 = await page.evaluate(() => window.__polisGame.cameraAngles());
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(520, 300, { steps: 8 });
+    await page.mouse.move(520, 840, { steps: 8 });   // 往下拖到头：俯视有上限
+    await page.mouse.up();
+    const a1 = await page.evaluate(() => window.__polisGame.cameraAngles());
+
+    // WASD：按住 W 走 4 秒，每一刻都站在能走的地方（走不进房子、不下海），确实走出去了
+    const p0 = await page.evaluate(() => window.__polis.player);
+    const samples = [];
+    await page.keyboard.down('KeyW');
+    for (let k = 0; k < 8; k++) {
+      await page.waitForTimeout(500);
+      samples.push(await page.evaluate(() => { const p = window.__polis.player; return { ...p, ok: window.__polisGame.layout.walkable(p) }; }));
+    }
+    await page.keyboard.up('KeyW');
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('ArrowRight');
+    const p1 = await page.evaluate(() => window.__polis.player);
+    await page.waitForTimeout(900);
+    const saved = (await inbox()).filter((m) => m.type === 'save-player').at(-1);
+    // M3：按住 Shift 跑（动作换成 run，速度更快）
+    const idleAction = await page.evaluate(() => window.__polis.playerAction);
+    const r0 = await page.evaluate(() => window.__polis.player);
+    await page.keyboard.down('Shift');
+    await page.keyboard.down('KeyS');
+    await page.waitForTimeout(500);
+    const runAction = await page.evaluate(() => window.__polis.playerAction);
+    await page.keyboard.up('KeyS');
+    await page.keyboard.up('Shift');
+    const r1 = await page.evaluate(() => window.__polis.player);
+
+    // 对话栏：收到 composer 才出现
+    await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '' });
+    const talkShown = await page.evaluate(() => !document.getElementById('talk').hidden);
+    await page.evaluate(() => { const g = window.__polisGame; g.setFollow('athena'); });
+    await page.waitForTimeout(1500);
+    // M3 第三轮：点她不再开口（鼠标不点城里的东西）……
+    const athenaScreen = await page.evaluate(() => {
+      const g = window.__polisGame, a = g.world.athena;
+      const p = a.userData.chest.clone().applyMatrix4(a.matrixWorld).project(g.camera);
+      return { x: ((p.x + 1) / 2) * innerWidth, y: ((1 - p.y) / 2) * innerHeight };
+    });
+    await page.mouse.click(athenaScreen.x, athenaScreen.y);
+    await page.waitForTimeout(150);
+    const clickedOpen = await page.evaluate(() => document.getElementById('talk').classList.contains('open'));
+    // ……走到她跟前、面朝她按 E 才开口：脚下先出现"E 和雅典娜说话"，按下去对话栏展开、聚焦
+    await page.evaluate(() => { const g = window.__polisGame, a = g.world.athena.position; g.placePlayer(a.x + 1.3, a.z + 0.4, Math.atan2(-1.3, -0.4)); });
+    await page.waitForTimeout(200);
+    const athenaFocus = await page.evaluate(() => ({ focus: window.__polis.focus, prompt: window.__polisGame.used.labels.some((l) => l.kind === 'prompt') }));
+    await page.keyboard.press('KeyE');
+    const opened = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), focused: document.activeElement?.classList.contains('talk-input') }));
+    await page.waitForTimeout(300);
+    const talkAction = await page.evaluate(() => ({ player: window.__polis.playerAction, athena: window.__polis.athenaPose }));
+    // M3（决定 4）：对话栏开着，镜头推成近景；收起就退回
+    await page.waitForTimeout(1200);
+    const closeUp = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
+    // 在对话栏里打字：W 是字，人不动
+    const beforeTyping = await page.evaluate(() => window.__polis.player);
+    await page.keyboard.type('wasd 把合同列个清单');
+    await page.waitForTimeout(700);
+    const afterTyping = await page.evaluate(() => ({ player: window.__polis.player, value: window.__polisTalk.value }));
+    const draft = (await inbox()).filter((m) => m.type === 'draft').at(-1);
+    // 输入法正在选字时的 Enter：不托付
+    await page.evaluate(() => document.querySelector('#talk .talk-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
+    const saysWhileComposing = (await inbox()).filter((m) => m.type === 'say').length;
+    await page.keyboard.press('Enter');
+    const said = (await inbox()).filter((m) => m.type === 'say');
+    const afterSay = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), value: window.__polisTalk.value }));
+    // 她在办事：托付键换成"请她停下"
+    await send({ type: 'composer', conversationId: 'c-1', busy: true, queued: false, waiting: false, compressing: false, canSend: false, attachments: ['合同.docx'] });
+    const busyBar = await page.evaluate(() => ({ stop: !document.querySelector('#talk .talk-stop').hidden, send: !document.querySelector('#talk .talk-send').hidden }));
+    await page.click('#talk .talk-stop');
+    const stopSent = (await inbox()).some((m) => m.type === 'stop-turn');
+    // 在城里按 Enter 开口
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    const enterOpens = await page.evaluate(() => document.getElementById('talk').classList.contains('open'));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1600);
+    const afterClose = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom }));
+    // 预填（委托板、退回……）：带着字展开、聚焦，不发送
+    const saysBeforePrefill = (await inbox()).filter((m) => m.type === 'say').length;
+    await send({ type: 'composer', conversationId: 'c-2', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '关于《摘要》，请修改：', open: true });
+    await page.waitForTimeout(200);
+    const prefilled = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), value: window.__polisTalk.value, focused: document.activeElement?.classList.contains('talk-input') }));
+    const saysAfterPrefill = (await inbox()).filter((m) => m.type === 'say').length;
+    await page.keyboard.press('Escape');
+    // M3 第三轮：夜里跟着应用的深色主题——推一条 theme，页面上的条立刻换，城里一秒多走到夜里；换回来也一样
+    await send({ type: 'theme', night: true });
+    await page.waitForFunction(() => window.__polis.night === 1, null, { timeout: 5000 }).catch(() => {});
+    const nightNow = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, overlay: window.__polisGame.overlay.night, pixels: window.__polis.pixelStats() }));
+    await send({ type: 'theme', night: false });
+    await page.waitForFunction(() => window.__polis.night === 0, null, { timeout: 5000 }).catch(() => {});
+    const dayAgain = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, pixels: window.__polis.pixelStats() }));
+    // 卷轴阅读器：一卷很长的回答（含表格）能滚到最后一行，最后一行在卷轴里看得见
+    const longMd = `# 长卷\n\n| 列 | 值 |\n|---|---:|\n| a | 1 |\n| b | 2 |\n\n${Array.from({ length: 80 }, (_, i) => `- 第 ${i + 1} 行：一段足够长的说明文字，确保这一卷比窗口高得多`).join('\n')}\n\n最后一行。`;
+    await send({ type: 'scroll', itemId: 'long', title: '长卷', markdown: longMd, closeLabel: '收起' });
+    await page.waitForTimeout(200);
+    const readerFit = await page.evaluate(async () => {
+      const root = document.getElementById('reader'), card = root.querySelector('.scroll'), body = root.querySelector('.body');
+      body.scrollTop = body.scrollHeight;
+      await new Promise((r) => setTimeout(r, 120));
+      const c = card.getBoundingClientRect(), b = body.getBoundingClientRect(), last = body.lastElementChild.getBoundingClientRect();
+      return { cardInside: c.top >= 0 && c.bottom <= innerHeight + 0.5, scrollable: body.scrollHeight > body.clientHeight + 100, lastVisible: last.bottom <= b.bottom + 0.5 && last.top >= b.top, table: !!body.querySelector('table th.align-right, table td.align-right') };
+    });
+    await page.keyboard.press('Escape');
+    const all = await inbox();
+    const checks = {
+      talkHiddenUntilComposer: talkBefore === true && talkShown === true,
+      freeViewByDefault: viewDefault.status === 'free' && viewDefault.radio === 'free',
+      viewCycles: views.join(',') === 'player,athena,free',
+      dragTurns: Math.abs(a1.azimuth - a0.azimuth) > 20 && a1.elevation <= 72.001 && a1.elevation > a0.elevation,
+      walks: Math.hypot(samples.at(-1).x - p0.x, samples.at(-1).z - p0.z) > 5 && Math.hypot(p1.x - samples.at(-1).x, p1.z - samples.at(-1).z) > 1,
+      neverInsideWalls: samples.every((s) => s.ok),
+      runsWithShift: idleAction === 'idle' && runAction === 'run' && Math.hypot(r1.x - r0.x, r1.z - r0.z) > 3.5,
+      talksAtTheBar: talkAction.player === 'talk',
+      closeUpWhileTalking: closeUp.kind === 'talk' && closeUp.zoom > 3.5 && closeUp.elevation < 32,
+      zoomRestoredAfterClose: afterClose.kind == null && afterClose.zoom < 1.6,
+      savesWhenStopped: !!saved && Math.abs(saved.x - p1.x) < 0.05 && Math.abs(saved.z - p1.z) < 0.05,
+      clickingDoesNotInteract: clickedOpen === false,
+      approachAndPressEOpensTalk: athenaFocus.focus?.type === 'athena' && athenaFocus.prompt && opened.open && opened.focused,
+      typingIsNotWalking: afterTyping.value === 'wasd 把合同列个清单' && afterTyping.player.x === beforeTyping.x && afterTyping.player.z === beforeTyping.z,
+      draftSynced: draft?.conversationId === 'c-1' && draft?.text === 'wasd 把合同列个清单',
+      composingEnterDoesNotSend: saysWhileComposing === 0,
+      enterEntrusts: said.length === 1 && said[0].conversationId === 'c-1' && said[0].text === 'wasd 把合同列个清单' && !afterSay.open && afterSay.value === '',
+      stopWhileBusy: busyBar.stop && !busyBar.send && stopSent,
+      enterOpensTalk: enterOpens,
+      prefillOpensWithoutSending: prefilled.open && prefilled.focused && prefilled.value === '关于《摘要》，请修改：' && saysAfterPrefill === saysBeforePrefill,
+      nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
+      longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
+      neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

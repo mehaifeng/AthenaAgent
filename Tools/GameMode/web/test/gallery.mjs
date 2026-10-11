@@ -68,7 +68,8 @@ try {
     }
     if (kind === 'figure') {
       for (const view of ['game', 'mid']) await shoot(`gallery=${entry.id}&view=${view}`, `figure/${name}.still.${view}.png`);
-      for (const action of ['walk', 'idle', 'deliver']) await shoot(`gallery=${entry.id}&action=${action}&frames=8`, `figure/${name}.${action}.png`, { clip: false });
+      // M3：跑、说话、挥手、接过也各一张连续帧（弹簧骨上的衣摆在走和跑的帧里有滞后）
+      for (const action of ['walk', 'run', 'idle', 'deliver', 'talk', 'wave', 'receive']) await shoot(`gallery=${entry.id}&action=${action}&frames=8`, `figure/${name}.${action}.png`, { clip: false });
       const works = name === 'athena' ? ATHENA_WORK : [null];
       for (const variant of works) await shoot(`gallery=${entry.id}&action=work&frames=8${variant ? `&variant=${variant}` : ''}`, `figure/${name}.work${variant ? `-${variant}` : ''}.png`, { clip: false });
       continue;

@@ -77,3 +77,34 @@ export function textureFrom(size, values, toRGB, { repeat = 1, srgb = true } = {
 }
 
 export const tone = (v, tint = [1, 1, 1]) => [v * 255 * tint[0], v * 255 * tint[1], v * 255 * tint[2]];
+
+/**
+ * 把一张高度场变成切线空间的法线贴图（M3：皮肤的毛孔、布的织纹——写实靠光影和材质，不靠面数）。
+ * strength 是坡度的放大倍数；贴图可平铺（高度场本身是周期的）。
+ */
+export function normalFrom(size, values, strength = 1, { repeat = 1 } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const at = (x, y) => values[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength * size * 0.5;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength * size * 0.5;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * size + x) * 4;
+      img.data[i] = 128 + (-dx / len) * 127;
+      img.data[i + 1] = 128 + (dy / len) * 127;
+      img.data[i + 2] = 128 + (1 / len) * 127;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeat, repeat);
+  t.colorSpace = THREE.NoColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
