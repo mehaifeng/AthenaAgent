@@ -194,6 +194,22 @@
     "market": {
       "x": -1,
       "z": 1
+    },
+    "paintedStoa": {
+      "x": 1,
+      "z": 2
+    },
+    "archive": {
+      "x": -1,
+      "z": 2
+    },
+    "vault": {
+      "x": 2,
+      "z": 2
+    },
+    "grove": {
+      "x": -2,
+      "z": 2
     }
   },
   "seaStartsAtZ": 2,

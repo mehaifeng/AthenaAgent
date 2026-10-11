@@ -109,6 +109,9 @@ public static class PolisAssetRoute
 {
     public const string Prefix = "/polis/";
 
+    /// <summary>外部模型（资产清单的覆盖）：<c>/polis-assets/&lt;一段文件名&gt;</c>，从 <c>AthenaData/Game/assets</c> 里取。</summary>
+    public const string ModelPrefix = "/polis-assets/";
+
     /// <summary>
     /// 与页面里 &lt;meta&gt; 一致的内容安全策略，在响应头里再给一份（设计稿 12.4）：脚本只来自本站、不许内联脚本、
     /// 不许连外部、不许被别的页面嵌套。页面里的文件名与模型写的话一律画在 canvas 上或作为文本节点。
@@ -160,6 +163,9 @@ public static class OfficeMimeMap
             ".docx" or ".docm" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ".xlsx" or ".xlsm" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ".pptx" or ".pptm" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".glb" => "model/gltf-binary",
+            ".gltf" => "model/gltf+json",
+            ".ktx2" => "image/ktx2",
             _ => "application/octet-stream"
         };
     }

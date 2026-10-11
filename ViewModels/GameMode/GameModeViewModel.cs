@@ -83,6 +83,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private readonly IPolisSaveStore _store;
     private readonly IWorkspaceWatcherService _watcher;
     private readonly ILocalizationService _localization;
+    private readonly ICronTaskReader _cronTasks;
+    private readonly PolisAssetStore _assetStore;
     private readonly ILogger _logger = Log.ForContext<GameModeViewModel>();
     private readonly string? _home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
@@ -133,18 +135,35 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private bool _projectionDirty;
     private bool _wasWaiting;
 
+    // —— 积累（M2）：都从存档与会话推导，这里只记"上一次推了什么"，免得每两秒重推一遍 ——
+    /// <summary>积累的刷新间隔：会话的完成、别的城亮灯、定时任务的结果，两秒内出现在城里就够了。</summary>
+    public static readonly TimeSpan AccumulationInterval = TimeSpan.FromSeconds(2);
+    private DispatcherTimer? _accumulationTimer;
+    private string? _accumulationKey;
+    private IReadOnlyList<PolisCommission> _commissions = Array.Empty<PolisCommission>();
+    private IReadOnlyDictionary<string, string> _suggestionPrompts = new Dictionary<string, string>(StringComparer.Ordinal);
+    private IReadOnlySet<string> _knownResidents = new HashSet<string>(StringComparer.Ordinal);
+    private IReadOnlySet<string> _knownIslands = new HashSet<string>(StringComparer.Ordinal);
+    private DateTimeOffset _cityArrivedAt = DateTimeOffset.MinValue;
+    private readonly HashSet<string> _noticedRuns = new(StringComparer.Ordinal);
+
     public GameModeViewModel(
         AppConfigurationSession configurationSession,
         OfficePreviewHost previewHost,
         IPolisSaveStore saveStore,
         IWorkspaceWatcherService watcher,
-        ILocalizationService localization)
+        ILocalizationService localization,
+        ICronTaskReader cronTasks,
+        PolisAssetStore assetStore)
     {
         _configuration = configurationSession ?? throw new ArgumentNullException(nameof(configurationSession));
         _previewHost = previewHost ?? throw new ArgumentNullException(nameof(previewHost));
         _store = saveStore ?? throw new ArgumentNullException(nameof(saveStore));
         _watcher = watcher ?? throw new ArgumentNullException(nameof(watcher));
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
+        _cronTasks = cronTasks ?? throw new ArgumentNullException(nameof(cronTasks));
+        _assetStore = assetStore ?? throw new ArgumentNullException(nameof(assetStore));
+        _cronTasks.TasksChanged += OnCronTasksChanged;
         _isGameMode = _configuration.Current.MainLayout.GameMode;
         _flushTimer = new DispatcherTimer(FlushInterval, DispatcherPriority.Background, (_, _) => Flush());
         _watcher.Changed += OnWorkspaceChanged;
@@ -259,6 +278,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         {
             Post(new { type = "visibility", visible = false });
             Flush();
+            _accumulationTimer?.Stop();
             ScheduleRelease();
         }
     }
@@ -307,6 +327,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _releaseTimer?.Stop();
         if (IsGameMode) return;
         _logger.Information("Releasing the polis page after {Delay} in conversation mode", ReleaseDelay);
+        _ = StampDepartureAsync();
         PageUrl = null;
         PageState = PolisPageState.None;
         _cityKey = null;   // 下次进来按存档重新装载
@@ -384,7 +405,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var context = new PolisIntentContext(
             _fogged ? null : _cityWorkspace?.DirectoryPath,
             (_shell?.AllSessions ?? Enumerable.Empty<ConversationSessionItemViewModel>()).Select(s => s.ConversationId).ToHashSet(StringComparer.Ordinal),
-            _save.Items.Select(i => i.Id).ToHashSet(StringComparer.Ordinal));
+            _save.Items.Select(i => i.Id).ToHashSet(StringComparer.Ordinal))
+        {
+            KnownSuggestionIds = _suggestionPrompts.Keys.ToHashSet(StringComparer.Ordinal),
+            KnownIslandIds = _knownIslands,
+            KnownResidentIds = _knownResidents,
+        };
         var result = PolisIntents.Validate(body, context);
         if (!result.Accepted)
         {
@@ -424,7 +450,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 if (_shell != null) _ = RunIntentAsync(() => _shell.AttachFileAsync(intent.FullPath!), "attach-file");
                 break;
             case PolisIntentType.PrefillInput:
-                _shell?.PrefillInput(intent.Text!);
+                // 预填会话树上选中的那一份委托（不是"中间正显示的"——第二拍之前两者可能不同）
+                if (_shell?.SelectedSession is { } selected) _shell.PrefillInput(selected.ConversationId, intent.Text!);
                 break;
             case PolisIntentType.StopTurn:
                 _shell?.StopCurrentTurn();
@@ -446,7 +473,92 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 _save = _save with { Player = new PolisPlayerProgress(intent.X!.Value, intent.Z!.Value, intent.Zoom) };
                 _ = PersistSaveAsync();
                 break;
+            case PolisIntentType.PlaceItem:
+                ApplyCollection(PolisCollection.Place(_save, intent.ItemId!, intent.Venue!.Value, intent.Slot), "place");
+                break;
+            case PolisIntentType.UnplaceItem:
+                ApplyCollection(PolisCollection.Unplace(_save, intent.ItemId!), "unplace");
+                break;
+            case PolisIntentType.RemoveItem:
+                ApplyCollection(PolisCollection.Remove(_save, intent.ItemId!), "remove");
+                break;
+            case PolisIntentType.TakeSuggestion:
+                if (_shell != null && _suggestionPrompts.TryGetValue(intent.SuggestionId!, out var prompt))
+                    _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(prompt), "take-suggestion");
+                break;
+            case PolisIntentType.RequestOracle:
+                // 神谕（7.3）：只新开一份委托、预填请求——由你按发送；雅典娜调用 create_task 时审批照常弹出，那次批准就是仪式
+                if (_shell != null)
+                    _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(PolisAccumulation.OracleRequest(_fogged ? null : _cityWorkspace, L)), "request-oracle");
+                break;
+            case PolisIntentType.SelectIsland:
+                _ = RunIntentAsync(() => SelectIslandAsync(intent.IslandId!), "select-island");
+                break;
+            case PolisIntentType.MeetResident:
+            {
+                var slug = PolisResidents.Slug(intent.Resident!.Value);
+                if (!_save.MetResidents.Contains(slug, StringComparer.Ordinal))
+                {
+                    _save = _save with { MetResidents = _save.MetResidents.Append(slug).ToList() };
+                    _ = PersistSaveAsync();
+                }
+                break;
+            }
+            case PolisIntentType.TryResident:
+                if (_shell != null)
+                    _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(PolisAccumulation.ResidentPrompt(intent.Resident!.Value, L)), "try-resident");
+                break;
         }
+    }
+
+    /// <summary>摆放 / 撤下 / 移除：只改存档（7.2"拆方块永远不会变成删文件"），推回页面，落盘。</summary>
+    private void ApplyCollection(PolisCollectionResult result, string what)
+    {
+        if (!result.Ok)
+        {
+            // 页面只提供空位、只对遗失的给"移除"——走到这里的是过时或越权的请求
+            _logger.Information("Polis collection {What} refused: {Reason}", what, result.Rejection);
+            PostItems();
+            Flush();
+            return;
+        }
+        _save = result.Save;
+        PostItems();
+        Flush();
+        _accumulationKey = null;   // 遗失的藏品没了，委托板的"找找它"也该换掉
+        _ = PersistSaveAsync();
+    }
+
+    /// <summary>新开一份委托（这座城；神殿里是全局对话）并把一段请求预填进它的输入框——不发送，由你决定。</summary>
+    private async Task OpenCommissionWithPrefillAsync(string prompt)
+    {
+        if (_shell == null || string.IsNullOrWhiteSpace(prompt)) return;
+        var session = await _shell.CreateCommissionAsync(_fogged ? null : _cityWorkspace);
+        if (session == null)
+        {
+            _logger.Warning("Polis could not open a new commission for {City}", _cityKey);
+            return;
+        }
+        _shell.PrefillInput(session.ConversationId, prompt);
+    }
+
+    /// <summary>
+    /// 海图上选了一座岛（9.1）：选中那个工作区最近的会话——与在会话树上点它完全相同，第一拍出港、第二拍装城；
+    /// 岛上还没有委托就新开一份。游戏不另存"当前会话"。
+    /// </summary>
+    private async Task SelectIslandAsync(string islandId)
+    {
+        if (_shell == null) return;
+        var commissions = PolisAccumulation.ProjectCommissions(_shell.AllSessions);
+        var target = PolisIslands.MostRecentConversation(islandId, commissions);
+        if (target != null)
+        {
+            _shell.SelectConversation(target);
+            return;
+        }
+        var workspace = islandId == PolisIslands.SanctuaryId ? null : _shell.Workspaces.FirstOrDefault(w => w.Id == islandId);
+        if (islandId != PolisIslands.SanctuaryId && workspace == null) return;
+        await _shell.CreateCommissionAsync(workspace);
     }
 
     private async Task RunIntentAsync(Func<Task> action, string name)
@@ -466,10 +578,22 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _readyTimer?.Stop();
         PageState = PolisPageState.Ready;
         _logger.Information("Polis page ready");
-        Post(new { type = "init", tables = PolisLocale.BuildTables(L) });
+        // 资产清单（AthenaData/Game/assets/manifest.json）：C# 校验过的覆盖随 init 一起给页面；没有清单就是全部程序化
+        var manifest = _assetStore.LoadManifest();
+        Post(new { type = "init", tables = PolisLocale.BuildTables(L), assets = manifest.Assets.ToDictionary(kv => kv.Key, kv => (object)new
+        {
+            model = kv.Value.Model,
+            scale = kv.Value.Scale,
+            rotateY = kv.Value.RotateY,
+            offset = kv.Value.Offset,
+            animations = kv.Value.Animations
+        }, StringComparer.Ordinal) });
         Post(new { type = "visibility", visible = _windowVisible && IsGameMode });
         _cityKey = null;
+        _accumulationKey = null;
         if (_session != null) _ = ActivateSessionAsync(_session, voyage: false);
+        _accumulationTimer ??= new DispatcherTimer(AccumulationInterval, DispatcherPriority.Background, (_, _) => RefreshAccumulation(force: false));
+        _accumulationTimer.Start();
         Flush();
     }
 
@@ -592,6 +716,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async Task LoadCityAsync(WorkspaceProfile? workspace)
     {
+        // 离开上一座城：记下离开的时刻（传令官下次只报这之后的事）
+        if (_cityKey != null && _cityKey != (workspace?.Id ?? "sanctuary")) await StampDepartureAsync();
         _cityLoad?.Cancel();
         _cityLoad?.Dispose();
         var cts = new CancellationTokenSource();
@@ -640,6 +766,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             PostItems();
             Post(new { type = "fog", missing = false });
             Post(new { type = "arrive" });
+            await ArriveAsync(null, token);
             return;
         }
 
@@ -671,16 +798,168 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             Flush();
         }
 
-        await ReconcileAsync(root, name, report: index != null, token);
+        var report = await ReconcileAsync(root, name, report: index != null, token);
         if (founding)
         {
             _save = _save with { FoundedAt = DateTimeOffset.UtcNow };
             await PersistSaveAsync();
         }
+        await ArriveAsync(report, token);
     }
 
-    /// <summary>后台扫描 + 核对，推送结果并写回存档与快照。</summary>
-    private async Task ReconcileAsync(string root, string name, bool report, CancellationToken token)
+    /// <summary>
+    /// 到了一座城（10.3、7.3）：传令官播报离开期间的事——定时任务的结果、被打断的委托、外部改动；神谕送来的那一卷作为成果放下；
+    /// 记下到达的时刻；积累（橄榄林、居民、委托板、神谕、海图）推给页面。
+    /// </summary>
+    private async Task ArriveAsync(PolisAwayReport? report, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var tasks = _cronTasks.GetTasks();
+        var workspaceId = _cityWorkspace?.Id;
+        var commissions = _shell == null ? Array.Empty<PolisCommission>() : PolisAccumulation.ProjectCommissions(_shell.AllSessions);
+        var entries = PolisHerald.Compose(tasks, workspaceId, _save.LastVisitedAt, commissions, report,
+            id => _save.Items.FirstOrDefault(i => i.Id == id)?.Title, t => PolisOracle.IsOracle(t, workspaceId));
+        entries = entries.Select(e => e.Kind == PolisHeraldKind.OracleScroll && e.ConversationId != null
+            ? e with { ItemId = CreateOracleItem(e.ConversationId, e.At ?? DateTimeOffset.UtcNow)?.Id }
+            : e).ToList();
+        foreach (var run in tasks.SelectMany(t => t.RecentRuns)) _noticedRuns.Add(run.RunId);
+        if (entries.Count > 0)
+        {
+            Post(new { type = "report", title = L("GameMode.Report.Title", "While you were away"), lines = PolisAccumulation.HeraldLines(entries, L) });
+            PostItems();
+        }
+        _cityArrivedAt = DateTimeOffset.UtcNow;
+        _save = _save with { LastVisitedAt = _cityArrivedAt };
+        _accumulationKey = null;
+        RefreshAccumulation(force: true);
+        Flush();
+        await PersistSaveAsync();
+    }
+
+    /// <summary>离开这座城：记下时刻（传令官下次只报这之后的事）。在换城之前、页面释放之前调用。</summary>
+    private async Task StampDepartureAsync()
+    {
+        if (_cityKey == null) return;
+        _save = _save with { LastVisitedAt = DateTimeOffset.UtcNow };
+        await PersistSaveAsync();
+    }
+
+    /// <summary>
+    /// 每日神谕送来的一卷（7.3"之后每天早上，传令官会送来一卷"）：那次定时运行开的会话里最后一个助手气泡，
+    /// 作为一件回答类的成果放在广场上、带颜色等你收下。会话不在树上（或还没有回复）就不放——那一行播报照样可点。
+    /// </summary>
+    private PolisItem? CreateOracleItem(string conversationId, DateTimeOffset at)
+    {
+        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
+        var bubble = session?.Chat.Messages.LastOrDefault(m => PolisCommissions.IsAssistantBubble(m) && !m.IsStreaming && !m.IsLoading);
+        if (bubble == null) return null;
+        var existing = _save.Items.FirstOrDefault(i => i.SourceMessageId == bubble.Id);
+        if (existing != null) return existing;
+        var item = new PolisItem
+        {
+            Id = bubble.Id,
+            Kind = PolisItemKind.Answer,
+            Title = PolisAccumulation.OracleItemTitle(at, L),
+            ConversationId = conversationId,
+            SourceMessageId = bubble.Id,
+            State = PolisItemState.Pending,
+            CreatedAt = at
+        };
+        _save = _save with { Items = _save.Items.Append(item).ToList() };
+        return item;
+    }
+
+    /// <summary>
+    /// 积累的现状推给页面（每两秒看一眼；会话、定时任务、存档没变就什么都不推）：橄榄林、居民、委托板、神谕、海图。
+    /// 全部从会话树与存档推导——丢了存档也推得回来，只是"已结识"要再打一次招呼。
+    /// </summary>
+    private void RefreshAccumulation(bool force)
+    {
+        if (_disposed || _shell == null || !IsGameMode || PageState != PolisPageState.Ready || _cityKey == null) return;
+        var commissions = PolisAccumulation.ProjectCommissions(_shell.AllSessions);
+        var workspaces = _shell.Workspaces;
+        var tasks = _cronTasks.GetTasks();
+        var key = PolisAccumulation.Fingerprint(commissions, _cityKey, _localization.CurrentLanguage, DateTimeOffset.Now.Date,
+            string.Join(",", workspaces.Select(w => w.Id + w.DirectoryPath)),
+            string.Join(",", tasks.Select(t => t.Id + t.UpdatedAt.UtcTicks + t.RecentRuns.Count + t.IsEnabled)),
+            string.Join(",", _save.Items.Select(i => i.Id + (i.Lost ? "L" : "") + i.State)),
+            string.Join(",", _save.MetResidents), _city?.Buildings.Count ?? 0);
+        if (!force && key == _accumulationKey) return;
+        _accumulationKey = key;
+        _commissions = commissions;
+        var workspaceId = _cityWorkspace?.Id;
+        var now = DateTimeOffset.UtcNow;
+
+        var trees = PolisGrove.Derive(commissions, workspaceId);
+        Post(new { type = "grove", trees = PolisAccumulation.GroveTrees(trees) });
+
+        var oracle = PolisOracle.Find(tasks, workspaceId);
+        var mine = _shell.AllSessions.Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
+            .Select(s => (s.ConversationId, (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()));
+        var residents = PolisResidents.Derive(mine, oracle?.CreatedAt);
+        _knownResidents = residents.Select(r => PolisResidents.Slug(r.Kind)).ToHashSet(StringComparer.Ordinal);
+        Post(new { type = "residents", residents = PolisAccumulation.Residents(residents, _save.MetResidents.ToList(), L, now) });
+
+        var suggestions = PolisSuggestions.Generate(new PolisSuggestionInput(
+            workspaceId,
+            _city?.Buildings ?? Array.Empty<PolisFixtureBuilding>(),
+            _city?.Agora,
+            _save.Items,
+            commissions.Where(c => string.Equals(c.WorkspaceId ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal)).ToList(),
+            oracle != null,
+            residents.Any(r => r.Kind == PolisResidentKind.Librarian),
+            now));
+        var (lines, prompts) = PolisAccumulation.Board(suggestions, L, PolisAccumulation.OracleRequest(_fogged ? null : _cityWorkspace, L));
+        _suggestionPrompts = prompts;
+        Post(new { type = "board", suggestions = lines });
+
+        Post(new { type = "oracle", oracle = PolisAccumulation.Oracle(oracle, L) });
+
+        var islands = PolisIslands.Build(
+            workspaces.Select(w => new PolisIslandSource(w.Id, w.Name, new DateTimeOffset(w.CreatedAt), !Directory.Exists(w.DirectoryPath))).ToList(),
+            commissions,
+            workspaceId);
+        _knownIslands = islands.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        Post(new { type = "islands", islands = PolisAccumulation.Islands(islands) });
+        Flush();
+    }
+
+    /// <summary>
+    /// 定时任务有变化（在别的线程上）：在城里的时候，跑完的一次记到公告板上（神谕送来的那一卷当场放下）；神庙的状态跟着换。
+    /// </summary>
+    private void OnCronTasksChanged(object? sender, CronTaskListChangedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed || _cityKey == null || PageState != PolisPageState.Ready) return;
+            var workspaceId = _cityWorkspace?.Id;
+            foreach (var task in _cronTasks.GetTasks().Where(t => string.Equals(t.WorkspaceId ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal)))
+            {
+                foreach (var run in task.RecentRuns.Where(r => r.IsTerminal && (r.CompletedAt ?? r.ScheduledFor) >= _cityArrivedAt))
+                {
+                    if (!_noticedRuns.Add(run.RunId)) continue;
+                    if (run.State == CronRunState.Succeeded && PolisOracle.IsOracle(task, workspaceId) && run.ConversationId != null)
+                    {
+                        if (CreateOracleItem(run.ConversationId, run.CompletedAt ?? DateTimeOffset.UtcNow) != null) { PostItems(); _ = PersistSaveAsync(); }
+                    }
+                    var kind = run.State switch
+                    {
+                        CronRunState.Succeeded => "CronSucceeded",
+                        CronRunState.Failed => "CronFailed",
+                        CronRunState.Skipped => "CronSkipped",
+                        _ => "CronInterrupted"
+                    };
+                    var entry = PolisLocale.Herald.First(h => h.Kind == kind);
+                    AddNotice(string.Format(CultureInfo.CurrentCulture, L(entry.Key, entry.Fallback), task.Name, run.Error?.Split('\n')[0] ?? string.Empty));
+                }
+            }
+            _accumulationKey = null;
+            RefreshAccumulation(force: true);
+        });
+    }
+
+    /// <summary>后台扫描 + 核对，推送结果并写回存档与快照。返回"你离开期间"的报告（不要报告时为 null），由到达时的传令官播报。</summary>
+    private async Task<PolisAwayReport?> ReconcileAsync(string root, string name, bool report, CancellationToken token)
     {
         var save = _save;
         var index = _index;
@@ -698,7 +977,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _lastScan = state.Scan;
         PostCity(state.City, sanctuary: false, founding: false, partial: false, origins: null);
         PostItems();
-        if (report && !state.Report.IsEmpty) PostReport(state.Report);
         if (_projector != null) _projector.BuildingKeys = BuildingKeys();
         Flush();
         await PersistSaveAsync();
@@ -712,6 +990,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             // 快照只是缓存：写不进去只少一次"离开期间"的报告
             _logger.Information(ex, "Writing the polis index failed; it is only a cache");
         }
+        return report && !state.Report.IsEmpty ? state.Report : null;
     }
 
     /// <summary>
@@ -803,35 +1082,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 lost = i.Lost,
                 modified = i.ModifiedSinceDelivery,
                 path = i.RelativePath,
-                createdAt = i.CreatedAt.ToString("O", CultureInfo.InvariantCulture)
+                createdAt = i.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
+                placement = i.Placement == null ? null : new { venue = PolisCollection.Slug(i.Placement.Venue), slot = i.Placement.Slot }
             }).ToList()
         });
-    }
-
-    private void PostReport(PolisAwayReport report)
-    {
-        var lines = new List<string>();
-        foreach (var change in report.Buildings)
-        {
-            lines.Add(change.Kind switch
-            {
-                PolisBuildingChangeKind.Added => F("GameMode.Report.Added", "「{0}」is new: a building went up at the edge of the city", change.Key),
-                PolisBuildingChangeKind.Removed => F("GameMode.Report.Removed", "「{0}」is gone and left an empty plot", change.Key),
-                PolisBuildingChangeKind.Renamed => F("GameMode.Report.Renamed", "「{0}」was renamed 「{1}」 and kept its plot", change.RenamedFrom ?? string.Empty, change.Key),
-                PolisBuildingChangeKind.Grew => F("GameMode.Report.Grew", "「{0}」gained {1} file(s)", change.Key, change.FilesAfter - change.FilesBefore),
-                PolisBuildingChangeKind.Shrank => F("GameMode.Report.Shrank", "「{0}」lost {1} file(s)", change.Key, change.FilesBefore - change.FilesAfter),
-                _ => F("GameMode.Report.Touched", "Files in 「{0}」 were changed", change.Key)
-            });
-        }
-        foreach (var item in report.Items)
-        {
-            var title = _save.Items.FirstOrDefault(i => i.Id == item.ItemId)?.Title ?? item.ItemId;
-            if (item.Kind == PolisItemRecoveryKind.Lost) lines.Add(F("GameMode.Report.ItemLost", "{0} can no longer be found", title));
-            else if (item.Kind == PolisItemRecoveryKind.Moved) lines.Add(F("GameMode.Report.ItemMoved", "{0} moved and was found again", title));
-            else if (item.Kind == PolisItemRecoveryKind.Modified) lines.Add(F("GameMode.Report.ItemModified", "{0} was edited after it was delivered", title));
-        }
-        if (lines.Count == 0) return;
-        Post(new { type = "report", title = L("GameMode.Report.Title", "While you were away"), lines });
     }
 
     private void OnWorkspaceRelocated(object? sender, WorkspaceProfile workspace)
@@ -1249,13 +1503,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var item = _save.Items.FirstOrDefault(i => i.Id == itemId);
         if (item == null) return;
         _save = _save with { Items = _save.Items.Select(i => i.Id == itemId ? i with { State = state, DecidedAt = DateTimeOffset.UtcNow } : i).ToList() };
+        if (state == PolisItemState.Accepted && !item.Lost)
+        {
+            // 收下：颜色褪进城邦，摆到它那一类的场馆里第一个空位（7.2）——之后挪去哪、要不要撤下由你决定；满了就先收着
+            var placed = PolisCollection.Place(_save, itemId, PolisCollection.DefaultVenue(item.Kind), null);
+            if (placed.Ok) _save = placed.Save;
+            else AddNotice(F("GameMode.Notice.VenueFull", "{0} is full; {1} is kept in storage for now", VenueName(PolisCollection.DefaultVenue(item.Kind)), item.Title));
+        }
         PostItems();
         Flush();
         if (state == PolisItemState.Returned)
         {
-            // 退回 = 在同一会话里追加一条修改要求：选中它、预填输入框并聚焦，由你写完发出（发消息只走一条路径）
+            // 退回 = 在同一会话里追加一条修改要求：选中它、预填它自己的输入框，由你写完发出（发消息只走一条路径）。
+            // 按会话 Id 预填：外壳要等第二拍才换中间的输入框，预填"当前的"会落到上一个会话里
             if (_shell != null && _shell.SelectedSession?.ConversationId != item.ConversationId) _shell.SelectConversation(item.ConversationId);
-            _shell?.PrefillInput(F("GameMode.Return.Prefill", "About {0}, please change: ", item.Title));
+            _shell?.PrefillInput(item.ConversationId, F("GameMode.Return.Prefill", "About {0}, please change: ", item.Title));
         }
         await PersistSaveAsync();
     }
@@ -1359,11 +1621,20 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         if (PageState == PolisPageState.Ready)
         {
             Post(new { type = "init", tables = PolisLocale.BuildTables(L) });
+            _accumulationKey = null;
+            RefreshAccumulation(force: true);
             Flush();
         }
     }
 
     private string L(string key, string fallback) => _localization.GetString(key, fallback);
+
+    /// <summary>场馆的名字（locale 的 Polis.Public.*，与页面上的名牌同一份）。</summary>
+    private string VenueName(PolisVenue venue)
+    {
+        var entry = PolisLocale.PublicNames.First(p => p.JsKey == PolisCollection.Slug(venue));
+        return L(entry.Key, entry.Fallback);
+    }
 
     private string F(string key, string fallback, params object[] args)
         => string.Format(CultureInfo.CurrentCulture, L(key, fallback), args);
@@ -1376,9 +1647,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _readyTimer?.Stop();
         _releaseTimer?.Stop();
         _watcherTimer?.Stop();
+        _accumulationTimer?.Stop();
         _cityLoad?.Cancel();
         _cityLoad?.Dispose();
         DetachSession();
+        _cronTasks.TasksChanged -= OnCronTasksChanged;
         _watcher.Changed -= OnWorkspaceChanged;
         _watcher.ErrorsDropped -= OnWatcherErrorsDropped;
         _watcher.StateChanged -= OnWatcherStateChanged;

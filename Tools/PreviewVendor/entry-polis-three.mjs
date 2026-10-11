@@ -9,3 +9,6 @@ export { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 export { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 export { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 export { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+// M2：资产清单可以把任何一件程序化资产换成外部 glTF（设计稿第 1 节）；骨骼动画的人物要按实例克隆。
+export { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+export { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';

@@ -6,21 +6,29 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Interfaces;
 
 /// <summary>
-/// cron 任务的状态与生命周期所有者：CRUD、启停、领取与完成运行。
-///
-/// 边界：不触碰 Avalonia，不创建会话，不暴露可修改的集合。所有读取返回不可变快照（深拷贝），
-/// 变更只能经由这里的方法，UI 通过 <see cref="TasksChanged"/> 重建自己的投影。
+/// cron 任务的只读视图：快照与变更通知，没有任何改动的方法。游戏模式只拿这一半（神庙看每日神谕设没设、
+/// 传令官报离开期间的结果）——它结构上就建不了任务：每日神谕只能由雅典娜调用 <c>create_task</c> 建，
+/// 那一步走审批（设计稿 7.3"仪式就是那次批准"）。
 /// </summary>
-public interface ICronTaskService
+public interface ICronTaskReader
 {
     /// <summary>任务集合发生任何变化后触发（含运行状态推进）。携带不可变快照。</summary>
     event EventHandler<CronTaskListChangedEventArgs>? TasksChanged;
 
-    /// <summary>加载时被隔离的损坏记录数，用于 UI 提示。</summary>
-    int CorruptedRecordCount { get; }
-
     /// <summary>当前全部任务的不可变快照。</summary>
     IReadOnlyList<CronTask> GetTasks();
+}
+
+/// <summary>
+/// cron 任务的状态与生命周期所有者：CRUD、启停、领取与完成运行。
+///
+/// 边界：不触碰 Avalonia，不创建会话，不暴露可修改的集合。所有读取返回不可变快照（深拷贝），
+/// 变更只能经由这里的方法，UI 通过 <see cref="ICronTaskReader.TasksChanged"/> 重建自己的投影。
+/// </summary>
+public interface ICronTaskService : ICronTaskReader
+{
+    /// <summary>加载时被隔离的损坏记录数，用于 UI 提示。</summary>
+    int CorruptedRecordCount { get; }
 
     /// <summary>取单个任务的不可变快照；不存在返回 null。</summary>
     CronTask? GetTask(string taskId);

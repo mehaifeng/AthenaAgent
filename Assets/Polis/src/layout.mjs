@@ -1,5 +1,8 @@
 // 城邦的空间布局（纯逻辑）：账本里的地块 → 世界坐标、建筑朝向、站立点，以及沿街道的走法。
 // 单位是米。格子 (x, z) 的中心在 (x·BLOCK, z·BLOCK)；街道在相邻地块之间（半格处）。z 向南增大，南边是海。
+// M2：海边第 z = 2 行的公共地块是伸进海里的石台（civic-layout.mjs）——站立点在台上两排底座之间的过道，
+// 从码头大街沿石台东侧的步道走上去；橄榄林的台地从 publicSites.grove 起向西排，站立点在台地北沿。
+import { TERRACE, groveTerraces } from './civic-layout.mjs';
 
 export const BLOCK = 18;           // 一个街区：约 12.5 米的地块 + 5.5 米的街道
 export const STREET = 5.5;
@@ -33,7 +36,23 @@ export function createLayout(fixture) {
   for (const v of fixture.vacant ?? []) ring = Math.max(ring, Math.abs(v.plot.x), Math.abs(v.plot.z));
   const publicSites = fixture.publicSites ?? {};
   for (const [name, plot] of Object.entries(publicSites)) {
-    plots.set(name, place(plot.x, plot.z, facingFor(plot.x, plot.z), null));
+    const site = place(plot.x, plot.z, facingFor(plot.x, plot.z), null);
+    if (plot.z >= seaZ) {
+      // 港前的石台：站在两排底座之间的过道正中
+      site.terrace = true;
+      site.stand = { x: site.cx, z: site.cz + TERRACE.aisle };
+    }
+    plots.set(name, site);
+  }
+  // 橄榄林的台地：第 k 块在 grove 那块地以西 k 格；站立点在台地北沿正中（树占满了台面）
+  const groveOrigin = publicSites.grove ?? null;
+  const groveCount = groveTerraces(fixture.groveTrees ?? 0);
+  for (let k = 0; groveOrigin && k < Math.max(groveCount, 1); k++) {
+    const site = place(groveOrigin.x - k, groveOrigin.z, [0, 1], null);
+    site.terrace = true;
+    site.grove = k;
+    site.stand = { x: site.cx, z: site.cz - PLOT / 2 + 0.9 };
+    plots.set(`grove:${k}`, site);
   }
 
   // 街道网格的范围：比最外一圈再多一条街
@@ -73,6 +92,12 @@ export function createLayout(fixture) {
   const nodeKey = (i, j) => `${i},${j}`;
   const X = (i) => (i + 0.5) * BLOCK;
   const Z = (j) => (j + 0.5) * BLOCK;
+  // 码头大街比城里的街网长：港前的石台（金库在 x = 2、橄榄林一路向西）可能在城的这一圈之外，
+  // 只把码头那一行接长（多出来的交叉口只连在码头上），不在空地上铺整片街网。
+  const terraceXs = [...plots.values()].filter((p) => p.terrace).map((p) => (p.grove != null ? p.stand.x : p.cx + TERRACE.sideWalk));
+  const qMin = Math.min(iMin, ...terraceXs.map((x) => Math.floor(x / BLOCK - 0.5)));
+  const qMax = Math.max(iMax, ...terraceXs.map((x) => Math.floor(x / BLOCK - 0.5) + 1));
+  const quayKey = (i) => (i >= iMin && i <= iMax ? nodeKey(i, jMax) : `q:${i}`);
 
   function baseGraph() {
     const g = new Map();
@@ -88,6 +113,10 @@ export function createLayout(fixture) {
         if (i < iMax) add(nodeKey(i, j), nodeKey(i + 1, j), { x: X(i), z: Z(j) }, { x: X(i + 1), z: Z(j) });
         if (j < jMax) add(nodeKey(i, j), nodeKey(i, j + 1), { x: X(i), z: Z(j) }, { x: X(i), z: Z(j + 1) });
       }
+    }
+    for (let i = qMin; i < qMax; i++) {
+      if (i >= iMin && i < iMax) continue;
+      add(quayKey(i), quayKey(i + 1), { x: X(i), z: Z(jMax) }, { x: X(i + 1), z: Z(jMax) });
     }
     return g;
   }
@@ -123,6 +152,16 @@ export function createLayout(fixture) {
     if (site === 'gate') {
       const top = { x: X(0), z: Z(jMin) };
       return [{ via: [top], node: nodeKey(0, jMin) }];
+    }
+    const plot = plots.get(site);
+    if (plot?.terrace) {
+      // 石台：从过道走到东侧步道，再沿步道北上到码头大街（橄榄林的台地直接从北沿上街）。
+      // 挂在码头那一行上（包括接长的那几段），不挂到别的街上去
+      const sx = plot.grove != null ? plot.stand.x : plot.cx + TERRACE.sideWalk;
+      const i0 = Math.min(Math.max(Math.floor(sx / BLOCK - 0.5), qMin), qMax - 1);
+      const point = { x: Math.min(Math.max(sx, X(qMin)), X(qMax)), z: quayZ };
+      const via = plot.grove != null ? [point] : [{ x: sx, z: plot.stand.z }, point];
+      return [quayKey(i0), quayKey(i0 + 1)].map((node) => ({ via, node }));
     }
     const a = attach(p);
     return a.ends.map((node) => ({ via: [a.point], node }));
@@ -185,13 +224,22 @@ export function createLayout(fixture) {
     return (polyLength(route(from, to)) / speed) * 1000;
   }
 
-  /** 点到哪：落在某座建筑的地块里就去它门前，否则就是那个点。 */
+  /** 点到哪：落在某座建筑的地块里（或港前的石台上）就去它门前 / 过道，否则就是那个点。 */
   function snapClick(p) {
     for (const [key, plot] of plots) {
       if (key === 'agora') continue;   // 广场是开阔地，点哪儿就去哪儿
       if (Math.abs(p.x - plot.cx) < PLOT / 2 && Math.abs(p.z - plot.cz) < PLOT / 2) return key;
     }
+    if (p.z > quayZ + STREET / 2) return null;   // 海里：哪儿也不去
     return `pt:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
+  }
+
+  /** 这个点在不在某块石台上（点击时用：石台伸进海里，台面能点、海面不能）。 */
+  function onTerrace(p) {
+    for (const plot of plots.values()) {
+      if (plot.terrace && Math.abs(p.x - plot.cx) < PLOT / 2 && Math.abs(p.z - plot.cz) < PLOT / 2) return true;
+    }
+    return false;
   }
 
   /**
@@ -205,9 +253,10 @@ export function createLayout(fixture) {
   }
 
   return {
-    plots, ring, gate, harborPoint, quayZ, seaZ, wanderSpots,
+    plots, ring, gate, harborPoint, quayZ, seaZ, wanderSpots, groveOrigin,
+    quayRange: { minX: X(qMin), maxX: X(qMax) },
     bounds: { minX: X(iMin) - BLOCK / 2, maxX: X(iMax) + BLOCK / 2, minZ: Z(jMin) - BLOCK / 2, maxZ: quayZ + 30 },
-    sitePoint, route, travelMs, snapClick, addBuildingPlot,
+    sitePoint, route, travelMs, snapClick, onTerrace, addBuildingPlot,
   };
 }
 

@@ -122,6 +122,9 @@ export function createLiveFeed({ city } = {}) {
 export const INTENT_TYPES = Object.freeze([
   'ready', 'failed', 'select-conversation', 'new-commission', 'open-file', 'attach-file', 'prefill-input',
   'stop-turn', 'accept-delivery', 'return-delivery', 'read-scroll', 'relocate', 'save-player',
+  // M2：藏品的摆放 / 撤下 / 移除（只改存档），委托板、神谕、海图、居民
+  'place-item', 'unplace-item', 'remove-item', 'take-suggestion', 'request-oracle', 'select-island',
+  'meet-resident', 'try-resident',
 ]);
 
 export function intent(type, fields = {}) {

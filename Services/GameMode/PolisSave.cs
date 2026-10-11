@@ -40,6 +40,23 @@ public sealed record PolisFingerprint(long Size, string? Sha256)
 }
 
 /// <summary>
+/// 收下的成果可以摆进的三处公共场馆（设计稿 7.2）：图片挂进彩绘柱廊、文档放进书库、表格收进金库。
+/// 场馆是港前的公共建筑，不是文件夹的建筑——藏品存在存档里、不碰工作区，摆进"文件夹"会让人以为文件被挪了。
+/// </summary>
+public enum PolisVenue
+{
+    /// <summary>彩绘柱廊（Stoa Poikile）：挂画。</summary>
+    PaintedStoa,
+    /// <summary>书库：卷轴与回答。</summary>
+    Archive,
+    /// <summary>金库：账册。</summary>
+    Vault
+}
+
+/// <summary>一件藏品摆在哪：哪处场馆的第几个位次（0 起）。</summary>
+public sealed record PolisPlacement(PolisVenue Venue, int Slot);
+
+/// <summary>
 /// 一件藏品：一次真实的产出（设计稿原则 1）。指向的文件用工作区相对路径 + 内容指纹 + 来源消息 Id 记下；
 /// 藏品存在游戏存档里，不碰工作区——"拆方块"永远不会变成删文件。
 /// </summary>
@@ -64,6 +81,11 @@ public sealed record PolisItem
     /// 由你决定是否移除，绝不自动删除（11.3）。文件回来了就自动复原。
     /// </summary>
     public bool Lost { get; init; }
+    /// <summary>
+    /// 摆在哪处场馆的哪个位次（7.2"摆在哪由你决定"）；null = 收着、没摆出来。遗失的藏品保留位次，
+    /// 在原地显示为空底座和名牌（11.3），由你决定是否移除。
+    /// </summary>
+    public PolisPlacement? Placement { get; init; }
 }
 
 /// <summary>玩家在这座城邦里的位置和镜头缩放（10.1"玩家进度"）。</summary>
@@ -77,9 +99,10 @@ public sealed record PolisPlayerProgress(double X, double Z, double? Zoom);
 public sealed record PolisSaveDocument
 {
     /// <summary>
-    /// v1 是 M0 导出工具写的裸账本（<c>{schemaVersion:1, entries:[…]}</c>）；v2 加了藏品、玩家进度与隔离区。
+    /// v1 是 M0 导出工具写的裸账本（<c>{schemaVersion:1, entries:[…]}</c>）；v2 加了藏品、玩家进度与隔离区；
+    /// v3（M2）加了藏品的摆放、已结识的居民与上次来访的时间。
     /// </summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public PolisLedger Ledger { get; init; } = PolisLedger.Empty;
@@ -87,6 +110,13 @@ public sealed record PolisSaveDocument
     public PolisPlayerProgress? Player { get; init; }
     /// <summary>第一次进入、播过奠基揭幕的时间（5.4）。之后每次进入都直接恢复，不再播。</summary>
     public DateTimeOffset? FoundedAt { get; init; }
+    /// <summary>
+    /// 你和哪些居民说过话（10.1"玩家进度：已结识的居民"）。居民本身是否出现从会话归档推导，不存；
+    /// 这里只记"结识过"，丢了也只是再打一次招呼。
+    /// </summary>
+    public IReadOnlyList<string> MetResidents { get; init; } = Array.Empty<string>();
+    /// <summary>上一次离开这座城的时刻：传令官据此只播报"离开期间"的定时任务结果（7.3）。第一次来时为 null。</summary>
+    public DateTimeOffset? LastVisitedAt { get; init; }
     public IReadOnlyList<JsonElement> Quarantined { get; init; } = Array.Empty<JsonElement>();
 
     public static PolisSaveDocument Empty { get; } = new();
@@ -98,7 +128,14 @@ public sealed record PolisSaveReadResult(
     int MigratedFromVersion,
     int QuarantinedRecords,
     bool Unreadable,
-    int? FutureVersion);
+    int? FutureVersion)
+{
+    /// <summary>
+    /// 摆放坏了（场馆不认识、位次越界、两件抢同一个位次）的藏品数：藏品照常读出，只是回到"收着、没摆出来"——
+    /// 一个坏掉的位次不值得让整件藏品进隔离区。
+    /// </summary>
+    public int RepairedPlacements { get; init; }
+}
 
 /// <summary>
 /// 建筑汇总的快照（<c>index.json</c> 里的一条）：重启时先按它把城画出来，再拿新的扫描核对差异（10.3）。
@@ -206,18 +243,43 @@ public static class PolisSaveFormat
 
             var items = new List<PolisItem>();
             var itemIds = new HashSet<string>(StringComparer.Ordinal);
+            var repairedPlacements = 0;
             if (version >= 2 && root.TryGetProperty("items", out var rawItems) && rawItems.ValueKind == JsonValueKind.Array)
             {
                 foreach (var raw in rawItems.EnumerateArray())
                 {
                     // 同一件藏品出现两次（并发写坏的那种）：第一条算数，第二条进隔离区
-                    if (TryReadItem(raw, out var item) && itemIds.Add(item.Id)) items.Add(item);
+                    if (TryReadItem(raw, out var item, out var placementDropped) && itemIds.Add(item.Id))
+                    {
+                        items.Add(item);
+                        if (placementDropped) repairedPlacements++;
+                    }
                     else
                     {
                         quarantined.Add(raw.Clone());
                         freshlyQuarantined++;
                     }
                 }
+            }
+            var (normalized, clashes) = PolisCollection.NormalizePlacements(items);
+            repairedPlacements += clashes;
+
+            var metResidents = new List<string>();
+            if (version >= 3 && root.TryGetProperty("metResidents", out var rawMet) && rawMet.ValueKind == JsonValueKind.Array)
+            {
+                // 认不出的名字照样留着（新版应用的居民），只丢掉不是字符串的、重复的
+                foreach (var raw in rawMet.EnumerateArray())
+                {
+                    if (raw.ValueKind == JsonValueKind.String && raw.GetString() is { Length: > 0 and <= 64 } id && !metResidents.Contains(id, StringComparer.Ordinal))
+                        metResidents.Add(id);
+                }
+            }
+
+            DateTimeOffset? lastVisitedAt = null;
+            if (version >= 3 && root.TryGetProperty("lastVisitedAt", out var rawVisited) && rawVisited.ValueKind == JsonValueKind.String
+                && rawVisited.TryGetDateTimeOffset(out var visited))
+            {
+                lastVisitedAt = visited;
             }
 
             if (version >= 2 && root.TryGetProperty("quarantined", out var rawQuarantine) && rawQuarantine.ValueKind == JsonValueKind.Array)
@@ -243,13 +305,18 @@ public static class PolisSaveFormat
             {
                 SchemaVersion = PolisSaveDocument.CurrentSchemaVersion,
                 Ledger = new PolisLedger(PolisLedger.CurrentSchemaVersion, entries),
-                Items = items,
+                Items = normalized,
                 Player = player,
                 // 从 M0 的裸账本迁过来时没有奠基时间：它已经有地块了，算作奠基过，不再播揭幕
                 FoundedAt = foundedAt ?? (version == 1 && entries.Count > 0 ? DateTimeOffset.UnixEpoch : null),
+                MetResidents = metResidents,
+                LastVisitedAt = lastVisitedAt,
                 Quarantined = quarantined
             };
-            return new PolisSaveReadResult(document, version, freshlyQuarantined, Unreadable: false, FutureVersion: null);
+            return new PolisSaveReadResult(document, version, freshlyQuarantined, Unreadable: false, FutureVersion: null)
+            {
+                RepairedPlacements = repairedPlacements
+            };
         }
     }
 
@@ -287,7 +354,26 @@ public static class PolisSaveFormat
         return true;
     }
 
-    private static bool TryReadItem(JsonElement raw, out PolisItem item)
+    /// <summary>
+    /// 读一件藏品。摆放那一格读不懂（场馆名不认识、位次不是数字）时，去掉它再读一次：藏品照常读出、回到未摆放，
+    /// <paramref name="placementDropped"/> 为 true。别的字段坏了，整条进隔离区（原文保留）。
+    /// </summary>
+    private static bool TryReadItem(JsonElement raw, out PolisItem item, out bool placementDropped)
+    {
+        placementDropped = false;
+        if (TryReadItemCore(raw, out item)) return true;
+        if (raw.ValueKind != JsonValueKind.Object || !raw.TryGetProperty("placement", out _)) return false;
+        var withoutPlacement = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var property in raw.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "placement", StringComparison.Ordinal)) withoutPlacement[property.Name] = property.Value;
+        }
+        if (!TryReadItemCore(JsonSerializer.SerializeToElement(withoutPlacement), out item)) return false;
+        placementDropped = true;
+        return true;
+    }
+
+    private static bool TryReadItemCore(JsonElement raw, out PolisItem item)
     {
         item = null!;
         if (!TryRead<PolisItem>(raw, out var read)

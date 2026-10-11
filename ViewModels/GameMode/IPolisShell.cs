@@ -15,14 +15,20 @@ public interface IPolisShell
     /// <summary>会话树上当前选中的会话。</summary>
     ConversationSessionItemViewModel? SelectedSession { get; }
 
-    /// <summary>会话树上的全部会话（意图校验时核对会话 Id 用）。</summary>
+    /// <summary>会话树上的全部会话（意图校验时核对会话 Id 用；橄榄林、居民、海图从这里推导）。</summary>
     IEnumerable<ConversationSessionItemViewModel> AllSessions { get; }
+
+    /// <summary>会话树上的全部工作区（海图上一座岛一座城，包括还没有会话的工作区）。</summary>
+    IReadOnlyList<WorkspaceProfile> Workspaces { get; }
 
     /// <summary>选中一个会话：与在左侧点它完全相同。找不到返回 false。</summary>
     bool SelectConversation(string conversationId);
 
-    /// <summary>在这个工作区（null = 全局对话）里开一份新委托：与会话树上的"新建会话"完全相同。</summary>
-    Task CreateCommissionAsync(WorkspaceProfile? workspace);
+    /// <summary>
+    /// 在这个工作区（null = 全局对话）里开一份新委托：与会话树上的"新建会话"完全相同。返回新开的会话
+    /// （委托板、神谕、居民接着往它的输入框里预填）；开不了返回 null。
+    /// </summary>
+    Task<ConversationSessionItemViewModel?> CreateCommissionAsync(WorkspaceProfile? workspace);
 
     /// <summary>在工作台里打开一个（已校验在工作区内的）文件。</summary>
     Task OpenFileAsync(string fullPath);
@@ -30,8 +36,11 @@ public interface IPolisShell
     /// <summary>把一个（已校验在工作区内的）文件放进当前会话的待发送附件——走输入框的同一条附件路径。</summary>
     Task AttachFileAsync(string fullPath);
 
-    /// <summary>预填当前会话的输入框并把焦点给它；不发送。</summary>
-    void PrefillInput(string text);
+    /// <summary>
+    /// 预填某个会话的输入框并请求焦点；不发送。按会话 Id 指定，而不是"当前显示的那个"：选中一个会话之后，
+    /// 外壳要等第二拍（选中动效跑完）才换中间的输入框，紧跟着预填"当前的"会落到上一个会话里。
+    /// </summary>
+    void PrefillInput(string conversationId, string text);
 
     /// <summary>停止当前会话正在进行的回合。</summary>
     void StopCurrentTurn();
