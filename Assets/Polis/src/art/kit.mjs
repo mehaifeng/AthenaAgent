@@ -278,7 +278,8 @@ export function frontGabledRoof(kit, roofMat, gableMat, w, d, h, y, z = 0, overh
   const half = w / 2 + overhang;
   const slope = Math.hypot(half, h);
   const pitch = Math.atan2(h, half);
-  for (const sx of [1, -1]) kit.box(roofMat, slope, 0.15, d + overhang * 2, sx * half / 2, y + h / 2 + 0.06, z, 0, 0, -sx * pitch);
+  // 坡面的盒子长边顺着坡（局部 z），再转 90°：瓦垄的贴图（v 顺坡）才是朝下流的，不是横着的
+  for (const sx of [1, -1]) kit.box(roofMat, d + overhang * 2, 0.15, slope, sx * half / 2, y + h / 2 + 0.06, z, Math.PI / 2, sx * pitch);
   kit.add(gableMat, gable(w + 0.1, h, 0.24), m4(0, y, z + d / 2 + overhang - 0.1));
   kit.add(gableMat, gable(w + 0.1, h, 0.24), m4(0, y, z - d / 2 - overhang + 0.1));
   kit.cylinder(roofMat, 0.09, 0.09, d + overhang * 2, 0, y + h + 0.08, z, 8, Math.PI / 2);

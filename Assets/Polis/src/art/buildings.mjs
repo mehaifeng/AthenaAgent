@@ -328,7 +328,7 @@ export function buildTreasury(M, b, r) {
     kit.add(M.marble, gable(W + 0.2, ridge, 0.3), m4(0, y0 + colH + 0.78, L / 2 + 0.1));
     kit.add(M.marble, gable(W + 0.2, ridge, 0.3), m4(0, y0 + colH + 0.78, -L / 2 - 0.1));
     const half = (W + 0.8) / 2, pitch = Math.atan2(ridge, half), slope = Math.hypot(half, ridge);
-    for (const sx of [1, -1]) kit.box(M.tile, slope, 0.14, L + 0.8, sx * half / 2, y0 + colH + 0.78 + ridge / 2 + 0.05, 0, 0, 0, -sx * pitch);
+    for (const sx of [1, -1]) kit.box(M.tile, L + 0.8, 0.14, slope, sx * half / 2, y0 + colH + 0.78 + ridge / 2 + 0.05, 0, Math.PI / 2, sx * pitch);
     kit.add(M.marble, palmette(0.8, 0.6), m4(0, y0 + colH + 0.78 + ridge, L / 2 + 0.2));
     if (kind === 'acroteria') for (const sx of [-1, 1]) kit.add(M.marble, palmette(0.55, 0.42), m4(sx * (W / 2 + 0.1), y0 + colH + 0.78, L / 2 + 0.2));
   }

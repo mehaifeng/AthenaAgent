@@ -19,6 +19,7 @@ const VIEWS = { game: 1, mid: 2.6 };
 
 export async function runGallery({ params, status }) {
   const id = params.get('gallery');
+  if (id === 'list') return listAssets(status);
   if (id.startsWith('bust:')) return bustSheet(id.slice(5), status);
   const R = createRenderer({ canvas: document.getElementById('scene') });
   const M = makeMaterials();
@@ -53,17 +54,22 @@ export async function runGallery({ params, status }) {
   if (entry.kind === 'figure') {
     const figure = assets.figure(id);
     R.scene.add(figure.root);
+    R.gradePass.uniforms.uGlowStrength.value = 0;
     const action = params.get('action');
     const frames = Number(params.get('frames') ?? 0);
     const who = id.slice('figure.'.length);
     const variant = params.get('variant') ?? workVariantFor(who, params.get('category') ?? 'write');
     if (action && frames > 0) return actionSheet({ R, figure, who, action, frames, variant, status, place, entry });
-    figure.pose('idle', 1200, {});
-    if (who === 'athena') R.gradePass.uniforms.uGlowStrength.value = 0;
-    place(VIEWS[view] ?? 1);
+    const still = params.get('pose') ?? 'idle';
+    figure.pose(still, Number(params.get('t') ?? 1200), { variant, duration: 1800 });
+    // &zoom=：审查用的近看（比中景更近，只为找问题；对照图本身只有游戏视距与中景两种）
+    const zoomOverride = Number(params.get('zoom'));
+    if (zoomOverride > 0) center.set(0, Number(params.get('cy') ?? 1.6), 0);
+    place(zoomOverride > 0 ? zoomOverride : VIEWS[view] ?? 1);
+    if (who === 'athena') glowAt(R, figure);
     R.render();
     caption(`${entry.label} · ${id} · ${view === 'mid' ? '中景' : '游戏视距'}`);
-    status.gallery = { id, view, kind: 'figure', height: figure.root.userData.height };
+    status.gallery = { id, view, kind: 'figure', height: figure.root.userData.height, clip: clipOf(R, new THREE.Box3().setFromObject(figure.root), view === 'mid' ? 30 : 24) };
     status.ready = true;
     document.title = 'gallery-ready';
     return;
@@ -90,6 +96,8 @@ export async function runGallery({ params, status }) {
   } else if (id === 'civic.harbor') {
     Object.assign(params2, { quayLocalZ: 6, pierLength: 14, plotCenterZ: 0 });
   }
+  // 光晕属于雅典娜：别的资产的对照图里不能有一团默认位置的光
+  R.gradePass.uniforms.uGlowStrength.value = 0;
   const object = assets.object(id, params2);
   if (id.startsWith('prop.display-')) {
     const pedestal = assets.object('prop.pedestal');
@@ -109,7 +117,41 @@ export async function runGallery({ params, status }) {
   place(zoom);
   R.render();
   caption(`${entry.label} · ${id}${params.get('variant') ? ` · ${params.get('variant')}` : ''}${params.get('state') ? ` · ${params.get('state')}` : ''} · ${view === 'mid' ? '中景' : '游戏视距'}`);
-  status.gallery = { id, view, kind: entry.kind, height, subtype: object.userData.subtype ?? null };
+  const bounds = new THREE.Box3().setFromObject(object).union(new THREE.Box3().setFromObject(scaleFigure.root));
+  status.gallery = { id, view, kind: entry.kind, height, subtype: object.userData.subtype ?? null, clip: clipOf(R, bounds, 26) };
+  status.ready = true;
+  document.title = 'gallery-ready';
+}
+
+/** 雅典娜的光晕：和城里一样，按当帧矩阵把胸口投到屏幕上，半径随她在屏幕上的身高。 */
+function glowAt(R, figure) {
+  figure.root.updateMatrixWorld(true);
+  const chest = figure.root.userData.chest.clone().applyMatrix4(figure.root.matrixWorld);
+  const uv = R.projectUv(chest);
+  const feet = R.projectUv(chest.clone().setY(0)), top = R.projectUv(chest.clone().setY(1.9));
+  const g = R.gradePass.uniforms;
+  g.uGlowPos.value.set(uv.x, uv.y);
+  g.uGlowRadius.value = Math.max(0.008, Math.abs(top.y - feet.y) * 0.75);
+  g.uGlowStrength.value = 0.22;
+}
+
+/** 资产在屏幕上的外接矩形（包围盒的八个角投影到 CSS 像素）+ 边距：截图只截这一块，审查时按真实像素看。 */
+function clipOf(R, box, margin) {
+  const xs = [], ys = [];
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const p = R.projectCss(new THREE.Vector3(x, y, z));
+    xs.push(p.x); ys.push(p.y);
+  }
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - margin)), y0 = Math.max(0, Math.floor(Math.min(...ys) - margin));
+  const x1 = Math.min(window.innerWidth, Math.ceil(Math.max(...xs) + margin)), y1 = Math.min(window.innerHeight, Math.ceil(Math.max(...ys) + margin));
+  return { x: x0, y: y0, width: Math.max(40, x1 - x0), height: Math.max(40, y1 - y0) };
+}
+
+/** 资产清单：每件资产的 Id、种类、中文名，以及要逐个渲染的变体（建筑的子型、橄榄的树龄、人物的动作）。 */
+function listAssets(status) {
+  const M = makeMaterials();
+  const assets = createAssetLibrary(M);
+  status.list = [...assets.registry.values()].map((e) => ({ id: e.id, kind: e.kind, label: e.label }));
   status.ready = true;
   document.title = 'gallery-ready';
 }
@@ -152,7 +194,7 @@ function actionSheet({ R, figure, who, action, frames, variant, status, place, e
       figure.pose(action, times[k], style);
       // 走路的那几帧让人物原地踏步（位置不动，看得清姿势）
       place(zoom, target);
-      if (who === 'athena') R.gradePass.uniforms.uGlowStrength.value = 0.2;
+      if (who === 'athena') glowAt(R, figure);
       R.render();
       const c = target.clone().project(R.camera);
       const cx = ((c.x + 1) / 2) * window.innerWidth, cy = ((1 - c.y) / 2) * window.innerHeight;

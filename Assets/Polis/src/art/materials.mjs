@@ -66,6 +66,18 @@ export function makeMaterials() {
   const waveField = field(256, (u, v) => fbm(n2, u * 16, v * 16, 16, 4));
   const waveNormal = textureFrom(256, waveField, (f) => [128 + (f - 0.5) * 90, 128 + (f - 0.5) * 60, 255], { srgb: false, repeat: 30 });
 
+  // 瓦：一垄一垄的筒瓦顺着坡往下，每隔一段一道搭接的台阶（M2 美术审查：素平的屋顶在俯视里占画面最大，像一块塑料板）。
+  // 贴图的 u 是屋面的宽、v 是顺坡的方向（kit.box 的 UV 每 2 米一个周期）：一个周期里 8 垄、5 道搭接
+  const tileField = field(256, (u, v) => {
+    const ridge = 0.5 + 0.5 * Math.cos(u * Math.PI * 2 * 8);
+    const course = smooth(0.0, 0.18, (v * 5) % 1);
+    const grain = fbm(n3, u * 16, v * 16, 16, 3);
+    return ridge * 0.7 + course * 0.2 + grain * 0.1;
+  });
+  const tileMap = textureFrom(256, tileField, (f) => tone(0.78 + f * 0.22));
+  const tileBump = textureFrom(256, tileField, (f) => tone(f), { srgb: false });
+  const tiled = (color) => new THREE.MeshStandardMaterial({ color, map: tileMap, bumpMap: tileBump, bumpScale: 1.6, roughness: 0.78 });
+
   const marble = new THREE.MeshStandardMaterial({ map: marbleMap, bumpMap: marbleBump, bumpScale: 0.35, roughness: 0.6 });
   const wall = marble.clone(); wall.color = new THREE.Color(0.9, 0.9, 0.9);
   const pave = new THREE.MeshStandardMaterial({ map: paveMap, bumpMap: paveBump, bumpScale: 0.6, roughness: 0.92 });
@@ -73,7 +85,7 @@ export function makeMaterials() {
   const street = pave.clone();
   street.color = new THREE.Color(0.93, 0.92, 0.9);
   // 同一类建筑之间的深浅变化（屋瓦、墙面各三档），按建筑名的哈希挑一档：稳定，不随加载变化
-  const tileShades = [0.86, 1.0, 1.12].map((k) => new THREE.MeshStandardMaterial({ color: new THREE.Color(0x8a6656).multiplyScalar(k), roughness: 0.75 }));
+  const tileShades = [0.86, 1.0, 1.12].map((k) => tiled(new THREE.Color(0x8a6656).multiplyScalar(k)));
   const plasterShades = [0.94, 1.0, 1.04].map((k) => {
     const m = new THREE.MeshStandardMaterial({ map: plasterMap, roughness: 0.9 });
     m.color.setScalar(k);
@@ -87,7 +99,7 @@ export function makeMaterials() {
     plaster: new THREE.MeshStandardMaterial({ map: plasterMap, roughness: 0.9 }),
     // 俯视时屋顶占画面最大，得比铺地明显暗一档，城里的建筑才分得开
     roof: new THREE.MeshStandardMaterial({ color: 0x75685e, roughness: 0.8 }),
-    tile: new THREE.MeshStandardMaterial({ color: 0x8a6656, roughness: 0.75 }),
+    tile: tiled(0x8a6656),
     dark: new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.9 }),
     shadowGap: new THREE.MeshStandardMaterial({ color: 0x2c2723, roughness: 1 }),
     wood: new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 0.85 }),
