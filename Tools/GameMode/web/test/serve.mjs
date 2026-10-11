@@ -22,14 +22,18 @@ const TYPES = {
   '.png': 'image/png',
   '.txt': 'text/plain; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
 };
 
-export function startServer(port = 0) {
+/** extraMounts：测试额外挂的目录，例如外部模型 [['/polis-assets/', 临时目录]]（应用里由 OfficePreviewHost 从 AthenaData/Game/assets 提供）。 */
+export function startServer(port = 0, extraMounts = []) {
+  const mounts = [...extraMounts, ...MOUNTS];
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       const pathname = decodeURIComponent(url.pathname);
-      const mount = MOUNTS.find(([prefix]) => pathname.startsWith(prefix));
+      const mount = mounts.find(([prefix]) => pathname.startsWith(prefix));
       if (!mount) {
         res.writeHead(404).end('not found');
         return;

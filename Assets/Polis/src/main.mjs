@@ -340,6 +340,7 @@ function motionSelftest(game, seek, duration) {
   const windows = [walk, tele].filter(Boolean).map((s) => [s.start - 200, s.end + 200]);
   if (windows.length === 0) windows.push([0, 3000]);
   const errors = { glow: 0, bubble: 0, labels: 0 };
+  const kinds = {};   // 名牌按种类计数：建筑、公共建筑、居民（M2）、遗失藏品的名牌（M2）……
   let frames = 0;
   const camera = game.camera;
   const controls = game.controls;
@@ -348,6 +349,9 @@ function motionSelftest(game, seek, duration) {
   for (const [from, to] of windows) {
     seek(Math.max(0, from));
     game.follow = 'athena';
+    // M2：指针停在一棵橄榄树上（有积累数据时），树的名牌也进自检
+    const tree = game.world?.groveTrees?.[0];
+    if (tree) game.setHover('tree', tree.conversationId);
     for (let t = Math.max(0, from); t <= to; t += 40, i++) {
       const script = () => {
         camera.zoom = 1 + 0.35 * Math.sin(i / 7);
@@ -368,6 +372,7 @@ function motionSelftest(game, seek, duration) {
         const hb = head.project(camera);
         errors.bubble = Math.max(errors.bubble, Math.hypot(((hb.x + 1) / 2) * window.innerWidth - used.bubbleCss.x, (1 - (hb.y + 1) / 2) * window.innerHeight - used.bubbleCss.y) * dpr);
         for (const l of used.labels) {
+          kinds[l.kind] = (kinds[l.kind] ?? 0) + 1;
           const lp = l.world.clone().project(camera);
           errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
         }
@@ -376,7 +381,7 @@ function motionSelftest(game, seek, duration) {
     }
   }
   const maxErrorPx = Math.max(errors.glow, errors.bubble, errors.labels);
-  return { maxErrorPx, errors, frames, windows, sync };
+  return { maxErrorPx, errors, frames, windows, sync, kinds };
 }
 
 function pixelStats(canvas) {

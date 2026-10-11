@@ -1135,6 +1135,8 @@ export function createGame({ params, status, send, onReadItem }) {
     toggleChart(open = !chartOpen) { chartOpen = !!open; status.chartOpen = chartOpen; if (chartOpen) { panel = null; card = null; } },
     get chartOpen() { return chartOpen; },
     openPanel(type, id = null) { openPanel({ type, id }); },
+    /** 指针停在哪（测试与运动自检用：停在一棵树上，树的名牌就出现，它同样按当帧矩阵投影）。 */
+    setHover(type, id) { hover = type ? { type, id } : null; },
     openResident,
     startPlacing,
     setFog(info) { fogInfo = info; status.fog = !!info; if (R.scene) R.scene.fog = info ? new THREE.Fog(0xd8d4cd, 220, 360) : null; },
