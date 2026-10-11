@@ -13,25 +13,25 @@
 | # | 项 | 状态 | 证据 |
 |---|---|---|---|
 | 1 | 分支 `feature/game-mode-m2`（M1 未合入 main → 从 `feature/game-mode-m1` 拉出）；本节建立并持续维护 | ✅ | 28fd148 之上 |
-| 2 | 存档 v3：藏品的摆放（场馆 + 位次）、已结识的居民、上次来访时间；v2 → v3 迁移；坏掉的摆放只回到"未摆放"，不连累藏品 | 🔶 | b275f21：`PolisSave` v3、`PolisCollection.NormalizePlacements`；Archive「polis collection」（v2 迁移、坏摆放回到未摆放、写回再读） |
-| 3 | 藏品：收下的成果摆进彩绘柱廊 / 书库 / 金库（位次由你选，可挪、可撤下）；遗失 = 空底座 + 名牌，只有你点"移除"才删记录；意图 C# 校验 | 🔶 | b275f21 纯函数 + 11775ce 意图与收下自动摆放 + f97fe98 页面（底座、摆放模式、卡片按钮）；Archive「polis collection」、无头 `TestGameModeAccumulation`（摆、挪、撤、没遗失的不能移除） |
-| 4 | 橄榄林：每份完成的委托一棵树，从会话推导、不另存，次序稳定；点树 = `select-conversation`，走会话树同一条路径 | 🔶 | `PolisGrove`（b275f21）+ 页面台地与实例化的树（f97fe98）；Archive「polis grove」；无头：点树 = `select-conversation` → 会话树选中 |
-| 5 | 居民：每项能力第一次被用到时出现，讲得出这项能力还能做什么；从会话归档推导；"已结识"存进玩家进度 | 🔶 | `PolisResidents`（b275f21）+ 骨架人物、对话面板（f97fe98）+ 推送与结识（11775ce）；Archive「polis residents」；无头：结识写进存档、没出现的居民被拒 |
-| 6 | 委托板：本地启发式三条建议（只读统计，不调用模型）；点一条 = 新建委托 + 预填（不发送） | 🔶 | `PolisSuggestions`（b275f21）+ `PolisAccumulation.Board`（11775ce）；Archive「polis suggestions」；无头：采纳 = 新委托 + 预填、不发送、编造的建议被拒 |
-| 7 | 神谕：神庙"每日神谕" = 新建委托 + 预填一条请雅典娜用 `create_task` 建任务的请求（不发送）；建任务走现有审批（人工）；游戏只有只读的定时任务视图 | 🔶 | 11775ce：`request-oracle` → 新委托 + 预填 create_task 请求；`ICronTaskReader`；Archive「polis oracle」（三种审批模式下 create_task 都弹给人）；无头：只预填、游戏无写任务的依赖 |
-| 8 | 传令官：回到城邦时播报离开期间的定时任务结果、被打断的委托、外部改动；神谕的结果作为一卷成果送来；行可点（选中那次会话） | 🔶 | `PolisHerald`（b275f21）+ 到达时播报、神谕的一卷（11775ce）；Archive「polis herald」；无头：离开期间跑完的神谕被报出、那一卷写进存档 |
-| 9 | 群岛海图：一座岛一座城（按工作区创建时间排位，神殿居中）；有会话在跑的岛亮灯；选岛 = 选中该工作区最近的会话（没有就新建），走会话选择路径 | 🔶 | `PolisIslands`（b275f21）+ 海图（f97fe98）+ 推送与选岛（11775ce）；Archive「polis islands」；无头：选岛 = 选中最近的会话、出港、装城；空岛新建 |
-| 10 | 资产清单接口：每件资产一个 id，缺省是程序化构造；外部清单（`AthenaData/Game/assets/manifest.json`）可把任何一件换成 glTF；读不到 / 不合法 / 加载失败一律回退到程序化；C# 校验清单与模型文件名 | 🔶 | `PolisAssetManifest` / `PolisAssetStore` / `/polis-assets/` 路由（b275f21、11775ce）+ 页面资产库与 glTF（f97fe98）；Archive「polis asset manifest」（含软链出目录）；Node「asset manifest」；无头：只有校验通过的覆盖随 init 推给页面 |
-| 11 | 建筑套件：5.1 的六类建筑由同一套构件（台基、墙、柱廊、屋顶、门窗、装饰）组装，按体量与状态变化 | 🔶 | f97fe98：`kit.mjs` + `buildings.mjs`（六类 × 子型） |
-| 12 | 器物与植物：双耳瓶、水罐、调酒缸、油灯、火盆、箱子、卷轴架、画架、方柱头像、石碑……；橄榄树（含树龄）、柏树、月桂、盆栽、常春藤 | 🔶 | f97fe98：`props.mjs`（18 件 + 成果 / 陈列）、`plants.mjs`（橄榄四龄、柏、月桂、盆栽、莨苕） |
-| 13 | 人物与动作：雅典娜、玩家、居民改成可动的程序化骨架；走 / 停 / 做事 / 交付四个动作（纯函数的姿势 + Node 单测） | 🔶 | f97fe98：`rig.mjs` + `characters.mjs` + `poses.mjs`；Node「poses」×6 |
-| 14 | 2D 半身像：雅典娜、玩家、每位居民各一套 SVG 线描（白底陶瓶风格，几种神情），用在城里的对话面板里 | 🔶 | ec52bd2：`busts.mjs`（13 人 × 3 神情）；Node「busts」；对话面板用它（f97fe98） |
-| 15 | 港前的公共区：彩绘柱廊、书库、金库、日晷与传令官、橄榄林的台地（海边第 z = 2 行，账本永远不会把它分给文件夹） | 🔶 | f97fe98：`civic.mjs`（石台、彩绘柱廊、书库、金库、林地界碑、广场的日晷与讲台） |
-| 16 | 断言（Archive.Tests）：藏品存档与遗失、橄榄林与居民推导、委托板建议、传令官、群岛排位、资产清单校验、神谕任务识别、新意图校验 | 🔶 | Archive 新增 9 个 polis 用例全过（21 个 polis 用例 PASS） |
-| 17 | 断言（无头）：神谕走审批（只预填、游戏无写入定时任务的路径、`create_task` 只能由人批准）、海图选岛与点树走会话选择路径、摆放 / 移除落盘 | 🔶 | `TestGameModeAccumulation` PASS（与 M1 两个用例同跑） |
-| 18 | Node 单测（资产清单回退、姿势、半身像、林地与海图布局、新意图）；冒烟（Chromium、WebKit，含外部模型替换与回退）；运动自检覆盖新的屏幕空间效果 | ⬜ | |
-| 19 | 美术审查：每件资产游戏视距 + 中景各一张、人物每个动作连续帧，逐张看过，逐件记录结论与处理 | ⬜ | |
-| 20 | 文档：M2 手动验收清单、资产清单格式说明；`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ⬜ | |
+| 2 | 存档 v3：藏品的摆放（场馆 + 位次）、已结识的居民、上次来访时间；v2 → v3 迁移；坏掉的摆放只回到"未摆放"，不连累藏品 | ✅ | b275f21：`PolisSave` v3、`PolisCollection.NormalizePlacements`；Archive「polis collection」（v2 迁移、坏摆放回到未摆放、写回再读）；全套见「M2 最后一轮」 |
+| 3 | 藏品：收下的成果摆进彩绘柱廊 / 书库 / 金库（位次由你选，可挪、可撤下）；遗失 = 空底座 + 名牌，只有你点"移除"才删记录；意图 C# 校验 | ✅ | b275f21 纯函数 + 11775ce 意图与收下自动摆放 + f97fe98 页面（底座、摆放模式、卡片按钮）；Archive「polis collection」、无头 `TestGameModeAccumulation`（摆、挪、撤、没遗失的不能移除）；全套见「M2 最后一轮」 |
+| 4 | 橄榄林：每份完成的委托一棵树，从会话推导、不另存，次序稳定；点树 = `select-conversation`，走会话树同一条路径 | ✅ | `PolisGrove`（b275f21）+ 页面台地与实例化的树（f97fe98）；Archive「polis grove」；无头：点树 = `select-conversation` → 会话树选中；全套见「M2 最后一轮」 |
+| 5 | 居民：每项能力第一次被用到时出现，讲得出这项能力还能做什么；从会话归档推导；"已结识"存进玩家进度 | ✅ | `PolisResidents`（b275f21）+ 骨架人物、对话面板（f97fe98）+ 推送与结识（11775ce）；Archive「polis residents」；无头：结识写进存档、没出现的居民被拒；全套见「M2 最后一轮」 |
+| 6 | 委托板：本地启发式三条建议（只读统计，不调用模型）；点一条 = 新建委托 + 预填（不发送） | ✅ | `PolisSuggestions`（b275f21）+ `PolisAccumulation.Board`（11775ce）；Archive「polis suggestions」；无头：采纳 = 新委托 + 预填、不发送、编造的建议被拒；全套见「M2 最后一轮」 |
+| 7 | 神谕：神庙"每日神谕" = 新建委托 + 预填一条请雅典娜用 `create_task` 建任务的请求（不发送）；建任务走现有审批（人工）；游戏只有只读的定时任务视图 | ✅ | 11775ce：`request-oracle` → 新委托 + 预填 create_task 请求；`ICronTaskReader`；Archive「polis oracle」（三种审批模式下 create_task 都弹给人）；无头：只预填、游戏无写任务的依赖；全套见「M2 最后一轮」 |
+| 8 | 传令官：回到城邦时播报离开期间的定时任务结果、被打断的委托、外部改动；神谕的结果作为一卷成果送来；行可点（选中那次会话） | ✅ | `PolisHerald`（b275f21）+ 到达时播报、神谕的一卷（11775ce）；Archive「polis herald」；无头：离开期间跑完的神谕被报出、那一卷写进存档；全套见「M2 最后一轮」 |
+| 9 | 群岛海图：一座岛一座城（按工作区创建时间排位，神殿居中）；有会话在跑的岛亮灯；选岛 = 选中该工作区最近的会话（没有就新建），走会话选择路径 | ✅ | `PolisIslands`（b275f21）+ 海图（f97fe98）+ 推送与选岛（11775ce）；Archive「polis islands」；无头：选岛 = 选中最近的会话、出港、装城；空岛新建；全套见「M2 最后一轮」 |
+| 10 | 资产清单接口：每件资产一个 id，缺省是程序化构造；外部清单（`AthenaData/Game/assets/manifest.json`）可把任何一件换成 glTF；读不到 / 不合法 / 加载失败一律回退到程序化；C# 校验清单与模型文件名 | ✅ | `PolisAssetManifest` / `PolisAssetStore` / `/polis-assets/` 路由（b275f21、11775ce）+ 页面资产库与 glTF（f97fe98）；Archive「polis asset manifest」（含软链出目录）；Node「asset manifest」；无头：只有校验通过的覆盖随 init 推给页面；全套见「M2 最后一轮」 |
+| 11 | 建筑套件：5.1 的六类建筑由同一套构件（台基、墙、柱廊、屋顶、门窗、装饰）组装，按体量与状态变化 | ✅ | f97fe98：`kit.mjs` + `buildings.mjs`（六类 × 子型）；全套见「M2 最后一轮」 |
+| 12 | 器物与植物：双耳瓶、水罐、调酒缸、油灯、火盆、箱子、卷轴架、画架、方柱头像、石碑……；橄榄树（含树龄）、柏树、月桂、盆栽、常春藤 | ✅ | f97fe98：`props.mjs`（18 件 + 成果 / 陈列）、`plants.mjs`（橄榄四龄、柏、月桂、盆栽、莨苕）；全套见「M2 最后一轮」 |
+| 13 | 人物与动作：雅典娜、玩家、居民改成可动的程序化骨架；走 / 停 / 做事 / 交付四个动作（纯函数的姿势 + Node 单测） | ✅ | f97fe98：`rig.mjs` + `characters.mjs` + `poses.mjs`；Node「poses」×6；全套见「M2 最后一轮」 |
+| 14 | 2D 半身像：雅典娜、玩家、每位居民各一套 SVG 线描（白底陶瓶风格，几种神情），用在城里的对话面板里 | ✅ | ec52bd2：`busts.mjs`（13 人 × 3 神情）；Node「busts」；对话面板用它（f97fe98）；全套见「M2 最后一轮」 |
+| 15 | 港前的公共区：彩绘柱廊、书库、金库、日晷与传令官、橄榄林的台地（海边第 z = 2 行，账本永远不会把它分给文件夹） | ✅ | f97fe98：`civic.mjs`（石台、彩绘柱廊、书库、金库、林地界碑、广场的日晷与讲台）；全套见「M2 最后一轮」 |
+| 16 | 断言（Archive.Tests）：藏品存档与遗失、橄榄林与居民推导、委托板建议、传令官、群岛排位、资产清单校验、神谕任务识别、新意图校验 | ✅ | Archive 新增 9 个 polis 用例全过（21 个 polis 用例 PASS）；全套见「M2 最后一轮」 |
+| 17 | 断言（无头）：神谕走审批（只预填、游戏无写入定时任务的路径、`create_task` 只能由人批准）、海图选岛与点树走会话选择路径、摆放 / 移除落盘 | ✅ | `TestGameModeAccumulation` PASS（与 M1 两个用例同跑）；全套见「M2 最后一轮」 |
+| 18 | Node 单测（资产清单回退、姿势、半身像、林地与海图布局、新意图）；冒烟（Chromium、WebKit，含外部模型替换与回退）；运动自检覆盖新的屏幕空间效果 | ✅ | `art.test.mjs` 16 个（姿势与拿家什、点缀色只在雅典娜身上、外部人物两只手的点缀件、半身像卷发与回纹带、清单回退、场馆 / 林地 / 海图布局、新意图）+ 其余共 55 个全过；冒烟 Chromium + WebKit PASSED（live·积累：现写的盒子 GLB 换掉民居、指向不存在文件的条目回退、M2 全部意图）；运动自检 0.000 px（名牌按种类含 resident / tree / lost）；见「M2 最后一轮」 |
+| 19 | 美术审查：每件资产游戏视距 + 中景各一张、人物每个动作连续帧，逐张看过，逐件记录结论与处理 | ✅ | 见上面「美术审查」：两轮各 250 张（`gallery.mjs`），逐件结论与处理；修复 6252645、c29fb7e、27f83d7 |
+| 20 | 文档：M2 手动验收清单、资产清单格式说明；`CLAUDE.md` / `AGENTS.md` 写进实际行为；设计稿被推翻的部分改掉 | ✅ | b4aebec：`Docs/GameMode_M2_Acceptance_CN.md`、`Docs/GameMode_AssetManifest_CN.md`、`CLAUDE.md` / `AGENTS.md`（M2 规则与守着它们的测试、目录图、文档行）、设计稿 v4 的「M2：」标注；Archive「doc citations」PASS |
 | 21 | 本阶段改动全部提交；推送分支；开以 main 为目标的 PR（不合并） | ⬜ | |
 | 22 | 最后一轮重跑完成标准 a，贴结果，打印清单 | ⬜ | |
 
