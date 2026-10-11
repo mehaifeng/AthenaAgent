@@ -1,7 +1,7 @@
 // 材质。世界最终会被调成黑白，这里仍按真实颜色给，是为了让去色后的明暗关系像胶片拍到的那样自然
 // （暖白的大理石、偏暗的土、更暗一档的屋顶）。大理石、土、铺地、布料取自打样。
 import * as THREE from '../../vendor/three.bundle.mjs';
-import { valueNoise, fbm, field, textureFrom, tone, smooth, rng } from './noise.mjs';
+import { valueNoise, fbm, field, textureFrom, tone, smooth, rng, normalFrom } from './noise.mjs';
 
 export function makeMaterials() {
   const n1 = valueNoise(11), n2 = valueNoise(23), n3 = valueNoise(37), n4 = valueNoise(41), n5 = valueNoise(53);
@@ -57,6 +57,14 @@ export function makeMaterials() {
 
   const clothField = field(128, (u, v) => fbm(n2, u * 16, v * 32, 16, 3));
   const clothMap = textureFrom(128, clothField, (f) => tone(0.90 + (f - 0.5) * 0.06, [1, 0.99, 0.965]), { repeat: 3 });
+  // M3（决定 3、5）：写实靠光影和材质。布的织纹——经纬两向的细密起伏，近景里衣料读得出是织物，不是塑料壳
+  const weaveField = field(128, (u, v) => 0.5 + 0.25 * Math.sin(u * Math.PI * 2 * 32) * Math.sin(v * Math.PI * 2 * 32) + 0.25 * (fbm(n4, u * 8, v * 8, 8, 3) - 0.5));
+  const clothNormal = normalFrom(128, weaveField, 0.08, { repeat: 3 });
+  // 皮肤：毛孔那一级的细噪声 + 稍大一级的起伏，粗糙度随之变化（T 区亮一点、脸颊哑一点）
+  const skinField = field(256, (u, v) => 0.5 + 0.3 * (fbm(n5, u * 48, v * 48, 48, 2) - 0.5) + 0.2 * (fbm(n3, u * 6, v * 6, 6, 3) - 0.5));
+  const skinNormal = normalFrom(256, skinField, 0.035, { repeat: 4 });
+  const skinRough = textureFrom(256, skinField, (f) => tone(0.5 + f * 0.3), { srgb: false, repeat: 4 });
+  const woven = (m) => { m.normalMap = clothNormal; m.normalScale = new THREE.Vector2(0.35, 0.35); return m; };
 
   // 粉墙：民居的白灰墙，有一点刷痕和污渍
   const plasterField = field(256, (u, v) => fbm(n3, u * 16, v * 16, 16, 4) * 0.7 + fbm(n5, u * 64, v * 8, 64, 2) * 0.3);
@@ -115,13 +123,17 @@ export function makeMaterials() {
     street,
     // 海：比第一版亮两档。正午的海去色后应当是发亮的中灰，一大片近黑会压住整个画面
     water: new THREE.MeshStandardMaterial({ color: 0x7d8a93, roughness: 0.14, metalness: 0.05, normalMap: waveNormal, normalScale: new THREE.Vector2(0.8, 0.8) }),
-    cloth: new THREE.MeshStandardMaterial({
+    cloth: woven(new THREE.MeshStandardMaterial({
       map: clothMap, roughness: 0.86, side: THREE.DoubleSide,
       emissive: new THREE.Color(1, 0.98, 0.94), emissiveIntensity: 0.025,
-    }),
+    })),
     awning: new THREE.MeshStandardMaterial({ map: clothMap, color: 0xcfc6b6, roughness: 0.9, side: THREE.DoubleSide }),
-    playerCloth: new THREE.MeshStandardMaterial({ map: clothMap, color: 0x8d8780, roughness: 0.9, side: THREE.DoubleSide }),
-    skin: new THREE.MeshStandardMaterial({ color: 0xc8ae98, roughness: 0.6 }),
+    playerCloth: woven(new THREE.MeshStandardMaterial({ map: clothMap, color: 0x8d8780, roughness: 0.9, side: THREE.DoubleSide })),
+    // 皮肤（决定 5：按灰度写实）：暖色的底在去色后是中灰，毛孔的法线和粗糙度的变化让近景里的脸和手是皮肤，不是蜡
+    skin: new THREE.MeshStandardMaterial({ color: 0xc8ae98, roughness: 0.58, normalMap: skinNormal, normalScale: new THREE.Vector2(0.45, 0.45), roughnessMap: skinRough }),
+    eyeWhite: new THREE.MeshStandardMaterial({ color: 0xe8e2da, roughness: 0.25 }),
+    iris: new THREE.MeshStandardMaterial({ color: 0x3a3128, roughness: 0.2 }),
+    lips: new THREE.MeshStandardMaterial({ color: 0xa9776a, roughness: 0.5, normalMap: skinNormal, normalScale: new THREE.Vector2(0.3, 0.3) }),
     // 头发：M2 美术审查时近乎纯黑、还带高光，近看像一顶漆皮帽；提一档、去掉光泽
     hair: new THREE.MeshStandardMaterial({ color: 0x584a3e, roughness: 0.86 }),
     gold: new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 0.34, metalness: 0.4 }),
@@ -144,7 +156,7 @@ export function makeMaterials() {
     // 居民衣料的五档深浅：在一张黑白的画面里，人和人靠明暗分开（雅典娜最亮，你的斗篷偏深）。
     // M2 美术审查：第一版最浅的两档（0.95、0.8）在正午的高调光下和雅典娜的白衣分不开——光属于她，最浅一档也得比她暗一截
     clothShades: [0.76, 0.64, 0.54, 0.45, 0.37].map((k) => {
-      const m = new THREE.MeshStandardMaterial({ map: clothMap, roughness: 0.88, side: THREE.DoubleSide });
+      const m = woven(new THREE.MeshStandardMaterial({ map: clothMap, roughness: 0.88, side: THREE.DoubleSide }));
       m.color.setScalar(k);
       return m;
     }),

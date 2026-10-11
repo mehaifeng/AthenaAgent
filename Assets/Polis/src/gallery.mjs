@@ -4,6 +4,7 @@
 //   index.html?gallery=building.workshop&view=game&variant=weaver&state=bustling&size=2
 //   index.html?gallery=figure.athena&action=walk&frames=8
 //   index.html?gallery=bust:athena
+//   index.html?gallery=figure.athena&action=walk&frames=8&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}
 // 建筑、器物、植物旁边站一个灰色的你（玩家），用来看比例。渲染完 document.title = 'gallery-ready'。
 import * as THREE from '../vendor/three.bundle.mjs';
 import { createRenderer } from './render.mjs';
@@ -12,7 +13,7 @@ import { createAssetLibrary } from './art/assets.mjs';
 import { groundPlane, Kit, m4 } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
 import { workVariantFor } from './art/characters.mjs';
-import { walkPeriod } from './art/poses.mjs';
+import { walkPeriod, ONE_SHOT_MS } from './art/poses.mjs';
 import { drawBust, EXPRESSIONS, CHARACTERS } from './art/busts.mjs';
 
 const VIEWS = { game: 1, mid: 2.6 };
@@ -23,10 +24,18 @@ export async function runGallery({ params, status }) {
   if (id.startsWith('bust:')) return bustSheet(id.slice(5), status);
   const R = createRenderer({ canvas: document.getElementById('scene') });
   const M = makeMaterials();
-  const assets = createAssetLibrary(M);
+  // &manifest=<JSON>：按一份资产清单（Id → 条目）换上外部模型再画（审查外部模型、蒙在程序化骨架上的人物用；模型从 /polis-assets/ 取）
+  const manifest = params.get('manifest') ? JSON.parse(params.get('manifest')) : null;
+  const assets = createAssetLibrary(M, { manifest });
+  if (manifest) {
+    await assets.prepare();
+    status.assets = assets.report;
+  }
   const entry = assets.registry.get(id);
   if (!entry) throw new Error(`gallery: unknown asset '${id}'`);
   R.scene.background = new THREE.Color(0xd2cdc5);
+  // &night=1：夜里的灯光与调色（审查夜景用）
+  if (params.get('night') === '1') R.setNight(1);
 
   // 一块中性的铺地：圆形石板放在土地上（城里的地面就是这两样）
   const ground = new THREE.Group();
@@ -42,10 +51,12 @@ export async function runGallery({ params, status }) {
   const camera = R.camera;
   const view = params.get('view') ?? 'game';
   const center = new THREE.Vector3(0, entry.kind === 'figure' ? 0.9 : 1.5, 0);
+  // &az= &el=：审查用的机位（方位角、仰角，度；缺省是城里的 45° / 33°）——看裙摆有没有把腿露出来要从正面、侧面各看一遍
+  const azimuth = Number(params.get('az') ?? 45), elevation = Number(params.get('el') ?? 33);
   const place = (zoom, c = center) => {
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
-    camera.position.copy(c).add(new THREE.Vector3().setFromSphericalCoords(300, THREE.MathUtils.degToRad(90 - 33), THREE.MathUtils.degToRad(45)));
+    camera.position.copy(c).add(new THREE.Vector3().setFromSphericalCoords(300, THREE.MathUtils.degToRad(90 - elevation), THREE.MathUtils.degToRad(azimuth)));
     camera.lookAt(c);
     R.placeSun(c);
     R.syncMatrices();
@@ -55,11 +66,14 @@ export async function runGallery({ params, status }) {
     const figure = assets.figure(id);
     R.scene.add(figure.root);
     R.gradePass.uniforms.uGlowStrength.value = 0;
+    // &weights=1：蒙在程序化骨架上的外部人物按蒙皮权重上色（每根骨头一种颜色，按权重混合；不去色）——查权重分错了地方用
+    if (params.get('weights') === '1' && figure.skinned) showWeights(R, figure);
+    window.__polisGallery = { figure, R };
     const action = params.get('action');
     const frames = Number(params.get('frames') ?? 0);
     const who = id.slice('figure.'.length);
     const variant = params.get('variant') ?? workVariantFor(who, params.get('category') ?? 'write');
-    if (action && frames > 0) return actionSheet({ R, figure, who, action, frames, variant, status, place, entry });
+    if (action && frames > 0) return actionSheet({ R, figure, who, action, frames, variant, status, place, entry, closeZoom: Number(params.get('zoom')) || 0 });
     const still = params.get('pose') ?? 'idle';
     figure.pose(still, Number(params.get('t') ?? 1200), { variant, duration: 1800 });
     // &zoom=：审查用的近看（比中景更近，只为找问题；对照图本身只有游戏视距与中景两种）
@@ -125,6 +139,35 @@ export async function runGallery({ params, status }) {
   document.title = 'gallery-ready';
 }
 
+/** 蒙皮权重的颜色：每根骨头一种（左右同色系、左亮右暗），顶点按四个权重混合。 */
+const BONE_COLORS = {
+  hips: 0x8a8a8a, spine: 0xd8d8d8, head: 0xf2e6a0, skirt: 0x7a3fb0,
+  shoulderL: 0xff6b35, elbowL: 0xffb000, handL: 0xfff200, shoulderR: 0xa83a1a, elbowR: 0xa87400, handR: 0xa8a000,
+  legL: 0x2f8cff, kneeL: 0x2fffd0, legR: 0x1a4a8a, kneeR: 0x1a8a72,
+};
+function showWeights(R, figure) {
+  R.gradePass.uniforms.uGrade.value = 0;
+  const bones = figure.skeleton.bones.map((b) => Object.keys(figure.joints).find((k) => figure.joints[k] === b));
+  for (const mesh of figure.skinned) {
+    const g = mesh.geometry.clone();
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    const colors = new Float32Array(si.count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < si.count; i++) {
+      let r = 0, gr = 0, b = 0;
+      for (let q = 0; q < 4; q++) {
+        c.setHex(BONE_COLORS[bones[si.getComponent(i, q)]] ?? 0xff00ff);
+        const w = sw.getComponent(i, q);
+        r += c.r * w; gr += c.g * w; b += c.b * w;
+      }
+      colors.set([r, gr, b], i * 3);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    mesh.geometry = g;
+    mesh.material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  }
+}
+
 /** 雅典娜的光晕：和城里一样，按当帧矩阵把胸口投到屏幕上，半径随她在屏幕上的身高。 */
 function glowAt(R, figure) {
   figure.root.updateMatrixWorld(true);
@@ -183,32 +226,52 @@ function caption(text) {
   document.getElementById('controls').hidden = true;
 }
 
-/** 一个动作的连续帧：上一行游戏视距（人物的真实像素大小），下一行中景。 */
-function actionSheet({ R, figure, who, action, frames, variant, status, place, entry }) {
+/**
+ * 一个动作的连续帧：上一行游戏视距（人物的真实像素大小），下一行中景。
+ * closeZoom（&zoom=）：下一行换成这个缩放的近景，格子按比例放大——查衣摆、手里的家什这种细处用。
+ */
+function actionSheet({ R, figure, who, action, frames, variant, status, place, entry, closeZoom = 0 }) {
   const canvas = R.renderer.domElement;
   const ratio = R.renderer.getPixelRatio();
   const sheet = document.createElement('canvas');
-  const tile = { game: [120, 120], mid: [210, 280] };
+  const midZoom = closeZoom > 0 ? closeZoom : 2.6;
+  const grow = midZoom / 2.6;
+  const tile = { game: [120, 120], mid: [Math.round(210 * grow), Math.round(280 * grow)] };
   sheet.width = frames * tile.mid[0];
   sheet.height = 46 + tile.game[1] + 12 + tile.mid[1] + 10;
   const ctx = sheet.getContext('2d');
   ctx.fillStyle = '#d2cdc5';
   ctx.fillRect(0, 0, sheet.width, sheet.height);
-  const style = { variant, duration: 1800, speed: who === 'player' ? 6 : 1.3, stride: who === 'player' ? 2.0 : 1.3 };
-  const cycle = action === 'walk' ? (figure.spec?.glides ? 1400 : walkPeriod(style)) : action === 'deliver' ? 1800 : action === 'idle' ? 9000 : 1800;
-  const times = Array.from({ length: frames }, (_, k) => (cycle * k) / (action === 'deliver' ? frames - 1 : frames));
+  const running = action === 'run';
+  const style = { variant, duration: 1800, speed: who === 'player' ? (running ? 10.5 : 6) : who === 'athena' ? 3.2 : (running ? 4 : 1.3), stride: who === 'player' ? (running ? 2.2 : 2.0) : who === 'athena' ? 1.6 : (running ? 2.0 : 1.3), speaker: true };
+  const cycle = action === 'walk' || action === 'run' ? walkPeriod(style)
+    : action === 'deliver' ? 1800 : action === 'idle' ? 9000 : action in ONE_SHOT_MS ? ONE_SHOT_MS[action] : action === 'talk' ? 5200 : 1800;
+  const oneShot = action === 'deliver' || action in ONE_SHOT_MS;
+  const times = Array.from({ length: frames }, (_, k) => (cycle * k) / (oneShot ? frames - 1 : frames));
+  // M3：过渡与弹簧骨要有时间——每一帧之前按 16 毫秒一步把人物推进到那一刻（衣摆才会跟着动作晃）；
+  // 走和跑先让人走出一段，衣摆进入稳定的滞后再截
+  let clock = 0;
+  const advanceTo = (target) => {
+    while (clock < target) {
+      clock = Math.min(target, clock + 16);
+      if (action === 'walk' || action === 'run') figure.root.position.z += (style.speed * 16) / 1000;
+      figure.pose(action, clock, { ...style, clock: 1_000_000 + clock });
+    }
+  };
+  if (action === 'walk' || action === 'run') { const lead = cycle * 3; for (let i = 0; i < frames; i++) times[i] += lead; }
   const target = new THREE.Vector3(0, 0.9, 0);
-  for (const [row, zoom] of [['game', 1], ['mid', 2.6]]) {
-    const [tw, th] = tile[row];
-    for (let k = 0; k < frames; k++) {
-      figure.pose(action, times[k], style);
-      // 走路的那几帧让人物原地踏步（位置不动，看得清姿势）
+  // 每一帧先把人物推进到那一刻（一次），再按游戏视距与中景各截一张；镜头跟着人物（走和跑的几帧里人物在往前走，衣摆才有滞后）
+  for (let k = 0; k < frames; k++) {
+    advanceTo(times[k]);
+    target.set(figure.root.position.x, 0.9, figure.root.position.z);
+    for (const [row, zoom] of [['game', 1], ['mid', midZoom]]) {
+      const [tw, th] = tile[row];
       place(zoom, target);
       if (who === 'athena') glowAt(R, figure);
       R.render();
       const c = target.clone().project(R.camera);
       const cx = ((c.x + 1) / 2) * window.innerWidth, cy = ((1 - c.y) / 2) * window.innerHeight;
-      const sw = (row === 'game' ? tw : tw / 1) , sh = (row === 'game' ? th : th);
+      const sw = tw, sh = th;
       const sx = cx - sw / 2, sy = cy - sh * 0.55;
       const dx = k * tile.mid[0] + (tile.mid[0] - tw) / 2;
       const dy = row === 'game' ? 46 : 46 + tile.game[1] + 12;

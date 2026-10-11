@@ -66,12 +66,13 @@ public sealed class OfficePreviewHost : IDisposable
 
     /// <summary>
     /// 游戏模式页面的地址（<c>/polis/index.html?mode=live</c>）。页面是应用自带的静态资源，不需要文件会话；
-    /// 与 C# 之间的数据只走 InvokeScript / WebMessageReceived，不走 HTTP。
+    /// 与 C# 之间的数据只走 InvokeScript / WebMessageReceived，不走 HTTP。<paramref name="night"/>：应用此刻是深色主题——
+    /// 页面一加载就是夜里的那一套颜色，不先白一下（之后主题再变由 <c>theme</c> 消息推过去）。
     /// </summary>
-    public string BuildPolisUrl(string lang)
+    public string BuildPolisUrl(string lang, bool night = false)
     {
         EnsureStarted();
-        return $"{_baseUrl}polis/index.html?mode=live&lang={Uri.EscapeDataString(lang)}";
+        return $"{_baseUrl}polis/index.html?mode=live&lang={Uri.EscapeDataString(lang)}{(night ? "&theme=dark" : string.Empty)}";
     }
 
     private void EnsureStarted()

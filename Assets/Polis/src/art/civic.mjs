@@ -141,15 +141,35 @@ export function buildForge(M) {
   kit.box(M.stone, 2.4, 1.1, 1.4, -1.2, 0.75, -D / 2 + 0.5);
   kit.box(M.dark, 1.6, 0.25, 0.9, -1.2, 1.35, -D / 2 + 0.55);
   kit.cylinder(M.stone, 0.45, 0.6, 3.5, -1.2, 0.2 + H + 1.2, -D / 2 - 0.2, 12);
-  // 铁砧和木墩
-  kit.cylinder(M.darkWood, 0.42, 0.48, 0.6, 1.0, 0.5, 0.6, 14);
-  kit.box(M.bronze, 0.9, 0.32, 0.36, 1.0, 0.96, 0.6);
-  kit.box(M.bronze, 0.35, 0.18, 0.28, 1.6, 1.0, 0.6);
+  // 铁砧和木墩。M3 第三轮：砧面从地坪往上 0.775 米（齐手指关节，抡锤落下的高度）——第一版高到 0.92，锤得砸在胸口；
+  // 铁砧和石料挪到炉棚的前沿（z ≈ 1.9）：在里面 3 米深的地方，33° 的镜头被檐口挡住人的上半身
+  const FLOOR = 0.2, ANVIL_TOP = FLOOR + 0.775, AZ = 1.85;
+  kit.cylinder(M.darkWood, 0.42, 0.48, 0.47, 0.95, FLOOR + 0.235, AZ, 14);
+  kit.box(M.bronze, 0.9, 0.305, 0.36, 0.95, ANVIL_TOP - 0.1525, AZ);
+  kit.box(M.bronze, 0.35, 0.16, 0.26, 1.55, ANVIL_TOP - 0.1, AZ);
+  kit.box(M.dark, 0.16, 0.03, 0.05, 0.9, ANVIL_TOP + 0.015, AZ - 0.04);   // 砧面上那根待锻的铁条（不发光——光属于雅典娜）
   kit.box(M.wood, 1.6, 0.9, 0.7, 2.6, 0.45, -1.8);   // 风箱架
+  // 工匠的石料：木架上一块凿了一半的大理石（一面已经有了人形的轮廓）。凿的是石料西面靠南的那一角——
+  // 镜头从东南看过来，石料不挡住他的手
+  const BX = -1.45, BZ = 1.8, TIP = { x: -1.66, y: FLOOR + 0.012 + 1.02, z: 1.95 };
+  kit.box(M.wood, 0.6, 0.72, 0.5, BX + 0.03, FLOOR + 0.36, BZ);
+  kit.box(M.marble, 0.42, 0.62, 0.42, BX, FLOOR + 0.72 + 0.31, BZ);
+  kit.add(M.marble, new THREE.SphereGeometry(0.1, 12, 8), m4(BX - 0.23, FLOOR + 1.36, BZ - 0.06, 0, 0, 0, 0.5, 1.2, 1));
   for (let i = 0; i < 3; i++) kit.add(M.tile, amphoraBody(), m4(-W / 2 + 0.9 + i * 0.5, 0.2, D / 2 - 0.3, i, 0, 0, 0.8));
   const group = kit.build();
   group.userData.height = 0.2 + H + 3;
-  group.userData.anvil = new THREE.Vector3(1.0, 1.2, 0.6);
+  // 锻炉里的两个工位（锻炉的局部坐标；world.mjs 按锻炉的摆放矩阵换到世界里）：at 是活儿落下的那一点（砧面、石面），
+  // stand 是人站的地方（地坪的高度）、yaw 是他面朝的方向。数值和 poses.ARMS 解接触点时用的那一组对得上——解的时候用的就是
+  // 铁匠、工匠自己的骨架（按各自的身高缩放过），所以下面的米数直接用：锤面落在身前 0.6 米、偏右 0.08 米、比根高 0.79 米；
+  // 凿刃抵在身前 0.5 米、偏左 0.03 米、比根高 1.02 米（根比脚下的地面高 0.012 米）
+  group.userData.anvil = new THREE.Vector3(0.9, ANVIL_TOP, AZ - 0.04);
+  group.userData.stations = {
+    // 铁匠面朝南（朝着镜头那一侧）隔着铁砧抡锤；工匠面朝东凿石头——镜头从东南看过来，两个人的手上活儿都看得见
+    forge: { at: new THREE.Vector3(0.9, ANVIL_TOP, AZ - 0.04), stand: new THREE.Vector3(0.9 + 0.08, FLOOR, AZ - 0.04 - 0.6), yaw: 0 },
+    carve: { at: new THREE.Vector3(TIP.x, TIP.y, TIP.z), stand: new THREE.Vector3(TIP.x - 0.5, FLOOR, TIP.z + 0.03), yaw: Math.PI / 2 },
+  };
+  // 锻炉的地坪比街面高 0.2 米：站在上面的人（铁匠、工匠、你、来干活的雅典娜）脚落在地坪上，不陷进去
+  group.userData.floors = [{ minX: -W / 2 - 0.2, maxX: W / 2 + 0.2, minZ: -0.6 - D / 2 - 0.2, maxZ: -0.6 + D / 2 + 0.2, y: FLOOR }];
   return group;
 }
 
@@ -295,6 +315,12 @@ export function buildAgora(M) {
   group.userData.board = new THREE.Vector3(0, 1.8, -4.2);
   group.userData.sundial = new THREE.Vector3(-4.6, 1.2, -3.4);
   group.userData.bema = new THREE.Vector3(-4.4, 0.44, -2.05);
+  // 讲台的两级是地面（world.groundAt）：传令官站在上一级的台面上，不是站在街面上、腿陷进石头 0.43 米
+  // （M3 第四轮，用户：他出门、回来都从讲台的侧面穿过去）；你踩上下一级的前沿也落在 0.22 米的台面上
+  group.userData.floors = [
+    { minX: -4.4 - 0.8, maxX: -4.4 + 0.8, minZ: -1.9 - 0.6, maxZ: -1.9 + 0.6, y: 0.22 },
+    { minX: -4.4 - 0.55, maxX: -4.4 + 0.55, minZ: -2.05 - 0.4, maxZ: -2.05 + 0.4, y: 0.44 },
+  ];
   return group;
 }
 
@@ -311,10 +337,11 @@ export function buildTerrace(M, { surface = 'pave' } = {}) {
   const S = PLOT_SIZE;
   kit.box(M.stone, S + 0.4, 1.4, S, 0, -0.7, 0);
   kit.add(surface === 'earth' ? M.earth : M.pave, groundPlane(S, S - 0.2, 4), m4(0, 0.015, 0.1));
-  // 临水一侧：一道矮护墙，中间留出台阶
-  for (const sx of [-1, 1]) kit.box(M.stone, S / 2 - 1.6, 0.42, 0.32, sx * (S / 4 + 0.8), 0.21, S / 2 - 0.16);
+  // 临水一侧：一道矮石沿，中间留出台阶。M3：0.42 米的护墙齐膝、挡路，加上人的半径把两侧 0.65 米的步道吃掉一半；
+  // 改成 0.3 米的石沿（码头边系缆的那种），迈得过去、不挡路——海本来就不是地（layout.floor）
+  for (const sx of [-1, 1]) kit.box(M.stone, S / 2 - 1.6, 0.3, 0.32, sx * (S / 4 + 0.8), 0.15, S / 2 - 0.16);
   for (let k = 0; k < 3; k++) kit.box(M.stone, 2.6, 0.22, 0.42, 0, -0.11 - k * 0.22, S / 2 + 0.2 + k * 0.42);
-  for (const sx of [-1, 1]) kit.box(M.stone, 0.32, 0.42, S - 1.2, sx * (S / 2 + 0.04), 0.21, 0.4);
+  for (const sx of [-1, 1]) kit.box(M.stone, 0.32, 0.3, S - 1.2, sx * (S / 2 + 0.04), 0.15, 0.4);
   // 系船的石柱（两根）
   for (const sx of [-1, 1]) kit.cylinder(M.stone, 0.14, 0.18, 0.5, sx * 1.8, 0.25, S / 2 - 0.2, 8);
   return kit.build();
@@ -331,7 +358,9 @@ export function venueSlots() {
  */
 export function buildPaintedStoa(M) {
   const kit = new Kit();
-  const W = 11.2, D = 4.4, H = 3.6, zc = -PLOT_SIZE / 2 + D / 2 + 0.5;
+  // M3：11.2 米宽时台基的第二级（0.44 米高，齐膝）伸到 ±5.85，加上人的半径把石台两侧的步道整个占掉——雅典娜沿步道走上石台的路
+  // 正好穿过它。收到 10 米：仍是八根柱、山花顶，比书库和金库都宽
+  const W = 10.0, D = 4.4, H = 3.6, zc = -PLOT_SIZE / 2 + D / 2 + 0.5;
   const y0 = podium(kit, M.marble, W, D, { steps: 2, stepH: 0.22, stepT: 0.25, z: zc });
   kit.box(M.wall, W, H, 0.45, 0, y0 + H / 2, zc - D / 2 + 0.22);
   for (const sx of [-1, 1]) kit.box(M.wall, 0.45, H, D - 0.4, sx * (W / 2 - 0.22), y0 + H / 2, zc - 0.2);

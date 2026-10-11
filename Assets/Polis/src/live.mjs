@@ -16,7 +16,7 @@ export const TRANSITION = Object.freeze({
 export const FRAME = Object.freeze({
   busyFps: 60,
   idleFps: 30,
-  inputHotMs: 1500,   // 刚操作过（拖镜头、点地面）的这段时间按"在动"算
+  inputHotMs: 1500,   // 刚操作过（拖镜头、按方向键）的这段时间按"在动"算
 });
 
 const BUSY_STEPS = new Set(['walk', 'wander', 'teleport', 'act', 'deliver']);
@@ -118,13 +118,18 @@ export function createLiveFeed({ city } = {}) {
   };
 }
 
-/** 页面 → C# 的意图消息（封闭集合，C# 逐条校验；这里只是把形状写对）。网页没有"批准"这种意图。 */
+/**
+ * 页面 → C# 的意图消息（封闭集合，C# 逐条校验；这里只是把形状写对）。网页没有"批准"这种意图。
+ * say / draft（2026-10-11）：城里的对话栏——你写的字托付给此刻显示的这份委托（走输入框的同一条发送路径），草稿随手同步。
+ */
 export const INTENT_TYPES = Object.freeze([
   'ready', 'failed', 'select-conversation', 'new-commission', 'open-file', 'attach-file', 'prefill-input',
   'stop-turn', 'accept-delivery', 'return-delivery', 'read-scroll', 'relocate', 'save-player',
   // M2：藏品的摆放 / 撤下 / 移除（只改存档），委托板、神谕、海图、居民
   'place-item', 'unplace-item', 'remove-item', 'take-suggestion', 'request-oracle', 'select-island',
   'meet-resident', 'try-resident',
+  // 对话栏
+  'say', 'draft',
 ]);
 
 export function intent(type, fields = {}) {

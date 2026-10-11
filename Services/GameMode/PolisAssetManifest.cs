@@ -10,13 +10,16 @@ namespace Athena.UI.Services.GameMode;
 /// <summary>
 /// 把一件程序化资产换成外部模型的一条覆盖。<see cref="Model"/> 是资产目录里的文件名（只有一段）；
 /// 动画按动作名（walk / idle / work / deliver）指向模型里的动画片段名，缺的动作由页面退回 idle 或静止。
+/// <see cref="Rig"/> 为 <c>procedural</c> 时（只对人物）模型蒙在这个人物自己的程序化骨架上，动作全是程序化的
+/// （页面 <c>art/bind.mjs</c>），与 <see cref="Animations"/> 互斥。
 /// </summary>
 public sealed record PolisAssetOverride(
     string Model,
     double Scale,
     double RotateY,
     IReadOnlyList<double> Offset,
-    IReadOnlyDictionary<string, string> Animations);
+    IReadOnlyDictionary<string, string> Animations,
+    string? Rig = null);
 
 /// <summary>读清单的结果：校验通过的覆盖，以及被拒的条目和原因（每条一个 Warning）。</summary>
 public sealed record PolisAssetManifestResult(
@@ -41,7 +44,10 @@ public static class PolisAssetManifest
     public const int MaxEntries = 256;
 
     /// <summary>动作名：与页面的姿势表一致。</summary>
-    public static IReadOnlyList<string> Actions { get; } = new[] { "walk", "idle", "work", "deliver" };
+    public static IReadOnlyList<string> Actions { get; } = new[] { "walk", "run", "idle", "work", "deliver", "talk", "wave", "receive" };
+
+    /// <summary><c>rig</c> 能写的值：<c>procedural</c> = 蒙在程序化骨架上（页面 <c>art/asset-manifest.mjs</c> 的 RIGS）。</summary>
+    public static IReadOnlyList<string> Rigs { get; } = new[] { "procedural" };
 
     private static readonly Regex AssetId = new(@"^(building|prop|plant|figure|civic)(\.[a-z][a-zA-Z0-9-]{0,31}){1,3}$", RegexOptions.CultureInvariant);
 
@@ -153,7 +159,12 @@ public static class PolisAssetManifest
                     rejections.Add($"{id}: {why}");
                     continue;
                 }
-                assets[id] = new PolisAssetOverride(model!, scale, rotateY, offset, animations);
+                if (!TryRig(id, value, animations, out var rig, out why))
+                {
+                    rejections.Add($"{id}: {why}");
+                    continue;
+                }
+                assets[id] = new PolisAssetOverride(model!, scale, rotateY, offset, animations, rig);
             }
         }
         return Done();
@@ -193,14 +204,14 @@ public static class PolisAssetManifest
         if (!value.TryGetProperty("animations", out var raw)) return true;
         if (raw.ValueKind != JsonValueKind.Object)
         {
-            why = "\"animations\" must map walk / idle / work / deliver to clip names";
+            why = "\"animations\" must map walk / run / idle / work / deliver / talk / wave / receive to clip names";
             return false;
         }
         foreach (var clip in raw.EnumerateObject())
         {
             if (!Actions.Contains(clip.Name))
             {
-                why = $"unknown action '{Shorten(clip.Name)}' in \"animations\" (walk / idle / work / deliver)";
+                why = $"unknown action '{Shorten(clip.Name)}' in \"animations\" (walk / run / idle / work / deliver / talk / wave / receive)";
                 return false;
             }
             var name = clip.Value.ValueKind == JsonValueKind.String ? clip.Value.GetString() : null;
@@ -211,6 +222,35 @@ public static class PolisAssetManifest
             }
             map[clip.Name] = name;
         }
+        return true;
+    }
+
+    /// <summary>
+    /// <c>rig</c>：只对人物（figure.*），只认 <see cref="Rigs"/> 里的值；蒙在程序化骨架上的人物动作全是程序化的，
+    /// 模型自带的片段用不上，所以和 <c>animations</c> 一起写是写错了，整条拒绝而不是挑一个。
+    /// </summary>
+    private static bool TryRig(string id, JsonElement value, IReadOnlyDictionary<string, string> animations, out string? rig, out string? why)
+    {
+        rig = null;
+        why = null;
+        if (!value.TryGetProperty("rig", out var raw) || raw.ValueKind == JsonValueKind.Null) return true;
+        var name = raw.ValueKind == JsonValueKind.String ? raw.GetString() : null;
+        if (name == null || !Rigs.Contains(name))
+        {
+            why = $"\"rig\" must be one of {string.Join(" / ", Rigs)}";
+            return false;
+        }
+        if (!id.StartsWith("figure.", StringComparison.Ordinal))
+        {
+            why = "\"rig\" is only for figures (figure.*)";
+            return false;
+        }
+        if (animations.Count > 0)
+        {
+            why = "\"rig\" and \"animations\" do not go together: a figure on the procedural rig plays the procedural actions";
+            return false;
+        }
+        rig = name;
         return true;
     }
 

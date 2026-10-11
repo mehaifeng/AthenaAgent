@@ -5,9 +5,11 @@
              x:Class="Athena.UI.Views.GameMode.PolisView"
              x:DataType="gm:GameModeViewModel"
              x:Name="PolisRoot">
-    <!-- 游戏视图：替换消息列表所在的那一行（设计稿 12.1）。WebView 惰性创建在 PolisPageHost 里（代码后台按 PageUrl 建/拆）。
+    <!-- 游戏视图：占满标题栏以下的整个中间区域，连同输入框那一行（设计稿 12.1；说话在城里的对话栏）。
+         WebView 惰性创建在 PolisPageHost 里（代码后台按 PageUrl 建/拆）。
          原生 WebView 永远在最上层，Avalonia 画不到它上面——所以失败时 ViewModel 先拆掉 WebView，下面的失败面板才看得见。 -->
-    <Grid Background="#C8C5BF">
+    <!-- 底色跟着白天 / 夜里（代码后台按主题变体换，SyncTheme） -->
+    <Grid x:Name="PolisSurface" Background="#C8C5BF">
         <TextBlock x:Name="PolisLoadingText"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"

@@ -820,24 +820,29 @@
             </StackPanel>
         </Border>
 
-        <!-- 游戏视图：替换消息列表所在的这一行（设计稿 12.1），输入框（下一行）保留——发消息只走一条代码路径。
-             盖在消息列表、空会话占位和切换幕布之上；上下文检查器（80）与猫头鹰村弹层（100）在游戏模式里不会打开。
-             游戏模式下消息列表的 ItemsSource 被摘掉（见代码后台 OnGameModeActiveChanged）：实测隐藏的列表换绑照样
-             实体化整棵气泡树（可见 648 ms、隐藏 843 ms），所以不是藏起来，而是根本不建。 -->
+        <!-- 游戏视图：占满标题栏以下的整个中间区域——消息列表那一行和输入框那一行（2026-10-11：游戏盖住输入框，
+             和雅典娜说话在城里的对话栏）。托付仍走输入框这一条发送路径：页面的 say 意图经 IPolisShell.SubmitInput
+             执行这个会话自己的 SendMessageCommand。盖在消息列表、空会话占位和切换幕布之上；上下文检查器（80）与
+             猫头鹰村弹层（100）在游戏模式里不会打开。游戏模式下消息列表的 ItemsSource 被摘掉（见代码后台
+             OnGameModeActiveChanged）：实测隐藏的列表换绑照样实体化整棵气泡树（可见 648 ms、隐藏 843 ms），
+             所以不是藏起来，而是根本不建。 -->
         <gmv:PolisView x:Name="PolisView"
                        Grid.Row="1"
+                       Grid.RowSpan="2"
                        ZIndex="70"
                        DataContext="{Binding #ConversationRoot.GameMode}"
                        IsVisible="{Binding #ConversationRoot.IsGameModeActive}"/>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部。
              左右 12px 与上面消息列表的 Margin="12" 同一条边：宽时两者都被 ContentMaxWidth 封顶、居中对齐；
-             窄时（右栏收起且窗口最小宽度）没有这条边，输入框会直接顶到对话面板的左右边框上。 -->
+             窄时（右栏收起且窗口最小宽度）没有这条边，输入框会直接顶到对话面板的左右边框上。
+             游戏模式下收起（游戏占满这一行，说话在城里的对话栏）：收起而不只是被盖住，焦点和 Enter 键绑定才不会落到看不见的框里。 -->
         <Border Grid.Row="2"
                 x:Name="ComposerHost"
                 Margin="12,0"
                 MaxWidth="{DynamicResource App.ContentMaxWidth}"
-                HorizontalAlignment="Stretch">
+                HorizontalAlignment="Stretch"
+                IsVisible="{Binding !#ConversationRoot.IsGameModeActive}">
             <Border CornerRadius="0,0,5,5"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"

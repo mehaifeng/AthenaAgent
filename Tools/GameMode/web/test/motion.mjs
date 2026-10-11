@@ -1,5 +1,6 @@
-// 运动自检（设计稿 12.7）：镜头按脚本逐帧移动（绕转、推拉、平移，同时跟着雅典娜走一段路、瞬移一次），
-// 比较光晕、旁白气泡、名牌（建筑、公共建筑、M2 的居民与遗失藏品）这一帧用的屏幕位置与当帧真实投影的最大偏差。验收线 0.5 像素（设备像素）。
+// 运动自检（设计稿 12.7）：镜头按脚本逐帧移动（绕转、推拉、平移，同时跟着雅典娜走一段路、瞬移一次，再在自由视角里按住 W + D 走一段——
+// 镜头只在你快出画面时跟一下），比较光晕、旁白气泡、名牌（建筑、公共建筑、M2 的居民与遗失藏品、"和雅典娜说话"）这一帧用的屏幕位置
+// 与当帧真实投影的最大偏差。验收线 0.5 像素（设备像素）；自由视角里走路时你必须一直在画面里（|NDC| < 1）。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs [chromium,webkit] [--nosync]
 // --nosync 故意跳过"渲染前对齐矩阵"，用来确认这项检查确实抓得住打样里那种漂移（预期远大于 0.5 像素）。
 import { startServer } from './serve.mjs';
@@ -10,6 +11,7 @@ const nosync = process.argv.includes('--nosync');
 const LIMIT = 0.5;
 const server = await startServer();
 let worst = 0;
+let offscreen = false;   // 自由视角里走路时人走出了画面（或者根本没走起来）
 try {
   for (const name of browsers) {
     const browser = await launch(name);
@@ -19,11 +21,13 @@ try {
       await page.waitForFunction(() => document.title.startsWith('motion-max-error-px:') || document.title === 'error', null, { timeout: 180_000 });
       const r = await page.evaluate(() => ({ title: document.title, result: window.__polis.selftest, errors: window.__polis.errors }));
       if (!r.result) throw new Error(`selftest did not run: ${r.title} ${r.errors.join(' | ')}`);
-      const { errors, frames, windows, maxErrorPx, kinds } = r.result;
+      const { errors, frames, windows, maxErrorPx, kinds, walk } = r.result;
       worst = Math.max(worst, maxErrorPx);
+      if (!nosync && !(walk && walk.metres > 5 && walk.maxPlayerNdc < 1)) offscreen = true;
       console.log(`${name} ${browser.version()}: ${frames} 帧（窗口 ${windows.map(([a, b]) => `${Math.round(a)}–${Math.round(b)} ms`).join('、')}），`
         + `最大偏差 光晕 ${errors.glow.toFixed(3)} px · 旁白气泡 ${errors.bubble.toFixed(3)} px · 名牌 ${errors.labels.toFixed(3)} px`
         + `（名牌按种类：${Object.entries(kinds ?? {}).map(([k, v]) => `${k} ${v}`).join('、')}）`
+        + `；自由视角走路 ${walk?.frames} 帧、${walk?.metres} 米，你在画面上最远到 |NDC| ${walk?.maxPlayerNdc}`
         + `${nosync ? '（未对齐矩阵）' : ''}${problems.length ? `\n  ${problems.join('\n  ')}` : ''}`);
     } finally {
       await browser.close();
@@ -32,8 +36,8 @@ try {
 } finally {
   await server.close();
 }
-const pass = nosync ? worst > LIMIT : worst <= LIMIT;
+const pass = nosync ? worst > LIMIT : worst <= LIMIT && !offscreen;
 console.log(nosync
   ? `不对齐矩阵时最大偏差 ${worst.toFixed(3)} px（${pass ? '自检抓得住漂移' : '自检没抓到漂移——检查方法有问题'}）`
-  : `最大偏差 ${worst.toFixed(3)} px，验收线 ${LIMIT} px：${pass ? 'PASSED' : 'FAILED'}`);
+  : `最大偏差 ${worst.toFixed(3)} px，验收线 ${LIMIT} px${offscreen ? '；自由视角里走路时人走出了画面' : ''}：${pass ? 'PASSED' : 'FAILED'}`);
 process.exit(pass ? 0 : 1);

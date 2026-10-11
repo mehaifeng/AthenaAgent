@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createReplay, toEngineEvents, siteForTool, cityIndex } from '../../../../Assets/Polis/src/replay.mjs';
-import { createOrchestrator } from '../../../../Assets/Polis/src/orchestrator.mjs';
+import { createOrchestrator, DEFAULTS } from '../../../../Assets/Polis/src/orchestrator.mjs';
 import { lineForVisit, displayName, pick, LINES_ZH } from '../../../../Assets/Polis/src/narration.mjs';
 import { createLayout, facingFor, pointAlong, polyLength, BLOCK, SPEED } from '../../../../Assets/Polis/src/layout.mjs';
 
@@ -130,14 +130,40 @@ test('layout: routes follow streets, start and end where asked, and travel time 
     }
   }
   const neighbour = layout.travelMs('agora', 'b:网站');
-  assert.ok(neighbour < 4000, `广场到隔壁一座建筑 ${neighbour.toFixed(0)} ms：走得到，不必瞬移`);
+  // M3：她从 12 米 / 秒的滑行改成 3.2 米 / 秒的走路，步行上限随之从 5 秒放到 10 秒——隔壁一座建筑仍然走得到
+  assert.ok(neighbour < DEFAULTS.maxWalkMs, `广场到隔壁一座建筑 ${neighbour.toFixed(0)} ms：走得到，不必瞬移（上限 ${DEFAULTS.maxWalkMs}）`);
 });
 
-test('layout: a click inside a building plot snaps to its door, elsewhere is a free point', () => {
+test('layout: where you can walk — streets and open squares yes; buildings, the sea and beyond the town edge no', () => {
   const layout = createLayout(fixture);
-  const b = fixture.buildings[0];
-  assert.equal(layout.snapClick({ x: b.plot.x * BLOCK + 1, z: b.plot.z * BLOCK - 2 }), `b:${b.key}`);
-  assert.equal(layout.snapClick({ x: 2, z: 3 }), 'pt:2.00,3.00', '广场上点哪儿去哪儿');
+  const W = (x, z) => layout.walkable({ x, z });
+  assert.ok(W(0, 0) && W(2.6, 4.4), '广场是开阔地（你出生的地方）');
+  for (const b of fixture.buildings) {
+    assert.ok(!W(b.plot.x * BLOCK, b.plot.z * BLOCK), `${b.key}：房子里进不去`);
+    assert.ok(W(b.plot.x * BLOCK + 9, b.plot.z * BLOCK + 9), `${b.key}：四角的街口能走`);
+  }
+  for (const key of ['temple', 'library', 'forge', 'market']) {
+    const plot = layout.plots.get(key);
+    assert.ok(!W(plot.cx, plot.cz), `${key}：公共建筑同样进不去`);
+  }
+  // 雅典娜站过的每一个地方你也站得上去：建筑门前、广场、港口的栈桥、城门、场馆的过道、橄榄林的台地
+  const sites = ['agora', 'harbor', 'gate', 'temple', 'library', 'forge', 'market', 'paintedStoa', 'archive', 'vault', 'grove:0',
+    ...fixture.buildings.map((b) => `b:${b.key}`), ...layout.wanderSpots.map((_, k) => `agora:${k}`)];
+  for (const site of sites) {
+    const p = layout.sitePoint(site);
+    assert.ok(W(p.x, p.z), `${site} 的站立点能走到（${p.x.toFixed(1)}, ${p.z.toFixed(1)}）`);
+  }
+  assert.ok(!W(9, layout.quayZ + 10), '码头以南是海');
+  assert.ok(W(0, layout.quayZ + 10), '港口的栈桥伸进海里，能走');
+  assert.ok(!W(0, layout.quayZ + 16), '栈桥的尽头之外是海');
+  const archive = layout.plots.get('archive');
+  assert.ok(!W(archive.cx, archive.cz - 3), '石台北半边是场馆的建筑');
+  assert.ok(W(archive.cx + 5.9, archive.cz - 5), '石台东侧的步道连到码头');
+  assert.ok(!W(archive.cx - 4.6, archive.cz + 2.0), '底座挡路');
+  assert.ok(!W(0, layout.bounds.minZ - 1) && !W(layout.bounds.maxX + 40, 0), '城的范围之外不去');
+});
+
+test('layout: polylines are walked by length', () => {
   const mid = pointAlong([{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }], 0.75);
   assert.deepEqual([mid.x, mid.z], [10, 5]);
 });

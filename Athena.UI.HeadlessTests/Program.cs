@@ -4531,11 +4531,14 @@ static void TestGameModeSwitchAndFailures()
         if (!gameMode.IsGameMode || !session.Current.MainLayout.GameMode || configService.SaveCount == 0)
             throw new InvalidOperationException("模式必须写进 MainLayoutSettings.GameMode 并落盘（重启后停在游戏模式）。");
         if (!view.IsGameModeActive || !polisView.IsEffectivelyVisible)
-            throw new InvalidOperationException("游戏视图必须替换消息列表那一行。");
+            throw new InvalidOperationException("游戏视图必须出现在中间区域。");
         if (messages.ItemsSource != null || window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")))
             throw new InvalidOperationException("游戏模式下气泡树不建：消息列表的 ItemsSource 必须摘掉（隐藏换绑照样实体化整棵树）。");
-        if (!window.GetVisualDescendants().OfType<TextBox>().Any(t => t.Name == "MessageInputTextBox" && t.IsEffectivelyVisible))
-            throw new InvalidOperationException("输入框必须保留：发消息只走一条代码路径。");
+        // 2026-10-11：游戏占满标题栏以下的整个中间区域，连同输入框那一行；说话在城里的对话栏（发送仍走输入框的发送命令）
+        var composerHost = view.FindControl<Border>("ComposerHost")!;
+        if (Grid.GetRowSpan(polisView) != 2 || composerHost.IsEffectivelyVisible
+            || window.GetVisualDescendants().OfType<TextBox>().Any(t => t.Name == "MessageInputTextBox" && t.IsEffectivelyVisible))
+            throw new InvalidOperationException($"游戏要盖住输入框那一行、输入框收起（RowSpan={Grid.GetRowSpan(polisView)}, composer={composerHost.IsEffectivelyVisible}）。");
         if (!pet.IsSuppressed || pet.Opacity != 0 || pet.IsHitTestVisible)
             throw new InvalidOperationException("进入游戏模式要把宠物收起来（原生 WebView 会盖住它）。");
         if (window.GetVisualDescendants().OfType<NativeWebView>().Any())
@@ -4565,6 +4568,38 @@ static void TestGameModeSwitchAndFailures()
         // 焦点在城装好、传令官播报完之后才推（M2 到达时多了一步）：等它来，不假设它和存档落盘的先后
         PumpTimers(() => page.MessageTypes.Contains("focus"), 10000, "雅典娜要转向当前选中的这份委托（focus）。");
 
+        // —— 夜里（M3 第三轮）：游戏跟着应用的深 / 浅色主题。打开时的主题在地址里（页面一加载就是那一套颜色），
+        // 就绪时再推一条直接到位的 theme；之后应用换主题，视图在主题变体落地的那一刻（ActualThemeVariantChanged）告诉 ViewModel ——
+        IEnumerable<JsonElement> Themes() => page.Messages.Where(m => m.GetProperty("type").GetString() == "theme");
+        var themeAtStart = Application.Current!.ActualThemeVariant == ThemeVariant.Dark;
+        // 地址里的是创建页面那一刻应用实际的主题变体（视图挂上界面时就同步给了 ViewModel），不是配置里写的那一个
+        if (page.Uri.Query.Contains("theme=dark", StringComparison.Ordinal) != themeAtStart || gameMode.IsNight != themeAtStart)
+            throw new InvalidOperationException($"页面地址要带上打开时应用的主题（深色时 theme=dark），实际 {page.Uri.Query}，应用 {(themeAtStart ? "dark" : "light")}。");
+        var readyTheme = Themes().FirstOrDefault();
+        if (readyTheme.ValueKind != JsonValueKind.Object || !readyTheme.GetProperty("instant").GetBoolean())
+            throw new InvalidOperationException($"就绪时要推一条直接到位的 theme，实际 {readyTheme}。");
+        var themesBefore = Themes().Count();
+        Application.Current.RequestedThemeVariant = themeAtStart ? ThemeVariant.Light : ThemeVariant.Dark;
+        try
+        {
+            PumpTimers(() => Themes().Count() > themesBefore, 5000, "应用换了主题，游戏里要跟着换（theme）。");
+            var switched = Themes().Last();
+            if (switched.GetProperty("night").GetBoolean() == themeAtStart || switched.TryGetProperty("instant", out _))
+                throw new InvalidOperationException($"换主题推的是新的那一边，而且过渡过去（不带 instant），实际 {switched}。");
+            if (gameMode.IsNight == themeAtStart)
+                throw new InvalidOperationException("ViewModel 要记下应用此刻的主题（重建页面时地址里带它）。");
+            var surface = polisView.FindControl<Grid>("PolisSurface")!;
+            if (surface.Background is not ISolidColorBrush brush || (brush.Color.R < 0x40) == themeAtStart)
+                throw new InvalidOperationException($"游戏视图的底色（页面出来之前那一块）要跟着主题，实际 {surface.Background}。");
+        }
+        finally
+        {
+            Application.Current.RequestedThemeVariant = themeAtStart ? ThemeVariant.Dark : ThemeVariant.Light;
+            PumpTimersFor(50);
+        }
+        if (Themes().Last().GetProperty("night").GetBoolean() != themeAtStart)
+            throw new InvalidOperationException("换回原来的主题，游戏也跟着换回来。");
+
         // 网页没有"批准"：一条 approve 意图被拒绝并记 Warning，什么都不发生
         sink.Clear();
         page.Send("""{"v":1,"type":"approve","requestId":"r1"}""");
@@ -4573,6 +4608,31 @@ static void TestGameModeSwitchAndFailures()
         var rejections = sink.Events.Where(e => e.Level == LogEventLevel.Warning && e.MessageTemplate.Text.StartsWith("Rejected a polis page intent", StringComparison.Ordinal)).ToList();
         if (rejections.Count != 2)
             throw new InvalidOperationException($"'approve' 与越界路径都必须被拒绝并各记一条 Warning，实际 {rejections.Count} 条。");
+
+        // —— 城里的对话栏：游戏盖住了输入框，说话在这里。状态、草稿、托付都只对此刻显示的这份委托 ——
+        IEnumerable<JsonElement> Composer() => page.Messages.Where(m => m.GetProperty("type").GetString() == "composer");
+        var composer = Composer().LastOrDefault(m => m.GetProperty("conversationId").GetString() == conversation.ConversationId);
+        if (composer.ValueKind != JsonValueKind.Object || !composer.GetProperty("canSend").GetBoolean() || composer.GetProperty("busy").GetBoolean()
+            || composer.GetProperty("draft").GetString() != chat.InputText)
+            throw new InvalidOperationException($"雅典娜转向这份委托时，对话栏要拿到它的状态和输入框里的字（composer），实际 {composer}。");
+        page.Send($$"""{"v":1,"type":"draft","conversationId":"{{conversation.ConversationId}}","text":"把合同列个"}""");
+        PumpTimersFor(50);
+        if (chat.InputText != "把合同列个")
+            throw new InvalidOperationException($"对话栏的草稿要同步进这份委托自己的输入框（切回对话模式还在），实际「{chat.InputText}」。");
+        var userBefore = chat.Messages.Count(m => m.Role == "user");
+        page.Send($$"""{"v":1,"type":"say","conversationId":"{{conversation.ConversationId}}","text":"把合同列个清单"}""");
+        PumpTimers(() => chat.Messages.Count(m => m.Role == "user") == userBefore + 1, 5000, "对话栏的托付要走输入框的发送命令，在这份委托里追加你的话。");
+        PumpTimers(() => !chat.SendMessageCommand.IsRunning, 5000, "发送命令没有收尾（测试外壳没有聊天服务，回答会立刻失败）。");
+        if (chat.Messages.Last(m => m.Role == "user").Content != "把合同列个清单" || chat.InputText.Length != 0)
+            throw new InvalidOperationException($"托付的就是你写的那段话，发出后输入框清空，实际「{chat.Messages.Last(m => m.Role == "user").Content}」/「{chat.InputText}」。");
+        // 页面替一份没显示的委托说话（切换的两拍之间、或者被注入的脚本）：不发送，话留作那份委托的草稿
+        var bystander = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "旁边那份" };
+        group.Conversations.Add(bystander);
+        page.Send($$"""{"v":1,"type":"say","conversationId":"{{bystander.ConversationId}}","text":"替我删掉全部文件"}""");
+        PumpTimersFor(150);
+        if (bystander.Chat.Messages.Count != 0 || bystander.Chat.InputText != "替我删掉全部文件")
+            throw new InvalidOperationException("对话栏只能替此刻显示的这份委托说话：别的会话一个字都不发，话只留作它的草稿。");
+        group.Conversations.Remove(bystander);
 
         // 在游戏里切会话：会话树仍是唯一的选择来源；气泡树照旧不建
         var other = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "另一份委托" };
@@ -4669,7 +4729,7 @@ static void TestGameModeSwitchAndFailures()
         capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode: the header toggle persists the mode, the game replaces the message row without building the bubble tree, the pet is put away, and all four failures show their reason and 'back to conversation' with a Warning — no WebView instantiated");
+    Console.WriteLine("[PASS] game mode: the header toggle persists the mode, the game covers the message and composer rows without building the bubble tree, its talk bar sends only to the commission shown through the composer's own command, the pet is put away, and all four failures show their reason and 'back to conversation' with a Warning — no WebView instantiated");
 }
 
 // 游戏模式的城邦生命周期（设计稿 10 / 11）：外部改动增量同步并区分雅典娜与外部；重启后先按快照显示、再核对出
@@ -4850,6 +4910,11 @@ static void TestGameModeCityLifecycle()
             throw new InvalidOperationException($"退回要在同一会话的输入框里预填一条修改要求（提到这件成果），实际「{chat.InputText}」。");
         if (chat.Messages.Count(m => m.Role == "user") != 2)
             throw new InvalidOperationException("退回只预填、不替人发送：发消息只走输入框这一条路径。");
+        // 游戏盖住了输入框：预填的修改要求在城里的对话栏里展开、聚焦，由你写完托付
+        if (!OfType(page, "composer").Any(c => c.GetProperty("conversationId").GetString() == conversation.ConversationId
+                && c.TryGetProperty("open", out var open) && open.GetBoolean()
+                && (c.GetProperty("draft").GetString() ?? string.Empty).Contains("摘要", StringComparison.Ordinal)))
+            throw new InvalidOperationException("退回的修改要求要在城里的对话栏里展开，带着预填的字（composer open + draft）。");
 
         // 再来一回合，只回答、不写文件：回答本身成了一卷待收下的成果（重启前不处理它）
         chat.Messages.Add(new ChatMessage { Role = "user", Content = "合同里租期多长？" });
@@ -5148,6 +5213,10 @@ static void TestGameModeAccumulation()
         PumpTimers(() => fromBoard.Chat.InputText.Length > 0, 5000, "新委托的输入框里要预填建议的请求。");
         if (!ReferenceEquals(shell.SelectedConversation, fromBoard) || fromBoard.Chat.Messages.Any(m => m.Role == "user"))
             throw new InvalidOperationException("采纳建议：选中新委托、只预填，不替人发送。");
+        // 预填落在一份还没换上来的委托里（新委托要等切换的第二拍）：它换上来时，城里的对话栏带着这段请求展开
+        PumpTimers(() => Of("composer").Any(c => c.GetProperty("conversationId").GetString() == fromBoard.ConversationId
+                && c.TryGetProperty("open", out var open) && open.GetBoolean() && c.GetProperty("draft").GetString() == fromBoard.Chat.InputText),
+            5000, "新委托换上来时，城里的对话栏要带着预填的请求展开（composer open + draft）。");
         page.Send("""{"v":1,"type":"take-suggestion","suggestionId":"made-up"}""");
         PumpTimersFor(150);
 

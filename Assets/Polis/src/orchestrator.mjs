@@ -25,7 +25,7 @@ export const DEFAULTS = Object.freeze({
   minBeatMs: 350,         // 来晚了也至少留一拍
   settleMs: 300,          // 长工具做完后多演的一小拍，让"做完了"看得见
   teleportMs: 420,        // 化作一道光
-  maxWalkMs: 5000,        // 比这更远的路不走，直接瞬移（神本来就能瞬移）；12 米 / 秒约 60 米，城里多数地方走得到
+  maxWalkMs: 10000,       // 比这更远的路不走，直接瞬移（神本来就能瞬移）。M3：她改成 3.2 米 / 秒走路，10 秒约 32 米——广场到周围一圈走得到，再远瞬移
   deliverMs: 1800,        // 递上成果
   idleBeforeWanderMs: 4000,
   wanderMs: 1400,

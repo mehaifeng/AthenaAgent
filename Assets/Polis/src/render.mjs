@@ -90,13 +90,14 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = true
       uGlowStrength: { value: 0.2 },
       uSeed: { value: 0.37 },
       uEdge: { value: 0 },
+      uNight: { value: 0 },
     },
     vertexShader: /* glsl */`
       varying vec2 vUv;
       void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: /* glsl */`
       uniform sampler2D tDiffuse, tMask;
-      uniform float uGrade, uAccent, uAspect, uGlowRadius, uGlowStrength, uSeed, uEdge;
+      uniform float uGrade, uAccent, uAspect, uGlowRadius, uGlowStrength, uSeed, uEdge, uNight;
       uniform vec2 uGlowPos;
       varying vec2 vUv;
       float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -108,12 +109,15 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = true
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         float g = mix(l, smoothstep(0.0, 1.0, l), 0.45);
         vec3 col = mix(c, vec3(g), uGrade * (1.0 - m));
+        // 夜里：月光下的灰带一点冷（银灰），点缀色不动
+        col = mix(col, col * vec3(0.84, 0.9, 1.0), uNight * 0.7 * (1.0 - m));
         vec2 d = vUv - uGlowPos; d.x *= uAspect;
         float r2 = dot(d, d) / (uGlowRadius * uGlowRadius);
-        col += uGlowStrength * exp(-r2 * 1.2) * (1.0 - 0.92 * self) * vec3(1.0);
-        col += self * 0.025;
+        // 光属于雅典娜：夜里她的光更强、更暖，是夜城里唯一的亮处
+        col += uGlowStrength * (1.0 + 0.9 * uNight) * exp(-r2 * 1.2) * (1.0 - 0.92 * self) * mix(vec3(1.0), vec3(1.0, 0.95, 0.84), uNight);
+        col += self * (0.025 + 0.05 * uNight);
         vec2 q = vUv - 0.5; q.x *= uAspect;
-        col *= mix(1.0, 0.84, smoothstep(0.5, 1.15, length(q)));
+        col *= mix(1.0, 0.84 - 0.14 * uNight, smoothstep(0.5, 1.15, length(q)));
         col += (hash12(vUv * vec2(1777.0, 1009.0) + uSeed) - 0.5) * 0.028;
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }`,
@@ -166,8 +170,28 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = true
     composer.render();
   }
 
+  // 夜里（M3 第三轮：跟着应用的深色主题）：天色压暗、月光（冷、暗）代替日光、环境光收着、曝光略提；
+  // 雅典娜的光在调色里加强（uNight）。k 从 0（白天）到 1（夜里）连续变，主题切换时 game 用它做一段过渡
+  const DAY = { bg: new THREE.Color(0xc9c4bb), sky: new THREE.Color(0xe8eef3), ground: new THREE.Color(0x8a7f70), hemi: 0.55, sun: new THREE.Color(0xfff2df), sunI: 3.6, env: 0.18, exposure: 0.82 };
+  const NIGHT = { bg: new THREE.Color(0x111418), sky: new THREE.Color(0x7f8ea5), ground: new THREE.Color(0x15181c), hemi: 0.19, sun: new THREE.Color(0xc4d2e6), sunI: 0.78, env: 0.05, exposure: 0.92 };
+  let night = 0;
+  function setNight(k) {
+    night = Math.min(1, Math.max(0, k));
+    const lerp = (a, b) => a + (b - a) * night;
+    if (scene.background?.isColor) scene.background.copy(DAY.bg).lerp(NIGHT.bg, night);
+    hemi.color.copy(DAY.sky).lerp(NIGHT.sky, night);
+    hemi.groundColor.copy(DAY.ground).lerp(NIGHT.ground, night);
+    hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
+    sun.color.copy(DAY.sun).lerp(NIGHT.sun, night);
+    sun.intensity = lerp(DAY.sunI, NIGHT.sunI);
+    scene.environmentIntensity = lerp(DAY.env, NIGHT.env);
+    renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);
+    gradePass.uniforms.uNight.value = night;
+  }
+
   return {
-    renderer, scene, camera, composer, gradePass, gtao, sun, size,
-    applyFrustum, resize, syncMatrices, projectUv, projectCss, placeSun, render,
+    renderer, scene, camera, composer, gradePass, gtao, sun, hemi, size,
+    applyFrustum, resize, syncMatrices, projectUv, projectCss, placeSun, render, setNight,
+    get night() { return night; },
   };
 }

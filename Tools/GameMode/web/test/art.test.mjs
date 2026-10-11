@@ -2,7 +2,7 @@
 // 运行：node --test Tools/GameMode/web/test/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, WORK_VARIANTS, JOINT_NAMES, poseAt, blendPoses, restPose, walkPeriod, LIMITS } from '../../../../Assets/Polis/src/art/poses.mjs';
+import { ACTIONS, WORK_VARIANTS, JOINT_NAMES, poseAt, blendPoses, restPose, walkPeriod, LIMITS, NEUTRAL, ARMS } from '../../../../Assets/Polis/src/art/poses.mjs';
 import { planOverrides, resolveSource, clipFor, modelUrl, isAssetId, MODEL_ROUTE, accentPropsShown, ACCENT_PROPS } from '../../../../Assets/Polis/src/art/asset-manifest.mjs';
 import { bust, toSvg, CHARACTERS, EXPRESSIONS, BUST_VIEWBOX, CURLS, CURL_BOX, crownPolygon } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
@@ -68,15 +68,16 @@ test('poses: walking is periodic, left and right are half a cycle apart, and the
   assert.ok(bobs[0] > bobs[100], 'highest when the legs pass each other');
 });
 
-test('poses: Athena glides — no stepping legs, robe trailing back', () => {
-  for (let t = 0; t < 3000; t += 100) {
-    const p = poseAt('walk', t, { glide: true });
-    assert.equal(p.legL.rx, 0); assert.equal(p.legR.rx, 0);
-    assert.ok(p.skirt.rx > 0, 'the hem trails behind her');
-    assert.ok(p.spine.rx > 0, 'she leans into the motion');
-    // M2 美术审查：前倾 0.08、拖摆 0.1 在游戏视距里和站着分不出来
-    assert.ok(p.spine.rx >= 0.15 && p.skirt.rx >= 0.2, `the lean and the trailing hem read at game distance (t=${t})`);
-  }
+test('poses: Athena walks — stepping legs at her own stride, no gliding left anywhere', () => {
+  // M0–M2 她滑行（12 米 / 秒）；M3 用户实测说像女鬼在飘，改成 3.2 米 / 秒的疾步。姿势里再没有"滑行"这一说
+  const style = { speed: 3.2, stride: 1.6 };
+  const P = walkPeriod(style);
+  assert.ok(near(P, 1000), `a stride of 1.6 m at 3.2 m/s: one cycle per second (got ${P})`);
+  let swing = 0;
+  for (let t = 0; t < P; t += 25) swing = Math.max(swing, Math.abs(poseAt('walk', t, style).legL.rx));
+  assert.ok(swing > 0.2, 'her legs step');
+  assert.ok(!('glide' in poseAt('walk', 0, { glide: true })), 'style.glide is not a thing any more');
+  assert.ok(Math.abs(poseAt('walk', 250, { ...style, glide: true }).legL.rx) > 0.1, 'and asking for it changes nothing');
 });
 
 test('poses: delivering starts and ends at rest, holds the gift until it is set down, and bends to the ground', () => {
@@ -106,8 +107,23 @@ test('poses: work variants put the right tools in the hands', () => {
   assert.deepEqual(props.hammer, [null, 'hammer']);
   assert.deepEqual(props.read, [null, 'scrollOpen']);
   assert.deepEqual(props.announce, [null, 'staff']);
-  const strike = [0, 300, 495, 612].map((t) => poseAt('work', t, { variant: 'hammer' }).shoulderR.rx);
-  assert.ok(strike[2] < -2.4 && strike[3] > -0.6, 'the hammer goes up over the head, then comes down fast');
+  assert.deepEqual(props.forge, ['tongs', 'hammer'], 'the smith holds the hot iron with tongs while he hammers');
+  assert.deepEqual(props.carve, ['chisel', 'mallet']);
+  // 举到肩后用 420 毫秒，落到砧面上只用 180 毫秒（M3 第三轮的锤：落点由 tools.test.mjs 用真骨架核对）
+  const strike = [0, 200, 420, 600, 680].map((t) => poseAt('work', t, { variant: 'forge' }).shoulderR.rx);
+  assert.ok(strike[2] < -2.4, `the hammer goes up behind the shoulder (${strike[2].toFixed(2)})`);
+  assert.ok(strike[3] > -0.75 && strike[4] > -0.75, `then comes down onto the anvil, fast (${strike[3].toFixed(2)} 180 ms later)`);
+  // 拳握的家什：抡锤的前臂转到拇指朝前（柄才落在挥动的那个平面里）
+  for (const [v, side] of [['forge', 'R'], ['forge', 'L'], ['hammer', 'R']]) {
+    const p = poseAt('work', 650, { variant: v });
+    assert.ok(Math.abs(p[`hand${side}`].ry - NEUTRAL[side]) < 1e-9, `${v}: the ${side} forearm turns thumb-forward for a power grip`);
+  }
+  // 凿石头不在身前的竖直面里挥：凿尾转向右手、槌柄横过凿子，两只前臂各自比拇指朝前多转一点（M3 第四轮按真骨架解的，
+  // 钉死拇指朝前再解，落槌时右拳缩到离肚子 16 厘米）——仍在前臂能转的范围里
+  for (const side of ['L', 'R']) {
+    const p = poseAt('work', 650, { variant: 'carve' });
+    assert.ok(Math.abs(p[`hand${side}`].ry - NEUTRAL[side]) < 0.9, `carve: the ${side} forearm stays within its turn (${(p[`hand${side}`].ry - NEUTRAL[side]).toFixed(2)} from thumb-forward)`);
+  }
 });
 
 test('poses: blending is exact at the ends and switches the held tool halfway', () => {
@@ -136,9 +152,10 @@ test('poses: residents carry their tools while walking and standing; long staves
   assert.notEqual(w0.shoulderL.rx, w1.shoulderL.rx, 'the free arm still swings');
   const hug = poseAt('walk', 700, { carry: { side: 'L', grip: 'hug', prop: 'tablet' } });
   assert.equal(hug.propL, 'tablet');
-  assert.ok(hug.elbowL.rx < -1.2, 'the tablet is held against the chest');
-  // 做事时立着的权杖、测杆，收缆时的缆：手腕同样补正（第一版的杖随前臂倒向一边）
-  for (const v of ['announce', 'survey', 'haul']) {
+  // 板平放在左掌上、托在腰前（第一版前臂收在胸前，板竖着贴在胸口、正面朝外）——掌心朝上由 tools.test.mjs 用真骨架核对
+  assert.deepEqual([hug.shoulderL.rx, hug.shoulderL.ry, hug.shoulderL.rz, hug.elbowL.rx, hug.handL.rx, hug.handL.ry, hug.handL.rz], ARMS.hugL, 'the board rests on the left palm');
+  // 做事时立着的权杖、测杆：手腕同样补正（第一版的杖随前臂倒向一边）。收缆不在这里了：M3 第三轮的缆绳每帧按两只拳头铺，不是挂在手上的直杆
+  for (const v of ['announce', 'survey']) {
     for (let t = 0; t < 3000; t += 70) assert.ok(Math.abs(tilt(poseAt('work', t, { variant: v }), 'R')) < 1e-9, `${v} t=${t}: the hand frame stays level`);
   }
   assert.equal(poseAt('idle', 0, { carry: null }).propR, null, 'no carry, empty hands');
@@ -147,7 +164,7 @@ test('poses: residents carry their tools while walking and standing; long staves
   assert.throws(() => poseAt('idle', 0, { carry: { side: 'R', grip: 'juggle', prop: 'rod' } }), /unknown carry grip/);
 });
 
-test('figures: only Athena carries the accent color; carried tools hang on the hand that carries them; robes hide legs', () => {
+test('figures: only Athena carries the accent color; carried tools hang on the hand that carries them; everyone has legs', () => {
   const M = stubMaterials();
   for (const id of CHARACTER_IDS) {
     const f = buildCharacter(M, id);
@@ -166,11 +183,10 @@ test('figures: only Athena carries the accent color; carried tools hang on the h
       // M2 美术审查：第一版抄写员交付时手里也是一卷红色的卷轴
       assert.equal(red.length, 0, `${id}: no accent color — the terracotta red means "your turn", and only Athena hands you things`);
     }
-    // 长衣（到脚踝）里不建腿；滑行的雅典娜连脚也不露
-    const long = !['exomis', 'chlamys'].includes(CHARACTER_SPECS[id].garment);
-    const legMeshes = f.joints.legL.children.filter((c) => c.isMesh).length + f.joints.kneeL.children.filter((c) => c.isMesh).length;
-    const expected = long ? (CHARACTER_SPECS[id].glides ? 0 : 1) : 3;
-    assert.equal(legMeshes, expected, `${id}: ${long ? 'a long robe shows no legs' : 'a short tunic shows thigh, shin and foot'}`);
+    // M3：人人都有大腿、膝、小腿、小腿肚和一只带脚趾和凉鞋的脚（衣摆是会动的布，没有腿就只剩两只鞋浮在前面）——雅典娜也走路了
+    let legMeshes = 0;
+    f.joints.legL.traverse((o) => { if (o.isMesh) legMeshes++; });
+    assert.ok(legMeshes >= 12, `${id}: thigh, shin, foot, toes and sandal are built (${legMeshes} meshes)`);
     const carry = CHARACTER_SPECS[id].carry;
     if (carry) assert.equal(f.props.get(carry.prop).parent, f.joints[`hand${carry.side}`], `${id}: the ${carry.prop} hangs on the ${carry.side} hand`);
   }

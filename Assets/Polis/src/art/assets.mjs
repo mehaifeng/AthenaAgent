@@ -16,6 +16,8 @@ import { buildDeliveredItem, buildDisplayedItem } from './items.mjs';
 import { drape, blobGeometry, limbGeometry, merge, keyed } from './rig.mjs';
 import { rng, hashSeed } from './noise.mjs';
 import { poseAt } from './poses.mjs';
+import { prepareExternalBody, attachExternalBody } from './bind.mjs';
+import { footprintOf, BLOCKING_HEIGHT } from '../footprint.mjs';
 
 /**
  * 资产表：Id → { kind, label, build(params) }。label 是美术审查里的中文名。
@@ -25,7 +27,9 @@ export function createAssetRegistry(M) {
   const statue = props.statueGeometry(drape, blobGeometry, limbGeometry, merge, keyed);
   statue.userData.shared = true;
   const registry = new Map();
-  const add = (id, kind, label, build) => registry.set(id, { id, kind, label, build });
+  // 碰撞（M3 决定 1）：缺省每件东西按自己的网格在人身高度带里推足迹（footprint.mjs）；人物与成果不挡路——
+  // 成果是"轮到你了"的那样东西，要走过去点它；陈列的藏品站在底座上，底座已经挡了
+  const add = (id, kind, label, build, collision = kind === 'figure' ? 'none' : 'band') => registry.set(id, { id, kind, label, build, collision });
   const buildingLabels = { stoaLibrary: '柱廊书库', house: '民居', workshop: '作坊', sculptureGarden: '雕塑园', treasury: '金库（文件夹）', warehouse: '仓库' };
   for (const [kind, fn] of Object.entries(BUILDINGS)) {
     add(`building.${kind}`, 'building', buildingLabels[kind], (p = {}) => {
@@ -40,7 +44,7 @@ export function createAssetRegistry(M) {
   add('civic.gate', 'civic', '城门', () => civic.buildGate(M));
   add('civic.agora', 'civic', '广场（委托板、日晷）', () => civic.buildAgora(M));
   add('civic.harbor', 'civic', '港口', (p = {}) => civic.buildHarbor(M, p.quayLocalZ ?? 9, p.pierLength ?? 14, p.plotCenterZ ?? 0, statue));
-  add('civic.boat', 'civic', '船', () => civic.buildBoat(M));
+  add('civic.boat', 'civic', '船', () => civic.buildBoat(M), 'none');
   add('civic.paintedStoa', 'civic', '彩绘柱廊', () => civic.buildPaintedStoa(M));
   add('civic.archive', 'civic', '书库', () => civic.buildArchive(M));
   add('civic.vault', 'civic', '金库（城邦）', () => civic.buildVault(M));
@@ -58,8 +62,8 @@ export function createAssetRegistry(M) {
   add('prop.statue', 'prop', '立像', () => props.buildStatue(M, statue));
   for (const kind of ['scroll', 'ledger', 'painting', 'answer']) {
     const label = { scroll: '卷轴', ledger: '账册', painting: '彩绘板', answer: '回答' }[kind];
-    add(`prop.item-${kind}`, 'prop', `成果：${label}（待收下）`, () => buildDeliveredItem(M, kind));
-    add(`prop.display-${kind}`, 'prop', `藏品：${label}（陈列）`, () => buildDisplayedItem(M, kind));
+    add(`prop.item-${kind}`, 'prop', `成果：${label}（待收下）`, () => buildDeliveredItem(M, kind), 'none');
+    add(`prop.display-${kind}`, 'prop', `藏品：${label}（陈列）`, () => buildDisplayedItem(M, kind), 'none');
   }
   add('plant.olive', 'plant', '橄榄', (p = {}) => plants.buildOlive(M, { stage: p.stage ?? 'grown', seed: p.seed ?? 1 }));
   add('plant.cypress', 'plant', '柏树', (p = {}) => plants.buildCypress(M, p));
@@ -100,6 +104,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
   const { overrides, ignored } = planOverrides(registry.keys(), manifest);
   const loads = new Map();
   const models = new Map();
+  /** rig: procedural 的人物：模型搬进人物坐标、找好关节、算好权重的那一份（bind.prepareExternalBody），每个实例共用。 */
+  const bodies = new Map();
   const report = {
     requested: [...overrides.keys()],
     ignored: ignored.map((i) => `${i.id}: ${i.reason}`),
@@ -118,6 +124,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
         let meshes = 0;
         gltf?.scene?.traverse((o) => { if (o.isMesh) meshes++; });
         if (!gltf?.scene || meshes === 0) throw new Error('the model has no meshes');
+        // 蒙到程序化骨架上的人物：找关节、算权重放在这里做，失败（没站成 A-pose、手贴着身体……）和加载失败一样退回程序化的
+        if (entry.rig === 'procedural') bodies.set(id, prepareExternalBody(gltf.scene, entry));
         models.set(id, gltf);
         loads.set(id, { ok: true });
         report.external.push(id);
@@ -136,13 +144,29 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     return resolveSource(id, overrides, loads).source;
   }
 
-  /** 一件东西（建筑、器物、植物、公共建筑）：外部模型到了就用它，否则程序化。 */
+  /** 一件东西（建筑、器物、植物、公共建筑）：外部模型到了就用它，否则程序化。根节点记着它是哪件、怎样参与碰撞。 */
   function object(id, params = {}) {
     const entry = registry.get(id);
     if (!entry) throw new Error(`assets: unknown asset id '${id}'`);
     if (entry.kind === 'figure') throw new Error(`assets: '${id}' is a figure; use figure()`);
-    if (source(id) === 'external') return wrapExternal(models.get(id), overrides.get(id)).wrapper;
-    return entry.build(params);
+    const group = source(id) === 'external' ? wrapExternal(models.get(id), overrides.get(id)).wrapper : entry.build(params);
+    group.userData.asset = { id, kind: entry.kind, collision: entry.collision };
+    return group;
+  }
+
+  /**
+   * 一件东西的碰撞足迹（按它自己的网格推，算一次记在根上；外部模型同样按网格推）。矮于 BLOCKING_HEIGHT 的器物与植物、
+   * 以及登记为不参与碰撞的（人物、成果、船）返回 null。
+   */
+  function footprint(group) {
+    const info = group.userData.asset;
+    if (!info || info.collision === 'none') return null;
+    if (group.userData.footprint === undefined) {
+      // 器物与植物：矮于 0.4 米不挡，树冠不是屋顶；建筑与公共建筑：屋檐下能走进 COVER_REACH。嵌在里面的别的资产各算各的
+      const small = info.kind === 'prop' || info.kind === 'plant';
+      group.userData.footprint = footprintOf(group, { minHeight: small ? BLOCKING_HEIGHT : 0, coverReach: small ? null : undefined, stopAt: (o) => !!o.userData.asset });
+    }
+    return group.userData.footprint;
   }
 
   /**
@@ -154,6 +178,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     const entry = registry.get(id);
     if (!entry || entry.kind !== 'figure') throw new Error(`assets: '${id}' is not a figure`);
     if (source(id) !== 'external') return entry.build(params);
+    // 蒙在程序化骨架上：先建这个人物的程序化版本（骨架、姿势、手里的东西），再换上外部的身体（bind.mjs）
+    if (bodies.has(id)) return attachExternalBody(entry.build(params), bodies.get(id));
     const gltf = models.get(id);
     const over = overrides.get(id);
     const { wrapper, model } = wrapExternal(gltf, over);
@@ -183,26 +209,38 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
       wrapper.add(light);
       wrapper.userData.light = light;
     }
+    let lastClock = null;
     return {
       root: wrapper,
       external: true,
       props: new Map(),
+      cloth: [],
+      /**
+       * 外部人物：按清单把动作映射到它的片段（没有的按 clipFor 退），换片段时交叉淡入 0.22 秒（M3），
+       * 一次性的动作（挥手、接过）只播一遍。时间由 style.clock（毫秒，缺省 performance.now()）推进。
+       */
       pose(action, t, style = {}) {
+        const now = style.clock ?? performance.now();
+        const dt = lastClock == null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - lastClock) / 1000));
+        lastClock = now;
         const name = clipFor(over, action);
         const clip = name ? clips.get(name) : null;
         if (clip && current?.getClip() !== clip) {
-          mixer.stopAllAction();
-          current = mixer.clipAction(clip);
-          current.play();
+          const next = mixer.clipAction(clip);
+          next.reset();
+          next.setLoop(action === 'wave' || action === 'receive' ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+          next.clampWhenFinished = true;
+          next.enabled = true;
+          next.setEffectiveWeight(1);
+          next.play();
+          if (current) current.crossFadeTo(next, 0.22, false);
+          current = next;
         } else if (!clip && current) {
           mixer.stopAllAction();
           current = null;
         }
-        if (current) {
-          current.time = clip.duration > 0 ? ((t / 1000) % clip.duration) : 0;
-          mixer.update(0);
-        }
-        const shown = accentPropsShown(poseAt(action === 'walk' ? 'idle' : action, t, style));
+        if (current) mixer.update(dt);
+        const shown = accentPropsShown(poseAt(action === 'walk' || action === 'run' ? 'idle' : action, t, style));
         for (const [n, mesh] of Object.entries(accentProps)) mesh.visible = shown.includes(n);
       },
     };
@@ -215,6 +253,7 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     prepare,
     source,
     object,
+    footprint,
     figure,
     get overrides() { return overrides; },
     ids(kind = null) { return [...registry.values()].filter((e) => !kind || e.kind === kind).map((e) => e.id); },

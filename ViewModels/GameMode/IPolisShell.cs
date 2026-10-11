@@ -42,6 +42,13 @@ public interface IPolisShell
     /// </summary>
     void PrefillInput(string conversationId, string text);
 
+    /// <summary>
+    /// 城里对话栏的"托付"（2026-10-11 起游戏盖住了输入框）：把这段话放进这个会话的输入框、执行它自己的发送命令——
+    /// 和你在输入框里按发送是同一条路径（附件、上下文、压缩都照旧）。只对会话树上选中的那个会话生效；
+    /// 它正在回答、正在压缩、或者话是空的时候发送命令不可执行，返回 false，什么都不发。
+    /// </summary>
+    bool SubmitInput(string conversationId, string text);
+
     /// <summary>停止当前会话正在进行的回合。</summary>
     void StopCurrentTurn();
 

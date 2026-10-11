@@ -134,6 +134,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private PolisEventProjector? _projector;
     private bool _projectionDirty;
     private bool _wasWaiting;
+    /// <summary>
+    /// 游戏刚替这份委托预填了一段话（委托板、居民、神谕、退回）：它显示出来的那一刻，城里的对话栏展开并聚焦，
+    /// 让你看一眼再托付。预填可能落在一份还没换上来的委托里（新开的委托要等会话切换的第二拍），所以记下 Id、到时再开。
+    /// </summary>
+    private string? _prefillFor;
 
     // —— 积累（M2）：都从存档与会话推导，这里只记"上一次推了什么"，免得每两秒重推一遍 ——
     /// <summary>积累的刷新间隔：会话的完成、别的城亮灯、定时任务的结果，两秒内出现在城里就够了。</summary>
@@ -165,6 +170,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _assetStore = assetStore ?? throw new ArgumentNullException(nameof(assetStore));
         _cronTasks.TasksChanged += OnCronTasksChanged;
         _isGameMode = _configuration.Current.MainLayout.GameMode;
+        _night = !string.Equals(_configuration.Current.Theme, "Light", StringComparison.OrdinalIgnoreCase);
         _flushTimer = new DispatcherTimer(FlushInterval, DispatcherPriority.Background, (_, _) => Flush());
         _watcher.Changed += OnWorkspaceChanged;
         _watcher.ErrorsDropped += OnWatcherErrorsDropped;
@@ -270,6 +276,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             }
             EnsurePage();
             Post(new { type = "visibility", visible = _windowVisible });
+            // 在对话模式里写了一半的话：带进城里的对话栏
+            if (PageState == PolisPageState.Ready && _session != null) PostComposer(includeDraft: true);
             if (_session != null && _cityKey == null) _ = ActivateSessionAsync(_session, voyage: false);
             else if (_watcher.State == WorkspaceWatchState.Unavailable && _cityWorkspace != null)
                 _ = RescanAsync("watcher unavailable: rescan on return");
@@ -280,6 +288,31 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             Flush();
             _accumulationTimer?.Stop();
             ScheduleRelease();
+        }
+    }
+
+    // ———————————————————————— 夜里（跟着应用的深 / 浅色主题） ————————————————————————
+
+    /// <summary>
+    /// 应用此刻是不是深色主题（M3 第三轮：游戏加一个夜里，随应用的深 / 浅色切换）。启动时取配置里的主题，
+    /// 之后由视图在主题变了的那一刻告诉这里（<see cref="SetNight"/>：<c>ActualThemeVariantChanged</c>，比 <c>App.ThemeChanged</c>
+    /// 早 1.2 秒——应用背景的"景深聚焦"过渡和城里从白天走到夜里同时进行）。
+    /// </summary>
+    private bool _night;
+
+    public bool IsNight => _night;
+
+    /// <summary>主题变了（视图调用）：页面已就绪就推一条 <c>theme</c>，城里一秒多过渡过去；还没就绪的，就绪时带上。</summary>
+    public void SetNight(bool night)
+    {
+        if (_night == night) return;
+        _night = night;
+        OnPropertyChanged(nameof(IsNight));
+        _logger.Debug("Polis follows the app theme: {Theme}", night ? "dark" : "light");
+        if (PageState == PolisPageState.Ready)
+        {
+            Post(new { type = "theme", night });
+            Flush();
         }
     }
 
@@ -301,7 +334,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         if (!IsGameMode || PageUrl != null || PageState == PolisPageState.Failed) return;
         try
         {
-            var url = _previewHost.BuildPolisUrl(_localization.CurrentLanguage);
+            var url = _previewHost.BuildPolisUrl(_localization.CurrentLanguage, _night);
             // 先置 Loading 再给地址：给地址会让视图同步创建页面，创建失败时 Fail 已经把状态改成 Failed，
             // 顺序反过来就会被这里的 Loading 盖掉——失败面板永远不出现。
             PageState = PolisPageState.Loading;
@@ -451,8 +484,20 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 break;
             case PolisIntentType.PrefillInput:
                 // 预填会话树上选中的那一份委托（不是"中间正显示的"——第二拍之前两者可能不同）
-                if (_shell?.SelectedSession is { } selected) _shell.PrefillInput(selected.ConversationId, intent.Text!);
+                if (_shell?.SelectedSession is { } selected) Prefill(selected.ConversationId, intent.Text!);
                 break;
+            case PolisIntentType.Say:
+                Say(intent.ConversationId!, intent.Text!);
+                break;
+            case PolisIntentType.Draft:
+            {
+                // 草稿落回它写给的那一份委托自己的输入框（切换的两拍之间，页面可能还在送上一份的草稿）
+                var target = _session?.ConversationId == intent.ConversationId
+                    ? _session
+                    : _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == intent.ConversationId);
+                if (target != null && target.Chat.InputText != intent.Text) target.Chat.InputText = intent.Text!;
+                break;
+            }
             case PolisIntentType.StopTurn:
                 _shell?.StopCurrentTurn();
                 break;
@@ -539,7 +584,45 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             _logger.Warning("Polis could not open a new commission for {City}", _cityKey);
             return;
         }
-        _shell.PrefillInput(session.ConversationId, prompt);
+        Prefill(session.ConversationId, prompt);
+    }
+
+    /// <summary>
+    /// 预填一份委托的输入框（外壳的同一条路径），并记下"显示出来时把对话栏打开"。已经显示着的委托，
+    /// <see cref="MainConversationViewModel.InputFocusRequested"/> 当场就把对话栏打开（<see cref="OnChatInputFocusRequested"/>）。
+    /// </summary>
+    private void Prefill(string conversationId, string text)
+    {
+        if (_shell == null) return;
+        _prefillFor = conversationId;
+        _shell.PrefillInput(conversationId, text);
+    }
+
+    /// <summary>
+    /// 城里对话栏的托付（2026-10-11 起游戏盖住了整个中间区域，输入框也在其中）：只替此刻显示的这一份委托说话，
+    /// 走输入框同一条发送路径（外壳的 <see cref="IPolisShell.SubmitInput"/>）。发不出去（她在回答、在压缩、
+    /// 页面还停在上一份委托）时一个字都不丢：话留在它写给的那份委托的输入框里，对话栏连同这段话一起退回来。
+    /// </summary>
+    private void Say(string conversationId, string text)
+    {
+        if (_shell == null) return;
+        if (_session == null || _session.ConversationId != conversationId)
+        {
+            var written = _shell.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
+            if (written != null) written.Chat.InputText = text;
+            _logger.Information("Polis talk bar sent to {ConversationId}, which is not the commission shown; kept it as that commission's draft", conversationId);
+            PostComposer();
+            Flush();
+            return;
+        }
+        if (_shell.SubmitInput(conversationId, text))
+        {
+            _logger.Information("Polis talk bar handed a request ({Length} chars) to {ConversationId}", text.Length, conversationId);
+            return;
+        }
+        _logger.Information("Polis talk bar could not send to {ConversationId} right now (busy or compressing); kept it as the draft", conversationId);
+        PostComposer(includeDraft: true, open: true);
+        Flush();
     }
 
     /// <summary>
@@ -586,9 +669,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             scale = kv.Value.Scale,
             rotateY = kv.Value.RotateY,
             offset = kv.Value.Offset,
-            animations = kv.Value.Animations
+            animations = kv.Value.Animations,
+            rig = kv.Value.Rig
         }, StringComparer.Ordinal) });
         Post(new { type = "visibility", visible = _windowVisible && IsGameMode });
+        // 地址里带过一次主题；创建页面之后主题又变过的话以此刻为准（直接到位，不过渡）
+        Post(new { type = "theme", night = _night, instant = true });
         _cityKey = null;
         _accumulationKey = null;
         if (_session != null) _ = ActivateSessionAsync(_session, voyage: false);
@@ -670,6 +756,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         session.PropertyChanged += OnSessionPropertyChanged;
         session.Chat.Messages.CollectionChanged += OnMessagesChanged;
         foreach (var message in session.Chat.Messages) WatchMessage(message);
+        // 城里的对话栏：这份委托在不在回答、能不能托付、附件、预填
+        session.Chat.PropertyChanged += OnChatPropertyChanged;
+        session.Chat.PendingAttachments.CollectionChanged += OnPendingAttachmentsChanged;
+        session.Chat.InputFocusRequested += OnChatInputFocusRequested;
         _wasWaiting = session.IsWaitingForApproval;
     }
 
@@ -679,8 +769,56 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _session.PropertyChanged -= OnSessionPropertyChanged;
         _session.Chat.Messages.CollectionChanged -= OnMessagesChanged;
         foreach (var message in _session.Chat.Messages) UnwatchMessage(message);
+        _session.Chat.PropertyChanged -= OnChatPropertyChanged;
+        _session.Chat.PendingAttachments.CollectionChanged -= OnPendingAttachmentsChanged;
+        _session.Chat.InputFocusRequested -= OnChatInputFocusRequested;
         _session = null;
         _projector = null;
+    }
+
+    // ———————————————————————— 城里的对话栏 ————————————————————————
+
+    /// <summary>
+    /// 告诉页面这份委托的对话栏该是什么样：在不在回答（托付键换成"请她停下"）、排着队、等审批、在压缩上下文、能不能托付、
+    /// 待发送的附件。<paramref name="includeDraft"/>：连同输入框里的字（进场、换委托、预填、退回发不出去的话）；
+    /// 平时不带——页面正在打字，回推草稿会和它打架。<paramref name="open"/>：展开并聚焦（预填之后）。
+    /// </summary>
+    private void PostComposer(bool includeDraft = false, bool open = false)
+    {
+        if (_session == null) return;
+        var chat = _session.Chat;
+        Post(new
+        {
+            type = "composer",
+            conversationId = _session.ConversationId,
+            busy = chat.IsSending,
+            queued = chat.IsQueued,
+            waiting = _session.IsWaitingForApproval,
+            compressing = chat.IsCompressing,
+            canSend = chat.CanAcceptAttachments,
+            attachments = chat.PendingAttachments.Select(a => a.DisplayName).ToList(),
+            draft = includeDraft ? chat.InputText ?? string.Empty : null,
+            open = open ? true : (bool?)null
+        });
+    }
+
+    private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MainConversationViewModel.IsSending) or nameof(MainConversationViewModel.IsQueued)
+            or nameof(MainConversationViewModel.IsCompressing) or nameof(MainConversationViewModel.CanAcceptAttachments))
+            PostComposer();
+    }
+
+    private void OnPendingAttachmentsChanged(object? sender, NotifyCollectionChangedEventArgs e) => PostComposer();
+
+    /// <summary>预填之后输入框要焦点：游戏里是城里的对话栏——带着预填好的字展开、聚焦，由你看一眼再托付。</summary>
+    private void OnChatInputFocusRequested(object? sender, EventArgs e)
+    {
+        if (_session == null || !ReferenceEquals(sender, _session.Chat)) return;
+        if (_prefillFor == _session.ConversationId) _prefillFor = null;
+        if (!IsGameMode || PageState != PolisPageState.Ready) return;
+        PostComposer(includeDraft: true, open: true);
+        Flush();
     }
 
     private void SendFocus()
@@ -701,6 +839,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         if (baseline.Count > 0) PostEvents(baseline);
         if (_session.IsWaitingForApproval) PostEvents(new[] { new PolisLiveEvent("approval") { At = now, Waiting = true } });
         _wasWaiting = _session.IsWaitingForApproval;
+        // 对话栏换成这份委托的：带上它输入框里的字；刚替它预填过（新开的委托、退回）就展开
+        var open = _prefillFor == _session.ConversationId;
+        if (open) _prefillFor = null;
+        PostComposer(includeDraft: true, open: open);
         Flush();
     }
 
@@ -1389,6 +1531,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _wasWaiting = waiting;
         // 审批状态镜像（7.1"定"）：雅典娜停在门槛前、封印变红。审批本身照旧在原生审批窗口里——网页没有"批准"。
         PostEvents(new[] { new PolisLiveEvent("approval") { At = DateTimeOffset.UtcNow, Waiting = waiting } });
+        PostComposer();   // 对话栏的状态行：她在等你点头
     }
 
     private void MarkProjectionDirty()
@@ -1514,10 +1657,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Flush();
         if (state == PolisItemState.Returned)
         {
-            // 退回 = 在同一会话里追加一条修改要求：选中它、预填它自己的输入框，由你写完发出（发消息只走一条路径）。
-            // 按会话 Id 预填：外壳要等第二拍才换中间的输入框，预填"当前的"会落到上一个会话里
+            // 退回 = 在同一会话里追加一条修改要求：选中它、预填它自己的输入框（游戏里就是城里的对话栏，展开并聚焦），
+            // 由你写完托付（发消息只走一条路径）。按会话 Id 预填：外壳要等第二拍才换中间的会话，预填"当前的"会落到上一个会话里
             if (_shell != null && _shell.SelectedSession?.ConversationId != item.ConversationId) _shell.SelectConversation(item.ConversationId);
-            _shell?.PrefillInput(item.ConversationId, F("GameMode.Return.Prefill", "About {0}, please change: ", item.Title));
+            Prefill(item.ConversationId, F("GameMode.Return.Prefill", "About {0}, please change: ", item.Title));
         }
         await PersistSaveAsync();
     }

@@ -1453,6 +1453,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         session.Chat.PrefillInput(text);
     }
 
+    bool IPolisShell.SubmitInput(string conversationId, string text)
+    {
+        // 只认会话树上选中的那一个：游戏只替"此刻显示的这份委托"说话（会话树是唯一的选择来源）
+        var session = SelectedConversation;
+        if (session == null || session.ConversationId != conversationId)
+        {
+            Log.Warning("Polis asked to send to conversation {ConversationId}, which is not the selected one", conversationId);
+            return false;
+        }
+        var chat = session.Chat;
+        chat.InputText = text;
+        if (!chat.SendMessageCommand.CanExecute(null)) return false;
+        chat.SendMessageCommand.Execute(null);
+        return true;
+    }
+
     void IPolisShell.StopCurrentTurn()
     {
         if (MainConversationViewModel.StopResponseCommand.CanExecute(null)) MainConversationViewModel.StopResponseCommand.Execute(null);

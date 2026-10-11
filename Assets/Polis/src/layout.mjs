@@ -2,15 +2,32 @@
 // 单位是米。格子 (x, z) 的中心在 (x·BLOCK, z·BLOCK)；街道在相邻地块之间（半格处）。z 向南增大，南边是海。
 // M2：海边第 z = 2 行的公共地块是伸进海里的石台（civic-layout.mjs）——站立点在台上两排底座之间的过道，
 // 从码头大街沿石台东侧的步道走上去；橄榄林的台地从 publicSites.grove 起向西排，站立点在台地北沿。
-import { TERRACE, groveTerraces } from './civic-layout.mjs';
+// 你用键盘走路（controls.mjs）：walkable() 说哪里能站——地面（floor）由这里定：陆地、海里的石台和栈桥；
+// 挡路的东西（obstacles）由世界按每件资产的足迹盖出来的占用栅格回答（footprint.mjs，M3 决定 1）。
+// 没有世界的时候（纯逻辑的测试）退回按地块算：有房子的地块整块不能进，四边留一条贴墙的路。
+import { TERRACE, VENUES, groveTerraces, venueSlotLocal, SLOTS_PER_VENUE } from './civic-layout.mjs';
 
 export const BLOCK = 18;           // 一个街区：约 12.5 米的地块 + 5.5 米的街道
 export const STREET = 5.5;
 export const PLOT = BLOCK - STREET;
-// 雅典娜滑行的速度（米 / 秒）。真实步速跟不上模型的节奏（等模型中位 4.7 秒），神本来就走得快；
-// 10 米 / 秒时合成回放 11 次移动有 6 次因为超过步行上限而瞬移，空间感丢了一半，12 米 / 秒配 5 秒上限只剩出城门那样的远路
-export const SPEED = 12;
+// 雅典娜走路的速度（米 / 秒）。M0–M2 她以 12 米 / 秒滑行（真实步速跟不上模型的节奏），用户实测说像女鬼在地上飘（2026-10-11），
+// M3 改成疾步走：3.2 米 / 秒、步幅 1.6 米（一步半秒），超过 orchestrator.maxWalkMs（10 秒，约 32 米）的路化作一道光瞬移——
+// 神本来就能瞬移；跟不上模型节奏时仍由"落后 3 秒就瞬移"兜底
+export const SPEED = 3.2;
+export const ATHENA_STRIDE = 1.6;
 export const PLAYER_SPEED = 6;
+
+/** 码头石岸的外沿离码头大街中线多远（world.mjs 在这里砌岸；再往南是海）。 */
+export const SHORE_OFFSET = STREET / 2 + 0.2;
+
+/** 港口的栈桥：码头正南、宽 3.2 米、伸出 14 米（art/civic.mjs 的 buildHarbor）。 */
+export const PIER = Object.freeze({ halfWidth: 1.45, length: 14 });
+
+/** 房子占着的地块，四边各留这么宽能走（贴着墙走，不穿墙）。 */
+const WALL_MARGIN = 0.6;
+
+/** 有房子的公共地块（广场、港口是开阔地，石台另算）。 */
+const SOLID_PUBLIC = new Set(['temple', 'library', 'forge', 'market']);
 
 /**
  * 建筑正面一律朝南（朝镜头）。第一版让建筑朝向广场，结果广场以南的柱廊书库从默认镜头看过去只剩一堵后墙，
@@ -68,10 +85,12 @@ export function createLayout(fixture) {
     return { x, z, cx, cz, facing, yaw: yawFor(facing), building, stand: { x: cx + facing[0] * reach, z: cz + facing[1] * reach } };
   }
 
+  // 广场上闲逛的六个点：半径 2.6 米的一圈。M3：广场的家具（长凳、委托板、讲台、日晷、方柱头像）都挡路了，
+  // 4.6 米的那一圈有三个点正落在长凳、讲台和委托板上——雅典娜站过的每个地方你都要能走到（断言）
   const wanderSpots = [];
   for (let k = 0; k < 6; k++) {
     const a = (k / 6) * Math.PI * 2 + 0.4;
-    wanderSpots.push({ x: Math.cos(a) * 4.6, z: Math.sin(a) * 4.6 });
+    wanderSpots.push({ x: Math.cos(a) * 2.6, z: Math.sin(a) * 2.6 });
   }
 
   function sitePoint(site) {
@@ -224,22 +243,59 @@ export function createLayout(fixture) {
     return (polyLength(route(from, to)) / speed) * 1000;
   }
 
-  /** 点到哪：落在某座建筑的地块里（或港前的石台上）就去它门前 / 过道，否则就是那个点。 */
-  function snapClick(p) {
-    for (const [key, plot] of plots) {
-      if (key === 'agora') continue;   // 广场是开阔地，点哪儿就去哪儿
-      if (Math.abs(p.x - plot.cx) < PLOT / 2 && Math.abs(p.z - plot.cz) < PLOT / 2) return key;
-    }
-    if (p.z > quayZ + STREET / 2) return null;   // 海里：哪儿也不去
-    return `pt:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
-  }
+  // —— 人能站在哪（键盘走路）：城的范围之内；陆地上，房子占着的地块（文件夹的建筑、神庙、图书馆、锻炉、市集）
+  // 不能进，四边留一条贴墙的路；海里只有石台（场馆北半边是建筑、台上的底座也挡路，橄榄林的台地都能走）和港口的栈桥 ——
+  const shoreZ = quayZ + SHORE_OFFSET;
+  const walkBounds = {
+    minX: Math.min(X(iMin) - BLOCK / 2, X(qMin) - BLOCK / 2),
+    maxX: Math.max(X(iMax) + BLOCK / 2, X(qMax) + BLOCK / 2),
+    minZ: Z(jMin) - BLOCK / 2,
+  };
+  const pedestals = Array.from({ length: SLOTS_PER_VENUE }, (_, i) => venueSlotLocal(i));
+  const venueSites = new Set(Object.values(VENUES));
+  // 场馆的建筑占石台北半边、东西两侧各留一条步道（最宽的彩绘柱廊外墙在 ±5.4 米）
+  const venueHalfWidth = TERRACE.sideWalk - 0.2;
 
-  /** 这个点在不在某块石台上（点击时用：石台伸进海里，台面能点、海面不能）。 */
-  function onTerrace(p) {
+  /** 脚下有没有地：陆地、海里的石台（场馆的与橄榄林的）和港口的栈桥。城的范围之外没有。 */
+  function floor(p) {
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return false;
+    if (p.x < walkBounds.minX || p.x > walkBounds.maxX || p.z < walkBounds.minZ) return false;
+    if (p.z <= shoreZ || (Math.abs(p.x - harborPoint.x) <= PIER.halfWidth && p.z <= quayZ + PIER.length)) return true;
     for (const plot of plots.values()) {
-      if (plot.terrace && Math.abs(p.x - plot.cx) < PLOT / 2 && Math.abs(p.z - plot.cz) < PLOT / 2) return true;
+      if (!plot.terrace) continue;
+      if (Math.abs(p.x - plot.cx) <= PLOT / 2 && Math.abs(p.z - plot.cz) <= PLOT / 2) return true;
     }
     return false;
+  }
+
+  /**
+   * 没有占用栅格时的挡路规则（按地块）：有房子的地块整块不能进、四边留一条贴墙的路；场馆的建筑占石台北半边，台上的底座也挡。
+   * 世界建好之后换成按足迹的栅格（setObstacles）——这里只是纯逻辑测试与世界建好之前那一瞬的退路。
+   */
+  function plotObstacles(p) {
+    for (const [key, plot] of plots) {
+      const lx = p.x - plot.cx, lz = p.z - plot.cz;
+      if (Math.abs(lx) > PLOT / 2 || Math.abs(lz) > PLOT / 2) continue;
+      if (plot.terrace) {
+        if (!venueSites.has(key)) continue;
+        if (Math.abs(lx) < venueHalfWidth && lz < TERRACE.buildingFront - 0.4) return true;
+        for (const s of pedestals) if (Math.hypot(lx - s.x, lz - s.z) < 0.55) return true;
+        continue;
+      }
+      const solid = key.startsWith('b:') || SOLID_PUBLIC.has(key);
+      if (solid && Math.abs(lx) < PLOT / 2 - WALL_MARGIN && Math.abs(lz) < PLOT / 2 - WALL_MARGIN) return true;
+    }
+    return false;
+  }
+  let obstacles = plotObstacles;
+
+  function walkable(p) {
+    return floor(p) && !obstacles(p);
+  }
+
+  /** 换一套挡路规则：世界把按足迹盖出来的占用栅格接进来；传 null 退回按地块算。 */
+  function setObstacles(fn) {
+    obstacles = typeof fn === 'function' ? fn : plotObstacles;
   }
 
   /**
@@ -253,10 +309,11 @@ export function createLayout(fixture) {
   }
 
   return {
-    plots, ring, gate, harborPoint, quayZ, seaZ, wanderSpots, groveOrigin,
+    plots, ring, gate, harborPoint, quayZ, seaZ, shoreZ, wanderSpots, groveOrigin,
     quayRange: { minX: X(qMin), maxX: X(qMax) },
     bounds: { minX: X(iMin) - BLOCK / 2, maxX: X(iMax) + BLOCK / 2, minZ: Z(jMin) - BLOCK / 2, maxZ: quayZ + 30 },
-    sitePoint, route, travelMs, snapClick, onTerrace, addBuildingPlot,
+    sitePoint, route, travelMs, walkable, floor, setObstacles, plotObstacles, addBuildingPlot,
+    get obstacles() { return obstacles; },
   };
 }
 
