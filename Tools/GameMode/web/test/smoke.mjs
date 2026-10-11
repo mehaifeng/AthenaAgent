@@ -409,6 +409,8 @@ async function controlsCheck(name, browser) {
     await page.evaluate(() => { const g = window.__polisGame, a = g.world.athena.position; g.placePlayer(a.x + 1.3, a.z + 0.4, Math.atan2(-1.3, -0.4)); });
     await page.waitForTimeout(200);
     const athenaFocus = await page.evaluate(() => ({ focus: window.__polis.focus, prompt: window.__polisGame.used.labels.some((l) => l.kind === 'prompt') }));
+    // 开口之前镜头的远近与俯角：收起之后要退回的就是它
+    const viewBefore = await page.evaluate(() => ({ zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
     await page.keyboard.press('KeyE');
     const opened = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), focused: document.activeElement?.classList.contains('talk-input') }));
     await page.waitForTimeout(300);
@@ -438,9 +440,16 @@ async function controlsCheck(name, browser) {
     await page.keyboard.press('Escape');
     await page.keyboard.press('Enter');
     const enterOpens = await page.evaluate(() => document.getElementById('talk').classList.contains('open'));
+    // 托付时栏收起，镜头才开始往回退（走完两秒多），这时又开口：近景记住的必须是你原来的远近与俯角，不是退到半路的那个。
+    // 等页面真的进了近景再收起——以前 Enter 与 Esc 只隔 1–4 毫秒，只有机器忙、恰好一帧落在两者之间才走到这条路（2026-10-12）
+    const reopened = await page.waitForFunction(() => window.__polis.closeUp === 'talk', null, { timeout: 5000 }).then(() => true, () => false);
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(1600);
-    const afterClose = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom }));
+    // 收起：等镜头退回开口之前的远近与俯角（按条件等，不按固定时长）；退不回去就到时限，读出它停在哪儿
+    await page.waitForFunction((v) => {
+      const g = window.__polisGame;
+      return window.__polis.closeUp == null && Math.abs(g.camera.zoom - v.zoom) < 0.01 && Math.abs(g.cameraAngles().elevation - v.elevation) < 0.5;
+    }, viewBefore, { timeout: 8000 }).catch(() => {});
+    const afterClose = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
     // 预填（委托板、退回……）：带着字展开、聚焦，不发送
     const saysBeforePrefill = (await inbox()).filter((m) => m.type === 'say').length;
     await send({ type: 'composer', conversationId: 'c-2', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '关于《摘要》，请修改：', open: true });
@@ -478,7 +487,7 @@ async function controlsCheck(name, browser) {
       runsWithShift: idleAction === 'idle' && runAction === 'run' && Math.hypot(r1.x - r0.x, r1.z - r0.z) > 3.5,
       talksAtTheBar: talkAction.player === 'talk',
       closeUpWhileTalking: closeUp.kind === 'talk' && closeUp.zoom > 3.5 && closeUp.elevation < 32,
-      zoomRestoredAfterClose: afterClose.kind == null && afterClose.zoom < 1.6,
+      zoomRestoredAfterClose: reopened && afterClose.kind == null && Math.abs(afterClose.zoom - viewBefore.zoom) < 0.01 && Math.abs(afterClose.elevation - viewBefore.elevation) < 0.5,
       savesWhenStopped: !!saved && Math.abs(saved.x - p1.x) < 0.05 && Math.abs(saved.z - p1.z) < 0.05,
       clickingDoesNotInteract: clickedOpen === false,
       approachAndPressEOpensTalk: athenaFocus.focus?.type === 'athena' && athenaFocus.prompt && opened.open && opened.focused,
@@ -494,7 +503,7 @@ async function controlsCheck(name, browser) {
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
