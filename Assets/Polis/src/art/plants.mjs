@@ -2,9 +2,11 @@
 //
 // 打样的橄榄树冠"有点像花椰菜"（设计稿 12.8）：十几个起伏很大的圆团挤在一起。橄榄冠的样子其实是稀疏、偏平、
 // 有空隙的一簇簇银灰叶团，长在两三根扭曲分叉的老枝末端。所以这里：主干分叉成几根枝，叶团挂在枝端、压扁、
-// 大小不一、彼此留缝，起伏收小——远看是一把撑开的灰伞，近看能看见枝。
+// 大小不一、彼此留缝——远看是一把撑开的灰伞，近看能看见枝。
+// M2 美术审查：第一版的叶团仍是十几个平滑的大圆团（光滑法线让每一团都像一朵云），中景里还是花椰菜。
+// 现在叶团小一半、多两三倍，是棱面的二十面体（逐面法线，一个个小平面反光，读得出是一簇簇叶子），在枝端撒开、彼此留缝。
 import * as THREE from '../../vendor/three.bundle.mjs';
-import { mergeGeometries, mergeVertices } from '../../vendor/three.bundle.mjs';
+import { mergeGeometries } from '../../vendor/three.bundle.mjs';
 import { valueNoise, fbm, rng } from './noise.mjs';
 import { shadowed, m4 } from './kit.mjs';
 
@@ -38,11 +40,32 @@ export function lumpy(geom, seed, amount, freq) {
 export const OLIVE_STAGES = Object.freeze(['sapling', 'young', 'grown', 'ancient']);
 
 const OLIVE = {
-  sapling: { height: 1.0, trunk: 0.04, limbs: 2, clumps: 5, clump: [0.16, 0.26], spread: 0.35, gnarl: 0.05 },
-  young: { height: 1.9, trunk: 0.08, limbs: 3, clumps: 10, clump: [0.24, 0.4], spread: 0.75, gnarl: 0.12 },
-  grown: { height: 2.7, trunk: 0.14, limbs: 3, clumps: 16, clump: [0.3, 0.52], spread: 1.25, gnarl: 0.22 },
-  ancient: { height: 3.1, trunk: 0.24, limbs: 4, clumps: 22, clump: [0.32, 0.58], spread: 1.6, gnarl: 0.34 },
+  sapling: { height: 1.0, trunk: 0.04, limbs: 2, clumps: 10, clump: [0.09, 0.16], spread: 0.35, gnarl: 0.05 },
+  young: { height: 1.9, trunk: 0.08, limbs: 3, clumps: 24, clump: [0.13, 0.24], spread: 0.75, gnarl: 0.12 },
+  grown: { height: 2.7, trunk: 0.14, limbs: 3, clumps: 40, clump: [0.16, 0.3], spread: 1.25, gnarl: 0.22 },
+  ancient: { height: 3.1, trunk: 0.24, limbs: 4, clumps: 54, clump: [0.18, 0.34], spread: 1.6, gnarl: 0.34 },
 };
+
+/**
+ * 一小团棱面的叶子：二十面体（不细分）按种子把每个顶点推远拉近一点，删掉法线——合并时逐面重算，每个小平面各自反光。
+ * 压扁（叶团是平的一层，不是一个球）。
+ */
+export function leafClump(size, r, flatten = 0.55) {
+  const g = new THREE.IcosahedronGeometry(size, 0);
+  const pos = g.attributes.position, v = new THREE.Vector3();
+  const jitter = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    // 同一个顶点在不同的面里出现多次：按位置取同一个扰动，面与面之间不开缝
+    const key = `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`;
+    if (!jitter.has(key)) jitter.set(key, 0.78 + r() * 0.44);
+    v.multiplyScalar(jitter.get(key));
+    pos.setXYZ(i, v.x, v.y * flatten, v.z);
+  }
+  g.deleteAttribute('normal');
+  g.deleteAttribute('uv');
+  return g;
+}
 
 /**
  * 一棵橄榄的两份几何：枝干与叶团（橄榄林按树龄实例化，几百棵也只有几个绘制调用）。
@@ -75,20 +98,18 @@ export function oliveGeometries(stage = 'grown', seed = 1) {
     bark.push(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(top.clone(), mid, tip), 6, p.trunk * 0.55, 6, false));
     tips.push(tip);
   }
-  // 叶团：挂在枝端附近，压扁、大小不一；一部分在枝端之间，补出伞形的冠
+  // 叶团：一簇簇撒在枝端周围（偏平的一层），少数落在两根枝之间补出伞形；每簇之间留缝
   const leaves = [];
+  const cloud = p.spread * 0.42 + 0.12;
   for (let i = 0; i < p.clumps; i++) {
     const tip = tips[i % tips.length];
     const next = tips[(i + 1) % tips.length];
-    const along = i < tips.length * 2 ? 0 : r() * 0.6;
-    const c = tip.clone().lerp(next, along);
+    const c = tip.clone().lerp(next, r() < 0.25 ? r() * 0.5 : 0);
     const size = p.clump[0] + r() * (p.clump[1] - p.clump[0]);
-    const base = new THREE.IcosahedronGeometry(size, 1);
-    base.deleteAttribute('normal'); base.deleteAttribute('uv');
-    const g = lumpy(mergeVertices(base), seed * 31 + i, 0.22, 5);
-    g.scale(1.25, 0.55 + r() * 0.15, 1.1);
+    const g = leafClump(size, r);
     g.rotateY(r() * Math.PI);
-    g.translate(c.x + (r() - 0.5) * size * 1.6, c.y + (r() - 0.35) * size * 1.1, c.z + (r() - 0.5) * size * 1.6);
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * cloud;
+    g.translate(c.x + Math.cos(a) * d, c.y + (r() - 0.4) * cloud * 0.55, c.z + Math.sin(a) * d);
     leaves.push(g);
   }
   return { bark: merge(bark), leaves: merge(leaves), height: p.height + p.clump[1] };
@@ -119,16 +140,19 @@ export function buildCypress(M, { height = 6, seed = 3 } = {}) {
   return T;
 }
 
-/** 月桂：圆圆的一丛深色灌木，比橄榄暗、比柏树矮——神庙与神谕的植物。 */
+/**
+ * 月桂：圆圆的一丛深色灌木，比橄榄暗、比柏树矮——神庙与神谕的植物。一簇簇棱面的小叶团堆成一个蛋形
+ * （M2 美术审查：第一版是两三个平滑的大球，远看是一块黑色的石头）。
+ */
 export function buildLaurel(M, { seed = 5, size = 1 } = {}) {
   const r = rng(seed);
   const leaves = [];
-  for (let i = 0; i < 9; i++) {
-    const base = new THREE.IcosahedronGeometry(0.32 + r() * 0.18, 1);
-    base.deleteAttribute('normal'); base.deleteAttribute('uv');
-    const g = lumpy(mergeVertices(base), seed * 13 + i, 0.18, 6);
-    const a = r() * Math.PI * 2, d = r() * 0.45;
-    g.translate(Math.cos(a) * d, 0.42 + r() * 0.55, Math.sin(a) * d);
+  for (let i = 0; i < 26; i++) {
+    const g = leafClump(0.15 + r() * 0.1, r, 0.8);
+    const y = 0.25 + r() * 0.95;
+    const reach = 0.5 * Math.sin(Math.PI * Math.min(1, y / 1.25)) + 0.08;
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * reach;
+    g.translate(Math.cos(a) * d, y, Math.sin(a) * d);
     leaves.push(g);
   }
   const T = new THREE.Group();
@@ -146,12 +170,9 @@ export function buildPottedPlant(M, { seed = 9 } = {}) {
   T.add(mesh(pot, M.terracotta));
   const r = rng(seed);
   const leaves = [];
-  for (let i = 0; i < 5; i++) {
-    const base = new THREE.IcosahedronGeometry(0.16 + r() * 0.08, 1);
-    base.deleteAttribute('normal'); base.deleteAttribute('uv');
-    const g = lumpy(mergeVertices(base), seed * 3 + i, 0.2, 6);
-    g.scale(1.2, 0.75, 1.2);
-    g.translate((r() - 0.5) * 0.24, 0.62 + r() * 0.22, (r() - 0.5) * 0.24);
+  for (let i = 0; i < 9; i++) {
+    const g = leafClump(0.09 + r() * 0.06, r, 0.7);
+    g.translate((r() - 0.5) * 0.3, 0.64 + r() * 0.24, (r() - 0.5) * 0.3);
     leaves.push(g);
   }
   T.add(mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 6).translate(0, 0.55, 0), M.bark));

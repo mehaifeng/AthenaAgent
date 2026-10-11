@@ -69,7 +69,7 @@ export async function runGallery({ params, status }) {
     if (who === 'athena') glowAt(R, figure);
     R.render();
     caption(`${entry.label} · ${id} · ${view === 'mid' ? '中景' : '游戏视距'}`);
-    status.gallery = { id, view, kind: 'figure', height: figure.root.userData.height, clip: clipOf(R, new THREE.Box3().setFromObject(figure.root), view === 'mid' ? 30 : 24) };
+    status.gallery = { id, view, kind: 'figure', height: figure.root.userData.height, clip: clipOf(R, visibleBox(figure.root), view === 'mid' ? 30 : 24) };
     status.ready = true;
     document.title = 'gallery-ready';
     return;
@@ -104,6 +104,8 @@ export async function runGallery({ params, status }) {
     R.scene.add(pedestal);
   }
   R.scene.add(object);
+  // 船在城里浮在水面上，船身在地面以下；对照图里没有水，把它抬到船底着地（像搁在船台上），船身才看得见
+  if (id === 'civic.boat') object.position.y = -new THREE.Box3().setFromObject(object).min.y;
   // 比例：旁边站一个灰色的你
   const box = new THREE.Box3().setFromObject(object);
   const scaleFigure = assets.figure('figure.player');
@@ -117,7 +119,7 @@ export async function runGallery({ params, status }) {
   place(zoom);
   R.render();
   caption(`${entry.label} · ${id}${params.get('variant') ? ` · ${params.get('variant')}` : ''}${params.get('state') ? ` · ${params.get('state')}` : ''} · ${view === 'mid' ? '中景' : '游戏视距'}`);
-  const bounds = new THREE.Box3().setFromObject(object).union(new THREE.Box3().setFromObject(scaleFigure.root));
+  const bounds = visibleBox(object).union(visibleBox(scaleFigure.root));
   status.gallery = { id, view, kind: entry.kind, height, subtype: object.userData.subtype ?? null, clip: clipOf(R, bounds, 26) };
   status.ready = true;
   document.title = 'gallery-ready';
@@ -133,6 +135,14 @@ function glowAt(R, figure) {
   g.uGlowPos.value.set(uv.x, uv.y);
   g.uGlowRadius.value = Math.max(0.008, Math.abs(top.y - feet.y) * 0.75);
   g.uGlowStrength.value = 0.22;
+}
+
+/** 只算看得见的网格的包围盒（人物手里没拿出来的小件是隐藏的，不该把截图撑大）。 */
+function visibleBox(object) {
+  const box = new THREE.Box3();
+  object.updateMatrixWorld(true);
+  object.traverseVisible((o) => { if (o.isMesh || o.isInstancedMesh) box.expandByObject(o, false); });
+  return box;
 }
 
 /** 资产在屏幕上的外接矩形（包围盒的八个角投影到 CSS 像素）+ 边距：截图只截这一块，审查时按真实像素看。 */

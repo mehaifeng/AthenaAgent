@@ -104,28 +104,37 @@ export function buildLamp(M) {
   return kit.build();
 }
 
-/** 火盆：三足铜盆。神庙前的那一只不点火（光只属于雅典娜，第 8 节）。 */
+/**
+ * 火盆：三条外撇的铜腿托一只车出来的浅盆，盆里堆着炭（盆沿一圈浅灰的灰烬）。神庙前的那一只不点火（光只属于雅典娜，第 8 节）。
+ * M2 美术审查：第一版的盆是一个半球壳、盆口盖着一张深色的圆片，铜又近乎黑色，远看是一张黑色的小圆桌。
+ */
 export function buildBrazier(M) {
   const kit = new Kit();
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
     kit.cylinder(M.bronze, 0.025, 0.035, 0.85, Math.sin(a) * 0.22, 0.42, Math.cos(a) * 0.22, 6, Math.cos(a) * 0.18, -Math.sin(a) * 0.18);
   }
-  kit.add(M.bronze, new THREE.SphereGeometry(0.36, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), m4(0, 1.02, 0));
-  kit.cylinder(M.bronze, 0.37, 0.37, 0.05, 0, 1.02, 0, 20);
-  kit.cylinder(M.dark, 0.3, 0.3, 0.02, 0, 1.0, 0, 16);   // 盆里的炭灰
+  kit.add(M.bronze, lathe([[0.04, 0], [0.2, 0.03], [0.32, 0.1], [0.38, 0.2], [0.42, 0.22], [0.42, 0.25], [0.36, 0.24], [0.3, 0.14], [0.04, 0.08]], 22), m4(0, 0.84, 0));
+  kit.add(M.dark, new THREE.SphereGeometry(0.3, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), m4(0, 0.97, 0, 0, 0, 0, 1, 0.28, 1));
+  kit.add(M.stone, new THREE.TorusGeometry(0.31, 0.035, 6, 20), m4(0, 1.02, 0, 0, Math.PI / 2));
   return kit.build();
 }
 
-/** 三足鼎（tripod）：德尔斐式的高足大鼎，两只环耳——神谕的标志。 */
+/**
+ * 三足鼎（tripod）：德尔斐式的高足大鼎——三条长腿托一只圆底的鼎腹，两只大环耳立在鼎沿上（神谕的标志）。
+ * M2 美术审查：第一版的鼎腹是一个开口的半球壳（从斜上方看是一道黑色的月牙），两只环耳悬在半空，
+ * 铜又近乎黑色——远看是一张带两只眼睛的笑脸。现在是车出来的鼎腹、浅铜色，环耳的下沿压在鼎沿上。
+ */
 export function buildTripod(M) {
   const kit = new Kit();
+  const rimY = 1.86, rimR = 0.42;
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
-    kit.cylinder(M.bronze, 0.03, 0.045, 1.5, Math.sin(a) * 0.3, 0.75, Math.cos(a) * 0.3, 6, Math.cos(a) * 0.12, -Math.sin(a) * 0.12);
+    kit.cylinder(M.bronze, 0.03, 0.045, 1.62, Math.sin(a) * 0.32, 0.81, Math.cos(a) * 0.32, 6, Math.cos(a) * 0.12, -Math.sin(a) * 0.12);
   }
-  kit.add(M.bronze, new THREE.SphereGeometry(0.4, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), m4(0, 1.62, 0));
-  for (const sx of [-1, 1]) kit.add(M.bronze, new THREE.TorusGeometry(0.16, 0.025, 6, 18), m4(sx * 0.28, 1.82, 0, Math.PI / 2));
+  kit.add(M.bronze, lathe([[0.02, 0], [0.18, 0.03], [0.32, 0.1], [0.41, 0.22], [0.43, 0.32], [0.41, 0.4], [0.44, 0.42], [0.44, 0.45], [0.38, 0.44], [0.36, 0.3], [0.02, 0.2]], 24), m4(0, rimY - 0.45, 0));
+  // 环耳：立在鼎沿的左右两边，环面朝前后——斜上方看下去是两道竖着的椭圆，下沿接着鼎沿
+  for (const sx of [-1, 1]) kit.add(M.bronze, new THREE.TorusGeometry(0.15, 0.022, 6, 20), m4(sx * (rimR - 0.06), rimY + 0.13, 0));
   return kit.build();
 }
 

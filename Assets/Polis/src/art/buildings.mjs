@@ -8,9 +8,19 @@
 import * as THREE from '../../vendor/three.bundle.mjs';
 import {
   Kit, m4, podium, door, window_, gabledRoof, frontGabledRoof, shedRoof, flatRoof, colonnade, entablature, enclosure,
-  chimney, rubble, ivy, groundPlane, gable, palmette, triglyphGeometry, column,
+  chimney, rubble, ivy, groundPlane, gable, palmette, triglyphGeometry, column, sideGable, ruinShell,
 } from './kit.mjs';
 import { amphoraBody } from './props.mjs';
+import { leafClump } from './plants.mjs';
+
+/** 大陶瓮（pithos）：比双耳瓶胖一圈、没有耳、口沿厚，半埋在地里（罐棚前成排地摆）。 */
+let pithosCache = null;
+function lathePithos() {
+  if (pithosCache) return pithosCache;
+  const pts = [[0, 0], [0.22, 0.02], [0.36, 0.22], [0.42, 0.5], [0.38, 0.8], [0.24, 0.98], [0.2, 1.02], [0.26, 1.06], [0.26, 1.12], [0.17, 1.12]];
+  pithosCache = new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 16).translate(0, -0.18, 0);
+  return pithosCache;
+}
 
 /**
  * 按子型表挑一种（用 r 的第一个数，所以同一个名字永远是同一种）。forced 是美术审查指定的子型：
@@ -30,7 +40,7 @@ function decorate(kit, M, b, r, { w, d, h, y0 = 0 }) {
     if (state === 'bustling') {
       // 常用：门口一盆橄榄苗、一张凳子——有人在这里进进出出
       kit.cylinder(M.terracotta, 0.26, 0.2, 0.42, -side * (w / 2 - 0.6), y0 + 0.21, d / 2 + 0.5, 12);
-      kit.add(M.olive, new THREE.IcosahedronGeometry(0.42, 2), m4(-side * (w / 2 - 0.6), y0 + 0.72, d / 2 + 0.5, 0, 0, 0, 1, 0.8, 1));
+      for (let i = 0; i < 6; i++) kit.add(M.olive, leafClump(0.14 + r() * 0.08, r, 0.75), m4(-side * (w / 2 - 0.6) + (r() - 0.5) * 0.4, y0 + 0.62 + r() * 0.3, d / 2 + 0.5 + (r() - 0.5) * 0.4));
       kit.box(M.wood, 0.5, 0.05, 0.36, side * (w / 2 - 1.5), y0 + 0.44, d / 2 + 0.6);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.box(M.darkWood, 0.05, 0.42, 0.05, side * (w / 2 - 1.5) + sx * 0.2, y0 + 0.21, d / 2 + 0.6 + sz * 0.13);
     }
@@ -46,20 +56,41 @@ function decorate(kit, M, b, r, { w, d, h, y0 = 0 }) {
 
 // ------------------------------------------------------------------
 // 柱廊书库：又宽又矮的长廊（stoa），一排密柱、单坡屋顶，后墙上是放卷轴的格架。
-// 子型：直廊 / 两翼（两端各凸出一截短翼）/ 双排柱（体量大的，进深加倍）。
+// 子型：直廊 / 两翼（长廊两端各立一座带小山花的短翼）/ 两层（体量大的：上面再一层爱奥尼亚柱廊，阿塔罗斯柱廊那样）。
 // 辨识度在于"长、矮、柱子多、没有正面的山花"——和金库（门廊双柱 + 山花）分开。
+// M2 美术审查：两端的侧墙第一版是一块固定坡度的三角，和屋面对不上（屋面下一道黑缝、屋面上戳出白角）；
+// 双排柱从上面看和直廊一模一样（内排柱藏在屋顶下面）；两翼的山花屋顶插在长廊的屋面里。
 // ------------------------------------------------------------------
 export function buildStoaLibrary(M, b, r) {
   const kit = new Kit();
   const sc = b.sizeClass;
   const kind = subtype(r, sc >= 3 ? ['straight', 'wings', 'double'] : ['straight', 'wings'], b.subtype);
-  const W = [9.4, 10.4, 11.2, 12][sc - 1], D = kind === 'double' ? 6.4 : 5.0, H = 3.1;
-  const n = [6, 7, 8, 9][sc - 1];
+  const fullW = [9.4, 10.4, 11.2, 12][sc - 1];
+  const wingW = 1.5, wingGap = 0.55;
+  // 两翼：长廊让出两端，翼楼立在长廊的屋檐之外（隔开 wingGap，翼楼屋顶的出檐不压到长廊的屋面），各自一个屋顶
+  const W = kind === 'wings' ? fullW - 2 * wingW - 2 * (wingGap - 0.25) : fullW;
+  const D = kind === 'double' ? 6.0 : 5.0, H = 3.1;
+  const upperH = kind === 'double' ? 2.5 : 0;
+  const n = [6, 7, 8, 9][sc - 1] - (kind === 'wings' ? 2 : 0);
   const ruin = b.state === 'ruin';
-  const y0 = podium(kit, M.marble, W + 0.45, D + 0.45, { steps: 2, stepH: 0.22, stepT: 0.22 });
-  const wallH = ruin ? H * 0.62 : H;
-  kit.box(M.wall, W, wallH, 0.45, 0, y0 + wallH / 2, -D / 2 + 0.25);
-  for (const sx of [-1, 1]) kit.box(M.wall, 0.45, wallH, D - 0.6, sx * (W / 2 - 0.22), y0 + wallH / 2, -0.25);
+  const y0 = podium(kit, M.marble, fullW + 0.45, D + 0.45, { steps: 2, stepH: 0.22, stepT: 0.22 });
+  const front = D / 2 - 0.5;
+  const colX0 = -W / 2 + 0.55, colX1 = W / 2 - 0.55;
+  // 檐口高度：一层是柱顶加额枋；两层再加上层的柱子与檐
+  const eaveY = y0 + H + 0.42 + (upperH ? upperH + 0.36 : 0);
+  const rise = 1.0, overhang = 0.35, roofZ = -0.15, depth = D + overhang * 2;
+  /** 屋面底面在 z 处的高度（单坡：前低后高） */
+  const roofAt = (z) => eaveY + rise / 2 - (z - roofZ) * (rise / depth) - 0.08;
+  const wallH = ruin ? H * 0.62 : null;
+  const backZ = -D / 2 + 0.25;
+  const backTop = ruin ? y0 + wallH : roofAt(backZ - 0.22) + 0.04;
+  kit.box(M.wall, W, backTop - y0, 0.45, 0, (y0 + backTop) / 2, backZ);
+  const sideZA = -D / 2 + 0.05, sideZB = D / 2 - 0.55;
+  for (const sx of [-1, 1]) {
+    const x = sx * (W / 2 - 0.22);
+    if (ruin) kit.box(M.wall, 0.45, wallH, sideZB - sideZA, x, y0 + wallH / 2, (sideZA + sideZB) / 2);
+    else sideGable(kit, M.wall, { x, zA: sideZA, zB: sideZB, yBottom: y0, topAt: roofAt });
+  }
   // 后墙内侧的卷轴格架：深色的格子里露出一截截卷轴的端头
   const rows = 3, cols = Math.max(3, n - 2);
   for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
@@ -67,38 +98,40 @@ export function buildStoaLibrary(M, b, r) {
     const y = y0 + 0.45 + j * 0.78;
     if (ruin && y > y0 + wallH - 0.4) continue;
     kit.box(M.darkWood, (W - 2.0) / cols - 0.12, 0.62, 0.3, x, y + 0.31, -D / 2 + 0.6);
-    for (let s = 0; s < 3; s++) kit.cylinder(M.papyrus, 0.07, 0.07, 0.26, x - 0.2 + s * 0.2, y + 0.18 + (s % 2) * 0.17, -D / 2 + 0.78, 8, Math.PI / 2);
+    for (let s2 = 0; s2 < 3; s2++) kit.cylinder(M.papyrus, 0.07, 0.07, 0.26, x - 0.2 + s2 * 0.2, y + 0.18 + (s2 % 2) * 0.17, -D / 2 + 0.78, 8, Math.PI / 2);
   }
-  const front = D / 2 - 0.5;
-  colonnade(kit, M.marble, { n, x0: -W / 2 + 0.55, x1: W / 2 - 0.55, y: y0, z: front, height: H, key: 'stoa', skip: ruin ? (i) => i % 2 === 1 : null });
-  if (kind === 'double') colonnade(kit, M.marble, { n: n - 2, x0: -W / 2 + 1.4, x1: W / 2 - 1.4, y: y0, z: 0, height: H, key: 'stoa-inner', skip: ruin ? (i) => i % 2 === 0 : null });
+  colonnade(kit, M.marble, { n, x0: colX0, x1: colX1, y: y0, z: front, height: H, key: 'stoa', skip: ruin ? (i) => i % 2 === 1 : null });
   if (ruin) {
     // 断柱：只剩一截，柱身横倒在台阶前
     for (let i = 1; i < n; i += 2) {
-      const x = -W / 2 + 0.55 + i * ((W - 1.1) / (n - 1));
+      const x = colX0 + i * ((colX1 - colX0) / (n - 1));
       kit.instance('stoa-stump', () => column(H * 0.4, { detail: 'low' }), M.marble, m4(x, y0, front, r() * 6));
       kit.cylinder(M.marble, 0.24, 0.27, H * 0.45, x + 0.3, 0.27, D / 2 + 1.3, 12, 0, Math.PI / 2, r());
     }
   } else {
     kit.box(M.marble, W + 0.2, 0.42, 0.75, 0, y0 + H + 0.21, front);
-    shedRoof(kit, M.tile, W, D, 1.0, y0 + H + 0.42, -0.15, 0.35);
-    for (const sx of [-1, 1]) {
-      const tri = new THREE.Shape();
-      tri.moveTo(-D / 2, 0); tri.lineTo(D / 2 - 0.4, 0); tri.lineTo(-D / 2, 1.0); tri.closePath();
-      kit.add(M.wall, new THREE.ExtrudeGeometry(tri, { depth: 0.45, bevelEnabled: false }), m4(sx * (W / 2 - 0.22) - 0.225, y0 + H + 0.42, 0, -Math.PI / 2));
+    if (upperH) {
+      // 上层：同样多的爱奥尼亚柱，柱间一道齐胸的栏墙，上面再一道檐
+      const yU = y0 + H + 0.42;
+      kit.box(M.marble, W + 0.2, 0.12, D - 0.4, 0, yU - 0.06, -0.1);
+      colonnade(kit, M.marble, { n, x0: colX0, x1: colX1, y: yU, z: front, height: upperH, order: 'ionic', key: 'stoa-upper' });
+      kit.box(M.marble, W - 0.9, 0.85, 0.14, 0, yU + 0.43, front - 0.02);
+      kit.box(M.marble, W + 0.2, 0.36, 0.7, 0, yU + upperH + 0.18, front);
     }
+    shedRoof(kit, M.tile, W, D, rise, eaveY, roofZ, overhang);
   }
   if (kind === 'wings') {
-    // 两端各凸出一截短翼（paraskenia），小山花朝前
+    // 两翼（paraskenia）：比长廊略向前凸，顶到长廊的檐口，各自一个山花朝前的小屋顶
+    const wingD = D * 0.8, wingZ = 0.35, wingTop = ruin ? y0 + wallH : y0 + H + 0.42;
     for (const sx of [-1, 1]) {
-      const x = sx * (W / 2 + 0.2);
-      kit.box(M.wall, 1.6, wallH, D * 0.75, x, y0 + wallH / 2, 0.4);
-      if (!ruin) frontGabledRoofOn(kit, M, x, 1.6, D * 0.75, y0 + wallH, 0.4);
+      const x = sx * (W / 2 + wingGap + wingW / 2);
+      kit.box(M.wall, wingW, wingTop - y0, wingD, x, (y0 + wingTop) / 2, wingZ);
+      if (!ruin) frontGabledRoofOn(kit, M, x, wingW, wingD, wingTop, wingZ);
     }
   }
-  decorate(kit, M, b, r, { w: W, d: D, h: wallH, y0 });
+  decorate(kit, M, b, r, { w: fullW, d: D, h: H, y0 });
   const group = kit.build();
-  group.userData.height = y0 + H + 1.7;
+  group.userData.height = (ruin ? y0 + H : eaveY + rise) + 0.7;
   group.userData.subtype = kind;
   return group;
 }
@@ -110,7 +143,9 @@ function frontGabledRoofOn(kit, M, x, w, d, y, z) {
 }
 
 // ------------------------------------------------------------------
-// 民居：白灰墙、瓦顶、一扇门几扇小窗。子型：院落（侧边一圈矮院墙）/ 两层带木廊 / 门前葡萄架 / 并排两户。
+// 民居：白灰墙、瓦顶、一扇门几扇小窗。子型：院落（门前一圈矮院墙）/ 两层带木廊 / 门前葡萄架 / 并排两户。
+// M2 美术审查：院墙第一版在屋后、被房子挡住；木廊是一块深色的板，俯视像遮阳棚；葡萄架上的叶子是几块黑色的扁圆；
+// 并排两户的屋顶都落在中线上；废墟是一个顶上盖着白板的实心方块。
 // ------------------------------------------------------------------
 export function buildHouse(M, b, r) {
   const kit = new Kit();
@@ -124,44 +159,64 @@ export function buildHouse(M, b, r) {
   const H = storeys * 3 * (ruin ? 0.75 : 1);
   kit.box(M.stone, W + 0.3, 0.25, D + 0.3, 0, 0.125, 0);
   const units = kind === 'twin' ? [-W / 4, W / 4] : [0];
+  let mainDoorX = 0;
   for (const [k, ux] of units.entries()) {
     const uw = kind === 'twin' ? W / 2 - 0.1 : W;
     const uh = kind === 'twin' && k === 1 ? H * (ruin ? 1 : 0.86) : H;
     const shade = kind === 'twin' && k === 1 ? M.plasterShades[(Math.floor(r() * 3) + 1) % 3] : plaster;
-    kit.box(shade, uw, uh, D, ux, 0.25 + uh / 2, 0);
     const doorX = ux + (r() - 0.5) * uw * 0.4;
+    if (k === 0) mainDoorX = doorX;
+    if (ruin) {
+      // 掀了顶的墙壳：断墙、门洞、里面的泥地
+      ruinShell(kit, shade, r, { w: uw, h: uh, d: D, x: ux, y: 0.25, floor: M.earth, gaps: [{ x: doorX, w: 1.2 }] });
+      continue;
+    }
+    kit.box(shade, uw, uh, D, ux, 0.25 + uh / 2, 0);
     door(kit, M, 1.05, 2.05, doorX, 0.25, D / 2);
-    for (let s = 0; s < (uh > 4 ? 2 : 1); s++) {
+    for (let s2 = 0; s2 < (uh > 4 ? 2 : 1); s2++) {
       for (const wx of [ux - uw * 0.34, ux + uw * 0.34]) {
-        if (Math.abs(wx - doorX) < 1.2 && s === 0) continue;
-        window_(kit, M, 0.6, 0.55, wx, 0.25 + s * 3 + 1.9, D / 2);
+        if (Math.abs(wx - doorX) < 1.2 && s2 === 0) continue;
+        window_(kit, M, 0.6, 0.55, wx, 0.25 + s2 * 3 + 1.9, D / 2);
       }
     }
-    if (!ruin) gabledRoof(kit, kind === 'twin' && k === 1 ? M.tileShades[(Math.floor(r() * 3) + 2) % 3] : tile, shade, uw, D, 1.3, 0.25 + uh, 0, 0.4);
+    gabledRoof(kit, kind === 'twin' && k === 1 ? M.tileShades[(Math.floor(r() * 3) + 2) % 3] : tile, shade, uw, D, 1.3, 0.25 + uh, 0, 0.4, ux);
   }
   if (ruin) {
-    // 塌了一半的屋顶：只剩几根檩条
-    for (let i = 0; i < 4; i++) kit.box(M.darkWood, W * (0.5 + r() * 0.5), 0.14, 0.14, (r() - 0.5) * 1.5, 0.25 + H + 0.1, -D / 2 + 0.8 + i * (D / 4), r() * 0.2, 0, (r() - 0.5) * 0.4);
+    // 塌下来的檩条：一头搭在断墙上、一头落进屋里
+    for (let i = 0; i < 4; i++) kit.box(M.darkWood, W * (0.45 + r() * 0.4), 0.14, 0.14, (r() - 0.5) * 1.5, 0.25 + H * (0.25 + r() * 0.3), -D / 2 + 0.8 + i * (D / 4), r() * 0.3, 0, (r() - 0.5) * 0.6);
   }
   if (kind === 'courtyard') {
-    const side = r() > 0.5 ? 1 : -1;
-    const yardW = Math.min(2.2, (12.5 - W) / 2 - 0.2);
-    if (yardW > 0.8) {
-      kit.box(M.plaster, 0.3, 1.5, D * 0.85, side * (W / 2 + yardW), 0.75, -D * 0.07);
-      kit.box(M.plaster, yardW, 1.5, 0.3, side * (W / 2 + yardW / 2), 0.75, -D / 2 + 0.2);
+    // 门前一圈齐腰的院墙（在镜头这一面），正对着门留一个院门
+    const yardD = Math.min(2.4, 12.5 / 2 - D / 2 - 0.5);
+    if (yardD > 0.9) {
+      const wallH = ruin ? 0.6 : 1.15, t = 0.28, zF = D / 2 + yardD;
+      for (const sx of [-1, 1]) kit.box(M.plaster, t, wallH, yardD, sx * (W / 2 - t / 2), 0.25 + wallH / 2, D / 2 + yardD / 2);
+      const gate = 1.4;
+      const left = mainDoorX - gate / 2 - (-W / 2), right = W / 2 - (mainDoorX + gate / 2);
+      if (left > 0.2) kit.box(M.plaster, left, wallH, t, -W / 2 + left / 2, 0.25 + wallH / 2, zF - t / 2);
+      if (right > 0.2) kit.box(M.plaster, right, wallH, t, W / 2 - right / 2, 0.25 + wallH / 2, zF - t / 2);
+      kit.box(M.stone, W + 0.3, 0.25, yardD, 0, 0.125, D / 2 + yardD / 2);
     }
   } else if (kind === 'balcony' && !ruin) {
-    // 二层挑出一道木廊，下面两根木柱
-    kit.box(M.darkWood, W * 0.7, 0.12, 1.1, 0, 3.25, D / 2 + 0.55);
-    kit.box(M.wood, W * 0.7, 0.7, 0.06, 0, 3.66, D / 2 + 1.08);
-    for (let i = 0; i <= 6; i++) kit.box(M.wood, 0.05, 0.7, 0.05, -W * 0.35 + (i * W * 0.7) / 6, 3.66, D / 2 + 1.06);
-    for (const sx of [-1, 1]) kit.cylinder(M.wood, 0.08, 0.09, 3.2, sx * W * 0.33, 1.85, D / 2 + 1.0, 8);
+    // 二层挑出一道木廊：浅色的木板、一排栏杆，下面两根木柱；廊后是二层的门
+    const bw = W * 0.7, deckY = 3.25, deckZ = D / 2 + 0.6;
+    kit.box(M.wood, bw, 0.12, 1.2, 0, deckY, deckZ);
+    kit.box(M.papyrus, bw + 0.06, 0.08, 0.1, 0, deckY + 0.9, deckZ + 0.55);
+    for (let i = 0; i <= 14; i++) kit.box(M.wood, 0.05, 0.84, 0.05, -bw / 2 + (i * bw) / 14, deckY + 0.48, deckZ + 0.55);
+    for (const sx of [-1, 1]) kit.box(M.papyrus, 0.08, 0.08, 1.15, sx * bw / 2, deckY + 0.9, deckZ);
+    for (const sx of [-1, 1]) kit.cylinder(M.wood, 0.08, 0.09, deckY - 0.25, sx * bw * 0.46, 0.25 + (deckY - 0.25) / 2, deckZ + 0.5, 8);
+    door(kit, M, 0.95, 1.9, 0, deckY + 0.06, D / 2);
   } else if (kind === 'pergola' && !ruin) {
-    // 门前一架葡萄：四根柱子、几根横梁，上面一层叶子
-    const px = (r() - 0.5) * 2;
-    for (const sx of [-1, 1]) for (const sz of [0, 1]) kit.cylinder(M.wood, 0.07, 0.08, 2.4, px + sx * 1.6, 1.2, D / 2 + 0.6 + sz * 1.8, 8);
-    for (let i = 0; i < 5; i++) kit.box(M.wood, 3.6, 0.08, 0.08, px, 2.42, D / 2 + 0.5 + i * 0.5);
-    for (let i = 0; i < 7; i++) kit.add(M.ivy, new THREE.IcosahedronGeometry(0.42, 1), m4(px - 1.4 + (i % 4) * 0.95, 2.6, D / 2 + 0.8 + Math.floor(i / 4) * 1.1, r() * 3, 0, 0, 1.1, 0.35, 1));
+    // 门前一架葡萄：四根柱子、两层交叉的横木，上面一簇簇叶子（棱面的小团，彼此留缝，透下斑驳的影子）
+    const px = (r() - 0.5) * 2, pz = D / 2 + 1.5;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.cylinder(M.wood, 0.07, 0.08, 2.4, px + sx * 1.6, 1.45, pz + sz * 0.95, 8);
+    for (const sz of [-1, 1]) kit.box(M.wood, 3.7, 0.12, 0.12, px, 2.66, pz + sz * 0.95);
+    for (let i = 0; i < 7; i++) kit.box(M.wood, 0.07, 0.07, 2.5, px - 1.65 + i * 0.55, 2.76, pz);
+    for (let i = 0; i < 16; i++) {
+      const s2 = 0.22 + r() * 0.16;
+      const g = new THREE.IcosahedronGeometry(1, 0);
+      kit.add(M.olive, g, m4(px - 1.6 + r() * 3.2, 2.86 + r() * 0.14, pz - 1.05 + r() * 2.1, r() * 6, r() * 6, 0, s2 * 1.3, s2 * 0.55, s2));
+    }
   }
   decorate(kit, M, b, r, { w: W, d: D, h: H });
   const group = kit.build();
@@ -171,8 +226,10 @@ export function buildHouse(M, b, r) {
 }
 
 // ------------------------------------------------------------------
-// 作坊：屋前搭木棚，棚下工作台，屋侧是这门手艺的家什。子型：陶工（窑与烟囱、成排的罐）/ 织工（棚下立着织机、羊毛篮）/
+// 作坊：屋前搭木棚，棚下工作台，屋侧是这门手艺的家什。子型：陶工（窑与烟囱、成排的罐）/ 织工（屋侧立着织机、羊毛篮）/
 // 木工（堆着的木料、锯木架）/ 石匠（石料与一台人字吊架）。代码仓库里大半是作坊，远看靠这些家什的剪影分开。
+// M2 美术审查：木棚顶第一版是深木色的一块板，俯视是一个黑洞、四种作坊看起来都一样；织机藏在棚顶下面看不见；
+// 吊架的两根斜木没有交到一起，像一根歪着的杆子。
 // ------------------------------------------------------------------
 export function buildWorkshop(M, b, r) {
   const kit = new Kit();
@@ -189,13 +246,20 @@ export function buildWorkshop(M, b, r) {
   const shedX = ((W - shedW) / 2) * -toolSide;
   const shedD = 2.0 + r() * 1.0;
   kit.box(M.stone, W + 0.3, 0.22, D + 0.3, 0, 0.11, -0.8);
-  kit.box(plaster, W, H, D, 0, 0.22 + H / 2, -0.8);
-  door(kit, M, 2.2, 2.3, shedX, 0.22, D / 2 - 0.8, { lintel: M.darkWood });
-  if (storeys === 2) for (const wx of [-W * 0.3, 0, W * 0.3]) window_(kit, M, 0.6, 0.6, wx, 0.22 + 4.0, D / 2 - 0.8);
-  if (!ruin) gabledRoof(kit, tile, plaster, W, D, 1.2, 0.22 + H, -0.8, 0.35);
-  // 木棚：四根柱子撑一片斜顶，棚下工作台
+  if (ruin) {
+    ruinShell(kit, plaster, r, { w: W, h: H * 0.7, d: D, y: 0.22, z: -0.8, floor: M.earth, gaps: [{ x: shedX, w: 2.4 }] });
+  } else {
+    kit.box(plaster, W, H, D, 0, 0.22 + H / 2, -0.8);
+    door(kit, M, 2.2, 2.3, shedX, 0.22, D / 2 - 0.8, { lintel: M.darkWood });
+    if (storeys === 2) for (const wx of [-W * 0.3, 0, W * 0.3]) window_(kit, M, 0.6, 0.6, wx, 0.22 + 4.0, D / 2 - 0.8);
+    gabledRoof(kit, tile, plaster, W, D, 1.2, 0.22 + H, -0.8, 0.35);
+  }
+  // 木棚：四根柱子撑一片苇顶（浅草色、顺坡的苇秆），棚下工作台
   for (const sx of [-1, 1]) for (const sz of [0, 1]) kit.cylinder(M.wood, 0.09, 0.1, 2.6, shedX + sx * (shedW / 2 - 0.3), 1.3, D / 2 - 0.8 + 0.3 + sz * shedD, 8);
-  if (!ruin) kit.box(M.darkWood, shedW, 0.12, shedD + 0.6, shedX, 2.75, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
+  if (!ruin) {
+    kit.box(M.reed, shedW, 0.1, shedD + 0.6, shedX, 2.75, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
+    for (const sx of [-1, 1]) kit.box(M.darkWood, 0.1, 0.12, shedD + 0.7, shedX + sx * (shedW / 2 - 0.05), 2.68, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
+  }
   const benchZ = D / 2 + 0.6;
   kit.box(M.wood, Math.min(2.2, shedW - 0.6), 0.12, 0.9, shedX, 0.95, benchZ);
   for (const lx of [-0.8, 0.8]) for (const lz of [-0.35, 0.35]) kit.box(M.wood, 0.08, 0.9, 0.08, shedX + lx, 0.45, benchZ + lz);
@@ -209,16 +273,18 @@ export function buildWorkshop(M, b, r) {
     for (let i = 0; i < jars; i++) kit.add(M.terracotta, amphoraBody(), m4(-toolSide * (W / 2 - 0.6 - i * 0.45), 0, D / 2 + shedD - 0.2, r() * 6, 0, 0, 0.8));
     kit.cylinder(M.stone, 0.32, 0.36, 0.5, shedX + 0.5, 1.26, benchZ, 14);   // 陶轮
   } else if (craft === 'weaver') {
-    // 竖式织机：两根立柱、上下横梁、一排垂下的经线与坠子
-    const lx = shedX + (shedW / 2 - 1.2) * toolSide;
-    for (const sx of [-1, 1]) kit.box(M.darkWood, 0.12, 2.3, 0.12, lx + sx * 0.75, 1.15, benchZ - 0.6, 0, -0.12);
-    kit.box(M.darkWood, 1.7, 0.1, 0.12, lx, 2.25, benchZ - 0.72);
-    kit.box(M.awning, 1.4, 1.3, 0.03, lx, 1.45, benchZ - 0.66, 0, -0.12);
-    for (let i = 0; i < 7; i++) kit.add(M.stone, new THREE.ConeGeometry(0.05, 0.1, 6), m4(lx - 0.6 + i * 0.2, 0.7, benchZ - 0.55, 0, Math.PI));
+    // 竖式织机，立在屋侧的空地上、正面朝街：两根立柱、上下横梁、一幅织到一半的布、一排经线坠子
+    const lx = tx, lz = 0.9;
+    for (const sx of [-1, 1]) kit.box(M.darkWood, 0.13, 2.5, 0.13, lx + sx * 0.85, 1.25, lz, 0, -0.1);
+    kit.box(M.darkWood, 1.95, 0.12, 0.14, lx, 2.42, lz - 0.12);
+    kit.box(M.darkWood, 1.8, 0.08, 0.1, lx, 0.82, lz + 0.05);
+    kit.box(M.awning, 1.55, 0.9, 0.03, lx, 1.92, lz - 0.06, 0, -0.1);
+    for (let i = 0; i < 12; i++) kit.box(M.papyrus, 0.012, 1.0, 0.012, lx - 0.7 + i * 0.127, 1.0, lz + 0.03, 0, -0.1);
+    for (let i = 0; i < 8; i++) kit.add(M.stone, new THREE.ConeGeometry(0.05, 0.11, 6), m4(lx - 0.66 + i * 0.19, 0.6, lz + 0.08, 0, Math.PI));
     for (let i = 0; i < 3; i++) {
-      const bx = tx - toolSide * i * 0.6;
-      kit.add(M.wood, new THREE.CylinderGeometry(0.26, 0.2, 0.3, 12, 1, true), m4(bx, 0.15, 0.4 + (i % 2) * 0.5));
-      kit.add(M.awning, new THREE.SphereGeometry(0.2, 10, 8), m4(bx, 0.32, 0.4 + (i % 2) * 0.5, 0, 0, 0, 1, 0.6, 1));
+      const bx = tx + toolSide * 0.3 - toolSide * i * 0.6;
+      kit.add(M.wood, new THREE.CylinderGeometry(0.26, 0.2, 0.3, 12, 1, true), m4(bx, 0.15, -0.9 + (i % 2) * 0.5));
+      kit.add(M.awning, new THREE.SphereGeometry(0.2, 10, 8), m4(bx, 0.32, -0.9 + (i % 2) * 0.5, 0, 0, 0, 1, 0.6, 1));
     }
   } else if (craft === 'carpenter') {
     // 一堆横放的木料、一副锯木架
@@ -229,16 +295,24 @@ export function buildWorkshop(M, b, r) {
     }
     kit.box(M.wood, 1.8, 0.16, 0.2, shedX, 0.86, benchZ + 1.5);
   } else {
-    // 石匠：几块方石、一台人字吊架（两根斜木 + 一根绳）
-    for (let k = 0; k < 4; k++) kit.box(M.marble, 0.7 + r() * 0.3, 0.55, 0.6, tx - toolSide * (k % 2) * 0.8, 0.28 + Math.floor(k / 2) * 0.55, -0.6 + (k % 2) * 0.3, r() * 0.3);
-    for (const sx of [-1, 1]) kit.box(M.darkWood, 0.12, 4.2, 0.12, tx + sx * 0.9, 2.0, 1.0, 0, 0, sx * 0.22);
-    kit.box(M.darkWood, 0.5, 0.12, 0.12, tx, 4.0, 1.0);
-    kit.cylinder(M.awning, 0.015, 0.015, 2.6, tx, 2.7, 1.0, 4);
+    // 石匠：几块方石、一台人字吊架——两根斜木在顶上交成一个 A、一根后撑，顶上垂下一根绳，吊着一块方石
+    for (let k = 0; k < 4; k++) kit.box(M.marble, 0.7 + r() * 0.3, 0.55, 0.6, tx - toolSide * (k % 2) * 0.8, 0.28 + Math.floor(k / 2) * 0.55, -1.0 + (k % 2) * 0.3, r() * 0.3);
+    const apex = new THREE.Vector3(tx, 4.1, 1.1);
+    const leg = (foot) => {
+      const dir = new THREE.Vector3().subVectors(apex, foot);
+      const g = new THREE.CylinderGeometry(0.07, 0.09, dir.length(), 6);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()));
+      g.translate((foot.x + apex.x) / 2, (foot.y + apex.y) / 2, (foot.z + apex.z) / 2);
+      kit.add(M.darkWood, g);
+    };
+    leg(new THREE.Vector3(tx - 1.05, 0, 1.3)); leg(new THREE.Vector3(tx + 1.05, 0, 1.3)); leg(new THREE.Vector3(tx, 0, -0.9));
+    kit.cylinder(M.awning, 0.02, 0.02, 2.4, tx, 4.1 - 1.2, 1.1, 4);
+    kit.box(M.marble, 0.62, 0.45, 0.5, tx, 4.1 - 2.6, 1.1, 0.3);
   }
   if (ruin) rubble(kit, M, r, 5, W, D);
   decorate(kit, M, b, r, { w: W, d: D, h: H });
   const group = kit.build();
-  group.userData.height = 0.22 + H + 1.6;
+  group.userData.height = 0.22 + (ruin ? H * 0.7 : H) + 1.6;
   group.userData.subtype = craft;
   return group;
 }
@@ -277,10 +351,13 @@ export function buildSculptureGarden(M, b, r, ctx) {
     kit.add(M.marble, new THREE.SphereGeometry(0.24, 14, 10), m4(0, 1.75, -3.4, 0, 0, 0, 0.9, 1.15, 0.95));
     kit.add(M.pave, groundPlane(1.6, 7, 2), m4(0, 0.05, 0));
   } else {
-    // 半圆的石凳围着中间的立像
-    for (let i = 0; i <= 8; i++) {
-      const a = Math.PI + (i / 8) * Math.PI;
-      kit.box(M.marble, 1.25, 0.45, 0.55, Math.cos(a) * 3.6, 0.23, -0.5 + Math.sin(a) * 3.0, -a + Math.PI / 2);
+    // 半圆的石凳围着中间的立像：一段段沿着弧线的切线摆、首尾相接（第一版的段按圆的角度摆在椭圆上，接缝处断开、末段歪着）
+    const seg = 14, ax = 3.6, az = 3.0;
+    const at = (a) => [Math.cos(a) * ax, -0.5 + Math.sin(a) * az];
+    for (let i = 0; i < seg; i++) {
+      const a0 = Math.PI + (i / seg) * Math.PI, a1 = Math.PI + ((i + 1) / seg) * Math.PI;
+      const [x0, z0] = at(a0), [x1, z1] = at(a1);
+      kit.box(M.marble, Math.hypot(x1 - x0, z1 - z0) + 0.06, 0.45, 0.55, (x0 + x1) / 2, 0.23, (z0 + z1) / 2, Math.atan2(-(z1 - z0), x1 - x0));
     }
     for (let i = 0; i < n; i++) {
       const x = (i - (n - 1) / 2) * 1.5;
@@ -308,12 +385,21 @@ export function buildTreasury(M, b, r) {
   const ruin = b.state === 'ruin';
   const y0 = podium(kit, M.marble, W, L, { steps: 3, stepH: 0.25, stepT: 0.3 });
   const wallH = ruin ? colH * 0.6 : colH;
-  kit.box(M.wall, W - 0.4, wallH, L - 2.4, 0, y0 + wallH / 2, -1.0);
-  for (const sx of [-1, 1]) kit.box(M.wall, 0.55, wallH, 1.6, sx * (W / 2 - 0.47), y0 + wallH / 2, L / 2 - 1.2);
-  door(kit, M, 1.4, 2.8, 0, y0, L / 2 - 2.24, { lintel: M.marble });
+  if (ruin) {
+    // 掀了顶的内殿：断墙围着一块泥地，门洞朝前（第一版是一个顶上盖着白板的实心方块）
+    ruinShell(kit, M.wall, r, { w: W - 0.4, h: wallH, d: L - 2.4, y: y0, z: -1.0, t: 0.4, floor: M.earth, gaps: [{ x: 0, w: 1.4 }] });
+  } else {
+    kit.box(M.wall, W - 0.4, wallH, L - 2.4, 0, y0 + wallH / 2, -1.0);
+    door(kit, M, 1.4, 2.8, 0, y0, L / 2 - 2.24, { lintel: M.marble });
+  }
+  for (const sx of [-1, 1]) {
+    const antaH = ruin ? wallH * (0.5 + r() * 0.4) : wallH;
+    kit.box(M.wall, 0.55, antaH, 1.6, sx * (W / 2 - 0.47), y0 + antaH / 2, L / 2 - 1.2);
+  }
   for (const sx of [-1, 1]) {
     if (ruin && sx > 0) continue;
-    kit.instance(`treasury-col-${order}-${colH.toFixed(2)}`, () => column(colH, { detail: 'low', order }), M.marble, m4(sx * 1.05 * s, y0, L / 2 - 0.55, sx));
+    // 多立克柱转一个角度让凹槽错开；爱奥尼亚的卷涡要朝前
+    kit.instance(`treasury-col-${order}-${colH.toFixed(2)}`, () => column(colH, { detail: 'low', order }), M.marble, m4(sx * 1.05 * s, y0, L / 2 - 0.55, order === 'ionic' ? 0 : sx));
   }
   if (!ruin) {
     kit.box(M.marble, W + 0.1, 0.55, L + 0.1, 0, y0 + colH + 0.28, 0);
@@ -340,7 +426,8 @@ export function buildTreasury(M, b, r) {
 }
 
 // ------------------------------------------------------------------
-// 仓库：长而低的石屋。子型：货栈（大门、门外木箱与陶罐）/ 粮仓（架在石墩上的仓房、木梯）/ 罐棚（一面墙加一片单坡顶，下面成排的双耳瓶）。
+// 仓库：长而低的石屋。子型：货栈（大门、门外木箱与陶罐）/ 粮仓（架在石墩上的仓房、木梯）/ 罐棚（一面墙加一片单坡顶，棚前成排的大陶瓮）。
+// M2 美术审查：罐棚的瓶子第一版全在棚顶底下，俯视一只也看不见；废墟是顶上盖着白板的实心方块。
 // ------------------------------------------------------------------
 export function buildWarehouse(M, b, r) {
   const kit = new Kit();
@@ -350,9 +437,13 @@ export function buildWarehouse(M, b, r) {
   const ruin = b.state === 'ruin';
   let height = H + 1.6;
   if (kind === 'store') {
-    kit.box(M.stone, W, ruin ? H * 0.6 : H, D, 0, (ruin ? H * 0.6 : H) / 2, -0.4);
-    door(kit, M, 2.6, 2.6, 0, 0, D / 2 - 0.4, { lintel: M.darkWood });
-    if (!ruin) gabledRoof(kit, M.tile, M.stone, W, D, 1.1, H, -0.4, 0.3);
+    if (ruin) {
+      ruinShell(kit, M.stone, r, { w: W, h: H * 0.7, d: D, z: -0.4, t: 0.4, floor: M.earth, gaps: [{ x: 0, w: 2.6 }] });
+    } else {
+      kit.box(M.stone, W, H, D, 0, H / 2, -0.4);
+      door(kit, M, 2.6, 2.6, 0, 0, D / 2 - 0.4, { lintel: M.darkWood });
+      gabledRoof(kit, M.tile, M.stone, W, D, 1.1, H, -0.4, 0.3);
+    }
     for (let i = 0; i < 5; i++) {
       const s = 0.6 + r() * 0.3;
       kit.box(M.wood, s, s, s, -W / 2 + 0.7 + (i % 3) * 0.8, s / 2 + (i >= 3 ? 0.75 : 0), D / 2 + 0.7, r() * 0.4);
@@ -364,9 +455,13 @@ export function buildWarehouse(M, b, r) {
     for (const sx of [-1, 0, 1]) for (const sz of [-1, 1]) kit.cylinder(M.stone, 0.22, 0.28, lift, sx * (W / 2 - 0.6), lift / 2, -0.4 + sz * (D / 2 - 0.5), 10);
     const bodyH = ruin ? H * 0.6 : H - 0.4;
     kit.box(M.wood, W, 0.2, D, 0, lift + 0.1, -0.4);
-    kit.box(M.plaster, W - 0.2, bodyH, D - 0.2, 0, lift + 0.2 + bodyH / 2, -0.4);
-    door(kit, M, 1.2, 1.7, 0, lift + 0.2, D / 2 - 0.5, { lintel: M.darkWood });
-    if (!ruin) gabledRoof(kit, M.tile, M.plaster, W - 0.2, D - 0.2, 1.1, lift + 0.2 + bodyH, -0.4, 0.3);
+    if (ruin) {
+      ruinShell(kit, M.plaster, r, { w: W - 0.2, h: bodyH, d: D - 0.2, y: lift + 0.2, z: -0.4, t: 0.25, gaps: [{ x: 0, w: 1.2 }] });
+    } else {
+      kit.box(M.plaster, W - 0.2, bodyH, D - 0.2, 0, lift + 0.2 + bodyH / 2, -0.4);
+      door(kit, M, 1.2, 1.7, 0, lift + 0.2, D / 2 - 0.5, { lintel: M.darkWood });
+      gabledRoof(kit, M.tile, M.plaster, W - 0.2, D - 0.2, 1.1, lift + 0.2 + bodyH, -0.4, 0.3);
+    }
     for (let k = 0; k < 5; k++) kit.box(M.wood, 1.0, 0.06, 0.12, 0, 0.2 + k * 0.22, D / 2 + 0.2 + k * 0.08);
     for (const sx of [-1, 1]) kit.box(M.wood, 0.08, 1.4, 0.08, sx * 0.48, 0.62, D / 2 + 0.42, 0, 0.32);
     height = lift + H + 1.4;
@@ -376,9 +471,12 @@ export function buildWarehouse(M, b, r) {
     for (const sx of [-1, 1]) kit.box(M.stone, 0.5, H * 0.8, D * 0.7, sx * (W / 2 - 0.25), H * 0.4, -D * 0.15);
     for (const sx of [-1, -0.33, 0.33, 1]) kit.cylinder(M.wood, 0.1, 0.12, H - 0.4, sx * (W / 2 - 0.5), (H - 0.4) / 2, D / 2 - 0.6, 8);
     if (!ruin) shedRoof(kit, M.tile, W, D, 0.9, H - 0.3, -0.2, 0.3);
-    for (let row = 0; row < 3; row++) for (let i = 0; i < Math.floor(W / 0.55) - 2; i++) {
+    // 棚下一排，棚前的空地上两排大陶瓮（半埋在地里的 pithos）：俯视看得见的是棚前那两排
+    for (let i = 0; i < Math.floor(W / 0.55) - 2; i++) kit.add(M.terracotta, amphoraBody(), m4(-W / 2 + 0.9 + i * 0.55, 0, -D / 2 + 1.1, r() * 6, 0, 0, 0.82));
+    const pithos = lathePithos();
+    for (let row = 0; row < 2; row++) for (let i = 0; i < Math.floor((W - 1.2) / 0.95); i++) {
       if (ruin && (i + row) % 3 === 0) continue;
-      kit.add(M.terracotta, amphoraBody(), m4(-W / 2 + 0.9 + i * 0.55, 0, -D / 2 + 1.1 + row * 0.7, r() * 6, 0, 0, 0.82));
+      kit.add(M.terracotta, pithos, m4(-W / 2 + 1.0 + i * 0.95 + row * 0.47, 0, D / 2 + 0.55 + row * 0.95, r() * 6));
     }
   }
   if (ruin) rubble(kit, M, r, 6, W, D);

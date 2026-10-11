@@ -203,7 +203,7 @@ export function buildHarbor(M, quayLocalZ, pierLength, plotCenterZ, statueGeomet
     for (const sx of [-1, 1]) kit.cylinder(M.stone, 0.16, 0.2, 0.55, sx * 1.35, 0.35, z, 8);
   }
   for (let i = 0; i < 4; i++) kit.box(M.wood, 0.7, 0.7, 0.7, -3 + (i % 2) * 0.8, 0.35 + (i >= 2 ? 0.7 : 0), quayLocalZ - 2.5, i * 0.3);
-  for (let i = 0; i < 5; i++) kit.add(M.tile, amphoraBody(), m4(2.2 + (i % 3) * 0.5, 0, quayLocalZ - 2.2 - Math.floor(i / 3) * 0.5, i, 0, 0, 0.85));
+  for (let i = 0; i < 5; i++) kit.add(M.terracotta, amphoraBody(), m4(2.2 + (i % 3) * 0.5, 0, quayLocalZ - 2.2 - Math.floor(i / 3) * 0.5, i, 0, 0, 0.85));
   const group = kit.build();
   group.userData.height = 2;
   return group;
@@ -222,7 +222,22 @@ export function buildBoat(M) {
   hull.rotateX(Math.PI / 2);
   hull.scale(1, 0.85, 1);
   kit.add(M.darkWood, hull, m4(0, 0.15, 0));
-  kit.box(M.wood, 2.1, 0.08, 7.8, 0, 0.12, 0);
+  // 甲板是船形的（两头尖），沿船舷一道浅色的舷栏：城里的船泡在水里、只露出甲板，
+  // M2 美术审查时第一版的甲板是一块长方形的深色木板，俯视是一块搭在水上的木板，不是一条船
+  const halfW = (t) => Math.max(0.03, Math.sin(Math.PI * t) * 1.06);
+  const outline = Array.from({ length: 25 }, (_, i) => [halfW(i / 24), (i / 24 - 0.5) * 8.8]);
+  const deck = new THREE.Shape();
+  deck.moveTo(0, -4.4);
+  for (const [w, z] of outline) deck.lineTo(w, z);
+  for (const [w, z] of outline.slice().reverse()) deck.lineTo(-w, z);
+  const deckGeo = new THREE.ExtrudeGeometry(deck, { depth: 0.08, bevelEnabled: false });
+  deckGeo.rotateX(Math.PI / 2);
+  kit.add(M.wood, deckGeo, m4(0, 0.2, 0));
+  const rail = new THREE.CatmullRomCurve3([
+    ...outline.map(([w, z]) => new THREE.Vector3(w * 0.96, 0.42, z * 0.98)),
+    ...outline.slice(1, -1).reverse().map(([w, z]) => new THREE.Vector3(-w * 0.96, 0.42, z * 0.98)),
+  ], true);
+  kit.add(M.papyrus, new THREE.TubeGeometry(rail, 96, 0.05, 6, true));
   kit.cylinder(M.darkWood, 0.09, 0.12, 1.6, 0, 0.9, -4.7, 8, -0.75);   // 船尾翘起的尾饰
   kit.cylinder(M.wood, 0.08, 0.1, 6, 0, 3.1, 0.4, 8);
   kit.cylinder(M.wood, 0.05, 0.05, 3.6, 0, 5.2, 0.4, 6, 0, Math.PI / 2);
@@ -249,11 +264,19 @@ export function buildAgora(M) {
   }
   kit.box(M.marble, 0.42, 1.5, 0.42, 4.6, 0.75, -3.6);
   kit.add(M.marble, new THREE.SphereGeometry(0.26, 16, 12), m4(4.6, 1.75, -3.6, 0, 0, 0, 0.9, 1.15, 0.95));
-  // 日晷：一根短柱上的半球形晷盘（skaphe），晷针朝北；旁边是传令官站的两级讲台（bema）
-  kit.cylinder(M.marble, 0.26, 0.3, 1.0, -4.6, 0.5, -3.4, 14);
-  kit.box(M.marble, 0.78, 0.36, 0.62, -4.6, 1.18, -3.4);
-  kit.add(M.dark, new THREE.SphereGeometry(0.27, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), m4(-4.6, 1.37, -3.38, 0, -0.5));
-  kit.cylinder(M.bronze, 0.012, 0.012, 0.3, -4.6, 1.42, -3.52, 6, 1.1);
+  // 日晷：一根短柱上一块平放的圆晷盘，北半边刻着一道道放射的时辰线，正中立着一片三角形的铜晷针；
+  // 旁边是传令官站的两级讲台（bema）。M2 美术审查：第一版是柱头上一块方石里挖出的半球（skaphe），
+  // 从斜上方看是白盘子上一道黑色的月牙，读成一张脸，不像日晷
+  const dial = new THREE.Vector3(-4.6, 1.08, -3.4);
+  kit.cylinder(M.marble, 0.2, 0.26, 0.98, dial.x, 0.49, dial.z, 14);
+  kit.cylinder(M.marble, 0.46, 0.42, 0.1, dial.x, dial.y, dial.z, 28);
+  for (let k = 0; k <= 8; k++) {
+    const a = Math.PI + (k / 8) * Math.PI;
+    kit.box(M.dark, 0.012, 0.012, 0.3, dial.x + Math.cos(a) * 0.24, dial.y + 0.056, dial.z + Math.sin(a) * 0.24, Math.PI / 2 - a);
+  }
+  const gnomon = new THREE.Shape();
+  gnomon.moveTo(0, 0); gnomon.lineTo(0.38, 0); gnomon.lineTo(0.38, 0.24); gnomon.closePath();
+  kit.add(M.bronze, new THREE.ExtrudeGeometry(gnomon, { depth: 0.02, bevelEnabled: false }), m4(dial.x - 0.01, dial.y + 0.05, dial.z + 0.19, Math.PI / 2));
   kit.box(M.marble, 1.6, 0.22, 1.2, -4.4, 0.11, -1.9);
   kit.box(M.marble, 1.1, 0.22, 0.8, -4.4, 0.33, -2.05);
   const notices = [];

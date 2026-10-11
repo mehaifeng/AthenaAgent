@@ -162,9 +162,9 @@ function ionicCapital(r1) {
   echinus.translate(0, 0.06, 0);
   parts.push(echinus.toNonIndexed());
   for (const sx of [-1, 1]) {
-    const volute = new THREE.TorusGeometry(0.17, 0.07, 8, 20);
-    volute.rotateY(Math.PI / 2);
-    volute.translate(sx * 0.42, 0.06, 0);
+    // 卷涡朝前（圆环在 xy 平面里）：M2 美术审查时第一版转了 90°，从正面看只是两条竖着的细边，和多立克分不开
+    const volute = new THREE.TorusGeometry(0.21, 0.08, 8, 22);
+    volute.translate(sx * 0.44, 0.02, 0);
     parts.push(volute.toNonIndexed());
   }
   const pad = new THREE.BoxGeometry(0.98, 0.1, 0.5);
@@ -263,14 +263,51 @@ export function window_(kit, M, w, h, x, y, z) {
   kit.box(M.stone, w + 0.16, 0.07, 0.16, x, y - h / 2 - 0.035, z + 0.06);
 }
 
-/** 双坡屋顶：屋脊沿 x，宽 w（沿 x）、进深 d、坡高 h；两片坡面 + 两端山墙 + 屋脊，坐在 y 上。 */
-export function gabledRoof(kit, roofMat, gableMat, w, d, h, y, z = 0, overhang = 0.35) {
+/**
+ * 双坡屋顶：屋脊沿 x，宽 w（沿 x）、进深 d、坡高 h；两片坡面 + 两端山墙 + 屋脊，坐在 y 上，中心在 (x, z)。
+ * x 是 M2 美术审查补的：并排两户的民居第一版两片屋顶都落在地块中线上，各自外侧一半没有屋顶。
+ */
+export function gabledRoof(kit, roofMat, gableMat, w, d, h, y, z = 0, overhang = 0.35, x = 0) {
   const half = d / 2 + overhang;
   const slope = Math.hypot(half, h);
   const pitch = Math.atan2(h, half);
-  for (const sz of [1, -1]) kit.box(roofMat, w + overhang * 2, 0.16, slope, 0, y + h / 2 + 0.06, z + sz * half / 2, 0, sz * pitch);
-  for (const sx of [1, -1]) kit.add(gableMat, gable(d, h, 0.2), m4(sx * (w / 2 - 0.1), y, z, Math.PI / 2));
-  kit.cylinder(roofMat, 0.09, 0.09, w + overhang * 2, 0, y + h + 0.1, z, 8, 0, Math.PI / 2);
+  for (const sz of [1, -1]) kit.box(roofMat, w + overhang * 2, 0.16, slope, x, y + h / 2 + 0.06, z + sz * half / 2, 0, sz * pitch);
+  for (const sx of [1, -1]) kit.add(gableMat, gable(d, h, 0.2), m4(x + sx * (w / 2 - 0.1), y, z, Math.PI / 2));
+  kit.cylinder(roofMat, 0.09, 0.09, w + overhang * 2, x, y + h + 0.1, z, 8, 0, Math.PI / 2);
+}
+
+/**
+ * 顺着屋面的侧墙（单坡屋顶的两端）：墙脚在 yBottom，墙顶按 topAt(z) 贴着屋面走，从 zA 到 zB，厚 t、中心在 x。
+ * 第一版是一块固定坡度的三角，坡度和屋面不一样、还偏出墙体 0.45 米：一端在屋面下留出黑缝，另一端从屋面上戳出白角。
+ */
+export function sideGable(kit, mat, { x, zA, zB, yBottom, topAt, t = 0.45 }) {
+  const s = new THREE.Shape();
+  s.moveTo(zA, yBottom); s.lineTo(zB, yBottom); s.lineTo(zB, topAt(zB)); s.lineTo(zA, topAt(zA)); s.closePath();
+  // 形状的 x 是世界的 z、y 是世界的 y；绕 y 转 −90° 后挤出方向朝 −x，所以中心再挪半个厚度
+  kit.add(mat, new THREE.ExtrudeGeometry(s, { depth: t, bevelEnabled: false }), m4(x + t / 2, 0, 0, -Math.PI / 2));
+}
+
+/**
+ * 废墟的墙壳：屋顶没了，四面墙各断成几截、高低不一，里面露出泥地（废墟要看得进去——第一版是一个实心方块，
+ * 顶上一块平平的白盖子，读起来是一座平顶房上搁了几根棍子）。gaps 是正面墙上的豁口（门洞）：[{ x, w }]。
+ */
+export function ruinShell(kit, mat, r, { w, h, d, x = 0, y = 0, z = 0, t = 0.3, floor = null, gaps = [] }) {
+  const run = (len, alongX, cx, cz, front) => {
+    const n = Math.max(2, Math.round(len / 1.5));
+    const seg = len / n;
+    for (let i = 0; i < n; i++) {
+      const off = -len / 2 + seg * (i + 0.5);
+      if (front && gaps.some((g) => Math.abs(cx + off - g.x) < g.w / 2 + seg / 2 - 0.2)) continue;
+      const hh = h * (0.42 + r() * 0.58);
+      if (alongX) kit.box(mat, seg + 0.02, hh, t, cx + off, y + hh / 2, cz);
+      else kit.box(mat, t, hh, seg + 0.02, cx, y + hh / 2, cz + off);
+    }
+  };
+  run(w, true, x, z + d / 2 - t / 2, true);
+  run(w, true, x, z - d / 2 + t / 2, false);
+  run(d - 2 * t, false, x - w / 2 + t / 2, z, false);
+  run(d - 2 * t, false, x + w / 2 - t / 2, z, false);
+  if (floor) kit.box(floor, w - 2 * t, 0.04, d - 2 * t, x, y + 0.02, z);
 }
 
 /** 屋脊朝前的双坡屋顶（山花朝正面，神殿式）：宽 w、进深 d、坡高 h。 */
@@ -304,10 +341,12 @@ export function flatRoof(kit, roofMat, parapetMat, w, d, y, z = 0) {
  * skip(i) 为 true 的位置不立柱（废墟里倒掉的那几根由调用方另画）。
  */
 export function colonnade(kit, mat, { n, x0, x1, y, z, height, order = 'doric', detail = 'low', key = 'col', skip = null, twist = 0.7 }) {
+  // 多立克柱各转一个角度，凹槽才不会排成一模一样的竖条；爱奥尼亚的卷涡必须朝前，不转
+  const turn = order === 'ionic' ? 0 : twist;
   for (let i = 0; i < n; i++) {
     if (skip?.(i)) continue;
     const x = n === 1 ? (x0 + x1) / 2 : x0 + (i * (x1 - x0)) / (n - 1);
-    kit.instance(`${key}-${order}-${height.toFixed(2)}`, () => column(height, { detail, order }), mat, m4(x, y, z, i * twist));
+    kit.instance(`${key}-${order}-${height.toFixed(2)}`, () => column(height, { detail, order }), mat, m4(x, y, z, i * turn));
   }
 }
 

@@ -100,11 +100,15 @@ export function makeMaterials() {
     // 俯视时屋顶占画面最大，得比铺地明显暗一档，城里的建筑才分得开
     roof: new THREE.MeshStandardMaterial({ color: 0x75685e, roughness: 0.8 }),
     tile: tiled(0x8a6656),
+    // 作坊木棚的苇顶：浅草色、顺坡的一道道苇秆（第一版用深木色的一块板，俯视是一个黑洞）
+    reed: tiled(0xb1a283),
     dark: new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.9 }),
     shadowGap: new THREE.MeshStandardMaterial({ color: 0x2c2723, roughness: 1 }),
     wood: new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 0.85 }),
     darkWood: new THREE.MeshStandardMaterial({ color: 0x4a3d31, roughness: 0.9 }),
-    bronze: new THREE.MeshStandardMaterial({ color: 0x6f5b3f, roughness: 0.45, metalness: 0.75 }),
+    // 铜、金：城里的环境光只有 0.18，金属度高的材质几乎反射不到东西、去色后是黑的（M2 美术审查：三足鼎、火盆、
+    // 金库的铜门都成了黑块，鼎的两只环耳像一张脸上的两只眼睛）。金属度压低、底色提亮，读得出是"一件金属器"
+    bronze: new THREE.MeshStandardMaterial({ color: 0x8c7556, roughness: 0.48, metalness: 0.35 }),
     stone: new THREE.MeshStandardMaterial({ color: 0x9c9488, roughness: 0.95 }),
     earth: new THREE.MeshStandardMaterial({ map: earthMap, roughness: 1 }),
     pave,
@@ -118,12 +122,14 @@ export function makeMaterials() {
     awning: new THREE.MeshStandardMaterial({ map: clothMap, color: 0xcfc6b6, roughness: 0.9, side: THREE.DoubleSide }),
     playerCloth: new THREE.MeshStandardMaterial({ map: clothMap, color: 0x8d8780, roughness: 0.9, side: THREE.DoubleSide }),
     skin: new THREE.MeshStandardMaterial({ color: 0xc8ae98, roughness: 0.6 }),
-    hair: new THREE.MeshStandardMaterial({ color: 0x3a332e, roughness: 0.65 }),
-    gold: new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 0.3, metalness: 0.9 }),
+    // 头发：M2 美术审查时近乎纯黑、还带高光，近看像一顶漆皮帽；提一档、去掉光泽
+    hair: new THREE.MeshStandardMaterial({ color: 0x584a3e, roughness: 0.86 }),
+    gold: new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 0.34, metalness: 0.4 }),
     maiden: new THREE.MeshStandardMaterial({ color: 0xe0c27a, roughness: 0.28, metalness: 0.85, emissive: new THREE.Color(0.25, 0.2, 0.08), emissiveIntensity: 0.4 }),
     cypress: new THREE.MeshStandardMaterial({ color: 0x48503f, roughness: 0.95 }),
     olive: new THREE.MeshStandardMaterial({ color: 0x7c8574, roughness: 0.95 }),
-    ivy: new THREE.MeshStandardMaterial({ color: 0x3c4634, roughness: 0.95, side: THREE.DoubleSide }),
+    // 常春藤：第一版去色后近黑，墙上的叶团读成一个个窟窿；提一档
+    ivy: new THREE.MeshStandardMaterial({ color: 0x4d5a43, roughness: 0.95, side: THREE.DoubleSide }),
     bark: new THREE.MeshStandardMaterial({ color: 0x5c534a, roughness: 0.95 }),
     papyrus: new THREE.MeshStandardMaterial({ color: 0xe9e1cf, roughness: 0.8, side: THREE.DoubleSide }),
     // 点缀色：红绘陶器的赤陶红（设计稿 8 节）。只给"轮到你了"的东西用，并且要配合 userData.accent 才会在调色里留色。
@@ -132,16 +138,19 @@ export function makeMaterials() {
     // 陶土与点缀色不是同一个颜色，也从不挂 userData.accent——器物永远是灰的。
     terracotta: new THREE.MeshStandardMaterial({ color: 0x9a6a52, roughness: 0.7 }),
     glaze: new THREE.MeshStandardMaterial({ color: 0x1f1b18, roughness: 0.32, metalness: 0.05 }),
-    laurel: new THREE.MeshStandardMaterial({ color: 0x3f4a39, roughness: 0.92 }),
+    laurel: new THREE.MeshStandardMaterial({ color: 0x4f5c47, roughness: 0.92 }),
     // 城邦金库的灰石：比大理石暗两档，比土亮一档——方屋在一片白里一眼认得出
     vaultStone: new THREE.MeshStandardMaterial({ color: 0x8f877d, roughness: 0.95 }),
-    // 居民衣料的五档深浅：在一张黑白的画面里，人和人靠明暗分开（雅典娜最亮，你的斗篷偏深）
-    clothShades: [0.95, 0.8, 0.66, 0.52, 0.4].map((k) => {
+    // 居民衣料的五档深浅：在一张黑白的画面里，人和人靠明暗分开（雅典娜最亮，你的斗篷偏深）。
+    // M2 美术审查：第一版最浅的两档（0.95、0.8）在正午的高调光下和雅典娜的白衣分不开——光属于她，最浅一档也得比她暗一截
+    clothShades: [0.76, 0.64, 0.54, 0.45, 0.37].map((k) => {
       const m = new THREE.MeshStandardMaterial({ map: clothMap, roughness: 0.88, side: THREE.DoubleSide });
       m.color.setScalar(k);
       return m;
     }),
     leather: new THREE.MeshStandardMaterial({ color: 0x4c3b2e, roughness: 0.8 }),
+    // 围裙的鞣皮：比靴子和帽子的皮浅两档。第一版用同一种深皮，挂在胸前去色后是一块纯黑的板
+    hide: new THREE.MeshStandardMaterial({ color: 0x86705c, roughness: 0.84, side: THREE.DoubleSide }),
     greyHair: new THREE.MeshStandardMaterial({ color: 0xb8b2aa, roughness: 0.7 }),
   };
 }

@@ -35,11 +35,22 @@ export function buildItemBody(M, kind = 'scroll', { accent = true } = {}) {
     panel.position.set(0, 0.4, -0.01);
     panel.rotation.x = -0.22;
     g.add(panel);
-    // 板上几笔：一个人形的剪影（黑白里也看得出"这是一幅画"）
-    const figure = mesh(new THREE.PlaneGeometry(0.08, 0.22), M.glaze);
-    figure.position.set(-0.08, 0.38, 0.0);
-    figure.rotation.x = -0.22;
-    g.add(figure);
+    // 板上一幅小风景：下面一带海、左边两座山、右上一轮日（黑白里也看得出"这是一幅画"）。
+    // M2 美术审查：第一版只有一道竖着的黑条，远看是一个感叹号
+    const motif = new THREE.Group();
+    motif.position.set(0, 0.4, -0.01);
+    motif.rotation.x = -0.22;
+    const flat = (geo, mat, x, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, 0.004); motif.add(m); return m; };
+    flat(new THREE.PlaneGeometry(0.56, 0.12), M.stone, 0, -0.14);
+    const hill = (x0, x1, h, mat, z) => {
+      const sh = new THREE.Shape();
+      sh.moveTo(x0, -0.08); sh.quadraticCurveTo((x0 + x1) / 2, -0.08 + h * 2, x1, -0.08); sh.closePath();
+      flat(new THREE.ShapeGeometry(sh, 6), mat, 0, 0).position.z = z;
+    };
+    hill(-0.28, 0.04, 0.12, M.bark, 0.005);
+    hill(-0.2, -0.04, 0.17, M.glaze, 0.006);
+    flat(new THREE.CircleGeometry(0.045, 18), M.glaze, 0.15, 0.09);
+    g.add(motif);
     return g;
   }
   // 卷轴 / 回答：一卷红色的卷轴（点缀色），两端纸色的轴头，中间一道系绳
