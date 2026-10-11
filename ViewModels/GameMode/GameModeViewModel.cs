@@ -669,7 +669,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             scale = kv.Value.Scale,
             rotateY = kv.Value.RotateY,
             offset = kv.Value.Offset,
-            animations = kv.Value.Animations
+            animations = kv.Value.Animations,
+            rig = kv.Value.Rig
         }, StringComparer.Ordinal) });
         Post(new { type = "visibility", visible = _windowVisible && IsGameMode });
         // 地址里带过一次主题；创建页面之后主题又变过的话以此刻为准（直接到位，不过渡）

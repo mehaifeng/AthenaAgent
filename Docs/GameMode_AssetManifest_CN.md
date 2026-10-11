@@ -2,7 +2,9 @@
 
 > 2026-10-11（M2）。城邦里画的每一件东西缺省都由代码生成（设计稿第 1 节"美术全部由代码生成，保留资产清单接口，
 > 任何一件都能单独换成外部模型"）。这份说明讲怎样用一份清单把其中任何一件换成你自己的 glTF 模型，以及换不上时会发生什么。
-> 实现：页面 `Assets/Polis/src/art/assets.mjs`（资产表与资产库）、`asset-manifest.mjs`（回退规则，Node 单测）；
+> 2026-10-12：人物可以写 `"rig": "procedural"`，把一个静止站着的模型（文生 3D 出来的就是这样）蒙在这个人物自己的程序化骨架上，
+> 动作全用程序化的那一套（第 6 节）。前一天夜里修了内嵌贴图被页面的内容安全策略拦掉、外部模型只剩白模的问题。
+> 实现：页面 `Assets/Polis/src/art/assets.mjs`（资产表与资产库）、`asset-manifest.mjs`（回退规则，Node 单测）、`bind.mjs`（蒙到程序化骨架上）；
 > C# `Services/GameMode/PolisAssetManifest.cs`（校验）、`PolisAssetStore.cs`（读文件）、`OfficePreviewHost` 的 `/polis-assets/` 路由。
 
 ## 1. 放在哪
@@ -27,10 +29,11 @@ AthenaData/Game/assets/
   "assets": {
     "building.house": { "model": "house.glb", "scale": 1.0, "rotateY": 0, "offset": [0, 0, 0] },
     "prop.amphora":   { "model": "amphora.glb", "scale": 0.9 },
-    "figure.athena":  {
-      "model": "athena.glb",
+    "figure.scribe":  {
+      "model": "scribe.glb",
       "animations": { "walk": "Walk", "idle": "Idle", "work": "Work", "deliver": "Give" }
-    }
+    },
+    "figure.athena":  { "model": "athena.glb", "scale": 1.62, "rig": "procedural" }
   }
 }
 ```
@@ -44,6 +47,7 @@ AthenaData/Game/assets/
 | `rotateY` | 否 | 绕竖轴转多少度，[−360, 360]，缺省 0。 |
 | `offset` | 否 | `[x, y, z]` 米，每个分量在 ±50 以内，缺省 `[0, 0, 0]`。 |
 | `animations` | 否 | 只对人物有用：动作名（`walk` / `run` / `idle` / `work` / `deliver` / `talk` / `wave` / `receive`）→ 模型里的动画片段名。M3 加了跑、说话、挥手、接过。 |
+| `rig` | 否 | 只对人物、只能写 `"procedural"`：模型蒙在这个人物自己的程序化骨架上，动作全是程序化的（第 6 节）。和 `animations` 互斥——两样一起写整条拒绝。 |
 
 整份清单不超过 64 KB、最多 256 条；单个文件不超过 64 MB。
 
@@ -82,7 +86,40 @@ AthenaData/Game/assets/
   人在城里的移动由页面驱动（雅典娜每秒走 3.2 米、你每秒 6 米、按住 Shift 跑 10.5 米），`walk` / `run` 片段按原地踏步做即可，不要带根运动。
 - **外部人物没有弹簧骨**：程序化人物的衣摆、面纱、斗篷挂在弹簧骨上随走动和风飘（M3）；外部模型要这个效果，把布料动画烘进片段里。
 
-## 6. 换不上会怎样（缺省回退）
+## 6. 人物蒙在程序化骨架上（`"rig": "procedural"`）
+
+文生 3D、雕刻、扫描出来的人物多半是**静止**的：一个网格，没有骨头，没有动画。按第 5 节直接换上，人在城里只会整体平移
+（M3 里否掉的"滑行"）。写上 `"rig": "procedural"`，页面（`bind.mjs`）会：
+
+1. 把模型按清单摆好（`scale` / `rotateY` / `offset`），每 1 厘米切一层，找出脖子、肩、腋下、肘、腕、指尖、腰、衣摆、髋、膝、踝；
+2. 按部位算蒙皮权重：手臂分给上臂、前臂、手，肩头匀一部分给上臂，头跟头，腰以下的衣裙按左右分给两条大腿、
+   一部分跟胯、一部分跟裙摆关节（走起来前后摆、跑起来往后飘），衣摆边上绕着腿的那一圈分一点给小腿，露出来的腿和脚跟腿；
+3. 建这个人物的程序化版本，拆掉它的身体（手里的东西留着），关节挪到模型的关节上，模型蒙上去。
+
+之后这个人物的一切照旧：走 / 跑 / 停（带小动作）/ 做事 / 交付 / 说话 / 挥手 / 接过、动作之间 220 毫秒的过渡、头看向对方、
+步频跟着速度走（脚不打滑）、手里的卷轴石板锤子、交付时的红卷轴和等审批时的红封印。
+
+**模型的要求：**
+- **A-pose**：两臂离开身体，腋下以下和躯干之间有空当（找手臂靠这个空当）；手不碰身体、不拿东西，手指最好张开。
+  T-pose（手臂水平）和手贴着身体都不行。
+- 两脚分开、站直，面朝 +z，摆好之后脚底在 y = 0、按真人身高（雅典娜 1.9 米）。
+- 衣服可以是长裙；短衣也行（露出来的大腿跟大腿）。
+
+**找不出关节时**（没站成 A-pose、手贴着身体、模型太小……）这一件退回程序化的人物，`console.warn` 记一行原因
+（`falls back to the procedural asset: the arms do not stand apart from the body; the model must be in an A-pose`）。
+
+**和程序化人物不一样的地方：**
+- 裙摆不再是布料模拟，跟着大腿和裙摆关节摆；面纱、辫子、斗篷这些弹簧骨也没有了——它们挂在程序化的衣料上。
+- 手指不会握：手里的东西照样在手上，手指还是张开的。
+- 手臂举过肩很高时（挥手、挠头），腋下会挤出一道褶（线性蒙皮的老问题）。
+- 模型自己的手比程序化的手长，碰头、抱臂这种贴着身体的小动作会对不太准。
+
+**审查：** 美术审查页可以带清单渲染外部模型——
+`index.html?gallery=figure.athena&action=walk&frames=8&zoom=6&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}`
+（模型从 `/polis-assets/` 取，测试服务器要把它挂到放模型的文件夹）；再加 `&weights=1` 按蒙皮权重上色，
+每根骨头一种颜色，查权重分错了地方。
+
+## 7. 换不上会怎样（缺省回退）
 
 任何一层出问题，那一件都照常用程序化的，城照样画出来：
 
@@ -91,18 +128,26 @@ AthenaData/Game/assets/
 | C#（读清单时） | 不是 JSON、`schema` 不是 1、Id 写法不对、`model` 不是一段 `.glb`/`.gltf` 文件名、文件不在资产文件夹里（或是一个指到文件夹外面的软链）、数字越界、动作名不认识 | 那一条不推给页面；**每条一行 Warning**（日志里 `Polis asset manifest … : …`） |
 | 页面（核对时） | Id 不在资产表里、条目形状不对 | 忽略，`console.warn` 一行 |
 | 页面（加载时） | 模型 404、解析失败、文件里没有网格 | 退回程序化的那一件，`console.warn` 一行（`falls back to the procedural asset`） |
+| 页面（`rig` 绑骨时） | 找不到手臂（不是 A-pose）、找不到脖子或肩、模型太小 | 同上，原因写在那一行里 |
 
 外部模型到之前，城先用程序化的画出来；模型取到了再整城重建一次（地块、人物、时间线都不变）。
 
-## 7. 怎样确认换上了
+## 8. 怎样确认换上了
 
 - 日志：`Polis asset manifest …: N asset(s) replaced by external models`；被拒的条目各有一行 Warning。
 - 在城里看：换掉的那一类建筑 / 那件器物 / 那个人物变成了你的模型。
 - 冒烟测试 `Tools/GameMode/web/test/smoke.mjs` 的 "live, accumulation" 一段就是这样测的：现写一个盒子形状的 GLB 换掉民居（`externalModelUsed`），
-  再让双耳瓶指向一个不存在的文件（`missingModelFallsBack`），页面没有报错。
+  再让双耳瓶指向一个不存在的文件（`missingModelFallsBack`），页面没有报错。盒子带一张内嵌在 GLB 里的贴图，
+  检查它真的读进了材质（`externalTextureLoaded`）：页面的内容安全策略少了 `connect-src blob:`，GLTFLoader 读不到内嵌贴图，
+  外部模型照样换上、只是一片白，只在控制台留一行错误——2026-10-11 之前就是这样，那时的盒子没有贴图，测不出来。
+  雅典娜换成一个 A-pose 人台、蒙在程序化骨架上（`externalFigureOnProceduralRig`）。
 
-## 8. 建议
+## 9. 建议
 
 - 三角面数：建筑 2 万以内、人物 1.5 万以内、器物和植物几千以内——城里同时画几十座建筑和十几个人。
 - 贴图用 2 的幂尺寸（512、1024），能用 `.glb` 就用 `.glb`。
 - 人物的动画片段按真实的步速做：程序化的人走一步约 0.65 秒，雅典娜一步 0.5 秒（步幅 1.6 米、3.2 米 / 秒）。
+- 文生 3D 出来的模型通常很重（第一个雅典娜：50 万三角面、三张 4096 贴图、43.6 MB），先减面、缩贴图再放进来：
+  `npx @gltf-transform/cli weld in.glb w.glb`、`npx @gltf-transform/cli simplify w.glb s.glb --ratio 0.12 --error 0.002`、
+  `npx @gltf-transform/cli resize s.glb out.glb --width 2048 --height 2048`（得到 6 万面、13.3 MB，游戏视距下看不出差别）。
+  别用 `optimize`：它缺省加 meshopt 压缩，页面的 GLTFLoader 没配解码器，读不出来。

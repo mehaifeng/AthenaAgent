@@ -4,6 +4,7 @@
 //   index.html?gallery=building.workshop&view=game&variant=weaver&state=bustling&size=2
 //   index.html?gallery=figure.athena&action=walk&frames=8
 //   index.html?gallery=bust:athena
+//   index.html?gallery=figure.athena&action=walk&frames=8&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}
 // 建筑、器物、植物旁边站一个灰色的你（玩家），用来看比例。渲染完 document.title = 'gallery-ready'。
 import * as THREE from '../vendor/three.bundle.mjs';
 import { createRenderer } from './render.mjs';
@@ -23,7 +24,13 @@ export async function runGallery({ params, status }) {
   if (id.startsWith('bust:')) return bustSheet(id.slice(5), status);
   const R = createRenderer({ canvas: document.getElementById('scene') });
   const M = makeMaterials();
-  const assets = createAssetLibrary(M);
+  // &manifest=<JSON>：按一份资产清单（Id → 条目）换上外部模型再画（审查外部模型、蒙在程序化骨架上的人物用；模型从 /polis-assets/ 取）
+  const manifest = params.get('manifest') ? JSON.parse(params.get('manifest')) : null;
+  const assets = createAssetLibrary(M, { manifest });
+  if (manifest) {
+    await assets.prepare();
+    status.assets = assets.report;
+  }
   const entry = assets.registry.get(id);
   if (!entry) throw new Error(`gallery: unknown asset '${id}'`);
   R.scene.background = new THREE.Color(0xd2cdc5);
@@ -59,6 +66,9 @@ export async function runGallery({ params, status }) {
     const figure = assets.figure(id);
     R.scene.add(figure.root);
     R.gradePass.uniforms.uGlowStrength.value = 0;
+    // &weights=1：蒙在程序化骨架上的外部人物按蒙皮权重上色（每根骨头一种颜色，按权重混合；不去色）——查权重分错了地方用
+    if (params.get('weights') === '1' && figure.skinned) showWeights(R, figure);
+    window.__polisGallery = { figure, R };
     const action = params.get('action');
     const frames = Number(params.get('frames') ?? 0);
     const who = id.slice('figure.'.length);
@@ -127,6 +137,35 @@ export async function runGallery({ params, status }) {
   status.gallery = { id, view, kind: entry.kind, height, subtype: object.userData.subtype ?? null, clip: clipOf(R, bounds, 26) };
   status.ready = true;
   document.title = 'gallery-ready';
+}
+
+/** 蒙皮权重的颜色：每根骨头一种（左右同色系、左亮右暗），顶点按四个权重混合。 */
+const BONE_COLORS = {
+  hips: 0x8a8a8a, spine: 0xd8d8d8, head: 0xf2e6a0, skirt: 0x7a3fb0,
+  shoulderL: 0xff6b35, elbowL: 0xffb000, handL: 0xfff200, shoulderR: 0xa83a1a, elbowR: 0xa87400, handR: 0xa8a000,
+  legL: 0x2f8cff, kneeL: 0x2fffd0, legR: 0x1a4a8a, kneeR: 0x1a8a72,
+};
+function showWeights(R, figure) {
+  R.gradePass.uniforms.uGrade.value = 0;
+  const bones = figure.skeleton.bones.map((b) => Object.keys(figure.joints).find((k) => figure.joints[k] === b));
+  for (const mesh of figure.skinned) {
+    const g = mesh.geometry.clone();
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+    const colors = new Float32Array(si.count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < si.count; i++) {
+      let r = 0, gr = 0, b = 0;
+      for (let q = 0; q < 4; q++) {
+        c.setHex(BONE_COLORS[bones[si.getComponent(i, q)]] ?? 0xff00ff);
+        const w = sw.getComponent(i, q);
+        r += c.r * w; gr += c.g * w; b += c.b * w;
+      }
+      colors.set([r, gr, b], i * 3);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    mesh.geometry = g;
+    mesh.material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  }
 }
 
 /** 雅典娜的光晕：和城里一样，按当帧矩阵把胸口投到屏幕上，半径随她在屏幕上的身高。 */

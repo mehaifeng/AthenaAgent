@@ -1265,6 +1265,19 @@ export function buildFigure(M, spec) {
     hemPoint: (j, k, target) => clothPoint(garments[0].cloth, j, k, target),
     get state() { return state; },
     /**
+     * 换上外部的身体之前（bind.mjs）：拆掉程序化的身体、衣料、头发，只留手里的东西；布料与弹簧骨不再推进
+     * （它们挂的是程序化的衣料，外部网格的衣裙蒙在关节上）。关节、姿势、过渡、看向、手里的东西照旧。
+     */
+    dropBody() {
+      const keep = new Set();
+      for (const prop of props.values()) prop.traverse((o) => keep.add(o));
+      const doomed = [];
+      root.traverse((o) => { if (o.isMesh && !keep.has(o)) doomed.push(o); });
+      for (const o of doomed) o.parent.remove(o);
+      garments.length = 0;
+      strips.length = 0;
+    },
+    /**
      * 摆一个动作在 t 毫秒时的姿势（长衣的人腿摆得小，免得脚从衣摆里踢出来）。走和停的时候，居民手里拿着
      * 他那一行的家什（spec.carry）——测杆、权杖、石板远看认得出是谁，不只在做事的那几秒出现。
      * M3：换了动作（或做事的样子、说 / 听）就从上一帧的姿势过渡过去（BLEND_MS）；style.lookAt 是头要看的点（世界坐标）；

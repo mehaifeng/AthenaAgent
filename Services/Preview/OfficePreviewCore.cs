@@ -115,10 +115,12 @@ public static class PolisAssetRoute
     /// <summary>
     /// 与页面里 &lt;meta&gt; 一致的内容安全策略，在响应头里再给一份（设计稿 12.4）：脚本只来自本站、不许内联脚本、
     /// 不许连外部、不许被别的页面嵌套。页面里的文件名与模型写的话一律画在 canvas 上或作为文本节点。
+    /// <c>connect-src</c> 带 <c>blob:</c>：GLTFLoader 用 <c>fetch(blob:)</c> 读 GLB 里内嵌的贴图，少了它外部模型只剩白模
+    /// （2026-10-11 实测，WebKit 与 Chromium 都拦）；<c>blob:</c> 地址只能由页面自己从已有的字节造出来，不通向任何网络。
     /// </summary>
     public const string ContentSecurityPolicy =
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
-        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+        "connect-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
     /// <summary>
     /// 路由里允许的相对路径：1–4 段，每段只含字母、数字、'.'、'_'、'-'，不是 '.' 或 '..'，以文件扩展名结尾。

@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <!-- 内容安全策略（设计稿 12.4）：脚本只能来自本站，不加载任何外部资源，不允许内联脚本；页面里的文件名与模型写的话
-     一律画在 canvas 上，卷轴阅读器只建文本节点。应用的回环服务在响应头里再给一份同样的策略。 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+     一律画在 canvas 上，卷轴阅读器只建文本节点。应用的回环服务在响应头里再给一份同样的策略。
+     connect-src 的 blob:：GLTFLoader 用 fetch(blob:) 读 GLB 里内嵌的贴图，没有它外部模型只剩白模（2026-10-11 实测）；
+     blob: 地址只能由页面自己从已有的字节造出来，不通向任何网络。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>雅典娜的城邦</title>

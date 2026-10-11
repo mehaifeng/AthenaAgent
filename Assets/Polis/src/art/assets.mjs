@@ -16,6 +16,7 @@ import { buildDeliveredItem, buildDisplayedItem } from './items.mjs';
 import { drape, blobGeometry, limbGeometry, merge, keyed } from './rig.mjs';
 import { rng, hashSeed } from './noise.mjs';
 import { poseAt } from './poses.mjs';
+import { prepareExternalBody, attachExternalBody } from './bind.mjs';
 import { footprintOf, BLOCKING_HEIGHT } from '../footprint.mjs';
 
 /**
@@ -103,6 +104,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
   const { overrides, ignored } = planOverrides(registry.keys(), manifest);
   const loads = new Map();
   const models = new Map();
+  /** rig: procedural 的人物：模型搬进人物坐标、找好关节、算好权重的那一份（bind.prepareExternalBody），每个实例共用。 */
+  const bodies = new Map();
   const report = {
     requested: [...overrides.keys()],
     ignored: ignored.map((i) => `${i.id}: ${i.reason}`),
@@ -121,6 +124,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
         let meshes = 0;
         gltf?.scene?.traverse((o) => { if (o.isMesh) meshes++; });
         if (!gltf?.scene || meshes === 0) throw new Error('the model has no meshes');
+        // 蒙到程序化骨架上的人物：找关节、算权重放在这里做，失败（没站成 A-pose、手贴着身体……）和加载失败一样退回程序化的
+        if (entry.rig === 'procedural') bodies.set(id, prepareExternalBody(gltf.scene, entry));
         models.set(id, gltf);
         loads.set(id, { ok: true });
         report.external.push(id);
@@ -173,6 +178,8 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     const entry = registry.get(id);
     if (!entry || entry.kind !== 'figure') throw new Error(`assets: '${id}' is not a figure`);
     if (source(id) !== 'external') return entry.build(params);
+    // 蒙在程序化骨架上：先建这个人物的程序化版本（骨架、姿势、手里的东西），再换上外部的身体（bind.mjs）
+    if (bodies.has(id)) return attachExternalBody(entry.build(params), bodies.get(id));
     const gltf = models.get(id);
     const over = overrides.get(id);
     const { wrapper, model } = wrapExternal(gltf, over);

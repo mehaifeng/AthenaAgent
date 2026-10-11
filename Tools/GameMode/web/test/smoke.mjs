@@ -4,22 +4,26 @@
 //         事件、成果、雾、阅读器，检查页面发回的意图——就绪、收下、重新定位都发了，"批准"从没发过；
 //         不可见时停止渲染；卷轴里的 HTML 只是文字。Chromium 另外关掉 WebGL 跑一遍：页面必须回报 failed（webgl）。
 //   M2：积累（橄榄林、居民、委托板、神谕、海图、藏品的摆放）的每一条意图都发得出去、形状对；传令官的行可点；
-//   资产清单：一件换成外部 glTF（测试现写的 GLB）真的换上了，另一件模型不存在（404）退回程序化的，页面没有报错。
+//   资产清单：一件换成外部 glTF（测试现写的 GLB，带内嵌贴图）真的换上了、贴图读进了材质，另一件模型不存在（404）退回程序化的，页面没有报错；
+//   雅典娜换成一个 A-pose 人台、蒙在程序化骨架上（rig: procedural）——身体是蒙皮网格，手里的东西还在。
 //   操作（2026-10-11）：视角缺省自由、V 轮换、左键拖动转镜头；WASD 走路且走不进房子；点雅典娜打开对话栏；对话栏收到 composer
 //   才出现，Enter 托付（say 带会话 Id）、草稿同步（draft）、她在办事时"请她停下"（stop-turn）；在对话栏里按 W 是字不是脚步，
 //   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { deflateSync, crc32 } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startServer } from './serve.mjs';
 import { launch, openPage } from './playwright.mjs';
+import { mannequinGlb } from './mannequin.mjs';
 
 const browsers = (process.argv[2] ?? 'chromium,webkit').split(',');
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
 const city = { ...fixture, replay: null };
 const assetsDir = mkdtempSync(path.join(tmpdir(), 'polis-assets-'));
 writeFileSync(path.join(assetsDir, 'house.glb'), boxGlb(6, 4.5, 6));
+writeFileSync(path.join(assetsDir, 'mannequin.glb'), mannequinGlb());
 const server = await startServer(0, [['/polis-assets/', assetsDir]]);
 let failed = false;
 
@@ -199,7 +203,7 @@ async function accumulationCheck(name, browser) {
     const sentSince = async (n) => (await page.evaluate(() => window.__hostInbox)).slice(n);
     const inboxLength = () => page.evaluate(() => window.__hostInbox.length);
 
-    await send({ type: 'init', tables: {}, assets: { 'building.house': { model: 'house.glb', scale: 1 }, 'prop.amphora': { model: 'missing.glb' } } });
+    await send({ type: 'init', tables: {}, assets: { 'building.house': { model: 'house.glb', scale: 1 }, 'prop.amphora': { model: 'missing.glb' }, 'figure.athena': { model: 'mannequin.glb', rig: 'procedural' } } });
     await send({ type: 'city', key: 'ws-1', city });
     await send({ type: 'grove', trees: Array.from({ length: 20 }, (_, i) => ({ conversationId: `c-${i}`, title: `委托 ${i}`, index: i, stage: i % 4, turns: 1 + i, interrupted: false, scheduled: false })) });
     await send({ type: 'residents', residents: [{ kind: 'scribe', met: false, name: '抄写员', intro: '她能替你起草报告。', tryLabel: '请雅典娜试试' }, { kind: 'smith', met: true, name: '铁匠', intro: '锻炉前跑命令。', tryLabel: '请雅典娜试试' }] });
@@ -217,7 +221,7 @@ async function accumulationCheck(name, browser) {
     ] });
     await send({ type: 'report', title: '你离开期间', lines: [{ text: '每日神谕送来了一卷', conversationId: 'c-3', itemId: null }, { text: '「照片」里多了 2 个文件' }] });
     await page.waitForFunction(() => window.__polis.grove?.trees === 20 && (window.__polis.residents ?? []).length === 2, null, { timeout: 20_000 });
-    await page.waitForFunction(() => (window.__polis.assets?.external ?? []).length + (window.__polis.assets?.fallbacks ?? []).length === 2, null, { timeout: 30_000 });
+    await page.waitForFunction(() => (window.__polis.assets?.external ?? []).length + (window.__polis.assets?.fallbacks ?? []).length === 3, null, { timeout: 30_000 });
     await page.waitForTimeout(600);
     const shape = await page.evaluate(() => {
       const g = window.__polisGame;
@@ -225,6 +229,19 @@ async function accumulationCheck(name, browser) {
       return {
         assets: window.__polis.assets,
         externalHouse: houses.length > 0 && houses.every((b) => b.group.userData.external === true),
+        // GLB 里内嵌的贴图真的读进了材质（CSP 拦掉 blob: 时模型照样换上，只是没有贴图）
+        externalTextured: houses.length > 0 && houses.every((b) => {
+          let textured = false;
+          b.group.traverse((o) => { if (o.isMesh && (o.material?.map?.image?.width ?? 0) > 0) textured = true; });
+          return textured;
+        }),
+        // 蒙在程序化骨架上的雅典娜（rig: procedural）：外部网格是蒙皮网格、十四根骨头，程序化的身体拆光了，手里的东西还在
+        athenaRig: (() => {
+          const f = g.world.athenaFigure, root = g.world.athena;
+          let skinned = 0, procedural = 0;
+          root.traverse((o) => { if (o.isSkinnedMesh) skinned++; else if (o.isMesh && ![...f.props.values()].some((p) => p === o || p.getObjectById(o.id))) procedural++; });
+          return { rig: root.userData.rig ?? null, skinned, procedural, props: f.props.size, bones: f.skeleton?.bones.length ?? 0 };
+        })(),
         venues: [...g.world.venues.keys()],
         displayed: g.world.venues.get('paintedStoa').slots[2].item,
         lostSlot: g.world.venues.get('vault').slots[0].item,
@@ -285,6 +302,8 @@ async function accumulationCheck(name, browser) {
       venues: ['paintedStoa', 'archive', 'vault'].every((v) => shape.venues.includes(v)),
       displayedOnPedestal: shape.displayed === 'shown' && shape.lostSlot === 'gone',
       externalModelUsed: shape.assets.external.includes('building.house') && shape.externalHouse,
+      externalTextureLoaded: shape.externalTextured,
+      externalFigureOnProceduralRig: shape.athenaRig.rig === 'procedural' && shape.athenaRig.skinned > 0 && shape.athenaRig.procedural === 0 && shape.athenaRig.props > 0 && shape.athenaRig.bones === 14,
       missingModelFallsBack: shape.assets.fallbacks.some((f) => f.startsWith('prop.amphora')),
       treeSelects: treeFocus?.type === 'tree' && of(intents.tree, 'select-conversation')?.conversationId === 'c-4',
       boardTakes: of(intents.board, 'take-suggestion')?.suggestionId === 'tidyAgora:',
@@ -486,21 +505,35 @@ async function controlsCheck(name, browser) {
   }
 }
 
-/** 一个最小的 GLB（glTF 2.0 二进制）：一只 w × h × d 的盒子，底面在 y = 0。测试现写现用，不下载任何素材。 */
+/**
+ * 一个最小的 GLB（glTF 2.0 二进制）：一只 w × h × d 的盒子，底面在 y = 0，带一张内嵌在 GLB 里的 2 × 2 贴图。测试现写现用，不下载任何素材。
+ * 贴图不是装饰：真的外部模型几乎都把贴图打在 GLB 里，GLTFLoader 用 fetch(blob:) 读它，页面的 CSP 少了 connect-src blob:
+ * 就只剩白模、只在控制台留一行错误（2026-10-11，一个文生 3D 的雅典娜；之前这只盒子没有贴图，所以一直测不出来）。
+ */
 function boxGlb(w, h, d) {
   const x = w / 2, z = d / 2;
   const positions = new Float32Array([-x, 0, -z, x, 0, -z, x, h, -z, -x, h, -z, -x, 0, z, x, 0, z, x, h, z, -x, h, z]);
+  const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]);
   const indices = new Uint16Array([0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3]);
-  const bin = Buffer.concat([Buffer.from(positions.buffer), Buffer.from(indices.buffer)]);
+  const png = tinyPng(2, 2, [200, 190, 175, 255, 120, 110, 100, 255, 120, 110, 100, 255, 200, 190, 175, 255]);
+  const parts = [Buffer.from(positions.buffer), Buffer.from(uvs.buffer), Buffer.from(indices.buffer), png];   // 前三段都是 4 字节的整数倍
+  const bin = Buffer.concat(parts);
+  let offset = 0;
+  const bufferViews = parts.map((p) => { const v = { buffer: 0, byteOffset: offset, byteLength: p.length }; offset += p.length; return v; });
   const json = {
     asset: { version: '2.0', generator: 'athena smoke test' },
     scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1 }, indices: 2, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 0.9 } }],
+    textures: [{ source: 0, sampler: 0 }],
+    samplers: [{}],
+    images: [{ bufferView: 3, mimeType: 'image/png' }],
     buffers: [{ byteLength: bin.length }],
-    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }, { buffer: 0, byteOffset: positions.byteLength, byteLength: indices.byteLength }],
+    bufferViews,
     accessors: [
       { bufferView: 0, componentType: 5126, count: 8, type: 'VEC3', min: [-x, 0, -z], max: [x, h, z] },
-      { bufferView: 1, componentType: 5123, count: indices.length, type: 'SCALAR' },
+      { bufferView: 1, componentType: 5126, count: 8, type: 'VEC2' },
+      { bufferView: 2, componentType: 5123, count: indices.length, type: 'SCALAR' },
     ],
   };
   const pad = (buf, fill) => Buffer.concat([buf, Buffer.alloc((4 - (buf.length % 4)) % 4, fill)]);
@@ -510,6 +543,22 @@ function boxGlb(w, h, d) {
   header.writeUInt32LE(0x46546c67, 0); header.writeUInt32LE(2, 4); header.writeUInt32LE(12 + 8 + jsonChunk.length + 8 + binChunk.length, 8);
   const chunk = (buf, type) => { const h = Buffer.alloc(8); h.writeUInt32LE(buf.length, 0); h.writeUInt32LE(type, 4); return Buffer.concat([h, buf]); };
   return Buffer.concat([header, chunk(jsonChunk, 0x4e4f534a), chunk(binChunk, 0x004e4942)]);
+}
+
+/** 一张 RGBA 的小 PNG（每行一个滤波字节 0，zlib 压缩，块带 CRC）。 */
+function tinyPng(width, height, rgba) {
+  const stride = width * 4 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) Buffer.from(rgba.slice(y * width * 4, (y + 1) * width * 4)).copy(raw, y * stride + 1);
+  const block = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 6;   // 8 位、RGBA
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), block('IHDR', ihdr), block('IDAT', deflateSync(raw)), block('IEND', Buffer.alloc(0))]);
 }
 
 /** 没有 WebGL 的环境（设计稿 12.5 第 3 处）：页面自检失败，必须回报 failed（webgl），不能静默。 */

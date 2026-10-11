@@ -4,6 +4,45 @@
 > 分支：M0 在 `feature/game-mode-m0`（从 `docs/game-mode-design` 拉出）；M1 在 `feature/game-mode-m1`（M0 未合入 main，从 `feature/game-mode-m0` 拉出，并合入了 origin/main 的 PR #28 以复用工作台监听的 Error 处理）；
 > M2 在 `feature/game-mode-m2`（2026-10-11：M1 的 PR #29 还没合入 main，按目标从 `feature/game-mode-m1` 的 28fd148 拉出）。
 
+## 外部人物蒙在程序化骨架上（2026-10-12）
+
+用户用自己的文生 3D 模型生成了一个雅典娜（`Tools/GameMode/.local/models/Athena.glb`，不进仓库），问能不能用、动画好不好做；
+先按资产清单原样换上看了外形（静止、A-pose、会平移），然后定下"路线二"：不去别处绑骨做动画片段，把模型蒙在这个人物自己的程序化骨架上，
+动作全用程序化的那一套。格式与要求见 `Docs/GameMode_AssetManifest_CN.md` 第 6 节。
+
+| # | 事 | 做法 | 证据 |
+|---|---|---|---|
+| 1 | 带贴图的外部模型在城里是白模 | 页面的内容安全策略 `connect-src 'self'` 拦掉了 GLTFLoader 读内嵌贴图的 `fetch(blob:)`（WebKit 走 ImageBitmapLoader；Chromium 同样拦）。`<meta>` 与 `PolisAssetRoute.ContentSecurityPolicy` 两处都加 `blob:`——blob 地址只能由页面自己从已有的字节造，不通向网络 | 修前：控制台三行 `Refused to connect to blob:`，模型白色；修后两种浏览器 0 错误、贴图上身。冒烟测试的盒子 GLB 加了一张内嵌 PNG 和 `externalTextureLoaded`：退回旧策略时这条与 `noProblems` 都失败 |
+| 2 | 文生 3D 的模型太重 | 50 万三角面、三张 4096 贴图、43.6 MB → `gltf-transform` weld / simplify 0.12 / resize 2048 → 6 万面、13.3 MB；游戏视距下看不出差别（人最大约 250 像素高） | 城里截图前后对照；帧率与程序化的雅典娜相同（无头 WebKit 39 vs 38） |
+| 3 | 静止模型要会动 | `art/bind.mjs`：清单写 `"rig": "procedural"`（只对人物、和 `animations` 互斥，C# 与页面各校验一次）。三角形水平切片找关节 → 按部位算蒙皮权重、网格上平滑 12 轮 → 建程序化人物、`dropBody()` 拆掉身体留下手里的东西、关节挪到模型上、转成它的 A-pose 绑定、再摆回站姿 | 走 / 跑 / 说话 / 挥手 / 交付（红卷轴在手上）/ 做事（读写锤召唤、等审批的红封印）/ 小动作逐帧截图；准备一次 170 毫秒（55k 顶点）。`bind.test.mjs` 五条：合成 A-pose 人台的关节、权重分区、站姿下手臂放下来且手腕顶点跟着程序化的手（挥手、走路、交付、写字）、手贴着身体时报错、清单校验；四个针对性变异各被抓到。冒烟 `externalFigureOnProceduralRig`（人台换掉雅典娜：蒙皮网格、14 根骨头、程序化身体拆光、手里的东西还在） |
+| 4 | 找关节第一版的两处错 | 肩关节按臂轴往上外推，落在离中线 0.11 米（模型的肘是弯的，前臂主导的轴偏进胸口）→ 改为躯干外缘往里 5 厘米；手腕取手臂下半段最窄的一层，人台上落进手掌（斜着的手被水平面斜切，指尖那几层也窄）→ 先按身高推（指尖往回 0.108H），在推出来的高度上下 6 厘米里取最窄 | 真模型肩关节 ±0.162 米、肘 (0.25, 1.31)、腕 (0.41, 1.09)；人台的肩、腕都在 4–5 厘米内 |
+| 5 | 迈步时前襟发白、折出一道棱 | 先排除：不是手臂权重分错（离手臂 10 厘米以外的手臂权重顶点 0 个）、不是破洞或背面（只画正面照样白）、不是镜面反射（关掉照样白）——是两条大腿反向摆、左右只在中线 ±7 厘米里过渡，前襟折出硬棱，翻起来的那半幅正对太阳。改：左右在整幅裙子上渐变（±18 厘米），大腿 0.5、裙摆关节 0.35。同一角度静止站着时那块本来就亮（模型自己的贴图与太阳的角度） | 权重上色图（`&weights=1`）与放大的侧面帧 |
+
+### 决定
+
+1. **外部人物走程序化骨架，不走动画片段**：片段只能按 1 倍速播（脚打滑）、拿不了东西、不会转头；蒙在程序化骨架上这些全有，换一个文生 3D 的人物只是写一行清单。
+2. **只认 A-pose**：找手臂靠腋下以下的空当。T-pose、手贴身体的模型报错退回程序化的人物，不猜。
+3. **裙摆不模拟**：外部网格的衣裙跟大腿、胯、裙摆关节走，代价是没有布料的滞后与飘动；手指不握。
+
+### 这一轮的运行
+
+```
+node --test Tools/GameMode/web/test/*.test.mjs
+→ tests 109, pass 109, fail 0（新增 bind 5 条）
+
+bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+→ chromium、webkit 全部 true（含 externalTextureLoaded、externalFigureOnProceduralRig）→ SMOKE PASSED
+
+ATHENA_ARCHIVE_ONLY=polis dotnet run --project Athena.Archive.Tests
+→ 21 条 polis 全部 PASS（polis asset manifest 加了 rig 的四种写法）
+```
+
+### 没做、留给后面
+
+- 手臂举得很高时（挥手、挠头）腋下仍挤出一道褶（线性蒙皮；12 轮平滑把尖刺压成了一道楔形）。双四元数蒙皮能解决，没做。
+- 外部的手比程序化的手长、手指不弯：挠头的手越过头顶，抱臂对不太准。
+- 冒烟测试的 `zoomRestoredAfterClose`（对话栏收起后镜头退回）时好时坏：这一轮跑了三次，前两次失败、第三次通过，期间 `game.mjs` 没动过，与本轮无关，没查。
+
 ## M3 第四轮：工匠的右臂、袖子、讲台（2026-10-11）
 
 用户实测第三轮之后报了三处：工匠左手拿凿子顶着石头没错，但右臂直接向左穿过胸膛去锤凿子；衣服的袖子是固定的，没有和手臂一起运动；

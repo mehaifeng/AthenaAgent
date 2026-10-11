@@ -11549,19 +11549,29 @@ static Task TestPolisAssetManifestAsync()
             "figure.player": { "model": "stoa.glb", "animations": { "dance": "Dance" } },
             "Building.House": { "model": "house.glb" },
             "prop.krater": { "model": "house.fbx" },
-            "prop.lamp": "house.glb"
+            "prop.lamp": "house.glb",
+            "figure.scribe": { "model": "stoa.glb", "scale": 1.6, "rig": "procedural" },
+            "figure.herald": { "model": "stoa.glb", "rig": "mixamo" },
+            "building.warehouse": { "model": "stoa.glb", "rig": "procedural" },
+            "figure.sailor": { "model": "stoa.glb", "rig": "procedural", "animations": { "walk": "Walk" } }
           }
         }
         """;
     var result = PolisAssetManifest.Parse(json, present.Contains);
-    CollectionAssert(new[] { "building.house", "figure.athena" }, result.Assets.Keys.OrderBy(k => k, StringComparer.Ordinal), "只有写法正确、文件在资产目录里的覆盖留下");
+    CollectionAssert(new[] { "building.house", "figure.athena", "figure.scribe" }, result.Assets.Keys.OrderBy(k => k, StringComparer.Ordinal), "只有写法正确、文件在资产目录里的覆盖留下");
+    AssertEqual("procedural", result.Assets["figure.scribe"].Rig ?? "", "rig: procedural 原样读出（蒙在程序化骨架上）");
+    AssertTrue(result.Assets["figure.athena"].Rig == null, "没写 rig 就是没有");
+    AssertTrue(result.Rejections.Any(r => r.StartsWith("figure.herald", StringComparison.Ordinal) && r.Contains("procedural", StringComparison.Ordinal)), "rig 只认 procedural");
+    AssertTrue(result.Rejections.Any(r => r.StartsWith("building.warehouse", StringComparison.Ordinal) && r.Contains("figure", StringComparison.Ordinal)), "rig 只对人物");
+    AssertTrue(result.Rejections.Any(r => r.StartsWith("figure.sailor", StringComparison.Ordinal) && r.Contains("animations", StringComparison.Ordinal)),
+        "rig 和 animations 一起写是写错了：整条拒绝，不挑一个");
     var house = result.Assets["building.house"];
     AssertTrue(house.Model == "house.glb" && house.Scale == 1.5 && house.RotateY == 90 && house.Offset[1] == 0.1, "缩放、朝向、偏移原样读出");
     var athena = result.Assets["figure.athena"];
     AssertTrue(athena.Scale == 1 && athena.RotateY == 0 && athena.Offset.All(v => v == 0), "没写的数字取缺省值");
     AssertEqual("Walk", athena.Animations["walk"], "动作映射到模型里的动画片段");
     AssertFalse(athena.Animations.ContainsKey("work"), "没映射的动作留给页面退回 idle / 静止");
-    AssertEqual(8, result.Rejections.Count, "8 条被拒，各有原因");
+    AssertEqual(11, result.Rejections.Count, "11 条被拒，各有原因");
     AssertTrue(result.Rejections.Any(r => r.Contains("missing.glb", StringComparison.Ordinal) && r.Contains("procedural", StringComparison.Ordinal)),
         "文件不在资产目录里：拒绝，程序化的那件留着（缺省回退）");
     AssertTrue(result.Rejections.Any(r => r.StartsWith("building.workshop", StringComparison.Ordinal)), "带路径的模型名一律拒绝：页面只能按一段文件名去取");

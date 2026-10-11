@@ -37,8 +37,15 @@ function validEntry(entry) {
   for (const [action, clip] of Object.entries(animations)) {
     if (!MODEL_ACTIONS.includes(action) || typeof clip !== 'string' || clip.length === 0 || clip.length > 64) return `bad animation '${action}'`;
   }
-  return { model, scale, rotateY, offset: offset.slice(), animations: { ...animations } };
+  // rig：把模型蒙在这个人物自己的程序化骨架上（bind.mjs）——动作全是程序化的，模型自带的片段用不上，两样一起写是写错了
+  const rig = entry.rig ?? null;
+  if (rig !== null && !RIGS.includes(rig)) return `unknown rig '${String(rig).slice(0, 20)}'`;
+  if (rig !== null && Object.keys(animations).length > 0) return 'rig and animations do not go together';
+  return { model, scale, rotateY, offset: offset.slice(), animations: { ...animations }, rig };
 }
+
+/** 清单的 rig 能写的值：procedural = 蒙在程序化骨架上（只对人物）。 */
+export const RIGS = Object.freeze(['procedural']);
 
 /**
  * 把一份清单（C# 推来的 <c>assets</c>：Id → 条目）和资产表核对，得出这一次要换的那几件。
@@ -60,6 +67,7 @@ export function planOverrides(knownIds, manifest) {
     if (!known.has(id)) { ignored.push({ id, reason: 'unknown asset id' }); continue; }
     const checked = validEntry(entry);
     if (typeof checked === 'string') { ignored.push({ id, reason: checked }); continue; }
+    if (checked.rig && !id.startsWith('figure.')) { ignored.push({ id, reason: 'only figures have a rig' }); continue; }
     overrides.set(id, checked);
   }
   return { overrides, ignored };
