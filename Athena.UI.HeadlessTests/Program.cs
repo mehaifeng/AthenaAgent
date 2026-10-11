@@ -4559,8 +4559,8 @@ static void TestGameModeSwitchAndFailures()
             throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
         PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
             "测绘之后存档必须写进 Workspaces/<id>/game/polis.json。");
-        if (!page.MessageTypes.Contains("focus"))
-            throw new InvalidOperationException("雅典娜要转向当前选中的这份委托（focus）。");
+        // 焦点在城装好、传令官播报完之后才推（M2 到达时多了一步）：等它来，不假设它和存档落盘的先后
+        PumpTimers(() => page.MessageTypes.Contains("focus"), 10000, "雅典娜要转向当前选中的这份委托（focus）。");
 
         // 网页没有"批准"：一条 approve 意图被拒绝并记 Warning，什么都不发生
         sink.Clear();
