@@ -82,3 +82,15 @@ export function buildCharacter(M, id, overrides = {}) {
   }
   return figure;
 }
+
+/**
+ * 建一位居民（M-B：一场会话一位，长相由种子定，见 art/citizens.mjs 的 citizenLook）。和 buildCharacter 一样把衣色档位、
+ * 发色的名字换成材质；不走资产清单（居民没有 Id，不能换成外部模型）。
+ */
+export function buildCitizen(M, lookSpec) {
+  const spec = { ...lookSpec };
+  spec.cloth = typeof spec.cloth === 'number' ? M.clothShades[spec.cloth] : M[spec.cloth];
+  if (typeof spec.hairMat === 'string') spec.hairMat = M[spec.hairMat];
+  if (spec.beard && !spec.beardMat && spec.hairMat) spec.beardMat = spec.hairMat;
+  return buildFigure(M, spec);
+}

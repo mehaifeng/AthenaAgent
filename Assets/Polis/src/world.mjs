@@ -12,7 +12,8 @@ import { groundPlane, Kit, m4 } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
 import { oliveGeometries, OLIVE_STAGES } from './art/plants.mjs';
 import { buildSlotMarker } from './art/items.mjs';
-import { RESIDENT_ROLES } from './art/characters.mjs';
+import { RESIDENT_ROLES, buildCitizen } from './art/characters.mjs';
+import { citizenLook } from './art/citizens.mjs';
 import { BOAT_MOORING, BOAT_CLEAT } from './art/civic.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
@@ -568,6 +569,85 @@ export function buildWorld(scene, city, layout, M, options) {
     }
     if (!world.vacant.has(v.key)) placeVacant(v);
     world.rebuildOccupancy();
+  };
+
+  // —— 居民即会话（M-B，2026-10-13）：一场会话一位居民，长相由种子定（art/citizens.mjs）。人物一位建一次要几十毫秒，
+  // 几十位一起建会卡住一帧，所以 setCitizens 只记下名单，人物由 buildNextCitizen 一位一位建（game 每帧建几位）。 ——
+  world.citizens = new Map();   // id → { id, data, look, figure|null, label, plan|null, nudge, tier, ... }
+  world.setCitizens = (list) => {
+    const want = new Map((list ?? []).map((c) => [c.id, c]));
+    for (const [id, c] of world.citizens) {
+      if (want.has(id)) continue;
+      if (c.figure) {
+        root.remove(c.figure.root);
+        c.figure.root.traverse((o) => { if (o.isMesh && o.geometry && !o.geometry.userData?.shared) o.geometry.dispose(); });
+      }
+      const i = world.labels.indexOf(c.label);
+      if (i >= 0) world.labels.splice(i, 1);
+      world.citizens.delete(id);
+    }
+    for (const [id, data] of want) {
+      const existing = world.citizens.get(id);
+      if (existing) {
+        const moved = existing.data.home !== data.home;
+        existing.data = data;
+        existing.label.text = data.name ?? '';
+        if (moved) existing.plan = null;   // 搬了家（最常碰的文件夹换了）：日程重算
+        continue;
+      }
+      const look = citizenLook(data.seed, { age: data.age ?? 'adult' });
+      const label = { text: data.name ?? '', kind: 'citizen', key: `citizen:${id}`, anchor: new THREE.Vector3() };
+      world.labels.push(label);
+      world.citizens.set(id, { id, data, look, figure: null, label, plan: null, nudge: { x: 0, z: 0 }, tier: 'C', yawNow: null });
+    }
+  };
+  /** 建下一位还没有人物的居民；建了返回 true。 */
+  world.buildNextCitizen = () => {
+    for (const c of world.citizens.values()) {
+      if (c.figure) continue;
+      c.figure = buildCitizen(M, c.look.spec);
+      c.figure.root.name = `figure:citizen:${c.id}`;
+      c.figure.root.visible = false;
+      add(c.figure.root);
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * 老居民（一年多没动过的会话）：不上街，名字刻在他家门口的一块小碑上（一家一块）。碑不挡路——它立在门前的街沿上，
+   * 挡了会把雅典娜和你够得着的那一点堵死。groups：[{ home, names: [] }]。
+   */
+  world.steles = new Map();   // home → { home, names, object, x, z }
+  world.setElders = (groups) => {
+    const want = new Map((groups ?? []).filter((g) => g.names?.length).map((g) => [g.home, g]));
+    for (const [home, s] of world.steles) {
+      if (want.has(home)) continue;
+      root.remove(s.object);
+      world.steles.delete(home);
+    }
+    for (const [home, g] of want) {
+      const existing = world.steles.get(home);
+      if (existing) { existing.names = g.names; continue; }
+      let stand;
+      try { stand = layout.sitePoint(home); } catch { continue; }
+      const r = rng(hashSeed(`stele:${home}`));
+      // 门前那一点旁边 1.6–2.4 米、能站的地方（碑本身不挡路，但不要立在墙里、水里）
+      let spot = null;
+      for (let k = 0; k < 12 && !spot; k++) {
+        const a = r() * Math.PI * 2, d = 1.6 + r() * 0.8;
+        const p = { x: stand.x + Math.sin(a) * d, z: stand.z + Math.cos(a) * d };
+        if (layout.walkable(p)) spot = p;
+      }
+      if (!spot) continue;
+      const object = assets.object('prop.stele');
+      object.scale.setScalar(0.5);
+      object.position.set(spot.x, world.groundAt(spot.x, spot.z), spot.z);
+      object.rotation.y = Math.atan2(stand.x - spot.x, stand.z - spot.z);
+      object.userData.footprint = null;   // 不挡路（见上）
+      add(object);
+      world.steles.set(home, { home, names: g.names, object, x: spot.x, z: spot.z });
+    }
   };
 
   /** 整座城拆掉（换城、或者城长出了新的一圈）。共享的材质留着，几何体（包括这座城共用的那几份）全部释放。 */

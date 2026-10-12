@@ -421,11 +421,13 @@ export function createOverlay(canvas) {
     const by = y + h - 44;
     let bx = textX;
     if (view.type === 'resident') bx += button(view.tryLabel, bx, by, 'resident-try') + 8;
+    // 居民即会话（M-B）：去看他那份委托（走会话树的同一条路径）
+    if (view.type === 'citizen') bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
     if (view.type === 'oracle') {
       if (view.exists && view.latest) bx += button(ui.latestScroll, bx, by, 'oracle-latest') + 8;
       if (!view.exists) bx += button(ui.requestOracle, bx, by, 'oracle-request', { minWidth: 120 }) + 8;
     }
-    button(view.type === 'resident' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+    button(view.type === 'resident' || view.type === 'citizen' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
   }
 
   /** 摆放时顶上的提示：点一个空底座；或者直接放进默认的场馆；或者取消。 */
@@ -615,6 +617,8 @@ export function createOverlay(canvas) {
       return regions;
     }
     for (const l of frame.labels) label(l);
+    // 居民的话（M-B：两个人闲聊、跟你打招呼）在雅典娜的那一句底下——她的话最后画，永远在最上面
+    for (const b of frame.bubbles ?? []) bubble(b);
     if (frame.bubble) bubble(frame.bubble);
     if (frame.athenaEdge) athenaMarker(frame.athenaEdge, frame.time);
     for (const e of frame.edges) edgeMarker(e, frame.time);

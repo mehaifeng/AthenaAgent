@@ -86,6 +86,49 @@ public static class PolisAccumulation
         }).ToList();
     }
 
+    /// <summary>老居民的碑最多列这么多名字（再多的只在人口里数得到）。</summary>
+    public const int MaxElderNames = 200;
+
+    /// <summary>
+    /// 居民即会话（M-B）推给页面的那一份：街上的（最多 <see cref="PolisCitizens.StreetCap"/> 位，带名字、家、长相的种子、
+    /// 他那几句话）、老居民（只有名字和家，刻在碑上）、人口。没有任何消息正文——只有标题、文件夹名、数字。
+    /// </summary>
+    public static object Citizens(IReadOnlyList<PolisCitizen> citizens, Func<string, string, string> localize)
+    {
+        ArgumentNullException.ThrowIfNull(citizens);
+        ArgumentNullException.ThrowIfNull(localize);
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string L(string jsKey) => localize(table[jsKey].Key, table[jsKey].Fallback);
+        var male = L("namesMale");
+        var female = L("namesFemale");
+        var pattern = L("namePattern");
+        var census = PolisCitizens.Census(citizens);
+        return new
+        {
+            street = citizens.Where(c => c.OnStreet).Select(c => new
+            {
+                id = c.ConversationId,
+                seed = c.Seed,
+                female = c.Female,
+                name = PolisCitizens.NameFor(c, male, female, pattern),
+                title = c.Title,
+                home = c.Home,
+                age = c.Age.ToString().ToLowerInvariant(),
+                outcome = c.Outcome.ToString().ToLowerInvariant(),
+                folders = c.Folders,
+                turns = c.Turns,
+                lines = PolisCitizens.Lines(c, localize)
+            }).ToList(),
+            elders = citizens.Where(c => c.Elder).Take(MaxElderNames).Select(c => new
+            {
+                id = c.ConversationId,
+                name = PolisCitizens.NameFor(c, male, female, pattern),
+                home = c.Home
+            }).ToList(),
+            census = new { total = census.Total, street = census.OnStreet, indoors = census.Indoors, elders = census.Elders }
+        };
+    }
+
     /// <summary>居民的示范请求（"请雅典娜试试"预填的那一句）。</summary>
     public static string ResidentPrompt(PolisResidentKind kind, Func<string, string, string> localize)
     {

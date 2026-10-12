@@ -95,6 +95,34 @@ public static class PolisLocale
         ("chartWaiting", "Polis.Ui.ChartWaiting", "等你点头"),
         ("chartHere", "Polis.Ui.ChartHere", "你在这里"),
         ("chartMissing", "Polis.Ui.ChartMissing", "找不到文件夹"),
+        // M-B（2026-10-13）：居民即会话
+        ("interactCitizen", "Polis.Ui.InteractCitizen", "和{name}说话"),
+        ("citizenOpen", "Polis.Ui.CitizenOpen", "去看那份委托"),
+        ("censusLine", "Polis.Ui.CensusLine", "这座城里住着 {total} 位居民，街上有 {street} 位"),
+        ("interactStele", "Polis.Ui.InteractStele", "读碑上的名字"),
+        ("steleTitle", "Polis.Ui.SteleTitle", "老居民"),
+        ("steleBody", "Polis.Ui.SteleBody", "一年多没出门的居民，名字刻在这里："),
+    };
+
+    /// <summary>
+    /// 居民（M-B，2026-10-13）：希腊名表（男女各一份）、称号的拼法（C# 用来起名字），跟你打招呼的话与两个人碰上时的闲聊
+    /// （页面挑；每条闲聊是"甲说|乙答"一对）。他自己的那几句（办到哪一步、常去哪儿）在 C# 里按事实填好，见 <see cref="Services.GameMode.PolisCitizens.LineFallbacks"/>。
+    /// </summary>
+    public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Citizen { get; } = new[]
+    {
+        ("namesMale", "Polis.Citizen.NamesMale", "狄米特里|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛"),
+        ("namesFemale", "Polis.Citizen.NamesFemale", "菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托"),
+        ("namePattern", "Polis.Citizen.NamePattern", "{0}的{1}"),
+        ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
+        ("chat.wind", "Polis.Citizen.Chat.Wind", "今天海上风大。|是啊，船都早早靠了岸。"),
+        ("chat.olives", "Polis.Citizen.Chat.Olives", "林子里的橄榄又多了几棵。|一件事一棵，日子就这么长起来了。"),
+        ("chat.harbor", "Polis.Citizen.Chat.Harbor", "港口那条船又出海了。|水手说外头的消息多着呢。"),
+        ("chat.market", "Polis.Citizen.Chat.Market", "市集上今天人多。|摊子都摆到街口了。"),
+        ("chat.athena", "Polis.Citizen.Chat.Athena", "你见过雅典娜走路吗？|见过，她走得可快了。"),
+        ("chat.ivy", "Polis.Citizen.Chat.Ivy", "那边的老房子爬满了常春藤。|好久没人进去过了。"),
+        ("chat.temple", "Polis.Citizen.Chat.Temple", "神庙的台阶真白。|早上去最好，人少。"),
+        ("chat.sun", "Polis.Citizen.Chat.Sun", "太阳晒得石头都暖了。|坐一会儿再走吧。"),
+        ("chat.night", "Polis.Citizen.Chat.Night", "夜里城里真安静。|窗子里的灯都亮起来了。"),
     };
 
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Places { get; } = new[]
@@ -222,6 +250,8 @@ public static class PolisLocale
         .Concat(Board.SelectMany(b => new[] { b.LineKey, b.PromptKey }))
         .Concat(Oracle.Select(o => o.Key))
         .Concat(Herald.Select(h => h.Key))
+        .Concat(Citizen.Select(c => c.Key))
+        .Concat(Services.GameMode.PolisCitizens.LineFallbacks.Keys)
         .Distinct(StringComparer.Ordinal);
 
     /// <summary>按当前语言组装给页面的 <c>init</c> 表。</summary>
@@ -235,6 +265,7 @@ public static class PolisLocale
             ["ui"] = Table(Ui, localize),
             ["places"] = Table(Places, localize),
             ["publicNames"] = Table(PublicNames, localize),
+            ["citizen"] = Table(Citizen, localize),
         };
     }
 }

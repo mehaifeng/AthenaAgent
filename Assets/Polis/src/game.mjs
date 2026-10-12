@@ -20,6 +20,7 @@ import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
 import { createAthena, stepProgress } from './athena.mjs';
+import { planCitizen, citizenAt, separate, assignTiers, pickChat, chatLineAt, greetLine, TOWN } from './citizens.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
@@ -136,6 +137,27 @@ export const UI_ZH = Object.freeze({
   chartWaiting: '等你点头',
   chartHere: '你在这里',
   chartMissing: '找不到文件夹',
+  // 居民即会话（M-B）
+  interactCitizen: '和{name}说话',
+  citizenOpen: '去看那份委托',
+  censusLine: '这座城里住着 {total} 位居民，街上有 {street} 位',
+  interactStele: '读碑上的名字',
+  steleTitle: '老居民',
+  steleBody: '一年多没出门的居民，名字刻在这里：',
+});
+
+/** 居民打招呼与闲聊的话（"|" 分隔；闲聊是"甲说|乙答"一对）。实时模式下由 C# 按界面语言覆盖（Polis.Citizen.*）。 */
+export const CITIZEN_ZH = Object.freeze({
+  greet: '你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？',
+  'chat.wind': '今天海上风大。|是啊，船都早早靠了岸。',
+  'chat.olives': '林子里的橄榄又多了几棵。|一件事一棵，日子就这么长起来了。',
+  'chat.harbor': '港口那条船又出海了。|水手说外头的消息多着呢。',
+  'chat.market': '市集上今天人多。|摊子都摆到街口了。',
+  'chat.athena': '你见过雅典娜走路吗？|见过，她走得可快了。',
+  'chat.ivy': '那边的老房子爬满了常春藤。|好久没人进去过了。',
+  'chat.temple': '神庙的台阶真白。|早上去最好，人少。',
+  'chat.sun': '太阳晒得石头都暖了。|坐一会儿再走吧。',
+  'chat.night': '夜里城里真安静。|窗子里的灯都亮起来了。',
 });
 
 /**
@@ -164,6 +186,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   let ui = { ...UI_ZH };
   let publicNames = { ...PUBLIC_NAMES };
+  let citizenWords = { ...CITIZEN_ZH };
 
   // —— 城 ——
   let city = null;
@@ -177,6 +200,14 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   // —— 积累（C# 推来的，全部可以从存档与会话重新推导） ——
   let groveTrees = [];         // [{ conversationId, title, index, stage, turns, interrupted, scheduled }]
   let residents = [];          // [{ kind, met, name, intro, tryLabel }]
+  // 居民即会话（M-B）：C# 推来街上的（≤ 32 位）、老居民（名字刻在碑上）与人口
+  let citizens = { street: [], elders: [], census: null };
+  let citizenTiers = new Map();      // id → 'A' | 'B' | 'C'（citizens.assignTiers）
+  let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat）
+  const chatCooldown = new Map();    // 一对人上次聊天的时刻
+  let nextChatPickAt = 0;
+  let greeting = null;               // { id, start, line }：此刻跟你打招呼的那一位
+  const greetedAt = new Map();       // 每一位上次跟你打招呼的时刻
   let suggestions = [];        // [{ id, line }]
   let oracle = null;           // { exists, title, body, latestConversationId }
   let islands = [];            // 海图
@@ -300,12 +331,16 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   function loadCity(doc, options = {}) {
     const keepPlayer = options.key != null && options.key === cityKey;
     if (world) world.dispose();
+    // 从一座城换到另一座（不是第一次装城）：上一座城的居民、聊天、招呼都不算了（C# 随后推来这座城的居民）。
+    // 第一次装城时不清：夹具模式先推积累、再装城
+    const switchingCity = city != null && !keepPlayer;
     city = doc;
     cityKey = options.key ?? null;
     sanctuary = !!options.sanctuary;
     layout = createLayout({ ...doc, groveTrees: groveTrees.length });
     world = buildWorld(R.scene, doc, layout, M, { names: publicNames, sanctuary, assets });
     for (const record of items.values()) { record.object = null; record.display = null; }   // 旧城的物件随旧城拆掉
+    neighbourSites = null;
     player.y = null;
     athenaY = null;
     athenaYaw = null;
@@ -316,6 +351,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       player.dirty = false;
       pressed.clear();
       itemsPrimed = false;   // 新的一座城：它的第一份成果清单是"一直在那儿的"，不是刚交到你手上的
+      if (switchingCity) {
+        citizens = { street: [], elders: [], census: null };
+        chatTalk = null;
+        greeting = null;
+        citizenTiers = new Map();
+      }
       // 存档里这座城的远近：靠岸时镜头推回的就是它（没有存档就推回出港前的远近）
       if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); if (voyage) voyage.restoreZoom = p.zoom; }
       // 换了一座城：镜头先看着你（跟着雅典娜的视角下一帧自己会转过去）
@@ -340,6 +381,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!world) return;
     world.setGrove(groveTrees);
     world.setResidents(residents, (kind) => residents.find((r) => r.kind === kind)?.name ?? kind);
+    world.setCitizens(citizens.street);
+    world.setElders(elderGroups(citizens.elders));
+    status.citizens = { street: world.citizens.size, census: citizens.census, steles: world.steles.size };
     world.setBoard(suggestions.length);
     world.setOracle(!!oracle?.exists);
     status.grove = { trees: world.groveTrees.length, terraces: world.groveTerraces.length };
@@ -580,10 +624,180 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       r.yawNow = r.yawNow == null ? yaw : turnToward(r.yawNow, yaw, 1 - Math.exp(-dt / 180));
       r.figure.root.position.set(x, r.home.y ?? world.groundAt(x, z) + 0.012, z);
       r.figure.root.rotation.y = r.yawNow;
-      r.figure.pose(action, at, style);
       r.label.anchor.set(x, (r.home.y ?? 0) + (r.figure.root.userData.height ?? 1.75) + 0.55, z);   // 站在讲台、锻炉地坪上的，名牌跟着高上去
       r.action = action;
+      // 分档（tierPeople，M-B）：画面外的不摆（视锥裁剪本来也不画他）；画面里离你不是最近那几位的，布料停着、手指脚趾藏起来
+      const tier = citizenTiers.get(`resident:${r.kind}`) ?? 'A';
+      if (tier === 'C' && !greeting) continue;
+      style.cloth = tier === 'A' || greeting;
+      r.figure.setDetail(tier === 'A' || greeting);
+      r.figure.pose(action, at, style);
     }
+  }
+
+  /** 老居民按家分组（一家一块碑）。 */
+  function elderGroups(list) {
+    const byHome = new Map();
+    for (const e of list ?? []) {
+      if (!e?.home || !e.name) continue;
+      if (!byHome.has(e.home)) byHome.set(e.home, []);
+      byHome.get(e.home).push(e.name);
+    }
+    return [...byHome].map(([home, names]) => ({ home, names }));
+  }
+
+  const hasSite = (s) => s === 'agora' || s.startsWith('agora:') || s === 'harbor' || s === 'gate' || !!layout?.plots.has(s);
+  let neighbourSites = null;   // 城里各座建筑的站点（居民也去邻居家门口坐坐）；换城、城变了时清掉
+  const viewTmp = new THREE.Vector3();
+  /** 这一点在不在画面里（用上一帧的镜头——差一帧没关系，画面外的人本来就不摆不画）。 */
+  const inView = (x, z) => {
+    viewTmp.set(x, 1, z).project(camera);
+    return Math.abs(viewTmp.x) < 1.15 && Math.abs(viewTmp.y) < 1.15;
+  };
+  /** 卡片收起后从站定的地方回到日程上的位置：这段偏移按 600 毫秒的时间常数消掉（不一帧跳回去）。 */
+  const RELEASE_TAU_MS = 600;
+
+  /**
+   * 分档（M-B）：居民与十一位居民一起排——离你最近的 4 位全套（布料、弹簧骨、手指脚趾），画面里其余的布料停着、
+   * 手指脚趾藏起来，画面外的不摆（居民连画都不画）。雅典娜和你不分档，永远全套。
+   * 量出来的（`Docs/GameMode_Progress_CN.md` M-B 一节）：布料一位一帧约 2.3 毫秒，城里原来就有 13 位在推进布料，
+   * 再加 32 位居民，无头 Chromium 从 27.6 掉到 12.6 帧——帧时间几乎全在布料上。
+   * citizenPositions：[[id, {x, z}]]（这一帧日程给的位置）；十一位居民用他们上一帧的位置。
+   */
+  function tierPeople(citizenPositions) {
+    const list = citizenPositions.map(([id, p]) => ({ id, distance: Math.hypot(p.x - player.pos.x, p.z - player.pos.z), inView: inView(p.x, p.z) }));
+    for (const r of world.residents.values()) {
+      const p = r.figure.root.position;
+      list.push({ id: `resident:${r.kind}`, distance: Math.hypot(p.x - player.pos.x, p.z - player.pos.z), inView: inView(p.x, p.z) });
+    }
+    citizenTiers = assignTiers(list, citizenTiers);
+  }
+
+  /**
+   * 居民即会话（M-B）：日程（citizens.citizenAt）→ 避让（separate）→ 分档（assignTiers：离你最近的 4 位全套、画面里其余的
+   * 布料停着、画面外的不摆不画）→ 闲聊与打招呼 → 摆姿势。人物一帧最多建两位（world.buildNextCitizen）：几十位一起建会卡住一帧。
+   * 返回这一帧头顶要画的话（[{ id, text, alpha }]），frame 在镜头对齐之后投影。
+   */
+  function animateCitizens(wall, dt) {
+    if (!world) return [];
+    if (world.citizens.size === 0) { tierPeople([]); status.citizenTiers = null; status.chat = null; return []; }
+    for (let k = 0; k < 2 && world.buildNextCitizen(); k++);
+    const live = [];
+    for (const c of world.citizens.values()) {
+      if (!c.figure) continue;
+      if (!c.plan) {
+        neighbourSites ??= [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
+        c.plan = planCitizen({ id: c.id, seed: c.data.seed, home: c.data.home }, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: neighbourSites });
+      }
+      c.at = citizenAt(c.plan, wall);
+      live.push(c);
+    }
+    // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开
+    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !(panel?.type === 'citizen' && panel.id === c.id) }));
+    for (const r of world.residents.values()) people.push({ id: `resident:${r.kind}`, x: r.figure.root.position.x, z: r.figure.root.position.z, movable: false });
+    if (world.athena.visible) people.push({ id: 'athena', x: world.athena.position.x, z: world.athena.position.z, movable: false });
+    const nudges = separate(people, player.pos, layout.walkable);
+    for (const c of live) c.nudge = nudges.get(c.id) ?? c.nudge;
+    const posOf = (c) => {
+      let x = c.at.x + c.nudge.x, z = c.at.z + c.nudge.z;
+      if (c.hold) { x = c.hold.x; z = c.hold.z; }
+      else if (c.release) {
+        const k = Math.exp(-(wall - c.release.at) / RELEASE_TAU_MS);
+        if (k < 0.01) c.release = null;
+        else { x += c.release.dx * k; z += c.release.dz * k; }
+      }
+      return { x, z };
+    };
+    tierPeople(live.map((c) => [c.id, posOf(c)]));
+
+    // 闲聊：半秒挑一次，全城同时只有一组（citizens.pickChat 已经算好两人在这段时间里都不会动身）
+    if (chatTalk && wall - chatTalk.start > 2 * TOWN.chatLineMs) chatTalk = null;
+    if (!chatTalk && wall >= nextChatPickAt) {
+      nextChatPickAt = wall + 500;
+      const candidates = live
+        .filter((c) => c.at.action === 'idle' && !c.hold && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id)
+        .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true, seed: c.data.seed, lines: c.data.lines ?? [] }; });
+      chatTalk = pickChat(candidates, player.pos, chatCooldown, wall, citizenWords, { night: nightK > 0.5 });
+      if (chatTalk) chatCooldown.set(chatTalk.key, wall);
+    }
+    const chatLine = chatLineAt(chatTalk, wall);
+    // 打招呼：你走到一位闲着的居民跟前（2.5 米内），两分钟里没跟你打过招呼——他转身、挥手、说一句
+    if (greeting && wall - greeting.start > TOWN.chatLineMs) greeting = null;
+    if (!greeting) {
+      let best = null;
+      for (const c of live) {
+        if (c.at.action !== 'idle' || c.at.idleLeft < TOWN.chatLineMs + 300 || citizenTiers.get(c.id) === 'C') continue;
+        if (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id)) continue;
+        const p = posOf(c);
+        const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+        const last = greetedAt.get(c.id);
+        if (d > TOWN.greetRadius || (last != null && wall - last < TOWN.greetCooldownMs)) continue;
+        if (!best || d < best.d) best = { c, d };
+      }
+      if (best) {
+        greeting = { id: best.c.id, start: wall, line: greetLine(best.c.data.seed, citizenWords.greet, wall) };
+        greetedAt.set(best.c.id, wall);
+      }
+    }
+
+    const bubbles = [];
+    const counts = { A: 0, B: 0, C: 0 };
+    for (const c of live) {
+      const tier = citizenTiers.get(c.id) ?? 'C';
+      c.tier = tier;
+      counts[tier]++;
+      const root = c.figure.root;
+      const panelOpen = panel?.type === 'citizen' && panel.id === c.id;
+      // 卡片开着：他站定、面朝你；收起时记下站定的地方，再慢慢回到日程上的位置
+      if (panelOpen && !c.hold) c.hold = posOf(c);
+      if (!panelOpen && c.hold) {
+        c.release = { dx: c.hold.x - (c.at.x + c.nudge.x), dz: c.hold.z - (c.at.z + c.nudge.z), at: wall };
+        c.hold = null;
+      }
+      if (tier === 'C' && !panelOpen) { root.visible = false; continue; }
+      root.visible = true;
+      // 手指脚趾只给最近的几位（A 档）：远处的看不见，画它们却要四遍（阴影、主画面、AO、遮罩）
+      c.figure.setDetail(tier === 'A' || panelOpen);
+      const { x, z } = posOf(c);
+      let action = c.at.action;
+      let t = action === 'walk' ? c.at.walkT : wall + (c.data.seed % 9000);
+      let yaw = c.at.yaw;
+      const style = { speed: TOWN.speed, stride: 1.25, seed: c.data.seed % 9973, cloth: tier === 'A' || panelOpen };
+      const greetingNow = greeting?.id === c.id;
+      const inChat = !!chatLine && (chatLine.speaker === c.id || chatLine.listener === c.id);
+      if (panelOpen || greetingNow) {
+        yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
+        if (panelOpen && c.cardAt == null) c.cardAt = wall;
+        const since = wall - (greetingNow ? greeting.start : c.cardAt);
+        if (since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = true; }
+        style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+        if (greetingNow) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
+      } else if (inChat) {
+        const other = world.citizens.get(chatLine.speaker === c.id ? chatLine.listener : chatLine.speaker);
+        if (other?.at) {
+          const o = posOf(other);
+          yaw = Math.atan2(o.x - x, o.z - z);
+          style.lookAt = playerHead.set(o.x, 1.5, o.z);
+        }
+        action = 'talk';
+        t = wall - chatTalk.start;
+        style.speaker = chatLine.speaker === c.id;
+        if (chatLine.speaker === c.id) bubbles.push({ id: c.id, text: chatLine.text, alpha: chatLine.alpha });
+      } else {
+        c.cardAt = null;
+        if (action === 'idle' && Math.hypot(player.pos.x - x, player.pos.z - z) < 4) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+      }
+      c.yawNow = c.yawNow == null ? yaw : turnToward(c.yawNow, yaw, 1 - Math.exp(-dt / 180));
+      const y = world.groundAt(x, z);
+      root.position.set(x, y + 0.012, z);
+      root.rotation.y = c.yawNow;
+      c.figure.pose(action, t, style);
+      c.label.anchor.set(x, y + (root.userData.height ?? 1.75) + 0.55, z);
+    }
+    status.citizenTiers = counts;
+    status.chat = chatLine ? { speaker: chatLine.speaker, listener: chatLine.listener, text: chatLine.text } : null;
+    status.greeting = greeting?.id ?? null;
+    return bubbles;
   }
 
   /**
@@ -779,6 +993,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!world || voyage || reveal || fogInfo) return null;
     if (talkOpen()) return { kind: 'talk', id: null };
     if (panel?.type === 'resident' && world.residents.has(panel.id)) return { kind: 'resident', id: panel.id };
+    if (panel?.type === 'citizen' && world.citizens.get(panel.id)?.figure) return { kind: 'citizen', id: panel.id };
     return null;
   }
 
@@ -800,7 +1015,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     }
     const k = snap ? 1 : 1 - Math.exp(-dt / CLOSE_UP.tauMs);
     if (closeUp) {
-      const other = closeUp.kind === 'talk' ? world.athena.position : world.residents.get(closeUp.id).figure.root.position;
+      const other = closeUp.kind === 'talk' ? world.athena.position
+        : closeUp.kind === 'citizen' ? world.citizens.get(closeUp.id).figure.root.position
+          : world.residents.get(closeUp.id).figure.root.position;
       const far = Math.hypot(other.x - player.pos.x, other.z - player.pos.z) > 12;
       closeUpFocus.set(far ? player.pos.x : (player.pos.x + other.x) / 2, 1.1, far ? player.pos.z : (player.pos.z + other.z) / 2);
       const delta = closeUpFocus.sub(controls.target).multiplyScalar(k);
@@ -884,6 +1101,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const line = currentLine(now);
     const pose = athenaPose(state, now);
     applyAthena(pose, line, dt);
+    // 居民先排（他们和十一位居民一起分档，见 tierPeople），十一位居民在 applyEffects 里按同一份分档摆
+    const citizenSaying = animateCitizens(wall, dt);
     applyEffects(wall, dt);
     focus = pickFocus(pose);
     status.focus = focus ? { type: focus.type, id: focus.id ?? focus.venue ?? null, slot: focus.slot ?? null } : null;
@@ -907,10 +1126,25 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     g.uSeed.value = (now % 1000) / 1000;
 
     const bubbleCss = R.projectCss(headWorld);
+    // 居民头顶的话（M-B）：和她的那一句一样按这一帧的矩阵投影（运动自检逐帧核对）
+    const citizenBubbles = citizenSaying.map((b) => {
+      const c = world.citizens.get(b.id);
+      const head = c.figure.root.userData.headTop.clone().applyMatrix4(c.figure.root.matrixWorld);
+      return { ...b, world: head, ...R.projectCss(head) };
+    });
     const flashNow = performance.now();
     // 名牌：建筑、公共建筑、市集摊位一直画；居民的只在还没结识、或者指针停在他身上时画（满城的名字太挤）；
     // 橄榄树的只在指针停在那棵树上时画；遗失的藏品在它的底座上挂一块名牌
-    const anchored = world.labels.filter((l) => l.kind !== 'resident' || l.unmet || (focus?.type === 'resident' && l.key === `resident:${focus.id}`));
+    // 居民即会话（M-B）的名牌：只在离你 6 米内、或者你够得着他的时候画——三十多块名牌一起画，满屏都是字
+    const citizenLabelShown = (l) => {
+      const c = world.citizens.get(l.key.slice('citizen:'.length));
+      if (!c?.figure?.root.visible) return false;
+      if (focus?.type === 'citizen' && focus.id === c.id) return true;
+      const p = c.figure.root.position;
+      return Math.hypot(p.x - player.pos.x, p.z - player.pos.z) <= TOWN.labelRadius;
+    };
+    const anchored = world.labels.filter((l) => (l.kind !== 'resident' || l.unmet || (focus?.type === 'resident' && l.key === `resident:${focus.id}`))
+      && (l.kind !== 'citizen' || citizenLabelShown(l)));
     if (focus?.type === 'tree') {
       const tree = world.groveTrees.find((t) => t.conversationId === focus.id);
       if (tree) anchored.push({ text: tree.title, kind: 'tree', key: `tree:${tree.conversationId}`, anchor: tree.top });
@@ -945,7 +1179,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
       if (offscreen(p)) athenaEdge = { x: p.x, y: p.y, busy: pose.action !== 'idle' || pose.glow > 0.25 };
     }
-    used = { glowWorld, glowUv: { x: glowUv.x, y: glowUv.y }, headWorld, bubbleCss, labels };
+    used = { glowWorld, glowUv: { x: glowUv.x, y: glowUv.y }, headWorld, bubbleCss, labels, citizenBubbles };
 
     R.render();
     syncUiBlocked();
@@ -953,6 +1187,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       time: wall,
       labels: labels.filter((l) => l.x > -60 && l.y > -20 && l.x < window.innerWidth + 60 && l.y < window.innerHeight + 20),
       bubble: line ? { text: line.text, x: bubbleCss.x, y: bubbleCss.y, alpha: line.alpha } : null,
+      bubbles: citizenBubbles.filter((b) => b.alpha > 0 && b.x > -200 && b.y > -60 && b.x < window.innerWidth + 200 && b.y < window.innerHeight + 60),
       edges,
       athenaEdge: athenaEdge ? { ...athenaEdge, label: ui.athenaHere } : null,
       hud,
@@ -1092,6 +1327,18 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (!r) return null;
         return { type: 'resident', bust: panel.id, expression: 'speak', title: r.name ?? panel.id, lines: [r.intro ?? ''], tryLabel: r.tryLabel ?? ui.residentTry };
       }
+      case 'citizen': {
+        const c = world?.citizens.get(panel.id);
+        if (!c) return null;
+        const lines = [...(c.data.lines ?? [])];
+        if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
+        return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines };
+      }
+      case 'stele': {
+        const s = world?.steles.get(panel.id);
+        if (!s) return null;
+        return { type: 'stele', bust: 'librarian', expression: 'neutral', title: ui.steleTitle, lines: [ui.steleBody, s.names.slice(0, 40).join('、')] };
+      }
       case 'board':
         return { type: 'board', bust: 'athena', expression: 'smile', title: ui.boardTitle, hint: ui.boardHint, suggestions };
       case 'oracle':
@@ -1176,8 +1423,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    * 城里能互动的东西，各自的位置和够得着的距离（米）：雅典娜、居民、地上待收的成果与底座上的藏品（遗失的只剩底座）、
    * 摆放时的空底座、橄榄树、委托板、神庙（神谕）、三处场馆。priority 小的先挑（摆放时空底座最先）。
    */
-  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, board: 2.6, tree: 2.2, oracle: 3.2, venue: 3.2 });
-  const PRIORITY = Object.freeze({ slot: 0, item: 1, athena: 2, resident: 3, board: 4, tree: 5, oracle: 6, venue: 7 });
+  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, citizen: 2.0, board: 2.6, tree: 2.2, stele: 1.8, oracle: 3.2, venue: 3.2 });
+  const PRIORITY = Object.freeze({ slot: 0, item: 1, athena: 2, resident: 3, citizen: 3.5, board: 4, tree: 5, stele: 5.5, oracle: 6, venue: 7 });
   function interactables(pose) {
     const list = [];
     if (!world) return list;
@@ -1196,6 +1443,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     }
     if (onTalk && pose?.visible && !pose.teleport) add('athena', world.athena.position.x, world.athena.position.z);
     for (const r of world.residents.values()) add('resident', r.figure.root.position.x, r.figure.root.position.z, { id: r.kind });
+    for (const c of world.citizens.values()) if (c.figure?.root.visible) add('citizen', c.figure.root.position.x, c.figure.root.position.z, { id: c.id });
+    for (const s of world.steles.values()) add('stele', s.x, s.z, { id: s.home });
     for (const t of world.groveTrees) add('tree', t.base.x, t.base.z, { id: t.conversationId, title: t.title });
     if (world.agora?.userData.board) {
       const b = tmpPick.copy(world.agora.userData.board).add(world.agora.position);
@@ -1231,6 +1480,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     switch (target.type) {
       case 'athena': return ui.interactTalk;
       case 'resident': return fill(ui.interactResident, { name: residents.find((r) => r.kind === target.id)?.name ?? target.id });
+      case 'citizen': return fill(ui.interactCitizen, { name: clip(world?.citizens.get(target.id)?.data.name ?? '', 16) });
+      case 'stele': return ui.interactStele;
       case 'item': return fill(ui.interactItem, { title: clip((items.get(target.id)?.item.title ?? '').replace(/^《|》$/g, '')) });
       case 'slot': return ui.interactPlace;
       case 'tree': return fill(ui.interactTree, { title: clip(target.title) });
@@ -1249,6 +1500,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'item': card = target.id; panel = null; break;
       case 'athena': openTalk(); break;
       case 'resident': openResident(target.id); break;
+      case 'citizen': openCitizen(target.id); break;
+      case 'stele': openPanel({ type: 'stele', id: target.id }); break;
       case 'tree':
         // 一棵树 = 一份委托：走会话树的同一条路径（9.2）
         send('select-conversation', { conversationId: target.id });
@@ -1324,6 +1577,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     panel = next;
     card = null;
     status.panel = next.type;
+  }
+
+  /** 一位居民的卡片（M-B）：他说的那几句、这座城的人口，"去看那份委托"。他站定、转身、挥手（animateCitizens）。 */
+  function openCitizen(id) {
+    if (!world?.citizens.has(id)) return;
+    openPanel({ type: 'citizen', id });
+    status.citizenOpened = id;
   }
 
   function openResident(kind) {
@@ -1424,6 +1684,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (panel?.type === 'resident') send('try-resident', { residentId: panel.id });
         panel = null;
         break;
+      case 'citizen-open':
+        // 一位居民 = 一份委托：走会话树的同一条路径（9.2）
+        if (panel?.type === 'citizen') send('select-conversation', { conversationId: panel.id });
+        panel = null;
+        break;
       case 'oracle-request': send('request-oracle'); panel = null; break;
       case 'oracle-latest':
         if (oracle?.latestConversationId) send('select-conversation', { conversationId: oracle.latestConversationId });
@@ -1500,10 +1765,38 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     onButton,
     click,
     setAssetManifest,
+    /** 面板此刻画的内容（测试用）。 */
+    panelView,
     get ui() { return ui; },
     setTables(tables) {
       if (tables.ui) ui = { ...UI_ZH, ...tables.ui };
       if (tables.publicNames) publicNames = { ...PUBLIC_NAMES, ...tables.publicNames };
+      if (tables.citizen) citizenWords = { ...CITIZEN_ZH, ...tables.citizen };
+    },
+    /**
+     * 居民即会话（M-B）：C# 推来的 { street: [...最多 32 位], elders: [...], census }。人物一帧建两位（不卡），
+     * 搬了家（家换了）的重新排日程；不在名单里的拆掉。
+     */
+    setCitizens(payload) {
+      citizens = {
+        street: Array.isArray(payload?.street) ? payload.street.filter((c) => c && c.id != null).slice(0, TOWN.streetCap) : [],
+        elders: Array.isArray(payload?.elders) ? payload.elders : [],
+        census: payload?.census ?? null,
+      };
+      if (chatTalk && !citizens.street.some((c) => c.id === chatTalk.a || c.id === chatTalk.b)) chatTalk = null;
+      if (panel?.type === 'citizen' && !citizens.street.some((c) => c.id === panel.id)) panel = null;
+      applyAccumulation();
+    },
+    /** 居民此刻的分档（测试用）。 */
+    get citizenTiers() { return citizenTiers; },
+    /** 让一位居民向你打招呼（运动自检用：保证走路那一段有居民头顶的话要逐帧核对）。 */
+    greetCitizen(id) {
+      const c = world?.citizens.get(id);
+      if (!c?.figure) return false;
+      const wall = performance.now();
+      greeting = { id, start: wall, line: greetLine(c.data.seed, citizenWords.greet, wall) };
+      greetedAt.set(id, wall);
+      return true;
     },
     /**
      * C# 推来的成果清单（整份）。这座城装好之后才到的新的待收成果，就是刚做完的那一回合：直接出现在你脚下，你伸手接一下

@@ -1,0 +1,246 @@
+// 居民即会话（M-B，2026-10-13）：长相（art/citizens.mjs）与城里的日子（citizens.mjs）。
+// 运行：node --test Tools/GameMode/web/test/
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
+import { citizenLook, isFemale, lookSignature, CITIZEN_VOCAB, RESIDENT_SIGNATURES } from '../../../../Assets/Polis/src/art/citizens.mjs';
+import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';
+import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
+import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
+import {
+  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, separate, assignTiers, pickChat, chatLineAt, chatLines, greetLine,
+} from '../../../../Assets/Polis/src/citizens.mjs';
+import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
+import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
+import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
+import { demoAccumulation, demoCitizens } from '../../../../Assets/Polis/src/demo.mjs';
+import { CITIZEN_ZH } from '../../../../Assets/Polis/src/game.mjs';
+
+const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
+/**
+ * 测试用的种子：C# 给的是会话 Id 的 SHA-256 前四个字节，在 32 位上是均匀的；这里用 murmur3 的 fmix32 把 i 打散成同样均匀的数。
+ * （第一版用的 imul(i + 1, …) ^ (i * 40503) 最低位恒为 1——四百位居民全是女子，多样性只有一半的词汇可用。）
+ */
+const seedOf = (i) => { let h = (i + 1) >>> 0; h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return h >>> 0; };
+
+function stubMaterials() {
+  const cache = new Map();
+  return new Proxy({}, {
+    get: (_, key) => {
+      if (typeof key !== 'string') return undefined;
+      if (!cache.has(key)) cache.set(key, key.endsWith('Shades') ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` })) : new THREE.MeshStandardMaterial({ name: key }));
+      return cache.get(key);
+    },
+  });
+}
+
+test('look: the sex is the seed\'s lowest bit, the same seed is always the same person, and nothing outside the citizens\' vocabulary is used', () => {
+  for (let i = 0; i < 200; i++) {
+    const seed = seedOf(i) >>> 0;
+    const age = ['young', 'adult', 'old'][i % 3];
+    const a = citizenLook(seed, { age }), b = citizenLook(seed, { age });
+    assert.deepEqual(a, b, '同一个种子永远同一个人');
+    const { spec, bust: bs } = a;
+    assert.equal(spec.face.female, (seed & 1) === 1, `${seed}: 最低位是 1 的是女子（和 C# 的 PolisCitizens.IsFemale 一致）`);
+    assert.equal(isFemale(seed), spec.face.female);
+    const vocab = spec.face.female ? CITIZEN_VOCAB.female : CITIZEN_VOCAB.male;
+    assert.ok(vocab.garments.includes(spec.garment), `${seed}: 衣式 ${spec.garment}`);
+    assert.ok(CITIZEN_VOCAB.cloth.includes(spec.cloth));
+    assert.ok([null, undefined, ...vocab.headgear].includes(spec.headgear), `${seed}: 头饰 ${spec.headgear}`);
+    assert.ok(spec.hair in HAIR_STYLES && spec.hair.startsWith('plain'), `${seed}: 发式 ${spec.hair} 是居民的通用发式`);
+    if (spec.face.female) assert.ok(!spec.beard, '女子没有胡子');
+    // 规则 2、3：十一位居民的招牌一样都不用，手里只有一卷素卷轴或空手
+    assert.ok(!RESIDENT_SIGNATURES.headgear.includes(spec.headgear), `${seed}: 不戴居民的帽子 / 头冠 / 面纱`);
+    assert.ok(!RESIDENT_SIGNATURES.garments.includes(spec.garment), `${seed}: 不穿传令官的斗篷`);
+    for (const p of spec.props) assert.ok(p === 'scroll' && !RESIDENT_SIGNATURES.props.includes(p), `${seed}: 手里只有素卷轴：${p}`);
+    assert.ok(!spec.glow && !spec.gold && !spec.accentGift, '没有雅典娜的光、侍女的金、红色的成果');
+    // 半身像的参数是 busts.mjs 认得的那几种
+    assert.ok(['short', 'curly', 'receding', 'long', 'bun'].includes(bs.hair), `${seed}: 半身像发式 ${bs.hair}`);
+    assert.equal(bs.female, spec.face.female);
+    assert.equal(bs.age, age);
+  }
+});
+
+test('look: any 32 consecutive seeds give at least 24 different looks — nobody in a city shares a face', () => {
+  const sigs = Array.from({ length: 400 }, (_, i) => lookSignature(citizenLook(seedOf(i) >>> 0)));
+  let worst = Infinity;
+  for (let i = 0; i + 32 <= sigs.length; i++) worst = Math.min(worst, new Set(sigs.slice(i, i + 32)).size);
+  assert.ok(worst >= 24, `最差的一段 32 位里有 ${worst} 种长相`);
+});
+
+test('look: a citizen builds on the real rig and draws as a bust, and residents keep their own hairstyles', () => {
+  const M = stubMaterials();
+  for (let i = 0; i < 12; i++) {
+    const look = citizenLook(seedOf(i) >>> 0, { age: ['young', 'adult', 'old'][i % 3] });
+    const figure = buildCitizen(M, look.spec);
+    assert.ok(figure.root.userData.headTop, '人物有头顶的锚点（头顶的话按它投影）');
+    figure.pose('walk', 200, { clock: 1000, cloth: false });
+    assert.equal(figure.clothFrozen, true, 'cloth: false 时布料停着（远处的居民）');
+    const hidden = figure.setDetail(false);
+    assert.ok(hidden >= 20, `远处藏起手指和脚趾：${hidden} 个网格`);
+    assert.equal(figure.setDetail(true), 0);
+    figure.pose('walk', 216, { clock: 1016 });
+    assert.equal(figure.clothFrozen, false, '走近了布料接着推进');
+    const b = bust(look.bust, 'speak');
+    assert.ok(b.paths.length > 20, '半身像画得出来');
+  }
+  for (const id of Object.keys(CHARACTER_SPECS)) assert.ok(!CHARACTER_SPECS[id].hair.startsWith('plain'), `${id} 用自己的发式`);
+  assert.ok(Object.keys(CHARACTERS).every((id) => !id.startsWith('citizen')));
+});
+
+test('look: a citizen first posed far from where it was built wears its skirt on its own hips — the cloth is resettled, not dragged in from the origin', () => {
+  const M = stubMaterials();
+  let worst = 0;
+  // 挪一两米最糟：挪得很远时布料自己按"瞬移"重新安放（cloth.mjs），挪一点点却会被一帧拽过来。旧规则下这一排里
+  // 四位的裙摆甩到 0.6–1.1 米开外（审查图里看到的），新规则下都在 0.4 米以内
+  for (let i = 0; i < 10; i++) {
+    const look = citizenLook(((Math.imul(i + 1, 2654435761) & ~1) | (i & 1)) >>> 0, { age: ['young', 'adult', 'old'][i % 3] });
+    const figure = buildCitizen(M, look.spec);
+    if (figure.garments.length === 0) continue;
+    // 和城里一样：建好之后才挪到他在城里的位置、转向，然后头一回摆姿势（全套，布料推进）
+    figure.root.position.set((i - 4.5) * 0.95, 0, 0);
+    figure.root.rotation.y = 0.35;
+    figure.pose('idle', 1200 + i * 777, { clock: 1_000_000 + i * 777 });
+    figure.root.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    for (const g of figure.garments) {
+      const attr = g.mesh.geometry.attributes.position;
+      for (let k = 0; k < attr.count; k++) {
+        v.fromBufferAttribute(attr, k).applyMatrix4(g.mesh.matrixWorld);
+        worst = Math.max(worst, Math.hypot(v.x - figure.root.position.x, v.z - figure.root.position.z));
+      }
+    }
+  }
+  assert.ok(worst < 0.5, `裙摆离身体最远 ${worst.toFixed(2)} 米（甩出去的裙摆到一米开外）`);
+});
+
+function buildCity() {
+  const M = stubMaterials();
+  const assets = createAssetLibrary(M);
+  const acc = demoAccumulation(fixture);
+  const layout = createLayout({ ...fixture, groveTrees: acc.trees.length });
+  const world = buildWorld(new THREE.Scene(), fixture, layout, M, { assets });
+  world.setGrove(acc.trees);
+  world.setResidents(acc.residents, (k) => k);
+  const hasSite = (s) => s === 'agora' || s.startsWith('agora:') || s === 'harbor' || s === 'gate' || layout.plots.has(s);
+  return { world, layout, hasSite };
+}
+
+test('day: every citizen of the synthetic city stands and walks only where you can stand (the whole route, not just its ends), never walks farther than a 30 s leg, and fewer than half are on the road at once', () => {
+  const { layout, hasSite } = buildCity();
+  const { street } = demoCitizens(fixture, 32);
+  const neighbours = [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
+  const plans = street.map((c) => planCitizen(c, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours }));
+  assert.ok(plans.filter((p) => p.dest).length >= 24, `大多数居民有一处去处：${plans.filter((p) => p.dest).length}/32`);
+  for (const p of plans) {
+    assert.ok(layout.walkable(p.home.point), `${p.id} 的家门口能站`);
+    if (p.dest) {
+      assert.ok(DESTINATIONS.includes(p.dest.site) || neighbours.includes(p.dest.site), p.dest.site);
+      assert.notEqual(p.dest.site, p.home.site, '不去自己家');
+      assert.ok(layout.walkable(p.dest.point), `${p.id} 的去处能站`);
+      assert.ok(p.walkMs <= TOWN.maxWalkMs, `${p.id} 一程 ${Math.round(p.walkMs)} 毫秒`);
+      assert.ok(routeClear(p.out, layout.walkable, 0.1), `${p.id} 去 ${p.dest.site} 的整条路每 0.1 米都能站`);
+    }
+  }
+  let worstRoad = 0, blocked = 0, samples = 0;
+  for (let wall = 0; wall < TOWN.periodMs * 2; wall += 997) {
+    let road = 0;
+    for (const p of plans) {
+      const s = citizenAt(p, wall);
+      samples++;
+      if (!layout.walkable(s)) blocked++;
+      if (s.action === 'walk') road++;
+    }
+    worstRoad = Math.max(worstRoad, road);
+  }
+  assert.equal(blocked, 0, `每一刻都站在能站的地方（${samples} 个取样里有 ${blocked} 个不能站）`);
+  assert.ok(worstRoad <= Math.ceil(plans.length / 2), `同一刻走着的最多 ${worstRoad} 位（不超过一半）`);
+  // 同一刻永远是同一个位置；日程与墙钟对齐、按种子错开
+  assert.deepEqual(citizenAt(plans[0], 12345), citizenAt(plans[0], 12345));
+  assert.ok(new Set(plans.map((p) => p.offset)).size > 24, '节拍按种子错开');
+});
+
+test('avoidance: overlapping people step apart, nobody is pushed off walkable ground, you are the stone they step around, and the nudge fades when no one is near', () => {
+  const walkable = (p) => p.x > -10 && p.x < 10 && p.z > -10 && p.z < 10 && !(p.x > 2 && p.x < 3);
+  let people = [
+    { id: 'a', x: 0, z: 0, nudge: { x: 0, z: 0 }, movable: true },
+    { id: 'b', x: 0.2, z: 0, nudge: { x: 0, z: 0 }, movable: true },
+    { id: 'r', x: 0, z: 0.3, nudge: { x: 0, z: 0 }, movable: false },
+  ];
+  for (let k = 0; k < 40; k++) {
+    const n = separate(people, null, walkable);
+    people = people.map((p) => (p.movable ? { ...p, nudge: n.get(p.id) } : p));
+  }
+  const pos = (p) => ({ x: p.x + p.nudge.x, z: p.z + p.nudge.z });
+  const [a, b, r] = people.map(pos);
+  assert.ok(Math.hypot(a.x - b.x, a.z - b.z) >= TOWN.separation - 0.05, `两人让开：${Math.hypot(a.x - b.x, a.z - b.z).toFixed(2)} 米`);
+  assert.deepEqual(people[2].nudge, { x: 0, z: 0 }, '站着不动的人（雅典娜、十一位居民）不被推');
+  assert.ok(Math.hypot(a.x - r.x, a.z - r.z) > 0.3);
+  // 墙边：往墙里推的那一步不走
+  const atWall = [{ id: 'w', x: 1.95, z: 0, nudge: { x: 0, z: 0 }, movable: true }, { id: 'v', x: 1.7, z: 0, nudge: { x: 0, z: 0 }, movable: true }];
+  for (let k = 0; k < 30; k++) {
+    const n = separate(atWall, null, walkable);
+    for (const p of atWall) p.nudge = n.get(p.id);
+    for (const p of atWall) assert.ok(walkable(pos(p)), '让开的地方能站');
+  }
+  // 你：推不动，挡在你身边的人让开
+  const crowd = [{ id: 'c', x: 0.1, z: 0, nudge: { x: 0, z: 0 }, movable: true }];
+  for (let k = 0; k < 40; k++) crowd[0].nudge = separate(crowd, { x: 0, z: 0 }, walkable).get('c');
+  assert.ok(Math.hypot(pos(crowd[0]).x, pos(crowd[0]).z) >= TOWN.playerRadius - 0.05, '你身边让出一圈');
+  // 没人挤了：偏移慢慢回到 0
+  const alone = [{ id: 'd', x: 5, z: 5, nudge: { x: 0.5, z: 0 }, movable: true }];
+  for (let k = 0; k < 120; k++) alone[0].nudge = separate(alone, null, walkable).get('d');
+  assert.ok(Math.hypot(alone[0].nudge.x, alone[0].nudge.z) < 0.01, '没人挤就回到原路');
+});
+
+test('tiers: out of view is C, the nearest four within 6 m are A, the rest B, and an A at the edge does not flicker', () => {
+  const list = [
+    { id: 'p1', distance: 1, inView: true }, { id: 'p2', distance: 2, inView: true }, { id: 'p3', distance: 3, inView: true },
+    { id: 'p4', distance: 4, inView: true }, { id: 'p5', distance: 5, inView: true }, { id: 'far', distance: 20, inView: true },
+    { id: 'off', distance: 0.5, inView: false },
+  ];
+  const t = assignTiers(list);
+  assert.deepEqual(['p1', 'p2', 'p3', 'p4'].map((id) => t.get(id)), ['A', 'A', 'A', 'A']);
+  assert.equal(t.get('p5'), 'B');
+  assert.equal(t.get('far'), 'B');
+  assert.equal(t.get('off'), 'C', '画面外的不摆，哪怕就在你身边');
+  const lone = assignTiers([{ id: 'x', distance: 9, inView: true }]);
+  assert.equal(lone.get('x'), 'B', '离你远过 6 米的，就算只有他一个也不是全套');
+  // 滞回：p4 稍远一点（4.6）、p5 稍近一点（4.5），p4 仍然留在 A
+  const t2 = assignTiers([...list.slice(0, 3), { id: 'p4', distance: 4.6, inView: true }, { id: 'p5', distance: 4.5, inView: true }], t);
+  assert.equal(t2.get('p4'), 'A');
+  assert.equal(t2.get('p5'), 'B');
+});
+
+test('small talk: one pair at a time, only idle people with enough time left, near you and each other, with a cooldown; two lines in turn', () => {
+  const chat = { ...CITIZEN_ZH };
+  const base = { inView: true, seed: 7, lines: ['那件事已经办完了。'] };
+  const people = [
+    { ...base, id: 'a', x: 0, z: 0, idleLeft: 30_000 },
+    { ...base, id: 'b', x: 1.5, z: 0, idleLeft: 30_000, seed: 9 },
+    { ...base, id: 'c', x: 1.6, z: 0.3, idleLeft: 1000 },          // 马上要动身：不挑
+    { ...base, id: 'd', x: 40, z: 0, idleLeft: 30_000 },           // 离你太远
+  ];
+  const cooldown = new Map();
+  const talk = pickChat(people, { x: 0, z: 2 }, cooldown, 10_000, chat);
+  assert.ok(talk && talk.a === 'a' && talk.b === 'b', `挑中离得最近、都闲着的一对：${JSON.stringify(talk)}`);
+  assert.equal(talk.lines.length, 2);
+  cooldown.set(talk.key, 10_000);
+  assert.equal(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + 60_000, chat), null, '这一对三分钟里不再说');
+  assert.ok(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + TOWN.chatPairCooldownMs + 1, chat), '过了三分钟又能说');
+  const l0 = chatLineAt(talk, talk.start + 100), l1 = chatLineAt(talk, talk.start + TOWN.chatLineMs + 100);
+  assert.equal(l0.speaker, 'a');
+  assert.equal(l0.listener, 'b');
+  assert.equal(l1.speaker, 'b');
+  assert.equal(chatLineAt(talk, talk.start + 2 * TOWN.chatLineMs + 1), null, '说完两句就散');
+  // 三分之二闲聊、三分之一各说自己那件事：两种都出现，夜里才说夜里的那一对
+  const kinds = new Set();
+  for (let w = 0; w < 60; w++) {
+    const [x] = chatLines({ ...base, id: 'a', seed: w * 7 + 1, lines: ['我的事。'] }, { ...base, id: 'b', seed: w * 13 + 5, lines: ['他的事。'] }, w * TOWN.chatPairCooldownMs, chat, false);
+    kinds.add(x === '我的事。' ? 'own' : 'small');
+    assert.ok(!chat['chat.night'].startsWith(x), '白天不说夜里的话');
+  }
+  assert.deepEqual([...kinds].sort(), ['own', 'small']);
+  assert.ok(chat.greet.split('|').includes(greetLine(42, chat.greet, 0)), '打招呼的话来自表里');
+});

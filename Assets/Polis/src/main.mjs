@@ -24,7 +24,7 @@ import { createTalk } from './talk.mjs';
 import { isTypingTarget } from './controls.mjs';
 import { connectHost } from './bridge.mjs';
 import { openReader } from './reader.mjs';
-import { demoAccumulation } from './demo.mjs';
+import { demoAccumulation, demoCitizens } from './demo.mjs';
 
 const params = new URLSearchParams(location.search);
 const live = params.get('mode') === 'live';
@@ -171,6 +171,8 @@ function liveHandlers() {
     items: whenReady((m) => { liveGame.setItems(m.items); wake(); }),
     grove: whenReady((m) => { liveGame.setGrove(m.trees); wake(); }),
     residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
+    // 居民即会话（M-B）：{ street（≤ 32 位）, elders, census }
+    citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); wake(); }),
     board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),
     oracle: whenReady((m) => { liveGame.setOracle(m.oracle ?? null); wake(); }),
     islands: whenReady((m) => { liveGame.setIslands(m.islands); wake(); }),
@@ -302,6 +304,9 @@ async function startFixture(game) {
     game.setItems(demo.items);
   }
   game.loadCity(fixture, { key: 'fixture', now: clock() });
+  // 居民即会话（M-B）：&demo=1 时一城 24 位编出来的居民；&citizens=N 换成 N 位（帧率门槛按 32 位量）
+  const wantCitizens = params.get('citizens') != null ? Number(params.get('citizens')) : params.get('demo') === '1' ? 24 : 0;
+  if (wantCitizens > 0) game.setCitizens(demoCitizens(fixture, wantCitizens));
   syncChartButton(game);
   document.getElementById('btn-chart').addEventListener('click', () => game.toggleChart());
 
@@ -407,6 +412,14 @@ function motionSelftest(game) {
         const lp = truth.project(camera);
         errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
       }
+      // 居民头顶的话（M-B）：按他这一帧的矩阵投影
+      for (const b of used.citizenBubbles ?? []) {
+        const c = world.citizens.get(b.id);
+        if (!c?.figure || !(b.alpha > 0)) continue;
+        kinds.citizenBubble = (kinds.citizenBubble ?? 0) + 1;
+        const hp = c.figure.root.userData.headTop.clone().applyMatrix4(c.figure.root.matrixWorld).project(camera);
+        errors.bubble = Math.max(errors.bubble, Math.hypot(((hp.x + 1) / 2) * window.innerWidth - b.x, (1 - (hp.y + 1) / 2) * window.innerHeight - b.y) * dpr);
+      }
     }
     frames++;
     i++;
@@ -434,6 +447,11 @@ function motionSelftest(game) {
   const walkFrom = tele.span[1] + 400;
   game.follow = 'free';
   const start = game.player;
+  // 居民（M-B）：离你最近、看得见的那位向你打招呼，他头顶的那句话在走路这一段逐帧核对
+  const greeter = [...(game.world?.citizens?.values() ?? [])]
+    .filter((c) => c.figure?.root.visible)
+    .sort((a, b) => Math.hypot(a.figure.root.position.x - start.x, a.figure.root.position.z - start.z) - Math.hypot(b.figure.root.position.x - start.x, b.figure.root.position.z - start.z))[0];
+  if (greeter) game.greetCitizen(greeter.id);
   const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code.slice(3).toLowerCase() }));
   key('keydown', 'KeyW');
   key('keydown', 'KeyD');

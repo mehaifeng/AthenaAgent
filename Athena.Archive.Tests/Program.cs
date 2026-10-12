@@ -237,6 +237,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis attribution: only Athena's tool targets inside their time window are hers; batches group by building and flood into a full rescan", TestPolisChangeAttributionAsync),
     ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
     ("polis deliveries: a turn is delivered once when its bubble stops streaming, history is never re-delivered, and only the running turn's tool targets count as hers", TestPolisDeliveriesAsync),
+    ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, and no message text in any line", TestPolisCitizensAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -11108,6 +11109,151 @@ static Task TestPolisDeliveriesAsync()
     CollectionAssert(new[] { globalBubble.Id }, sanctuary.Observe(global, t0), "神殿里的回合照样交付（成果是回答本身）");
     AssertEqual(0, sanctuary.Touches.Count, "神殿（全局对话）里的文件操作一律算城外，不是她在城里碰过的地方（9.1）");
     AssertEqual(0, sanctuary.WrittenFiles(globalBubble).Count, "神殿里没有写进工作区的文件");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisCitizensAsync()
+{
+    const string root = "/Users/demo/我的工作区";
+    var now = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+    ToolCallEntry Tool(string name, string path, ToolCallStatus status)
+        => new() { ToolCallId = Guid.NewGuid().ToString("N"), Name = name, Status = status, Arguments = $"{{\"path\": \"{path}\"}}" };
+    ChatMessage Bubble(string text, params ToolCallEntry[] tools)
+    {
+        var bubble = new ChatMessage { Role = "assistant", Content = text };
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        foreach (var tool in tools) group.ToolCalls.Add(tool);
+        bubble.Segments.Add(group);
+        bubble.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = text });
+        return bubble;
+    }
+    PolisCommission Commission(string id, string title, double startedDaysAgo, double updatedDaysAgo, int turns = 1,
+        bool running = false, bool interrupted = false, string? cron = null)
+        => new(id, "ws", title, now.AddDays(-startedDaysAgo), now.AddDays(-updatedDaysAgo), turns, running, false, interrupted, cron);
+
+    // 种子：会话 Id 的 SHA-256 前四个字节，小端；男女看最低位（页面 citizens.mjs 用同一条）
+    var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("conv-1"));
+    AssertEqual(BitConverter.ToUInt32(hash, 0), PolisCitizens.SeedOf("conv-1"), "种子是 SHA-256 的前四个字节（小端）");
+    AssertEqual(PolisCitizens.SeedOf("conv-1"), PolisCitizens.SeedOf("conv-1"), "同一场会话永远是同一个人");
+    AssertTrue(PolisCitizens.SeedOf("conv-1") != PolisCitizens.SeedOf("conv-2"), "不同会话不同种子");
+    AssertTrue(PolisCitizens.IsFemale(7) && !PolisCitizens.IsFemale(8), "种子最低位是 1 的是女子");
+    var females = Enumerable.Range(0, 200).Count(i => PolisCitizens.IsFemale(PolisCitizens.SeedOf("c" + i)));
+    AssertTrue(females is > 70 and < 130, $"男女大致各半：200 人里 {females} 位女子");
+
+    // 称号：标题里"那件事"的头一个词
+    AssertEqual("整理合同", PolisCitizens.Epithet("请帮我整理合同"), "去掉开头的客套");
+    AssertEqual("整理合同", PolisCitizens.Epithet("整理合同。"), "到标点为止");
+    AssertEqual("年度预算", PolisCitizens.Epithet("  「年度预算」核对"), "开头的标点跳过，引号收尾");
+    AssertEqual("一二三四五六", PolisCitizens.Epithet("一二三四五六七八九"), "汉字最多 6 个");
+    AssertEqual("Refactor", PolisCitizens.Epithet("Refactor the parser"), "拉丁文取第一个词");
+    AssertEqual("Internationa", PolisCitizens.Epithet("Internationalization plan"), "拉丁字母最多 12 个");
+    AssertEqual(string.Empty, PolisCitizens.Epithet("新会话"), "默认标题没有称号");
+    AssertEqual(string.Empty, PolisCitizens.Epithet("New chat"), "英文默认标题也没有");
+    AssertEqual(string.Empty, PolisCitizens.Epithet("  "), "空标题没有称号");
+    AssertEqual("请", PolisCitizens.Epithet("请"), "整个标题就是客套词时不吃光它");
+
+    // 家：成功的工具调用碰过最多的顶层文件夹；失败的不算；市集摊位住市集；城外的不算
+    var buildings = new HashSet<string>(StringComparer.Ordinal) { "合同", "账本", "照片" };
+    var market = new HashSet<string>(StringComparer.Ordinal) { "杂项" };
+    const string secret = "机密口令-7f3a";
+    var contractMessages = new List<ChatMessage>
+    {
+        new() { Role = "user", Content = "请看合同，" + secret },
+        Bubble("读完了，" + secret,
+            Tool("read_system_file", root + "/合同/租赁.docx", ToolCallStatus.Success),
+            Tool("read_system_file", root + "/账本/预算.xlsx", ToolCallStatus.Success),
+            Tool("write_system_file", root + "/合同/摘要.md", ToolCallStatus.Success),
+            Tool("write_system_file", root + "/照片/a.png", ToolCallStatus.Failed),
+            Tool("write_system_file", root + "/照片/b.png", ToolCallStatus.Failed),
+            Tool("write_system_file", root + "/照片/c.png", ToolCallStatus.Failed),
+            Tool("read_system_file", "/etc/hosts", ToolCallStatus.Success)),
+        // 用户消息里的路径不算（只读助手气泡的工具调用）
+        new() { Role = "user", Content = root + "/照片/d.png" },
+    };
+    var marketMessages = new List<ChatMessage> { Bubble("好", Tool("read_system_file", root + "/杂项/x.txt", ToolCallStatus.Success)) };
+    var sources = new List<PolisCitizenSource>
+    {
+        new(Commission("contract", "请帮我整理合同", 10, 0.2, turns: 3), contractMessages),
+        new(Commission("stall", "看看杂项", 100, 2), marketMessages),
+        new(Commission("idle", "新会话", 400, 3, turns: 0), new List<ChatMessage>()),
+    };
+    var derived = PolisCitizens.Derive(sources, root, "/Users/demo", buildings, market, now);
+    var contract = derived.Single(c => c.ConversationId == "contract");
+    AssertEqual("b:合同", contract.Home, "家是碰过最多的文件夹（失败的三次「照片」不算）");
+    CollectionAssert(new[] { "合同", "账本" }, contract.Folders, "常去的文件夹按次数排，城外的不算");
+    AssertEqual("market", derived.Single(c => c.ConversationId == "stall").Home, "只碰过市集摊位的住在市集");
+    var idle = derived.Single(c => c.ConversationId == "idle");
+    AssertTrue(PolisCitizens.PublicHomes.Contains(idle.Home), "没碰过文件夹的住公共地方");
+    AssertEqual(PolisCitizens.PublicHomes[(int)((idle.Seed >> 4) % (uint)PolisCitizens.PublicHomes.Count)], idle.Home, "公共地方按种子分摊");
+    AssertEqual(PolisCitizenAge.Young, contract.Age, "开始不到 30 天：年轻");
+    AssertEqual(PolisCitizenAge.Adult, derived.Single(c => c.ConversationId == "stall").Age, "半年内：壮年");
+    AssertEqual(PolisCitizenAge.Old, idle.Age, "更久：年长");
+    AssertEqual("整理合同", contract.Epithet, "称号来自标题");
+    AssertEqual(3, contract.Turns, "完成的回合数");
+    AssertEqual(PolisCitizenOutcome.Completed, contract.Outcome, "至少完成一回合");
+    AssertEqual(PolisCitizenOutcome.Open, idle.Outcome, "还没有完成的回合");
+    CollectionAssert(new[] { "contract", "stall", "idle" }, derived.Select(c => c.ConversationId), "按最近动过的排");
+
+    // 神殿：没有工作区，工具调用碰过什么都不算，人人住公共地方
+    var sanctuary = PolisCitizens.Derive(sources.Take(1), null, "/Users/demo", buildings, market, now).Single();
+    AssertTrue(sanctuary.Folders.Count == 0 && PolisCitizens.PublicHomes.Contains(sanctuary.Home), "神殿的居民住公共地方");
+
+    // 结局：在办 > 定时 > 中断 > 完成 > 未开头
+    var outcomes = PolisCitizens.Derive(new[]
+    {
+        new PolisCitizenSource(Commission("run", "a", 1, 0, running: true, interrupted: true), Array.Empty<ChatMessage>()),
+        new PolisCitizenSource(Commission("cron", "b", 1, 0, cron: "task-1", interrupted: true), Array.Empty<ChatMessage>()),
+        new PolisCitizenSource(Commission("cut", "c", 1, 0, interrupted: true), Array.Empty<ChatMessage>()),
+    }, root, null, buildings, market, now).ToDictionary(c => c.ConversationId, c => c.Outcome);
+    AssertEqual(PolisCitizenOutcome.Running, outcomes["run"], "正在跑的就是在办");
+    AssertEqual(PolisCitizenOutcome.Scheduled, outcomes["cron"], "定时任务开的会话");
+    AssertEqual(PolisCitizenOutcome.Interrupted, outcomes["cut"], "被打断的");
+
+    // 上街：非老居民里最近动过的 32 位；老居民（一年多没动）不上街；正在跑的不算老
+    var many = Enumerable.Range(0, 40)
+        .Select(i => new PolisCitizenSource(Commission("s" + i.ToString("D2", CultureInfo.InvariantCulture), "t" + i, 50, i * 0.5), Array.Empty<ChatMessage>()))
+        .Concat(Enumerable.Range(0, 3).Select(i => new PolisCitizenSource(Commission("elder" + i, "旧事" + i, 800, 400 + i), Array.Empty<ChatMessage>())))
+        .Append(new PolisCitizenSource(Commission("old-but-running", "还在跑", 800, 500, running: true), Array.Empty<ChatMessage>()))
+        .ToList();
+    var town = PolisCitizens.Derive(many, root, null, buildings, market, now);
+    AssertEqual(PolisCitizens.StreetCap, town.Count(c => c.OnStreet), "街上恰好 32 位");
+    AssertEqual(32, PolisCitizens.StreetCap, "上限是用户定的 32");
+    CollectionAssert(Enumerable.Range(0, 32).Select(i => "s" + i.ToString("D2", CultureInfo.InvariantCulture)),
+        town.Where(c => c.OnStreet).Select(c => c.ConversationId), "上街的是最近动过的 32 位");
+    AssertTrue(town.Where(c => c.Elder).Select(c => c.ConversationId).OrderBy(x => x, StringComparer.Ordinal).SequenceEqual(new[] { "elder0", "elder1", "elder2" }), "一年多没动过的是老居民");
+    AssertFalse(town.Any(c => c.Elder && c.OnStreet), "老居民不上街");
+    AssertFalse(town.Single(c => c.ConversationId == "old-but-running").Elder, "正在跑的会话不算老");
+    var census = PolisCitizens.Census(town);
+    AssertEqual(new PolisCensus(44, 32, 9, 3), census, "人口：44 位，街上 32，屋里 9，老居民 3");
+    var few = PolisCitizens.Derive(many.Skip(40), root, null, buildings, market, now);
+    AssertEqual(1, few.Count(c => c.OnStreet), "街上没满时，老居民也不上街（只有正在跑的那位）");
+
+    // 名字与台词：只有名字、文件夹名、数字——正文（含工具参数里的文件名）永远不进台词
+    const string male = "阿里斯提德|德摩斯|斐洛";
+    const string female = "阿加莎|克里奥|菲莉亚";
+    var named = PolisCitizens.NameFor(contract, male, female, "{0}的{1}");
+    AssertTrue(named.StartsWith("整理合同的", StringComparison.Ordinal), $"有称号：{named}");
+    AssertTrue((contract.Female ? female : male).Split('|').Any(n => named.EndsWith(n, StringComparison.Ordinal)), $"名字按男女从名表里挑：{named}");
+    AssertEqual(named, PolisCitizens.NameFor(contract, male, female, "{0}的{1}"), "同一个人永远同一个名字");
+    var bare = PolisCitizens.NameFor(idle, male, female, "{0}的{1}");
+    AssertTrue((idle.Female ? female : male).Split('|').Contains(bare), $"没有称号只用名字：{bare}");
+    string Fallback(string key, string fallback) => fallback;
+    var lines = PolisCitizens.Lines(contract, Fallback);
+    AssertTrue(lines.Count is >= 2 and <= 3, "两到三句");
+    AssertTrue(lines.Any(l => l.Contains("合同", StringComparison.Ordinal)), "提到他常去的文件夹");
+    foreach (var c in derived.Concat(town))
+    {
+        foreach (var line in PolisCitizens.Lines(c, Fallback))
+        {
+            AssertFalse(line.Contains(secret, StringComparison.Ordinal) || line.Contains("租赁", StringComparison.Ordinal) || line.Contains("摘要", StringComparison.Ordinal),
+                $"台词里没有正文、没有文件名：{line}");
+            AssertFalse(line.Contains('{'), $"格式都填上了：{line}");
+        }
+    }
+    AssertTrue(PolisCitizens.Lines(idle, Fallback).Any(l => l.Contains('天')), "说过去了多少天");
+    CollectionAssert(lines, PolisCitizens.Lines(contract, Fallback), "同一个人说同一套话");
+    var localized = PolisCitizens.Lines(contract, (key, fallback) => key == "Polis.Citizen.Line.Completed" ? "Done." : fallback);
+    AssertEqual("Done.", localized[0], "台词取 locale（回退是中文）");
     return Task.CompletedTask;
 }
 

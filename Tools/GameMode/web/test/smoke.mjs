@@ -11,6 +11,7 @@
 //   操作（2026-10-11）：视角缺省自由、V 轮换、左键拖动转镜头；WASD 走路且走不进房子；点雅典娜打开对话栏；对话栏收到 composer
 //   才出现，Enter 托付（say 带会话 Id）、草稿同步（draft）、她在办事时"请她停下"（stop-turn）；在对话栏里按 W 是字不是脚步，
 //   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦；你在远处开口，她过来（远了化作一道光）。
+//   居民即会话（M-B）：街上最多 32 位、最近的不超过 4 位全套；走到一位跟前按 E 开他的卡片，卡片的按钮选中那场会话；碑上刻着老居民。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
@@ -41,6 +42,7 @@ try {
       failed = !(await fixtureCheck(name, browser)) || failed;
       failed = !(await deliveryCheck(name, browser)) || failed;
       failed = !(await accumulationCheck(name, browser)) || failed;
+      failed = !(await citizensCheck(name, browser)) || failed;
       failed = !(await controlsCheck(name, browser)) || failed;
     } finally {
       await browser.close();
@@ -343,6 +345,116 @@ async function accumulationCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, assets: shape.assets, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 居民即会话（M-B）：C# 推 40 位上街（它本来只推 32 位，页面再守一道）→ 场景里最多 32 个 figure:citizen:*；最近的不超过 4 位全套；
+ * 走到一位闲着的居民跟前按 E 开他的卡片（台词 + 人口一行），卡片上的按钮发 select-conversation；老居民的名字刻在碑上，碑也能按 E 看。
+ */
+async function citizensCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, citizens' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    const sentSince = async (n) => (await page.evaluate(() => window.__hostInbox)).slice(n);
+    const inboxLength = () => page.evaluate(() => window.__hostInbox.length);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const homes = ['agora:0', 'agora:3', 'market', 'harbor', 'library', 'temple', ...city.buildings.slice(0, 4).map((b) => `b:${b.key}`)];
+    const street = Array.from({ length: 40 }, (_, i) => ({
+      id: `conv-${i}`, seed: (Math.imul(i + 7, 2654435761) >>> 0), female: i % 2 === 1, name: `第${i}位`, title: `委托 ${i}`,
+      home: homes[i % homes.length], age: ['young', 'adult', 'old'][i % 3], outcome: 'completed', folders: [], turns: 2,
+      lines: ['那件事已经办完了。', `那是 ${i} 天前的事了。`],
+    }));
+    await send({ type: 'citizens', citizens: { street, elders: [{ id: 'old-1', name: '老居民甲', home: 'agora:0' }, { id: 'old-2', name: '老居民乙', home: 'agora:0' }], census: { total: 42, street: 32, indoors: 8, elders: 2 } } });
+    await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      return g.world.citizens.size > 0 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
+    }, null, { timeout: 60_000 });
+    await page.waitForTimeout(400);
+    const census = await page.evaluate(() => {
+      const g = window.__polisGame;
+      let figures = 0;
+      g.R.scene.traverse((o) => { if (/^figure:citizen:/.test(o.name)) figures++; });
+      return { figures, size: g.world.citizens.size, tiers: window.__polis.citizenTiers, steles: g.world.steles.size, status: window.__polis.citizens };
+    });
+
+    // 走到一位此刻闲着、还要待一阵的居民跟前（1 米），面朝他，按 E
+    const target = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const c = [...g.world.citizens.values()].find((x) => x.at?.action === 'idle' && x.at.idleLeft > 8000 && x.figure.root.visible);
+      if (!c) return null;
+      const p = c.figure.root.position;
+      g.setFollow('player');
+      g.placePlayer(p.x + 1.0, p.z, -Math.PI / 2);
+      return c.id;
+    });
+    await page.waitForTimeout(250);
+    const focus = await page.evaluate(() => window.__polis.focus);
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(200);
+    const card = await page.evaluate(() => ({ opened: window.__polis.citizenOpened, panel: window.__polis.panel, view: window.__polisGame.panelView?.() ?? null }));
+    const n = await inboxLength();
+    await page.evaluate(() => window.__polisGame.onButton('citizen-open'));
+    const opened = await sentSince(n);
+    const foldedAfterOpen = await page.evaluate(() => window.__polisGame.panelView() == null);   // 按了"去看那份委托"，卡片收起
+
+    // 碑：走到它跟前按 E，卡片列出刻在上面的名字
+    const stele = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const s = [...g.world.steles.values()][0];
+      if (!s) return null;
+      // 站在碑的外侧（背对门前那一点）面朝它：门前那一点上站着雅典娜和住在那儿的居民，近了她们先被挑中
+      const stand = g.layout.sitePoint(s.home);
+      const dx = s.x - stand.x, dz = s.z - stand.z, d = Math.hypot(dx, dz) || 1;
+      const px = s.x + (dx / d) * 0.9, pz = s.z + (dz / d) * 0.9;
+      g.placePlayer(px, pz, Math.atan2(s.x - px, s.z - pz));
+      return s.home;
+    });
+    await page.waitForTimeout(250);
+    const steleFocus = await page.evaluate(() => window.__polis.focus);
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(150);
+    const steleCard = await page.evaluate(() => ({ panel: window.__polis.panel, view: window.__polisGame.panelView?.() ?? null }));
+
+    // 名单变了：拆掉不在名单里的，人数跟着变
+    await send({ type: 'citizens', citizens: { street: street.slice(0, 5), elders: [], census: { total: 5, street: 5, indoors: 0, elders: 0 } } });
+    await page.waitForTimeout(300);
+    const shrunk = await page.evaluate(() => {
+      const g = window.__polisGame;
+      let figures = 0;
+      g.R.scene.traverse((o) => { if (/^figure:citizen:/.test(o.name)) figures++; });
+      return { size: g.world.citizens.size, figures, steles: g.world.steles.size };
+    });
+    const of = (list, type) => list.find((m) => m.type === type);
+    const checks = {
+      streetCapped: census.size === 32 && census.figures === 32,
+      fewFullyPosed: census.tiers != null && census.tiers.A <= 4,
+      steleStands: census.steles === 1,
+      focusOnCitizen: target != null && focus?.type === 'citizen' && focus.id === target,
+      cardOpens: card.opened === target && card.panel === 'citizen',
+      cardShowsCensus: (card.view?.lines ?? []).some((l) => /42/.test(l)),
+      cardSelectsConversation: of(opened, 'select-conversation')?.conversationId === target && foldedAfterOpen,
+      steleOpens: stele === 'agora:0' && steleFocus?.type === 'stele' && steleCard.panel === 'stele',
+      listShrinks: shrunk.size === 5 && shrunk.figures === 5 && shrunk.steles === 0,
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, census, card, stele: { home: stele, focus: steleFocus, panel: steleCard.panel }, shrunk, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

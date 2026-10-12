@@ -148,6 +148,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<PolisCommission> _commissions = Array.Empty<PolisCommission>();
     private IReadOnlyDictionary<string, string> _suggestionPrompts = new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlySet<string> _knownResidents = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>这座城里的居民（会话 Id）：问话的意图只认他们（M-C）。</summary>
+    private IReadOnlySet<string> _knownCitizens = new HashSet<string>(StringComparer.Ordinal);
     private IReadOnlySet<string> _knownIslands = new HashSet<string>(StringComparer.Ordinal);
     private DateTimeOffset _cityArrivedAt = DateTimeOffset.MinValue;
     private readonly HashSet<string> _noticedRuns = new(StringComparer.Ordinal);
@@ -1024,11 +1026,26 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Post(new { type = "grove", trees = PolisAccumulation.GroveTrees(trees) });
 
         var oracle = PolisOracle.Find(tasks, workspaceId);
-        var mine = _shell.AllSessions.Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
-            .Select(s => (s.ConversationId, (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()));
-        var residents = PolisResidents.Derive(mine, oracle?.CreatedAt);
+        var sessionsHere = _shell.AllSessions
+            .Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
+            .Select(s => (Session: s, Messages: (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()))
+            .ToList();
+        var residents = PolisResidents.Derive(sessionsHere.Select(s => (s.Session.ConversationId, s.Messages)), oracle?.CreatedAt);
         _knownResidents = residents.Select(r => PolisResidents.Slug(r.Kind)).ToHashSet(StringComparer.Ordinal);
         Post(new { type = "residents", residents = PolisAccumulation.Residents(residents, _save.MetResidents.ToList(), L, now) });
+
+        // 居民即会话（M-B）：这座城的每场会话一位居民，街上最多 32 位，按最近动过的先上街
+        var byId = commissions.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
+        var citizens = PolisCitizens.Derive(
+            sessionsHere.Where(s => byId.ContainsKey(s.Session.ConversationId)).Select(s => new PolisCitizenSource(byId[s.Session.ConversationId], s.Messages)),
+            _fogged ? null : _cityWorkspace?.DirectoryPath,
+            _home,
+            (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
+            (_city?.Market ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
+            now,
+            ignoreCase: !OperatingSystem.IsLinux());
+        _knownCitizens = citizens.Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
+        Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L) });
 
         var suggestions = PolisSuggestions.Generate(new PolisSuggestionInput(
             workspaceId,

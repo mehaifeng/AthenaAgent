@@ -15,11 +15,13 @@ import { mergeGeometries } from '../../vendor/three.bundle.mjs';
 import { lerp, smooth } from './noise.mjs';
 import { restPose, poseAt, blendPoses } from './poses.mjs';
 import { createChain, stepChain, settleChain, segmentDirection, SPRING } from './springs.mjs';
-import { createCloth, stepCloth, bindFine, applyFine, clothPoint, CLOTH } from './cloth.mjs';
+import { createCloth, stepCloth, resetCloth, bindFine, applyFine, clothPoint, CLOTH } from './cloth.mjs';
 import { faceDecalGeometry, faceMaterialKey, lookFor } from './face.mjs';
 
 /** 动作切换的过渡时长（毫秒）。 */
 export const BLEND_MS = 220;
+/** 这么久没摆过的人（画面外不摆），下一次推进布料之前先重新摆好（M-B）。 */
+export const STALE_MS = 500;
 /** 头转向看的东西：最多转这么多（弧度）；目标在身后（超过 LOOK.giveUp）就不扭头，回正。 */
 export const LOOK = Object.freeze({ maxYaw: 1.0, maxPitch: 0.45, giveUp: 1.5, tauMs: 140 });
 
@@ -30,6 +32,8 @@ export function clothWind() { return WIND; }
 
 const shadowed = (o) => { o.castShadow = true; o.receiveShadow = true; return o; };
 const mesh = (g, m) => shadowed(new THREE.Mesh(g, m));
+/** 标成"细节"的网格（手指、脚趾）：figure.setDetail(false) 时藏起来（M-B，远处的居民）。 */
+const detail = (o) => { o.userData.detail = true; return o; };
 
 /** 佩普洛斯下摆的竖褶，和柱身的凹槽是同一种几何。 */
 export function drape({ y0, y1, rings = 40, segs = 96, radius, ez = 0.8, folds = [], growth = () => 1, bumps = [], hem = null, thStart = 0, thEnd = Math.PI * 2 }) {
@@ -273,10 +277,12 @@ function buildHand(sx, skin) {
     const base = new THREE.Group();
     base.position.set(x, y, z);
     base.rotation.z = spread;
-    base.add(mesh(limbGeometry([0, 0, 0], [0, -len1, 0], r1), skin));
+    // 手指与脚趾是"细节"（userData.detail）：远处的居民（M-B 的 B 档）把它们藏起来——一位居民 66 个网格里 30 个是手指脚趾，
+    // 每个网格一帧要画四遍（阴影、主画面、AO 的法线、遮罩），几十位居民的帧率就耗在这些看不见的小网格上
+    base.add(detail(mesh(limbGeometry([0, 0, 0], [0, -len1, 0], r1), skin)));
     const mid = new THREE.Group();
     mid.position.set(0, -len1, 0);
-    mid.add(mesh(limbGeometry([0, 0, 0], [0, -len2, 0], r2), skin));
+    mid.add(detail(mesh(limbGeometry([0, 0, 0], [0, -len2, 0], r2), skin)));
     base.add(mid);
     group.add(base);
     return { base, mid };
@@ -413,7 +419,7 @@ function buildFoot(sx, skin, leather, ankleSection = null) {
   g.add(mesh(blobGeometry([0, -0.01, -0.012], [0.028, 0.03, 0.028]), skin));
   for (let i = 0; i < 5; i++) {
     const x = sx * (-0.022 + i * 0.011), len = i === 0 ? 0.03 : 0.026 - i * 0.002, r = i === 0 ? 0.0075 : 0.0058;
-    g.add(mesh(limbGeometry([x, -0.026, 0.118], [x, -0.028, 0.118 + len], r), skin));
+    g.add(detail(mesh(limbGeometry([x, -0.026, 0.118], [x, -0.028, 0.118 + len], r), skin)));
   }
   const sole = mesh(new THREE.BoxGeometry(0.074, 0.011, 0.2), leather);
   sole.position.set(0, -0.0365, 0.06);
@@ -677,6 +683,18 @@ export const HAIR_STYLES = Object.freeze({
   artisan: { front: 0.44, temple: 0.25, side: 0.05, back: -0.4, thick: 0.007, volume: 0.003, backVolume: 0.003, curls: { amp: 0.003, freq: 11 } },
   // 女祭司：中分，两鬓的波浪往后拢进面纱（不挽髻：面纱从头顶披下来，髻会从面纱后面顶出一个包）
   priestess: { front: 0.48, temple: 0.22, side: -0.05, back: -0.45, thick: 0.007, volume: 0.003, backVolume: 0.004, part: 0.004, strands: 18, strandAmp: 0.002, waves: 4, waveAmp: 0.002 },
+  // —— 居民的通用发式（M-B，art/citizens.mjs 按种子挑）：上面那十三种是按人调的，人人一款；城里几十位居民共用这五款，
+  // 和衣式、衣色、头带、胡子、身高、脸型组合起来，一座城里撞不了脸。都没有挂弹簧骨的长发（省一点，居民一多就看得出来）
+  // 男子短发：齐整、略带波浪，盖到耳上
+  plainShort: { front: 0.46, temple: 0.26, side: 0.08, back: -0.36, thick: 0.006, volume: 0.002, backVolume: 0.002, part: 0.003, partX: -0.3, strands: 22, strandAmp: 0.0014, waves: 3, waveAmp: 0.0016 },
+  // 卷发（男女都有）：一头紧密的短卷
+  plainCurly: { front: 0.44, temple: 0.24, side: 0.0, back: -0.42, thick: 0.0075, volume: 0.004, backVolume: 0.004, curls: { amp: 0.0032, freq: 8 } },
+  // 老人：头顶稀了，两侧和后脑一圈短发（发色由种子挑成灰白）
+  plainBald: { front: 0.38, temple: 0.18, side: 0.05, back: -0.38, thick: 0.005, volume: 0, backVolume: 0.002, bald: { y: 0.4, z: -0.4 }, strands: 20, strandAmp: 0.0012 },
+  // 女子长发：中分，两边垂到下颌，后面盖住后颈（不挂弹簧骨，那是你的）
+  plainLong: { front: 0.5, temple: 0.24, side: -0.36, back: -0.72, thick: 0.008, volume: 0.004, backVolume: 0.006, part: 0.004, strands: 22, strandAmp: 0.002, waves: 4, waveAmp: 0.0022 },
+  // 女子挽髻：头发往后梳，脑后一个髻（比雅典娜的低髻小、高一点）
+  plainBun: { front: 0.54, temple: 0.3, side: 0.02, back: -0.42, thick: 0.0065, volume: 0.003, backVolume: 0.003, part: 0.003, strands: 18, strandAmp: 0.0018, bun: { at: [0, -0.02, -0.112], size: [0.042, 0.036, 0.038] } },
 });
 
 /** 方向 u（单位球）在发区里有多少（0 不在、1 在）。 */
@@ -1730,7 +1748,7 @@ export function buildFigure(M, spec) {
       head.getWorldPosition(_anchor);
       head.parent.getWorldQuaternion(_qParent);
       _rest.copy(restLocal).applyQuaternion(_qParent).normalize();
-      if (strip.last && _anchor.distanceTo(strip.last) > 1.5) settleChain(chain, _anchor, _rest);
+      if (settleStrips || (strip.last && _anchor.distanceTo(strip.last) > 1.5)) settleChain(chain, _anchor, _rest);
       strip.last = strip.last ? strip.last.copy(_anchor) : _anchor.clone();
       stepChain(chain, { dt, anchor: _anchor, restDir: _rest, wind: WIND, colliders: spheres });
       for (let k = 0; k < bones.length; k++) {
@@ -1742,6 +1760,19 @@ export function buildFigure(M, spec) {
         _qParent.multiply(_qLocal);
       }
     }
+    settleStrips = false;
+  }
+
+  /**
+   * 停过一阵的布料与弹簧骨重新摆好（M-B：远处的人不推进布料，走近了才推进）：布按此刻的髋摆回安放的样子、速度清零，
+   * 弹簧骨下一次推进时整条安放到锚点上。不这样做，停了几十秒的裙摆会从几米外"甩"到身上。
+   */
+  let settleStrips = false;
+  let detailMeshes = null;   // setDetail 第一次用到时收集
+  function resettle() {
+    root.updateMatrixWorld(true);
+    for (const g of garments) resetCloth(g.cloth, J.hips.matrixWorld);
+    settleStrips = true;
   }
 
   // 一建好就把布摆到站姿下的位置：裙摆的网格挂在根上、几何却是按髋的局部坐标生成的，没摆过的人物
@@ -1801,6 +1832,10 @@ export function buildFigure(M, spec) {
      */
     pose(action, t, style = {}) {
       const now = style.clock ?? performance.now();
+      // 好一阵没摆过（画面外的人不摆，M-B 的分档）：布料和弹簧骨停在很久以前的样子，这一帧先按此刻的髋重新摆好。
+      // 头一回摆也一样：建好时布是按原点上的站姿安放的（updateCloth(0)），人随后才被挪到他在城里的位置——
+      // 不重新摆，第一帧的布会从原点被拽过来，整条裙摆甩向一边（M-B 审查图里一排居民有三位这样）
+      const stale = state.clock == null || now - state.clock > STALE_MS;
       const dt = state.clock == null ? 1 / 60 : Math.min(0.1, Math.max(0, (now - state.clock) / 1000));
       state.clock = now;
       const full = {
@@ -1833,8 +1868,31 @@ export function buildFigure(M, spec) {
       }
       apply(target);
       state.applied = target;
-      updateCloth(dt);
+      // style.cloth === false：远处的人（M-B 的分档）布料与弹簧骨不推进，衣摆停在上一次的样子——一位的布料约 1.6 毫秒一帧，
+      // 几十位居民都推进，帧率就没了。重新推进的那一帧先把布按此刻的髋重新摆好（resettle），不从很久以前的样子甩过来
+      if (style.cloth === false) {
+        state.clothFrozen = true;
+      } else {
+        if (state.clothFrozen || stale) resettle();
+        state.clothFrozen = false;
+        updateCloth(dt);
+      }
       updateHeld(style.ropeTo ?? null);
+    },
+    /** 布料此刻停着没推进（测试读）。 */
+    get clothFrozen() { return !!state.clothFrozen; },
+    /**
+     * 细节（手指、脚趾）显示不显示（M-B：远处的居民藏起来；只在变了的时候改）。手里的家什不受影响。
+     * 返回此刻藏着几个网格（测试读）。
+     */
+    setDetail(on) {
+      const want = !!on;
+      if (state.detail !== want) {
+        state.detail = want;
+        detailMeshes ??= (() => { const list = []; root.traverse((o) => { if (o.isMesh && o.userData.detail) list.push(o); }); return list; })();
+        for (const o of detailMeshes) o.visible = want;
+      }
+      return want ? 0 : detailMeshes?.length ?? 0;
     },
   };
 }

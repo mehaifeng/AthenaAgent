@@ -86,6 +86,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeSwitchAndFailures();
     TestGameModeCityLifecycle();
     TestGameModeAccumulation();
+    TestGameModeCitizens();
     Environment.Exit(0);
 }
 OwlAnimationTests.Run(outputPath);
@@ -202,6 +203,7 @@ TestRightPanelAutoExpand();
 TestGameModeSwitchAndFailures();
 TestGameModeCityLifecycle();
 TestGameModeAccumulation();
+TestGameModeCitizens();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -5315,6 +5317,155 @@ static void TestGameModeAccumulation()
 
     static string? OfTypeCity(FakePolisPage page)
         => page.Messages.LastOrDefault(m => m.GetProperty("type").GetString() == "city") is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
+}
+
+static void TestGameModeCitizens()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-citizens-" + Guid.NewGuid().ToString("N"));
+    var rootA = Path.Combine(root, "我的工作区");
+    foreach (var (path, content) in new[] { ("合同/租赁合同.docx", "lease"), ("账本/流水.csv", "flow") })
+    {
+        var full = Path.Combine(rootA, path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, content);
+    }
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var store = new PolisSaveStore(paths, Log.Logger);
+    var watcher = new WorkspaceWatcherService();
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-60) };
+    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA });
+    const string secret = "机密口令-91c4";
+
+    ConversationSessionItemViewModel Session(WorkspaceProfile? workspace, string title, DateTime updated, string? folder)
+    {
+        var chat = new MainConversationViewModel();
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "请看看 " + secret, Timestamp = updated.AddMinutes(-2) });
+        var bubble = new ChatMessage { Role = "assistant", Timestamp = updated, Content = "看完了 " + secret };
+        if (folder != null)
+        {
+            var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+            group.ToolCalls.Add(new ToolCallEntry { ToolCallId = Guid.NewGuid().ToString("N"), Name = "read_system_file", Status = ToolCallStatus.Success,
+                Arguments = $"{{\"path\": \"{Path.Combine(rootA, folder, "租赁合同.docx").Replace("\\", "\\\\")}\"}}" });
+            bubble.Segments.Add(group);
+        }
+        bubble.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "看完了 " + secret });
+        chat.Messages.Add(bubble);
+        return new ConversationSessionItemViewModel(chat, workspace, null) { Title = title, UpdatedAt = updated };
+    }
+
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    Window? window = null;
+    try
+    {
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger));
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: workspaceService, configurationSession: session, gameMode: gameMode);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var groupA = shell.ConversationGroups.First(g => g.Workspace?.Id == wsA.Id);
+        var global = shell.GlobalConversationGroup ?? throw new InvalidOperationException("会话树没有全局对话那一组。");
+        groupA.Conversations.Clear();
+        global.Conversations.Clear();
+        // 40 场会话：最新的一场碰过「合同」；第 40 场（最旧）一年多没动过
+        var now = DateTime.Now;
+        var here = Enumerable.Range(0, 40)
+            .Select(i => Session(wsA, i == 0 ? "请帮我整理合同" : "第" + i + "件事", i == 39 ? now.AddDays(-400) : now.AddHours(-i), i == 0 ? "合同" : null))
+            .ToList();
+        foreach (var s in here) groupA.Conversations.Add(s);
+        var globals = Enumerable.Range(0, 3).Select(i => Session(null, "闲谈" + i, now.AddMinutes(-i), null)).ToList();
+        foreach (var s in globals) global.Conversations.Add(s);
+
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
+        window.Show();
+        shell.SelectedConversation = here[0];
+        PumpTimers(() => pages.Count > 0 && !pages[^1].Disposed, 5000, "游戏模式没有创建页面。");
+        var page = pages[^1];
+        page.Navigate(true);
+        page.Send("""{"v":1,"type":"ready"}""");
+        List<JsonElement> Of(string type) => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
+        string? City() => Of("city").LastOrDefault() is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
+        PumpTimers(() => City() == wsA.Id && Of("citizens").Count > 0, 15000, "到了城里要推居民（citizens）。");
+
+        // —— 街上 32 位，按最近动过的；人口数得到全部 40 位，一年多没动的那位刻在碑上 ——
+        var payload = Of("citizens")[^1].GetProperty("citizens");
+        var street = payload.GetProperty("street").EnumerateArray().ToList();
+        if (street.Count != 32)
+            throw new InvalidOperationException($"街上同时最多 32 位居民，实际 {street.Count}。");
+        var expected = here.Take(32).Select(s => s.ConversationId).ToList();
+        if (!street.Select(c => c.GetProperty("id").GetString()).SequenceEqual(expected))
+            throw new InvalidOperationException("上街的是最近动过的 32 位，按最近排。");
+        var census = payload.GetProperty("census");
+        if (census.GetProperty("total").GetInt32() != 40 || census.GetProperty("street").GetInt32() != 32 || census.GetProperty("elders").GetInt32() != 1 || census.GetProperty("indoors").GetInt32() != 7)
+            throw new InvalidOperationException($"人口：40 位，街上 32，屋里 7，老居民 1；实际 {census}。");
+        var elders = payload.GetProperty("elders").EnumerateArray().Select(e => e.GetProperty("id").GetString()).ToList();
+        if (!elders.SequenceEqual(new[] { here[39].ConversationId }))
+            throw new InvalidOperationException("一年多没动过的会话是老居民，名字刻在碑上，不上街。");
+        var first = street[0];
+        if (first.GetProperty("home").GetString() != "b:合同" || !first.GetProperty("folders").EnumerateArray().Any(f => f.GetString() == "合同"))
+            throw new InvalidOperationException($"碰过「合同」的那位住在合同那座楼前，实际 {first.GetProperty("home").GetString()}。");
+        if (!first.GetProperty("name").GetString()!.Contains("整理合同", StringComparison.Ordinal))
+            throw new InvalidOperationException($"名字带着那件事的称号，实际 {first.GetProperty("name").GetString()}。");
+        if (payload.GetRawText().Contains(secret, StringComparison.Ordinal))
+            throw new InvalidOperationException("推给页面的居民里不能有任何消息正文。");
+        var seed = first.GetProperty("seed").GetUInt32();
+        if (seed != PolisCitizens.SeedOf(here[0].ConversationId) || first.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed))
+            throw new InvalidOperationException("居民的种子与男女由会话 Id 定（页面按它生成长相）。");
+
+        // —— 居民卡片上的「去看那次委托」= 选中那场会话（会话树的同一条路径） ——
+        page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[5].ConversationId}}"}""");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[5]), 5000, "居民卡片的按钮要选中他那场会话。");
+
+        // —— 删掉一场会话，他就不在了（居民从会话树推导，从不另存） ——
+        PumpTimers(() => City() == wsA.Id, 10000, "同一座城：不重新装城。");
+        var gone = here[3];
+        groupA.Conversations.Remove(gone);
+        PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() == 39, 6000, "删掉一场会话，人口少一位（积累每两秒看一眼）。");
+        var after = Of("citizens")[^1].GetProperty("citizens");
+        if (after.GetProperty("street").EnumerateArray().Any(c => c.GetProperty("id").GetString() == gone.ConversationId))
+            throw new InvalidOperationException("删掉的会话不能还有居民在街上。");
+        if (after.GetProperty("street").GetArrayLength() != 32)
+            throw new InvalidOperationException("街上空出来的位置由屋里最近动过的那位补上。");
+        var savePath = Path.Combine(paths.GetWorkspacesDirectory(), wsA.Id, "game", "polis.json");
+        PumpTimers(() => File.Exists(savePath), 5000, "装城之后存档要在（账本）。");
+        if (File.ReadAllText(savePath).Contains("citizen", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("居民不进存档（从会话树推导，删掉会话他就不在了）。");
+
+        // —— 神殿：没有工作区的会话都是神殿的居民，住公共地方 ——
+        shell.SelectedConversation = globals[0];
+        PumpTimers(() => City() == "sanctuary", 10000, "全局对话要航向神殿。");
+        PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() == 3, 6000, "神殿的居民是那 3 场全局对话。");
+        var sanctuaryStreet = Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().ToList();
+        if (!sanctuaryStreet.Select(c => c.GetProperty("id").GetString()).OrderBy(x => x).SequenceEqual(globals.Select(g => g.ConversationId).OrderBy(x => x)))
+            throw new InvalidOperationException("神殿的街上是那 3 场全局对话的居民。");
+        if (sanctuaryStreet.Any(c => !PolisCitizens.PublicHomes.Contains(c.GetProperty("home").GetString()!)))
+            throw new InvalidOperationException("神殿没有文件夹，居民都住公共地方。");
+        page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[0].ConversationId}}"}""");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[0]), 5000, "别的城的会话也能选（与点橄榄树一样走会话树）。");
+    }
+    finally
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, and the card's button selects through the session tree");
 }
 
 // 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；

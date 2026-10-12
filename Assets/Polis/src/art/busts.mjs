@@ -127,7 +127,8 @@ function garmentTone(wash) {
  * 同样的输入永远给出同样的路径（截图与断言可复现）。
  */
 export function bust(character, expression = 'neutral') {
-  const c = CHARACTERS[character];
+  // 居民（M-B）没有登记在 CHARACTERS 里：他们的半身像参数由种子生成（art/citizens.mjs 的 citizenLook().bust），直接传对象
+  const c = character && typeof character === 'object' ? character : CHARACTERS[character];
   if (!c) throw new Error(`busts: unknown character '${character}'`);
   if (!EXPRESSIONS.includes(expression)) throw new Error(`busts: unknown expression '${expression}'`);
   const paths = [];
@@ -564,7 +565,7 @@ export function toSvg(b, size = 240) {
  */
 const cache = new Map();
 export function drawBust(ctx, character, expression, x, y, h) {
-  const key = `${character}:${expression}`;
+  const key = character && typeof character === 'object' ? `citizen:${character.key ?? JSON.stringify(character)}:${expression}` : `${character}:${expression}`;
   let entry = cache.get(key);
   if (!entry) {
     const b = bust(character, expression);
