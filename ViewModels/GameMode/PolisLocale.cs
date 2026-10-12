@@ -102,6 +102,30 @@ public static class PolisLocale
         ("interactStele", "Polis.Ui.InteractStele", "读碑上的名字"),
         ("steleTitle", "Polis.Ui.SteleTitle", "老居民"),
         ("steleBody", "Polis.Ui.SteleBody", "一年多没出门的居民，名字刻在这里："),
+        // M-C（2026-10-13）：问话
+        ("citizenAsk", "Polis.Ui.CitizenAsk", "问他那件事"),
+        ("citizenAskAgain", "Polis.Ui.CitizenAskAgain", "再问一句"),
+        ("citizenRead", "Polis.Ui.CitizenRead", "读全文"),
+        ("askYou", "Polis.Ui.AskYou", "你问："),
+        ("askStatus", "Polis.Ui.AskStatus", "问他那场会话里的事"),
+        ("askPlaceholder", "Polis.Ui.AskPlaceholder", "问{name}那件事……"),
+        ("askWaiting", "Polis.Ui.AskWaiting", "{name}在想……"),
+        ("askSend", "Polis.Ui.AskSend", "问"),
+        ("askHint", "Polis.Ui.AskHint", "Enter 问 · Esc 不问了"),
+        ("askTimeout", "Polis.Ui.AskTimeout", "他想了想，没说出来。"),
+        ("askReaderTitle", "Polis.Ui.AskReaderTitle", "{name}说"),
+    };
+
+    /// <summary>
+    /// 问话（M-C）没有拿到回答时他说的那一句（C# 按 <see cref="Services.GameMode.CitizenAnswerStatus"/> 挑，推给页面的就是这句话）。
+    /// 永远是一句话，不是错误框。
+    /// </summary>
+    public static IReadOnlyList<(string Status, string Key, string Fallback)> CitizenAsk { get; } = new[]
+    {
+        ("NoModel", "Polis.Citizen.Ask.NoModel", "要问话，先在设置的模型角色里给「虚拟宠物与城里的居民」或「标题生成」选一个模型。"),
+        ("Busy", "Polis.Citizen.Ask.Busy", "我还在想上一个问题呢。"),
+        ("Limited", "Polis.Citizen.Ask.Limited", "这一个钟头问得够多了，我有点累，过一阵再来吧。"),
+        ("Failed", "Polis.Citizen.Ask.Failed", "我想了想，没说出来。"),
     };
 
     /// <summary>
@@ -251,6 +275,7 @@ public static class PolisLocale
         .Concat(Oracle.Select(o => o.Key))
         .Concat(Herald.Select(h => h.Key))
         .Concat(Citizen.Select(c => c.Key))
+        .Concat(CitizenAsk.Select(c => c.Key))
         .Concat(Services.GameMode.PolisCitizens.LineFallbacks.Keys)
         .Distinct(StringComparer.Ordinal);
 

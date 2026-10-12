@@ -13,6 +13,8 @@ export const INTENT_TYPES = Object.freeze([
   'meet-resident', 'try-resident',
   // 对话栏
   'say', 'draft',
+  // M-C：问一位居民他那场会话的事（回答只回到页面，不进任何会话）
+  'ask-citizen',
 ]);
 
 export function intent(type, fields = {}) {

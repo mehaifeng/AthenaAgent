@@ -39,6 +39,15 @@ test('intents: the closed set has no approval, and unknown types throw before th
   assert.deepEqual(intent('open-file', { path: '合同/a.docx' }), { v: 1, type: 'open-file', path: '合同/a.docx' });
 });
 
+test('intents: the page and C# name exactly the same closed set (a page type C# does not know is dropped; a C# type the page lacks throws before it leaves)', () => {
+  const cs = readFileSync(new URL('../../../../Services/GameMode/PolisIntents.cs', import.meta.url), 'utf8');
+  const start = cs.indexOf('TypeNames = new');
+  const block = cs.slice(start, cs.indexOf('};', start));
+  const names = [...block.matchAll(/\["([a-z-]+)"\]\s*=/g)].map((m) => m[1]).sort();
+  assert.ok(names.length >= 20, `读到 C# 的类型表：${names.length} 个`);
+  assert.deepEqual([...INTENT_TYPES].sort(), names);
+});
+
 test('reader: raw HTML is text, never markup', () => {
   const blocks = parseMarkdown('<img src=x onerror="alert(1)">\n\n# 标题 <b>粗</b>\n\n- 一项 <script>x</script>\n\n```html\n<div>code</div>\n```');
   const json = JSON.stringify(blocks);

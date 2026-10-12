@@ -71,7 +71,8 @@ async function main() {
   };
   // 对话栏只在实时模式里有：夹具里没有人在听
   if (live) {
-    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys() });
+    // 问话（M-C）：对话栏借给一位居民时，问出去 / 不问了告诉城里（他站定、镜头留在你们两个身上、等太久了替他说"没想起来"）
+    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys(), onAsk: (event, info) => liveGame?.askEvent(event, info) });
     window.__polisTalk = talk;
   }
   const game = createGame({
@@ -85,6 +86,9 @@ async function main() {
     topInset: live ? 52 : 0,
     defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
+    onAsk: talk ? (target) => { talk.openAsk(target); } : null,
+    onAskEnd: () => talk?.endAsk(),
+    onRead: ({ title, markdown }) => openReader(document, document.getElementById('reader'), { title, markdown, closeLabel: game.ui.close ?? '收起' }),
   });
   window.__polisGame = game;
   game.setNight(nightAtStart, { instant: true });
@@ -173,6 +177,9 @@ function liveHandlers() {
     residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
     // 居民即会话（M-B）：{ street（≤ 32 位）, elders, census }
     citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); wake(); }),
+    // 问话的回答（M-C）：{ conversationId, status, text }——放进他的卡片，对话栏还给雅典娜
+    // 先还对话栏、再放回答：栏还开着时，城里会以为你又在和雅典娜说话，不把卡片打开
+    'citizen-answer': whenReady((m) => { talk?.endAsk(); liveGame.setCitizenAnswer(m); wake(); }),
     board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),
     oracle: whenReady((m) => { liveGame.setOracle(m.oracle ?? null); wake(); }),
     islands: whenReady((m) => { liveGame.setIslands(m.islands); wake(); }),

@@ -55,7 +55,8 @@ public sealed record PolisCitizen(
     int Turns,
     PolisCitizenOutcome Outcome,
     int AgeDays,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset StartedAt);
 
 /// <summary>这座城的人口：一共几位，街上几位，屋里几位（街上满了），几位老居民（一年多没出门，名字刻在家门口的碑上）。</summary>
 public sealed record PolisCensus(int Total, int OnStreet, int Indoors, int Elders);
@@ -178,7 +179,7 @@ public static class PolisCitizens
             all.Add(new PolisCitizen(
                 c.ConversationId, seed, IsFemale(seed), c.Title, Epithet(c.Title), home,
                 folders.Take(MaxFolders).ToList(), age, elder, OnStreet: false, c.CompletedTurns, outcome,
-                Math.Max(0, (int)Math.Floor((now - c.UpdatedAt).TotalDays)), c.UpdatedAt));
+                Math.Max(0, (int)Math.Floor((now - c.UpdatedAt).TotalDays)), c.UpdatedAt, c.StartedAt));
         }
 
         var ordered = all

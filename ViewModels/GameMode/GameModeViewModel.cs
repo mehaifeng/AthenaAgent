@@ -150,6 +150,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private IReadOnlySet<string> _knownResidents = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>这座城里的居民（会话 Id）：问话的意图只认他们（M-C）。</summary>
     private IReadOnlySet<string> _knownCitizens = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>这座城此刻的居民（会话 Id → 居民）：问话要他的名字、标题、常去的文件夹。</summary>
+    private IReadOnlyDictionary<string, PolisCitizen> _citizensById = new Dictionary<string, PolisCitizen>(StringComparer.Ordinal);
+    private readonly ICitizenAnswerService _citizenAnswers;
+    /// <summary>页面关掉、视图模型释放时，还在路上的问话一并取消。</summary>
+    private readonly CancellationTokenSource _askCancel = new();
     private IReadOnlySet<string> _knownIslands = new HashSet<string>(StringComparer.Ordinal);
     private DateTimeOffset _cityArrivedAt = DateTimeOffset.MinValue;
     private readonly HashSet<string> _noticedRuns = new(StringComparer.Ordinal);
@@ -161,7 +166,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         IWorkspaceWatcherService watcher,
         ILocalizationService localization,
         ICronTaskReader cronTasks,
-        PolisAssetStore assetStore)
+        PolisAssetStore assetStore,
+        ICitizenAnswerService citizenAnswers)
     {
         _configuration = configurationSession ?? throw new ArgumentNullException(nameof(configurationSession));
         _previewHost = previewHost ?? throw new ArgumentNullException(nameof(previewHost));
@@ -170,6 +176,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
         _cronTasks = cronTasks ?? throw new ArgumentNullException(nameof(cronTasks));
         _assetStore = assetStore ?? throw new ArgumentNullException(nameof(assetStore));
+        _citizenAnswers = citizenAnswers ?? throw new ArgumentNullException(nameof(citizenAnswers));
         _cronTasks.TasksChanged += OnCronTasksChanged;
         _isGameMode = _configuration.Current.MainLayout.GameMode;
         _night = !string.Equals(_configuration.Current.Theme, "Light", StringComparison.OrdinalIgnoreCase);
@@ -448,6 +455,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             KnownSuggestionIds = _suggestionPrompts.Keys.ToHashSet(StringComparer.Ordinal),
             KnownIslandIds = _knownIslands,
             KnownResidentIds = _knownResidents,
+            KnownCitizenIds = _knownCitizens,
         };
         var result = PolisIntents.Validate(body, context);
         if (!result.Accepted)
@@ -558,7 +566,45 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 if (_shell != null)
                     _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(PolisAccumulation.ResidentPrompt(intent.Resident!.Value, L)), "try-resident");
                 break;
+            case PolisIntentType.AskCitizen:
+                _ = RunIntentAsync(() => AskCitizenAsync(intent.ConversationId!, intent.Text!), "ask-citizen");
+                break;
         }
+    }
+
+    /// <summary>
+    /// 问一位居民那场会话的事（M-C）。那场会话的消息在内存里（会话树启动时全部恢复，不读库）：在 UI 线程上取一份快照，
+    /// 挑片段、调模型都在线程池上，回到 UI 线程把回答推给页面（<c>citizen-answer</c>）。任何结局都有一句话给他说——
+    /// 没配模型、正忙、超限、失败都是一句本地化的话，不是错误框（<see cref="CitizenAnswerService"/> 的纪律 1）。
+    /// 回答只回到页面，不进任何会话。
+    /// </summary>
+    private async Task AskCitizenAsync(string conversationId, string question)
+    {
+        if (_disposed || !_citizensById.TryGetValue(conversationId, out var citizen)) return;
+        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
+        if (session == null) return;
+        var messages = session.Chat.Messages.ToList();
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
+        var name = PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("namePattern"));
+        var request = new CitizenQuestion(citizen, name, messages, question, _localization.CurrentLanguage);
+        var page = _page;
+        var token = _askCancel.Token;
+        CitizenAnswer answer;
+        try
+        {
+            answer = await Task.Run(() => _citizenAnswers.AskAsync(request, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // 页面没了（离开游戏太久、视图模型释放）：没有人等这个回答
+        }
+        if (_disposed || page == null || !ReferenceEquals(page, _page)) return;
+        var replies = PolisLocale.CitizenAsk.ToDictionary(r => r.Status, StringComparer.Ordinal);
+        string Reply(CitizenAnswerStatus status) => L(replies[status.ToString()].Key, replies[status.ToString()].Fallback);
+        var text = answer.Status == CitizenAnswerStatus.Ok && !string.IsNullOrWhiteSpace(answer.Text) ? answer.Text! : Reply(answer.Status == CitizenAnswerStatus.Ok ? CitizenAnswerStatus.Failed : answer.Status);
+        Post(new { type = "citizen-answer", conversationId, status = answer.Status.ToString().ToLowerInvariant(), text });
+        Flush();
     }
 
     /// <summary>摆放 / 撤下 / 移除：只改存档（7.2"拆方块永远不会变成删文件"），推回页面，落盘。</summary>
@@ -1045,6 +1091,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             now,
             ignoreCase: !OperatingSystem.IsLinux());
         _knownCitizens = citizens.Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
+        _citizensById = citizens.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
         Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L) });
 
         var suggestions = PolisSuggestions.Generate(new PolisSuggestionInput(
@@ -1750,6 +1797,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _askCancel.Cancel();
+        _askCancel.Dispose();
         _flushTimer.Stop();
         _readyTimer?.Stop();
         _releaseTimer?.Stop();

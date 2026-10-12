@@ -4467,7 +4467,7 @@ static void TestGameModeSwitchAndFailures()
         // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
         // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
         gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization,
-            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger))
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService())
         {
             ReadyTimeout = TimeSpan.FromSeconds(2),
             ReleaseDelay = TimeSpan.FromSeconds(2)
@@ -4800,7 +4800,7 @@ static void TestGameModeCityLifecycle()
     GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
         var vm = new GameModeViewModel(session, previewHost, store, watcher, localization,
-            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger));
+            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService());
         configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -5154,7 +5154,7 @@ static void TestGameModeAccumulation()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger));
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessCitizenAnswerService());
         var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
             .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
             .ToList();
@@ -5343,6 +5343,11 @@ static void TestGameModeCitizens()
     var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-60) };
     var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA });
     const string secret = "机密口令-91c4";
+    var answers = new HeadlessCitizenAnswerService();
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
 
     ConversationSessionItemViewModel Session(WorkspaceProfile? workspace, string title, DateTime updated, string? folder)
     {
@@ -5366,7 +5371,7 @@ static void TestGameModeCitizens()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger));
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -5422,6 +5427,44 @@ static void TestGameModeCitizens()
         if (seed != PolisCitizens.SeedOf(here[0].ConversationId) || first.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed))
             throw new InvalidOperationException("居民的种子与男女由会话 Id 定（页面按它生成长相）。");
 
+        // —— 问话（M-C）：问一位居民，他只拿到他那一场会话的消息；回答只推回页面，不进任何会话 ——
+        int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
+        var messagesBefore = here.Sum(h => h.Chat.Messages.Count);
+        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"  那份合同最后定了几年？  "}""");
+        PumpTimers(() => Of("citizen-answer").Count > 0, 5000, "问话要把回答推回页面（citizen-answer）。");
+        var asked = answers.Questions.Single();
+        if (asked.Question != "那份合同最后定了几年？" || asked.Citizen.ConversationId != here[0].ConversationId)
+            throw new InvalidOperationException($"问的是这位居民、问题去掉首尾空白：实际「{asked.Question}」问 {asked.Citizen.ConversationId}。");
+        if (!asked.Messages.SequenceEqual(here[0].Chat.Messages))
+            throw new InvalidOperationException("问话只拿那一场会话的消息（不读别的会话）。");
+        if (!asked.CitizenName.Contains("整理合同", StringComparison.Ordinal))
+            throw new InvalidOperationException($"问话带着他的名字：{asked.CitizenName}");
+        var reply = Of("citizen-answer")[^1];
+        if (reply.GetProperty("conversationId").GetString() != here[0].ConversationId || reply.GetProperty("status").GetString() != "ok"
+            || reply.GetProperty("text").GetString() != "我记得，那份合同最后定在三年。")
+            throw new InvalidOperationException($"回答原样推给页面：{reply}");
+        if (here.Sum(h => h.Chat.Messages.Count) != messagesBefore || here.Any(h => h.Chat.InputText.Contains("合同最后", StringComparison.Ordinal)))
+            throw new InvalidOperationException("问话不进任何会话：没有新消息，也不写进输入框。");
+        // 没配模型：他说一句本地化的话，不是错误框
+        answers.Reply = _ => new CitizenAnswer(CitizenAnswerStatus.NoModel);
+        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[1].ConversationId}}","question":"你还记得什么？"}""");
+        PumpTimers(() => Of("citizen-answer").Count > 1, 5000, "没配模型也要推一句话回去。");
+        var noModel = Of("citizen-answer")[^1];
+        if (noModel.GetProperty("status").GetString() != "nomodel" || !noModel.GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
+            throw new InvalidOperationException($"没配模型时他说「先在设置的模型角色里给『虚拟宠物与城里的居民』……选一个模型」：{noModel}");
+        answers.Reply = _ => new CitizenAnswer(CitizenAnswerStatus.Ok, "好的。");
+        // 校验：别的城的会话、不存在的会话、空问题、超长问题一律拒绝，一次也不调用
+        var rejectedBefore = Rejections();
+        var askedBefore = answers.Questions.Count;
+        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{globals[0].ConversationId}}","question":"别的城的人"}""");
+        page.Send("""{"v":1,"type":"ask-citizen","conversationId":"made-up","question":"谁"}""");
+        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"   "}""");
+        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"{{new string('问', 301)}}"}""");
+        PumpTimers(() => Rejections() >= rejectedBefore + 4, 3000, "四条越界的问话都要被拒并记 Warning。");
+        PumpTimersFor(150);
+        if (answers.Questions.Count != askedBefore)
+            throw new InvalidOperationException("被拒的问话一次也不调用模型。");
+
         // —— 居民卡片上的「去看那次委托」= 选中那场会话（会话树的同一条路径） ——
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[5].ConversationId}}"}""");
         PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[5]), 5000, "居民卡片的按钮要选中他那场会话。");
@@ -5463,9 +5506,11 @@ static void TestGameModeCitizens()
         previewHost.Dispose();
         session.Dispose();
         PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, and the card's button selects through the session tree");
+    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, the card's button selects through the session tree, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
 }
 
 // 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；
@@ -13484,6 +13529,19 @@ sealed class CapturingLogSink : ILogEventSink
 /// <summary>
 /// 定时任务的只读视图（游戏模式只拿这一半）：测试往里放任务、推进运行记录，再触发一次变更通知。
 /// </summary>
+/// <summary>问话（M-C）的替身：记下每一次问了谁、拿到的是哪一场会话的消息，按 <see cref="Reply"/> 回答。</summary>
+sealed class HeadlessCitizenAnswerService : ICitizenAnswerService
+{
+    public List<CitizenQuestion> Questions { get; } = new();
+    public Func<CitizenQuestion, CitizenAnswer> Reply { get; set; } = _ => new CitizenAnswer(CitizenAnswerStatus.Ok, "我记得，那份合同最后定在三年。");
+
+    public Task<CitizenAnswer> AskAsync(CitizenQuestion question, CancellationToken cancellationToken = default)
+    {
+        lock (Questions) Questions.Add(question);
+        return Task.FromResult(Reply(question));
+    }
+}
+
 sealed class HeadlessCronTaskReader : ICronTaskReader
 {
     private readonly List<CronTask> _tasks = new();

@@ -144,7 +144,26 @@ export const UI_ZH = Object.freeze({
   interactStele: '读碑上的名字',
   steleTitle: '老居民',
   steleBody: '一年多没出门的居民，名字刻在这里：',
+  // 问话（M-C）
+  citizenAsk: '问他那件事',
+  citizenAskAgain: '再问一句',
+  citizenRead: '读全文',
+  askYou: '你问：',
+  askStatus: '问他那场会话里的事',
+  askPlaceholder: '问{name}那件事……',
+  askWaiting: '{name}在想……',
+  askSend: '问',
+  askHint: 'Enter 问 · Esc 不问了',
+  askTimeout: '他想了想，没说出来。',
+  askReaderTitle: '{name}说',
 });
+
+/** 问出去之后最多等多久（C# 那边一次调用 20 秒就放弃；多留 5 秒给排队和回传）。 */
+export const ASK_TIMEOUT_MS = 25_000;
+/** 他的回答在卡片上留多久：这么久之内再走过去按 E，卡片上还是这一问一答。 */
+export const ANSWER_KEEP_MS = 10 * 60_000;
+/** 卡片上的回答最多几行（再长给"读全文"）。 */
+export const ANSWER_LINES = 8;
 
 /** 居民打招呼与闲聊的话（"|" 分隔；闲聊是"甲说|乙答"一对）。实时模式下由 C# 按界面语言覆盖（Polis.Citizen.*）。 */
 export const CITIZEN_ZH = Object.freeze({
@@ -173,7 +192,7 @@ export const CITIZEN_ZH = Object.freeze({
  * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onAsk = null, onAskEnd = null, onRead = null }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -208,6 +227,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let nextChatPickAt = 0;
   let greeting = null;               // { id, start, line }：此刻跟你打招呼的那一位
   const greetedAt = new Map();       // 每一位上次跟你打招呼的时刻
+  // 问话（M-C）：此刻在问的那一位（对话栏借给了他：'typing' 在写问题、'waiting' 问出去了），和每一位最近的一问一答
+  let ask = null;                    // { id, status, question, sentAt }
+  const answers = new Map();         // id → { question, text, status, at }
+  /** 对话栏开着、而且是在和雅典娜说话（不是借给了一位居民）。 */
+  const talkingToAthena = () => talkOpen() && !ask;
   let suggestions = [];        // [{ id, line }]
   let oracle = null;           // { exists, title, body, latestConversationId }
   let islands = [];            // 海图
@@ -356,6 +380,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         chatTalk = null;
         greeting = null;
         citizenTiers = new Map();
+        if (ask) { ask = null; status.asking = null; onAskEnd?.(); }
+        answers.clear();
       }
       // 存档里这座城的远近：靠岸时镜头推回的就是它（没有存档就推回出港前的远近）
       if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); if (voyage) voyage.restoreZoom = p.zoom; }
@@ -495,7 +521,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   /** 留住她：你离她 2.5 米以内、或者对话栏开着——她不再走开（athena.mjs 的 hold）。 */
   function athenaHeld() {
-    if (talkOpen()) return true;
+    if (talkingToAthena()) return true;
     const a = world?.athena;
     return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
   }
@@ -525,7 +551,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const dp = Math.hypot(pose.x - player.pos.x, pose.z - player.pos.z);
     if (action === 'idle' && !pose.teleport) {
       if (line && line.alpha > 0.3) { action = 'talk'; style.speaker = true; }
-      else if (talkOpen() && dp < 7) { action = 'talk'; style.speaker = false; }
+      else if (talkingToAthena() && dp < 7) { action = 'talk'; style.speaker = false; }
     }
     if (dp < 8 && !pose.teleport) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
     world.athenaFigure.pose(action, pose.t, style);
@@ -693,7 +719,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       live.push(c);
     }
     // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开
-    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !(panel?.type === 'citizen' && panel.id === c.id) }));
+    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id) }));
     for (const r of world.residents.values()) people.push({ id: `resident:${r.kind}`, x: r.figure.root.position.x, z: r.figure.root.position.z, movable: false });
     if (world.athena.visible) people.push({ id: 'athena', x: world.athena.position.x, z: world.athena.position.z, movable: false });
     const nudges = separate(people, player.pos, layout.walkable);
@@ -747,7 +773,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       c.tier = tier;
       counts[tier]++;
       const root = c.figure.root;
-      const panelOpen = panel?.type === 'citizen' && panel.id === c.id;
+      // 卡片开着、或者你正在问他（对话栏借给了他）：他都站定、面朝你
+      const asked = ask?.id === c.id;
+      const panelOpen = (panel?.type === 'citizen' && panel.id === c.id) || asked;
       // 卡片开着：他站定、面朝你；收起时记下站定的地方，再慢慢回到日程上的位置
       if (panelOpen && !c.hold) c.hold = posOf(c);
       if (!panelOpen && c.hold) {
@@ -769,7 +797,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
         if (panelOpen && c.cardAt == null) c.cardAt = wall;
         const since = wall - (greetingNow ? greeting.start : c.cardAt);
-        if (since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = true; }
+        if (since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = !asked; }
         style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
         if (greetingNow) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
       } else if (inChat) {
@@ -937,7 +965,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     // M3：站着的时候——刚接过成果就伸手接；对话栏开着就和她说话（托付之后比划两秒多，其余时间听）；离她近就看着她
     const athena = world.athena;
     const dp = athena.visible ? Math.hypot(athena.position.x - player.pos.x, athena.position.z - player.pos.z) : Infinity;
-    const talking = talkOpen();
+    const talking = talkingToAthena();
     let t = wall;
     if (action === 'idle') {
       if (anim.playerOneShot && !oneShotDone(anim.playerOneShot.action, wall - anim.playerOneShot.start)) {
@@ -991,6 +1019,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** 此刻该不该是近景、看着谁：对话栏开着看你和雅典娜；居民的卡片开着看你和他。 */
   function closeUpWanted() {
     if (!world || voyage || reveal || fogInfo) return null;
+    // 问一位居民（M-C）：对话栏借给了他，镜头看你和他，不看她
+    if (ask && world.citizens.get(ask.id)?.figure) return { kind: 'citizen', id: ask.id };
     if (talkOpen()) return { kind: 'talk', id: null };
     if (panel?.type === 'resident' && world.residents.has(panel.id)) return { kind: 'resident', id: panel.id };
     if (panel?.type === 'citizen' && world.citizens.get(panel.id)?.figure) return { kind: 'citizen', id: panel.id };
@@ -1094,7 +1124,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     stepNight(dt);
     updatePlayer(wall, dt);
     // 对话栏刚展开：她离你远就走过来（你在城里任何地方按 Enter 开口，都不必先去找她）
-    const talking = talkOpen();
+    const talking = talkingToAthena();
     if (talking && !talkWasOpen) summonIfFar(now);
     talkWasOpen = talking;
     const state = athenaSim.update(now, { hold: athenaHeld() });
@@ -1103,6 +1133,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     applyAthena(pose, line, dt);
     // 居民先排（他们和十一位居民一起分档，见 tierPeople），十一位居民在 applyEffects 里按同一份分档摆
     const citizenSaying = animateCitizens(wall, dt);
+    // 问出去太久没有回音（C# 那边一次调用 20 秒就放弃）：他想了想，没说出来
+    if (ask?.status === 'waiting' && wall - ask.sentAt > ASK_TIMEOUT_MS) {
+      const id = ask.id;
+      // 先把对话栏还回去（它还开着，卡片就会以为你又在和雅典娜说话、不打扰），再把这句放进他的卡片
+      onAskEnd?.();
+      setCitizenAnswer({ conversationId: id, status: 'timeout', text: ui.askTimeout });
+    }
     applyEffects(wall, dt);
     focus = pickFocus(pose);
     status.focus = focus ? { type: focus.type, id: focus.id ?? focus.venue ?? null, slot: focus.slot ?? null } : null;
@@ -1149,8 +1186,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const tree = world.groveTrees.find((t) => t.conversationId === focus.id);
       if (tree) anchored.push({ text: tree.title, kind: 'tree', key: `tree:${tree.conversationId}`, anchor: tree.top });
     }
-    // 走到够得着的东西跟前：它脚下一块"E 和雅典娜说话"（头顶留给旁白气泡、名牌）。按当帧矩阵投影，和名牌一起进运动自检
-    if (focus && !uiBlocked) {
+    // 走到够得着的东西跟前：它脚下一块"E 和雅典娜说话"（头顶留给旁白气泡、名牌）。按当帧矩阵投影，和名牌一起进运动自检。
+    // 对话栏开着（和雅典娜说话、或者借给了一位居民）时不画：按下的 E 是打进栏里的字
+    if (focus && !uiBlocked && !talkOpen()) {
       const anchor = focus.type === 'athena' ? ATHENA_HOVER_ANCHOR.clone().applyMatrix4(world.athena.matrixWorld) : new THREE.Vector3(focus.x, 0.02, focus.z);
       anchored.push({ text: promptText(focus), kind: 'prompt', key: `prompt:${focus.type}:${focus.id ?? focus.venue ?? ''}:${focus.slot ?? ''}`, keyCap: ui.interactKey, anchor });
     }
@@ -1330,9 +1368,16 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'citizen': {
         const c = world?.citizens.get(panel.id);
         if (!c) return null;
+        const askable = !!onAsk;
+        // 刚问过他（十分钟内）：卡片上是那一问一答；不然是他自己的那几句和人口
+        const a = answers.get(panel.id);
+        if (a && performance.now() - a.at < ANSWER_KEEP_MS) {
+          return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines: [], askable,
+            answer: { question: a.question ? `${ui.askYou}${a.question}` : '', text: a.text, status: a.status, maxLines: ANSWER_LINES } };
+        }
         const lines = [...(c.data.lines ?? [])];
         if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
-        return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines };
+        return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines, askable };
       }
       case 'stele': {
         const s = world?.steles.get(panel.id);
@@ -1579,6 +1624,19 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     status.panel = next.type;
   }
 
+  /** C# 推来的回答（citizen-answer，M-C）：记下，卡片重新打开在这一问一答上。 */
+  function setCitizenAnswer(m) {
+    const id = m?.conversationId;
+    const asked = ask?.id === id ? ask : null;
+    if (ask?.id === id) { ask = null; status.asking = null; }
+    if (!world?.citizens.has(id)) return;
+    const a = { question: asked?.question ?? '', text: String(m.text ?? ''), status: String(m.status ?? 'ok'), at: performance.now() };
+    answers.set(id, a);
+    status.answer = { id, status: a.status, text: a.text };
+    // 你还在等他（没按 Esc）、也没在做别的（和雅典娜说话、开着别的面板）才把卡片打开；不然回答留在他的卡片上，十分钟内走过去按 E 还看得到
+    if (asked && !panel && !card && !talkingToAthena()) { openPanel({ type: 'citizen', id }); status.citizenOpened = id; }
+  }
+
   /** 一位居民的卡片（M-B）：他说的那几句、这座城的人口，"去看那份委托"。他站定、转身、挥手（animateCitizens）。 */
   function openCitizen(id) {
     if (!world?.citizens.has(id)) return;
@@ -1689,6 +1747,27 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (panel?.type === 'citizen') send('select-conversation', { conversationId: panel.id });
         panel = null;
         break;
+      case 'citizen-ask': {
+        // 问话（M-C）：卡片收起，对话栏借给他（main.mjs 的 onAsk → talk.openAsk）；他站定面朝你，镜头留在你们两个身上
+        if (panel?.type !== 'citizen' || !onAsk) break;
+        const c = world?.citizens.get(panel.id);
+        if (!c) break;
+        ask = { id: c.id, status: 'typing', question: '', sentAt: 0 };
+        status.asking = c.id;
+        panel = null;
+        // 卡片收起要先让对话栏不再让位（不等下一帧），借给他的那一下输入框才拿得到焦点
+        syncUiBlocked();
+        onAsk({ conversationId: c.id, name: c.data.name ?? '', bust: c.look.bust });
+        break;
+      }
+      case 'citizen-read': {
+        // 回答太长：整段放进卷轴阅读器（模型写的字只经 textContent 进 DOM，见 reader.mjs）
+        if (panel?.type !== 'citizen') break;
+        const a = answers.get(panel.id);
+        const c = world?.citizens.get(panel.id);
+        if (a && onRead) onRead({ title: fill(ui.askReaderTitle, { name: c?.data.name ?? '' }), markdown: `${a.question ? `> ${ui.askYou}${a.question}\n\n` : ''}${a.text}` });
+        break;
+      }
       case 'oracle-request': send('request-oracle'); panel = null; break;
       case 'oracle-latest':
         if (oracle?.latestConversationId) send('select-conversation', { conversationId: oracle.latestConversationId });
@@ -1789,6 +1868,19 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     },
     /** 居民此刻的分档（测试用）。 */
     get citizenTiers() { return citizenTiers; },
+    /** 对话栏那边的问话进展（talk.mjs 的 onAsk）：'sent' 问出去了，开始等；'cancel' 不问了。 */
+    askEvent(event, info = {}) {
+      if (!ask) return;
+      if (event === 'sent' && info.conversationId === ask.id) {
+        ask = { ...ask, status: 'waiting', question: String(info.question ?? ''), sentAt: performance.now() };
+      } else if (event === 'cancel') {
+        ask = null;
+        status.asking = null;
+      }
+    },
+    setCitizenAnswer,
+    /** 此刻在问的那一位（测试用）。 */
+    get asking() { return ask ? { ...ask } : null; },
     /** 让一位居民向你打招呼（运动自检用：保证走路那一段有居民头顶的话要逐帧核对）。 */
     greetCitizen(id) {
       const c = world?.citizens.get(id);

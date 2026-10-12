@@ -1277,7 +1277,7 @@
     <system:String x:Key="Settings.General.VirtualPetInteractionHint">Click to pat, right-click for the care menu, drop files onto it to attach them. The pet grows and asks for what it needs.</system:String>
     <system:String x:Key="Settings.General.VirtualPetChatter">Model-written pet lines</system:String>
     <system:String x:Key="Settings.General.VirtualPetChatterHint">Uses the Virtual pet model role (falls back to Title generation). Sends only the pet's own state plus a short topic hint. Off means built-in lines only.</system:String>
-    <system:String x:Key="ProviderModels.Role.Companion">Virtual pet</system:String>
+    <system:String x:Key="ProviderModels.Role.Companion">Virtual pet and citizens</system:String>
     <!-- 宠物互动菜单 -->
     <system:String x:Key="Pet.Menu.Pat">Pat</system:String>
     <system:String x:Key="Pet.Menu.Feed">Feed a snack</system:String>
@@ -1514,6 +1514,22 @@
     <system:String x:Key="Polis.Ui.InteractStele">Read the names on the stele</system:String>
     <system:String x:Key="Polis.Ui.SteleTitle">Old citizens</system:String>
     <system:String x:Key="Polis.Ui.SteleBody">Citizens who have not been out for over a year are carved here:</system:String>
+    <!-- 问话（M-C，2026-10-13）：居民卡片上的问话、对话栏借给居民时的字，以及没拿到回答时他说的那一句 -->
+    <system:String x:Key="Polis.Ui.CitizenAsk">Ask about it</system:String>
+    <system:String x:Key="Polis.Ui.CitizenAskAgain">Ask again</system:String>
+    <system:String x:Key="Polis.Ui.CitizenRead">Read it all</system:String>
+    <system:String x:Key="Polis.Ui.AskYou">You asked: </system:String>
+    <system:String x:Key="Polis.Ui.AskStatus">Ask about their conversation</system:String>
+    <system:String x:Key="Polis.Ui.AskPlaceholder">Ask {name} about it…</system:String>
+    <system:String x:Key="Polis.Ui.AskWaiting">{name} is thinking…</system:String>
+    <system:String x:Key="Polis.Ui.AskSend">Ask</system:String>
+    <system:String x:Key="Polis.Ui.AskHint">Enter asks · Esc never mind</system:String>
+    <system:String x:Key="Polis.Ui.AskTimeout">They thought about it, but nothing came.</system:String>
+    <system:String x:Key="Polis.Ui.AskReaderTitle">{name} says</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.NoModel">To ask me, pick a model for the "Virtual pet and citizens" or "Title generation" role in Settings.</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Busy">I am still thinking about the last question.</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Limited">That is enough questions for this hour. Come back in a while.</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Failed">I thought about it, but nothing came.</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">Demetrios|Ariston|Kriton|Phaidros|Lysis|Charmides|Euthyphron|Menon|Theaitetos|Xenophon|Hermon|Philon</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">Phyllis|Daphne|Kleio|Helena|Eirene|Thais|Diotima|Aspasia|Melissa|Charis|Korinna|Myrto</system:String>
     <system:String x:Key="Polis.Citizen.NamePattern">{1} · {0}</system:String>

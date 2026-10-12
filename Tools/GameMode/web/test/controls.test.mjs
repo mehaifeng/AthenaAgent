@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import {
   VIEW, VIEW_MODES, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from '../../../../Assets/Polis/src/controls.mjs';
-import { talkView, MAX_SAY_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
+import { talkView, askView, MAX_SAY_CHARS, MAX_QUESTION_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
 import { createLayout, BLOCK } from '../../../../Assets/Polis/src/layout.mjs';
 import { UI_ZH } from '../../../../Assets/Polis/src/game.mjs';
 
@@ -129,12 +129,34 @@ test('talk bar: you can hand Athena a request only when she is free and you wrot
   assert.ok(MAX_SAY_CHARS >= 8000, '一次能写一大段话');
 });
 
+test('asking a citizen (M-C): the bar is lent to him — his name and words, a question of 1–300 characters, disabled while he thinks', () => {
+  const ui = UI_ZH;
+  const target = { conversationId: 'c-9', name: '整理合同的阿里斯通', bust: {} };
+  const typing = askView('ask', target, '  租期多久？ ', ui);
+  assert.equal(typing.canSend, true, '写了问题：能问');
+  assert.equal(typing.name, target.name, '栏上是他的名字，不是雅典娜');
+  assert.ok(typing.placeholder.includes(target.name), `占位字带着他的名字：${typing.placeholder}`);
+  assert.equal(typing.send, ui.askSend, '按钮是"问"，不是"托付"');
+  assert.equal(askView('ask', target, '   ', ui).canSend, false, '只有空白：不能问');
+  assert.equal(askView('ask', target, '问'.repeat(MAX_QUESTION_CHARS), ui).canSend, true, '300 字正好');
+  assert.equal(askView('ask', target, '问'.repeat(MAX_QUESTION_CHARS + 1), ui).canSend, false, '301 字：不能问（C# 也会整条拒绝）');
+  assert.equal(askView('ask', { ...target, conversationId: null }, '租期', ui).canSend, false, '不知道问谁：不能问');
+  const thinking = askView('asking', target, '', ui);
+  assert.equal(thinking.disabled, true, '问出去了：输入框停用，等他答');
+  assert.equal(thinking.canSend, false);
+  assert.ok(thinking.status.includes(target.name), `状态行写着他在想：${thinking.status}`);
+  assert.equal(MAX_QUESTION_CHARS, 300, '与 C# 的 PolisCitizenAnswers.MaxQuestionChars 一致');
+});
+
 test('the page labels the new controls in its own table (C# overrides them per language)', () => {
   for (const key of ['viewLabel', 'viewFree', 'viewPlayer', 'viewAthena', 'controlsHint', 'focusHint', 'athenaHere',
     'talkName', 'talkToAthena', 'talkPlaceholder', 'talkSend', 'talkStop', 'talkHint', 'talkIdle', 'talkBusy', 'talkQueued',
     'talkWaiting', 'talkCompressing', 'talkAttachments',
     // M3 第三轮：走近按 E 的提示
-    'interactKey', 'interactTalk', 'interactResident', 'interactItem', 'interactPlace', 'interactTree', 'interactBoard', 'interactOracle', 'interactVenue']) {
+    'interactKey', 'interactTalk', 'interactResident', 'interactItem', 'interactPlace', 'interactTree', 'interactBoard', 'interactOracle', 'interactVenue',
+    // M-B / M-C：居民与问话
+    'interactCitizen', 'citizenOpen', 'censusLine', 'interactStele', 'steleTitle', 'steleBody',
+    'citizenAsk', 'citizenAskAgain', 'citizenRead', 'askYou', 'askStatus', 'askPlaceholder', 'askWaiting', 'askSend', 'askHint', 'askTimeout', 'askReaderTitle']) {
     assert.ok(typeof UI_ZH[key] === 'string' && UI_ZH[key].length > 0, `UI_ZH.${key}`);
   }
   assert.ok(!('followAthena' in UI_ZH), '旧的"镜头："按钮词条不用了');

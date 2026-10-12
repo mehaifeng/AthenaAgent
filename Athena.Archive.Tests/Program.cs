@@ -238,6 +238,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
     ("polis deliveries: a turn is delivered once when its bubble stops streaming, history is never re-delivered, and only the running turn's tool targets count as hers", TestPolisDeliveriesAsync),
     ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, and no message text in any line", TestPolisCitizensAsync),
+    ("polis citizen answers: a citizen answers from his own conversation's visible passages only, within budget, through the companion (or title) role, one question at a time and 30 an hour; the page can only ask this city's citizens", TestPolisCitizenAnswersAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -11257,6 +11258,175 @@ static Task TestPolisCitizensAsync()
     return Task.CompletedTask;
 }
 
+static async Task TestPolisCitizenAnswersAsync()
+{
+    var t0 = new DateTime(2026, 10, 1, 9, 0, 0, DateTimeKind.Local);
+    ChatMessage User(string text, int minute) => new() { Role = "user", Content = text, Timestamp = t0.AddMinutes(minute) };
+    ChatMessage Assistant(string text, int minute, string? reasoning = null)
+    {
+        var m = new ChatMessage { Role = "assistant", Content = text, Timestamp = t0.AddMinutes(minute) };
+        if (reasoning != null) m.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = reasoning });
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        group.ToolCalls.Add(new ToolCallEntry { ToolCallId = "t" + minute, Name = "read_system_file", Status = ToolCallStatus.Success, Arguments = "{\"path\":\"/x/工具参数里的字.md\"}" });
+        m.Segments.Add(group);
+        m.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = text });
+        return m;
+    }
+
+    // —— 看得见的正文：用户消息是内容；雅典娜的回答只取正文段（推理、工具调用不算）；没有段的旧消息用内容 ——
+    var withReasoning = Assistant("租期定在三年。", 2, reasoning: "推理里的秘密");
+    AssertEqual("租期定在三年。", PolisCitizenAnswers.VisibleText(withReasoning), "雅典娜的回答只取正文段");
+    AssertEqual("旧消息的正文", PolisCitizenAnswers.VisibleText(new ChatMessage { Role = "assistant", Content = "旧消息的正文" }), "没有段的旧消息用内容");
+    AssertTrue(PolisCitizenAnswers.Tokens("那份合同最后定了几年？").Contains("合同"), "汉字两两一组");
+    AssertTrue(PolisCitizenAnswers.Tokens("Lease term, 2026?").SetEquals(new[] { "lease", "term", "2026" }), "拉丁词与数字小写、两个字符起");
+
+    // —— 挑片段：只取用户与雅典娜看得见的话；按问题里的词挑；第一句请求与最后一句回答永远在候选里 ——
+    var messages = new List<ChatMessage>
+    {
+        new() { Role = "system", Content = "系统提示：合同" },
+        User("请帮我整理租赁合同", 1),
+        withReasoning,
+        new() { Role = "assistant", IsHidden = true, Content = "隐藏的载体：合同", ToolCallsJson = "[]" },
+        new() { Role = "tool", Content = "工具结果：合同 合同 合同", ToolCallId = "t2" },
+        User("顺便看看照片目录", 3),
+        Assistant("照片已经按年份整理好了。", 4),
+        new() { Role = "user", Content = "被压缩过的旧话：合同的押金是两个月", IsCompressed = true, Timestamp = t0.AddMinutes(5) },
+        Assistant("都办完了。", 6),
+    };
+    var picked = PolisCitizenAnswers.SelectExcerpts(messages, "合同的租期和押金？");
+    var pickedText = string.Join("|", picked.Select(p => p.Text));
+    AssertTrue(pickedText.Contains("租期定在三年", StringComparison.Ordinal) && pickedText.Contains("押金是两个月", StringComparison.Ordinal),
+        $"挑中提到租期、押金的话（被压缩过的旧话照样算）：{pickedText}");
+    AssertFalse(pickedText.Contains("系统提示", StringComparison.Ordinal) || pickedText.Contains("隐藏的载体", StringComparison.Ordinal)
+        || pickedText.Contains("工具结果", StringComparison.Ordinal) || pickedText.Contains("推理里的秘密", StringComparison.Ordinal)
+        || pickedText.Contains("工具参数里的字", StringComparison.Ordinal), "系统消息、隐藏载体、工具结果、推理、工具参数都不进片段");
+    AssertTrue(picked.Select(p => p.Index).SequenceEqual(picked.Select(p => p.Index).OrderBy(i => i)), "片段按原来的先后排");
+    var vague = PolisCitizenAnswers.SelectExcerpts(messages, "办成了吗");
+    CollectionAssert(new[] { "请帮我整理租赁合同", "都办完了。" }, vague.Select(p => p.Text), "问题里没有对得上的词：第一句请求和最后一句回答");
+
+    // —— 预算：最多 8 段、总共 ≤ 6000 字；太长的一段只留头尾各 400 字；同样多的挑新的 ——
+    var many = Enumerable.Range(0, 20).Select(i => User($"合同第{i:D2}条 " + new string('甲', 2000) + $" 结尾{i:D2}", i)).ToList();
+    var budget = PolisCitizenAnswers.SelectExcerpts(many, "合同");
+    AssertTrue(budget.Count is > 0 and <= PolisCitizenAnswers.MaxExcerpts, $"最多 8 段：{budget.Count}");
+    AssertTrue(budget.Sum(p => p.Text.Length) <= PolisCitizenAnswers.BudgetChars, $"总共不超过 6000 字：{budget.Sum(p => p.Text.Length)}");
+    AssertTrue(budget.All(p => p.Text.Length < 900 && p.Text.Contains("chars omitted", StringComparison.Ordinal)), "太长的一段只留头尾");
+    AssertTrue(budget.All(p => p.Text.StartsWith("合同第", StringComparison.Ordinal) && p.Text.Contains("结尾", StringComparison.Ordinal)), "头尾都在");
+    AssertEqual(19, budget[^1].Index, "同样多的挑新的：最新的一段在里面");
+    var equal = Enumerable.Range(0, 12).Select(i => User($"合同 {i}", i)).ToList();
+    CollectionAssert(new[] { 0 }.Concat(Enumerable.Range(5, 7)).Select(i => $"合同 {i}"), PolisCitizenAnswers.SelectExcerpts(equal, "合同").Select(p => p.Text),
+        "十二段一样多：第一句请求（锚点）加最新的七段，按先后排");
+    AssertEqual(0, PolisCitizenAnswers.SelectExcerpts(new List<ChatMessage>(), "合同").Count, "空会话没有片段");
+
+    // —— 提示词：只凭片段、一到三句、不记得就说不记得、用提问的语言 ——
+    var zh = PolisCitizenAnswers.BuildPrompt("整理合同的阿里斯通", "请帮我整理租赁合同", new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero),
+        new[] { "合同" }, picked, "  租期多久？ ", "zh-CN");
+    foreach (var part in new[] { "整理合同的阿里斯通", "请帮我整理租赁合同", "2026-10-01", "「合同」", "只凭", "一到三句", "不记得", "不要编", "提问者用的语言" })
+        AssertTrue(zh.System.Contains(part, StringComparison.Ordinal), $"中文系统提示含「{part}」");
+    AssertTrue(zh.User.Contains("[1] 用户", StringComparison.Ordinal) && zh.User.TrimEnd().EndsWith("提问：租期多久？", StringComparison.Ordinal), $"用户提示：编号的片段，问题在最后：{zh.User}");
+    var en = PolisCitizenAnswers.BuildPrompt("Ariston", "Tidy the lease", DateTimeOffset.UnixEpoch, Array.Empty<string>(), Array.Empty<PolisCitizenExcerpt>(), "How long?", "en-US");
+    AssertTrue(en.System.Contains("do not remember", StringComparison.Ordinal) && en.System.Contains("never invent", StringComparison.Ordinal) && en.User.Contains("(none)", StringComparison.Ordinal), "英文提示同样的规则；没有片段也说清楚");
+    AssertEqual("好的，三年。", PolisCitizenAnswers.Sanitize("  \"好的，**三年**。\"  "), "去掉引号与粗体");
+    AssertEqual("第一句 第二句", PolisCitizenAnswers.Sanitize("第一句\n\n第二句"), "换行收成空格");
+    AssertTrue(PolisCitizenAnswers.Sanitize(null) == null && PolisCitizenAnswers.Sanitize("  \n ") == null, "空的算没有回答");
+    AssertEqual(11, PolisCitizenAnswers.Sanitize(new string('长', 50), 10)!.Length, "太长的截断加省略号");
+
+    // —— 意图：只问得到这座城里的居民；问题去空白后 1–300 字，超长整条拒绝 ——
+    var context = new PolisIntentContext(null, new HashSet<string> { "c1", "c2" }, new HashSet<string>())
+    {
+        KnownCitizenIds = new HashSet<string> { "c1" }
+    };
+    var ok = PolisIntents.Validate("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"  租期多久？ "}""", context);
+    AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.AskCitizen && ok.Intent.ConversationId == "c1" && ok.Intent.Text == "租期多久？", "问这座城的居民：问题去掉首尾空白");
+    AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 300)}}"}""", context).Accepted, "300 字正好");
+    foreach (var (body, why) in new[]
+    {
+        ("""{"v":1,"type":"ask-citizen","conversationId":"c2","question":"别的城"}""", "会话存在但不是这座城的居民"),
+        ("""{"v":1,"type":"ask-citizen","conversationId":"nope","question":"谁"}""", "编造的会话"),
+        ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"   "}""", "空问题"),
+        ("""{"v":1,"type":"ask-citizen","conversationId":"c1"}""", "没有问题"),
+        ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":42}""", "问题不是字符串"),
+        ($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 301)}}"}""", "301 字：整条拒绝，不截断"),
+    })
+        AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+
+    // —— 服务：没配模型不发请求；真实 SDK 走一个脚本端点（陪伴角色，没配就借标题生成）；单飞、每小时上限、推理块剥掉 ——
+    var citizen = PolisCitizens.Derive(new[] { new PolisCitizenSource(new PolisCommission("c1", null, "请帮我整理租赁合同",
+        new DateTimeOffset(t0), new DateTimeOffset(t0.AddMinutes(6)), 1, false, false, false, null), messages) },
+        null, null, new HashSet<string>(), new HashSet<string>(), new DateTimeOffset(t0.AddDays(2))).Single();
+    var question = new CitizenQuestion(citizen, "整理合同的阿里斯通", messages, "租期多久？", "zh-CN");
+    var clock = new TestSystemClock(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
+    var silentLogger = new LoggerConfiguration().CreateLogger();
+    {
+        var noModelHandler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "不该被调用", 5, 0));
+        using var http = new HttpClient(noModelHandler);
+        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(new AppConfig())), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var answer = await service.AskAsync(question);
+        AssertEqual(CitizenAnswerStatus.NoModel, answer.Status, "陪伴与标题生成角色都没配：NoModel");
+        AssertEqual(0, noModelHandler.RequestBodies.Count, "没配模型不发请求");
+    }
+    AppConfig RoleConfig(ProviderProtocol protocol, bool companion)
+    {
+        var config = new AppConfig();
+        var provider = new OpenAiProviderConfiguration { Id = "p", DisplayName = "P", ProviderPreset = "Deepseek", BaseUrl = "https://citizen.test/v1", ApiKey = "test-key", Protocol = protocol };
+        config.AiModels.Providers.Add(provider);
+        var role = companion ? config.AiModels.Companion : config.AiModels.TitleGeneration;
+        role.ProviderId = provider.Id;
+        role.Model = companion ? "companion-model" : "title-model";
+        return config;
+    }
+    {
+        var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "<think>想一想租期</think>\n租期是三年，押金两个月。", 40, 10));
+        using var http = new HttpClient(handler);
+        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: false))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var answer = await service.AskAsync(question);
+        AssertEqual(CitizenAnswerStatus.Ok, answer.Status, "陪伴角色没配：借标题生成角色答");
+        AssertEqual("租期是三年，押金两个月。", answer.Text, "推理块剥掉");
+        using var request = JsonDocument.Parse(handler.RequestBodies.Single());
+        var root = request.RootElement;
+        AssertEqual("title-model", root.GetProperty("model").GetString(), "用的是标题生成角色的模型");
+        AssertFalse(root.TryGetProperty("temperature", out _), "辅助角色不发 temperature");
+        var sent = root.GetProperty("messages").EnumerateArray().ToList();
+        AssertTrue(sent.Count == 2 && sent[0].GetProperty("content").GetString()!.Contains("不记得", StringComparison.Ordinal)
+            && sent[1].GetProperty("content").GetString()!.Contains("租期定在三年", StringComparison.Ordinal)
+            && sent[1].GetProperty("content").GetString()!.Contains("提问：租期多久？", StringComparison.Ordinal), "发出去的是提示词与那场会话的片段");
+        AssertFalse(request.RootElement.GetRawText().Contains("推理里的秘密", StringComparison.Ordinal) || request.RootElement.GetRawText().Contains("工具结果", StringComparison.Ordinal),
+            "推理与工具结果不出本机");
+        var cap = root.TryGetProperty("max_completion_tokens", out var mct) ? mct.GetInt32() : root.GetProperty("max_tokens").GetInt32();
+        AssertEqual(CitizenAnswerService.MaxOutputTokens, cap, "输出上限");
+    }
+    {
+        var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeResponsesReply("completed", "我记得是三年。", 30, 5));
+        using var http = new HttpClient(new ResponsesCompatibilityHandler(handler));
+        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.Responses, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var answer = await service.AskAsync(question);
+        AssertTrue(answer.Status == CitizenAnswerStatus.Ok && answer.Text == "我记得是三年。", $"Responses 协议同样答：{answer}");
+        AssertTrue(handler.RequestBodies.Single().Contains("companion-model", StringComparison.Ordinal), "配了陪伴角色就用它");
+    }
+    {
+        var handler = new JudgeHttpHandler(HttpStatusCode.BadRequest, """{"error":{"message":"bad"}}""");
+        using var http = new HttpClient(handler);
+        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        AssertEqual(CitizenAnswerStatus.Failed, (await service.AskAsync(question)).Status, "供应商报错：Failed（一句话，不是异常）");
+    }
+    {
+        var gate = new GatedChatHandler(JudgeChatReply("stop", "三年。", 5, 0));
+        using var http = new HttpClient(gate);
+        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var first = service.AskAsync(question);
+        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        AssertEqual(CitizenAnswerStatus.Busy, (await service.AskAsync(question)).Status, "上一个问题还在路上：Busy（同一时刻只问一位）");
+        gate.Release.SetResult();
+        AssertEqual(CitizenAnswerStatus.Ok, (await first).Status, "第一问照常答完");
+        AssertEqual(1, gate.Calls, "Busy 的那一问没有发请求");
+        // 每小时上限：已经用掉 1 次，再占 29 次满 30；第 31 次拒绝；过了一小时又可以
+        for (var i = 0; i < CitizenAnswerService.MaxCallsPerHour - 1; i++) AssertTrue(service.TryReserveSlot(), $"第 {i + 2} 次在上限内");
+        AssertFalse(service.TryReserveSlot(), "每小时最多 30 次");
+        AssertEqual(CitizenAnswerStatus.Limited, (await service.AskAsync(question)).Status, "超限：Limited");
+        clock.Advance(TimeSpan.FromMinutes(61));
+        AssertTrue(service.TryReserveSlot(), "一小时之后又可以问");
+    }
+}
+
 static async Task TestPolisCollectionAsync()
 {
     // v2 存档（M1 写的）：没有摆放、没有居民、没有来访时间
@@ -12637,6 +12807,25 @@ sealed class ScriptedApprovalEvaluator(ToolApprovalDecision decision) : IAiToolA
 }
 
 /// <summary>对每次请求回同一个预设响应，并记下请求正文。正文要在发送期间读，客户端随后会释放它。</summary>
+/// <summary>一个停在半路的端点：请求进来先报"到了"，等测试放行才回答（单飞的断言用它造出"上一个问题还在路上"）。</summary>
+sealed class GatedChatHandler(string body) : HttpMessageHandler
+{
+    private int _calls;
+    public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public int Calls => Volatile.Read(ref _calls);
+
+#pragma warning disable CA2000 // HttpClient owns and disposes returned responses.
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _calls);
+        Entered.TrySetResult();
+        await Release.Task.WaitAsync(cancellationToken);
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+    }
+#pragma warning restore CA2000
+}
+
 sealed class JudgeHttpHandler(HttpStatusCode status, string body) : HttpMessageHandler
 {
     public List<string> RequestBodies { get; } = [];

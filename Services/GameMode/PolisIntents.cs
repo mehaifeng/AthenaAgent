@@ -62,7 +62,12 @@ public enum PolisIntentType
     /// </summary>
     Say,
     /// <summary>对话栏的草稿：同步进这份委托自己的输入框（切回对话模式，写了一半的话还在）。不发送。</summary>
-    Draft
+    Draft,
+    /// <summary>
+    /// 问一位居民那场会话的事（M-C）：只认这座城里此刻有的居民，问题去掉首尾空白后 1–300 字，超长整条拒绝。
+    /// 不替你说任何话：回答只回到页面（居民的卡片），不进任何会话。
+    /// </summary>
+    AskCitizen
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -99,6 +104,9 @@ public sealed record PolisIntentContext(
 
     /// <summary>这座城里此刻出现了的居民（camelCase 名）。</summary>
     public IReadOnlySet<string> KnownResidentIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>这座城的居民（M-B：每场会话一位，会话 Id）——问话只问得到这座城里的人。</summary>
+    public IReadOnlySet<string> KnownCitizenIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 public sealed record PolisIntentResult(PolisIntent? Intent, string? Rejection)
@@ -154,6 +162,7 @@ public static class PolisIntents
         ["try-resident"] = PolisIntentType.TryResident,
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
+        ["ask-citizen"] = PolisIntentType.AskCitizen,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -244,6 +253,21 @@ public static class PolisIntents
                     var text = Clean(raw, MaxSayChars)!;
                     if (type == PolisIntentType.Say && string.IsNullOrWhiteSpace(text)) return PolisIntentResult.Reject("empty text");
                     return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = text }, null);
+                }
+
+                case PolisIntentType.AskCitizen:
+                {
+                    var id = ReadString(root, "conversationId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownCitizenIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown citizen");
+                    var raw = ReadString(root, "question");
+                    if (raw == null) return PolisIntentResult.Reject("missing question");
+                    var question = Clean(raw.Trim(), int.MaxValue)!;
+                    if (question.Length == 0) return PolisIntentResult.Reject("empty question");
+                    // 问题也不截断：截掉半句再问，问的就是另一件事了（页面的输入框本来就打不进更多）
+                    if (question.Length > PolisCitizenAnswers.MaxQuestionChars)
+                        return PolisIntentResult.Reject($"question longer than {PolisCitizenAnswers.MaxQuestionChars} characters");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = question }, null);
                 }
 
                 case PolisIntentType.PlaceItem:

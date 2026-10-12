@@ -861,6 +861,12 @@ public partial class App : Application, IAsyncDisposable
         // 与工作台共用同一个工作区监视器。外壳（MainWindowViewModel）在运行时把自己挂上来，依赖只朝一个方向。
         services.AddSingleton<Athena.UI.Services.GameMode.IPolisSaveStore>(sp =>
             new Athena.UI.Services.GameMode.PolisSaveStore(sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
+        // 问话（M-C）：走近一位居民，问他那场会话的事——陪伴角色答（没配就借标题生成角色），只在你问的时候调用
+        services.AddSingleton<Athena.UI.Services.GameMode.ICitizenAnswerService>(sp =>
+            new Athena.UI.Services.GameMode.CitizenAnswerService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<ISystemClock>(),
+                Log.Logger));
         services.AddSingleton<Athena.UI.ViewModels.GameMode.GameModeViewModel>(sp =>
             new Athena.UI.ViewModels.GameMode.GameModeViewModel(
                 sp.GetRequiredService<AppConfigurationSession>(),
@@ -870,7 +876,8 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<ILocalizationService>(),
                 // 只读：神庙看每日神谕设没设、传令官报结果；游戏结构上建不了任务（神谕只能由雅典娜调用 create_task，走审批）
                 sp.GetRequiredService<ICronTaskReader>(),
-                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>()));
+                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.ICitizenAnswerService>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();

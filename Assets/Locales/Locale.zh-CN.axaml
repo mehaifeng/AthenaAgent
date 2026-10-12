@@ -1277,7 +1277,7 @@
     <system:String x:Key="Settings.General.VirtualPetInteractionHint">单击摸摸头、右键打开互动菜单、把文件拖到它身上直接变成附件。宠物会成长，也会主动提出自己的需求。</system:String>
     <system:String x:Key="Settings.General.VirtualPetChatter">用模型生成宠物台词</system:String>
     <system:String x:Key="Settings.General.VirtualPetChatterHint">使用"虚拟宠物"模型角色（未配置时借用标题生成角色）。只发送宠物自身状态和一小段当前话题。关闭则只用内置台词。</system:String>
-    <system:String x:Key="ProviderModels.Role.Companion">虚拟宠物</system:String>
+    <system:String x:Key="ProviderModels.Role.Companion">虚拟宠物与城里的居民</system:String>
     <!-- 宠物互动菜单 -->
     <system:String x:Key="Pet.Menu.Pat">摸摸头</system:String>
     <system:String x:Key="Pet.Menu.Feed">喂点心</system:String>
@@ -1514,6 +1514,22 @@
     <system:String x:Key="Polis.Ui.InteractStele">读碑上的名字</system:String>
     <system:String x:Key="Polis.Ui.SteleTitle">老居民</system:String>
     <system:String x:Key="Polis.Ui.SteleBody">一年多没出门的居民，名字刻在这里：</system:String>
+    <!-- 问话（M-C，2026-10-13）：居民卡片上的问话、对话栏借给居民时的字，以及没拿到回答时他说的那一句 -->
+    <system:String x:Key="Polis.Ui.CitizenAsk">问他那件事</system:String>
+    <system:String x:Key="Polis.Ui.CitizenAskAgain">再问一句</system:String>
+    <system:String x:Key="Polis.Ui.CitizenRead">读全文</system:String>
+    <system:String x:Key="Polis.Ui.AskYou">你问：</system:String>
+    <system:String x:Key="Polis.Ui.AskStatus">问他那场会话里的事</system:String>
+    <system:String x:Key="Polis.Ui.AskPlaceholder">问{name}那件事……</system:String>
+    <system:String x:Key="Polis.Ui.AskWaiting">{name}在想……</system:String>
+    <system:String x:Key="Polis.Ui.AskSend">问</system:String>
+    <system:String x:Key="Polis.Ui.AskHint">Enter 问 · Esc 不问了</system:String>
+    <system:String x:Key="Polis.Ui.AskTimeout">他想了想，没说出来。</system:String>
+    <system:String x:Key="Polis.Ui.AskReaderTitle">{name}说</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.NoModel">要问话，先在设置的模型角色里给「虚拟宠物与城里的居民」或「标题生成」选一个模型。</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Busy">我还在想上一个问题呢。</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Limited">这一个钟头问得够多了，我有点累，过一阵再来吧。</system:String>
+    <system:String x:Key="Polis.Citizen.Ask.Failed">我想了想，没说出来。</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">狄米特里|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托</system:String>
     <system:String x:Key="Polis.Citizen.NamePattern">{0}的{1}</system:String>
