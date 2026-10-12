@@ -80,7 +80,8 @@ export async function runGallery({ params, status }) {
     const zoomOverride = Number(params.get('zoom'));
     if (zoomOverride > 0) center.set(0, Number(params.get('cy') ?? 1.6), 0);
     place(zoomOverride > 0 ? zoomOverride : VIEWS[view] ?? 1);
-    if (who === 'athena') glowAt(R, figure);
+    // 和城里一样：雅典娜只在干活和交付时有光（game.mjs 的 athenaPose）
+    if (who === 'athena' && (still === 'work' || still === 'deliver')) glowAt(R, figure);
     R.render();
     caption(`${entry.label} · ${id} · ${view === 'mid' ? '中景' : '游戏视距'}`);
     status.gallery = { id, view, kind: 'figure', height: figure.root.userData.height, clip: clipOf(R, visibleBox(figure.root), view === 'mid' ? 30 : 24) };
@@ -267,7 +268,7 @@ function actionSheet({ R, figure, who, action, frames, variant, status, place, e
     for (const [row, zoom] of [['game', 1], ['mid', midZoom]]) {
       const [tw, th] = tile[row];
       place(zoom, target);
-      if (who === 'athena') glowAt(R, figure);
+      if (who === 'athena' && (action === 'work' || action === 'deliver')) glowAt(R, figure);
       R.render();
       const c = target.clone().project(R.camera);
       const cx = ((c.x + 1) / 2) * window.innerWidth, cy = ((1 - c.y) / 2) * window.innerHeight;

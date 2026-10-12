@@ -224,7 +224,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("the loopback listener keeps waiting through stray and mismatched requests", TestOrcaRouterLoopbackListenerAsync),
     ("OrcaRouter connect carries the referral only in the authorization url and never keeps an empty key", TestOrcaRouterConnectFlowAsync),
     ("doc citations: only Docs/ paths and the doc map count, and existence is case-exact", TestDocCitationRuleAsync),
-    ("doc citations: every path CLAUDE.md, AGENTS.md and the READMEs point at exists", TestDocCitationsResolveAsync),
+    ("doc citations: every path the root and nested CLAUDE.md, AGENTS.md and the READMEs point at exists", TestDocCitationsResolveAsync),
     ("polis scan: breadth-first, skips generated and hidden entries, and marks what the budget cut as not fully surveyed", TestPolisScanAsync),
     ("polis buildings: the dominant kind picks the building, mixed or empty is a house, size is logarithmic and state follows the last change", TestPolisBuildingsAsync),
     ("polis layout ledger: existing plots never move, a deleted folder leaves its plot, newcomers take the next edge plot, overflow goes to the market", TestPolisLayoutLedgerAsync),
@@ -10125,7 +10125,10 @@ static Task TestDocCitationsResolveAsync()
 {
     var root = FindRepositoryRoot();
     var failures = new List<string>();
-    foreach (var doc in new[] { "CLAUDE.md", "AGENTS.md", "README.md", "README_CN.md" })
+    // 子目录里的 CLAUDE.md 是从根 CLAUDE.md 拆出去的按需规则，它们对 Docs/ 的引用同样要能解析。
+    var nested = FindNestedClaudeDocs(root);
+    AssertTrue(nested.Contains("Assets/Polis/CLAUDE.md"), "应当找到 Assets/Polis/CLAUDE.md；找不到说明子目录扫描失效了");
+    foreach (var doc in new[] { "CLAUDE.md", "AGENTS.md", "README.md", "README_CN.md" }.Concat(nested))
     {
         var path = Path.Combine(root, doc);
         if (!File.Exists(path))
@@ -10157,6 +10160,36 @@ static Task TestDocCitationsResolveAsync()
         $"文档引用检查发现 {failures.Count} 处问题。删文件时把引用一并删掉；有意提到已删除的文件，" +
         $"就像规则 8 提到 CONTEXT.md 那样写裸名，不要写成路径：\n  {string.Join("\n  ", failures)}");
     return Task.CompletedTask;
+}
+
+// 根目录以下的所有 CLAUDE.md（仓库相对路径，正斜杠）。跳过构建产物、依赖和本地输出目录，
+// 这些地方即便有同名文件也不是本仓库的文档。
+static List<string> FindNestedClaudeDocs(string root)
+{
+    var skipped = new HashSet<string>(StringComparer.Ordinal) { "bin", "obj", "node_modules", ".git", ".claude", ".local", "AthenaData" };
+    var found = new List<string>();
+    var pending = new Stack<string>(Directory.GetDirectories(root));
+    while (pending.Count > 0)
+    {
+        var dir = pending.Pop();
+        if (skipped.Contains(Path.GetFileName(dir)))
+        {
+            continue;
+        }
+
+        if (File.Exists(Path.Combine(dir, "CLAUDE.md")))
+        {
+            found.Add(Path.GetRelativePath(root, Path.Combine(dir, "CLAUDE.md")).Replace('\\', '/'));
+        }
+
+        foreach (var child in Directory.GetDirectories(dir))
+        {
+            pending.Push(child);
+        }
+    }
+
+    found.Sort(StringComparer.Ordinal);
+    return found;
 }
 
 // 什么算引用是刻意收窄的。这几份文档里的反引号绝大多数不是路径：类型名、配置键、

@@ -100,6 +100,12 @@ export function buildStoaLibrary(M, b, r) {
     kit.box(M.darkWood, (W - 2.0) / cols - 0.12, 0.62, 0.3, x, y + 0.31, -D / 2 + 0.6);
     for (let s2 = 0; s2 < 3; s2++) kit.cylinder(M.papyrus, 0.07, 0.07, 0.26, x - 0.2 + s2 * 0.2, y + 0.18 + (s2 % 2) * 0.17, -D / 2 + 0.78, 8, Math.PI / 2);
   }
+  // 柱廊里吊两盏油灯（挂在额枋后面、柱子之间）：长廊没有门窗，夜里靠它们透出光来。挂在后墙上的第一版被檐口挡住，镜头看不见
+  if (!ruin && M.windowLit) for (const sx of [-1, 1]) {
+    const lx = sx * W / 4, lz = front - 0.6, ly = y0 + H - 1.1;
+    kit.box(M.bronze, 0.03, 0.9, 0.03, lx, ly + 0.65, lz);
+    kit.cylinder(M.windowLit, 0.24, 0.17, 0.42, lx, ly, lz, 10);
+  }
   colonnade(kit, M.marble, { n, x0: colX0, x1: colX1, y: y0, z: front, height: H, key: 'stoa', skip: ruin ? (i) => i % 2 === 1 : null });
   if (ruin) {
     // 断柱：只剩一截，柱身横倒在台阶前
@@ -252,6 +258,8 @@ export function buildWorkshop(M, b, r) {
     kit.box(plaster, W, H, D, 0, 0.22 + H / 2, -0.8);
     door(kit, M, 2.2, 2.3, shedX, 0.22, D / 2 - 0.8, { lintel: M.darkWood });
     if (storeys === 2) for (const wx of [-W * 0.3, 0, W * 0.3]) window_(kit, M, 0.6, 0.6, wx, 0.22 + 4.0, D / 2 - 0.8);
+    // 平房的作坊在木棚另一侧开一扇窗（第一版没有窗，夜里整座作坊是黑的）
+    else if (W - shedW > 1.6) window_(kit, M, 0.6, 0.55, toolSide * (W / 2 - (W - shedW) / 2), 0.22 + 1.9, D / 2 - 0.8);
     gabledRoof(kit, tile, plaster, W, D, 1.2, 0.22 + H, -0.8, 0.35);
   }
   // 木棚：四根柱子撑一片苇顶（浅草色、顺坡的苇秆），棚下工作台

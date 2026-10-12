@@ -37,7 +37,7 @@ export function buildTemple(M, { nx = 6, nz = 7 } = {}) {
 
   const cellaW = spanX - 2 * 1.05 * AX, cellaL = spanZ - 2 * 1.45 * AX;
   kit.box(M.wall, cellaW, H_COL, cellaL, 0, yS + H_COL / 2, -0.2);
-  kit.box(M.dark, 2.1, 4.1, 0.12, 0, yS + 2.05, -0.2 + cellaL / 2 + 0.02);
+  kit.box(M.windowLit ?? M.dark, 2.1, 4.1, 0.12, 0, yS + 2.05, -0.2 + cellaL / 2 + 0.02);
   for (const sx of [-1, 1]) kit.box(M.wall, 0.6, H_COL, 0.5, sx * (cellaW / 2 - 0.3), yS + H_COL / 2, -0.2 + cellaL / 2 + 0.2);
 
   const yA = yS + H_COL;
@@ -119,7 +119,7 @@ export function buildTholos(M) {
     kit.instance('tholos-col', () => doricColumn(colH, { detail: 'low' }), M.marble, m4(Math.sin(a) * (R - 0.35), y0, Math.cos(a) * (R - 0.35), a));
   }
   kit.cylinder(M.wall, R - 1.6, R - 1.6, colH, 0, y0 + colH / 2, 0, 40);
-  kit.box(M.dark, 1.3, 2.6, 0.2, 0, y0 + 1.3, R - 1.56);
+  kit.box(M.windowLit ?? M.dark, 1.3, 2.6, 0.2, 0, y0 + 1.3, R - 1.56);
   kit.cylinder(M.marble, R + 0.15, R + 0.15, 0.55, 0, y0 + colH + 0.27, 0, 48);
   kit.add(M.tile, new THREE.ConeGeometry(R + 0.35, 2.9, 48, 1, true), m4(0, y0 + colH + 0.55 + 1.45, 0));
   kit.add(M.marble, palmette(0.9, 0.6), m4(0, y0 + colH + 3.3, 0));
@@ -226,8 +226,22 @@ export function buildHarbor(M, quayLocalZ, pierLength, plotCenterZ, statueGeomet
   for (let i = 0; i < 5; i++) kit.add(M.terracotta, amphoraBody(), m4(2.2 + (i % 3) * 0.5, 0, quayLocalZ - 2.2 - Math.floor(i / 3) * 0.5, i, 0, 0, 0.85));
   const group = kit.build();
   group.userData.height = 2;
+  // 栈桥的桥面比街面高 0.1 米（石台顶在 -0.35 + 0.45）：走上去的人脚落在桥面上，不陷进石头里（world.groundAt）
+  group.userData.floors = [{ minX: -1.6, maxX: 1.6, minZ: quayLocalZ, maxZ: quayLocalZ + pierLength, y: 0.1 }];
+  // 水手的工位：站在栈桥东沿、面朝泊着的船收缆（2026-10-12，用户：水手在错误的位置牵拉绳子——第一版他站在港前广场上，
+  // 离船 17 米，缆绳一头"在他身前 2.6 米"，落在铺地上，什么也没拴着）。at 是缆绳越过桥沿的那一点（桥外就是水，挡路）；
+  // 缆绳的另一头拴在船的西舷上（BOAT_CLEAT），每帧跟着船
+  group.userData.stations = {
+    haul: { stand: new THREE.Vector3(0.98, 0.1, quayLocalZ + 10), at: new THREE.Vector3(1.62, 0.1, quayLocalZ + 10), yaw: Math.PI / 2, rope: 'boat' },
+  };
   return group;
 }
+
+/** 船泊在哪（x、y，z 从码头大街量起）：栈桥东侧，船的中线离栈桥中线 3.8 米，西舷离桥沿 1 米多。水手的工位按它摆。 */
+export const BOAT_MOORING = Object.freeze([3.8, -0.05, 9.5]);
+
+/** 船上拴缆的那一点（船的坐标系）：西舷的舷栏、船身中段稍偏船头——水手收的缆从这里拉到栈桥上。 */
+export const BOAT_CLEAT = Object.freeze([-1.0, 0.42, 0.5]);
 
 /** 一条小商船：船身是车削体压扁，一根桅杆、收着的帆。 */
 export function buildBoat(M) {

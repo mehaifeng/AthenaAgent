@@ -193,7 +193,8 @@ function bareLegShare(f) {
   const index = g.mesh.geometry.index.array, W = g.world;
   f.joints.hips.updateMatrixWorld(true);
   const toLocal = f.joints.hips.matrixWorld.clone().invert(), toWorld = f.joints.hips.matrixWorld;
-  const minY = ['exomis', 'chlamys'].includes(f.spec.garment) ? 0.68 : 0.25;
+  // 只查下摆往上的腿：短衣 0.68、长衣 0.25；给了下摆高度的（雅典娜的裙子到小腿中段，2026-10-12）从下摆往上 0.22 起查
+  const minY = f.spec.hem != null ? (f.spec.hem + 0.22) * (f.spec.height / 1.75) : ['exomis', 'chlamys'].includes(f.spec.garment) ? 0.68 : 0.25;
   const ray = new THREE.Ray(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
   const L = new THREE.Vector3(), P = new THREE.Vector3(), axis = new THREE.Vector3(), dir = new THREE.Vector3();
   let total = 0, bare = 0;
@@ -282,4 +283,30 @@ test('cloth: the body is pushed out radially and one-sided — a point swept thr
   const thigh = { a: new THREE.Vector3(0, 0, 0), b: new THREE.Vector3(0, -0.3, 0.3), r: 0.07, capsule: true };
   assert.ok(bodySupport(thigh, -0.6, 0, 1) >= 0.3 + 0.07 - 1e-9, 'below a raised knee the cloth hangs in front of the knee');
   assert.ok(bodySupport(thigh, -0.6, 0, -1) <= 0.07 + 1e-9, 'behind the body the raised knee does not push the back panel');
+});
+
+// 2026-10-12，用户：雅典娜移动后偶发裙子剧烈抖动。她停步时朝向一帧从路的方向跳到目的地的朝向（最多 180°），一帧只拆两步，
+// 每一步腿的胶囊扫过 90°、布点记的"在身体哪一边"还是上一步的，被推到错的一边——长裙在 0.75 秒以后还有 11–14 帧每帧动 1 厘米以上。
+// 现在 stepCloth 按转角拆步（CLOTH.maxTurn），game.mjs 让她转过去而不是跳过去；这里量布料那一层：最坏的情况（一帧转 180°）也很快稳住
+test('cloth: a long skirt settles after an instant 180° turn — no lingering shake', () => {
+  const M = stubMaterials();
+  const f = buildCharacter(M, 'athena');
+  assert.equal(f.spec.hem, undefined, 'Athena wears the long skirt again');
+  let clock = 0, walkT = 0;
+  for (let k = 0; k < 30; k++) { clock += 16; f.pose('idle', clock, { clock }); }
+  for (let k = 0; k < 120; k++) { clock += 16; walkT += 16; f.root.position.z += 3.2 * 0.016; f.pose('walk', walkT, { clock, speed: 3.2, stride: 1.6 }); }
+  f.root.rotation.y += Math.PI;
+  let skirt = null;
+  f.root.traverse((o) => { if (!skirt && o.isMesh && o.parent === f.root && o.geometry.attributes.position.count > 1500) skirt = o; });
+  const pos = skirt.geometry.attributes.position;
+  let prev = Float32Array.from(pos.array), shaking = 0;
+  for (let k = 0; k < 180; k++) {
+    clock += 16;
+    f.pose('idle', clock, { clock });
+    let m = 0;
+    for (let i = 0; i < pos.array.length; i += 3) m = Math.max(m, Math.hypot(pos.array[i] - prev[i], pos.array[i + 1] - prev[i + 1], pos.array[i + 2] - prev[i + 2]));
+    prev = Float32Array.from(pos.array);
+    if (k > 45 && m > 0.01) shaking++;
+  }
+  assert.ok(shaking <= 4, `after 0.75 s the hem has calmed down (${shaking} frames still moving more than 1 cm)`);
 });

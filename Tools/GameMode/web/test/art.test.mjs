@@ -11,7 +11,10 @@ import {
 } from '../../../../Assets/Polis/src/civic-layout.mjs';
 import { intent, INTENT_TYPES } from '../../../../Assets/Polis/src/live.mjs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
+import { makeWaterMaterial, swellHeight, SWELLS, MAX_RECTS } from '../../../../Assets/Polis/src/art/water.mjs';
 import { buildCharacter, CHARACTER_IDS, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';
+import { FACE_LOOKS, FACE_RECT, DECAL_LIFT, lookFor, faceMaterialKey, eyePaths, browPath, lipPaths } from '../../../../Assets/Polis/src/art/face.mjs';
+import { LEG_PROFILES, ARM_PROFILES, NECK_PROFILES, NECK_LEAN, HEAD_RADII, legSection, sculptHead } from '../../../../Assets/Polis/src/art/rig.mjs';
 
 /** 材质的替身：人物只要按名字拿到一份材质（Node 里没有画布，真材质的贴图建不出来）。 */
 function stubMaterials() {
@@ -162,6 +165,107 @@ test('poses: residents carry their tools while walking and standing; long staves
   assert.equal(poseAt('work', 300, { variant: 'write', carry: staff }).propR, 'stylus', 'work poses have their own tools');
   assert.equal(poseAt('deliver', 300, { duration: 1800, carry: staff }).propR, 'gift', 'delivering puts the tool away');
   assert.throws(() => poseAt('idle', 0, { carry: { side: 'R', grip: 'juggle', prop: 'rod' } }), /unknown carry grip/);
+});
+
+// 2026-10-12，用户：所有人物的五官是几根线条勾勒的，显得呆笨——五官改成画在脸上的贴图（face.mjs），贴在雕好的头上。
+// 旧的做法：眼白、虹膜各一个球，眉毛和两片嘴唇各一枚扁椭球（eyeWhite / iris / lips 材质）。
+test('faces: every sculpted head wears its painted face on the head itself; no bead eyes, no blob brows or lips', () => {
+  const M = stubMaterials();
+  for (const id of CHARACTER_IDS) {
+    const spec = { id, ...CHARACTER_SPECS[id] };
+    const f = buildCharacter(M, id);
+    const head = f.joints.head;
+    const decals = head.children.filter((o) => o.name === 'face');
+    const old = [];
+    f.root.traverse((o) => { if (o.isMesh && ['eyeWhite', 'iris', 'lips'].includes(o.material?.name)) old.push(o.material.name); });
+    assert.deepEqual(old, [], `${id}: no sphere eyes or blob lips`);
+    if (spec.faceless) { assert.equal(decals.length, 0, `${id}: the gold maiden has no face`); continue; }
+    assert.equal(decals.length, 1, `${id}: one painted face`);
+    const decal = decals[0];
+    assert.equal(decal.material.name, faceMaterialKey(lookFor(spec)), `${id}: wears the ${lookFor(spec)} look`);
+    // 贴图那一片是头本身的面：每个顶点离头网格上对应的顶点正好 DECAL_LIFT，UV 都在贴图里，都在脸的正面
+    const headMesh = head.children.find((o) => o.name === 'head');
+    const hp = headMesh.geometry.attributes.position, dp = decal.geometry.attributes.position, uv = decal.geometry.attributes.uv;
+    const used = new Set(decal.geometry.index.array);
+    assert.ok(used.size > 300, `${id}: the face mask covers the face (${used.size} vertices)`);
+    for (const i of used) {
+      const d = Math.hypot(dp.getX(i) - hp.getX(i), dp.getY(i) - hp.getY(i), dp.getZ(i) - hp.getZ(i));
+      assert.ok(Math.abs(d - DECAL_LIFT) < 1e-6, `${id}: the mask sits ${DECAL_LIFT * 1000} mm off the skin`);
+      assert.ok(uv.getX(i) >= 0 && uv.getX(i) <= 1 && uv.getY(i) >= 0 && uv.getY(i) <= 1 && hp.getZ(i) > 0.02);
+    }
+  }
+  assert.equal(lookFor({ id: 'athena', ...CHARACTER_SPECS.athena }), 'athena');
+  assert.equal(new Set(CHARACTER_IDS.filter((id) => !CHARACTER_SPECS[id].faceless).map((id) => lookFor({ id, ...CHARACTER_SPECS[id] }))).size, Object.keys(FACE_LOOKS).length, 'every look is worn by someone');
+  // 和半身像一样只用 M / L / C / Q / Z
+  for (const look of Object.values(FACE_LOOKS)) {
+    const e = eyePaths(look.eye);
+    for (const d of [e.white, e.crease, e.lashLine, e.lowerLine, browPath(look.brow), ...Object.values(lipPaths(look.lips))]) {
+      assert.match(d, /^[MLCQZ0-9 .\-]+$/, 'SVG path data uses M / L / C / Q / Z only');
+    }
+  }
+  // 画上去的眼睛落在雕出来的眼球上（嘴唇的形状全靠画：头网格竖向一格约 7 毫米，雕不出唇缝）
+  const g = sculptHead({ female: true, age: 'young', jaw: 0.3, nose: 0.95 });
+  const ray = new THREE.Raycaster(), probe = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const zAt = (xmm, ymm) => { ray.set(new THREE.Vector3(xmm / 1000, ymm / 1000, 1), new THREE.Vector3(0, 0, -1)); return ray.intersectObject(probe)[0].point.z; };
+  assert.ok(zAt(29.4, 15.3) > zAt(29.4, 6) - 0.0005, 'the painted eye sits on the eyeball, not at the bottom of a pit (the old socket was 2.3 mm below its lower rim)');
+  assert.ok(FACE_RECT.x0 + FACE_RECT.size > 29.4 + FACE_LOOKS.athena.eye.half + 6);
+});
+
+// 2026-10-12，用户：雅典娜的小腿太粗了。之前小腿是一根等粗的胶囊（半径 4.4 厘米，脚踝和膝下一样粗）加一枚小腿肚椭球
+test('legs: the shin tapers from the calf to a slim ankle, and the wedge sandal stands on the ground', () => {
+  for (const [kind, ankleMax] of [['female', 0.023], ['male', 0.028]]) {
+    const shin = legSection(LEG_PROFILES[kind].shin);
+    const calf = Math.max(...Array.from({ length: 40 }, (_, i) => shin(i / 40).rz));
+    const ankle = shin(0.86);
+    assert.ok(Math.max(ankle.rx, ankle.rz) <= ankleMax, `${kind}: the ankle is slim (${ankle.rx.toFixed(4)})`);
+    assert.ok(Math.max(ankle.rx, ankle.rz) < calf * 0.55, `${kind}: the ankle is about half the calf`);
+    let peak = 0, peakS = 0;
+    for (let i = 0; i <= 40; i++) if (shin(i / 40).rz > peak) { peak = shin(i / 40).rz; peakS = i / 40; }
+    assert.ok(peakS > 0.15 && peakS < 0.45, `${kind}: the calf is in the upper third (s = ${peakS})`);
+  }
+  assert.ok(LEG_PROFILES.female.shin.rx.every(([s, r], i) => r <= LEG_PROFILES.male.shin.rx[Math.min(i, LEG_PROFILES.male.shin.rx.length - 1)][1]), 'women\'s legs are not thicker than men\'s');
+  // 坡跟抬高了身体（TYRRHENIAN_LIFT），鞋底仍和穿普通凉鞋的人落在同一个高度
+  const M = stubMaterials();
+  const lowest = (id) => {
+    const f = buildCharacter(M, id);
+    f.pose('idle', 0, { clock: 0 });
+    f.root.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    f.joints.kneeL.traverse((o) => { if (o.isMesh) box.expandByObject(o); });
+    return box.min.y;
+  };
+  const athena = lowest('athena'), priestess = lowest('priestess');
+  assert.ok(Math.abs(athena - priestess) < 0.002, `Athena's wedge stands where an ordinary sandal does (${athena.toFixed(4)} vs ${priestess.toFixed(4)} m)`);
+});
+
+// 2026-10-12，用户：雅典娜的手臂比腿还粗，所有角色的脖子都像电线杆一样。之前上臂、前臂是 4.1 / 3.3 厘米的等粗胶囊，
+// 脖子是一根 4.7 厘米（头宽的 57%）、上下一样粗的直立圆柱
+test('proportions: arms are slimmer than legs, and the neck is a neck, not a pole', () => {
+  const peak = (sec, a = 0, b = 1) => Math.max(...Array.from({ length: 41 }, (_, i) => { const c = sec(a + (b - a) * i / 40); return Math.max(c.rx, c.rz); }));
+  for (const kind of ['female', 'male']) {
+    const thigh = legSection(LEG_PROFILES[kind].thigh), shin = legSection(LEG_PROFILES[kind].shin);
+    const upper = legSection(ARM_PROFILES[kind].upper), fore = legSection(ARM_PROFILES[kind].fore);
+    assert.ok(peak(upper) < peak(shin), `${kind}: the upper arm (${peak(upper)}) is slimmer than the calf (${peak(shin)})`);
+    assert.ok(peak(fore) < peak(shin) * 0.75, `${kind}: the forearm is well under the calf`);
+    assert.ok(peak(upper) < peak(thigh) * 0.7, `${kind}: the upper arm is well under the thigh`);
+    const wrist = fore(0.95);
+    assert.ok(wrist.rz < wrist.rx * 0.8, `${kind}: the wrist is flat, not round`);
+    assert.ok(Math.max(wrist.rx, wrist.rz) < peak(fore) * 0.75, `${kind}: the forearm narrows to the wrist`);
+    assert.ok(upper(0.85).rx < upper(0.18).rx * 0.8, `${kind}: the upper arm narrows from the shoulder to the elbow`);
+    // 脖子：最细处至少是头宽的 60%（旧的圆柱 50–57%），往下张开接到肩上（底宽是最细处的 1.5 倍以上）
+    const neck = legSection(NECK_PROFILES[kind]);
+    const slim = Math.min(...Array.from({ length: 21 }, (_, i) => neck(i / 40).rx));
+    const headHalfWidth = HEAD_RADII[0] * (kind === 'female' ? 0.92 : 1);
+    assert.ok(slim / headHalfWidth > 0.6, `${kind}: the neck is ${(slim / headHalfWidth * 100).toFixed(0)}% of the head's width`);
+    assert.ok(neck(1).rx > slim * 1.5, `${kind}: the neck flares into the shoulders`);
+  }
+  assert.ok(NECK_LEAN > 0.15, 'the neck leans forward, it does not stand straight up');
+  // 雅典娜：抬着下巴、挺着胸；别人保持原来微微低头的仪态
+  const M = stubMaterials();
+  const a = buildCharacter(M, 'athena'), p = buildCharacter(M, 'priestess');
+  a.pose('idle', 0, { clock: 0 }); p.pose('idle', 0, { clock: 0 });
+  assert.ok(a.joints.head.rotation.x < p.joints.head.rotation.x - 0.05, 'Athena carries her chin higher');
+  assert.ok(a.joints.spine.rotation.x < p.joints.spine.rotation.x, 'and her chest out');
 });
 
 test('figures: only Athena carries the accent color; carried tools hang on the hand that carries them; everyone has legs', () => {
@@ -395,4 +499,74 @@ test('intents (M2): the new page intents are in the closed set; still no approva
     assert.equal(intent(name, { x: 1 }).type, name);
   }
   assert.ok(!INTENT_TYPES.some((t) => /approv|allow|grant|consent/i.test(t)));
+});
+
+test('water: the sea moves, and every shader patch actually lands in three.js\'s standard shader', () => {
+  // 2026-10-12，用户：模拟水体效果。海的材质是 MeshStandardMaterial + onBeforeCompile 的字符串替换——
+  // 一个 #include 改了名，String.replace 什么也不做、不报错，海就悄悄变回一块静止的板（规则 1 的形状）。这里用 three.js 自己的着色器源码跑一遍替换
+  const m = makeWaterMaterial(new THREE.Texture());
+  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+  m.onBeforeCompile(shader);
+  for (const needle of ['swell(wpos0.xz, uTime, sh, sg)', 'transformed.y += sh', 'vWaterWorld = vec3(']) {
+    assert.ok(shader.vertexShader.includes(needle), `vertex patch landed: ${needle}`);
+  }
+  for (const needle of ['waterFoam = smoothstep', 'normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz)']) {
+    assert.ok(shader.fragmentShader.includes(needle), `fragment patch landed: ${needle}`);
+  }
+  for (const u of ['uTime', 'uRipple', 'uRects', 'uRectCount', 'uBoat', 'uNight']) assert.ok(shader.uniforms[u], `uniform ${u} is wired`);
+  // update() 推进的是同一份 uniform（编译前后都算数）
+  m.userData.water.update({ time: 12.5, night: 1, boat: { x: 3, z: 40, speed: 2 }, shores: [[-300, 28, 300, 29.6], [-1.6, 27, 1.6, 41]] });
+  assert.equal(shader.uniforms.uTime.value, 12.5);
+  assert.equal(shader.uniforms.uRectCount.value, 2);
+  assert.deepEqual(shader.uniforms.uRects.value[1].toArray(), [-1.6, 27, 1.6, 41]);
+  assert.throws(() => m.userData.water.update({ shores: Array.from({ length: MAX_RECTS + 1 }, () => [0, 0, 1, 1]) }), /at most/, 'more shores than the shader holds is an error, not a silent cut');
+  assert.ok(shader.uniforms.uDeep.value.b < 0.3, 'the deep water at night is dark');
+  // 水面不反光（2026-10-12，用户：水体不需要加光照反射——第一版粗糙度 0.1 加菲涅耳映天，近看满海白花花的高光碎片）
+  assert.equal(m.roughness, 1, 'the sea is matte: no sun glints');
+  assert.equal(m.metalness, 0);
+  assert.equal(m.envMapIntensity, 0, 'the sea does not reflect the environment');
+  assert.ok(!shader.fragmentShader.includes('uSky'), 'no sky reflection is mixed in');
+  // 涌浪不大：海面在 -0.7，码头石岸顶在 0.05、栈桥桥面在 0.1——浪峰离它们远得很；海面确实随时间变
+  const bound = SWELLS.reduce((a, w) => a + w.amp, 0);
+  assert.ok(bound < 0.1, `swell amplitude bound ${bound.toFixed(3)} m`);
+  let moved = 0;
+  for (let k = 0; k < 200; k++) {
+    const x = (k * 7.3) % 60 - 30, z = 28 + ((k * 3.1) % 40);
+    assert.ok(Math.abs(swellHeight(x, z, k * 0.37)) <= bound + 1e-9);
+    moved = Math.max(moved, Math.abs(swellHeight(x, z, 0) - swellHeight(x, z, 1.5)));
+  }
+  assert.ok(moved > 0.02, `the sea surface moves over time (${moved.toFixed(3)} m)`);
+});
+
+test('night windows: houses and workshops have lit window panes, ruins none, and the glow follows the night', async () => {
+  // 2026-10-12，用户：夜里建筑窗户内要透出灯火。窗洞用一份共用的 windowLit，夜色一到整城一起亮
+  const { buildHouse, buildWorkshop } = await import('../../../../Assets/Polis/src/art/buildings.mjs');
+  const { setNightWindows, WINDOW_GLOW } = await import('../../../../Assets/Polis/src/art/materials.mjs');
+  const { rng } = await import('../../../../Assets/Polis/src/art/noise.mjs');
+  const M = stubMaterials();
+  const litPanes = (group) => { let n = 0; group.traverse((o) => { if (o.isMesh && o.material === M.windowLit) n++; }); return n; };
+  for (const sizeClass of [1, 2, 3, 4]) {
+    for (const subtype of ['courtyard', 'pergola', 'twin', 'balcony']) {
+      if (subtype === 'balcony' && sizeClass < 3) continue;
+      const house = buildHouse(M, { key: `h${sizeClass}${subtype}`, sizeClass, subtype, state: 'active' }, rng(sizeClass * 31 + subtype.length));
+      assert.ok(litPanes(house) > 0, `民居 ${subtype} / ${sizeClass}：有点灯的窗`);
+    }
+    const ruin = buildHouse(M, { key: `r${sizeClass}`, sizeClass, subtype: 'courtyard', state: 'ruin' }, rng(sizeClass));
+    assert.equal(litPanes(ruin), 0, '废墟没有窗，也就没有灯');
+  }
+  let workshops = 0;
+  for (let seed = 1; seed <= 24; seed++) if (litPanes(buildWorkshop(M, { key: `w${seed}`, sizeClass: 1 + (seed % 4), state: 'active' }, rng(seed))) > 0) workshops++;
+  assert.ok(workshops >= 18, `作坊多数有点灯的窗（${workshops} / 24）——平房的作坊第一版一扇窗都没有`);
+  // 门总是亮的：金库、货栈、粮仓只有一扇门，它不亮整座房子夜里就是黑的（罐棚是敞着的棚子，没有门）
+  const { buildTreasury, buildWarehouse } = await import('../../../../Assets/Polis/src/art/buildings.mjs');
+  for (const [name, build, subtype] of [['金库', buildTreasury, undefined], ['货栈', buildWarehouse, 'store'], ['粮仓', buildWarehouse, 'granary']]) {
+    for (let seed = 1; seed <= 6; seed++) assert.ok(litPanes(build(M, { key: `${name}${seed}`, sizeClass: 1 + (seed % 4), subtype, state: 'active' }, rng(seed), {})) > 0, `${name}：门里透出灯火`);
+  }
+  const pane = { windowLit: new THREE.MeshStandardMaterial({ emissive: 0xffa94a, emissiveIntensity: 0 }) };
+  setNightWindows(pane, 0);
+  assert.equal(pane.windowLit.emissiveIntensity, 0, '白天窗洞是黑的');
+  setNightWindows(pane, 0.5);
+  assert.ok(near(pane.windowLit.emissiveIntensity, WINDOW_GLOW / 2), '过渡时跟着夜色');
+  setNightWindows(pane, 3);
+  assert.equal(pane.windowLit.emissiveIntensity, WINDOW_GLOW, '夜里亮到 WINDOW_GLOW 为止');
 });

@@ -9,7 +9,7 @@
          WebView 惰性创建在 PolisPageHost 里（代码后台按 PageUrl 建/拆）。
          原生 WebView 永远在最上层，Avalonia 画不到它上面——所以失败时 ViewModel 先拆掉 WebView，下面的失败面板才看得见。 -->
     <!-- 底色跟着白天 / 夜里（代码后台按主题变体换，SyncTheme） -->
-    <Grid x:Name="PolisSurface" Background="#C8C5BF">
+    <Grid x:Name="PolisSurface" Background="#E4DFD6">
         <TextBlock x:Name="PolisLoadingText"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"

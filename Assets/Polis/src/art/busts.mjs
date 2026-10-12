@@ -30,7 +30,7 @@ const WOOD = '#7a7066';
 /** 人物 → 参数。居民的名字与 PolisResidentKind 的 camelCase 一致。wash：衣料的深浅（0 最浅）。 */
 export const CHARACTERS = Object.freeze({
   athena: { hair: 'bun', headgear: 'fillet', garment: 'peplos', beard: null, attribute: null, age: 'young', wash: 0.12, jaw: 0.25, female: true },
-  player: { hair: 'hidden', headgear: 'hood', garment: 'himation', beard: null, attribute: null, age: 'adult', wash: 0.5, jaw: 0.4 },
+  player: { hair: 'long', headgear: null, garment: 'chiton', beard: null, attribute: null, age: 'young', wash: 0.5, jaw: 0.3, female: true },   // 2026-10-12：不戴兜帽，长发披到肩上
   surveyor: { hair: 'short', headgear: 'petasos', garment: 'himation', beard: 'short', attribute: 'rod', age: 'adult', wash: 0.32, jaw: 0.55 },
   scribe: { hair: 'curly', headgear: 'headband', garment: 'chiton', beard: null, attribute: 'stylus', age: 'young', wash: 0.2, jaw: 0.4 },
   accountant: { hair: 'receding', headgear: null, garment: 'himation', beard: 'short', attribute: 'abacus', age: 'old', wash: 0.36, jaw: 0.5 },
@@ -333,6 +333,19 @@ export function bust(character, expression = 'neutral') {
         }
       }
       break;
+    case 'long': {
+      // 你：中分的长发，从头顶梳下来盖住耳朵，后面一大缕垂过后颈、搭在肩上（在脖子后面，不挡脸和喉咙）
+      const fall = path('M', 46, 48, 'C', 38, 58, 36, 78, 33, 96, 'C', 31, 106, 30, 114, 34, 121, 'C', 41, 121, 48, 116, 51, 106, 'C', 53, 98, 53, 90, 55, 82, 'C', 57, 72, 54, 60, 46, 48, 'Z');
+      fill(fall, hairColor, 0.96);
+      shade(40, 96, 4, 14, { rot: 0.15, k: 0.22 });
+      ink(path('M', 46, 48, 'C', 38, 58, 36, 78, 33, 96, 'C', 31, 106, 30, 114, 34, 121, 'C', 41, 121, 48, 116, 51, 106, 'C', 53, 98, 53, 90, 55, 82), 0.8);
+      hairMass(crown, hairColor);
+      shade(56, 41, 10, 3.4, { rot: -0.3, light: true, k: 0.28 });
+      strands([0, 1, 2, 3, 4].map((k) => path('M', 70 - k * 4, 41 + k * 1.5, 'C', 62 - k * 4, 38 + k, 50 - k * 2, 44 + k * 3, 44 - k, 62 + k * 5)), HAIR_LIGHT, 0.55, 0.5);
+      strands([0, 1, 2, 3].map((k) => path('M', 42 + k * 3, 60 + k * 2, 'C', 39 + k * 3, 78, 37 + k * 3, 98, 36 + k * 3, 116 - k * 2)), HAIR_LIGHT, 0.5, 0.45);
+      strands([0, 1, 2].map((k) => path('M', 45 + k * 3, 62 + k * 2, 'C', 42 + k * 3, 80, 41 + k * 3, 100, 41 + k * 3, 114 - k * 3)), SHADOW, 0.45, 0.4);
+      break;
+    }
     case 'short':
     case 'receding':
     case 'fringe': {
@@ -449,16 +462,6 @@ export function bust(character, expression = 'neutral') {
       ink(path('M', 37, 46.6, 'C', 50, 40.4, 64, 40, 75, 44.4), 1.5, { stroke: '#4e4943', opacity: 0.98 });
       break;
     }
-    case 'hood':
-      // 你（玩家）：兜帽罩住头，脸的上半在阴影里
-      fill(path('M', 82, 48, 'C', 76, 26, 46, 22, 34, 40, 'C', 26, 54, 30, 80, 40, 96, 'C', 44, 104, 46, 110, 48, 116, 'L', 58, 112, 'C', 54, 96, 54, 80, 60, 66, 'C', 64, 58, 72, 52, 82, 48, 'Z'), garmentTone(0.52), 0.98);
-      shade(48, 40, 10, 6, { rot: -0.4, light: true, k: 0.25 });
-      shade(40, 90, 5, 14, { k: 0.3 });
-      shade(70, 56, 12, 9, { rot: 0.3, k: 0.4 });   // 帽檐下的脸
-      ink(path('M', 82, 48, 'C', 76, 26, 46, 22, 34, 40, 'C', 26, 54, 30, 80, 40, 96, 'C', 44, 104, 46, 110, 48, 116), 1.1);
-      ink(path('M', 82, 48, 'C', 72, 52, 64, 58, 60, 66), 0.95);
-      strands([path('M', 74, 47, 'C', 70, 52, 69, 56, 72, 58), path('M', 44, 50, 'C', 40, 62, 40, 78, 46, 92)], SHADOW, 0.5, 0.45);
-      break;
     case 'veilWreath':
       // 女祭司：面纱从头顶披到肩后，布有褶；额上一圈月桂
       fill(path('M', 76, 44, 'C', 68, 26, 44, 24, 34, 40, 'C', 24, 58, 26, 90, 30, 118, 'L', 50, 116, 'C', 50, 98, 52, 80, 56, 66, 'C', 60, 56, 68, 48, 76, 44, 'Z'), '#e4ded2', 0.96);

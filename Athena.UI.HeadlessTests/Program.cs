@@ -4958,6 +4958,19 @@ static void TestGameModeCityLifecycle()
         var shownKeys = Plots(OfType(page, "city")[^1]).Keys.ToList();
         if (!shownKeys.SequenceEqual(new[] { "信件" }))
             throw new InvalidOperationException($"上一座城的补丁不能把它的城推到这一座城的画面上：画面上是 [{string.Join(", ", shownKeys)}]。");
+
+        // —— 在对话模式里换了工作区，再回到游戏：城要换成选中的那份委托的（2026-10-12，用户实测：还是上一个工作区）——
+        // 页面在对话模式里要过 ReleaseDelay（3 分钟）才释放，这期间 _cityKey 还是离开时那座城；第二拍照样换了会话，却不装城
+        gameMode.ToggleModeCommand.Execute(null);
+        PumpTimers(() => !gameMode.IsGameMode, 2000, "没有切回对话模式。");
+        shell!.SelectedConversation = conversation;
+        PumpTimers(() => !shell.IsConversationSwitching, 5000, "对话模式里的会话切换没有走完第二拍。");
+        var citiesBeforeReturn = OfType(page, "city").Count;
+        gameMode.ToggleModeCommand.Execute(null);
+        PumpTimers(() => gameMode.IsGameMode && OfType(page, "city").Skip(citiesBeforeReturn).Any(c => c.GetProperty("key").GetString() == workspace.Id), 10000,
+            "在对话模式里换到另一个工作区的会话，回到游戏时城必须换成那个工作区的（页面还没释放时也一样）。");
+        if (pages[^1] != page)
+            throw new InvalidOperationException("这一段要测的是页面还没释放的情形：不该新建页面。");
         Stop();
 
         // —— 重启（离线期间：「账本」改名为「财务」，「照片」被删） ——

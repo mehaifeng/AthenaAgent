@@ -203,7 +203,8 @@ test('rig: spring-bone strips hang where they belong (veil, cape, braids, apron)
   const M = stubMaterials();
   setClothWind(new THREE.Vector3(0, 0, 0));
   const strips = (id) => buildCharacter(M, id).cloth.length;
-  assert.equal(strips('player'), 0, 'a plain himation has no strips: its skirt is the simulated garment (cloth.test.mjs)');
+  assert.equal(strips('scribe'), 0, 'a plain chiton and short hair have no strips: the skirt is the simulated garment (cloth.test.mjs)');
+  assert.ok(strips('player') >= 4, 'your long hair hangs on chains (2026-10-12)');
   assert.ok(strips('priestess') >= 3, 'the veil adds chains');
   assert.ok(strips('herald') >= 3, 'the cape adds chains');
   assert.ok(strips('maiden') >= 2, 'the braids add chains');

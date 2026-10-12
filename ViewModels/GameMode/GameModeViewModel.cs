@@ -278,7 +278,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             Post(new { type = "visibility", visible = _windowVisible });
             // 在对话模式里写了一半的话：带进城里的对话栏
             if (PageState == PolisPageState.Ready && _session != null) PostComposer(includeDraft: true);
-            if (_session != null && _cityKey == null) _ = ActivateSessionAsync(_session, voyage: false);
+            // 在对话模式里换过会话（第二拍照样 AttachSession，但不在游戏模式就不装城）：回来时城要换成选中的那份委托的。
+            // 2026-10-12 之前只看 _cityKey == null——页面还没释放（ReleaseDelay 3 分钟内）时 _cityKey 还是上一个工作区的，
+            // 切到另一个工作区再回到游戏，城里还是上一个工作区（用户实测）
+            if (_session != null && (_cityKey == null || CityKeyOf(_session) != _cityKey)) _ = ActivateSessionAsync(_session, voyage: false);
             else if (_watcher.State == WorkspaceWatchState.Unavailable && _cityWorkspace != null)
                 _ = RescanAsync("watcher unavailable: rescan on return");
         }
